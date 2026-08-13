@@ -143,6 +143,22 @@ class GameObject:
         #: the spell has already left the stack. Deliberately *not* the same
         #: as the event's ``free`` flag — see `EventType.SPELL_CAST`.
         self.mana_spent_to_cast: int = 0
+        #: Whether this permanent actually went through `RulesEngine.
+        #: cast_spell`/`cast_without_paying` (RULE 601.2), as opposed to
+        #: being put onto the battlefield directly (a search/reanimation
+        #: destination, a token, cheated in by "you may put ~ onto the
+        #: battlefield") — "When ~ enters, **if you cast it**, `<effect>`."
+        #: (Rocco, Cabaretti Caterer-shaped, ~57 cache-wide cards). Reset
+        #: `False` at construction so a token/searched permanent defaults
+        #: correctly with no extra call needed anywhere.
+        self.was_cast: bool = False
+        #: Whether this spell was cast from exile (RULE 601.2a's zone-of-
+        #: origin, the Foretell/Suspend/Adventure-rebound idiom) — "If this
+        #: spell was cast from exile, `<effect>` instead." (Delayed Blast
+        #: Fireball-shaped). Stamped alongside `mana_spent_to_cast` at cast
+        #: time (`RulesEngine.cast_spell`), same "survives past the object
+        #: leaving the stack" reasoning.
+        self.cast_from_exile: bool = False
         #: RULE 702.94a Soulbond: the `instance_id` of the creature this one
         #: is paired with, held on **both** objects, or ``None`` when
         #: unpaired. A genuine piece of game state rather than a continuous
@@ -536,6 +552,14 @@ class GameObject:
         self._derived_power: Optional[int] = None
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
+        #: A *granted* Ward's cost text (RULE 702.21b — "Other creatures
+        #: you control have 'Ward—Pay 2 life.'", Hexing Squelcher-shaped),
+        #: re-derived every `continuous.recompute` pass by
+        #: `_apply_grant_ward`. ``None`` when nothing grants this object
+        #: Ward. Separate from `parametric_keywords` (bound once from the
+        #: card's own printed text, never re-derived) since a grant is
+        #: continuous, layer-6 state.
+        self.granted_ward_cost: Optional[str] = None
         #: Flag keywords a layer-6 "loses <keyword>" static ability strips
         #: this pass (RULE 613.7f — Colossus Hammer's "Equipped creature …
         #: loses flying"), unioned out of `_obj_keywords` by
@@ -799,6 +823,7 @@ class GameObject:
         self._derived_power = None
         self._derived_toughness = None
         self._granted_keywords = set()
+        self.granted_ward_cost = None
         self._removed_keywords = set()
         self._granted_protections = set()
         self._protection_self_exempt = False
@@ -872,6 +897,7 @@ class GameObject:
         self.kicker_x_paid = 0
         self.buyback_paid = False
         self.mana_spent_to_cast = 0
+        self.was_cast = False
         self.sacrificed_cost_mana_value = None
         self.paired_with = None
         self.merged_oracle_text = []

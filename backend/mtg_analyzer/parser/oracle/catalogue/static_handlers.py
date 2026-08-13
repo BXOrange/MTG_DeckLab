@@ -356,6 +356,19 @@ _CAST_LIMIT_RE = re.compile(
     r"each player can'?t cast more than (?P<n>\d+) spells? each turn", re.IGNORECASE
 )
 
+#: "Your opponents can't cast spells from anywhere other than their
+#: hands." (Drannith Magistrate) — `continuous.cast_prohibited`'s new
+#: ``hand_only`` zone check.
+_CANT_CAST_OPPONENTS_HAND_ONLY_RE = re.compile(
+    r"your opponents can'?t cast spells from anywhere other than their hands", re.IGNORECASE
+)
+
+#: The **noncreature**-scoped sibling (Deafening Silence) — `continuous.
+#: max_noncreature_spells_per_turn`'s own ``noncreature`` flag.
+_CAST_LIMIT_NONCREATURE_RE = re.compile(
+    r"each player can'?t cast more than (?P<n>\d+) noncreature spells? each turn", re.IGNORECASE
+)
+
 # "You may play [an|N] additional land[s] on/during each of your/their
 # turns."  (RULE 305.2 permission static, Exploration/Dryad of the Ilysian
 # Grove/Azusa-shaped) or its unscoped "Each player may play …" sibling
@@ -1531,6 +1544,12 @@ def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
             "mana": mana, "affects": "attached_permanent",
         })
 
+    ward = _GRANTED_WARD_RE.fullmatch(inner.strip().rstrip("."))
+    if ward is not None:
+        return EffectSpec("grant_keyword", {
+            "ward_cost": ward.group("cost").strip(), "affects": "attached_permanent",
+        })
+
     segment = segment_line(
         inner.strip(),
         allow_spell_effect=False,
@@ -2238,6 +2257,62 @@ _AS_LONG_AS_TRAILING_RE = re.compile(
 #: added later, so that form is deliberately not claimed here.
 _DURING_YOUR_TURN_LEADING_RE = re.compile(r"during your turn,\s*(?P<inner>.+)", re.IGNORECASE)
 
+#: "Ward—Pay 2 life." as a *quoted granted* keyword line (Hexing Squelcher's
+#: "Other creatures you control have 'Ward—Pay 2 life.'") — RULE 702.21's
+#: cost may be any clause (mana, life, sacrifice, discard, …), not just
+#: mana, so the raw text is handed to `costs.parse_activation_cost`
+#: downstream rather than re-parsed here.
+_GRANTED_WARD_RE = re.compile(r"^ward[\s—-]+(?P<cost>.+)$", re.IGNORECASE)
+
+#: "Lands you control are every basic land type in addition to their other
+#: types." (Dryad of the Ilysian Grove-shaped) — RULE 613.4a `add_
+#: subtypes`, the fixed five-basic-type list.
+_LANDS_EVERY_BASIC_TYPE_RE = re.compile(
+    r"^lands you control are every basic land type in addition to their other types$",
+    re.IGNORECASE,
+)
+_BASIC_LAND_TYPE_LIST: tuple[str, ...] = ("plains", "island", "swamp", "mountain", "forest")
+
+#: "You may cast [noncreature/creature] spells as though they had flash."
+#: (High Fae Trickster/Valley Floodcaller-shaped) — `continuous.has_
+#: standing_flash_permission`'s own two scope flags.
+_FLASH_PERMISSION_RE = re.compile(
+    r"^you may cast (?P<scope>noncreature |creature )?spells as though they had flash$",
+    re.IGNORECASE,
+)
+
+#: "Spells you control can't be countered." / "Creature spells you control
+#: can't be countered." (Hexing Squelcher/Rionya, Sky Coyote-shaped) —
+#: `GrantCantBeCounteredEffect`'s own two printed scopes.
+_GRANT_CANT_BE_COUNTERED_RE = re.compile(
+    r"^(?P<creature>creature )?spells you control can'?t be countered$", re.IGNORECASE
+)
+
+#: "Your opponents can't search libraries." (Stranglehold-shaped).
+_GRANT_SEARCH_PROHIBITED_RE = re.compile(
+    r"^your opponents can'?t search libraries$", re.IGNORECASE
+)
+
+#: "If an opponent would begin an extra turn, that player skips that turn
+#: instead." (Stranglehold's own second clause). "a player" (unscoped —
+#: still opponents-only per `GrantSkipExtraTurnsEffect`'s own single
+#: printed shape) is the wider sibling seen on other real cards.
+_GRANT_SKIP_EXTRA_TURNS_RE = re.compile(
+    r"^if an? (?:opponent|player) would begin an extra turn, that player "
+    r"skips that turn instead$", re.IGNORECASE
+)
+
+#: The trailing sibling above's docstring deliberately left "…during your
+#: turn." unclaimed generally (an "activate only during your turn" cost
+#: restriction risk); this row is narrow enough to dodge that collision —
+#: matched only when the *whole* clause is a bare keyword grant ending in
+#: "during your turn" ("~ has first strike during your turn.", Razorkin
+#: Needlehead-shaped), never an activation-cost sentence (those don't start
+#: with "~ has"/"~ have").
+_DURING_YOUR_TURN_TRAILING_KEYWORD_RE = re.compile(
+    r"^~ (?:has|have) (?P<inner>.+) during your turn$", re.IGNORECASE
+)
+
 
 def _flag_keywords(text: str) -> Optional[list[str]]:
     """A "have <keywords>" list → grantable keyword slugs, or ``None`` if any
@@ -2392,6 +2467,15 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
         for spec in specs:
             spec.params["active_if"] = {"kind": "your_turn"}
         return specs
+    m = _DURING_YOUR_TURN_TRAILING_KEYWORD_RE.fullmatch(text)
+    if m is not None:
+        inner = f"~ has {m.group('inner').strip()}"
+        specs = static_effect_specs(inner)
+        if not specs:
+            return None
+        for spec in specs:
+            spec.params["active_if"] = {"kind": "your_turn"}
+        return specs
     return None
 
 
@@ -2428,6 +2512,39 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     if CANT_BE_COUNTERED_RE.fullmatch(text):
         return [EffectSpec("cant_be_countered", {})]
 
+    # "Spells you control can't be countered." / "Creature spells you
+    # control can't be countered." (Hexing Squelcher/Rionya-shaped) — a
+    # standing grant, not the spell's own bare flag `CANT_BE_COUNTERED_RE`
+    # claims above.
+    m = _GRANT_CANT_BE_COUNTERED_RE.fullmatch(text)
+    if m is not None:
+        scope = "creature_spells_you_control" if m.group("creature") else "you"
+        return [EffectSpec("grant_cant_be_countered", {"scope": scope})]
+
+    # RULE 701.19a: "Your opponents can't search libraries." (Stranglehold)
+    if _GRANT_SEARCH_PROHIBITED_RE.fullmatch(text):
+        return [EffectSpec("grant_search_prohibited", {})]
+
+    # RULE 500.7/700.4: "If an opponent would begin an extra turn, that
+    # player skips that turn instead." (Stranglehold's own second clause)
+    if _GRANT_SKIP_EXTRA_TURNS_RE.fullmatch(text):
+        return [EffectSpec("grant_skip_extra_turns", {})]
+
+    if _LANDS_EVERY_BASIC_TYPE_RE.fullmatch(text):
+        return [EffectSpec("type_change", {
+            "affects": "lands_you_control", "add_subtypes": list(_BASIC_LAND_TYPE_LIST),
+        })]
+
+    m = _FLASH_PERMISSION_RE.fullmatch(text)
+    if m is not None:
+        scope = (m.group("scope") or "").strip()
+        params: dict[str, Any] = {}
+        if scope == "noncreature":
+            params["noncreature_only"] = True
+        elif scope == "creature":
+            params["creature_only"] = True
+        return [EffectSpec("flash_permission", params)]
+
     m = _ACTIVATION_PROHIBITION_OPPONENTS_RE.fullmatch(text)
     if m is not None:
         card_type = _singularize(m.group("word"))
@@ -2442,6 +2559,9 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     if _CANT_CAST_OPPONENTS_YOUR_TURN_RE.fullmatch(text):
         return [EffectSpec("cast_prohibition", {"scope": "opponents", "active_if": {"kind": "your_turn"}})]
+
+    if _CANT_CAST_OPPONENTS_HAND_ONLY_RE.fullmatch(text):
+        return [EffectSpec("cast_prohibition", {"scope": "opponents", "hand_only": True})]
 
     m = _CANT_CAST_OR_ACTIVATE_OPPONENTS_RE.fullmatch(text)
     if m is not None:
@@ -2549,6 +2669,10 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 {"affects": "self", "generic": int(m.group("n")), "active_if": condition},
             )
         ]
+
+    m = _CAST_LIMIT_NONCREATURE_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("cast_limit", {"max_per_turn": int(m.group("n")), "noncreature": True})]
 
     m = _CAST_LIMIT_RE.fullmatch(text)
     if m is not None:

@@ -321,6 +321,9 @@ class GameContext:
     def prevent_damage_to_player(self, player: "Player", amount: Union[int, str] = "all") -> None:
         self.engine.prevent_damage_to_player(player, amount)
 
+    def prevent_life_gain_this_turn(self, players: list["Player"]) -> None:
+        self.engine.prevent_life_gain_this_turn(players)
+
     def prevent_damage_to_target(self, target: Any, amount: Union[int, str] = "all") -> None:
         self.engine.prevent_damage_to_target(target, amount)
 
@@ -356,12 +359,14 @@ class GameContext:
         extra_counters: Optional[dict[str, Any]] = None,
         destination_if: Optional[list[dict[str, Any]]] = None,
         attach_to_creature_you_control: bool = False,
+        remember_source_id: Optional[int] = None,
     ) -> None:
         self.engine.request_search(
             player, criteria, destination, count, optional,
             zones=zones, destinations=destinations, exile_rest=exile_rest,
             extra_counters=extra_counters, destination_if=destination_if,
             attach_to_creature_you_control=attach_to_creature_you_control,
+            remember_source_id=remember_source_id,
         )
 
     def request_intuition(
@@ -1977,6 +1982,64 @@ class ConditionalEffect(GameEffect):
             )
             if controls_one:
                 return False
+        shares_type_with_linked_exile = self.condition.get("shares_type_with_linked_exile")
+        if shares_type_with_linked_exile:
+            # "…if it shares a card type with the exiled card, ~ deals 2
+            # damage to that player." (Cemetery Gatekeeper) — the played
+            # land/cast spell (named by the firing event's own
+            # ``instance_id``) against the card this ability's own source
+            # remembered exiling (`ExileEffect.remember`, `GameObject.
+            # linked_exile_id`).
+            event = context.trigger_event or {}
+            played_id = event.get("instance_id")
+            exiled_id = getattr(self.source, "linked_exile_id", None)
+            played = context.state.find_object(played_id) if played_id is not None else None
+            exiled = context.state.find_object(exiled_id) if exiled_id is not None else None
+            if played is None or exiled is None:
+                return False
+            # RULE 205.2a's real card types only — `type_words` always
+            # includes "permanent" too, which would make every comparison
+            # trivially true.
+            real_types = {
+                "creature", "artifact", "enchantment", "instant", "sorcery",
+                "planeswalker", "land", "battle",
+            }
+            if not (played.type_words & exiled.type_words & real_types):
+                return False
+        source_entered_untapped = self.condition.get("source_entered_untapped")
+        if source_entered_untapped is not None:
+            # "When ~ enters **untapped**, `<effect>`." (Mystic Sanctuary-
+            # shaped RULE 614.1-adjacent intervening-if) — `GameObject.
+            # tapped` is already settled by `RulesEngine.enter_land_tapped`
+            # before ENTERS_BATTLEFIELD fires.
+            if bool(getattr(self.source, "tapped", False)) == bool(source_entered_untapped):
+                return False
+        source_was_cast = self.condition.get("source_was_cast")
+        if source_was_cast is not None:
+            # "When ~ enters, if you cast it, `<effect>`." (Rocco, Cabaretti
+            # Caterer-shaped) — RULE 601.2's "actually cast" check
+            # (`GameObject.was_cast`), distinguishing a real cast from a
+            # searched/reanimated/token entry.
+            if bool(getattr(self.source, "was_cast", False)) != bool(source_was_cast):
+                return False
+        source_is_renowned = self.condition.get("source_is_renowned")
+        if source_is_renowned is not None:
+            # "…if this creature is renowned, ~ deals 2 damage to that
+            # player." (Scab-Clan Berserker) — RULE 603.4's intervening-if,
+            # checked here at resolve time (a documented simplification of
+            # the real double-check-at-trigger-time-too rule — harmless for
+            # a solo damage payoff with nothing else riding on whether the
+            # ability "triggered" vs fizzled).
+            if bool(getattr(self.source, "renowned", False)) != bool(source_is_renowned):
+                return False
+        no_creatures_on_battlefield = self.condition.get("no_creatures_on_battlefield")
+        if no_creatures_on_battlefield:
+            # "At the beginning of the end step, if no creatures are on the
+            # battlefield, sacrifice ~." (Pyrohemia) — global, unlike
+            # `controls_none_of_type` above (a controller-scoped subtype
+            # check); no subtype word either, just "a creature" at all.
+            if any(o.is_creature for o in context.state.battlefield):
+                return False
         target_is_player = self.condition.get("target_is_player")
         if target_is_player is not None:
             # "If a player is dealt damage this way, scry 1." (Play with
@@ -2118,6 +2181,14 @@ _DAMAGE_SELECTORS: frozenset[str] = frozenset(
      # not a RULE 115 target: the ability names its own firing condition's
      # actor, the caster never chooses who gets hit.
      "event_player",
+     # "Whenever a land enters, ~ deals N damage to that land's
+     # controller." (Zo-Zu the Punisher) — unlike ``event_player`` (reads
+     # the firing event's own ``player_id``, the *acting* player of a
+     # cast/draw/tap-for-mana-shaped event), this reads its
+     # ``controller_id`` — the *entering permanent's* controller
+     # (`AddManaEffect.recipient`'s existing ``"event_controller"`` idiom,
+     # `_event_player`'s own default key).
+     "event_controller",
      # "Each creature deals 1 damage to its controller." (Rakdos Charm's
      # own third mode) — unlike every other row here, the *recipient*
      # varies per creature (that creature's own controller), so this is N
@@ -2128,7 +2199,22 @@ _DAMAGE_SELECTORS: frozenset[str] = frozenset(
      # Emberclaw Familiar) — `each_opponent` minus whichever opponent the
      # *firing* DAMAGE event already hit (`GameContext.trigger_event`'s own
      # ``target_id``), so the original recipient isn't hit a second time.
-     "each_other_opponent"}
+     "each_other_opponent",
+     # "~ deals N damage to each opponent and each creature [and
+     # planeswalker] they control." (Tectonic Hazard/End the Festivities/
+     # Spiteful Banditry/Delayed Blast Fireball-shaped board wipes) — unlike
+     # ``each_creature_and_player`` (every creature globally + every
+     # player), this is scoped to *opponents only* and *their own*
+     # permanents, so an ally's board is untouched.
+     "each_opponent_and_their_creatures",
+     "each_opponent_and_their_creatures_and_planeswalkers",
+     # "At the beginning of each player's upkeep, ~ deals 1 damage to
+     # them." (Roiling Vortex-shaped) — unlike ``event_player`` (a value
+     # snapshotted on the firing event), `STEP_BEGIN` carries no player at
+     # all, since it fires once per step globally; "them" is whoever's
+     # step it is, read live off `GameState.active_player` at resolution
+     # time (unchanged since the trigger fired moments earlier).
+     "active_player"}
 )
 
 
@@ -2188,12 +2274,16 @@ class DealDamageEffect(GameEffect):
         optional: bool = False,
         count: int = 1,
         count_max: Optional[int] = None,
+        colors: Optional[list[str]] = None,
         divided: bool = False,
         double_at: Optional[int] = None,
         amount_if_kicked: Optional[int] = None,
         amount_if_bargained: Optional[Union[int, str]] = None,
         double_if_bargained: bool = False,
         amount_if_target_color: Optional[tuple[Union[int, str], list[str]]] = None,
+        amount_if_cast_from_exile: Optional[int] = None,
+        x_multiplier: Optional[int] = None,
+        amount_from_noncreature_spells_cast_this_turn: bool = False,
         amount_from_count_selector: Optional[str] = None,
         amount_plus_count_selector: int = 0,
         amount_from_trigger_event: Optional[str] = None,
@@ -2244,6 +2334,24 @@ class DealDamageEffect(GameEffect):
         # `kicker_count` is only known once ``source`` is fully bound onto
         # the battlefield object, not necessarily yet at construction time.
         self.amount_if_kicked = amount_if_kicked
+        #: "If this spell was cast from exile, it deals 5 damage … instead."
+        #: (Delayed Blast Fireball) — `GameObject.cast_from_exile`, the
+        #: same override-not-additive shape `amount_if_kicked`/
+        #: `amount_if_bargained` use.
+        self.amount_if_cast_from_exile = amount_if_cast_from_exile
+        #: "When ~ enters, it deals X damage to each creature." (Spiteful
+        #: Banditry-shaped ETB) — `AddCountersEffect.x_multiplier`'s own
+        #: sibling: a self-only ETB trigger reading the source's own
+        #: announced {X} (`GameObject.x_paid`), unlike `_substitute_x`'s
+        #: ``"x"`` sentinel (spell-resolution-only, no `StackItem.x` exists
+        #: for a separately-fired triggered ability to read).
+        self.x_multiplier = x_multiplier
+        #: "~ deals damage to that player equal to the number of
+        #: noncreature spells they've cast this turn." (Magebane Lizard) —
+        #: `LoseLifeEffect.amount_from_spells_cast_this_turn`'s own
+        #: sibling, reading `GameState.noncreature_spells_cast_this_turn`
+        #: for the event's own caster instead of a flat multiplier.
+        self.amount_from_noncreature_spells_cast_this_turn = amount_from_noncreature_spells_cast_this_turn
         self.target = target
         self.selector = selector if selector in _DAMAGE_SELECTORS else None
         # RULE 601.2d: a *divided* damage spell splits its total ``amount``
@@ -2269,13 +2377,21 @@ class DealDamageEffect(GameEffect):
             # casting is never locked on it. ``count`` > 1 is "to each of
             # up to N target X" (Volcanic Salvo-shaped) — the full amount
             # applies to *every* chosen target, not divided among them.
-            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count, count_max=count_max)
+            self.target_spec = TargetSpec(
+                kind=target_kind, optional=optional, count=count, count_max=count_max,
+                colors=tuple(colors) if colors else None,
+            )
 
     @property
     def amount(self) -> Union[int, str]:
+        if self.x_multiplier is not None:
+            x_paid = getattr(self.source, "x_paid", 0) or 0
+            return self.x_multiplier * x_paid
         kicker_count = getattr(self.source, "kicker_count", 0) or 0
         if self.amount_if_kicked is not None and kicker_count > 0:
             return self.amount_if_kicked
+        if self.amount_if_cast_from_exile is not None and getattr(self.source, "cast_from_exile", False):
+            return self.amount_if_cast_from_exile
         if getattr(self.source, "bargained", False):
             if self.double_if_bargained:
                 base = self._base_amount
@@ -2378,6 +2494,9 @@ class DealDamageEffect(GameEffect):
             amount = self.amount_plus_count_selector + continuous.count_selector(
                 context.state, controller_id_for_amount, self.amount_from_count_selector, source=self.source,
             )
+        if self.amount_from_noncreature_spells_cast_this_turn:
+            caster = _event_player(context, key="player_id")
+            amount = context.state.noncreature_spells_cast_this_turn.get(getattr(caster, "id", None), 0)
         if self.selector == "defending_player":
             # Simian Sling's "it deals 1 damage to defending player" — the
             # same per-firing dynamic-defender resolution afflict's
@@ -2416,12 +2535,25 @@ class DealDamageEffect(GameEffect):
             if self.source is not None:
                 context.deal_damage(self.source, amount, self.source)
             return
+        if self.selector == "active_player":
+            player = context.state.active_player
+            if player is not None:
+                context.deal_damage(player, amount, self.source)
+            return
         if self.selector == "event_player":
             # "whenever a player casts a spell, ~ deals 2 damage to that
             # player." (Spellshock) — the caster named by the SPELL_CAST
             # event that fired this trigger, read via the same
             # `_event_player` helper `PayCostThenEffect` uses.
             player = _event_player(context, key="player_id")
+            if player is not None:
+                context.deal_damage(player, amount, self.source)
+            return
+        if self.selector == "event_controller":
+            # "Whenever a land enters, ~ deals N damage to that land's
+            # controller." (Zo-Zu the Punisher) — see `_DAMAGE_SELECTORS`'
+            # own docstring for why this differs from ``event_player``.
+            player = _event_player(context)
             if player is not None:
                 context.deal_damage(player, amount, self.source)
             return
@@ -2437,6 +2569,24 @@ class DealDamageEffect(GameEffect):
                 owner = context.state.player_by_id(obj.controller_id)
                 if owner is not None:
                     context.deal_damage(owner, amount, obj)
+            return
+        if self.selector in (
+            "each_opponent_and_their_creatures", "each_opponent_and_their_creatures_and_planeswalkers",
+        ):
+            # Snapshot first (same reasoning as `each_creature_controller`
+            # above): an opponent's own creature dying to this damage must
+            # not skip a later opponent's still-owed hit.
+            for obj in list(context.state.battlefield):
+                if obj.controller_id == controller_id or obj.controller_id is None:
+                    continue
+                if obj.is_creature or (
+                    self.selector == "each_opponent_and_their_creatures_and_planeswalkers"
+                    and obj.is_planeswalker
+                ):
+                    context.deal_damage(obj, amount, self.source)
+            for player in context.state.living_players():
+                if player.id != controller_id:
+                    context.deal_damage(player, amount, self.source)
             return
         excluded_recipient = None
         if self.selector == "each_other_opponent":
@@ -3101,6 +3251,31 @@ class PreventDamageEffect(GameEffect):
                 context.prevent_damage_to_target(target, share)
 
 
+class PreventLifeGainEffect(GameEffect):
+    """RULE 119.3/616.1: "Your opponents can't gain life this turn."
+    (Roiling Vortex's activated-ability rider). ``recipient`` picks who
+    gets the shield — ``"opponents"`` (this effect's own controller's
+    opponents, the only printed phrasing so far) — via `RulesEngine.
+    prevent_life_gain_this_turn`, the absolute-cancel sibling of
+    `PreventDamageEffect`'s numeric shield.
+    """
+
+    def __init__(self, recipient: str = "opponents", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.recipient = recipient
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        if self.recipient == "opponents":
+            players = [p for p in context.state.living_players() if p.id != controller.id]
+        else:
+            players = [controller]
+        if players:
+            context.prevent_life_gain_this_turn(players)
+
+
 class PreventAllCombatDamageEffect(GameEffect):
     """RULE 615: "Prevent all combat damage that would be dealt this turn."
     (Fog) — deliberately a separate class from `PreventDamageEffect`
@@ -3193,6 +3368,7 @@ class LoseLifeEffect(GameEffect):
         amount_from_life_gained_this_turn: bool = False,
         amount_from_burden_counters_on_self: bool = False,
         amount_from_count_selector: Optional[str] = None,
+        amount_from_spells_cast_this_turn: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
@@ -3204,6 +3380,16 @@ class LoseLifeEffect(GameEffect):
         #: reads, this one is always "you", matching every printed card
         #: of this shape).
         self.amount_from_count_selector = amount_from_count_selector
+        #: "Whenever a player casts a spell, they lose 1 life for each
+        #: spell they've cast this turn." (Rug of Smothering) — unlike
+        #: ``amount_from_count_selector`` above (always "you", the
+        #: ability's own controller), this reads `GameState.
+        #: spells_cast_this_turn` for the *casting* player named by the
+        #: firing `SPELL_CAST` event (``selector="event_player"``'s own
+        #: ``_event_player`` lookup), including the cast that triggered
+        #: this ability — `RulesEngine._track_spell_cast` increments the
+        #: counter before triggers are collected off the same event.
+        self.amount_from_spells_cast_this_turn = amount_from_spells_cast_this_turn
         self.player = player
         #: "…you lose 1 life for each burden counter on The One Ring."
         #: Reads `GameObject.counters["burden"]` on this effect's own
@@ -3255,6 +3441,10 @@ class LoseLifeEffect(GameEffect):
             amount = continuous.count_selector(
                 context.state, controller_id, self.amount_from_count_selector, source=self.source,
             )
+        if self.amount_from_spells_cast_this_turn:
+            caster = _event_player(context, key="player_id")
+            count = context.state.spells_cast_this_turn.get(getattr(caster, "id", None), 0)
+            amount = self.amount * count
         if amount <= 0:
             return
         if self.selector in _LOSE_LIFE_SELECTORS:
@@ -4154,6 +4344,51 @@ class MarkCantBeCounteredEffect(GameEffect):
         target = targets[0] if targets else None
         if target is not None and hasattr(target, "spell_effects"):
             target.spell_effects.append(CantBeCounteredEffect())
+
+
+class GrantCantBeCounteredEffect(GameEffect):
+    """A standing "Spells you control can't be countered." grant (Hexing
+    Squelcher-shaped) — unlike `MarkYourSpellsOnStackCantBeCounteredEffect`
+    (a *resolve-time*, "this turn" one-shot), this is a bind-time
+    `static_effects` marker on the granting permanent itself, scanned by
+    `RulesEngine._is_cant_be_countered` for every spell as it's cast
+    (never expires while the permanent is in play). ``scope`` is
+    ``"you"`` (every spell) or ``"creature_spells_you_control"`` (RULE
+    502-area creature-only grants — Rionya/Sarkhan Unbroken-shaped).
+    """
+
+    def __init__(self, scope: str = "you", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.scope = scope
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None
+
+
+class GrantSearchProhibitedEffect(GameEffect):
+    """"Your opponents can't search libraries." (Stranglehold-shaped, RULE
+    701.19a: an effect that instructs a prohibited player to search simply
+    doesn't — the search is skipped, not replaced). A bind-time
+    `static_effects` marker, the same minimal shape
+    `GrantCantBeCounteredEffect` uses; scanned by `RulesEngine.
+    request_search`'s own guard rather than the layer engine (a
+    permission, not a characteristic).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None
+
+
+class GrantSkipExtraTurnsEffect(GameEffect):
+    """"If an opponent would begin an extra turn, that player skips that
+    turn instead." (Stranglehold-shaped, RULE 500.7/700.4). A bind-time
+    `static_effects` marker; `GameEngine.begin_turn`'s own extra-turn pop
+    loop skips a queued taker matching this grant instead of handing them
+    the turn.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None
 
 
 class MarkYourSpellsOnStackCantBeCounteredEffect(GameEffect):
@@ -5830,7 +6065,7 @@ class ReturnToLibraryEffect(GameEffect):
         self,
         target: Any = None,
         source: Optional["GameObject"] = None,
-        target_kind: str = "creature",
+        target_kind: Optional[str] = "creature",
         position: str = "top",
         optional: bool = False,
         count: int = 1,
@@ -5838,9 +6073,17 @@ class ReturnToLibraryEffect(GameEffect):
         super().__init__(source)
         self.target = target
         self.position = position if position in ("top", "bottom") else "top"
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
+        #: ``target_kind=None`` — "Put **this**/~ on top of its owner's
+        #: library." (Sensei's Divining Top-shaped) — no RULE 115 target at
+        #: all, mirroring `ExileEffect`/`TapEffect`'s own self mode.
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count) if target_kind else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec is None:
+            target = (targets[0] if targets else None) or self.target or self.source
+            if target is not None:
+                context.return_to_library(target, self.position)
+            return
         if self.target_spec.effective_count != 1:
             chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
             for target in chosen:
@@ -6106,8 +6349,16 @@ class AddManaEffect(GameEffect):
         amount_from_target_hand_size: bool = False,
         amount_from_target_count_selector: Optional[str] = None,
         once_per_turn_ability: bool = False,
+        color_from_source_chosen_color: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "…adds an additional one mana of **the chosen color**." (Utopia
+        #: Sprawl-shaped RULE 601.2b "as ~ enters, choose a color" Auras) —
+        #: reads this effect's own source's `GameObject.chosen_color`
+        #: (`RulesEngine._offer_enter_choices`'s existing ETB choice) fresh
+        #: at apply time instead of a fixed `colors` list, so a later
+        #: Replay/Puzzle-mode change to the choice is honoured too.
+        self.color_from_source_chosen_color = color_from_source_chosen_color
         #: "…add X mana of any one color, where X is the number of Islands
         #: **target opponent** controls" (ENG-27, Carpet of Flowers) — a
         #: `continuous.count_selector` evaluated for the *resolved target*
@@ -6181,7 +6432,11 @@ class AddManaEffect(GameEffect):
         ):
             return
         used_this_turn = False
-        for color in self.colors:
+        colors = self.colors
+        if self.color_from_source_chosen_color:
+            chosen = getattr(self.source, "chosen_color", None)
+            colors = [chosen] if chosen else []
+        for color in colors:
             if color == "ANY":
                 any_amount = 1
                 if self.amount_from_target_count_selector and targets:
@@ -6881,12 +7136,17 @@ class ReturnSelfFromGraveyardEffect(GameEffect):
         source: Optional["GameObject"] = None,
         tapped: bool = False,
         under_your_control: bool = False,
+        transformed: bool = False,
     ) -> None:
         super().__init__(source)
         self.obj = obj
         self.destination = destination
         self.tapped = tapped
         self.under_your_control = under_your_control
+        #: "…return it to the battlefield tapped **and transformed** under
+        #: its owner's control." (Ojer Axonil, Deepest Might) —
+        #: `RulesEngine.return_from_graveyard`'s own ``transformed`` flag.
+        self.transformed = transformed
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         obj = self.obj or self.source
@@ -6896,7 +7156,18 @@ class ReturnSelfFromGraveyardEffect(GameEffect):
         if self.under_your_control and self.destination == "battlefield":
             player = _controller_of(self.source, context)
             controller_id = player.id if player is not None else None
-        context.return_from_graveyard(obj, self.destination, controller_id=controller_id)
+        # `self.tapped` had been accepted (Malakir Rebirth's own granted
+        # "return it to the battlefield **tapped**…") but never actually
+        # applied — a dormant bug, since `RulesEngine.return_from_graveyard`
+        # reads "tapped" off the ``destination`` string itself, not a
+        # separate flag.
+        destination = (
+            "battlefield_tapped" if self.tapped and self.destination == "battlefield"
+            else self.destination
+        )
+        context.return_from_graveyard(
+            obj, destination, controller_id=controller_id, transformed=self.transformed,
+        )
         if self.tapped and self.destination == "battlefield":
             obj.tapped = True
 
@@ -9484,8 +9755,17 @@ class SearchLibraryEffect(GameEffect):
         extra_counters: Optional[dict[str, Any]] = None,
         destination_if: Optional[list[dict[str, Any]]] = None,
         attach_to_creature_you_control: bool = False,
+        remember: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "Exile a card from a graveyard. [...] the exiled card." (Cemetery
+        #: Gatekeeper) — `ExileEffect.remember`'s own sibling for a search-
+        #: shaped exile: stamps the found card's `instance_id` onto this
+        #: ability's own source (`GameObject.linked_exile_id`) once the
+        #: player's pick is known (`RulesEngine._finish_search`), since
+        #: unlike a RULE 115 target a search's result isn't known until the
+        #: `pending_choice` round trip finishes.
+        self.remember = remember
         #: A per-found-card *conditional* destination (RULE 701.19c), unlike
         #: the positional ``destinations`` above: a list of ``{"criteria":
         #: <card_query>, "destination": <str>}`` rules, first match wins,
@@ -9560,6 +9840,7 @@ class SearchLibraryEffect(GameEffect):
             zones=self.zones, destinations=self.destinations, exile_rest=self.exile_rest,
             extra_counters=self.extra_counters, destination_if=self.destination_if,
             attach_to_creature_you_control=self.attach_to_creature_you_control,
+            remember_source_id=self.source.instance_id if self.remember and self.source is not None else None,
         )
 
 
@@ -9689,6 +9970,35 @@ class DrawRevealCastOneFreeEffect(GameEffect):
             context.choose_objects(
                 player, drawn, "cast_free", count=1, optional=True, source=self.source,
             )
+
+
+class RevealTopThenFreeCastIfMVMatchEffect(GameEffect):
+    """"Whenever an opponent casts a spell, you may reveal the top card of
+    your library. If you do, you may cast that card without paying its
+    mana cost if the two spells have the same mana value." (Powerbalance)
+
+    Reveal is purely informational (see `DrawRevealCastOneFreeEffect`'s
+    own docstring for why this engine has no separate reveal state);
+    "you may reveal" is a **documented simplification** to unconditional
+    (the same idiom `CoinFlipEffect`'s own "you may" branch uses — a
+    real but vanishingly rare decline), so this always looks. The mana-
+    value match is checked against `GameContext.trigger_event`'s own
+    ``mana_value`` (`SPELL_CAST`'s stamped field, RULE 601.2b), and only
+    when it holds does this offer `request_choose_objects`'s existing
+    ``"cast_free"`` action over the top card — a genuine interactive "you
+    may cast", unlike the reveal half.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or not player.library:
+            return
+        top = player.library[-1]
+        event = context.trigger_event or {}
+        cast_mv = event.get("mana_value")
+        if cast_mv is None or top.card.converted_mana_cost != cast_mv:
+            return
+        context.choose_objects(player, [top], "cast_free", count=1, optional=True, source=self.source)
 
 
 class ReturnRemainingExiledEffect(GameEffect):
@@ -11672,6 +11982,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
         count_max=p.get("count_max"),
+        colors=p.get("colors"),
         divided=bool(p.get("divided", False)),
         double_at=p.get("double_at"),
         amount_if_kicked=p.get("amount_if_kicked"),
@@ -11680,6 +11991,11 @@ EffectRegistry.register(
         amount_if_target_color=(
             (p["amount_if_target_color"]["amount"], list(p["amount_if_target_color"]["colors"]))
             if p.get("amount_if_target_color") else None
+        ),
+        amount_if_cast_from_exile=p.get("amount_if_cast_from_exile"),
+        x_multiplier=p.get("x_multiplier"),
+        amount_from_noncreature_spells_cast_this_turn=bool(
+            p.get("amount_from_noncreature_spells_cast_this_turn", False)
         ),
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_plus_count_selector=int(p.get("amount_plus_count_selector", 0) or 0),
@@ -11782,6 +12098,13 @@ EffectRegistry.register(
     lambda p: PreventAllCombatDamageEffect(exclude_subtype=p.get("exclude_subtype")),
 )
 EffectRegistry.register(
+    "prevent_life_gain",
+    # RULE 119.3's "can't gain life this turn" — distinct from
+    # "prevent_damage_shield" above (a damage shield, numeric or "all");
+    # this cancels a `LIFE_GAIN` outright, no bank to track.
+    lambda p: PreventLifeGainEffect(recipient=p.get("recipient", "opponents")),
+)
+EffectRegistry.register(
     "extra_land_play",
     lambda p: ExtraLandPlayEffect(count=p.get("count", 1)),
 )
@@ -11794,6 +12117,7 @@ EffectRegistry.register(
         amount_from_life_gained_this_turn=bool(p.get("amount_from_life_gained_this_turn", False)),
         amount_from_burden_counters_on_self=bool(p.get("amount_from_burden_counters_on_self", False)),
         amount_from_count_selector=p.get("amount_from_count_selector"),
+        amount_from_spells_cast_this_turn=bool(p.get("amount_from_spells_cast_this_turn", False)),
     ),
 )
 EffectRegistry.register(
@@ -11908,6 +12232,12 @@ EffectRegistry.register(
     lambda p: EndTheTurnEffect(),
 )
 EffectRegistry.register("cant_be_countered", lambda p: CantBeCounteredEffect())
+EffectRegistry.register(
+    "grant_cant_be_countered",
+    lambda p: GrantCantBeCounteredEffect(scope=p.get("scope", "you")),
+)
+EffectRegistry.register("grant_search_prohibited", lambda p: GrantSearchProhibitedEffect())
+EffectRegistry.register("grant_skip_extra_turns", lambda p: GrantSkipExtraTurnsEffect())
 EffectRegistry.register("mark_cant_be_countered", lambda p: MarkCantBeCounteredEffect())
 EffectRegistry.register(
     # "Spells you control can't be countered this turn." (Veil of Summer)
@@ -12335,6 +12665,7 @@ EffectRegistry.register(
         amount_from_target_hand_size=bool(p.get("amount_from_target_hand_size", False)),
         amount_from_target_count_selector=p.get("amount_from_target_count_selector"),
         once_per_turn_ability=bool(p.get("once_per_turn_ability", False)),
+        color_from_source_chosen_color=bool(p.get("color_from_source_chosen_color", False)),
     ),
 )
 EffectRegistry.register(
@@ -13010,6 +13341,7 @@ EffectRegistry.register(
         mana_value_from=p.get("mana_value_from"),
         extra_counters=p.get("extra_counters"),
         attach_to_creature_you_control=bool(p.get("attach_to_creature_you_control", False)),
+        remember=bool(p.get("remember", False)),
     ),
 )
 EffectRegistry.register(
@@ -13032,6 +13364,10 @@ EffectRegistry.register(
 EffectRegistry.register(
     "draw_reveal_cast_one_free",
     lambda p: DrawRevealCastOneFreeEffect(count=p.get("count", 1)),
+)
+EffectRegistry.register(
+    "reveal_top_then_free_cast_if_mv_match",
+    lambda p: RevealTopThenFreeCastIfMVMatchEffect(),
 )
 EffectRegistry.register(
     "exile_opponents_graveyards_impulsive_cast",  # Mnemonic Betrayal
@@ -13089,6 +13425,7 @@ EffectRegistry.register(
         destination=p.get("destination", "hand"),
         tapped=bool(p.get("tapped", False)),
         under_your_control=bool(p.get("under_your_control", False)),
+        transformed=bool(p.get("transformed", False)),
     ),
 )
 EffectRegistry.register(
@@ -13246,7 +13583,15 @@ EffectRegistry.register(
     lambda p: StaticAbility(
         "ability",
         affects=p.get("affects", "creatures_you_control"),
-        params={"keywords": list(p.get("keywords", [])), **_selectors(p)},
+        params={
+            "keywords": list(p.get("keywords", [])),
+            # RULE 702.21b's quoted grant ("Other creatures you control
+            # have 'Ward—Pay 2 life.'") — see `continuous.recompute`'s own
+            # `ward_cost` consumer for why this rides `grant_keyword`
+            # rather than a dedicated static kind.
+            **({"ward_cost": p["ward_cost"]} if p.get("ward_cost") else {}),
+            **_selectors(p),
+        },
     ),
 )
 EffectRegistry.register(
@@ -13564,6 +13909,12 @@ EffectRegistry.register(
             "add_subtypes_from_source": bool(p.get("add_subtypes_from_source", False)),
             "power": p.get("power"),
             "toughness": p.get("toughness"),
+            # "…becomes an artifact creature with power and toughness each
+            # equal to its mana value." (Karn, the Great Creator-shaped) —
+            # a dynamic sibling of the literal ``power``/``toughness`` ints
+            # above, resolved fresh every recompute off the affected
+            # object's own printed mana value rather than a fixed number.
+            "pt_selector": p.get("pt_selector"),
             # RULE 613.5 full subtype overwrite ("Nonbasic lands are
             # Mountains.", Magus of the Moon/Blood Moon) — unlike
             # `add_types` (only *adds*), this *replaces* the affected
@@ -13728,7 +14079,12 @@ EffectRegistry.register(
     lambda p: StaticAbility(
         "cast_limit",
         affects="all",
-        params={"max_per_turn": p.get("max_per_turn", 1)},
+        params={
+            "max_per_turn": p.get("max_per_turn", 1),
+            # "…more than N **noncreature** spells…" (Deafening Silence) —
+            # `continuous.max_noncreature_spells_per_turn`'s own scope flag.
+            "noncreature": bool(p.get("noncreature", False)),
+        },
     ),
 )
 EffectRegistry.register(
@@ -13748,6 +14104,10 @@ EffectRegistry.register(
             "scope": p.get("scope", "opponents"),
             "noncreature": bool(p.get("noncreature", False)),
             "max_mana_value_selector": p.get("max_mana_value_selector"),
+            # "…can't cast spells from anywhere other than their hands."
+            # (Drannith Magistrate) — `continuous.cast_prohibited`'s own
+            # zone check.
+            "hand_only": bool(p.get("hand_only", False)),
             **_selectors(p),
         },
     ),
@@ -13829,6 +14189,21 @@ EffectRegistry.register(
     # variants are a different, resolve-time-granted shape, not modeled here.
     "no_max_hand_size",
     lambda p: StaticAbility("no_max_hand_size", affects=p.get("affects", "you"), params={}),
+)
+EffectRegistry.register(
+    # "You may cast spells as though they had flash." (High Fae Trickster/
+    # Valley Floodcaller-shaped) — consulted by `continuous.has_standing_
+    # flash_permission` (`GameEngine.can_cast`'s timing check).
+    "flash_permission",
+    lambda p: StaticAbility(
+        "flash_permission",
+        affects="self",
+        params={
+            "noncreature_only": bool(p.get("noncreature_only", False)),
+            "creature_only": bool(p.get("creature_only", False)),
+            **_selectors(p),
+        },
+    ),
 )
 EffectRegistry.register(
     # "You gain life rather than lose life from radiation." (RULE 728.1a,
@@ -14257,6 +14632,47 @@ def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     return effect
 
 
+def _damage_floor_from_source_power_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If a red source you control would deal an amount of noncombat
+    damage less than ~'s power to an opponent, that source deals damage
+    equal to ~'s power instead." (Ojer Axonil, Deepest Might) —
+    `_additional_damage_replacement`'s floor-shaped sibling: unlike a flat
+    bonus, the *threshold and the replacement amount are the same live
+    value* (this ability's own source's current power, RULE 613.1), read
+    fresh every firing rather than baked in at bind time.
+    """
+    colors = list(params.get("colors") or ([params["color"]] if params.get("color") else []))
+    effect = ReplacementEffect(
+        event_type=EventType.DAMAGE,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        if src is None or event.get("source_controller_id") != src.controller_id:
+            return event
+        if event.get("combat"):
+            return event
+        if colors and not any(c in (event.get("source_colors") or ()) for c in colors):
+            return event
+        if event.get("is_player"):
+            if event.get("target_id") == src.controller_id:
+                return event
+        else:
+            target_obj = context.state.find_object(event.get("target_id"))
+            if target_obj is None or target_obj.controller_id == src.controller_id:
+                return event
+        threshold = int(getattr(src, "power", 0) or 0)
+        dealt = int(event.get("amount", 0) or 0)
+        if dealt <= 0 or dealt >= threshold:
+            return event
+        return event.copy_with(amount=threshold)
+
+    effect.replacement_fn = replace
+    return effect
+
+
 def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """Counters that would be placed are doubled instead (RULE 122/614/616),
     e.g. Doubling Season's counter clause: "if an effect would put one or
@@ -14583,6 +14999,7 @@ ReplacementRegistry.register("prevent_damage", _prevent_damage_replacement)
 ReplacementRegistry.register("prevent_damage_convert_counters", _prevent_damage_convert_counters_replacement)
 ReplacementRegistry.register("double_damage", _double_damage_replacement)
 ReplacementRegistry.register("additional_damage", _additional_damage_replacement)
+ReplacementRegistry.register("damage_floor_from_source_power", _damage_floor_from_source_power_replacement)
 ReplacementRegistry.register("double_counters", _double_counters_replacement)
 ReplacementRegistry.register("gain_life_replacement", _gain_life_replacement)
 ReplacementRegistry.register("die_to_exile", _die_to_exile_replacement)

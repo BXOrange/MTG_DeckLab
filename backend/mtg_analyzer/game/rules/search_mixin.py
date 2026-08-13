@@ -54,6 +54,7 @@ from ..effects import (
     TheRingTemptsYouEffect,
     GameContext,
     GameEffect,
+    GrantSearchProhibitedEffect,
     ImpulsiveDrawEffect,
     MarchesaDelayedReturnEffect,
     ProliferateEffect,
@@ -522,6 +523,7 @@ class SearchMixin:
         extra_counters: Optional[dict[str, Any]] = None,
         destination_if: Optional[list[dict[str, Any]]] = None,
         attach_to_creature_you_control: bool = False,
+        remember_source_id: Optional[int] = None,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -579,6 +581,17 @@ class SearchMixin:
         long as ``"library"`` is among ``zones``; with nothing eligible it
         just shuffles (if applicable), no choice needed.
         """
+        # RULE 701.19a: "Your opponents can't search libraries."
+        # (Stranglehold-shaped) — an effect instructing a prohibited player
+        # to search simply doesn't; skipped here rather than at every call
+        # site, the same "one choke point" idiom `deal_damage`/`gain_life`
+        # use for their own replacement checks.
+        if any(
+            isinstance(e, GrantSearchProhibitedEffect) and permanent.controller_id != player.id
+            for permanent in self.state.battlefield
+            for e in getattr(permanent, "static_effects", None) or []
+        ):
+            return
         zones = list(zones) if zones else ["library"]
         if "library" in zones:
             self.state.fire_event(
@@ -598,6 +611,7 @@ class SearchMixin:
             zones=zones, destinations=destinations, exile_rest=exile_rest,
             extra_counters=extra_counters, destination_if=destination_if,
             attach_to_creature_you_control=attach_to_creature_you_control,
+            remember_source_id=remember_source_id,
         )
 
     def request_intuition(
@@ -719,6 +733,13 @@ class SearchMixin:
             objs.extend(player.graveyard)
         if "hand" in zones:
             objs.extend(player.hand)
+        if "exile" in zones:
+            # "…choose a face-up artifact card you own in exile." (Karn,
+            # the Great Creator's -2) — a *choice* among public information
+            # the same "hand" is above, not RULE 701.19's hidden search;
+            # face-down exile (morph/Beseech the Mirror-shaped) is excluded
+            # since only a face-up card is ever visible to choose among.
+            objs.extend(o for o in player.exile if not getattr(o, "face_down_in_exile", False))
         return objs
     def resolve_search_choice(self, instance_id: Optional[int]) -> None:
         """Answer a pending search: pick a card, re-ask for the next, or finish.
@@ -759,6 +780,7 @@ class SearchMixin:
                 extra_counters=choice.get("extra_counters"),
                 destination_if=choice.get("destination_if"),
                 attach_to_creature_you_control=choice.get("attach_to_creature_you_control", False),
+                remember_source_id=choice.get("remember_source_id"),
             )
             return
 
@@ -771,6 +793,7 @@ class SearchMixin:
             extra_counters=choice.get("extra_counters"),
             destination_if=choice.get("destination_if"),
             attach_to_creature_you_control=choice.get("attach_to_creature_you_control", False),
+            remember_source_id=choice.get("remember_source_id"),
         )
     def _search_choice(
         self,
@@ -786,6 +809,7 @@ class SearchMixin:
         extra_counters: Optional[dict[str, Any]] = None,
         destination_if: Optional[list[dict[str, Any]]] = None,
         attach_to_creature_you_control: bool = False,
+        remember_source_id: Optional[int] = None,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
         zones = list(zones) if zones else ["library"]
@@ -805,11 +829,11 @@ class SearchMixin:
             options.append({"id": "decline", "label": "Nichts wählen"})
         description = card_query.describe(criteria)
         zone_label = " oder ".join(
-            {"library": "Bibliothek", "graveyard": "Friedhof", "hand": "Hand"}[z]
+            {"library": "Bibliothek", "graveyard": "Friedhof", "hand": "Hand", "exile": "Exil"}[z]
             for z in zones
         )
         prompt = (
-            f"Wähle aus deiner {zone_label}: {description}" if zones == ["hand"]
+            f"Wähle aus deiner {zone_label}: {description}" if zones in (["hand"], ["exile"])
             else f"Suche in {zone_label} nach: {description}"
         )
         if count > 1:
@@ -824,6 +848,7 @@ class SearchMixin:
             "extra_counters": dict(extra_counters) if extra_counters else None,
             "destination_if": [dict(rule) for rule in destination_if] if destination_if else None,
             "attach_to_creature_you_control": bool(attach_to_creature_you_control),
+            "remember_source_id": remember_source_id,
             "criteria": card_query.normalize(criteria),
             "description": description,
             "prompt": prompt,
@@ -848,6 +873,7 @@ class SearchMixin:
         extra_counters: Optional[dict[str, Any]] = None,
         destination_if: Optional[list[dict[str, Any]]] = None,
         attach_to_creature_you_control: bool = False,
+        remember_source_id: Optional[int] = None,
     ) -> None:
         """Move every chosen card to its destination, then shuffle the
         library (RULE 701.19e) — unless ``exile_rest`` suppresses it
@@ -860,6 +886,13 @@ class SearchMixin:
             obj = self._remove_search_hit(player, instance_id, zones)
             if obj is not None:
                 chosen.append(obj)
+        if remember_source_id is not None and chosen:
+            # "Exile a card from a graveyard. [...] the exiled card."
+            # (Cemetery Gatekeeper) — `ExileEffect.remember`'s search-shaped
+            # sibling; only meaningful with a single real find.
+            source_obj = self.state.find_object(remember_source_id)
+            if source_obj is not None:
+                source_obj.linked_exile_id = chosen[0].instance_id
 
         dest_list = list(destinations) if destinations else []
         rules = list(destination_if) if destination_if else []

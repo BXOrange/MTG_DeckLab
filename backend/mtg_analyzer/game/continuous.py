@@ -1437,7 +1437,12 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
             if chosen:
                 add_subtypes.append(chosen)
         power, toughness = ability.params.get("power"), ability.params.get("toughness")
+        pt_selector = ability.params.get("pt_selector")
         for obj in affected_objects(state, ability):
+            if pt_selector == "mana_value":
+                obj_power = obj_toughness = getattr(obj.card, "converted_mana_cost", 0) or 0
+            else:
+                obj_power, obj_toughness = power, toughness
             for type_name in added:
                 obj._added_types.add(type_name)
             for type_name in removed:
@@ -1475,8 +1480,8 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                     str(t).lower() in _BASIC_LAND_TYPES for t in set_subtypes
                 ):
                     obj._loses_all_abilities = True
-            if power is not None and toughness is not None:
-                animation_pt[obj.instance_id] = (power, toughness)
+            if obj_power is not None and obj_toughness is not None:
+                animation_pt[obj.instance_id] = (obj_power, obj_toughness)
             label = ", ".join(added + add_subtypes) if (added or add_subtypes) else ", ".join(set_subtypes or [])
             _trace(obj, 4, _source_name(ability), f"becomes {label}")
 
@@ -1554,6 +1559,12 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
         # `combat.protections_of_text`'s own vocabulary here, once per
         # ability rather than once per affected object.
         protections = _protection_qualities(ability)
+        #: RULE 702.21b's quoted grant sibling of `protections` above —
+        #: "Other creatures you control have 'Ward—Pay 2 life.'" (Hexing
+        #: Squelcher) — since Ward carries a cost `_flag_keywords` can't
+        #: express as a bare keyword slug, it rides `grant_keyword`'s own
+        #: ``ward_cost`` param instead of a separate static kind.
+        ward_cost = ability.params.get("ward_cost")
         if protections and ability.params.get("exempt_own_attachment"):
             # RULE 702.16n/p — a per-*source* flag (the Aura, not its host),
             # since the exemption is about this specific grant not causing
@@ -1577,6 +1588,9 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 obj._granted_protections.update(protections)
                 _trace(obj, 6, _source_name(ability),
                        "gains protection from " + ", ".join(sorted(protections)))
+            if ward_cost:
+                obj.granted_ward_cost = ward_cost
+                _trace(obj, 6, _source_name(ability), f"gains Ward—{ward_cost}")
             if mana and mana_ability_cost:
                 # MEC-25 upgrade shape — not a bare ``{T}``, so it replaces a
                 # matching printed ability instead of stacking a second one
@@ -2432,11 +2446,28 @@ def max_spells_per_turn(state: "GameState") -> Optional[int]:
         ab.params.get("max_per_turn")
         for ab in _battlefield_static_abilities(state)
         if ab.layer == "cast_limit" and ab.params.get("max_per_turn") is not None
+        and not ab.params.get("noncreature")
     ]
     return min(limits) if limits else None
 
 
-def cast_prohibited(state: "GameState", player: "Player", card: Any) -> bool:
+def max_noncreature_spells_per_turn(state: "GameState") -> Optional[int]:
+    """`max_spells_per_turn`'s noncreature-only sibling — "Each player
+    can't cast more than N **noncreature** spells each turn." (Deafening
+    Silence) — checked by `GameEngine.can_cast` against `GameState.
+    noncreature_spells_cast_this_turn` only when the card being cast is
+    itself noncreature; a creature spell is never capped by this static.
+    """
+    limits = [
+        ab.params.get("max_per_turn")
+        for ab in _battlefield_static_abilities(state)
+        if ab.layer == "cast_limit" and ab.params.get("max_per_turn") is not None
+        and ab.params.get("noncreature")
+    ]
+    return min(limits) if limits else None
+
+
+def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optional[str] = None) -> bool:
     """Whether a standing ``"cast_prohibition"`` static forbids ``player``
     from casting ``card`` right now (RULE 601.3a).
 
@@ -2454,6 +2485,11 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any) -> bool:
       the casting player**, not the static's controller ("*that player*'s"
       lands): the spell is forbidden when its mana value exceeds that count.
       Omitted, the prohibition is unconditional on mana value.
+    * ``hand_only`` — "…can't cast spells from anywhere other than their
+      hands." (Drannith Magistrate) — restricted to the zone the card is
+      actually being cast *from* (``zone``, RULE 601.2a), so an ordinary
+      hand-cast is untouched but flashback/foretell/a graveyard-cast permit
+      all become illegal.
 
     Kept out of the RULE 613 layer engine for the same reason
     ``cast_limit``/``draw_limit`` are — it changes what a player *may do*,
@@ -2479,6 +2515,8 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any) -> bool:
         if scope == "opponents" and player.id in (None, controller_id):
             continue
         if ability.params.get("noncreature") and getattr(card, "is_creature", False):
+            continue
+        if ability.params.get("hand_only") and zone in (None, "hand"):
             continue
         selector = ability.params.get("max_mana_value_selector")
         if selector is not None:
@@ -2623,6 +2661,35 @@ def has_no_maximum_hand_size(state: "GameState", player: "Player") -> bool:
             continue
         if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
             return True
+    return False
+
+
+def has_standing_flash_permission(state: "GameState", player: "Player", card: Any) -> bool:
+    """Whether ``player`` may cast ``card`` at instant speed right now via a
+    standing "You may cast spells as though they had flash." grant (High
+    Fae Trickster/Valley Floodcaller-shaped) — the *blanket* sibling of
+    `game/top_library.py`'s own permission family (scoped to a specific
+    zone/card, not every spell a player might cast). ``noncreature_only``/
+    ``creature_only`` narrow it the same way a real card's own wording can
+    ("you may cast **noncreature** spells as though they had flash.").
+    Consulted directly by `GameEngine.can_cast`'s timing check, the same
+    non-layer-engine treatment `cast_limit`/`cast_prohibited` get (a
+    permission, not a characteristic).
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "flash_permission":
+            continue
+        if getattr(ability.source, "controller_id", None) != player.id:
+            continue
+        if ability.params.get("noncreature_only") and getattr(card, "is_creature", False):
+            continue
+        if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
+            continue
+        gate = ability.params.get("active_if")
+        controller_id = getattr(ability.source, "controller_id", None)
+        if gate and not static_conditions.condition_holds(gate, state, ability.source, controller_id):
+            continue
+        return True
     return False
 
 

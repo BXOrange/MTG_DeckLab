@@ -954,6 +954,16 @@ class ActivationMixin:
             source=source,
         )
         self.state.stack.append(item)
+        self.state.fire_event(
+            GameEvent(
+                EventType.ACTIVATED_ABILITY,
+                player_id=player.id, controller_id=player.id,
+                instance_id=source.instance_id,
+                # `source` can be an `Emblem` (RULE 114.4's rare own
+                # activated ability) — no card frame, so no type words.
+                object_types=sorted(getattr(source, "type_words", None) or []),
+            )
+        )
         self.rules.check_ward(item, player)
         # RULE 117.3c: taking an action reclaims priority for its taker.
         self.give_priority(player)

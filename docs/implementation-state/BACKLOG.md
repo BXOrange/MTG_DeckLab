@@ -88,14 +88,52 @@ Plan-level sequencing lives in
   than forced to completion in one sitting given the size. **`cEDH Kinnan`
   (100/100) and `cEDH M-K` (97/97) are now fully playable** — closed
   2026-08-13, see `Done_Backend.md`'s "MEC-12: Kinnan and M-K completed"
-  entry. Current state of the remaining five (2026-08-13, re-measured after
-  that batch's general primitives landed): **Ojer 49/77, Rocco 74/98, Glarb
-  Bloomsday 82/100, staples 183/215, staples 2 446/607** — re-measure rather
-  than trusting these numbers as they age; the per-deck *totals* themselves
-  also drift run to run since these are live saved decks a user can keep
-  editing, not a frozen fixture. Worklog detail for what's shipped so far —
-  batch by batch, why each piece is built the way it is — is in
-  `Done_Backend.md`'s "seven 'cEDH'-named saved decks" entries, not here.
+  entry. **`Ojer cEDH` is now 75/77** — closed 2026-08-13, see
+  `Done_Backend.md`'s "MEC-12: Ojer cEDH batch" entry; its own 2 residual
+  gaps (`Chandra's Incinerator`'s dynamic cost reduction + an event-target-
+  scoped "creature or planeswalker *that damaged player* controls" target
+  kind that doesn't exist yet; `Return the Favor`'s RULE 702.172 Spree — a
+  genuinely unbuilt per-mode-additional-cost modal-casting mechanic, not
+  just an oracle-text gap, since `Escalate`'s own keyword line is equally
+  inert — no card in the current pool needs Spree/Escalate built badly
+  under time pressure) are real, diagnosed primitive gaps, not oversights;
+  build Spree as a real mechanic (RULE 702.172, likely unlocking Escalate's
+  RULE 702.53 for free alongside it — same "choose N, pay per choice"
+  shape) before attempting either card again. **`cEDH Rocco` is now
+  78/98** — a first pass (2026-08-13, see `Done_Backend.md`'s "MEC-12:
+  Rocco first pass" entry), not yet finished; its own 20 residual gaps
+  span several distinct unbuilt shapes (RULE 702.172 Spree/Escalate again;
+  a "power greater than its base power" per-creature qualifier on the
+  CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER aggregate; a card's own
+  self-referential "cast this from your graveyard **or exile**" permission,
+  distinct from the existing granted-by-another-permanent shape;
+  "Saddle"/RULE 702.172-adjacent Vehicle crewing add-ons; a cost-payment
+  restriction ("can't pay life or sacrifice permanents to cast/activate");
+  a same-name ETB-draw-engine qualifier; and others not yet individually
+  diagnosed) — re-measure and diagnose fresh rather than assuming this
+  list is complete or unchanged. **`[cEDH] Glarb Bloomsday` is now
+  88/100** — a first pass (2026-08-13, see `Done_Backend.md`'s "MEC-12:
+  Glarb Bloomsday first pass" entry), not finished; its own 12 residual
+  gaps span Doomsday's own distinct "exile up to five cards in a pile" (a
+  genuinely separate unbuilt mechanic, not a plain search — see the
+  "Notable gaps" note elsewhere in this file), Ad Nauseam/Gifts Ungiven/
+  Bring to Light's own reveal/choice shapes, Counterbalance's live-
+  comparison counter-spell condition, Necropotence's three-clause engine
+  (a standing draw-step skip needs a battlefield-lifecycle hook into
+  `Player.player_effects` that doesn't exist yet, plus a delayed
+  face-down-exile-to-hand shape), Opposition Agent's "you control your
+  opponents while they're searching" (a real, unbuilt control-exchange-
+  during-a-choice shape), Valley Floodcaller's own trigger (a named-
+  subtype-list creature group — `PumpEffect` has no `subtypes` list param
+  the way `AddCountersEffect` does), and Nissa/Sylvan Library's own
+  multi-step choices — each individually diagnosed, not guessed at.
+  Current state of the remaining two (2026-08-13): **staples 183/215,
+  staples 2 446/607** — re-measure rather than trusting these numbers as
+  they age; the per-deck *totals* themselves also drift run to run since
+  these are live saved decks a user can keep editing, not a frozen
+  fixture. Worklog detail for what's shipped so far — batch by batch, why
+  each piece is built the way it is — is in `Done_Backend.md`'s "seven
+  'cEDH'-named saved decks" entries, not here.
 
   The fourth-through-tenth-pass "broader gaps" this section used to
   describe in detail (Exert, Stasis's untap-skip, devotion-to-hybrid,

@@ -43,6 +43,7 @@ from ..effects import (
     AddPlayerCountersEffect,
     BecomeMonarchEffect,
     CantBeCounteredEffect,
+    GrantCantBeCounteredEffect,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     ChooseNamedModeReplacement,
@@ -806,6 +807,9 @@ class MiscSystemsMixin:
         object_types = event.get("object_types") or []
         if "instant" in object_types or "sorcery" in object_types:
             self.state.cast_instant_or_sorcery_this_turn[player_id] = True
+        if "creature" not in object_types:
+            nc_counts = self.state.noncreature_spells_cast_this_turn
+            nc_counts[player_id] = nc_counts.get(player_id, 0) + 1
         # Veil of Summer-shaped "if an opponent has cast a blue or black
         # spell this turn" — SPELL_CAST carries no ``colors`` of its own,
         # so this reads the cast object's live colour off the stack it was
@@ -2118,16 +2122,30 @@ class MiscSystemsMixin:
     def return_spell_to_hand(self, target: Any) -> bool:
         """`move_spell_off_stack` to hand — Narset's Reversal's own clause."""
         return self.move_spell_off_stack(target, "hand")
-    @staticmethod
-    def _is_cant_be_countered(obj: GameObject) -> bool:
+    def _is_cant_be_countered(self, obj: GameObject) -> bool:
         """RULE 118-area: does ``obj`` carry a "this spell can't be
         countered" marker (`CantBeCounteredEffect`, docked via either the
         `spell_effect` or `static` ability_kind — see that class's
-        docstring for why both feed the same check)?
+        docstring for why both feed the same check), or is its controller
+        granted one by a standing battlefield permanent (`GrantCantBe
+        CounteredEffect` — Hexing Squelcher's "Spells you control can't be
+        countered.")?
         """
         effects = list(getattr(obj, "spell_effects", []) or [])
         effects += list(getattr(obj, "static_effects", []) or [])
-        return any(isinstance(e, CantBeCounteredEffect) for e in effects)
+        if any(isinstance(e, CantBeCounteredEffect) for e in effects):
+            return True
+        is_creature = "creature" in (getattr(obj, "type_words", None) or set())
+        for permanent in self.state.battlefield:
+            for effect in getattr(permanent, "static_effects", None) or []:
+                if not isinstance(effect, GrantCantBeCounteredEffect):
+                    continue
+                if permanent.controller_id != obj.controller_id:
+                    continue
+                if effect.scope == "creature_spells_you_control" and not is_creature:
+                    continue
+                return True
+        return False
     def counter_spell(self, target: Any) -> None:
         """Remove a spell (a `StackItem` or its game object) from the stack.
 
@@ -2374,11 +2392,20 @@ class MiscSystemsMixin:
             if not isinstance(target, GameObject):
                 continue  # ward is on permanents (RULE 702.21) — never a player
             ward = (getattr(target, "parametric_keywords", None) or {}).get("ward")
-            if not ward or target.controller_id == caster.id:
-                continue  # no ward, or "opponent" doesn't include its own controller
-            cost_text = ward.get("cost")
+            cost_text = ward.get("cost") if ward else None
             if not cost_text:
-                continue  # cost couldn't be recognized from the card text — skip, don't guess
+                # A *granted* Ward (`GrantWardEffect` — Hexing Squelcher's
+                # "Other creatures you control have 'Ward—Pay 2 life.'"),
+                # unlike this object's own printed keyword above — a
+                # separate field since `parametric_keywords` is bound once
+                # from the card's own text (`models/game_object.py`) and
+                # never re-derived by `continuous.recompute` the way a
+                # flag `granted_keywords` entry is.
+                cost_text = getattr(target, "granted_ward_cost", None)
+            if target.controller_id == caster.id:
+                continue  # "opponent" doesn't include its own controller
+            if not cost_text:
+                continue  # no ward, or cost couldn't be recognized from the card text
             cost = parse_activation_cost(cost_text)
             self.state.stack.append(
                 StackItem(

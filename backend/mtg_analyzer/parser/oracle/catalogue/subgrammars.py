@@ -110,7 +110,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # but is modeled the same controller-restricted way: a choice among the
     # controller's own permanents, narrowed to lands at resolution.
     (r"a land you control", "land_you_control"),
-    (r"target nonland permanent", "permanent"),
+    (r"target nonland permanent", "nonland_permanent"),
     (r"target spell", "spell"),
     (r"target player or planeswalker", "player"),
     (r"target opponent", "player"),

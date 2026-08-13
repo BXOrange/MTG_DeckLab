@@ -218,6 +218,14 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # `parser_probe.py blocked "^whenever you attack\\b"`, 97+ SOLO cards)
     # needs its own count/filter grammar and is out of this ticket's scope.
     (re.compile(r"^you attack$"), "PLAYER_ATTACKED"),
+    # RULE 603.1's "whenever one or more creatures you control deal combat
+    # damage to a player, …" (Professional Face-Breaker-shaped Treasure
+    # payoffs) — the bare (no power-threshold) sibling of the hand-
+    # authored ``contributor_power_at_least`` cards (Tifa/Kediss); MEC-29's
+    # `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` already fires for
+    # this exact shape, only the oracle-text recognition was missing.
+    (re.compile(r"^1 or more creatures you control deal combat damage to a player$"),
+     "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"),
 )
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
@@ -375,6 +383,42 @@ _COUNTER_FREE_SPELL_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: The general form of the above (RULE 601.2h's "free spell" hate isn't
+#: only Vexing Bauble's "counter it" — Roiling Vortex's own "…this
+#: enchantment deals 5 damage to that player." prints the same trigger
+#: condition with an arbitrary payoff). Reuses the trigger's own
+#: ``spell_no_mana_spent`` gate exactly as `_COUNTER_FREE_SPELL_RE` does;
+#: only the body is generic here rather than hardcoded to "counter that
+#: spell". Tried *after* the exact-match row above so a real Vexing Bauble
+#: still gets that row's more specific ``target_from_trigger_event``
+#: wording (both bind to the same behaviour either way, so order is a
+#: style choice, not a correctness one).
+_CAST_SPELL_NO_MANA_TRIGGER_RE = re.compile(
+    r"^whenever a player casts a spell, if no mana was spent to cast (?:it|that spell),\s*"
+    r"(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: "Whenever a player casts a spell, if it's not their turn, <effect>."
+#: (Scytheclaw Raptor) — RULE 603.4's intervening-if reusing
+#: `_build_group_ok`'s existing ``not_controllers_turn`` flag verbatim
+#: (Price of Glory's own "if it's not that player's turn" — `SPELL_CAST`'s
+#: ``player_id`` is already in `_GROUP_CONTROLLER_EVENT_KEYS`).
+#: "When ~ enters, if you cast it, `<effect>`." (Rocco, Cabaretti Caterer-
+#: shaped RULE 601.2b intervening-if, ~57 cache-wide cards) — a dedicated
+#: whole-line row rather than folded into the generic ETB dispatch, since
+#: this "if you cast it" gate needs `EffectSpec.condition`'s new
+#: ``source_was_cast`` key stamped onto every resulting effect, which no
+#: other ETB shape needs.
+_ENTERS_IF_CAST_RE = re.compile(
+    r"^when ~ enters, if you cast it,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
+)
+
+_CAST_SPELL_NOT_THEIR_TURN_TRIGGER_RE = re.compile(
+    r"^whenever a player casts a spell, if it'?s not their turn,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
 #: RULE 120/613's "Whenever you/an opponent/a player draws a card, <effect>."
 #: (Sheoldred, the Apocalypse/Underworld Dreams/Consecrated Sphinx-shaped
 #: draw-matters triggers — the single most-requested missing trigger
@@ -387,6 +431,17 @@ _COUNTER_FREE_SPELL_RE = re.compile(
 #: purely the missing oracle-text recognizer, no new engine primitive.
 _DRAW_TRIGGER_PLAIN_RE = re.compile(
     r"^whenever (?P<subj>you|an opponent|a player) draws? a card,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: "Whenever a player casts their second spell each turn, …" (Hearthborn
+#: Battler) — the ordinal-count sibling of `_CAST_SPELL_TRIGGER_PLAIN_RE`;
+#: only "second" is in scope (the one real printed ordinal), so a small
+#: closed word→int map rather than a general ordinal-word parser.
+_CAST_SPELL_ORDINAL_WORDS: dict[str, int] = {"second": 2, "third": 3, "fourth": 4}
+_CAST_SPELL_TRIGGER_NTH_RE = re.compile(
+    r"^whenever (?P<subj>you|an opponent|a player) casts? (?:your|their) "
+    rf"(?P<ordinal>{'|'.join(_CAST_SPELL_ORDINAL_WORDS)}) spell each turn,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
 
@@ -681,6 +736,20 @@ _PHASE_STEP_WORDS: dict[str, str] = {
 #: any prefix of it.
 _PHASE_STEP_ALT = "|".join(
     re.escape(word) for word in sorted(_PHASE_STEP_WORDS, key=len, reverse=True)
+)
+
+#: "At the beginning of each player's upkeep, ~ deals N damage to them."
+#: (Roiling Vortex/Manabarbs-adjacent punishers) — tried only inside the
+#: unscoped ``"each player's <step>"`` branch of `_PHASE_TRIGGER_RE` below
+#: (`relation is None`), where "them" unambiguously means whoever's step
+#: it is: `effects.DealDamageEffect`'s new ``selector="active_player"``
+#: (`GameState.active_player`, read live at resolution — unchanged since
+#: the step began). Not folded into the generic `_SELECTOR_WORD_MAP` "that
+#: player"/``event_player`` row, since STEP_BEGIN carries no acting player
+#: on the event at all — a body-only regex has no way to know which
+#: pronoun meaning applies outside this specific wrapper.
+_PHASE_DAMAGE_TO_THEM_RE = re.compile(
+    r"^(?:~|it) deals (?P<n>\d+) damage to them\.?\s*$", re.IGNORECASE,
 )
 
 _PHASE_TRIGGER_RE = re.compile(
@@ -1144,6 +1213,17 @@ _ADDITIONAL_COST_SACRIFICE_ARTIFACT_OR_CREATURE_RE = re.compile(
 )
 _ADDITIONAL_COST_DISCARD_RE = re.compile(r"^discard an?\s+card$", re.IGNORECASE)
 _ADDITIONAL_COST_PAY_LIFE_RE = re.compile(r"^pay\s+(x|\d+)\s+life$", re.IGNORECASE)
+#: "pay N life or pay `<cost>`" (Redirect Lightning) — RULE 601.2b's
+#: alternative-additional-cost shape has no `AbilitySpec.additional_cost`
+#: representation yet (that field is a single fixed cost, never a
+#: player-facing choice between two). **Documented simplification**: only
+#: the life-payment alternative is modeled (`{"pay_life": N}`), the same
+#: idiom Force of Will's dropped pitch-cost alternative uses elsewhere in
+#: this codebase — a real card here always ends up paying the life, never
+#: offered the cheaper mana option.
+_ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE = re.compile(
+    r"^pay\s+(x|\d+)\s+life or pay\s+\{[^}]+\}$", re.IGNORECASE
+)
 
 #: RULE 601.2f-adjacent: "If you control a commander, you may cast this
 #: spell without paying its mana cost." (Deadly Rollick/Deflecting Swat/
@@ -1430,6 +1510,10 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     life = _ADDITIONAL_COST_PAY_LIFE_RE.match(text)
     if life is not None:
         amount = life.group(1)
+        return {"pay_life": "x" if amount.lower() == "x" else int(amount)}
+    life_or_mana = _ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE.match(text)
+    if life_or_mana is not None:
+        amount = life_or_mana.group(1)
         return {"pay_life": "x" if amount.lower() == "x" else int(amount)}
     return None
 
@@ -2126,6 +2210,100 @@ def segment_line(
                 "condition": {"subject": "group"},
                 "spell_no_mana_spent": True,
             },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_trig_nth = _CAST_SPELL_TRIGGER_NTH_RE.match(raw)
+    if cast_spell_trig_nth is not None:
+        subj = cast_spell_trig_nth.group("subj").lower()
+        n = _CAST_SPELL_ORDINAL_WORDS[cast_spell_trig_nth.group("ordinal").lower()]
+        body, optional = _peel_optional(cast_spell_trig_nth.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": _cast_spell_trigger_condition(subj),
+                "is_nth_spell_cast_this_turn": n,
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    enters_if_cast = _ENTERS_IF_CAST_RE.match(raw)
+    if enters_if_cast is not None:
+        body, optional = _peel_optional(enters_if_cast.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        for e in effects:
+            e.condition = {**(e.condition or {}), "source_was_cast": True}
+            # "…for a creature card with mana value X or less…" (Rocco,
+            # Cabaretti Caterer) — this whole row is *always* a triggered
+            # ability firing after its own casting resolution ended, so the
+            # generic bare ``"x"`` sentinel (tied to the *current* stack
+            # item's announced X, which is 0 for a trigger) is always wrong
+            # here; rewrite to `GameObject.x_paid`'s own ``"source_x_paid"``
+            # sentinel (Invasion of Ikoria's existing idiom) instead.
+            for key, value in list(e.params.items()):
+                if value == "x":
+                    e.params[key] = "source_x_paid"
+                elif isinstance(value, dict):
+                    for inner_key, inner_value in list(value.items()):
+                        if inner_value == "x":
+                            value[inner_key] = "source_x_paid"
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_not_their_turn_trig = _CAST_SPELL_NOT_THEIR_TURN_TRIGGER_RE.match(raw)
+    if cast_spell_not_their_turn_trig is not None:
+        body, optional = _peel_optional(cast_spell_not_their_turn_trig.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "group"},
+                "not_controllers_turn": True,
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_no_mana_trig = _CAST_SPELL_NO_MANA_TRIGGER_RE.match(raw)
+    if cast_spell_no_mana_trig is not None:
+        body, optional = _peel_optional(cast_spell_no_mana_trig.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "group"},
+                "spell_no_mana_spent": True,
+            },
+            optional=optional,
             raw_text=raw,
             parser=provenance,
         )
@@ -2934,7 +3112,16 @@ def segment_line(
         else:
             relation = None
         body, optional = _peel_optional(phase_trig.group("body"))
-        effects = parse_effect_body(body)
+        if relation is None:
+            them_damage = _PHASE_DAMAGE_TO_THEM_RE.match(body)
+            if them_damage is not None:
+                effects = [EffectSpec("damage", {
+                    "amount": int(them_damage.group("n")), "selector": "active_player",
+                })]
+            else:
+                effects = parse_effect_body(body)
+        else:
+            effects = parse_effect_body(body)
         if effects is None:
             return Segment(raw=raw)
         trigger: dict[str, Any] = {"event": "STEP_BEGIN", "filter": {"step": step}}

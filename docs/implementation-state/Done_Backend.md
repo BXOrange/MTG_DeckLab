@@ -15292,3 +15292,247 @@ Full test suite green throughout (3930 passed, 238 skipped, no
 regressions at any point). No parser-classification changes this batch
 (everything shipped hand-authored) — `PARSER_VERSION` unchanged, matching
 the "hand-authoring alone needs no bump" rule.
+
+## MEC-12: Ojer cEDH batch (2026-08-13)
+
+Closed 26 of `Ojer cEDH`'s 28 previously-unmodeled cards (49/77 → 75/77),
+a mix of general parser/engine primitives (most of the batch, each closing
+several cache-wide cards beyond just this deck) and hand-authored entries
+for the genuinely singleton shapes. Two cards (`Chandra's Incinerator`,
+`Return the Favor`) stayed open — see `BACKLOG.md`'s MEC-12 entry for
+exactly why, not repeated here.
+
+**New general primitives**, each reusable by any future card of the same
+shape:
+
+- `EventType.ACTIVATED_ABILITY` (RULE 602.2, `GameEngine.activate_ability`)
+  — mana abilities never reach it at all (RULE 605.1a: they never use the
+  stack), so "isn't a mana ability" needs no filter of its own. Closes
+  Harsh Mentor/Immolation Shaman and 8 more cache-wide cards on the same
+  "whenever an opponent activates a non-mana ability" template.
+- `effect_binder._build_group_ok`'s new `"nonbasic"` condition key (a
+  supertype filter, unlike the existing main-type/subtype filters) +
+  `DealDamageEffect`'s `selector="event_player"`/`"event_controller"`/
+  `"active_player"` — closes the whole Manabarbs/Burning Earth/Price of
+  Glory "taps a land for mana" punisher family (9 cache-wide cards) and
+  Zo-Zu the Punisher's "that land's controller" shape.
+- `DealDamageEffect.selector`'s new `each_opponent_and_their_creatures[_
+  and_planeswalkers]` (opponents-only, unlike the existing global
+  `each_creature_and_player`) — End the Festivities/Tectonic Hazard/
+  Delayed Blast Fireball-shaped board wipes, plus a parser row recognizing
+  the compound phrase.
+- The general "whenever a player casts a spell, if no mana was spent to
+  cast it, `<effect>`." trigger (generalizing Vexing Bauble's own hardcoded
+  "counter that spell" row) — closes Roiling Vortex's own second clause
+  and any future card on the same template.
+- `RulesEngine.prevent_life_gain_this_turn`/`PreventLifeGainEffect` (RULE
+  119.3 "can't gain life this turn") — an absolute LIFE_GAIN cancel, the
+  first sibling of `prevent_damage_to_player`'s own numeric-shield shape
+  that isn't a bank.
+- `RulesEngine.__init__`'s subscription order fix: `_track_spell_cast` now
+  runs *before* `_collect_triggers` (previously after), so `GameState.
+  spells_cast_this_turn` is already-current by the time a `SPELL_CAST`
+  trigger checks it — the same "increment before firing" convention
+  `cards_drawn_this_turn`/`_single_draw` already used. This is what makes
+  `effect_binder`'s new `is_nth_spell_cast_this_turn` predicate (Hearthborn
+  Battler's "casts their **second** spell each turn") and `LoseLifeEffect.
+  amount_from_spells_cast_this_turn`/`DealDamageEffect.amount_from_
+  noncreature_spells_cast_this_turn` (Rug of Smothering/Magebane Lizard)
+  read correctly.
+- `GameState.noncreature_spells_cast_this_turn` — the per-*every*-player,
+  reset-every-`begin_turn` sibling of `spells_cast_this_turn` (which only
+  resets the incoming active player's own entry, RULE 731.2's narrower
+  scope) — needed since Magebane Lizard's trigger can fire off any
+  player's cast, not just the active player's.
+- `_build_group_ok`'s `not_controllers_turn` flag reused verbatim for
+  SPELL_CAST (already built for Price of Glory's TAPPED_FOR_MANA use) —
+  Scytheclaw Raptor's "if it's not their turn"; `_SELECTOR_WORD_MAP` gained
+  `"them"` alongside the existing `"that player"` for the pronoun-object
+  phrasing.
+- `TargetSpec.colors` (an OR of 2+ WUBRG letters, `_color_ok` helper
+  shared across every `legal_targets` branch that used to inline-check
+  `spec.color`) + `DealDamageEffect(colors=[...])` — Rending Volley's
+  "target white or blue creature".
+- `_ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE` — "pay N life or pay `<cost>`" as
+  an additional cost (Redirect Lightning), a **documented simplification**
+  modeling only the life-payment alternative (this `AbilitySpec.
+  additional_cost` field is a single fixed cost, never a real choice
+  between two) — the same "drop the alternative, keep the real cost"
+  idiom Force of Will's dropped pitch cost already uses elsewhere.
+- `EventType.STEP_BEGIN` damage-to-"them" (`DealDamageEffect.
+  selector="active_player"`, reading `GameState.active_player` live at
+  resolution since STEP_BEGIN carries no player of its own) — "at the
+  beginning of each player's upkeep, ~ deals N damage to them." (Roiling
+  Vortex's first clause).
+- `GameObject.cast_from_exile` (stamped alongside `mana_spent_to_cast` at
+  cast time) + `DealDamageEffect.amount_if_cast_from_exile` (the
+  override-shaped sibling of `amount_if_kicked`/`amount_if_bargained`) —
+  Delayed Blast Fireball's Foretell-conditional amount.
+- `DealDamageEffect.x_multiplier` — `AddCountersEffect`'s own "read the
+  source's announced {X} at ETB-trigger time" primitive, now shared by
+  damage too (Spiteful Banditry's "it deals X damage to each creature").
+- `EffectSpec.condition`'s new keys: `no_creatures_on_battlefield`
+  (Pyrohemia, global — unlike the existing controller-scoped `controls_
+  none_of_type`), `source_is_renowned` (Scab-Clan Berserker), `shares_
+  type_with_linked_exile` (Cemetery Gatekeeper, RULE 205.2a real card
+  types only — `type_words` always includes "permanent", which would
+  otherwise make every comparison trivially true).
+- `RulesEngine._is_cant_be_countered`'s new standing-grant scan
+  (`GrantCantBeCounteredEffect`, "Spells you control can't be countered."/
+  "Creature spells you control can't be countered.") — 6 cache-wide cards
+  on this exact phrasing.
+- `GameObject.granted_ward_cost` + `RulesEngine.check_ward`'s fallback to
+  it, populated by `grant_keyword`'s new `ward_cost` param
+  (`continuous.recompute`'s layer-6 pass) — a *granted* Ward with its own
+  cost (RULE 702.21b), the quoted-grant sibling of `_flag_keywords`'
+  existing bare-keyword vocabulary, which can't express a cost at all.
+  `_quoted_ability_grant_effects` gained the matching "Ward—`<cost>`"
+  recognizer. Closes Hexing Squelcher's own "Other creatures you control
+  have 'Ward—Pay 2 life.'" plus ~9 cache-wide cards on the two related
+  templates.
+- `GrantSearchProhibitedEffect`/`RulesEngine.request_search`'s new guard
+  (RULE 701.19a: an effect instructing a prohibited player to search
+  simply doesn't) and `GrantSkipExtraTurnsEffect`/`GameEngine.begin_turn`'s
+  extra-turn queue now skipping past any queued taker a live grant
+  matches — Stranglehold's own two clauses, ~8 cache-wide cards total.
+- `type_change`'s new `pt_selector="mana_value"` (a dynamic sibling of its
+  existing literal `power`/`toughness` ints, `continuous._apply_layer_4_
+  type`) + the new `"noncreature_artifact"` RULE 115.1c target kind —
+  Karn, the Great Creator's +1 "becomes an artifact creature with power
+  and toughness each equal to its mana value", wrapped in the existing
+  `GrantUntilEffect`/`duration="your_next_turn"`. Karn's -2 needed
+  `_search_zone_objects`'/`_finish_search`'s new `"exile"` zone (a
+  *choice* among public information, not a RULE 701.19 hidden search) —
+  reusable by any future "choose a card you own in exile" effect.
+- `ExileEffect`/`SearchLibraryEffect` both gained a `remember` flag
+  (stamping `GameObject.linked_exile_id`) for the search-shaped exile path
+  — Cemetery Gatekeeper's ETB "exile a card from a graveyard [...] the
+  exiled card" backing its own `shares_type_with_linked_exile` condition
+  above.
+- `_damage_floor_from_source_power_replacement` — `_additional_damage_
+  replacement`'s floor-shaped sibling (RULE 616.1): the threshold *and*
+  the replacement amount are the same live value (the ability's own
+  source's current power), read fresh every firing rather than a flat
+  bonus. Ojer Axonil, Deepest Might's first clause.
+- `ReturnSelfFromGraveyardEffect.transformed` (RULE 400.7 + 712.8,
+  `RulesEngine.return_from_graveyard`'s existing flag, just never threaded
+  through this effect) — Ojer Axonil's own death trigger. Found and fixed
+  a **dormant bug** on the way: this same effect's `tapped` param had been
+  accepted since Malakir Rebirth's granted death-return needed it, but was
+  never actually applied (`return_from_graveyard` reads "tapped" off the
+  `destination` string itself, not a separate flag) — Malakir Rebirth's
+  own granted return had been silently returning creatures untapped.
+- `RevealTopThenFreeCastIfMVMatchEffect` — Powerbalance's "reveal top
+  card, may cast it free if mana values match", reusing `request_choose_
+  objects`'s existing `"cast_free"` action for the real interactive "you
+  may cast" half; the "you may reveal" half is a **documented
+  simplification** to unconditional, the same idiom `CoinFlipEffect`'s own
+  "you may" branch already uses.
+
+**Hand-authored** (`game/ability_catalogue.py`): Manabarbs, Burning Earth,
+Harsh Mentor, Immolation Shaman, Zo-Zu the Punisher, Spiteful Banditry,
+Pyrohemia, Scab-Clan Berserker, Karn, the Great Creator (its own -2 is a
+**documented simplification**: no "outside the game" zone exists in this
+engine, so only the real half — reclaim a face-up artifact card from
+exile — is modeled), Cemetery Gatekeeper, Ojer Axonil, Deepest Might //
+Temple of Power, Powerbalance.
+
+Full test suite green throughout (3930 passed, 238 skipped). Parser
+coverage 33.7%→33.9% (11,722→11,807/34,811, `PARSER_VERSION` 88→89) from
+this batch's general handlers — `BACKLOG.md`/`CLAUDE.md`/
+`implementationStatusView.js` synced.
+
+## MEC-12: Rocco first pass (2026-08-13)
+
+A first pass on `cEDH Rocco` (74/98 → 78/98) — 4 cards, deliberately not
+forced to finish the deck in one sitting (20 residual gaps documented in
+`BACKLOG.md` rather than rushed). Two new general primitives, each
+reusable well beyond this deck:
+
+- **`GameObject.was_cast`** (RULE 601.2, stamped in `cast_spell`/
+  `cast_without_paying`, cleared by `reset_as_new_object`) + `EffectSpec.
+  condition`'s new `source_was_cast` key + a dedicated `"When ~ enters, if
+  you cast it, `<effect>`."` parser row (`segmenter._ENTERS_IF_CAST_RE`) —
+  the RULE 601.2b intervening-if distinguishing a real cast from a
+  searched/reanimated/token entry, previously confirmed missing by The One
+  Ring's own hand-authored entry ("no such condition exists"). **57
+  cache-wide cards** print this exact template. Closes Rocco, Cabaretti
+  Caterer itself, whose own "mana value X or less" also needed the parser
+  row to rewrite the generic bare `"x"` sentinel (tied to the *current*
+  stack item, wrong for a trigger firing after the cast resolution ends)
+  to `"source_x_paid"` (`GameObject.x_paid`, Invasion of Ikoria's existing
+  idiom) — every ETB-trigger use of this new row gets that rewrite for
+  free, not just Rocco's own card.
+- **`continuous.cast_prohibited`'s new `hand_only` flag** (Drannith
+  Magistrate's "…can't cast spells from anywhere other than their hands.")
+  — `GameEngine.can_cast` now passes the casting `zone` through, so a
+  flashback/foretell/graveyard-cast-permission attempt is correctly
+  forbidden while an ordinary hand cast isn't.
+- **`continuous.max_noncreature_spells_per_turn`** — `max_spells_per_turn`'s
+  noncreature-only sibling (Deafening Silence's "can't cast more than one
+  **noncreature** spell each turn"), reading the `noncreature_spells_cast_
+  this_turn` counter the Ojer batch already built for Magebane Lizard.
+- `GrantUntilEffect`'s existing `duration="end_of_turn"` wrapper around
+  `cast_prohibition` — Silence's "your opponents can't cast spells this
+  turn" needed no new primitive, just `target_kind=None` (no RULE 115
+  target at all, the first `GrantUntilEffect` user without one).
+
+Kutzil, Malamet Exemplar's own first clause ("opponents can't cast spells
+during your turn") turned out to already be fully parser-MODELED via an
+existing row (`_CANT_CAST_OPPONENTS_YOUR_TURN_RE`) — only its second
+clause (a "power greater than its base power" per-creature qualifier on
+the CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER aggregate, RULE 208's "base
+power" needing its own careful RULE 613.4/706 layer-scoping to get right)
+blocks it, filed in `BACKLOG.md` rather than rushed.
+
+Full test suite green throughout (3930 passed, 238 skipped). Parser
+coverage 33.9%→33.9% (11,807→11,812/34,811, `PARSER_VERSION` 89→90) —
+`BACKLOG.md`/`CLAUDE.md`/`implementationStatusView.js` synced.
+
+## MEC-12: Glarb Bloomsday first pass (2026-08-13)
+
+A first pass on `[cEDH] Glarb Bloomsday` (82/100 → 88/100) — 6 cards, 12
+residual gaps documented in `BACKLOG.md` rather than rushed. Several new
+general primitives, each reusable well beyond this deck:
+
+- **`AddManaEffect.color_from_source_chosen_color`** — the triggered-mana-
+  ability shape (Wild Growth's own RULE 605.1b/605.4 primitive) now also
+  reads a live `GameObject.chosen_color` (RULE 601.2b's "as ~ enters,
+  choose a color") instead of only a fixed `colors` list. Closes Utopia
+  Sprawl.
+- **A resolve-time quoted-ability grant** (`catalogue.handlers._grant_
+  quoted_ability_until_eot`, reusing `static_handlers._quoted_ability_
+  grant_effects` — the Aura/Equipment quoted-grant parser — wrapped in the
+  existing `GrantUntilEffect`) — "Until end of turn, target creature gains
+  '`<cost>`: `<effect>`.'" (Retraction Helix-shaped, **23 cache-wide
+  cards**). Surfaced and fixed a real pre-existing bug along the way:
+  `subgrammars.py`'s own "target nonland permanent" TARGET row mapped to
+  the bare `"permanent"` kind (silently allowing lands too) even though a
+  proper `"nonland_permanent"` kind already existed at the engine level —
+  it was just never added to `targeting.ALLOWED_TARGET_KINDS`.
+- **`ReturnToLibraryEffect`'s new self mode** (`target_kind=None`, no
+  RULE 115 target — mirroring `ExileEffect`/`TapEffect`'s own self modes)
+  + **"look at the top N cards of your library, then put them back in any
+  order."** recognized as the same `scry` resolution Ponder's own entry
+  already documents covers every legal outcome (**28 cache-wide cards**).
+  Closes Sensei's Divining Top.
+- **`lands.py`'s new `unless_count` "Sanctuary cycle" variant** (a named
+  land *type* count, "unless you control N or more other Islands" —
+  distinct from the existing plain/basic-only forms) + **`EffectSpec.
+  condition`'s new `source_entered_untapped` key** (RULE 614.1's own
+  settled-before-ETB ordering). Closes Mystic Sanctuary.
+- **`type_change`'s "every basic land type" recognition** ("Lands you
+  control are every basic land type in addition to their other types." —
+  Dryad of the Ilysian Grove's own second clause, 3 cache-wide cards).
+- **`continuous.has_standing_flash_permission`** — a new "permission"
+  static (the `cast_limit`/`cast_prohibited`/`extra_land_drop` family's
+  own treatment: consulted directly by `GameEngine.can_cast`'s timing
+  check, not the RULE 613 layer engine) for "You may cast [noncreature/
+  creature] spells as though they had flash." (**8 cache-wide cards**).
+  Closes High Fae Trickster and (partially — its own third clause needs a
+  `PumpEffect` subtype-list param that doesn't exist yet) Valley
+  Floodcaller.
+
+Full test suite green throughout (3930 passed, 238 skipped). Parser
+coverage 33.9%→34.0% (11,812→11,823/34,811, `PARSER_VERSION` 90→91) —
+`BACKLOG.md`/`CLAUDE.md`/`implementationStatusView.js` synced.

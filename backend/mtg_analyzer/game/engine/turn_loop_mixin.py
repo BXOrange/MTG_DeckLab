@@ -36,7 +36,7 @@ from ..costs import (
     ActivationCost,
     parse_activation_cost,
 )
-from ..effects import ActivatedAbility
+from ..effects import ActivatedAbility, GrantSkipExtraTurnsEffect
 from ..mana_abilities import (
     hand_mana_abilities_for,
     mana_abilities_for,
@@ -187,6 +187,18 @@ class TurnLoopMixin:
             # RULE 500.7: a queued extra turn is taken right after this one,
             # before the normal next player — pop the front of the queue and
             # hand that player the turn instead of rotating the round-robin.
+            # RULE 500.7/700.4: "If an opponent would begin an extra turn,
+            # that player skips that turn instead." (Stranglehold-shaped)
+            # — pop past every queued taker a live grant skips, so the
+            # turn falls through to the next queued extra turn (or,
+            # failing that, normal rotation) rather than handing the
+            # skipped player anything.
+            while self.state.extra_turns and any(
+                isinstance(e, GrantSkipExtraTurnsEffect) and permanent.controller_id != self.state.extra_turns[0]
+                for permanent in self.state.battlefield
+                for e in getattr(permanent, "static_effects", None) or []
+            ):
+                self.state.extra_turns.pop(0)
             if self.state.extra_turns:
                 taker_id = self.state.extra_turns.pop(0)
                 self.state.active_player_index = next(
@@ -242,6 +254,10 @@ class TurnLoopMixin:
         # correctly too, not just the active player's own activation check.
         for player in self.state.players:
             self.state.cast_instant_or_sorcery_this_turn[player.id] = False
+        # Same game-wide reset scope as the row above — Magebane Lizard's
+        # own running per-player noncreature-spell count.
+        for player in self.state.players:
+            self.state.noncreature_spells_cast_this_turn[player.id] = 0
         # Veil of Summer-shaped "if an opponent has cast a blue or black
         # spell this turn" — same game-wide reset scope as the row above.
         for player in self.state.players:
@@ -773,6 +789,14 @@ class TurnLoopMixin:
                 player.player_effects = [
                     e for e in player.player_effects
                     if not getattr(e, "damage_prevention_shield", False)
+                ]
+            # Same "this turn" expiry (RULE 119.3/611.2a), for
+            # `RulesEngine.prevent_life_gain_this_turn`'s (Roiling Vortex)
+            # own player-effect shield.
+            if any(getattr(e, "life_gain_prevention_shield", False) for e in player.player_effects):
+                player.player_effects = [
+                    e for e in player.player_effects
+                    if not getattr(e, "life_gain_prevention_shield", False)
                 ]
         self._clear_combat()
         # RULE 601.3b analogue: a temporary "play until end of your next

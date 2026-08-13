@@ -238,7 +238,19 @@ class CastingResolutionMixin:
                 any(t in o.card.type_line.lower() for t in types) for o in controlled
             )
         elif kind == "unless_count":
-            if condition.get("basic"):
+            type_word = condition.get("type")
+            if type_word:
+                # "Sanctuary" cycle (Mystic Sanctuary-shaped): counts only
+                # lands whose subtype word matches (RULE 205.3i, after the
+                # printed em dash) rather than any land or every basic.
+                other_lands = sum(
+                    1
+                    for o in self.state.battlefield
+                    if o.is_land
+                    and o.controller_id == obj.controller_id
+                    and type_word in o.card.type_line.lower()
+                )
+            elif condition.get("basic"):
                 other_lands = sum(
                     1
                     for o in self.state.battlefield
@@ -567,6 +579,8 @@ class CastingResolutionMixin:
         # from their hand" (Possibility Storm) reads it as the event's
         # ``from_hand`` key.
         from_hand = obj.zone == Zone.HAND
+        obj.cast_from_exile = obj.zone == Zone.EXILE
+        obj.was_cast = True
         # Zone-agnostic (not just hand/command) so an Adventure creature can
         # be cast from exile (RULE 715.3d) with no dedicated branch here.
         self._remove_from_current_zone(player, obj)
@@ -635,6 +649,8 @@ class CastingResolutionMixin:
         if target_groups is not None and targets is None:
             targets = [t for group in target_groups for t in group]
         from_hand = obj.zone == Zone.HAND
+        obj.cast_from_exile = obj.zone == Zone.EXILE
+        obj.was_cast = True
         self._remove_from_current_zone(player, obj)
         obj.zone = Zone.STACK
         # RULE 202.1: a free cast spends no mana at all — the "if no mana was

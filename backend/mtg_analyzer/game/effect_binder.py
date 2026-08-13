@@ -439,6 +439,11 @@ def _build_group_ok(
     # goaded/in-combat filters below already use, just keyed on this
     # ability's own source rather than a designation.
     want_crewed_by_self = bool(condition.get("crewed_by_self"))
+    # "Whenever a player taps a **nonbasic** land for mana, …" (Burning
+    # Earth) — a supertype, not a main type (`object_types`) or a subtype
+    # (after the printed em dash), so it needs its own live board check
+    # rather than either existing filter above.
+    want_nonbasic = bool(condition.get("nonbasic"))
 
     def _group_ok(
         event: Any,
@@ -457,6 +462,7 @@ def _build_group_ok(
         want_in_combat=in_combat,
         want_recipient_you=wants_recipient_you,
         want_crewed_by_self=want_crewed_by_self,
+        want_nonbasic=want_nonbasic,
     ) -> bool:
         event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
@@ -492,6 +498,13 @@ def _build_group_ok(
                 obj = state.find_object(event_instance) if state is not None else None
                 event_subtypes = _card_subtypes(obj.card) if obj is not None else None
             if not event_subtypes or not any(s in event_subtypes for s in stypes):
+                return False
+        if want_nonbasic:
+            if event_instance is None:
+                return False
+            state = getattr(context, "state", None)
+            obj = state.find_object(event_instance) if state is not None else None
+            if obj is None or "basic" in str(getattr(obj.card, "type_line", "") or "").lower():
                 return False
         if want_crewed_by_self:
             if iid is None or event_instance is None:
@@ -734,6 +747,24 @@ def _trigger_condition(
             return total - count < n <= total
 
         predicates.append(_nth_draw_ok)
+
+    # "Whenever a player casts their **second** spell each turn, …"
+    # (Hearthborn Battler) — `is_nth_draw_this_turn`'s own `SPELL_CAST`
+    # sibling, now on the same "already incremented before firing" footing
+    # `GameState.spells_cast_this_turn` shares with `cards_drawn_this_turn`
+    # (`RulesEngine.__init__`'s subscription order). ``count`` is always 1
+    # here (a cast is never batched the way a multi-card draw can be), but
+    # the same range comparison is kept for symmetry with the draw row.
+    nth_spell = trigger.get("is_nth_spell_cast_this_turn")
+    if nth_spell is not None:
+        n = int(nth_spell)
+
+        def _nth_spell_ok(event: Any, context: Any, n=n) -> bool:
+            player_id = event.get("player_id")
+            total = context.state.spells_cast_this_turn.get(player_id, 0)
+            return total == n
+
+        predicates.append(_nth_spell_ok)
 
     # "Whenever a player casts a spell, if no mana was spent to cast it,
     # counter that spell." (Vexing Bauble) — RULE 601.2h's "free spell" hate,

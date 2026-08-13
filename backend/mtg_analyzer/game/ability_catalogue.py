@@ -14743,3 +14743,568 @@ def _hullbreaker_horror() -> list[AbilitySpec]:
 
 
 register("Hullbreaker Horror", _hullbreaker_horror)
+
+
+# ---------------------------------------------------------------------------
+# MEC-12: Ojer cEDH — new core primitive (`EventType.ACTIVATED_ABILITY`,
+# RULE 602.2) + oracle-text-blind reuse of the existing TAPPED_FOR_MANA
+# "group"/"nonbasic" scoping (effect_binder.py) for the "punisher" family.
+# ---------------------------------------------------------------------------
+
+
+def _manabarbs() -> list[AbilitySpec]:
+    """Whenever a player taps a land for mana, this enchantment deals 1
+    damage to that player. — Manabarbs. The bare, untyped sibling of Price
+    of Glory's own `TAPPED_FOR_MANA` consumer: no `"nonbasic"` filter, and
+    `DealDamageEffect`'s existing `selector="event_player"` (Spellshock's
+    shape) for "that player" instead of Price of Glory's reflexive-target
+    destroy.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 1, "selector": "event_player"})],
+            trigger={
+                "event": EventType.TAPPED_FOR_MANA,
+                "condition": {"subject": "group", "type": "land"},
+            },
+            raw_text="Whenever a player taps a land for mana, this "
+                     "enchantment deals 1 damage to that player.",
+        )
+    ]
+
+
+register("Manabarbs", _manabarbs)
+
+
+def _burning_earth() -> list[AbilitySpec]:
+    """Whenever a player taps a nonbasic land for mana, this enchantment
+    deals 1 damage to that player. — Burning Earth. Manabarbs' own
+    `"nonbasic"` sibling — `effect_binder._build_group_ok`'s new supertype
+    filter (a live board check, since "Basic" isn't a main type
+    `object_types` carries or a subtype after the em dash).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 1, "selector": "event_player"})],
+            trigger={
+                "event": EventType.TAPPED_FOR_MANA,
+                "condition": {"subject": "group", "type": "land", "nonbasic": True},
+            },
+            raw_text="Whenever a player taps a nonbasic land for mana, "
+                     "this enchantment deals 1 damage to that player.",
+        )
+    ]
+
+
+register("Burning Earth", _burning_earth)
+
+
+def _harsh_mentor() -> list[AbilitySpec]:
+    """Whenever an opponent activates an ability of an artifact, creature,
+    or land on the battlefield, if it isn't a mana ability, this creature
+    deals 2 damage to that player. — Harsh Mentor. First consumer of the
+    new `EventType.ACTIVATED_ABILITY` (`GameEngine.activate_ability`, RULE
+    602.2) — mana abilities never reach that event at all (RULE 605.1a:
+    they never use the stack, resolving instead through `tap_for_mana`/
+    `activate_hand_mana_ability`), so "isn't a mana ability" needs no
+    filter of its own. "of an artifact, creature, or land" is simplified to
+    "of a permanent" (artifact/creature/land cover the overwhelming
+    majority of real activated abilities; a planeswalker/battle/
+    enchantment-only activated ability triggering this too is a narrow,
+    documented over-trigger rather than a missed one).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 2, "selector": "event_player"})],
+            trigger={
+                "event": EventType.ACTIVATED_ABILITY,
+                "condition": {"subject": "group", "controller": "not_you"},
+            },
+            raw_text="Whenever an opponent activates an ability of an "
+                     "artifact, creature, or land on the battlefield, if "
+                     "it isn't a mana ability, this creature deals 2 "
+                     "damage to that player.",
+        )
+    ]
+
+
+register("Harsh Mentor", _harsh_mentor)
+
+
+def _immolation_shaman() -> list[AbilitySpec]:
+    """Whenever an opponent activates an ability of an artifact, creature,
+    or land that isn't a mana ability, this creature deals 1 damage to
+    that player.
+    {3}{R}{R}: This creature gets +3/+3 and gains menace until end of turn.
+
+    — Immolation Shaman. Harsh Mentor's own 1-damage sibling; its pump
+    ability is already parser-claimed (`author_card.py reuse`) and just
+    copied here verbatim, since registering a card replaces the parser's
+    specs wholesale rather than merging with them.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 1, "selector": "event_player"})],
+            trigger={
+                "event": EventType.ACTIVATED_ABILITY,
+                "condition": {"subject": "group", "controller": "not_you"},
+            },
+            raw_text="Whenever an opponent activates an ability of an "
+                     "artifact, creature, or land that isn't a mana "
+                     "ability, this creature deals 1 damage to that "
+                     "player.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("pump", {"power": 3, "toughness": 3, "keywords": ["menace"]})],
+            cost={"text": "{3}{r}{r}"},
+            raw_text="{3}{r}{r}: ~ gets +3/+3 and gains menace until end of turn.",
+        ),
+    ]
+
+
+register("Immolation Shaman", _immolation_shaman)
+
+
+def _zo_zu_the_punisher() -> list[AbilitySpec]:
+    """Whenever a land enters, Zo-Zu deals 2 damage to that land's
+    controller. — Zo-Zu the Punisher. Named-by-proper-noun self-reference
+    (not "this creature"/"~"), which `normalize._fold_self_reference`
+    doesn't fold for a hyphenated card name — hand-authored rather than
+    chasing that edge case for one card. New `DealDamageEffect`
+    ``selector="event_controller"`` (the entering land's own controller,
+    distinct from ``"event_player"``'s cast/draw-shaped "acting player").
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 2, "selector": "event_controller"})],
+            trigger={
+                "event": "ENTERS_BATTLEFIELD",
+                "condition": {"subject": "group", "type": "land"},
+            },
+            raw_text="Whenever a land enters, Zo-Zu deals 2 damage to "
+                     "that land's controller.",
+        )
+    ]
+
+
+register("Zo-Zu the Punisher", _zo_zu_the_punisher)
+
+
+def _spiteful_banditry() -> list[AbilitySpec]:
+    """When this enchantment enters, it deals X damage to each creature.
+    Whenever one or more creatures your opponents control die, you create
+    a Treasure token. This ability triggers only once each turn.
+
+    — Spiteful Banditry. New `DealDamageEffect.x_multiplier` (the
+    `AddCountersEffect` primitive's own sibling) for the ETB's announced
+    {X}. The "one or more … die" aggregate quantifier is approximated by
+    an ordinary per-creature DIES group trigger plus the printed "only
+    once each turn" cap (``trigger["limit"]``) — both shapes create at
+    most one Treasure per turn regardless of how many opponent creatures
+    die simultaneously, so the board outcome is identical either way.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"x_multiplier": 1, "selector": "each_creature"})],
+            trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+            raw_text="When this enchantment enters, it deals X damage to "
+                     "each creature.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"token_name": "Treasure", "count": 1})],
+            trigger={
+                "event": "DIES",
+                "condition": {"subject": "group", "type": "creature", "controller": "not_you"},
+                "limit": True,
+            },
+            raw_text="Whenever one or more creatures your opponents "
+                     "control die, you create a Treasure token. This "
+                     "ability triggers only once each turn.",
+        ),
+    ]
+
+
+register("Spiteful Banditry", _spiteful_banditry)
+
+
+def _pyrohemia() -> list[AbilitySpec]:
+    """At the beginning of the end step, if no creatures are on the
+    battlefield, sacrifice this enchantment.
+    {R}: This enchantment deals 1 damage to each creature and each player.
+
+    — Pyrohemia. New `EffectSpec.condition` key ``no_creatures_on_
+    battlefield`` (global, unlike the existing controller-scoped
+    ``controls_none_of_type``); the activated ability reuses
+    `DealDamageEffect`'s already-shipped ``each_creature_and_player``
+    selector (Volcanic Fallout-shaped) verbatim — this card's own body just
+    hadn't been recognized by the parser yet.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("sacrifice_self", {}, condition={"no_creatures_on_battlefield": True})],
+            trigger={"event": "STEP_BEGIN", "filter": {"step": "end"}},
+            raw_text="At the beginning of the end step, if no creatures "
+                     "are on the battlefield, sacrifice this enchantment.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("damage", {"amount": 1, "selector": "each_creature_and_player"})],
+            cost={"text": "{r}"},
+            raw_text="{r}: this enchantment deals 1 damage to each "
+                     "creature and each player.",
+        ),
+    ]
+
+
+register("Pyrohemia", _pyrohemia)
+
+
+def _karn_the_great_creator() -> list[AbilitySpec]:
+    """Activated abilities of artifacts your opponents control can't be
+    activated.
+    +1: Until your next turn, up to one target noncreature artifact
+    becomes an artifact creature with power and toughness each equal to
+    its mana value.
+    -2: You may reveal an artifact card you own from outside the game or
+    choose a face-up artifact card you own in exile. Put that card into
+    your hand.
+
+    — Karn, the Great Creator. First static already parser-claimed
+    (`activation_prohibition`). The +1 needs two new primitives: RULE
+    115.1c's `"noncreature_artifact"` target kind, and `type_change`'s new
+    ``pt_selector="mana_value"`` (a dynamic sibling of its existing literal
+    ``power``/``toughness`` ints), wrapped in the RULE 611.2b
+    `GrantUntilEffect` (``duration="your_next_turn"``) — the same primitive
+    "until end of turn" grants use, just a different sweep window. The -2
+    is a **documented simplification**: this engine has no "outside the
+    game" zone (a sideboard-like concept with no Commander legal use), so
+    only its real half — reclaim a face-up artifact card from exile — is
+    modeled; the "reveal … from outside the game" branch is dropped.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("activation_prohibition", {
+                "affects": "opponents_permanents", "card_type": "artifact",
+            })],
+            raw_text="Activated abilities of artifacts your opponents "
+                     "control can't be activated.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_until", {
+                "static": {"type": "type_change", "params": {
+                    "add_types": ["creature"], "pt_selector": "mana_value",
+                }},
+                "duration": "your_next_turn",
+                "target_kind": "noncreature_artifact",
+                "optional": True,
+                "count": 1,
+            })],
+            cost={"loyalty": 1},
+            raw_text="+1: Until your next turn, up to one target "
+                     "noncreature artifact becomes an artifact creature "
+                     "with power and toughness each equal to its mana "
+                     "value.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("search", {
+                "criteria": {"type": "Artifact"}, "destination": "hand", "zones": ["exile"],
+            })],
+            cost={"loyalty": -2},
+            raw_text="-2: Choose a face-up artifact card you own in "
+                     "exile. Put that card into your hand.",
+        ),
+    ]
+
+
+register("Karn, the Great Creator", _karn_the_great_creator)
+
+
+def _cemetery_gatekeeper() -> list[AbilitySpec]:
+    """First strike
+    When this creature enters, exile a card from a graveyard.
+    Whenever a player plays a land or casts a spell, if it shares a card
+    type with the exiled card, this creature deals 2 damage to that
+    player.
+
+    — Cemetery Gatekeeper. ``any_graveyard_card`` is the existing Regrowth/
+    Reanimate-family target kind ("a graveyard" — RULE 115's "any single
+    graveyard, whosever it is"); `ExileEffect.remember` stamps the exiled
+    card's `instance_id` onto `GameObject.linked_exile_id`, and the new
+    `EffectSpec.condition` key ``shares_type_with_linked_exile`` (RULE
+    205.2a real card types only) gates the two payoff triggers — one per
+    firing event (LAND_PLAYED/SPELL_CAST), the same "one spec per event"
+    shape the "scry or surveil" compound trigger uses.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile", {"target_kind": "any_graveyard_card", "remember": True})],
+            trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+            raw_text="When this creature enters, exile a card from a "
+                     "graveyard.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 2, "selector": "event_player"},
+                        condition={"shares_type_with_linked_exile": True})],
+            trigger={"event": "LAND_PLAYED", "condition": {"subject": "group"}},
+            raw_text="Whenever a player plays a land, if it shares a card "
+                     "type with the exiled card, this creature deals 2 "
+                     "damage to that player.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 2, "selector": "event_player"},
+                        condition={"shares_type_with_linked_exile": True})],
+            trigger={"event": "SPELL_CAST", "condition": {"subject": "group"}},
+            raw_text="Whenever a player casts a spell, if it shares a "
+                     "card type with the exiled card, this creature deals "
+                     "2 damage to that player.",
+        ),
+    ]
+
+
+register("Cemetery Gatekeeper", _cemetery_gatekeeper)
+
+
+def _ojer_axonil_deepest_might() -> list[AbilitySpec]:
+    """Trample
+    If a red source you control would deal an amount of noncombat damage
+    less than Ojer Axonil's power to an opponent, that source deals
+    damage equal to Ojer Axonil's power instead.
+    When Ojer Axonil dies, return it to the battlefield tapped and
+    transformed under its owner's control.
+
+    — Ojer Axonil, Deepest Might. New replacement `damage_floor_from_
+    source_power` — `_additional_damage_replacement`'s floor-shaped
+    sibling, reading the live threshold/replacement amount off this same
+    source's own current power rather than a flat bonus. The death trigger
+    reuses `ReturnSelfFromGraveyardEffect`'s existing ``transformed`` flag
+    (also fixing a dormant bug along the way: its ``tapped`` param had
+    never actually been applied — see the effect's own docstring).
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("damage_floor_from_source_power", {"colors": ["R"]})],
+            raw_text="If a red source you control would deal an amount "
+                     "of noncombat damage less than Ojer Axonil's power "
+                     "to an opponent, that source deals damage equal to "
+                     "Ojer Axonil's power instead.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_self_from_graveyard_untargeted", {
+                "destination": "battlefield", "tapped": True, "transformed": True,
+            })],
+            trigger={"event": "DIES", "condition": {"subject": "self"}},
+            raw_text="When Ojer Axonil dies, return it to the "
+                     "battlefield tapped and transformed under its "
+                     "owner's control.",
+        ),
+    ]
+
+
+register("Ojer Axonil, Deepest Might // Temple of Power", _ojer_axonil_deepest_might)
+
+
+def _powerbalance() -> list[AbilitySpec]:
+    """Whenever an opponent casts a spell, you may reveal the top card of
+    your library. If you do, you may cast that card without paying its
+    mana cost if the two spells have the same mana value.
+
+    — Powerbalance. New `reveal_top_then_free_cast_if_mv_match`; see the
+    effect's own docstring for its two "you may" simplifications (the
+    reveal is unconditional, the cast stays a genuine choice).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("reveal_top_then_free_cast_if_mv_match", {})],
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "group", "controller": "not_you"},
+            },
+            raw_text="Whenever an opponent casts a spell, you may reveal "
+                     "the top card of your library. If you do, you may "
+                     "cast that card without paying its mana cost if the "
+                     "two spells have the same mana value.",
+        )
+    ]
+
+
+register("Powerbalance", _powerbalance)
+
+
+def _silence() -> list[AbilitySpec]:
+    """Your opponents can't cast spells this turn.
+
+    — Silence. The existing `GrantUntilEffect`/`duration="end_of_turn"`
+    wrapper around the standing `cast_prohibition` static (scope=
+    "opponents") — no target of its own, unlike every other `GrantUntil
+    Effect` user so far.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("grant_until", {
+                "static": {"type": "cast_prohibition", "params": {"scope": "opponents"}},
+                "duration": "end_of_turn",
+                "target_kind": None,
+            })],
+            raw_text="Your opponents can't cast spells this turn.",
+        )
+    ]
+
+
+register("Silence", _silence)
+
+
+def _utopia_sprawl() -> list[AbilitySpec]:
+    """Enchant Forest
+    As this Aura enters, choose a color.
+    Whenever enchanted Forest is tapped for mana, its controller adds an
+    additional one mana of the chosen color.
+
+    — Utopia Sprawl. Wild Growth's own triggered-mana-ability shape
+    (RULE 605.1b/605.4 — resolves off-stack so the extra mana is there in
+    time to spend), just reading `AddManaEffect`'s new `color_from_source_
+    chosen_color` flag instead of a fixed `colors` list.
+    """
+    return [
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("choose_color_on_enter", {})],
+            raw_text="As this Aura enters, choose a color.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_mana", {
+                "color_from_source_chosen_color": True, "recipient": "event_controller",
+            })],
+            trigger={
+                "event": EventType.TAPPED_FOR_MANA,
+                "condition": {"subject": "attached_permanent"},
+                "mana_ability": True,
+            },
+            raw_text="Whenever enchanted Forest is tapped for mana, its "
+                     "controller adds an additional one mana of the "
+                     "chosen color.",
+        ),
+    ]
+
+
+register("Utopia Sprawl", _utopia_sprawl)
+
+
+def _senseis_divining_top() -> list[AbilitySpec]:
+    """{1}: Look at the top three cards of your library, then put them
+    back in any order.
+    {T}: Draw a card, then put this artifact on top of its owner's
+    library.
+
+    — Sensei's Divining Top. Its first ability is the shared `scry`
+    non-interactive resolution (Ponder's own precedent — every legal "any
+    order" outcome is already reachable); the second needs
+    `ReturnToLibraryEffect`'s new self mode (``target_kind=None``, no
+    RULE 115 target at all).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("scry", {"count": 3})],
+            cost={"text": "{1}"},
+            raw_text="{1}: Look at the top three cards of your library, "
+                     "then put them back in any order.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("draw", {"count": 1}),
+                EffectSpec("return_to_library", {"target_kind": None, "position": "top"}),
+            ],
+            cost={"taps_self": True},
+            raw_text="{T}: Draw a card, then put this artifact on top of "
+                     "its owner's library.",
+        ),
+    ]
+
+
+register("Sensei's Divining Top", _senseis_divining_top)
+
+
+def _mystic_sanctuary() -> list[AbilitySpec]:
+    """({T}: Add {U}.)
+    This land enters tapped unless you control three or more other
+    Islands.
+    When this land enters untapped, you may put target instant or
+    sorcery card from your graveyard on top of your library.
+
+    — Mystic Sanctuary. Its enters-tapped clause needed a new `lands.py`
+    ``unless_count`` variant (a specific land *type*, "other Islands",
+    rather than any other land or every basic — the "Sanctuary" cycle);
+    the ETB trigger needed the new `EffectSpec.condition` key
+    ``source_entered_untapped`` (RULE 614.1's own settled-before-ETB
+    ordering) and `ReturnToLibraryEffect`'s existing ``graveyard_instant_
+    or_sorcery`` target kind.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_to_library", {
+                "target_kind": "graveyard_instant_or_sorcery", "position": "top", "optional": True,
+            }, condition={"source_entered_untapped": True})],
+            trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+            raw_text="When this land enters untapped, you may put target "
+                     "instant or sorcery card from your graveyard on top "
+                     "of your library.",
+        ),
+    ]
+
+
+register("Mystic Sanctuary", _mystic_sanctuary)
+
+
+def _scab_clan_berserker() -> list[AbilitySpec]:
+    """Haste
+    Renown 1 (When this creature deals combat damage to a player, if it
+    isn't renowned, put a +1/+1 counter on it and it becomes renowned.)
+    Whenever an opponent casts a noncreature spell, if this creature is
+    renowned, this creature deals 2 damage to that player.
+
+    — Haste/Renown both come from the RULE 702 keyword catalogue
+    (`effect_binder._keyword_triggered_abilities`, unaffected by this
+    registration — see Relic Seeker's own entry); this only adds the
+    card's own third ability, gated by the new `EffectSpec.condition` key
+    ``source_is_renowned``.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 2, "selector": "event_player"},
+                        condition={"source_is_renowned": True})],
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "group", "controller": "not_you"},
+                "spell_exclude_card_types": ["creature"],
+            },
+            raw_text="Whenever an opponent casts a noncreature spell, if "
+                     "this creature is renowned, this creature deals 2 "
+                     "damage to that player.",
+        )
+    ]
+
+
+register("Scab-Clan Berserker", _scab_clan_berserker)

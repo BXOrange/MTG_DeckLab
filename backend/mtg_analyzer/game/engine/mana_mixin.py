@@ -191,6 +191,12 @@ class ManaMixin:
                 EventType.TAPPED_FOR_MANA,
                 object=source.name,
                 controller_id=player.id,
+                # Also under `player_id` — `DealDamageEffect`'s
+                # ``selector="event_player"`` (Manabarbs/Burning Earth-shaped
+                # "deals damage to that player" payoffs) always reads that
+                # key specifically (`_event_player`'s default), same as
+                # every other cast/draw/activate "that player" trigger.
+                player_id=player.id,
                 instance_id=source.instance_id,
                 object_types=sorted(source.type_words),
                 produced=dict(produced),

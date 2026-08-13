@@ -617,6 +617,18 @@ class GameState:
         #: new active player in `GameEngine.begin_turn`, incremented off the
         #: `SPELL_CAST` event by `RulesEngine._track_spell_cast`.
         self.spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: Noncreature spells cast by each player *this turn* ("~ deals
+        #: damage to that player equal to the number of noncreature spells
+        #: they've cast this turn." — Magebane Lizard) — unlike
+        #: `spells_cast_this_turn` above (reset only for the incoming
+        #: active player, RULE 731.2's own narrow scope), this resets for
+        #: *every* player each `GameEngine.begin_turn`, the same
+        #: `mana_produced_this_turn`/`cast_instant_or_sorcery_this_turn`
+        #: game-wide idiom: a non-active player's own cast still counts
+        #: toward *their* running total for this trigger. Incremented
+        #: alongside `spells_cast_this_turn` by `RulesEngine.
+        #: _track_spell_cast`.
+        self.noncreature_spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: How many combat phases this turn has had (RULE 603.4's "if it's
         #: the first combat phase of the turn" intervening-if — Karlach,
         #: Fury of Avernus/Finest Hour/Genji Glove-shaped extra-combat

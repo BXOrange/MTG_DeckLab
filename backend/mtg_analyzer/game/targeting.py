@@ -88,7 +88,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "any", "creature", "permanent", "player", "spell",
         # Single-type permanent targets (RULE 115.1c — "target artifact"/
         # "target enchantment"/"target land"), any controller's.
-        "artifact", "enchantment", "land",
+        "artifact", "enchantment", "land", "noncreature_artifact",
         # "target activated or triggered ability" (RULE 115/608.2b — Stifle/
         # Trickbind-shaped, ENG-26) — the stack-item-identity sibling of
         # ``"spell"``: an ability `StackItem` has no `.obj` a target
@@ -127,6 +127,12 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target permanent you own/control." (Reality Scramble) — the
         # controller-scoped mirror of `permanent_you_dont_control` above.
         "permanent_you_control",
+        # "target nonland permanent" (Retraction Helix-shaped) — any
+        # controller's, unlike the `_you_control`/`_you_dont_control`
+        # suffixed forms below (which already had their own row here); the
+        # bare unscoped form's own `legal_targets` branch already existed
+        # but was never whitelisted.
+        "nonland_permanent",
         # "target spell or nonland permanent an opponent controls" (Sink
         # into Stupor) — the ``"spell"``/``nonland_permanent_you_dont_
         # control`` union.
@@ -292,6 +298,13 @@ class TargetSpec:
     #: separate field since spells and permanents resolve through different
     #: `legal_targets` branches). ``None`` means unfiltered.
     color: Optional[str] = None
+    #: An OR of 2+ WUBRG letters (RULE 105) — "target white **or** blue
+    #: creature" (Rending Volley-shaped) — ``color``'s multi-letter
+    #: sibling; the two are mutually exclusive per spec (the segmenter only
+    #: ever emits one or the other), checked together by `_color_ok` below
+    #: so every `color`-narrowed `legal_targets` branch gets this for free.
+    #: ``None`` means unfiltered.
+    colors: Optional[tuple[str, ...]] = None
     #: A mana-value cap on a ``"creature"``/``"permanent"`` target (RULE
     #: 115/601.2c, Abrupt Decay-shaped "target nonland permanent with mana
     #: value 3 or less") — checked at *offer* time (an over-cost permanent
@@ -513,6 +526,17 @@ def _is_human(obj: "GameObject") -> bool:
     return continuous.has_subtype(obj, "Human")
 
 
+def _color_ok(spec: "TargetSpec", obj_colors: Any) -> bool:
+    """``TargetSpec.color``/``colors`` narrowing, combined — unfiltered if
+    neither is set, single-letter membership if ``color`` is, OR-membership
+    if ``colors`` is (the two are mutually exclusive per spec)."""
+    if spec.color and spec.color not in obj_colors:
+        return False
+    if spec.colors and not (set(spec.colors) & set(obj_colors)):
+        return False
+    return True
+
+
 def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
     """Whether ``obj`` is a legal target/attachment host for ``source`` under
     protection and hexproof (RULE 702.16b/e: protection prevents being
@@ -706,10 +730,10 @@ def legal_targets(
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             if o.is_creature and o is not source and _targetable_by(o, source)
-            and (not spec.color or spec.color in o.colors)
+            and _color_ok(spec, o.colors)
         ]
         players = [{"player_id": p.id, "name": p.name} for p in state.living_players()]
-        return objs + (players if not spec.color else [])
+        return objs + (players if not (spec.color or spec.colors) else [])
     if kind in ("creature", "permanent"):
         return [
             # ``controller_id`` is only ever consumed client-side when
@@ -720,7 +744,7 @@ def legal_targets(
             if (kind == "permanent" or o.is_creature)
             and o is not source
             and _targetable_by(o, source)
-            and (not spec.color or spec.color in o.colors)
+            and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
             and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
         ]
@@ -734,7 +758,7 @@ def legal_targets(
             if o.controller_id == controller_id
             and o is not source
             and _targetable_by(o, source)
-            and (not spec.color or spec.color in o.colors)
+            and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
     if kind == "permanent_you_dont_control":
@@ -749,7 +773,7 @@ def legal_targets(
             if o.controller_id not in (None, controller_id)
             and o is not source
             and _targetable_by(o, source)
-            and (not spec.color or spec.color in o.colors)
+            and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
     if kind == "nonland_permanent":
@@ -762,7 +786,7 @@ def legal_targets(
                 or o.card.is_artifact or o.card.is_enchantment)
             and o is not source
             and _targetable_by(o, source)
-            and (not spec.color or spec.color in o.colors)
+            and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
     if kind in ("nonland_permanent_you_control", "nonland_permanent_you_dont_control"):
@@ -779,7 +803,7 @@ def legal_targets(
             and ((o.controller_id == controller_id) == wants_own)
             and o is not source
             and _targetable_by(o, source)
-            and (not spec.color or spec.color in o.colors)
+            and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
     if kind == "spell_or_nonland_permanent_you_dont_control":
@@ -993,14 +1017,18 @@ def legal_targets(
             and o.controller_id == controller_id
             and o is not source
         ]
-    if kind in ("artifact", "enchantment", "land"):
+    if kind in ("artifact", "enchantment", "land", "noncreature_artifact"):
         # RULE 115 single-type permanent target (also the enter-as-copy
         # candidate pool for Copy Artifact / Copy Enchantment). Any
-        # controller's, unlike `land_you_control`.
+        # controller's, unlike `land_you_control`. ``noncreature_artifact``
+        # (Karn, the Great Creator's own "becomes an artifact creature"
+        # animate — RULE 115.1c excludes an already-creature artifact, the
+        # one real printed qualifier no other row here needs).
         _SINGLE_TYPE_PREDICATE = {
             "artifact": lambda o: o.card.is_artifact,
             "enchantment": lambda o: o.card.is_enchantment,
             "land": lambda o: o.is_land,
+            "noncreature_artifact": lambda o: o.card.is_artifact and not o.is_creature,
         }
         predicate = _SINGLE_TYPE_PREDICATE[kind]
         return [
@@ -1009,7 +1037,7 @@ def legal_targets(
             if predicate(o)
             and o is not source
             and _targetable_by(o, source)
-            and (not spec.color or spec.color in o.colors)
+            and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
     if kind == "nonbasic_land":
@@ -1043,7 +1071,7 @@ def legal_targets(
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             if o.card.is_legendary and o is not source and _targetable_by(o, source)
-            and (not spec.color or spec.color in o.colors)
+            and _color_ok(spec, o.colors)
         ]
     if kind == "attached_equipment_you_control":
         return [

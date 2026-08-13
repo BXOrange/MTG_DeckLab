@@ -57,6 +57,14 @@ _UNLESS_BASIC_COUNT_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} tapped unless you control (\d+) or (more|fewer) basic lands\.?$",
     re.IGNORECASE,
 )
+#: The "Sanctuary" cycle (Mystic Sanctuary/Hall of Storm Giants &c): counts
+#: only lands of one named *type* ("other Islands") rather than any other
+#: land or every basic — a third `unless_count` sibling alongside the plain
+#: and basic-only forms above.
+_UNLESS_TYPE_COUNT_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped unless you control (\d+) or (more|fewer) other ([a-z]+?)s?\.?$",
+    re.IGNORECASE,
+)
 #: Check lands: "unless you control a/an <Type> [or a/an <Type> …]" —
 #: deterministic on the land *types* the controller already has.
 _UNLESS_TYPES_RE = re.compile(
@@ -167,6 +175,13 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     if match:
         cmp_op = "le" if match.group(2).lower() == "fewer" else "ge"
         return {"kind": "unless_count", "cmp": cmp_op, "count": int(match.group(1))}
+    match = _UNLESS_TYPE_COUNT_RE.match(line)
+    if match:
+        cmp_op = "le" if match.group(2).lower() == "fewer" else "ge"
+        return {
+            "kind": "unless_count", "cmp": cmp_op, "count": int(match.group(1)),
+            "type": match.group(3).lower(),
+        }
     match = _UNLESS_TYPES_RE.match(line)
     if match:
         types = _split_types_clause(match.group(1))

@@ -833,6 +833,29 @@ class DamageDeathMixin:
             )
 
         self.apply_replacements(event, on_resolved=_finish)
+
+    def prevent_life_gain_this_turn(self, players: list[Player]) -> None:
+        """RULE 119.3/616.1: "`<players>` can't gain life this turn."
+        (Roiling Vortex — an activated-ability rider, not a static; Erebos,
+        God of the Dead prints the same clause as a standing "as long as
+        devotion" static instead, a separate, unbuilt shape). A turn-scoped
+        `ReplacementEffect` per player on `Player.player_effects`, the same
+        home/sweep idiom `prevent_damage_to_player` uses — cancels the
+        `LIFE_GAIN` pre-event outright (``None``, not a reduced amount:
+        RULE 119.3's "can't gain life" is absolute, no partial-prevention
+        bank to track) rather than reusing that method's own numeric-shield
+        shape, which doesn't fit "no gain at all, however much is offered".
+        """
+        for player in players:
+            effect = ReplacementEffect(
+                event_type=EventType.LIFE_GAIN,
+                replacement_fn=lambda e, c: None,
+                condition=lambda e, c, pid=player.id: e.get("player_id") == pid,
+                description=f"{player.name}: kann kein Leben dazugewinnen",
+            )
+            effect.life_gain_prevention_shield = True
+            player.player_effects.append(effect)
+
     def prevent_damage_to_player(self, player: Player, amount: Union[int, str] = "all") -> None:
         """RULE 615: grant ``player`` a turn-scoped damage-prevention shield
         (Riot Control's "all", Thought Lash's repeatable "the next 1") —

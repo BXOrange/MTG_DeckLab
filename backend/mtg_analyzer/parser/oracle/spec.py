@@ -84,7 +84,9 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "controls_none_of_type", "source_x_paid_at_least",
         "creatures_died_this_turn_at_least", "graveyard_has_type", "target_is_player",
         "not_already_exerted", "is_first_combat_phase", "is_your_turn",
-        "opponent_cast_color_this_turn",
+        "opponent_cast_color_this_turn", "no_creatures_on_battlefield",
+        "source_is_renowned", "shares_type_with_linked_exile", "source_was_cast",
+        "source_entered_untapped",
     }
 )
 

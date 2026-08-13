@@ -48,6 +48,17 @@ class EventType:
     #: attack, which is what a "tapped for mana" trigger (Price of Glory, Wild
     #: Growth, Mana Web) needs to tell the two apart.
     TAPPED_FOR_MANA = "TAPPED_FOR_MANA"
+    #: A player activated an ability of a permanent (RULE 602.2) — fired by
+    #: `GameEngine.activate_ability` right after the ability item is put on
+    #: the stack. Mana abilities (RULE 605.1a) never reach this: they never
+    #: use the stack at all, resolving instead through `tap_for_mana`/
+    #: `activate_hand_mana_ability`, which don't fire this event — so every
+    #: firing of this one is inherently "isn't a mana ability" with no extra
+    #: filter needed (Harsh Mentor/Immolation Shaman-shaped punisher cards).
+    #: Carries ``instance_id``/``object_types`` (the permanent whose ability
+    #: was activated) and ``controller_id`` = the activating player, the same
+    #: RULE 603.1 ``"group"`` subject convention `TAPPED_FOR_MANA` uses.
+    ACTIVATED_ABILITY = "ACTIVATED_ABILITY"
 
     # Object/zone movement.
     DRAW = "DRAW"

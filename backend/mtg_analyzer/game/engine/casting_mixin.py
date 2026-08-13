@@ -324,13 +324,20 @@ class CastingMixin:
         max_spells = continuous.max_spells_per_turn(self.state)
         if max_spells is not None and self.state.spells_cast_this_turn.get(player.id, 0) >= max_spells:
             return False
+        if not card.is_creature:
+            max_noncreature = continuous.max_noncreature_spells_per_turn(self.state)
+            if (
+                max_noncreature is not None
+                and self.state.noncreature_spells_cast_this_turn.get(player.id, 0) >= max_noncreature
+            ):
+                return False
         # RULE 601.3a: a *conditional* prohibition on this specific spell,
         # rather than a flat per-turn count — a standing static (Lavinia,
         # Azorius Renegade's "each opponent can't cast noncreature spells
         # with mana value greater than the number of lands that player
         # controls") or a duration-bounded player effect with no permanent
         # left behind it at all (Hope of Ghirapur, which sacrificed itself).
-        if continuous.cast_prohibited(self.state, player, card):
+        if continuous.cast_prohibited(self.state, player, card, zone=obj.zone):
             return False
         if any(
             getattr(e, "player_cast_restriction", False) and e.restricts(card)
@@ -371,6 +378,7 @@ class CastingMixin:
         sorcery_speed = not (
             card.is_instant or combat.has(obj, "flash") or has_conditional_flash or has_temp_flash
             or has_top_library_flash
+            or continuous.has_standing_flash_permission(self.state, player, card)
         )
         if face == "face_down":
             # RULE 708.4: an object cast face down is turned face down

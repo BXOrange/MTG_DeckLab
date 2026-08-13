@@ -619,11 +619,89 @@ _SELECTOR_WORD_MAP: dict[str, str] = {
     # event (`effects.DealDamageEffect`'s ``"event_player"`` selector), not
     # an untargeted group like the rows above.
     "that player": "event_player",
+    # "…if it's not their turn, ~ deals 4 damage to them." (Scytheclaw
+    # Raptor) — same firing-event player, just the pronoun object form
+    # rather than "that player".
+    "them": "event_player",
 }
+
+
+#: "~ deals N damage to target `<color>` or `<color>` creature." (Rending
+#: Volley-shaped) — `TargetSpec.colors`' own OR narrowing (`_destroy`'s
+#: single-``color`` sibling; only ever two colours on a real card so far).
+_DAMAGE_TARGET_TWO_COLOR_RE = _c(
+    rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to target "
+    rf"(?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) creature"
+)
+
+
+def _damage_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    colors = [resolve_color_word(m.group("c1")), resolve_color_word(m.group("c2"))]
+    if not all(colors):
+        return None
+    return [EffectSpec("damage", {
+        "amount": int(m.group("n")), "target_kind": "creature", "colors": colors,
+    })]
 
 
 def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
     selector = _SELECTOR_WORD_MAP[m.group("selector")]
+    return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": selector})]
+
+
+#: "~ deals damage to that player equal to the number of noncreature
+#: spells they've cast this turn." (Magebane Lizard) — `DealDamageEffect.
+#: amount_from_noncreature_spells_cast_this_turn`'s own trigger-body
+#: sibling of `_lose_life_per_spell_cast_this_turn` (a different count and
+#: a different effect type, so its own dedicated row rather than sharing
+#: one).
+_DAMAGE_PER_NONCREATURE_SPELL_CAST_THIS_TURN_RE = _c(
+    r"(?:(?:~|it) )?deals? damage to that player equal to the number of noncreature spells "
+    r"they'?ve cast this turn"
+)
+
+
+def _damage_per_noncreature_spell_cast_this_turn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "selector": "event_player", "amount_from_noncreature_spells_cast_this_turn": True,
+    })]
+
+
+#: "~ deals N damage to each opponent and each creature [and planeswalker]
+#: they control." (Tectonic Hazard/End the Festivities/Delayed Blast
+#: Fireball-shaped board wipes) — `DealDamageEffect`'s new
+#: ``each_opponent_and_their_creatures[_and_planeswalkers]`` selector
+#: (opponents-only, unlike ``each_creature_and_player``'s global scope).
+_DAMAGE_EACH_OPPONENT_AND_CREATURES_RE = _c(
+    rf"(?:(?:~|it) )?deals? {NUMBER} damage to each opponent and each creature"
+    rf"(?P<pw> and planeswalker)? they control"
+)
+
+
+#: "~ deals N damage to each opponent and each creature they control. If
+#: this spell was cast from exile, it deals M damage to each opponent and
+#: each creature they control instead." (Delayed Blast Fireball) —
+#: `DealDamageEffect.amount_if_cast_from_exile`'s own override, the same
+#: shape `amount_if_kicked`/`amount_if_bargained` already use.
+_DAMAGE_EACH_OPPONENT_AND_CREATURES_EXILE_RE = _c(
+    rf"(?:(?:~|it) )?deals? {NUMBER} damage to each opponent and each creature they control\. "
+    rf"if this spell was cast from exile, it deals (?P<n2>\d+) damage to each opponent and "
+    rf"each creature they control instead"
+)
+
+
+def _damage_each_opponent_and_creatures_exile(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "amount": int(m.group("n")), "selector": "each_opponent_and_their_creatures",
+        "amount_if_cast_from_exile": int(m.group("n2")),
+    })]
+
+
+def _damage_each_opponent_and_creatures(m: re.Match[str]) -> list[EffectSpec]:
+    selector = (
+        "each_opponent_and_their_creatures_and_planeswalkers" if m.group("pw")
+        else "each_opponent_and_their_creatures"
+    )
     return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": selector})]
 
 
@@ -1105,6 +1183,24 @@ _GAIN_LIFE_LOST_THIS_WAY_RE = _c(r"you gain life equal to the life lost this way
 
 def _gain_life_lost_this_way(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("gain_life", {"count_selector": "life_lost_this_way"})]
+
+
+#: "Whenever a player casts a spell, they lose 1 life for each spell
+#: they've cast this turn." (Rug of Smothering) — the caster's own running
+#: `GameState.spells_cast_this_turn` count (`LoseLifeEffect.
+#: amount_from_spells_cast_this_turn`, including the cast that fired this
+#: trigger), not a flat amount — tried before the plain `_lose_life` row
+#: below, whose bare `{NUMBER}` group can't match "each spell...".
+_LOSE_LIFE_PER_SPELL_CAST_THIS_TURN_RE = _c(
+    rf"they lose {NUMBER} life for each spell they'?ve cast this turn"
+)
+
+
+def _lose_life_per_spell_cast_this_turn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_life", {
+        "amount": int(m.group("n")), "selector": "event_player",
+        "amount_from_spells_cast_this_turn": True,
+    })]
 
 
 def _lose_life(m: re.Match[str]) -> list[EffectSpec]:
@@ -1697,8 +1793,45 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("counter", params)]
 
 
+#: "Until end of turn, target creature gains '`<cost>`: `<effect>`.'"
+#: (Retraction Helix-shaped, ~23 cache-wide cards on this template) — a
+#: *resolve-time* grant of a full quoted ability (activated/triggered/
+#: mana), unlike every other "gains `<keyword>` until end of turn" row
+#: above (a bare flag keyword, no quotes). Reuses `static_handlers.
+#: _quoted_ability_grant_effects` (the Aura/Equipment quoted-grant parser,
+#: already general over all three ability kinds) wrapped in `GrantUntil
+#: Effect`'s existing ``duration="end_of_turn"`` resolve-time shape
+#: instead of a standing layer-6 static.
+_GRANT_QUOTED_ABILITY_UNTIL_EOT_RE = _c(
+    r"until end of turn, target creature gains \"(?P<inner>.+)\""
+)
+
+
+def _grant_quoted_ability_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .static_handlers import _quoted_ability_grant_effects  # local: avoid a module cycle
+
+    grant = _quoted_ability_grant_effects(m.group("inner"))
+    if grant is None:
+        return None
+    return [EffectSpec("grant_until", {
+        "static": {"type": grant.type, "params": grant.params},
+        "duration": "end_of_turn",
+        "target_kind": "creature",
+    })]
+
+
 def _cant_be_countered(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("cant_be_countered", {})]
+
+
+#: RULE 119.3's "can't gain life this turn" rider (Roiling Vortex's
+#: activated-ability effect) — `PreventLifeGainEffect`'s only printed
+#: ``recipient`` so far.
+_CANT_GAIN_LIFE_RE = _c(r"your opponents can'?t gain life this turn")
+
+
+def _cant_gain_life(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("prevent_life_gain", {"recipient": "opponents"})]
 
 
 def _change_target(m: re.Match[str]) -> list[EffectSpec]:
@@ -4588,6 +4721,22 @@ def _scry_or_surveil(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(m.group("verb"), {"count": int(m.group("n"))})]
 
 
+#: "Look at the top N cards of your library, then put them back in any
+#: order." (Sensei's Divining Top/Sylvan Library-shaped, RULE 701.18's own
+#: unabbreviated old-templating spelling — ~27 cache-wide cards) — this
+#: engine's non-interactive `scry(N)` resolution already covers every
+#: legal outcome of "put them back in any order" (Ponder's own existing
+#: entry documents why), so it's the same `"scry"` EffectSpec, just a
+#: different printed phrasing reaching it.
+_LOOK_TOP_REORDER_RE = _c(
+    rf"look at the top {NUMBER} cards? of your library, then put (?:it|them) back in any order"
+)
+
+
+def _look_top_reorder(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("scry", {"count": int(m.group("n"))})]
+
+
 def _proliferate(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("proliferate", {})]
 
@@ -5234,6 +5383,13 @@ HANDLERS: list[EffectHandler] = [
         _copy_permanent_previous,
         previous_subject_only=True,
     ),
+    # Tried before the plain `damage` row below, whose `TARGET` alternation
+    # has no two-colour-OR creature filter of its own.
+    EffectHandler(
+        "damage_target_two_color",
+        _DAMAGE_TARGET_TWO_COLOR_RE,
+        _damage_target_two_color,
+    ),
     # "~ deals 3 damage to any target" / "deal 2 damage to target creature" /
     # "it deals 2 damage to target opponent" (a triggered-ability body's own
     # "it"/"this creature"/"this land"/"this permanent" subject — cosmetic,
@@ -5301,13 +5457,33 @@ HANDLERS: list[EffectHandler] = [
         _PREVENT_ALL_COMBAT_DAMAGE_RE,
         _prevent_all_combat_damage,
     ),
+    EffectHandler(
+        "damage_per_noncreature_spell_cast_this_turn",
+        _DAMAGE_PER_NONCREATURE_SPELL_CAST_THIS_TURN_RE,
+        _damage_per_noncreature_spell_cast_this_turn,
+    ),
+    # Tried before the single-sentence row below (a strict superset of its
+    # own opening clause, so it must win the race or never get a turn).
+    EffectHandler(
+        "damage_each_opponent_and_creatures_exile",
+        _DAMAGE_EACH_OPPONENT_AND_CREATURES_EXILE_RE,
+        _damage_each_opponent_and_creatures_exile,
+    ),
+    # Tried before the plain `damage_selector` row below (its own "each
+    # opponent" alternative would otherwise match first and leave "and each
+    # creature they control" unconsumed, failing the clause closed).
+    EffectHandler(
+        "damage_each_opponent_and_creatures",
+        _DAMAGE_EACH_OPPONENT_AND_CREATURES_RE,
+        _damage_each_opponent_and_creatures,
+    ),
     # "~ deals 2 damage to each creature" / "… to each player" / "… to each
     # opponent" — a mass effect (RULE 601.2c), not RULE 115 targeting.
     EffectHandler(
         "damage_selector",
         _c(
             rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to "
-            rf"(?P<selector>each creature|each player|each opponent|that player)"
+            rf"(?P<selector>each creature|each player|each opponent|that player|them)"
         ),
         _damage_selector,
     ),
@@ -5467,6 +5643,14 @@ HANDLERS: list[EffectHandler] = [
     # RULE 119's "drain" idiom trailing sentence — "You gain life equal to
     # the life lost this way." (Gray Merchant of Asphodel-shaped).
     EffectHandler("gain_life_lost_this_way", _GAIN_LIFE_LOST_THIS_WAY_RE, _gain_life_lost_this_way),
+    # Tried before the plain `lose_life` row below (its own bare
+    # `{NUMBER} life` would otherwise stop right after the digit, leaving
+    # "for each spell they've cast this turn" unconsumed).
+    EffectHandler(
+        "lose_life_per_spell_cast_this_turn",
+        _LOSE_LIFE_PER_SPELL_CAST_THIS_TURN_RE,
+        _lose_life_per_spell_cast_this_turn,
+    ),
     # "you lose 2 life" / "target player loses 2 life" / "they lose 2 life"
     # (the group-subject event's own player — see `_lose_life`'s docstring).
     EffectHandler(
@@ -5658,6 +5842,18 @@ HANDLERS: list[EffectHandler] = [
         "cant_be_countered",
         CANT_BE_COUNTERED_RE,
         _cant_be_countered,
+    ),
+    EffectHandler(
+        "grant_quoted_ability_until_eot",
+        _GRANT_QUOTED_ABILITY_UNTIL_EOT_RE,
+        _grant_quoted_ability_until_eot,
+    ),
+    # RULE 119.3: "Your opponents can't gain life this turn." (Roiling
+    # Vortex's activated-ability rider).
+    EffectHandler(
+        "cant_gain_life",
+        _CANT_GAIN_LIFE_RE,
+        _cant_gain_life,
     ),
     # "Change the target of target spell with a single target." (Deflection/
     # Shunt/Swerve-shaped) / "…target spell or ability with a single
@@ -6572,6 +6768,11 @@ HANDLERS: list[EffectHandler] = [
         "scry_or_surveil",
         _c(rf"(?P<verb>scry|surveil) {NUMBER}"),
         _scry_or_surveil,
+    ),
+    EffectHandler(
+        "look_top_reorder",
+        _LOOK_TOP_REORDER_RE,
+        _look_top_reorder,
     ),
     # "venture into the dungeon" (RULE 701.49) / "venture into Undercity"
     # (RULE 701.49d).

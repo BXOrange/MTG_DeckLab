@@ -395,4 +395,5 @@ def test_cant_be_countered_binds_from_a_permanents_static_line():
     )
     obj = GameObject(card, owner_id="p1", zone=Zone.STACK)
     bind_from_catalogue(obj)
-    assert RulesEngine._is_cant_be_countered(obj)
+    eng, _p1, _p2 = two_player_engine()
+    assert eng.rules._is_cant_be_countered(obj)

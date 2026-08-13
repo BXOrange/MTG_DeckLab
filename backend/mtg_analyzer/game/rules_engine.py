@@ -369,10 +369,18 @@ class RulesEngine(
         #: see `request_remove_counters_choice`/`_continue_remove_counters`.
         self._pending_remove_counters_target: Optional[Union[GameObject, Player]] = None
         self._pending_remove_counters_remaining: int = 0
+        # Tally spells cast this turn for the RULE 731.2 day/night check —
+        # subscribed *before* `_collect_triggers` (unlike the historical
+        # order) so `GameState.spells_cast_this_turn` already reflects the
+        # very spell whose SPELL_CAST is being collected, matching
+        # `_single_draw`'s own "increment before firing" convention for
+        # `cards_drawn_this_turn` — needed for "whenever a player casts
+        # their **second** spell each turn" (Hearthborn Battler)'s ordinal
+        # check to read the same already-current count `is_nth_draw_this_
+        # turn` does.
+        state.subscribe(self._track_spell_cast)
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)
-        # Tally spells cast this turn for the RULE 731.2 day/night check.
-        state.subscribe(self._track_spell_cast)
         # Tally creatures that died this turn (RULE 700.4) — see
         # `GameState.creatures_died_this_turn`.
         state.subscribe(self._track_creature_death)
