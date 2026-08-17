@@ -397,6 +397,10 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "subtype", "subtype_any", "without_subtype", "color", "without_color",
         "card_type", "without_card_type", "power_vs_reference", "attacking",
         "even_mana_value",
+        # "a black or red source"/"a source of the chosen colour"/"a creature
+        # of the chosen type" (MEC-30 — Greater Realm of Preservation/Story
+        # Circle/Prismatic Circle/Circle of Solace).
+        "color_any", "color_from_source", "subtype_from_source",
         # RULE 111.9 — "a **nontoken** blue creature" (Flare of Denial-
         # shaped RULE 118.9 alternative cost).
         "nontoken",
@@ -413,6 +417,11 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # blocker being checked — RULE 613.7c "you" always means the source's
         # controller), rather than a fixed int baked in at parse time.
         "power_lt_count_selector",
+        # "**another** Dinosaur you control" (Temple Altisaur's own
+        # damage-prevention recipient scoping) — the negated sibling of
+        # ``instance_id`` above, excluding one specific object (always the
+        # filtering ability's own source) rather than requiring one.
+        "without_instance_id",
     }
 )
 
@@ -486,6 +495,32 @@ def matches_object_filter(
         str(c).upper() for c in (getattr(obj, "colors", None) or set())
     }:
         return False
+    # "a black **or red** source of your choice" (Greater Realm of
+    # Preservation/Penance-shaped, MEC-30) — the multi-colour sibling of
+    # ``color`` above, same "any of" idiom as ``keyword_any``/``subtype_any``.
+    color_any = filt.get("color_any")
+    if color_any:
+        obj_colors = {str(c).upper() for c in (getattr(obj, "colors", None) or set())}
+        if not any(str(c).upper() in obj_colors for c in color_any):
+            return False
+    # "a source of your choice **of the chosen colour**" (Story Circle/
+    # Prismatic Circle's RULE 601.2b ETB colour choice, MEC-30) — reads
+    # ``reference.chosen_color`` (the filtering ability's own source, not the
+    # candidate) instead of a literal colour baked in at parse time, the same
+    # dynamic-vs-literal split ``power_lt_count_selector`` already uses.
+    if filt.get("color_from_source"):
+        chosen = getattr(reference, "chosen_color", None) if reference is not None else None
+        if not chosen or str(chosen).upper() not in {
+            str(c).upper() for c in (getattr(obj, "colors", None) or set())
+        }:
+            return False
+    # "a creature **of the chosen type**" (Circle of Solace's RULE 601.2b
+    # ETB creature-type choice, MEC-30) — ``subtype``'s dynamic sibling,
+    # mirroring ``color_from_source`` immediately above.
+    if filt.get("subtype_from_source"):
+        chosen = getattr(reference, "chosen_type", None) if reference is not None else None
+        if not chosen or not _has_subtype(obj, str(chosen)):
+            return False
     # "creatures with even mana values" (Void Winnower — "Zero is even.").
     # Reads the printed card's own mana value, matching how a spell's mana
     # value is looked up before layer-engine effects (see `_spell_type_
@@ -525,6 +560,9 @@ def matches_object_filter(
             return False
     instance_id = filt.get("instance_id")
     if instance_id is not None and obj.instance_id != instance_id:
+        return False
+    without_instance_id = filt.get("without_instance_id")
+    if without_instance_id is not None and obj.instance_id == without_instance_id:
         return False
     lt_selector = filt.get("power_lt_count_selector")
     if lt_selector is not None:

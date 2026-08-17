@@ -28,6 +28,7 @@ from ..parser.oracle.catalogue.handlers import (
 )
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 from .costs import ActivationCost, parse_activation_cost
+from .static_conditions import condition_holds
 from .effects import (
     ActivatedAbility,
     AttachEffect,
@@ -106,13 +107,40 @@ def build_replacements(
     A ``replacement`` `AbilitySpec` carries its family in each `EffectSpec`'s
     ``type`` (e.g. ``"prevent_damage"``) — only names in the
     `ReplacementRegistry` bind, so nothing from card text becomes an arbitrary
-    callable (docs/09 security boundary)."""
+    callable (docs/09 security boundary).
+
+    ``spec.params["active_if"]`` (RULE 613.6's "as long as `<condition>`, …"
+    vocabulary, `static_conditions.py`) gates *any* replacement generically —
+    wrapping whatever `condition` the factory itself set, rather than each
+    replacement factory reimplementing its own level/turn/board gate. This is
+    what lets a Leveler's per-band amount (Hedron-Field Purists — MEC-30)
+    ship as two plain `EffectSpec("prevent_damage", {..., "active_if": {...}})`
+    entries instead of new bespoke code, reusing `condition_from_legacy_
+    params`'s existing ``source_counters`` min/max translation of
+    ``min_level``/``max_level``.
+    """
     built: list[ReplacementEffect] = []
     for spec in effects:
         if not ReplacementRegistry.is_registered(spec.type):
             raise BindError(f"no registered replacement for type {spec.type!r}")
-        effect = ReplacementRegistry.create(spec.type, dict(spec.params))
+        params = dict(spec.params)
+        active_if = params.pop("active_if", None)
+        effect = ReplacementRegistry.create(spec.type, params)
         effect.source = source
+        if active_if is not None:
+            inner_condition = effect.condition
+            controller_id = getattr(source, "controller_id", None)
+
+            def _gated(
+                event: Any, context: Any,
+                _active_if: dict = active_if, _inner: Any = inner_condition,
+                _source: Any = source, _controller_id: Any = controller_id,
+            ) -> bool:
+                if not condition_holds(_active_if, context.state, _source, _controller_id):
+                    return False
+                return _inner is None or _inner(event, context)
+
+            effect.condition = _gated
         built.append(effect)
     return built
 
@@ -964,6 +992,31 @@ def _trigger_condition(
             return int((obj.counters or {}).get(k, 0)) < want
 
         predicates.append(_source_counters_below_ok)
+
+    # "When there are nine or more incarnation counters on this
+    # enchantment, exile it." (Nine Lives, MEC-30) — the mirror image of
+    # `source_counters_below` above (RULE 603.8's "as soon as" a threshold
+    # is crossed is checked exactly like an SBA, but since this card's own
+    # counters only ever arrive one at a time via its own `prevent_damage`
+    # rider, gating an ordinary `EventType.COUNTER` trigger with this
+    # "at least" check is rules-equivalent to a real state trigger for this
+    # card specifically — no new state-checking subsystem needed).
+    source_counters_at_least = trigger.get("source_counters_at_least")
+    if source_counters_at_least is not None:
+        instance_id = getattr(source, "instance_id", None)
+        threshold = int(source_counters_at_least.get("count", 0))
+        kind = str(source_counters_at_least.get("kind", "+1/+1"))
+
+        def _source_counters_at_least_ok(
+            event: Any, context: Any, iid=instance_id, want=threshold, k=kind,
+        ) -> bool:
+            state = getattr(context, "state", None)
+            obj = state.find_object(iid) if state is not None and iid is not None else None
+            if obj is None:
+                return False
+            return int((obj.counters or {}).get(k, 0)) >= want
+
+        predicates.append(_source_counters_at_least_ok)
 
     if trigger.get("not_controllers_turn"):
         controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
@@ -1901,6 +1954,23 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
                 getattr(obj.card, "is_instant", False) or getattr(obj.card, "is_sorcery", False)
             ):
                 obj.spell_effects = list(getattr(obj, "spell_effects", [])) + [GetCityBlessingEffect(source=obj)]
+            if str(keyword.get("name") or "") == "absorb":
+                # RULE 702.64 (MEC-30): "Absorb N" ("If a source would deal
+                # damage to this creature, prevent N of that damage.") — a
+                # numbered keyword bound straight onto `obj.replacement_
+                # effects`, no `AbilitySpec`/oracle-text detour needed since
+                # its whole behaviour is the parameter itself. Unlike Ward
+                # (fully bespoke/procedural, `RulesEngine.check_ward`) or the
+                # triggered-only `_KEYWORD_TRIGGERED_BUILDERS` table just
+                # below, this is the first keyword bound directly onto a
+                # `ReplacementEffect` — reuses the same `"prevent_damage"`
+                # factory an oracle-parsed standing shield (the Sphere
+                # cycle/Shield of the Realm) binds through.
+                n = int(keyword.get("n", 0) or 0)
+                if n > 0:
+                    effect = ReplacementRegistry.create("prevent_damage", {"to": "self", "amount": n})
+                    effect.source = obj
+                    obj.replacement_effects.append(effect)
             continue
         bound = bind_ability(spec, source=obj)
         if spec.ability_kind == "spell_effect":

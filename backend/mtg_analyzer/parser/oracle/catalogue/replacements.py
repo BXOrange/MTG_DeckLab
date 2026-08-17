@@ -4,15 +4,23 @@
 family. The binder side (`game/effects.py`'s `ReplacementRegistry`) has
 long supported `prevent_damage`/`double_damage`/`additional_damage`/
 `double_counters`/`double_tokens`; this module supplies the *recognition*
-half for four of those five — the ones with a single, fixed real-card
+half for all five — the ones with a single, fixed real-card
 phrasing (Doubling Season/Anointed Procession's token- and
 counter-doubling lines, Torbran/Mechanized Warfare's "plus N damage" line,
-and Furnace of Rath/Dictate of the Twin Gods/Gratuitous Violence/Fiery
-Emancipation's damage-multiplying lines below). `prevent_damage`'s real
-cards (Riot Control/Thought Lash) are a different, *one-shot spell effect*
-shape ("Prevent all/the next N damage that would be dealt to you this
-turn" grants a temporary shield, it isn't itself a standing permanent
-ability) and aren't covered here.
+Furnace of Rath/Dictate of the Twin Gods/Gratuitous Violence/Fiery
+Emancipation's damage-multiplying lines, and — MEC-30 — the Sphere cycle/
+Urza's Armor/Shield of the Realm family's "if a `<source qualifier>` would
+deal damage to `<recipient>`, prevent `<amount>` of that damage" line below).
+`prevent_damage_shield`'s real cards (Riot Control/Thought Lash) are a
+different, *one-shot spell effect* shape ("Prevent all/the next N damage
+that would be dealt to you this turn" grants a temporary shield, it isn't
+itself a standing permanent ability) and aren't covered here — nor is the
+"a source **of your choice**" one-shot family (Circle of Protection/Rune of
+Protection and ~25 siblings): a *choice* isn't a plain replacement clause,
+and the family's real per-card variety (ETB-chosen colours/artists,
+sacrifice costs, "if damage is prevented this way" riders) is hand-authored
+in `game/ability_catalogue.py` instead (MEC-30's own documented choice,
+not a gap — see that batch's `Done_Backend.md` entry).
 
 RULE 616.1's full "if X would Y, Z instead" grammar has many more real
 formulations (further target/duration variants) than the ones covered so
@@ -180,6 +188,107 @@ _WIN_INSTEAD_OF_EMPTY_DRAW_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: MEC-30: the standing "if a `<source qualifier>` would deal damage to
+#: `<recipient>`, prevent `<amount>` of that damage" family — the Sphere
+#: cycle (Duty/Grace/Law/Purity/Reason/Truth), Urza's Armor/Orbs of
+#: Warding/Protection of the Hekma/Heart-Shaped Herb/Guardian Seraph,
+#: Daunting Defender/Djeru, With Eyes Open/Temple Altisaur, and Shield of
+#: the Realm/Avatar. Two regexes (a literal ``\d+``/"all but N" amount, and
+#: Shield of the Avatar's own "X … where X is the number of creatures you
+#: control" count-selector amount) rather than one, since the trailing
+#: "where X is …" clause changes the sentence shape rather than just one
+#: word within it — the same "don't force one regex to swallow a
+#: structurally different tail" call `_DAMAGE_MULTIPLIER_RE`'s own
+#: ``tail`` group already makes.
+_PREVENT_QUALIFIER_ALT = (
+    r"a white source|a blue source|a black source|a red source|a green source|"
+    r"an artifact|a creature|a source an opponent controls|a source"
+)
+#: The qualifier text (lower-cased) → `_prevent_damage_replacement`'s own
+#: ``source_filter`` shape, or ``None`` for the unqualified "a source".
+_PREVENT_QUALIFIER_MAP: dict[str, Optional[dict]] = {
+    "a white source": {"color": "W"},
+    "a blue source": {"color": "U"},
+    "a black source": {"color": "B"},
+    "a red source": {"color": "R"},
+    "a green source": {"color": "G"},
+    "an artifact": {"card_type": "artifact"},
+    "a creature": {"is_creature": True},
+    "a source an opponent controls": {"controller": "opponent"},
+    "a source": None,
+}
+_PREVENT_RECIPIENT_ALT = (
+    r"you|equipped creature|a planeswalker you control|"
+    r"a \w+ creature you control|another \w+ you control"
+)
+_STANDING_PREVENT_RE = re.compile(
+    rf"if (?P<qualifier>{_PREVENT_QUALIFIER_ALT}) would deal damage to "
+    rf"(?P<recipient>{_PREVENT_RECIPIENT_ALT}), "
+    r"prevent (?P<amount>\d+|all but \d+) of that damage",
+    re.IGNORECASE,
+)
+_STANDING_PREVENT_COUNT_RE = re.compile(
+    rf"if (?P<qualifier>{_PREVENT_QUALIFIER_ALT}) would deal damage to "
+    rf"(?P<recipient>{_PREVENT_RECIPIENT_ALT}), "
+    r"prevent x of that damage, where x is the number of creatures you control",
+    re.IGNORECASE,
+)
+
+
+def _prevent_recipient_params(recipient: str) -> Optional[dict]:
+    """``recipient`` (already lower-cased) → `_prevent_damage_replacement`'s
+    own ``to``/``recipient_filter`` params, or ``None`` if unrecognized."""
+    if recipient == "you":
+        return {"to": "controller"}
+    if recipient == "equipped creature":
+        return {"to": "attached_permanent"}
+    if recipient == "a planeswalker you control":
+        return {"to": "controlled_permanent", "recipient_filter": {"card_type": "planeswalker"}}
+    if recipient.startswith("a ") and recipient.endswith(" creature you control"):
+        subtype = recipient[len("a "):-len(" creature you control")]
+        return {"to": "controlled_permanent", "recipient_filter": {"subtype": subtype}}
+    if recipient.startswith("another ") and recipient.endswith(" you control"):
+        subtype = recipient[len("another "):-len(" you control")]
+        return {
+            "to": "controlled_permanent",
+            "recipient_filter": {"subtype": subtype, "exclude_self": True},
+        }
+    return None
+
+
+def _standing_prevent_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
+    qualifier = m.group("qualifier").lower()
+    if qualifier not in _PREVENT_QUALIFIER_MAP:
+        return None
+    recipient_params = _prevent_recipient_params(m.group("recipient").lower())
+    if recipient_params is None:
+        return None
+    params: dict = dict(recipient_params)
+    source_filter = _PREVENT_QUALIFIER_MAP[qualifier]
+    if source_filter is not None:
+        params["source_filter"] = source_filter
+    amount = m.group("amount").lower()
+    if amount.startswith("all but "):
+        params["amount"] = {"all_but": int(amount[len("all but "):])}
+    else:
+        params["amount"] = int(amount)
+    return EffectSpec("prevent_damage", params)
+
+
+def _standing_prevent_count_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
+    qualifier = m.group("qualifier").lower()
+    if qualifier not in _PREVENT_QUALIFIER_MAP:
+        return None
+    recipient_params = _prevent_recipient_params(m.group("recipient").lower())
+    if recipient_params is None:
+        return None
+    params: dict = dict(recipient_params)
+    source_filter = _PREVENT_QUALIFIER_MAP[qualifier]
+    if source_filter is not None:
+        params["source_filter"] = source_filter
+    params["amount_count_selector"] = "creatures_you_control"
+    return EffectSpec("prevent_damage", params)
+
 
 def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     """`EffectSpec`s for a standing replacement-effect ``clause``, or ``None``.
@@ -249,5 +358,17 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _DIE_TO_EXILE_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("die_to_exile", {"subject": _DIE_SUBJECT_MAP[m.group("subject").lower()]})]
+
+    m = _STANDING_PREVENT_COUNT_RE.fullmatch(text)
+    if m is not None:
+        spec = _standing_prevent_count_spec(m)
+        if spec is not None:
+            return [spec]
+
+    m = _STANDING_PREVENT_RE.fullmatch(text)
+    if m is not None:
+        spec = _standing_prevent_spec(m)
+        if spec is not None:
+            return [spec]
 
     return None

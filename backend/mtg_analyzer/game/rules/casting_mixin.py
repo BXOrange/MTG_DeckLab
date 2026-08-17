@@ -947,11 +947,14 @@ class CastingResolutionMixin:
         # (`GameContext.trigger_event`). Restored rather than cleared,
         # because resolving one item can recursively resolve another.
         outer_trigger_event = self.context.trigger_event
+        outer_resolving_controller_id = self.context.resolving_controller_id
         self.context.trigger_event = item.trigger_event
+        self.context.resolving_controller_id = item.controller_id
         try:
             return self._apply_stack_item(item)
         finally:
             self.context.trigger_event = outer_trigger_event
+            self.context.resolving_controller_id = outer_resolving_controller_id
     def resume_deferred_effects(self) -> bool:
         """Pick a suspended effect list back up (RULE 608.2), innermost first.
 

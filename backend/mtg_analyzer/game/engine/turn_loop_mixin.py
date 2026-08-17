@@ -798,6 +798,20 @@ class TurnLoopMixin:
                     e for e in player.player_effects
                     if not getattr(e, "life_gain_prevention_shield", False)
                 ]
+            # Same "this turn" expiry again (RULE 616, MEC-30), for
+            # `RulesEngine.grant_damage_multiplier_this_turn`'s (Insult //
+            # Injury/Isengard Unleashed) own player-effect grant — a
+            # dedicated flag rather than `damage_prevention_shield`, since
+            # this isn't a prevention effect and must stay untouched by
+            # `damage_prevention_disabled`'s filter below.
+            if any(getattr(e, "damage_multiplier_grant", False) for e in player.player_effects):
+                player.player_effects = [
+                    e for e in player.player_effects
+                    if not getattr(e, "damage_multiplier_grant", False)
+                ]
+        # RULE 615 (MEC-30): "Damage can't be prevented this turn." also
+        # lapses here, the same window every other "this turn" flag clears.
+        self.state.damage_prevention_disabled = False
         self._clear_combat()
         # RULE 601.3b analogue: a temporary "play until end of your next
         # turn" permission (Light Up the Stage-shaped impulsive draw) lapses
@@ -1066,6 +1080,12 @@ class TurnLoopMixin:
             # Vault, Wandering Archaic) — "pay" charges the cost and runs
             # the follow-up; anything else runs the "if you don't" branch.
             self.rules.resolve_pay_cost_then_choice(None if declined else str(answer))
+        elif kind == "all_decline_or":
+            # RULE 118.3-adjacent multi-player tax: "Any player may pay
+            # <cost>. If no one does, <effect>." (Rhystic Circle, MEC-30) —
+            # "pay" cancels the whole sweep; anything else moves on to the
+            # next player.
+            self.rules.resolve_all_decline_or_choice(None if declined else str(answer))
         elif kind == "pay_energy_then":
             # RULE 122: "you may pay {E}{E}. If you do, <effect>." (Aether
             # Chaser) — "pay" spends the energy and resolves the follow-up,

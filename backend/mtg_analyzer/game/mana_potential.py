@@ -277,7 +277,7 @@ def _non_mana_cost_payable(
     # Unsupported-in-practice shapes (see module docstring) — no real
     # mana ability pairs these with mana production, so failing closed
     # here is a documented simplification, not a regression.
-    if cost.loyalty is not None or cost.discard_self:
+    if cost.loyalty is not None or cost.discard_self or cost.put_hand_card_on_library:
         return False
     if cost.pay_life == PAY_LIFE_X:
         return False
@@ -294,7 +294,7 @@ def _non_mana_cost_payable(
             return False
     if cost.exile_from_graveyard and commitment.graveyard_left - cost.exile_from_graveyard < 0:
         return False
-    if cost.exile_top_of_library and commitment.library_left < 1:
+    if cost.exile_top_of_library and commitment.library_left < cost.exile_top_of_library:
         return False
     if cost.unattach_self and (obj.attached_to is None or obj.instance_id in commitment.unattached):
         return False
@@ -341,7 +341,7 @@ def _commit_non_mana_cost(
     if cost.exile_from_graveyard:
         commitment.graveyard_left -= cost.exile_from_graveyard
     if cost.exile_top_of_library:
-        commitment.library_left -= 1
+        commitment.library_left -= cost.exile_top_of_library
     if cost.unattach_self:
         commitment.unattached.add(obj.instance_id)
     if cost.sacrifice:

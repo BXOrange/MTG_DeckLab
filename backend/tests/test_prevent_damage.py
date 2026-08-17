@@ -205,8 +205,15 @@ def test_gain_life_count_selector_counts_opponents_creatures():
 
 
 def test_exile_top_of_library_cost_is_recognized():
+    # MEC-30 (Seasoned Tactician): widened from a bare bool to a real
+    # printed count — a bare "top card" (no number) still means exactly 1.
     cost = parse_activation_cost({"text": "Exile the top card of your library"})
-    assert cost.exile_top_of_library is True
+    assert cost.exile_top_of_library == 1
+
+
+def test_exile_top_n_cards_of_library_cost_is_recognized():
+    cost = parse_activation_cost({"text": "Exile the top four cards of your library"})
+    assert cost.exile_top_of_library == 4
 
 
 def test_exile_top_of_library_cost_is_unpayable_with_an_empty_library():

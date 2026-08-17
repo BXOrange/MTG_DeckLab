@@ -520,6 +520,16 @@ class GameState:
         #: params + a source reference), so it deep-copies with `clone`.
         self.floating_statics: list[Any] = []
 
+        #: RULE 615's "Damage can't be prevented this turn." (Insult //
+        #: Injury/Isengard Unleashed, MEC-30) — a plain turn-scoped flag
+        #: rather than a replacement effect of its own, since it has no
+        #: recipient/source to key off of: it just excludes every
+        #: prevention-shaped effect (`ReplacementEffect.prevents_damage`)
+        #: from `RulesEngine._run_replacement_loop`'s candidate list while
+        #: set. Reset at cleanup (`GameEngine._step_cleanup`), the same
+        #: RULE 514.2 window every other "this turn" flag clears in.
+        self.damage_prevention_disabled: bool = False
+
         #: Extra turns to take (RULE 500.7), as a FIFO of player ids —
         #: "take an extra turn after this one" (Final Fortune, the Time Warp
         #: family) appends here; `GameEngine.begin_turn` pops the front instead

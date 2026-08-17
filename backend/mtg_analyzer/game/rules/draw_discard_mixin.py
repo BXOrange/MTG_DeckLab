@@ -267,6 +267,17 @@ class DrawDiscardMixin:
         obj.zone = Zone.LIBRARY
         player.library.insert(0, obj)
         self.draw(player, 1)
+    def put_hand_card_on_top_of_library(self, obj: GameObject) -> None:
+        """Put a specific card from its owner's hand on top of their
+        library — MEC-30's Penance ("Put a card from your hand on top of
+        your library: …"), the chosen-card cost-payment counterpart to
+        `put_hand_cards_on_top`'s auto-pick-off-the-back convention (a cost
+        is a genuine RULE 602.1 choice, resolved by `ActivationMixin.
+        _resolve_put_hand_card_cost` the same way `discard_specific` backs
+        a plain discard-N cost's own chosen card)."""
+        player = self.state.player_by_id(obj.owner_id)
+        player.remove_from_zone(obj, Zone.HAND)
+        player.add_to_zone(obj, Zone.LIBRARY)  # top of deck is the list end
     def discard_specific(self, obj: GameObject) -> None:
         """Discard ``obj`` itself out of its owner's hand — Channel (RULE
         702.29)/Cycling (RULE 702.28)'s own "Discard this card" cost, unlike

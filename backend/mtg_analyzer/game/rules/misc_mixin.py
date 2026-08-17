@@ -352,6 +352,111 @@ class MiscSystemsMixin:
             if self.state.pending_choice is not None:
                 return  # a real choice opened — resumed via resolve_pay_cost_then_choice
         self._pending_each_player_pay_or = None
+    def request_all_players_decline_or(
+        self,
+        cost: "ActivationCost",
+        effect_specs: list[dict[str, Any]],
+        source: Optional[GameObject],
+        controller_id: str,
+    ) -> None:
+        """RULE 118.3-adjacent multi-player tax: "Any player may pay
+        `<cost>`. If no one does, `<effect>`." (Rhystic Circle, MEC-30).
+
+        Every living player, starting with the active player and
+        proceeding in turn order, is asked in turn whether to pay ``cost``.
+        The *first* player to actually pay cancels the whole thing —
+        ``effect_specs`` never resolves at all, since *someone* paid to
+        stop it. Only once *every* player has declined (or can't pay —
+        the same "don't stall on a choice nobody can act on" shortcut
+        `request_each_player_pay_or` takes) does ``effect_specs`` resolve,
+        applied *once*, to ``controller_id`` (the ability's own controller
+        — "you" in the printed text, not whoever happened to decline
+        last).
+
+        This is the aggregate-outcome mirror image of `request_each_player_
+        pay_or` (PAR-13's "each player loses N life unless they pay" —
+        that one applies its effect *per decliner*, and a payment simply
+        skips that one player while the sweep continues regardless; this
+        one applies its effect *once*, and a single payment cancels the
+        *entire* sweep). The two can't share one advance loop for exactly
+        that reason, but both are built the same way underneath: a chain
+        of ordinary single-player pay/decline choices over the same
+        `_can_pay_player_cost`/`_pay_player_cost` machinery.
+        """
+        start = self.state.active_player_index
+        n = len(self.state.players)
+        order = [
+            self.state.players[(start + i) % n].id
+            for i in range(n)
+            if not self.state.players[(start + i) % n].has_lost
+        ]
+        self._pending_all_decline_or = {
+            "remaining_ids": order,
+            "cost": cost,
+            "effect_specs": [dict(d) for d in effect_specs],
+            "source": source,
+            "controller_id": controller_id,
+        }
+        self._advance_all_decline_or()
+    def _advance_all_decline_or(self) -> None:
+        """Ask the next still-pending player in a `request_all_players_
+        decline_or` sweep; once nobody's left (everyone declined or
+        couldn't pay), resolve the "if no one does" effect and clear it."""
+        pending = self._pending_all_decline_or
+        if pending is None:
+            return
+        remaining: list[str] = pending["remaining_ids"]
+        cost = pending["cost"]
+        while remaining:
+            player_id = remaining.pop(0)
+            try:
+                player = self.state.player_by_id(player_id)
+            except (KeyError, ValueError):
+                continue
+            if player.has_lost or not self._can_pay_player_cost(player, cost):
+                continue
+            cost_label = cost.label()
+            self.state.pending_choice = {
+                "kind": "all_decline_or",
+                "player_id": player.id,
+                "prompt": f"{cost_label} bezahlen, um dies zu verhindern?",
+                "options": [
+                    {"id": "pay", "label": f"{cost_label} bezahlen"},
+                    {"id": "decline", "label": "Nicht bezahlen"},
+                ],
+            }
+            return  # a real choice opened — resumed via resolve_all_decline_or_choice
+        # Every remaining player declined or couldn't pay — the sweep is over.
+        self._pending_all_decline_or = None
+        try:
+            controller = self.state.player_by_id(pending["controller_id"])
+        except (KeyError, ValueError):
+            return
+        self._apply_effect_specs(pending["effect_specs"], pending["source"], targets=[controller])
+    def resolve_all_decline_or_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `all_decline_or` choice (`request_all_players_
+        decline_or`). ``answer == "pay"`` charges that player and cancels
+        the whole sweep — nothing else happens, since someone paid to stop
+        it. Anything else (decline, or a re-check finding they no longer
+        can pay — the board can have changed since the offer was made)
+        moves on to the next player."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "all_decline_or":
+            raise ValueError("no pending all-decline-or choice to resolve")
+        self.state.pending_choice = None
+        pending = self._pending_all_decline_or
+        if pending is None:
+            return
+        if answer == "pay":
+            try:
+                player = self.state.player_by_id(choice["player_id"])
+            except (KeyError, ValueError):
+                player = None
+            if player is not None and self._can_pay_player_cost(player, pending["cost"]):
+                self._pay_player_cost(player, pending["cost"])
+                self._pending_all_decline_or = None
+                return
+        self._advance_all_decline_or()
     def _apply_effect_specs(
         self,
         effect_specs: list[dict],
@@ -1450,6 +1555,26 @@ class MiscSystemsMixin:
             # action rather than overloading ``remember`` since nothing
             # here gets exiled.
             "choose_permanent",
+            # MEC-30 (RULE 615/616.1d "a source of your choice" — Circle of
+            # Protection/Rune of Protection): nothing happens to the chosen
+            # permanent either — it opens a `prevent_damage_to_player`/
+            # `_to_target`-shaped shield scoped to it, via the choice's own
+            # ``prevent_shield`` payload (`request_choose_objects`'s own
+            # docstring).
+            "remember_source",
+            # MEC-30 (RULE 616.1c "that damage is dealt to `<X>` instead" —
+            # Opal-Eye, Konda's Yojimbo): the redirect sibling of
+            # ``remember_source`` just above — same chooser, but opens
+            # `RulesEngine.redirect_damage_from_source` via the choice's own
+            # ``redirect_shield`` payload instead of a prevention shield.
+            "remember_source_redirect",
+            # MEC-30 (Desperate Gambit — "Choose a source you control and
+            # flip a coin. If you win, ... double ... . If you lose, ...
+            # prevent ..."): the chosen permanent IS the coin flip's own
+            # subject, so no shield payload is needed at all — the coin is
+            # flipped and the branch resolved entirely inside
+            # `_apply_chosen_object`.
+            "remember_source_coinflip",
         }
     )
     def request_choose_objects(
@@ -1464,6 +1589,8 @@ class MiscSystemsMixin:
         then_specs: Optional[list[dict]] = None,
         then_specs_if_commander: Optional[list[dict]] = None,
         remember: bool = False,
+        prevent_shield: Optional[dict] = None,
+        redirect_shield: Optional[dict] = None,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -1503,6 +1630,20 @@ class MiscSystemsMixin:
         permanent has imprinted. Only meaningful with ``count=1`` (a
         multi-pick "remembers" only its own last pick, overwriting the
         rest — no printed Imprint card needs more than one).
+
+        ``prevent_shield`` (MEC-30, ``action="remember_source"`` only —
+        RULE 615/616.1d's "a source of your choice") carries the shield to
+        open once a pick is made: ``{"recipient_id", "recipient_is_player",
+        "amount", "rider"}``, resolved by `_apply_chosen_object` into a
+        `RulesEngine.prevent_damage_to_player`/`_to_target` call scoped to
+        whichever permanent gets picked. Carried as data on the choice, like
+        ``then_specs``, so it survives the state `clone()` undo takes.
+
+        ``redirect_shield`` (MEC-30, ``action="remember_source_redirect"``
+        only — RULE 616.1c "that damage is dealt to `<X>` instead", Opal-Eye)
+        is ``prevent_shield``'s redirect sibling: ``{"recipient_id",
+        "recipient_is_player", "amount"}``, resolved into a `RulesEngine.
+        redirect_damage_from_source` call instead.
         """
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
@@ -1515,7 +1656,10 @@ class MiscSystemsMixin:
             commander_taken = False
             for obj in pool:
                 commander_taken = commander_taken or obj.is_commander
-                self._apply_chosen_object(player, obj, action, source, remember=remember)
+                self._apply_chosen_object(
+                    player, obj, action, source, remember=remember, prevent_shield=prevent_shield,
+                    redirect_shield=redirect_shield,
+                )
             self._apply_choose_objects_tail(
                 source, then_specs, then_specs_if_commander, commander_taken
             )
@@ -1525,6 +1669,7 @@ class MiscSystemsMixin:
             source_id=source.instance_id if source is not None else None,
             picked=[], then_specs=then_specs,
             then_specs_if_commander=then_specs_if_commander, remember=remember,
+            prevent_shield=prevent_shield, redirect_shield=redirect_shield,
         )
     def _apply_choose_objects_tail(
         self,
@@ -1550,6 +1695,8 @@ class MiscSystemsMixin:
         then_specs: Optional[list[dict]] = None,
         then_specs_if_commander: Optional[list[dict]] = None,
         remember: bool = False,
+        prevent_shield: Optional[dict] = None,
+        redirect_shield: Optional[dict] = None,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -1574,6 +1721,13 @@ class MiscSystemsMixin:
             "prompt_base": label,
             "options": options,
             "then_specs": [dict(spec) for spec in (then_specs or [])],
+            # MEC-30: the shield `_apply_chosen_object` opens once a source
+            # is picked (``action="remember_source"`` only) — see
+            # `request_choose_objects`'s own docstring.
+            "prevent_shield": dict(prevent_shield) if prevent_shield else None,
+            # MEC-30: `redirect_shield`'s own sibling — see
+            # `request_choose_objects`'s own docstring.
+            "redirect_shield": dict(redirect_shield) if redirect_shield else None,
             "then_specs_if_commander": [
                 dict(spec) for spec in (then_specs_if_commander or [])
             ],
@@ -1609,7 +1763,9 @@ class MiscSystemsMixin:
         if chosen is not None and player is not None:
             commander_taken = commander_taken or chosen.is_commander
             self._apply_chosen_object(
-                player, chosen, choice["action"], source, remember=bool(choice.get("remember"))
+                player, chosen, choice["action"], source, remember=bool(choice.get("remember")),
+                prevent_shield=choice.get("prevent_shield"),
+                redirect_shield=choice.get("redirect_shield"),
             )
         remaining_pool = [
             obj
@@ -1633,6 +1789,8 @@ class MiscSystemsMixin:
             then_specs=choice.get("then_specs"),
             then_specs_if_commander=choice.get("then_specs_if_commander"),
             remember=bool(choice.get("remember")),
+            prevent_shield=choice.get("prevent_shield"),
+            redirect_shield=choice.get("redirect_shield"),
         )
         next_choice["commander_taken"] = commander_taken
         self.state.pending_choice = next_choice
@@ -1666,6 +1824,8 @@ class MiscSystemsMixin:
         action: str,
         source: Optional[GameObject],
         remember: bool = False,
+        prevent_shield: Optional[dict] = None,
+        redirect_shield: Optional[dict] = None,
     ) -> None:
         """Do the one thing a `choose_objects` action names to one pick."""
         if action == "tap":
@@ -1677,6 +1837,67 @@ class MiscSystemsMixin:
             self.return_to_hand(obj)
         elif action == "discard":
             self.discard_specific(obj)
+        elif action == "remember_source" and prevent_shield is not None:
+            # MEC-30 (RULE 615/616.1d "a source of your choice" — Circle of
+            # Protection/Rune of Protection): the pick becomes a
+            # `watched_source_id`, not an action on ``obj`` itself.
+            if prevent_shield.get("recipient_scope") == "you_and_creatures_you_control":
+                # Shadowbane, MEC-30 — a dynamic recipient set, not one
+                # fixed id; ``recipient_id`` still names the player (always
+                # a player for this scope).
+                player = self.state.player_by_id(prevent_shield["recipient_id"])
+                if player is not None:
+                    self.prevent_damage_to_player_and_their_creatures(
+                        player, prevent_shield.get("amount", "all"),
+                        watched_source_id=obj.instance_id, rider=prevent_shield.get("rider"),
+                    )
+            elif prevent_shield.get("recipient_scope") == "any":
+                # Penance, MEC-30 — no recipient qualifier at all ("…would
+                # deal damage this turn, prevent that damage."): the
+                # unscoped-recipient one-shot shield, which needs only the
+                # chosen source, not a resolved recipient.
+                self.prevent_damage_from_source(
+                    obj, prevent_shield.get("amount", "all"), rider=prevent_shield.get("rider"),
+                )
+            else:
+                recipient = (
+                    self.state.player_by_id(prevent_shield["recipient_id"])
+                    if prevent_shield.get("recipient_is_player")
+                    else self._object_by_instance_id(prevent_shield["recipient_id"])
+                )
+                if recipient is not None:
+                    method = (
+                        self.prevent_damage_to_player
+                        if prevent_shield.get("recipient_is_player")
+                        else self.prevent_damage_to_target
+                    )
+                    method(
+                        recipient, prevent_shield.get("amount", "all"),
+                        watched_source_id=obj.instance_id, rider=prevent_shield.get("rider"),
+                    )
+        elif action == "remember_source_redirect" and redirect_shield is not None:
+            # MEC-30 (RULE 616.1c "that damage is dealt to `<X>` instead" —
+            # Opal-Eye, Konda's Yojimbo): the pick becomes a redirect's own
+            # watched source.
+            recipient = (
+                self.state.player_by_id(redirect_shield["recipient_id"])
+                if redirect_shield.get("recipient_is_player")
+                else self._object_by_instance_id(redirect_shield["recipient_id"])
+            )
+            if recipient is not None:
+                self.redirect_damage_from_source(
+                    obj, recipient, redirect_shield.get("amount", "all"),
+                )
+        elif action == "remember_source_coinflip":
+            # Desperate Gambit, MEC-30: "Choose a source you control and
+            # flip a coin. If you win the flip, ... double .... If you
+            # lose the flip, ... prevent ...." — the chosen permanent is
+            # both the coin flip's own subject and the shield's watched
+            # source, so no shield payload is needed at all.
+            if self.coin_flip():
+                self.grant_damage_multiplier_from_source(obj)
+            else:
+                self.prevent_damage_from_source(obj, "all")
         elif action == "exile":
             self.exile(obj)
             if remember and source is not None:
@@ -1847,6 +2068,15 @@ class MiscSystemsMixin:
                     # the bare-`TriggeredAbility` branch above already covers
                     # for a single-event trigger.
                     emblem.triggered_abilities.append(effect)
+                elif isinstance(effect, ReplacementEffect):
+                    # MEC-30 (Ajani Steadfast's own "-7": "You get an emblem
+                    # with 'If a source would deal damage to you or a
+                    # planeswalker you control, prevent all but 1 of that
+                    # damage.'") — the first emblem to grant a replacement
+                    # rather than a triggered/static ability; previously
+                    # silently dropped here the same way the activated-
+                    # ability branch above used to be, before MEC-8.
+                    emblem.replacement_effects.append(effect)
         player.emblems.append(emblem)
     def _stack_item_for(self, target: Any) -> Optional[StackItem]:
         """The `StackItem` a counter effect's ``target`` names, or ``None``.

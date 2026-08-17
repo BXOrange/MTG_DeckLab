@@ -68,6 +68,20 @@ class GameContext:
         #: varies per firing; this covers the far commoner case where only a
         #: value does.
         self.trigger_event: Optional[GameEvent] = None
+        #: RULE 602.2b: the player who actually activated/cast the ability
+        #: or spell currently resolving (`StackItem.controller_id`), or
+        #: ``None`` outside a stack-item resolution (a direct `effect.
+        #: apply()` call — tests, a fixture — where no such distinction
+        #: exists). Set/restored by `RulesEngine.resolve_top_of_stack`
+        #: exactly like `trigger_event` above. Ordinarily identical to the
+        #: source's own printed controller (`_controller_of`), so almost
+        #: every effect can ignore this entirely; it only actually diverges
+        #: for a standing "any player may activate this ability" exception
+        #: (Mercenaries, MEC-30 — `ActivationCost.any_player_may_activate`),
+        #: where "you" in the printed text means whoever activated it, not
+        #: the permanent's own controller — read by `PreventDamageEffect`'s
+        #: opt-in ``recipient_is_activator``.
+        self.resolving_controller_id: Optional[str] = None
         #: The targets the last *targeting* effect of this same resolution
         #: used (RULE 608.2 applies an effect list in printed order), so a
         #: clause whose subject is a pronoun pointing back at an earlier one
@@ -318,8 +332,11 @@ class GameContext:
     def gain_life(self, player: "Player", amount: int) -> None:
         self.engine.gain_life(player, amount)
 
-    def prevent_damage_to_player(self, player: "Player", amount: Union[int, str] = "all") -> None:
-        self.engine.prevent_damage_to_player(player, amount)
+    def prevent_damage_to_player(
+        self, player: "Player", amount: Union[int, str] = "all",
+        watched_source_id: Optional[int] = None,
+    ) -> None:
+        self.engine.prevent_damage_to_player(player, amount, watched_source_id=watched_source_id)
 
     def prevent_life_gain_this_turn(self, players: list["Player"]) -> None:
         self.engine.prevent_life_gain_this_turn(players)
@@ -331,6 +348,17 @@ class GameContext:
         self, controller: "Player", exclude_subtype: Optional[str] = None,
     ) -> None:
         self.engine.prevent_all_combat_damage_this_turn(controller, exclude_subtype=exclude_subtype)
+
+    def disable_damage_prevention_this_turn(self) -> None:
+        self.engine.disable_damage_prevention_this_turn()
+
+    def grant_damage_multiplier_this_turn(
+        self, controller: "Player", source: "GameObject", multiplier: int = 2,
+        to_opponent_only: bool = False,
+    ) -> None:
+        self.engine.grant_damage_multiplier_this_turn(
+            controller, source, multiplier=multiplier, to_opponent_only=to_opponent_only,
+        )
 
     def lose_life(self, player: "Player", amount: int, cause: str = "effect") -> None:
         before = getattr(player, "life", None)
@@ -3145,12 +3173,23 @@ class GainLifeEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         count_selector: Optional[str] = None,
+        amount_from_target_power: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.count_selector = count_selector
+        #: "You gain life equal to target creature's power." (Dazzling
+        #: Reflection, MEC-30) — reads a *shared* target this effect never
+        #: declares itself (no `target_spec` of its own here; a sibling
+        #: clause in the same ability — its own `prevent_damage_from_target`
+        #: — is what actually requests the "target creature," and
+        #: `_apply_effects_partitioned` hands the same resolved `targets`
+        #: list to every effect in the ability when there's only one real
+        #: targeting requirement to gather, RULE 608.2). The life-gain
+        #: sibling of `DealDamageEffect.amount_from_target_count_selector`.
+        self.amount_from_target_power = amount_from_target_power
 
     def target_polarity(self) -> Optional[str]:
         return "beneficial"
@@ -3162,7 +3201,10 @@ class GainLifeEffect(GameEffect):
         if player is None:
             player = _controller_of(self.source, context)
         amount = self.amount
-        if self.count_selector == "life_lost_this_way":
+        if self.amount_from_target_power:
+            subject = targets[0] if targets else None
+            amount = int(subject.power or 0) if subject is not None else 0
+        elif self.count_selector == "life_lost_this_way":
             # "You gain life equal to the life lost this way." (Gray
             # Merchant of Asphodel-shaped RULE 119 drain) — a per-resolution
             # accumulator (`GameContext.life_lost_this_way`), not a board
@@ -3217,12 +3259,34 @@ class PreventDamageEffect(GameEffect):
         optional: bool = False,
         divided: bool = False,
         amount_if_kicked: Optional[Union[int, str]] = None,
+        self_only: bool = False,
+        watched_source_is_self: bool = False,
+        recipient_is_activator: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.amount_if_kicked = amount_if_kicked
         self.divided = divided
         self.target = target
+        #: "Prevent the next N damage that would be dealt to `<this
+        #: permanent>` this turn." (Opal-Eye, Konda's Yojimbo, MEC-30) — the
+        #: object-recipient sibling of the untargeted "…to you" default:
+        #: shields this effect's own source, not its controller.
+        self.self_only = self_only
+        #: "The next time **this creature** would deal damage to you this
+        #: turn, prevent that damage." (Mercenaries, MEC-30) — narrows the
+        #: untargeted "…to you" shield to one fixed, already-known source
+        #: (this effect's own source), the no-chooser-needed sibling of
+        #: `RequestPreventDamageSourceEffect`'s "a source of your choice".
+        self.watched_source_is_self = watched_source_is_self
+        #: RULE 602.2b: "you" resolves to whoever *activated* this ability,
+        #: not this permanent's own printed controller — only ever diverges
+        #: from `_controller_of` under a standing `ActivationCost.any_
+        #: player_may_activate` exception (Mercenaries is the only card so
+        #: far). Read via `GameContext.resolving_controller_id`, falling
+        #: back to `_controller_of` when unset (a direct `effect.apply()`
+        #: call outside real stack resolution — tests, a fixture).
+        self.recipient_is_activator = recipient_is_activator
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional, count=count)
             if target_kind is not None
@@ -3232,10 +3296,22 @@ class PreventDamageEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         kicker_count = getattr(self.source, "kicker_count", 0) or 0
         amount = self.amount_if_kicked if (self.amount_if_kicked is not None and kicker_count > 0) else self.amount
+        if self.self_only:
+            if self.source is not None:
+                context.prevent_damage_to_target(self.source, amount)
+            return
         if self.target_spec is None:
-            player = _controller_of(self.source, context)
+            player = None
+            if self.recipient_is_activator and context.resolving_controller_id is not None:
+                try:
+                    player = context.state.player_by_id(context.resolving_controller_id)
+                except (KeyError, ValueError):
+                    player = None
+            if player is None:
+                player = _controller_of(self.source, context)
             if player is not None:
-                context.prevent_damage_to_player(player, amount)
+                watched_source_id = self.source.instance_id if self.watched_source_is_self and self.source is not None else None
+                context.prevent_damage_to_player(player, amount, watched_source_id=watched_source_id)
             return
         chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
         if not chosen:
@@ -3276,6 +3352,44 @@ class PreventLifeGainEffect(GameEffect):
             context.prevent_life_gain_this_turn(players)
 
 
+class DisableDamagePreventionEffect(GameEffect):
+    """RULE 615: "Damage can't be prevented this turn." (Insult //
+    Injury/Isengard Unleashed, MEC-30) — untargeted, no recipient at all;
+    just flips `GameState.damage_prevention_disabled` via `RulesEngine.
+    disable_damage_prevention_this_turn`.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        context.disable_damage_prevention_this_turn()
+
+
+class GrantDamageMultiplierThisTurnEffect(GameEffect):
+    """RULE 616: "If a source you control would deal damage this turn, it
+    deals double/triple that damage instead." (Insult // Injury/Isengard
+    Unleashed, MEC-30) — the spell-cast sibling of `_double_damage_
+    replacement`'s permanent-attached shape; see `RulesEngine.grant_damage_
+    multiplier_this_turn`'s own docstring for why a separate method exists
+    rather than reusing that factory directly from here.
+    """
+
+    def __init__(
+        self, multiplier: int = 2, to_opponent_only: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.multiplier = multiplier
+        self.to_opponent_only = to_opponent_only
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None or self.source is None:
+            return
+        context.grant_damage_multiplier_this_turn(
+            controller, self.source, multiplier=self.multiplier,
+            to_opponent_only=self.to_opponent_only,
+        )
+
+
 class PreventAllCombatDamageEffect(GameEffect):
     """RULE 615: "Prevent all combat damage that would be dealt this turn."
     (Fog) — deliberately a separate class from `PreventDamageEffect`
@@ -3300,6 +3414,248 @@ class PreventAllCombatDamageEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is not None:
             context.prevent_all_combat_damage_this_turn(player, exclude_subtype=self.exclude_subtype)
+
+
+class RequestPreventDamageSourceEffect(GameEffect):
+    """RULE 615/616.1d: "The next time a source of your choice [matching
+    ``source_filter``] would deal damage to `<recipient>` this turn, prevent
+    [half] that damage[, rounded up/down]." — the Circle of Protection/Rune
+    of Protection family. Opens `RulesEngine.request_choose_objects`'s
+    general chooser (a ``"remember_source"`` action) over every battlefield
+    permanent matching ``source_filter`` (a `combat.matches_object_filter`-
+    shaped dict — a colour, "an artifact source", a creature of an
+    ETB-chosen type…), then grants a `RulesEngine.prevent_damage_to_player`/
+    `_to_target`-shaped shield scoped to whichever one gets picked (RULE
+    615's "next time" — self-expiring even if that source never actually
+    deals damage this turn).
+
+    Scoped to battlefield permanents only — RULE 609.7a's other two source
+    kinds (a spell or an ability still on the stack) aren't offered, since
+    `request_choose_objects` only ever candidates `GameObject`s already on
+    the battlefield. No card in this family's real pool needs to name an
+    unresolved spell/ability, so this is a deliberate, documented
+    simplification rather than a silent gap.
+
+    ``target_kind``/``target`` (Circle of Despair/Martyr's Cause/Sanctum
+    Guardian's "…would deal damage to **any target** this turn") route the
+    *recipient* through ordinary RULE 115 targeting instead of this effect's
+    own controller — the overwhelming majority of real cards ("…would deal
+    damage to **you** this turn") leave both unset, so the shield simply
+    protects the caster. ``amount``/``rider`` mirror
+    `_prevent_damage_replacement`'s own vocabulary (an ``int``, ``"all"``, or
+    ``{"half": "up"|"down"}``; `RulesEngine.apply_prevent_rider`'s follow-up
+    shape) — Deflecting Palm/Reverse Damage-shaped.
+    """
+
+    def __init__(
+        self,
+        source_filter: Optional[dict] = None,
+        target_kind: Optional[str] = None,
+        target: Any = None,
+        amount: Any = "all",
+        rider: Any = None,
+        optional: bool = False,
+        recipient: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.source_filter = dict(source_filter or {})
+        self.amount = amount
+        self.rider = list(rider) if isinstance(rider, list) else (dict(rider) if rider else None)
+        self.optional = optional
+        self.target = target
+        #: "…would deal damage to **enchanted creature** this turn" (Kithkin
+        #: Armor, MEC-30) — the chosen-source family's own sibling of Family
+        #: A's ``to="attached_permanent"``: reads ``self.source.attached_to``
+        #: instead of the caster/an RULE 115 target. Mutually exclusive with
+        #: ``target_kind`` (no real card needs both).
+        self.recipient = recipient
+        self.target_spec = (
+            TargetSpec(kind=target_kind, count=1) if target_kind is not None else None
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None:
+            return
+        player = _controller_of(src, context)
+        if player is None:
+            return
+        # "…would deal damage to you and/or creatures you control this
+        # turn" (Shadowbane, MEC-30) — a dynamic recipient *set*, not one
+        # resolved object, so it skips the single-``recipient_obj``
+        # resolution below entirely; `_apply_chosen_object` reads this
+        # scope key straight off ``prevent_shield`` instead of a fixed id.
+        # ``"any"`` (Penance, MEC-30 — "…would deal damage this turn,
+        # prevent that damage.", no "to you" at all) is the same idea taken
+        # further: no recipient qualifier whatsoever, so `recipient_obj`
+        # legitimately stays unresolved — `RulesEngine.prevent_damage_from_
+        # source`'s own unscoped shape, reached via `_apply_chosen_object`'s
+        # matching branch below.
+        if self.recipient == "any":
+            recipient_obj = None
+        elif self.recipient == "you_and_creatures_you_control":
+            recipient_obj = player
+        elif self.recipient == "attached_permanent":
+            host_id = getattr(src, "attached_to", None)
+            recipient_obj = context.state.find_object(host_id) if host_id is not None else None
+        elif self.target_spec is not None:
+            chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
+            recipient_obj = chosen[0] if chosen else None
+        else:
+            recipient_obj = player
+        if recipient_obj is None and self.recipient != "any":
+            return
+        from . import combat  # local: avoid the combat<->effects import cycle
+
+        candidates = [
+            obj for obj in context.state.battlefield
+            if combat.matches_object_filter(obj, self.source_filter, reference=src)
+        ]
+        recipient_is_player = recipient_obj is not None and not hasattr(recipient_obj, "instance_id")
+        context.engine.request_choose_objects(
+            player, candidates, "remember_source", count=1, optional=self.optional,
+            prompt=f"{src.name}: Quelle wählen",
+            source=src,
+            prevent_shield={
+                "recipient_id": (
+                    (recipient_obj.id if recipient_is_player else recipient_obj.instance_id)
+                    if recipient_obj is not None else None
+                ),
+                "recipient_is_player": recipient_is_player,
+                "recipient_scope": (
+                    self.recipient
+                    if self.recipient in ("you_and_creatures_you_control", "any")
+                    else None
+                ),
+                "amount": self.amount,
+                "rider": self.rider,
+            },
+        )
+
+
+class RequestRedirectDamageSourceEffect(GameEffect):
+    """RULE 616.1c "the next time a source of your choice would deal damage
+    this turn, that damage is dealt to `<X>` instead" (Opal-Eye, Konda's
+    Yojimbo, MEC-30) — `RequestPreventDamageSourceEffect`'s redirect
+    sibling: opens the exact same chooser (a ``"remember_source_redirect"``
+    action this time) over every battlefield permanent matching
+    ``source_filter``, then grants a `RulesEngine.redirect_damage_from_
+    source` shield instead of a prevention one. ``recipient="self"`` (the
+    only real printed shape — "dealt to `<this permanent>` instead") reads
+    this effect's own source as the new recipient.
+    """
+
+    def __init__(
+        self,
+        source_filter: Optional[dict] = None,
+        amount: Any = "all",
+        recipient: str = "self",
+        optional: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.source_filter = dict(source_filter or {})
+        self.amount = amount
+        self.recipient = recipient
+        self.optional = optional
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None:
+            return
+        player = _controller_of(src, context)
+        if player is None:
+            return
+        recipient_obj: Any = src if self.recipient == "self" else None
+        if recipient_obj is None:
+            return
+        from . import combat  # local: avoid the combat<->effects import cycle
+
+        candidates = [
+            obj for obj in context.state.battlefield
+            if combat.matches_object_filter(obj, self.source_filter, reference=src)
+        ]
+        context.engine.request_choose_objects(
+            player, candidates, "remember_source_redirect", count=1, optional=self.optional,
+            prompt=f"{src.name}: Quelle wählen",
+            source=src,
+            redirect_shield={
+                "recipient_id": recipient_obj.instance_id,
+                "recipient_is_player": False,
+                "amount": self.amount,
+            },
+        )
+
+
+class ChooseSourceCoinFlipEffect(GameEffect):
+    """"Choose a source you control and flip a coin. If you win the flip,
+    the next time that source would deal damage this turn, it deals
+    double that damage instead. If you lose the flip, the next time it
+    would deal damage this turn, prevent that damage." (Desperate Gambit,
+    MEC-30 — the last card of the family, closing it out.)
+
+    Structurally the chosen-source chooser family's third member: unlike
+    `RequestPreventDamageSourceEffect`/`RequestRedirectDamageSourceEffect`,
+    the candidate pool is narrowed to **battlefield permanents this
+    effect's own controller controls** ("a source **you control**", RULE
+    609.7a — not "of your choice" over anyone's permanents), and nothing
+    is decided about win/lose until the pick actually resolves — the
+    ``"remember_source_coinflip"`` action flips the coin (`RulesEngine.
+    coin_flip`, RULE 705.1) *at that point* and branches into `RulesEngine.
+    grant_damage_multiplier_from_source` (win) or the already-shipped
+    `prevent_damage_from_source` (lose), both scoped to the one chosen
+    permanent. No shield payload needed on the choice itself, since the
+    chosen object already carries everything both branches need.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None:
+            return
+        player = _controller_of(src, context)
+        if player is None:
+            return
+        candidates = list(context.state.permanents_controlled_by(player.id))
+        context.engine.request_choose_objects(
+            player, candidates, "remember_source_coinflip", count=1,
+            prompt=f"{src.name}: Quelle für den Münzwurf wählen",
+            source=src,
+        )
+
+
+class PreventDamageFromTargetEffect(GameEffect):
+    """RULE 615/616.1d: "The next time target creature would deal damage
+    this turn, prevent that damage." (Awe Strike/Dazzling Reflection) — the
+    targeted, no-chooser-needed sibling of `RequestPreventDamageSourceEffect`:
+    the source is already pinned by ordinary RULE 115 targeting, so this just
+    opens `RulesEngine.prevent_damage_from_source`'s unscoped-recipient
+    shield directly (protects *whoever* the target would have hit, not one
+    fixed recipient) — no interactive "choose a source" step needed.
+    """
+
+    def __init__(
+        self,
+        target_kind: str = "creature",
+        target: Any = None,
+        count: int = 1,
+        amount: Any = "all",
+        rider: Any = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.amount = amount
+        self.rider = list(rider) if isinstance(rider, list) else (dict(rider) if rider else None)
+        self.target_spec = TargetSpec(kind=target_kind, count=count)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
+        for obj in chosen:
+            context.engine.prevent_damage_from_source(obj, self.amount, rider=self.rider)
 
 
 class ExtraLandPlayEffect(GameEffect):
@@ -6775,6 +7131,41 @@ class PayCostThenEffect(GameEffect):
         )
 
 
+class RequestAllPlayersDeclineOrEffect(GameEffect):
+    """"Any player may pay `<cost>`. If no one does, `<effect>`." (Rhystic
+    Circle, MEC-30, RULE 118.3-adjacent) — the multi-player sibling of
+    `PayCostThenEffect`: every living player gets an independent chance to
+    pay, in turn order, and ``effects`` only resolves — once, for this
+    effect's own controller — if literally every one of them declines (or
+    can't pay). The first player to actually pay cancels the whole thing.
+    See `RulesEngine.request_all_players_decline_or` for the turn-order
+    chaining.
+
+    ``cost`` is free-form cost text (`game/costs.py`'s
+    `parse_activation_cost`), same as `PayCostThenEffect`.
+    """
+
+    def __init__(
+        self,
+        cost: str = "",
+        effects: Optional[list[dict[str, Any]]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.cost_text = str(cost)
+        self.inner_specs = list(effects or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .costs import parse_activation_cost  # function-scoped: import cycle
+
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        context.engine.request_all_players_decline_or(
+            parse_activation_cost(self.cost_text), self.inner_specs, self.source, controller.id,
+        )
+
+
 class UntapSelfEffect(GameEffect):
     """"Untap this permanent." (Mana Vault's upkeep payoff) — the untap
     sibling of `TapEffect`'s self mode, scoped to the effect's own source.
@@ -8087,9 +8478,23 @@ class BecomePreparedEffect(GameEffect):
 #: +1/+1 counter on each **other** creature you control") is the RULE 109.5
 #: "another" exclusion of the ability's own source, `group_selector_objects`'s
 #: existing ``"other_creatures_you_control"`` affects value.
+#: ``each_other_planeswalker_you_control`` (Ajani Steadfast's own "-2",
+#: MEC-30) — the planeswalker-scoped sibling of ``each_other_creature_you_
+#: control`` just above, `group_selector_objects`'s own ``"other_
+#: planeswalkers_you_control"`` affects value.
 _ADD_COUNTERS_SELECTORS: frozenset[str] = frozenset(
-    {"each_creature_you_control", "each_other_creature_you_control"}
+    {
+        "each_creature_you_control", "each_other_creature_you_control",
+        "each_other_planeswalker_you_control",
+    }
 )
+#: Maps each `_ADD_COUNTERS_SELECTORS` member to the `continuous.
+#: group_selector_objects` ``affects`` value it resolves against.
+_ADD_COUNTERS_SELECTOR_AFFECTS: dict[str, str] = {
+    "each_creature_you_control": "creatures_you_control",
+    "each_other_creature_you_control": "other_creatures_you_control",
+    "each_other_planeswalker_you_control": "other_planeswalkers_you_control",
+}
 
 
 class AddCountersEffect(GameEffect):
@@ -8210,7 +8615,7 @@ class AddCountersEffect(GameEffect):
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             controller_id = getattr(self.source, "controller_id", None)
-            affects = "other_creatures_you_control" if self.selector == "each_other_creature_you_control" else "creatures_you_control"
+            affects = _ADD_COUNTERS_SELECTOR_AFFECTS.get(self.selector, "creatures_you_control")
             for obj in group_selector_objects(context.state, controller_id, affects, src=self.source):
                 if self.subtypes is not None:
                     sub = obj.card.type_line.partition("—")[2].strip().lower().split()
@@ -12073,6 +12478,7 @@ EffectRegistry.register(
     lambda p: GainLifeEffect(
         amount=p.get("amount", 0), player=p.get("player"), target_kind=p.get("target_kind"),
         count_selector=p.get("count_selector"),
+        amount_from_target_power=bool(p.get("amount_from_target_power", False)),
     ),
 )
 EffectRegistry.register(
@@ -12080,7 +12486,10 @@ EffectRegistry.register(
     # RULE 615 one-shot "prevent all/the next N damage that would be dealt
     # to you this turn" (Riot Control/Thought Lash) — NOT the standing-
     # permanent shape; see `ReplacementRegistry`'s own unrelated
-    # `"prevent_damage"` factory below for that (still uncarded/unused).
+    # `"prevent_damage"` factory below for that (the Sphere/absorb/Shield of
+    # the Realm family — MEC-30), or `"request_prevent_damage_source"`/
+    # `"prevent_damage_from_target"` just below for the *chosen-source*
+    # one-shot family (Circle/Rune of Protection).
     lambda p: PreventDamageEffect(
         amount=p.get("amount", "all"),
         target_kind=p.get("target_kind"),
@@ -12089,6 +12498,9 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         divided=bool(p.get("divided", False)),
         amount_if_kicked=p.get("amount_if_kicked"),
+        self_only=bool(p.get("self_only", False)),
+        watched_source_is_self=bool(p.get("watched_source_is_self", False)),
+        recipient_is_activator=bool(p.get("recipient_is_activator", False)),
     ),
 )
 EffectRegistry.register(
@@ -12103,6 +12515,71 @@ EffectRegistry.register(
     # "prevent_damage_shield" above (a damage shield, numeric or "all");
     # this cancels a `LIFE_GAIN` outright, no bank to track.
     lambda p: PreventLifeGainEffect(recipient=p.get("recipient", "opponents")),
+)
+EffectRegistry.register(
+    "disable_damage_prevention",
+    # RULE 615 "Damage can't be prevented this turn." (MEC-30 — Insult //
+    # Injury/Isengard Unleashed) — see `DisableDamagePreventionEffect`.
+    lambda p: DisableDamagePreventionEffect(),
+)
+EffectRegistry.register(
+    "grant_damage_multiplier_this_turn",
+    # RULE 616 "…it deals double/triple that damage instead" (MEC-30), the
+    # spell-cast sibling of the standing `"double_damage"` replacement
+    # below — see `GrantDamageMultiplierThisTurnEffect`.
+    lambda p: GrantDamageMultiplierThisTurnEffect(
+        multiplier=int(p.get("multiplier", 2)),
+        to_opponent_only=bool(p.get("to_opponent_only", False)),
+    ),
+)
+EffectRegistry.register(
+    "request_prevent_damage_source",
+    # RULE 615/616.1d "the next time a source of your choice would deal
+    # damage to `<recipient>` this turn, prevent that damage" (MEC-30 —
+    # Circle of Protection/Rune of Protection and siblings) — see
+    # `RequestPreventDamageSourceEffect`.
+    lambda p: RequestPreventDamageSourceEffect(
+        source_filter=p.get("source_filter"),
+        target_kind=p.get("target_kind"),
+        target=p.get("target"),
+        amount=p.get("amount", "all"),
+        rider=p.get("rider"),
+        optional=bool(p.get("optional", False)),
+        recipient=p.get("recipient"),
+    ),
+)
+EffectRegistry.register(
+    "request_redirect_damage_source",
+    # RULE 616.1c "the next time a source of your choice would deal damage
+    # this turn, that damage is dealt to `<X>` instead" (MEC-30 — Opal-Eye,
+    # Konda's Yojimbo) — see `RequestRedirectDamageSourceEffect`.
+    lambda p: RequestRedirectDamageSourceEffect(
+        source_filter=p.get("source_filter"),
+        amount=p.get("amount", "all"),
+        recipient=p.get("recipient", "self"),
+        optional=bool(p.get("optional", False)),
+    ),
+)
+EffectRegistry.register(
+    "choose_source_coinflip",
+    # "Choose a source you control and flip a coin. If you win, ... double
+    # ... . If you lose, ... prevent ...." (MEC-30 — Desperate Gambit) —
+    # see `ChooseSourceCoinFlipEffect`.
+    lambda p: ChooseSourceCoinFlipEffect(),
+)
+EffectRegistry.register(
+    "prevent_damage_from_target",
+    # RULE 615/616.1d's targeted, no-chooser-needed sibling of
+    # "request_prevent_damage_source" above (MEC-30 — Awe Strike/Dazzling
+    # Reflection: "the next time **target creature** would deal damage this
+    # turn, prevent that damage") — see `PreventDamageFromTargetEffect`.
+    lambda p: PreventDamageFromTargetEffect(
+        target_kind=p.get("target_kind", "creature"),
+        target=p.get("target"),
+        count=p.get("count", 1),
+        amount=p.get("amount", "all"),
+        rider=p.get("rider"),
+    ),
 )
 EffectRegistry.register(
     "extra_land_play",
@@ -12729,6 +13206,16 @@ EffectRegistry.register(
     # resolution (EventType.BECOMES_TARGET).
     "counter_unless_pay",
     lambda p: CounterUnlessPayEffect(cost=p.get("cost", "")),
+)
+EffectRegistry.register(
+    # RULE 118.3-adjacent multi-player tax: "Any player may pay <cost>. If
+    # no one does, <effect>." (Rhystic Circle, MEC-30) — `pay_cost_then`'s
+    # multi-player, aggregate-outcome sibling.
+    "all_players_decline_or",
+    lambda p: RequestAllPlayersDeclineOrEffect(
+        cost=p.get("cost", ""),
+        effects=list(p.get("effects", [])),
+    ),
 )
 EffectRegistry.register(
     # RULE 301.5c: "attach target Equipment you control to target creature
@@ -14415,43 +14902,201 @@ EffectRegistry.register(
 
 
 def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
-    """A damage-prevention shield (RULE 615): prevent up to ``amount`` (or all)
-    damage that would be dealt to a matching target.
+    """A standing damage-prevention shield (RULE 615/616.1) — the *permanent*
+    sibling of `PreventDamageEffect`'s one-shot spell grant (registered
+    separately as ``"prevent_damage_shield"``, Riot Control/Thought Lash;
+    unrelated despite the shared name prefix).
 
-    ``to`` selects what it protects, read off the effect's own source:
-    ``"self"`` (the source permanent), ``"controller"`` (its controller — a
-    player), or ``"any"``. ``amount`` is an integer to prevent that much, or
-    ``"all"`` for total prevention. Consulted through the same
-    `RulesEngine.apply_replacements` path `deal_damage` already runs, so it
-    needs no new plumbing.
+    ``to`` selects the recipient, read off the effect's own source: ``"self"``
+    (the source permanent itself), ``"controller"`` (its controller — a
+    player), ``"any_player"`` (any player at all — Battletide Alchemist),
+    ``"opponent_player"`` (any player who isn't the controller — Hostility's
+    "an opponent"), ``"attached_permanent"`` (an Aura/Equipment's own host —
+    Shield of the Realm/Avatar), or ``"controlled_permanent"`` (any permanent this
+    effect's controller controls, optionally narrowed by ``recipient_filter``
+    — a `combat.matches_object_filter`-shaped dict, e.g. Daunting Defender's
+    ``{"subtype": "cleric"}``, Djeru's ``{"card_type": "planeswalker"}``,
+    Temple Altisaur's ``{"subtype": "dinosaur", "exclude_self": True}`` for
+    "**another** Dinosaur" — ``exclude_self`` resolves to a
+    ``without_instance_id`` filter against the shield's own source at match
+    time, since that id isn't known until bind time). ``recipient_union`` (a
+    list of ``"controller"``/``"any_player"``/filter-dict entries) is the
+    "you or a `<X>` you control" shape (Hyperion/Ajani Steadfast's emblem) —
+    matches if *any* entry matches; a filter-dict entry always means "a
+    controlled permanent matching this filter", the same as
+    ``"controlled_permanent"`` above.
+
+    ``source_filter`` narrows *who's dealing* the damage — ``color`` (a
+    single WUBRG letter, checked against the event's own precomputed
+    ``source_colors``), ``card_type`` (looked up fresh off the source object
+    via `GameState.find_object`, mirroring `_additional_damage_replacement`'s
+    own "artifact" check — the event carries no type flag of its own),
+    ``is_creature``/``is_spell`` (the event's own ``source_is_creature``/
+    ``source_is_instant_or_sorcery`` — RULE 609.7a: a resolving instant/
+    sorcery *is* "a spell" for this purpose), and ``controller`` (``"you"``/
+    ``"opponent"``, against the event's own ``source_controller_id``).
+
+    ``amount`` is an ``int`` (prevent up to that much — ``dealt - amount``
+    survives), the string ``"all"`` (fully prevented), ``{"all_but": N}``
+    (Temple Altisaur/Hyperion/Ajani's emblem — only ``N`` survives), or
+    ``{"half": "up"|"down"}`` (Gisela's "prevent half, rounded up"; Dark
+    Sphere's "rounded down"). ``amount_count_selector`` resolves the ``int``
+    amount live via `continuous.count_selector` instead (Shield of the
+    Avatar/Battletide Alchemist's "X is the number of creatures/Clerics you
+    control").
+
+    ``rider`` (``{"kind": ..., "recipient": ...}``) fires a follow-up off the
+    *actual* prevented amount once it's known — see
+    `RulesEngine.apply_prevent_rider` (Swans of Bryn Argoll/Hostility-shaped
+    "…and `<X>` this way").
+
+    Consulted through the same `RulesEngine.apply_replacements` path
+    `deal_damage` already runs, so it needs no new plumbing.
     """
     amount = params.get("amount", "all")
+    amount_count_selector = params.get("amount_count_selector")
     to = params.get("to", "self")
+    recipient_filter = params.get("recipient_filter")
+    recipient_union = params.get("recipient_union")
+    source_filter = params.get("source_filter")
+    rider = params.get("rider")
     effect = ReplacementEffect(
         event_type=EventType.DAMAGE,
         replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
         description=str(params.get("description", "prevent damage")),
     )
+    #: MEC-30: marks this as a prevention-shaped effect for "damage can't be
+    #: prevented this turn" (Insult // Injury/Isengard Unleashed) to filter
+    #: out generically — distinct from `damage_prevention_shield` (which
+    #: means "sweep me at cleanup, I'm one-turn-only" and would be *wrong*
+    #: to set here: this factory also builds Family A's standing, permanent
+    #: shields and Absorb's structural one, none of which expire after one
+    #: turn). Covers Absorb for free — `effect_binder.attach_to_object`'s
+    #: Absorb branch reuses this exact factory.
+    effect.prevents_damage = True
 
-    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+    def _controlled_permanent_matches(
+        filt: Optional[dict], event: GameEvent, context: GameContext, src: Any,
+    ) -> bool:
+        if event.get("is_player") or src is None:
+            return False
+        target_obj = context.state.find_object(event.get("target_id"))
+        if target_obj is None or target_obj.controller_id != src.controller_id:
+            return False
+        from . import combat  # local: avoid the combat<->effects import cycle
+
+        resolved_filt = dict(filt or {})
+        if resolved_filt.pop("exclude_self", False):
+            resolved_filt["without_instance_id"] = src.instance_id
+        return combat.matches_object_filter(target_obj, resolved_filt)
+
+    def _recipient_entry_matches(entry: Any, event: GameEvent, context: GameContext, src: Any) -> bool:
+        if entry == "controller":
+            return bool(event.get("is_player")) and src is not None and event.get("target_id") == src.controller_id
+        if entry == "any_player":
+            return bool(event.get("is_player"))
+        if entry == "opponent_player":
+            return (
+                bool(event.get("is_player")) and src is not None
+                and event.get("target_id") != src.controller_id
+            )
+        return _controlled_permanent_matches(entry, event, context, src)
+
+    def _recipient_matches(event: GameEvent, context: GameContext) -> bool:
         src = effect.source
-        is_player = bool(event.get("is_player"))
-        target_id = event.get("target_id")
+        if recipient_union is not None:
+            return any(_recipient_entry_matches(e, event, context, src) for e in recipient_union)
         if to == "self":
-            matches = (not is_player) and src is not None and target_id == src.instance_id
-        elif to == "controller":
-            matches = is_player and src is not None and target_id == src.controller_id
-        else:  # "any"
-            matches = True
-        if not matches:
+            return (
+                not event.get("is_player") and src is not None
+                and event.get("target_id") == src.instance_id
+            )
+        if to == "attached_permanent":
+            host_id = getattr(src, "attached_to", None)
+            return (
+                not event.get("is_player") and host_id is not None
+                and event.get("target_id") == host_id
+            )
+        if to == "controlled_permanent":
+            return _controlled_permanent_matches(recipient_filter, event, context, src)
+        if to in ("any_player", "opponent_player"):
+            return _recipient_entry_matches(to, event, context, src)
+        if to == "any":
+            return True
+        return _recipient_entry_matches("controller", event, context, src)  # "controller", the default
+
+    def _source_matches(event: GameEvent, context: GameContext) -> bool:
+        if not source_filter:
+            return True
+        src = effect.source
+        color = source_filter.get("color")
+        if color is not None and color not in (event.get("source_colors") or ()):
+            return False
+        card_type = source_filter.get("card_type")
+        if card_type is not None:
+            source_id = event.get("source_id")
+            src_obj = context.state.find_object(source_id) if source_id is not None else None
+            if src_obj is None or not bool(getattr(src_obj.card, f"is_{card_type}", False)):
+                return False
+        if source_filter.get("is_creature") and not event.get("source_is_creature"):
+            return False
+        if source_filter.get("is_spell") and not event.get("source_is_instant_or_sorcery"):
+            return False
+        controller = source_filter.get("controller")
+        if controller is not None:
+            shield_controller_id = getattr(src, "controller_id", None)
+            if shield_controller_id is None:
+                return False
+            if controller == "opponent" and event.get("source_controller_id") == shield_controller_id:
+                return False
+            if controller == "you" and event.get("source_controller_id") != shield_controller_id:
+                return False
+        return True
+
+    def _survives(dealt: int, src: Any, context: GameContext) -> int:
+        if amount_count_selector:
+            from . import continuous  # local: avoid the continuous<->effects import cycle
+
+            n = continuous.count_selector(
+                context.state, getattr(src, "controller_id", None), amount_count_selector, source=src
+            )
+            return max(0, dealt - n)
+        if isinstance(amount, dict):
+            if "all_but" in amount:
+                return min(dealt, int(amount["all_but"]))
+            if "half" in amount:
+                return (dealt + 1) // 2 if amount["half"] == "up" else dealt // 2
+            return dealt
+        if amount == "all":
+            return 0
+        return max(0, dealt - int(amount))
+
+    def _applies(event: GameEvent, context: GameContext) -> bool:
+        return _recipient_matches(event, context) and _source_matches(event, context)
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
             return event
         dealt = int(event.get("amount", 0) or 0)
-        prevented_to = 0 if amount == "all" else max(0, dealt - int(amount))
-        if prevented_to <= 0:
+        survives = _survives(dealt, effect.source, context)
+        prevented = dealt - survives
+        if rider is not None and prevented > 0:
+            context.engine.apply_prevent_rider(
+                rider, prevented, event, getattr(effect.source, "controller_id", None),
+                shield_source=effect.source,
+            )
+        if survives <= 0:
             return None  # fully prevented — the event doesn't happen
-        return event.copy_with(amount=prevented_to)
+        return event.copy_with(amount=survives)
 
     effect.replacement_fn = replace
+    #: RULE 616.1e (MEC-30 fourth pass): `can_replace` must reflect the
+    #: card's real printed condition, not just "same event type" — without
+    #: this, Gisela's two unrelated replacements (one scoped to opponents,
+    #: one to her own side) both reported "applicable" for *every* damage
+    #: event, opening a pointless ordering choice each time only one of them
+    #: could ever actually do anything.
+    effect.condition = _applies
     return effect
 
 
@@ -14483,14 +15128,21 @@ def _prevent_damage_convert_counters_replacement(params: dict[str, Any]) -> Repl
         replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
         description=str(params.get("description", "")),
     )
+    effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
 
-    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+    def _applies(event: GameEvent, context: GameContext) -> bool:
         src = effect.source
         if src is None or event.get("is_player") or event.get("target_id") != src.instance_id:
+            return False
+        # "…while it has a +1/+1 counter on it" — literally part of the
+        # printed condition, not just a value-based no-op.
+        return src.counters.get(remove_kind, 0) > 0
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
             return event
+        src = effect.source
         current = src.counters.get(remove_kind, 0)
-        if current <= 0:
-            return event
         dealt = int(event.get("amount", 0) or 0)
         if dealt <= 0:
             return event
@@ -14503,6 +15155,7 @@ def _prevent_damage_convert_counters_replacement(params: dict[str, Any]) -> Repl
         return None  # fully prevented (RULE 614.5 — the damage never happens)
 
     effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
     return effect
 
 
@@ -14521,10 +15174,21 @@ def _double_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     to on the battlefield to know whose damage counts as "yours".
     ``multiplier`` defaults to 2 (every real "double" card); Fiery
     Emancipation's "triple" is the only real 3.
+
+    ``to_opponent_only`` (MEC-30, Gisela, Blade of Goldnight's own "…deals
+    damage to an opponent or a permanent an opponent controls…", paired
+    with a separate ``prevent_damage`` replacement for the "you or a
+    permanent you control" mirror) scopes the *recipient* side instead —
+    mirrors `_additional_damage_replacement`'s own identically-named/-shaped
+    param exactly (the *source* qualifiers, on the other hand, stay
+    separate concepts: `_additional_damage_replacement`'s ``colors``/
+    ``types`` narrow which sources trigger the bonus, orthogonal to which
+    recipients count).
     """
     combat_only = bool(params.get("combat_only", False))
     your_sources_only = bool(params.get("your_sources_only", False))
     creature_only = bool(params.get("creature_only", False))
+    to_opponent_only = bool(params.get("to_opponent_only", False))
     multiplier = int(params.get("multiplier", 2))
     effect = ReplacementEffect(
         event_type=EventType.DAMAGE,
@@ -14535,21 +15199,38 @@ def _double_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         description=str(params.get("description", "")),
     )
 
-    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+    def _applies(event: GameEvent, context: GameContext) -> bool:
         if combat_only and not event.get("combat"):
-            return event
+            return False
         if creature_only and not event.get("source_is_creature"):
-            return event
+            return False
         if your_sources_only:
             src = effect.source
             if src is None or event.get("source_controller_id") != src.controller_id:
-                return event
+                return False
+        if to_opponent_only:
+            src = effect.source
+            if src is None:
+                return False
+            if event.get("is_player"):
+                if event.get("target_id") == src.controller_id:
+                    return False
+            else:
+                target_obj = context.state.find_object(event.get("target_id"))
+                if target_obj is not None and target_obj.controller_id == src.controller_id:
+                    return False
+        return True
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
+            return event
         dealt = int(event.get("amount", 0) or 0)
         if dealt <= 0:
             return event
         return event.copy_with(amount=dealt * multiplier)
 
     effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
     return effect
 
 
@@ -14586,6 +15267,7 @@ def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     to_opponent_only = bool(params.get("to_opponent_only", False))
     colors = list(params.get("colors") or ([params["color"]] if params.get("color") else []))
     types = list(params.get("types") or [])
+    is_spell = bool(params.get("is_spell", False))
     effect = ReplacementEffect(
         event_type=EventType.DAMAGE,
         replacement_fn=lambda e, c: e,
@@ -14593,6 +15275,14 @@ def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     )
 
     def _source_matches(event: GameEvent, context: GameContext) -> bool:
+        # "If a **spell** would deal damage…" (Rem Karolus, Stalwart
+        # Slayer, MEC-30) — RULE 609.7a: a resolving instant/sorcery is
+        # "a spell" for this purpose, the event's own precomputed flag
+        # `_prevent_damage_replacement`'s own ``is_spell`` check already
+        # reads for the exact same phrase on this card's paired prevention
+        # clause.
+        if is_spell and not event.get("source_is_instant_or_sorcery"):
+            return False
         if not colors and not types:
             return True
         if colors and any(c in (event.get("source_colors") or ()) for c in colors):
@@ -14606,22 +15296,25 @@ def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
                         return True
         return False
 
-    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+    def _applies(event: GameEvent, context: GameContext) -> bool:
         src = effect.source
         if your_sources_only:
             if src is None or event.get("source_controller_id") != src.controller_id:
-                return event
+                return False
         if to_opponent_only:
             if src is None:
-                return event
+                return False
             if event.get("is_player"):
                 if event.get("target_id") == src.controller_id:
-                    return event
+                    return False
             else:
                 target_obj = context.state.find_object(event.get("target_id"))
                 if target_obj is not None and target_obj.controller_id == src.controller_id:
-                    return event
-        if not _source_matches(event, context):
+                    return False
+        return _source_matches(event, context)
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
             return event
         dealt = int(event.get("amount", 0) or 0)
         if dealt <= 0:
@@ -14629,6 +15322,7 @@ def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         return event.copy_with(amount=dealt + bonus)
 
     effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
     return effect
 
 
@@ -14648,28 +15342,35 @@ def _damage_floor_from_source_power_replacement(params: dict[str, Any]) -> Repla
         description=str(params.get("description", "")),
     )
 
-    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+    def _applies(event: GameEvent, context: GameContext) -> bool:
         src = effect.source
         if src is None or event.get("source_controller_id") != src.controller_id:
-            return event
+            return False
         if event.get("combat"):
-            return event
+            return False
         if colors and not any(c in (event.get("source_colors") or ()) for c in colors):
-            return event
+            return False
         if event.get("is_player"):
             if event.get("target_id") == src.controller_id:
-                return event
+                return False
         else:
             target_obj = context.state.find_object(event.get("target_id"))
             if target_obj is None or target_obj.controller_id == src.controller_id:
-                return event
+                return False
+        # "…damage less than ~'s power" — the threshold comparison is the
+        # printed condition itself, not an incidental no-op.
         threshold = int(getattr(src, "power", 0) or 0)
         dealt = int(event.get("amount", 0) or 0)
-        if dealt <= 0 or dealt >= threshold:
+        return 0 < dealt < threshold
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
             return event
+        threshold = int(getattr(effect.source, "power", 0) or 0)
         return event.copy_with(amount=threshold)
 
     effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
     return effect
 
 
@@ -14717,19 +15418,24 @@ def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
         description=str(params.get("description", "")),
     )
 
-    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
         if kind_filter and event.get("kind") != kind_filter:
-            return event
+            return False
         if your_effects_only:
             src = effect.source
             if src is None or event.get("source_controller_id") != src.controller_id:
-                return event
+                return False
         if recipient is not None:
             src = effect.source
             if src is None or event.get("recipient_controller_id") != src.controller_id:
-                return event
+                return False
             if recipient == "creature_you_control" and not event.get("recipient_is_creature"):
-                return event
+                return False
+        return True
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
+            return event
         amount = int(event.get("amount", 0) or 0)
         if amount <= 0:
             return event
@@ -14737,6 +15443,7 @@ def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
         return event.copy_with(amount=new_amount)
 
     effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
     return effect
 
 
@@ -14760,27 +15467,29 @@ def _die_to_exile_replacement(params: dict[str, Any]) -> ReplacementEffect:
         description=str(params.get("description", "")),
     )
 
-    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
         src = effect.source
         controller_id = event.get("controller_id")
         target_id = event.get("target_id")
         if subject == "self":
-            matches = src is not None and target_id == getattr(src, "instance_id", None)
-        elif subject == "you_control":
-            matches = src is not None and controller_id == src.controller_id
-        elif subject == "opponents_control":
-            matches = src is not None and controller_id not in (None, src.controller_id)
-        else:  # "any"
-            matches = True
-        if not matches:
+            return src is not None and target_id == getattr(src, "instance_id", None)
+        if subject == "you_control":
+            return src is not None and controller_id == src.controller_id
+        if subject == "opponents_control":
+            return src is not None and controller_id not in (None, src.controller_id)
+        return True  # "any"
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
             return event
-        obj = context.state.find_object(target_id)
+        obj = context.state.find_object(event.get("target_id"))
         if obj is None:
             return event  # already gone — let the normal path no-op
         context.engine.exile(obj)
         return None  # event consumed; the graveyard move is replaced by exile
 
     effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
     return effect
 
 
@@ -14802,9 +15511,12 @@ def _gain_life_replacement(params: dict[str, Any]) -> ReplacementEffect:
         description=str(params.get("description", "")),
     )
 
-    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
         src = effect.source
-        if src is None or event.get("player_id") != src.controller_id:
+        return src is not None and event.get("player_id") == src.controller_id
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
             return event
         amount = int(event.get("amount", 0) or 0)
         if amount <= 0:
@@ -14813,6 +15525,7 @@ def _gain_life_replacement(params: dict[str, Any]) -> ReplacementEffect:
         return event.copy_with(amount=new_amount)
 
     effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
     return effect
 
 
@@ -14829,9 +15542,12 @@ def _double_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
         description=str(params.get("description", "")),
     )
 
-    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
         src = effect.source
-        if src is None or event.get("controller_id") != src.controller_id:
+        return src is not None and event.get("controller_id") == src.controller_id
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
             return event
         amount = int(event.get("amount", 0) or 0)
         if amount <= 0:
@@ -14839,6 +15555,7 @@ def _double_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
         return event.copy_with(amount=amount * 2)
 
     effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
     return effect
 
 
@@ -14869,15 +15586,19 @@ def _create_one_of_each_named_token_replacement(params: dict[str, Any]) -> Repla
     )
     effect._busy = False  # type: ignore[attr-defined]
 
-    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
         src = effect.source
         if src is None or event.get("controller_id") != src.controller_id:
-            return event
+            return False
         if effect._busy:  # type: ignore[attr-defined]
+            return False
+        return event.get("token_name") in _NAMED_TOKEN_DISPLAY_NAMES
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
             return event
+        src = effect.source
         token_name = event.get("token_name")
-        if token_name not in _NAMED_TOKEN_DISPLAY_NAMES:
-            return event
         effect._busy = True  # type: ignore[attr-defined]
         try:
             from ..services.token_database import default_token_database
@@ -14894,6 +15615,7 @@ def _create_one_of_each_named_token_replacement(params: dict[str, Any]) -> Repla
         return event
 
     effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
     return effect
 
 
@@ -14914,12 +15636,16 @@ def _additional_named_token_replacement(params: dict[str, Any]) -> ReplacementEf
     )
     effect._busy = False  # type: ignore[attr-defined]
 
-    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
         src = effect.source
         if src is None or event.get("controller_id") != src.controller_id:
+            return False
+        return not effect._busy  # type: ignore[attr-defined]
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
             return event
-        if effect._busy:  # type: ignore[attr-defined]
-            return event
+        src = effect.source
         effect._busy = True  # type: ignore[attr-defined]
         try:
             from ..services.token_database import default_token_database
@@ -14932,6 +15658,7 @@ def _additional_named_token_replacement(params: dict[str, Any]) -> ReplacementEf
         return event
 
     effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
     return effect
 
 
@@ -14952,21 +15679,28 @@ def _win_instead_of_empty_draw_replacement(params: dict[str, Any]) -> Replacemen
         description=str(params.get("description", "")),
     )
 
-    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+    def _applies(event: GameEvent, context: GameContext) -> bool:
         src = effect.source
         controller_id = getattr(src, "controller_id", None)
         if controller_id is None or event.get("player_id") != controller_id:
-            return event
+            return False
         try:
             player = context.state.player_by_id(controller_id)
         except Exception:
+            return False
+        # "…while your library has no cards in it" — the printed condition
+        # itself, not an incidental no-op.
+        return not player.library
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if not _applies(event, context):
             return event
-        if player.library:
-            return event
+        player = context.state.player_by_id(getattr(effect.source, "controller_id"))
         context.engine.player_wins(player)
         return None
 
     effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
     return effect
 
 

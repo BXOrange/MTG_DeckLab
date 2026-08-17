@@ -43,6 +43,14 @@ class Emblem:
         self.static_effects: list[Any] = []
         #: `TriggeredAbility` instances — read by `RulesEngine._collect_triggers`.
         self.triggered_abilities: list[Any] = []
+        #: `ReplacementEffect` instances (MEC-30 — Ajani Steadfast's own
+        #: "If a source would deal damage to you or a planeswalker you
+        #: control, prevent all but 1 of that damage." emblem, the first
+        #: emblem to grant one) — read by `RulesEngine._all_replacement_
+        #: effects` alongside every player's `player_effects`/every
+        #: permanent's own list, the same "scan every player's emblems too"
+        #: convention `continuous.py`'s static-ability scan already uses.
+        self.replacement_effects: list[Any] = []
         #: RULE 114.4 also permits an emblem's own activated ability (rare —
         #: no real emblem prints one yet, `RulesEngine.create_emblem` files
         #: it here instead of dropping it). `instance_id` shares `GameObject`'s

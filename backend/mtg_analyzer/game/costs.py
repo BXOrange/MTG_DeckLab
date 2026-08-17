@@ -107,14 +107,26 @@ _EXILE_FROM_HAND_RE = re.compile(
 _EXILE_GRAVEYARD_RE = re.compile(
     r"exile\s+(\d+|[a-z]+)\s+other\s+cards?\s+from\s+your\s+graveyard", re.IGNORECASE
 )
-#: "Exile the top card of your library" (Thought Lash) — a non-mana
+#: "Exile the top card of your library" (Thought Lash) / "Exile the top
+#: four cards of your library" (Seasoned Tactician, MEC-30) — a non-mana
 #: additional cost paid straight off the payer's own library, distinct from
 #: `exile_self_from_hand`'s hand-zone alternative-cost shape (which the
 #: engine still doesn't charge through this path — see that field's own
 #: docstring) since this one always has a real battlefield source to pay it
-#: from.
+#: from. The count word is optional (bare "top card" implies exactly one).
 _EXILE_TOP_LIBRARY_RE = re.compile(
-    r"exile\s+the\s+top\s+card\s+of\s+your\s+library", re.IGNORECASE
+    r"exile\s+the\s+top\s+(?:(?P<n>\d+|" + "|".join(_NUMBER_WORDS) + r")\s+)?cards?\s+of\s+your\s+library",
+    re.IGNORECASE,
+)
+#: "Put a card from your hand on top of your library" (Penance, MEC-30) — a
+#: non-mana additional cost paid from hand, the chosen-card sibling of
+#: `_EXILE_TOP_LIBRARY_RE`'s library-sourced cost. Charged via
+#: `RulesEngine.put_hand_card_on_top_of_library`, resolved by
+#: `ActivationMixin._resolve_put_hand_card_cost` (the same "chosen_ids, or
+#: auto-pick" shape `_resolve_discard_cost` already uses for a plain
+#: discard-N cost).
+_PUT_HAND_CARD_ON_LIBRARY_RE = re.compile(
+    r"put\s+a\s+card\s+from\s+your\s+hand\s+on\s+top\s+of\s+your\s+library", re.IGNORECASE
 )
 #: "Return a Forest you control to its owner's hand" (Quirion Ranger/Scryb
 #: Ranger) — a non-mana additional cost that returns a permanent of a given
@@ -331,10 +343,20 @@ class ActivationCost:
     #: mana of the source's `GameObject.chosen_color`. Enforced by
     #: `GameEngine._can_pay_activation_cost`/`_pay_activation_cost`.
     spend_only_chosen_color: bool = False
-    #: "Exile the top card of your library" (Thought Lash) — a non-mana
-    #: additional cost paid off the payer's own library, charged by
-    #: `GameEngine._pay_activation_cost` via `RulesEngine.exile`.
-    exile_top_of_library: bool = False
+    #: "Exile the top card(s) of your library" (Thought Lash's 1, Seasoned
+    #: Tactician's 4, MEC-30) — a non-mana additional cost paid off the
+    #: payer's own library, charged by `GameEngine._pay_activation_cost` via
+    #: `RulesEngine.exile`. ``0`` means no such cost; the count itself
+    #: (rather than a bare bool) since `_EXILE_TOP_LIBRARY_RE` now recognizes
+    #: a printed number too — every existing truthiness check (``if cost.
+    #: exile_top_of_library:``) still reads correctly for any positive count.
+    exile_top_of_library: int = 0
+    #: "Put a card from your hand on top of your library" (Penance, MEC-30)
+    #: — a non-mana additional cost paid from hand, charged by `GameEngine.
+    #: _pay_activation_cost` via `RulesEngine.put_hand_card_on_top_of_
+    #: library`. Only ever exactly one card on any printed card so far, so
+    #: (unlike ``exile_top_of_library``) this stays a plain bool.
+    put_hand_card_on_library: bool = False
     #: Loyalty-ability cost (RULE 606.5c): the signed change to the source's
     #: loyalty counters — ``+2`` for ``[+2]``, ``-3`` for ``[-3]``, ``0`` for
     #: ``[0]``. ``None`` means this is not a loyalty ability.
@@ -359,6 +381,14 @@ class ActivationCost:
     #: than folded into `sorcery_speed_only` — see `GameEngine.
     #: _only_during_your_turn_ok`.
     only_during_your_turn: bool = False
+    #: "Any player may activate this ability." (Mercenaries, MEC-30) — RULE
+    #: 602.2a's *eligibility* is normally "the permanent's controller only";
+    #: this is a standing exception widening it to any player at the table,
+    #: enforced by `GameEngine.can_activate` skipping its ordinary
+    #: ``source.controller_id != player.id`` gate. Not itself a resource
+    #: paid, so `game/mana_potential.py`'s tap-plan simulation (which only
+    #: cares about resource payability) needs no matching check.
+    any_player_may_activate: bool = False
     #: PAR-10: "…and only if `<condition>`." stacked on (or standing in
     #: for) sorcery-speed timing (Cabal Inquisitor/Dread Wanderer/Hall of
     #: Oracles/Jin-Gitaxias/Potioner's Trove) — a `game/static_conditions.py`
@@ -616,8 +646,14 @@ def parse_activation_cost(
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "spend_only_chosen_color" in cost:
         parsed.spend_only_chosen_color = bool(cost["spend_only_chosen_color"])
+    if "any_player_may_activate" in cost:
+        parsed.any_player_may_activate = bool(cost["any_player_may_activate"])
     if "exile_top_of_library" in cost:
-        parsed.exile_top_of_library = bool(cost["exile_top_of_library"])
+        # int(True) == 1, so a hand-authored bool (meaning "one card") and a
+        # real printed count both parse correctly through the same line.
+        parsed.exile_top_of_library = int(cost["exile_top_of_library"])
+    if "put_hand_card_on_library" in cost:
+        parsed.put_hand_card_on_library = bool(cost["put_hand_card_on_library"])
     if cost.get("return_to_hand"):
         parsed.return_to_hand = str(cost["return_to_hand"])
     if cost.get("return_to_hand_count"):
@@ -746,8 +782,13 @@ def _parse_text(text: str) -> ActivationCost:
     if exile_graveyard:
         cost.exile_from_graveyard = _word_to_int(exile_graveyard.group(1))
 
-    if _EXILE_TOP_LIBRARY_RE.search(cost_text):
-        cost.exile_top_of_library = True
+    exile_top = _EXILE_TOP_LIBRARY_RE.search(cost_text)
+    if exile_top:
+        n = exile_top.group("n")
+        cost.exile_top_of_library = _word_to_int(n) if n else 1
+
+    if _PUT_HAND_CARD_ON_LIBRARY_RE.search(cost_text):
+        cost.put_hand_card_on_library = True
 
     tap_others = _TAP_OTHERS_RE.search(cost_text)
     if tap_others:

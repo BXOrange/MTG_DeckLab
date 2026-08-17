@@ -308,6 +308,15 @@ def group_selector_objects(
             o for o in battlefield
             if o.is_creature and o.controller_id == controller_id and o is not src
         ]
+    elif affects == "other_planeswalkers_you_control":
+        # "…and a loyalty counter on each **other** planeswalker you
+        # control." (Ajani Steadfast's own -2, MEC-30) — the planeswalker-
+        # scoped sibling of ``other_creatures_you_control`` just above,
+        # same RULE 109.5 "another" self-exclusion.
+        result = [
+            o for o in battlefield
+            if o.is_planeswalker and o.controller_id == controller_id and o is not src
+        ]
     elif affects == "other_nonhuman_creatures_you_control":
         # "Other non-Human creatures you control get +1/+1 and have
         # undying." (Mikaeus, the Unhallowed) — ``other_creatures_you_

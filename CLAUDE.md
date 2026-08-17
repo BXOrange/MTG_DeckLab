@@ -616,8 +616,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **34.0%
-covered (11,823 / 34,811) as of 2026-08-13, PARSER_VERSION 91** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **34.2%
+covered (11,894 / 34,811) as of 2026-08-17, PARSER_VERSION 92** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -1236,6 +1236,116 @@ be `"enter_replacement"`, not `"static"`) were found and fixed along the
 way. Full detail, every primitive and every bug:
 `docs/implementation-state/Done_Backend.md`'s "MEC-12: Kinnan and M-K
 completed" entry.
+
+A first **MEC-30** pass (2026-08-17) then carded the standing `prevent_
+damage` replacement (RULE 615/616.1) — registered since the original
+replacement-effects batch but never bound to any card until now, distinct
+from that batch's own one-shot `prevent_damage_shield` (Riot Control/
+Thought Lash). Widened `to`/`recipient_filter`/`recipient_union`/
+`source_filter`/`amount` (incl. `{"all_but"}`/`{"half"}`)/
+`amount_count_selector` and a generic `rider` follow-up
+(`RulesEngine.apply_prevent_rider`) close the Sphere cycle/Urza's Armor/
+Shield of the Realm-shaped standing-shield family (RULE 613.6's `active_if`
+now gates *any* replacement generically, not just this one); RULE 702.64
+Absorb went from inert to real, bound structurally rather than parsed; and
+a genuinely new one-shot primitive — `RequestPreventDamageSourceEffect`/
+`PreventDamageFromTargetEffect`, `request_choose_objects`'s new
+`"remember_source"` action, `prevent_damage_to_player`/`_to_target`'s new
+`watched_source_id`/`rider` params, and the unscoped-recipient
+`prevent_damage_from_source` — covers RULE 616.1d's "a source of your
+choice" (Circle of Protection/Rune of Protection). 15 cards close purely
+via a new parser regex family, 5 more are hand-authored. A **second pass**
+the same day then hand-authored 32 more — the full Circle of Protection and
+Rune of Protection cycles plus Story Circle/Prismatic Circle/Circle of
+Solace's RULE 601.2b "as this enters, choose a color/creature type" shape
+(three new `combat.matches_object_filter` keys — `color_any`/
+`color_from_source`/`subtype_from_source` — read by `RequestPreventDamage
+SourceEffect`'s candidate gathering) and New Way Forward's two-riders-off-
+one-shield shape (`apply_prevent_rider`'s `rider` param now also accepts a
+list). A **third pass** the same day closed the rest of Family A (7
+cards) — Rem Karolus/Hedron-Field Purists/Battletide Alchemist
+mechanically; Nine Lives via one new symmetric trigger-condition key
+(`source_counters_at_least`) rather than the genuinely-new RULE 603.8
+state-trigger subsystem the ticket had assumed; Insult // Injury/Isengard
+Unleashed via the pass's one real new mechanism (`GameState.damage_
+prevention_disabled` + a `ReplacementEffect.prevents_damage` marker
+gating `RulesEngine._run_replacement_loop`, plus `grant_damage_
+multiplier_this_turn`, the spell-cast sibling of the standing
+`double_damage` replacement); Ajani Steadfast's all-three-loyalty-
+abilities (not just its emblem, per a Haazda Shield Mate-shaped
+`specs_for` gotcha). **Phases 5-6** the same day closed 6 more Family B
+cards via several small, individually-scoped chooser extensions (a
+recipient scoped to "you and/or creatures you control", a rider gated by
+the watched source's own colour, a life-gain reading a shared target's
+power) plus Opal-Eye, Konda's Yojimbo's own RULE 616.1c *redirection* — the
+first in this engine, which surfaced and fixed a real, previously-
+unreachable bug in `RulesEngine.deal_damage` itself: its `_finish` closure
+had always resolved every branch against the damage event's *original*
+recipient, never re-reading a replacement's own rewritten `target_id`, so
+no card could ever actually redirect damage before now. A **fourth pass**
+the same day then fixed the standing RULE 616.1e ambiguity papercut two
+prior passes had each mentioned and left alone (per this file's own
+"deferred a second time must be fixed or promoted" rule): none of the 12
+`ReplacementRegistry` factories in `game/effects.py` ever passed a
+`condition` to their `ReplacementEffect`, so `can_replace` only ever
+checked the event *type* — every real applicability gate (recipient,
+source, "while it has a counter", …) lived as an early no-op guard buried
+inside `replacement_fn` itself, which is why Gisela's two unrelated
+replacements always both reported "applicable" and opened a pointless
+ordering choice on every hit. Fixed by extracting each factory's existing
+guard into a named `_applies` closure wired in as `effect.condition`. A
+**fifth pass** closed Penance/Seasoned Tactician/Bone Mask's three
+cost-shape gaps — a new "put a card from your hand on top of your
+library" non-mana cost (`ActivationCost.put_hand_card_on_library`,
+`ActivationMixin._resolve_put_hand_card_cost` mirroring `_resolve_
+discard_cost`'s "chosen_ids, or auto-pick" shape); `costs.
+exile_top_of_library` widened from a bare bool to a real printed count
+(every existing caller checked so Thought Lash doesn't regress); a new
+`apply_prevent_rider` kind, `"exile_top_of_library_scaled"` (`mill`'s
+exile-instead-of-graveyard sibling); and `RequestPreventDamageSourceEffect`'s
+new `recipient="any"` for Penance's own unqualified "prevent that
+damage" (no "to you" at all, unlike every other card in this family),
+reaching the already-shipped unscoped `prevent_damage_from_source` shield.
+A **sixth pass** then closed the two cards flagged from the start as the
+family's genuinely bigger builds. Mercenaries ("Any player may activate
+this ability") surfaced a real gap: RULE 602.2b makes whoever *activates*
+an ability that ability's controller for its resolution, but nothing
+distinguished that from a permanent's own printed controller anywhere in
+the effect-application path — `ActivationCost.any_player_may_activate`
+widens `can_activate`'s ordinary controller-only eligibility gate, and
+`GameContext.resolving_controller_id` (the activator, set/restored by
+`resolve_top_of_stack` exactly like `trigger_event`, read by
+`PreventDamageEffect`'s new opt-in `recipient_is_activator`/`watched_
+source_is_self`) is what makes the shield actually protect whoever paid
+for it. Rhystic Circle ("Any player may pay {1}. If no one does, …") is a
+genuine multi-player, aggregate-outcome tax — every player independently
+gets a chance to pay in turn order, the first to pay cancels the whole
+thing, and the payoff only fires once, if literally everyone declined —
+`RequestAllPlayersDeclineOrEffect`/`RulesEngine.request_all_players_
+decline_or`, the aggregate-outcome mirror of PAR-13's existing `request_
+each_player_pay_or` (which applies its own effect *per decliner* rather
+than once in aggregate, so the two can't share one advance loop despite
+both being chains of ordinary single-player pay/decline choices). A
+**seventh pass** then closed the family's last card, Desperate Gambit
+("Choose a source you control and flip a coin. If you win, `<effect>`. If
+you lose, `<effect>`.") — a genuinely conditional effect *selection*
+scoped to one already-chosen source, not a rider: `ChooseSourceCoinFlip
+Effect` opens the chosen-source chooser family's third member (candidates
+narrowed to "a source **you control**", not "of your choice"), and the
+coin (`RulesEngine.coin_flip`, RULE 705.1) isn't flipped until the pick
+resolves — heads calls the one genuinely new primitive, `RulesEngine.
+grant_damage_multiplier_from_source` (the single-source-scoped doubling
+mirror of `prevent_damage_from_source`, *not* a mode of the controller-
+wide `grant_damage_multiplier_this_turn`), tails calls the already-shipped
+`prevent_damage_from_source` directly — its own docstring had anticipated
+exactly this reuse since the first pass. **MEC-30 is closed**: every card
+the original 80-row cache search surfaced is now `MODELED` or hand-
+authored, and every primitive built along the way (RULE 613.6 `active_if`
+on any replacement, RULE 616.1c redirection, RULE 616.1e's real
+`can_replace` condition, the RULE 602.2b activator/controller distinction,
+the multi-player aggregate-outcome tax) is general enough for a future,
+unrelated card to reuse without rebuilding it. Full detail, all seven
+passes: `Done_Backend.md`'s "MEC-30" entry.
 
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the

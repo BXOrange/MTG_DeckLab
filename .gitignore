@@ -5,6 +5,7 @@ node_modules/
 .env
 .DS_Store
 venv/
+venv_win/
 backend/cache/
 backend/data/
 # Local wheel cache for offline installs (setup/install.py --download-wheels).

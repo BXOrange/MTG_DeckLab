@@ -15536,3 +15536,869 @@ general primitives, each reusable well beyond this deck:
 Full test suite green throughout (3930 passed, 238 skipped). Parser
 coverage 33.9%→34.0% (11,812→11,823/34,811, `PARSER_VERSION` 90→91) —
 `BACKLOG.md`/`CLAUDE.md`/`implementationStatusView.js` synced.
+
+## MEC-30: carding the standing `prevent_damage` replacement family (first pass)
+
+`game/effects.py` has had a fully-built standing (permanent, not one-shot)
+damage-prevention replacement — `_prevent_damage_replacement`, registered
+as `ReplacementRegistry`'s `"prevent_damage"` — that no card, parsed or
+hand-authored, had ever used; two code comments flagged it explicitly as
+"still uncarded/unused." A read-only cache search (oracle text containing
+both "would deal damage" and "prevent") turned up 80 candidate rows, which
+split into two structurally different real-card families: a **standing**
+shield (Sphere of Duty/Grace/Law/Purity/Reason/Truth, Urza's Armor, Shield
+of the Realm/Avatar, …) that slots onto the existing primitive with modest
+extensions, and a genuinely new **"a source of your choice"** one-shot
+family (Circle of Protection/Rune of Protection and ~25 siblings). This
+first pass built every primitive both families need and closed a
+representative slice of real cards from each — the remaining ~55-60 cards
+are ordinary hand-authoring against a now-proven shape, tracked in
+`BACKLOG.md`'s `MEC-30` rather than forced into one sitting (MEC-12's own
+precedent for a pool this size).
+
+**Standing-shield primitive** (`_prevent_damage_replacement`) grew five new
+axes, each read off a `matches_object_filter`-shaped dict or the DAMAGE
+event's own precomputed fields — no battlefield scan, no new event fields:
+
+- `to="attached_permanent"`/`"any_player"`/`"opponent_player"`/
+  `"controlled_permanent"` (+ `recipient_filter`/`recipient_union`) for the
+  recipient — Shield of the Realm/Avatar's "equipped creature," Battletide
+  Alchemist's "a player," Hostility's "an opponent," Daunting Defender's "a
+  Cleric creature you control," Djeru's "a planeswalker you control,"
+  Temple Altisaur's "another Dinosaur you control" (a new `without_
+  instance_id` key on `combat.matches_object_filter`, resolved from a new
+  `exclude_self` shorthand at match time since the excluded id isn't known
+  until bind time), and Hyperion/Ajani's "you or a `<X>` you control"
+  unions.
+- `source_filter` (colour/artifact/creature/spell/opponent-controlled) for
+  *who's dealing* the damage — the Sphere cycle's colour/artifact
+  qualifiers, Orbs of Warding's "a creature," Protection of the Hekma's "an
+  opponent controls," and Hostility's "a spell you control" (reusing the
+  DAMAGE event's existing `source_is_instant_or_sorcery` flag as "is a
+  spell" — RULE 609.7a-correct for every real card in this pool, so no new
+  event field was needed).
+- `amount={"all_but": N}`/`{"half": "up"|"down"}` and `amount_count_
+  selector` (Temple Altisaur/Hyperion's "all but 1," Gisela's "half,
+  rounded up," Shield of the Avatar/Battletide Alchemist's "X, where X is
+  the number of `<Y>` you control" — the latter needing no new
+  `continuous.count_selector` key at all, `"creatures_you_control"`/
+  `"creatures_you_control_of_type_<X>"` already existed).
+- A generic `rider` (`RulesEngine.apply_prevent_rider`) firing a follow-up
+  off the *actual* prevented amount — `gain_life`/`draw_cards`/`mill`/
+  `deal_damage_to_source_controller`/`create_tokens_scaled`/
+  `add_self_counter` — mirroring `_prevent_damage_convert_counters_
+  replacement`'s existing "call an engine method mid-replacement" pattern
+  rather than a second effect resolving independently later. One shared
+  vocabulary, used by both families (the standing shield's own rider param
+  and the new one-shot shield builders below).
+- RULE 613.6's `active_if` wired **generically** into `effect_binder.
+  build_replacements` (wrapping whatever `condition` a factory already set)
+  rather than taught to this one factory — benefits every replacement,
+  present and future, and is what makes Hedron-Field Purists' two Leveler-
+  band amounts a plain pair of `EffectSpec`s instead of new bespoke code.
+
+**RULE 702.64 Absorb** went from a recognized-but-inert numbered keyword
+(no behaviour bound anywhere) to real: bound structurally in `effect_
+binder.attach_to_object`'s keyword branch, right next to the existing
+"ascend" special-case, straight off `parametric_keywords["absorb"]["n"]`
+onto the same `"prevent_damage"` factory (`to="self"`) the parsed standing
+shields use — no keyword→`ReplacementEffect` dispatch table existed before
+this (Ward is fully bespoke/procedural, not a precedent to copy). Closes
+every cached Absorb-N creature at once, e.g. Lymph Sliver.
+
+**Emblem replacement-effect plumbing** — a real, three-part gap found while
+scoping Ajani Steadfast's own `-7` emblem, fixed together: `models/
+emblem.py`'s `Emblem` had no `replacement_effects` list at all;
+`RulesEngine._all_replacement_effects` walked every permanent and every
+player's `player_effects` but never `player.emblems`; `create_emblem`'s own
+dispatch loop branched on `StaticAbility`/`TriggeredAbility` and silently
+dropped anything else, so a granted `ReplacementEffect` would have bound
+and then gone nowhere. All three needed fixing together for any future
+replacement-granting emblem, not just this one.
+
+**The "a source of your choice" one-shot family** (RULE 615/616.1d) is a
+genuinely new primitive: choosing a *source* (RULE 609.7a — always a
+permanent/spell/ability, never a player) isn't RULE 115 targeting at all
+(confirmed — `game/targeting.py` has no `"source"` kind), so it needed its
+own interactive path. Built by extending machinery that already existed
+rather than inventing a parallel one: `prevent_damage_to_player`/
+`_to_target` (Riot Control/Thought Lash's existing lifecycle) gained an
+optional `watched_source_id` — one extra `event.get("source_id") ==
+watched_source_id` clause on their existing match condition, same attach/
+sweep/self-removal machinery, zero new subsystem; a new sibling
+`prevent_damage_from_source` covers the *unscoped-recipient* shape (Awe
+Strike/Dazzling Reflection's "target creature," Desperate Gambit's "a
+source you control" — protects *whoever* the source would have hit, not
+one fixed recipient); `request_choose_objects` gained a `"remember_source"`
+action plus a `prevent_shield` payload threaded through the whole
+pending-choice round-trip (`_choose_objects_choice`/`resolve_choose_
+objects_choice`/`_apply_chosen_object`), so a pick opens the right shield
+instead of mutating the chosen object the way every other action does; two
+new effect classes, `RequestPreventDamageSourceEffect` (the chooser path —
+Circle of Protection/Rune of Protection) and `PreventDamageFromTargetEffect`
+(the already-targeted path — Awe Strike/Dazzling Reflection), registered as
+`"request_prevent_damage_source"`/`"prevent_damage_from_target"`.
+Deliberately scoped to battlefield permanents only (`request_choose_
+objects`'s candidates are always `GameObject`s, never a `StackItem` spell
+still on the stack) — correct per RULE 609.7a for every real card checked
+so far, called out as a documented simplification rather than assumed
+silently.
+
+**Two real, independently-confirmed bugs** surfaced while wiring Gisela,
+Blade of Goldnight and Deflecting Palm — both fixed, not worked around:
+
+- `_double_damage_replacement` had no `to_opponent_only` param at all —
+  Gisela's own paired "opponent-scoped double, controller-scoped prevent"
+  clauses needed one, and passing it silently did nothing (every other real
+  card using `double_damage` is deliberately unscoped, so the gap was
+  latent). Added, mirroring `_additional_damage_replacement`'s own
+  identically-shaped/-named param exactly.
+- `apply_prevent_rider`'s `deal_damage_to_source_controller` kind resolved
+  its recipient through the same generic `"you"`/`"source_controller"`
+  switch every other rider kind uses, which defaults to `"you"` — for a
+  reflect-shaped rider that's backwards: it sent Deflecting Palm's
+  reflected damage back onto the *shielded* player, from the *same watched
+  source*, which the shield then intercepted and reflected again,
+  recursing until a real `RecursionError`. Fixed by resolving this one
+  kind's recipient unconditionally as the source's controller, never
+  through the shared switch.
+
+**Cards closed this pass** — 15 via the new parser regex (`parser/oracle/
+catalogue/replacements.py`, confirmed `MODELED` through the real
+`parse_oracle` pipeline, no hand-authoring): the Sphere cycle (Duty/Grace/
+Law/Purity/Reason/Truth), Urza's Armor, Orbs of Warding, Protection of the
+Hekma, Guardian Seraph, Daunting Defender, Djeru — With Eyes Open, Temple
+Altisaur, Shield of the Realm, Shield of the Avatar. Plus 5 hand-authored
+(`game/ability_catalogue.py`): Swans of Bryn Argoll, Hostility, Gisela,
+Blade of Goldnight, Circle of Protection: Red (the activated-ability
+chooser template), Deflecting Palm (the instant/reflect-rider template).
+Heart-Shaped Herb's own prevent-damage clause parses correctly too, but the
+card as a whole stays `UNMODELED` on an unrelated second ability (its own
+sacrifice-and-reanimate-with-monarch clause) — not part of this ticket.
+
+New execute-test file `backend/tests/test_prevent_damage_family.py` (18
+cases — every widened param, the `active_if` gate, Absorb, the emblem
+plumbing, the chooser + its end-of-turn sweep, and all 5 hand-authored
+catalogue entries bound the ordinary way via `bind_from_catalogue`, not
+hand-built specs); a ~450-test regression sweep across every touched area
+(`game/combat.py`, `game/continuous.py`, `effect_binder.py`, `game/rules/
+misc_mixin.py`, `game/rules_engine.py`, plus the pre-existing
+`test_prevent_damage.py`/`test_replacement_clause_recognition.py`) stayed
+green throughout.
+
+Coverage 34.0%→34.0% (11,823→11,843/34,811, `PARSER_VERSION` 91→92) — the
+full +20 delta of this pass, both families together: 15 from the new
+parser regex (`MODELED`) plus 5 from the hand-authored catalogue entries
+(`AUTHORED`, `coverage_report.py`'s `is_registered` check counting them
+alongside `MODELED` the same way it always has for any hand-authored
+card). `BACKLOG.md`'s `MEC-30` entry carries the exact
+residue — which specific cards are still open in each family, and the two
+narrower gaps this pass diagnosed but didn't build (Nine Lives' own RULE
+603.8 state-trigger need; a pre-existing RULE 616.1e ambiguity-check
+papercut, harmless but real, surfaced by Gisela's two always-`can_replace`-
+true replacements).
+
+**Second pass (2026-08-17, same day)** closed nearly all of Family B: 32
+more cards hand-authored (`game/ability_catalogue.py`) — the full Circle
+of Protection cycle (White/Black/Blue/Green/Artifacts/Shadow, alongside
+the already-shipped Red), the full Rune of Protection cycle (White/Blue/
+Black/Red/Green/Artifacts/Lands — Cycling riding the existing PAR-9
+keyword fold-in unchanged, no new work needed since a registered card
+still gets every RULE 702 keyword folded in independently of its
+hand-authored specs), Greater Realm of Preservation, Story Circle,
+Prismatic Circle, Circle of Solace, Circle of Despair, Martyr's Cause,
+Sanctum Guardian, Righteous Aura, Haazda Shield Mate, Charm Peddler,
+Cho-Arrim Alchemist, Reverse Damage, Intervention Pact, New Way Forward,
+Awe Strike, Pentagram of the Ages, Pilgrim of Justice, Pilgrim of Virtue,
+Invulnerability.
+
+Three small new `combat.matches_object_filter` keys, all reused by
+`RequestPreventDamageSourceEffect`'s existing candidate-gathering (it
+already called `matches_object_filter` for every ``source_filter``, so
+these needed no plumbing of their own beyond the filter itself): ``color_
+any`` (Greater Realm of Preservation's "a black or red source" — the
+"any of" sibling `keyword_any`/`subtype_any` already established the
+idiom for); ``color_from_source``/``subtype_from_source`` (Story Circle/
+Prismatic Circle's and Circle of Solace's RULE 601.2b "as this enters,
+choose a color/creature type" — reusing the *existing* `choose_color_
+on_enter`/`choose_creature_type_on_enter` replacements that already stamp
+`GameObject.chosen_color`/`chosen_type`, just reading them dynamically at
+match time instead of a literal value baked in at parse time, the same
+dynamic-vs-literal split `power_lt_count_selector` already established).
+`RequestPreventDamageSourceEffect.apply` now passes its own `source` as
+`matches_object_filter`'s `reference` param specifically so these two can
+resolve it — previously unused, since no existing filter key needed a
+reference back to the filtering ability's own source.
+
+One primitive generalization: `RulesEngine.apply_prevent_rider`'s
+`rider` param now also accepts a **list** of rider dicts (applied in
+sequence), not just one — New Way Forward's "deals that much damage to
+that source's controller **and** you draw that many cards" is two
+independent riders off the same prevented amount, and the previous
+single-dict shape had no way to express that. `RequestPreventDamageSourceEffect`/
+`PreventDamageFromTargetEffect`'s own `rider` constructor params were
+widened to accept either shape (previously hard-cast to `dict`, which
+would have silently mis-typed a list).
+
+Haazda Shield Mate needed its upkeep "sacrifice this creature unless you
+pay {W}{W}" clause hand-authored alongside the shield ability, not left
+to the parser — `specs_for` (`game/ability_catalogue.py`) trusts a
+registered card's specs *wholesale* once a name matches (only the RULE
+702 keyword catalogue still folds in independently), so registering the
+card for its still-`UNMODELED` prevent-damage clause alone would have
+silently dropped a clause the parser already claims correctly today. Reused
+the general RULE 701.17 `sacrifice_unless_pay` interactive pay-or-lose-it
+choice (already shipped for Arcades Sabboth/Breeding Pit/Child of Gaea) —
+no new engine work, just the missing catalogue entry.
+
+Confirmed one design point along the way: `_prevent_damage_replacement`
+(Family A's *standing* shield) and `RequestPreventDamageSourceEffect`
+(Family B's *chosen-source* one-shot) have their own, independent
+`source_filter` implementations — the former a small hand-rolled DSL
+inside `effects.py` (`color`/`card_type`/`is_creature`/`is_spell`/
+`controller` only), the latter routed through `combat.matches_object_
+filter`. The three new filter keys above only apply to Family B; a
+first draft of this pass's own test for `color_any` wrote it against
+`ReplacementRegistry.create("prevent_damage", ...)` (Family A) and failed
+outright, since that path never calls `matches_object_filter` at all —
+corrected to test the real path (`RequestPreventDamageSourceEffect`,
+matching what Greater Realm of Preservation's own catalogue entry
+actually uses). Worth remembering for any future Family A card that
+wants a multi-colour/dynamic source filter — it would need its own
+addition to `_source_matches`, not a free ride off these three keys.
+
+Extended `test_prevent_damage_family.py` to 25 cases — 7 new tests
+covering `color_any`, `color_from_source`, `subtype_from_source`, the
+list-rider mechanism, the `target_kind="any"` chooser shielding a
+targeted permanent rather than always the caster, Haazda Shield Mate's
+two-ability bind (plus resolving its genuinely-ambiguous 2-candidate
+chooser, unlike every single-candidate auto-pick test before it), and
+Circle of Protection: Artifacts' `card_type` filter. A ~470-test
+regression sweep (`test_prevent_damage.py`, `test_replacement_clause_
+recognition.py`, `test_combat_requirements_and_multiblock.py`,
+`test_combat_restriction_dynamic_thresholds.py`,
+`test_combat_restriction_family.py`, `test_qualified_combat_restrictions.py`,
+`test_ability_catalogue.py`, `test_keyword_catalogue.py`, `test_costs.py`,
+`test_additional_costs.py`, `test_effect_binder.py`,
+`test_batch10_monarch_initiative_emblem_family.py`,
+`test_delayed_trigger_examples.py`, `test_batch6_cost_keyword_family.py`)
+stayed green throughout.
+
+`BACKLOG.md`'s `MEC-30` entry now carries only the residue: Family A
+untouched by this pass, plus ~14 Family B stragglers each blocked on its
+own small, individually-diagnosed missing piece (a target-power-based
+life gain, a coin-flip branch, an "any player may…" activation/tax
+override, a redirect instead of a prevention, a granted-ability shape, a
+`recipient_union` on the chooser, a source-colour-gated rider, and three
+separate missing cost shapes) — no longer one large undifferentiated
+"~55-60 cards left" bucket.
+
+Coverage 34.0%→34.1% (11,843→11,875/34,811, `PARSER_VERSION` unchanged at
+92 — no new parser regex this pass, all 32 cards `AUTHORED`) — the exact
++32 delta of this pass's own catalogue entries, confirming
+`coverage_report.py`'s `is_registered` check picked up every one.
+
+**Third pass (2026-08-17, same day)** closed all 7 remaining Family A
+cards, none of which turned out to need what the ticket's prior wording
+assumed. Re-verifying every card's real `parse_oracle` `unclaimed` output
+before writing anything (rather than trusting the ticket's own prior
+scoping) paid off twice: Nine Lives didn't need a new RULE 603.8
+state-trigger subsystem at all, and Ajani Steadfast needed all three
+loyalty abilities hand-authored, not just its emblem.
+
+**Rem Karolus, Stalwart Slayer**: the prevent half ("If a spell would deal
+damage to you or another permanent you control, prevent that damage.") was
+already fully expressible with existing params — `source_filter=
+{"is_spell": True}` (already on `_prevent_damage_replacement`) and
+`recipient_union=["controller", {"exclude_self": True}]` (Temple
+Altisaur's own "another `<X>` you control" idiom, unfiltered by type
+here). The bonus-damage half needed one small addition: `_additional_
+damage_replacement` (`game/effects.py`) had `color`/`colors`/`types`
+filters but no `is_spell` — added, mirroring the identical check its
+`_prevent_damage_replacement` sibling already had for the same DAMAGE
+event field (`source_is_instant_or_sorcery`).
+
+**Hedron-Field Purists**/**Battletide Alchemist**: purely mechanical —
+Hedron-Field Purists' two Leveler-banded `prevent_damage` specs use
+`active_if`'s `source_counters` kind exactly as the synthetic
+`test_active_if_gates_a_leveler_style_amount_band` test already proved (the
+Leveler P/T-by-level mechanism itself, `Card.is_leveler`, is structural and
+independent of catalogue registration, the same way a DFC's transform is);
+Battletide Alchemist ships as a documented unconditional-prevention
+simplification (no replacement-level "you may" primitive exists in this
+engine, and building one is disproportionate for a single card), using the
+already-shipped `amount_count_selector="creatures_you_control_of_type_
+cleric"` — confirmed via `_prevent_damage_replacement`'s own
+`amount_count_selector` resolution to be scoped to the *shield's own
+controller* regardless of `to="any_player"`'s broader recipient match
+(needed since Battletide's real printed text is "a source would deal
+damage to **a player**", not "to you" — unscoped by who's hit).
+
+**Nine Lives** — the ticket's own biggest misdiagnosis, corrected this
+pass: "When there are nine or more incarnation counters on this
+enchantment, exile it" reads as RULE 603.8's genuine state-trigger shape,
+but since incarnation counters on this specific card only ever arrive one
+at a time via its own `prevent_damage` rider (`add_self_counter`, already
+shipped), an ordinary `EventType.COUNTER` self-subject trigger (Flourishing
+Defenses' own precedent for "whenever a counter is put on ~") gated by a
+counter-count threshold is exactly rules-equivalent to a real state trigger
+for this card — checked fresh every time a counter lands, the only moment
+the count could newly cross 9. `effect_binder.py` had `source_counters_
+below` (Runaway Steam-Kin's "fewer than N") but no "at least" mirror; added
+`source_counters_at_least` (~15 lines, same shape, `>=` instead of `<`).
+The "leaves the battlefield → lose the game" clause reused the four-times-
+precedented `EventType.LEAVES_BATTLEFIELD`/`condition={"subject": "self"}`
+shape verbatim.
+
+**Insult // Injury**/**Isengard Unleashed** — the one genuinely new
+mechanism this pass built, and the reason it's its own phase. "Damage
+can't be prevented this turn" needed a generic way to find every
+prevention-shaped effect across both families without hand-listing effect
+classes: a new `ReplacementEffect.prevents_damage` marker, stamped at
+every construction site (`_prevent_damage_replacement`'s own returned
+effect — covering Absorb for free, since `effect_binder.attach_to_object`'s
+Absorb branch reuses that exact factory; `_prevent_damage_convert_
+counters_replacement`, Bloatfly Swarm's compound shield; and all four
+one-shot builders in `game/rules/damage_death_mixin.py` — `prevent_damage_
+to_player`/`_to_target`/`_from_source`/`prevent_all_combat_damage_this_
+turn`), a turn-scoped `GameState.damage_prevention_disabled` flag (reset
+at cleanup, the same RULE 514.2 window as everything else), and one more
+filter clause in `RulesEngine._run_replacement_loop`'s `applicable` list
+comprehension. Deliberately **not** reusing the existing `damage_
+prevention_shield` flag despite the similar name and the plan's own
+initial assumption that it could be — that flag means "sweep me at
+cleanup, I'm one-turn-only" and stamping it onto Family A's *standing*
+shields (Circle of Protection, Sphere of Duty, …) would have deleted them
+at the very next cleanup step, a real regression caught before it shipped
+by checking `_step_cleanup`'s actual sweep logic rather than assuming.
+
+The paired "deals double/triple damage instead" half needed its own new
+primitive too, despite the ticket's "already-shipped" framing — that
+framing was accurate only for the *standing*, permanent-attached
+`double_damage` replacement (Furnace of Rath-shaped); a one-shot sorcery
+has no permanent left to hold a shield once it resolves. `RulesEngine.
+grant_damage_multiplier_this_turn` is the spell-cast sibling: it builds
+the exact same `ReplacementRegistry.create("double_damage", …)` effect
+Furnace of Rath binds onto a permanent, but files it on the *caster's*
+`Player.player_effects` instead, with `your_sources_only` reading the
+resolving spell's own `controller_id` (a `GameObject` still carries one
+after leaving the stack). Marked with its own new `damage_multiplier_
+grant` flag — not `prevents_damage` (this isn't a prevention effect and
+must stay untouched by the disable-prevention filter above) and not
+`damage_prevention_shield` (a second, differently-named "sweep me at
+cleanup" flag, mirroring the existing three-block pattern in `GameEngine.
+_step_cleanup` — `regeneration_shield`/`damage_prevention_shield`/`life_
+gain_prevention_shield` — rather than overloading one of them). `GameContext`
+needed two new thin wrapper methods (`disable_damage_prevention_this_turn`/
+`grant_damage_multiplier_this_turn`) since it has no generic passthrough
+to the engine — every effect-facing method is hand-declared.
+
+**Ajani Steadfast** — the other place this pass's own "verify before
+trusting the ticket" discipline mattered: `parse_oracle` shows **all
+three** loyalty abilities `UNCLAIMED`, not just the `-7` emblem the ticket
+had scoped. Since `specs_for` trusts a registered card's specs wholesale,
+registering Ajani for just the emblem would have silently dropped `+1`/`-2`
+entirely (the same lesson Haazda Shield Mate taught in Pass 2). `+1` is an
+ordinary "up to one target" `pump` (The Wandering Emperor's own idiom,
+`optional=True` on a `count=1` target spec) granting +1/+1 and three
+keywords. `-2` ("put a +1/+1 counter on each creature you control and a
+loyalty counter on each other planeswalker you control") is two
+`add_counters` specs in one ability: `each_creature_you_control` already
+shipped, but the planeswalker half needed a new selector —
+`continuous.group_selector_objects` gained `"other_planeswalkers_you_
+control"` (`other_creatures_you_control`'s planeswalker-scoped sibling),
+`AddCountersEffect` gained the matching `each_other_planeswalker_you_
+control` entry in `_ADD_COUNTERS_SELECTORS`, and the class's own selector→
+`affects` mapping was generalized from a two-way inline ternary to a small
+dict (`_ADD_COUNTERS_SELECTOR_AFFECTS`) so a third selector didn't need a
+third special case. `-7`'s emblem is the exact `prevent_damage`/
+`recipient_union=["controller", {"card_type": "planeswalker"}]`/
+`amount={"all_but": 1}` shape already synthetic-tested via the Hyperion
+test in Pass 1 — confirmed end-to-end here against a real second
+planeswalker object, including RULE 306.9's "damage to a planeswalker
+removes loyalty counters, not `damage_marked`" (a wrong first draft of the
+test's own assertion, caught by the test actually failing rather than
+assumed correct).
+
+Extended `test_prevent_damage_family.py` from 25 to 51 cases — one section
+per card/primitive above, each pairing a low-level primitive test with a
+real catalogue-entry test, the same two-tier pattern every prior pass used.
+Two test-writing mistakes were caught and fixed by the tests themselves
+actually failing (not by re-reading code after the fact): the `color_any`-
+style bug class recurred in miniature when a synthetic `active_if` test
+originally reused a fictional creature literally named "Hedron-Field
+Purists," colliding with the real new catalogue entry the same way "Swans
+of Bryn Argoll" had in Pass 1 (renamed to "Fictional Leveler Purist"); and
+an initial Battletide Alchemist test wrongly assumed `to="any_player"`
+meant "only the caster," when the real printed text scopes by "the number
+of Clerics **you** control" but not by *who's hit* — the test's own
+`p2`-unaffected assertion failed immediately, which is what caught the
+misreading. Regression sweep across every touched file (`game/combat.py`,
+`game/continuous.py`, `game/effect_binder.py`, `game/effects.py`,
+`game/rules_engine.py`, `game/rules/damage_death_mixin.py`, `game/engine/
+turn_loop_mixin.py`, `models/game_state.py`, plus `test_prevent_damage.py`,
+`test_replacement_clause_recognition.py`, `test_ability_catalogue.py`,
+`test_keyword_catalogue.py`, `test_batch10_monarch_initiative_emblem_
+family.py`, `test_planeswalker.py`, `test_continuous.py`, `test_bots.py`)
+stayed green throughout — one apparent `test_bots.py` timeout under this
+session's own heavy background-task load turned out to be pure environment
+slowness (all 33 cases pass cleanly at 71s with a longer timeout), not a
+regression, confirmed by isolating and re-running it alone.
+
+`BACKLOG.md`'s `MEC-30` entry now carries only Family B's own ~14-card
+residue (no Family A left at all) — each blocked on its own small,
+individually-diagnosed missing piece (a target-power-based life gain, a
+coin-flip branch, an "any player may…" activation/tax override, a redirect
+instead of a prevention, a granted-ability shape, a `recipient_union` on
+the chooser, a source-colour-gated rider, and three separate missing cost
+shapes).
+
+Coverage 34.1%→34.1% (11,875→11,882/34,811, `PARSER_VERSION` unchanged at
+92 — no new parser regex this pass either, all 7 cards `AUTHORED`) — the
+exact +7 delta of this pass's own catalogue entries.
+
+**Phase 5 (2026-08-17, same day)** closed 5 more Family B stragglers, each
+needing its own small, individually-scoped extension to `RequestPreventDamage
+SourceEffect`'s one-shot chooser rather than a shared template — every
+extension is now a standing part of Family B's own vocabulary, reusable by
+any future card in the same shape.
+
+**Kithkin Armor** — `recipient="attached_permanent"` (the chosen-source
+chooser's own sibling of Family A's already-shipped `to="attached_
+permanent"`, reading `self.source.attached_to`). The bigger lesson: the
+Enchant keyword and the "can't be blocked by creatures with power 3 or
+greater" static were *both* confirmed `MODELED` by `parse_oracle` in
+isolation — only the shield clause was `UNCLAIMED` — so registering this
+card for the shield alone would have silently dropped a real, independently-
+working restriction (the same `specs_for`-trusts-wholesale lesson Haazda
+Shield Mate taught in Pass 2, but for a *static*, not a triggered ability).
+Fixed by running the isolated clause through `parse_oracle` directly to
+read off the exact `EffectSpec` it would have produced
+(`combat_restriction`/`cant_be_blocked_by`/`min_power: 3`/`affects:
+attached_permanent`) and hand-copying it verbatim — worth doing for any
+future Aura/Equipment registration, not just this one.
+
+**Shadowbane** — "to you and/or creatures you control" is a *dynamic
+recipient set* (whoever the shielded player currently controls, not fixed
+at cast time), which neither of `RequestPreventDamageSourceEffect`'s
+existing recipient shapes (a single resolved object, or the caster) could
+express. New `RulesEngine.prevent_damage_to_player_and_their_creatures`
+(`game/rules/damage_death_mixin.py`) — same one-watched-source shield as
+`prevent_damage_to_player`, but its `condition` checks "is this the player,
+or a creature *they currently control*" live, every time — reached via
+`recipient="you_and_creatures_you_control"` and a new `prevent_shield
+["recipient_scope"]` dispatch key in `_apply_chosen_object`. Deliberately
+its own method rather than porting Family A's `recipient_union` list
+vocabulary onto the one-shot chooser, since exactly one real card needs
+this shape.
+
+**Honorable Passage** — "if damage from a red source is prevented this
+way, …" needed `apply_prevent_rider` to gate a rider on the *source's own
+colour*, which every existing rider kind ignored (they all fire
+unconditionally once anything was prevented). New `rider["if_source_
+color"]` — checked once, before dispatching on `rider["kind"]`, so it
+composes with every existing rider kind for free rather than needing a
+per-kind color check. The first rider that only *sometimes* fires.
+
+**Dazzling Reflection** — "You gain life equal to target creature's
+power" needed a new `GainLifeEffect.amount_from_target_power` flag (the
+life-gain sibling of `DealDamageEffect.amount_from_target_count_
+selector`), reading `targets[0].power` even though `GainLifeEffect`
+declares no `target_spec` of its own — confirmed this actually works by
+checking `_apply_effects_partitioned`'s own contract first: with only one
+real targeting requirement in the whole ability (the sibling
+`prevent_damage_from_target` clause's own `target_kind="creature"`), every
+effect in the ability receives that same resolved `targets` list, targeting
+or not (RULE 608.2's "at most one targeting effect" fast path).
+
+**Samite Blessing** — "Enchanted creature has '{T}: …a chooser ability…'"
+needed no new primitive at all: the already-shipped layer-6
+`grant_activated_ability` static (Umbral Mantle/Squirrel Nest/Deadeye
+Navigator's own shape, `affects="attached_permanent"`) just needed
+pointing at a `request_prevent_damage_source` grant-effect — confirmed the
+granted ability's own effects get `source` set to the *host* creature at
+grant time, so the chooser's recipient/candidate resolution behaves exactly
+like a real printed ability of the host's.
+
+Extended `test_prevent_damage_family.py` to 47 cases. A recurring test-
+writing gotcha across all five: every chooser test with an *unfiltered*
+`source_filter` and 2+ battlefield permanents opens a real interactive
+`choose_objects` decision, not an auto-pick — four of the five draft tests
+initially assumed a single-candidate auto-pick (following the earlier
+single-candidate examples too closely) and had to be fixed with an explicit
+`engine.resolve_choose_objects_choice(...)` call once they failed with
+unprevented damage. Regression sweep (`test_prevent_damage.py`,
+`test_replacement_clause_recognition.py`, `test_ability_catalogue.py`,
+`test_keyword_catalogue.py`, `test_aura_lifecycle_family.py`,
+`test_aura_equipment_grant_family.py`, `test_costs.py`, `test_additional_
+costs.py`, `test_effect_binder.py`) stayed green throughout.
+
+**Phase 6 (2026-08-17, same day)** closed Opal-Eye, Konda's Yojimbo — the
+first genuine RULE 616.1c *redirection* this engine has ever modeled,
+distinct in kind from every prevention/doubling replacement shipped so
+far: `RequestRedirectDamageSourceEffect`/`RulesEngine.redirect_damage_
+from_source`, reusing the exact chooser plumbing (a new `"remember_
+source_redirect"` action, a `redirect_shield` payload paralleling
+`prevent_shield`) but rewriting the watched `DAMAGE` event's own recipient
+(`target_id`/`is_player`) instead of reducing its `amount`. Deliberately
+**not** marked `prevents_damage` — RULE 615's "damage can't be prevented
+this turn" has no bearing on a redirect, and marking it would have wrongly
+let Insult // Injury/Isengard Unleashed cancel an Opal-Eye redirect too.
+The card's own second ability ("prevent the next 1 damage to Opal-Eye")
+needed one small addition of its own — `PreventDamageEffect.self_only`,
+since "damage to `<this permanent>`" had no existing recipient shape (the
+untargeted default always protects the *controller*, never the object
+itself).
+
+Building the redirect surfaced a real, previously-unreachable bug in
+`RulesEngine.deal_damage` — the first card in this codebase's whole history
+to actually need a replacement effect that changes *who* damage lands on,
+rather than *how much*. `deal_damage`'s `_finish` closure resolved every
+branch (life loss, poison/-1/-1 counters, damage-marking, planeswalker
+loyalty, battle defense, commander damage, stat recording) against the
+*original* `target`/`is_player` captured from the outer function's own
+parameters — it never re-read the *replaced* event's own `target_id`/
+`is_player` after `apply_replacements` ran. A redirect's `copy_with`
+override was therefore silently discarded no matter what it said; the
+first test written against it failed with the damage landing on the
+original recipient at full, unmodified amount. Fixed by re-deriving the
+actual recipient once at the top of `_finish` (falling back to the
+original `target` if the resolved event's own id can't be found, so this
+can never silently drop damage) and switching every subsequent branch to
+read it instead of the closed-over original. Given how central `deal_
+damage` is to the whole engine, verified with a deliberately wide
+regression sweep beyond the usual touched-file set — every combat/
+planeswalker/battle/poison/infect/wither/effect-family test file
+(`test_combat_requirements_and_multiblock.py`, `test_combat_restriction_
+dynamic_thresholds.py`, `test_combat_restriction_family.py`, `test_
+qualified_combat_restrictions.py`, `test_planeswalker.py`, `test_
+continuous.py`, `test_regenerate.py`, `test_battles.py`, `test_poison_
+counter_family.py`, `test_effect_families.py`, `test_game_engine.py`,
+`test_cube_batch_a1.py`, `test_oracle_pipeline.py`) — roughly 600 cases
+across those files alone, all green. `test_prevent_damage_family.py`
+extended to 51 cases.
+
+`BACKLOG.md`'s `MEC-30` entry now carries only ~8 Family B cards: Desperate
+Gambit, Mercenaries, Rhystic Circle (the one still genuinely large
+remaining build), and Penance/Seasoned Tactician/Bone Mask's three small
+missing cost shapes.
+
+Coverage 34.1%→34.2% (11,882→11,888/34,811, `PARSER_VERSION` unchanged at
+92 — all 6 Phase 5/6 cards `AUTHORED`) — the exact +6 delta.
+
+**Fourth pass (2026-08-17, same day)** fixed the RULE 616.1e ambiguity
+papercut that two prior passes had each mentioned and left alone — per this
+repo's own "an item deferred a second time must be hand-authored or
+explicitly promoted, not deferred a third time" rule. Root cause, found by
+actually reading `ReplacementEffect.can_replace` rather than assuming the
+fix would be expensive: none of the 12 `ReplacementRegistry` factories in
+`game/effects.py` (`prevent_damage`, `prevent_damage_convert_counters`,
+`double_damage`, `additional_damage`, `damage_floor_from_source_power`,
+`double_counters`, `die_to_exile`, `gain_life_replacement`, `double_tokens`,
+`create_one_of_each_named_token`, `additional_named_token`,
+`win_instead_of_empty_draw`) ever passed a `condition` to the
+`ReplacementEffect` constructor — every one left its actual applicability
+gate (recipient, source, subject, "while X has a counter", "while your
+library is empty", the busy re-entrancy flag) as an early "return the event
+unchanged" guard buried inside `replacement_fn` itself. `can_replace` (which
+`_run_replacement_loop` uses to decide RULE 616.1e simultaneity) therefore
+only ever checked the event *type* — so Gisela's two unrelated replacements
+(opponent-scoped doubling, self-scoped prevention) both reported
+"applicable" to *every* `DAMAGE` event regardless of which side it was
+headed to, opening a pointless `replacement_order` choice on every single
+hit even though only one of the two could ever actually change anything.
+
+Fixed by extracting each factory's existing guard logic, unchanged, into a
+named `_applies(event, context) -> bool` closure and wiring it in as
+`effect.condition = _applies` (the same "define after construction" idiom
+these factories already use for `replacement_fn` itself, since `condition`
+needs to close over the `effect` object that doesn't exist until after the
+constructor call returns). `replacement_fn` still opens with `if not
+_applies(...): return event` as defense-in-depth — `apply_replacement` is
+only ever called on effects `_run_replacement_loop` already filtered
+through `can_replace`, so this is redundant today, but cheap and keeps the
+two paths from silently drifting apart if a future caller ever bypasses the
+filter. Value-based "nothing to do" guards that mirror a card's own printed
+condition word-for-word (Bloatfly Swarm's "while it has a +1/+1 counter on
+it" — `current > 0`; Ojer Axonil's "damage less than ~'s power" — `dealt <
+threshold`; Jace/Lab Maniac's "while your library has no cards in it" —
+`not player.library`) were promoted into `_applies` too, since RULE 616.1e
+"simultaneously applicable" should reflect the real printed condition, not
+just object/recipient identity; purely arithmetic degenerate cases with no
+printed-text analogue (`dealt <= 0`, `amount <= 0`) were left inside
+`replacement_fn` only, since a 0-amount event isn't really "inapplicable",
+just a no-op once applied.
+
+Verified with a new direct regression
+(`test_gisela_blade_of_goldnight_no_spurious_ordering_choice`, asserting
+`state.pending_choice is None` after each of Gisela's two damage directions
+— previously both opened a `replacement_order` choice) alongside the full
+existing `test_prevent_damage_family.py`/`test_prevent_damage.py`/
+`test_replacement_clause_recognition.py`/`test_cube_batch_a1.py`/`test_
+replacement_ordering.py` suites (covering every other factory this touched
+— Doubling Season/Parallel Lives' token/counter doubling, Boon Reflection's
+life-gain doubling, Academy Manufactor/Peregrin Took's named-token grants,
+Jace/Lab Maniac's empty-library win) and a full `pytest -q` run (3,980
+passed, 238 skipped — the only 2 failures were `test_dynamic_analysis.py`'s
+wall-clock-deadline worker-pool polling tests, pre-existing environment
+timing flakiness unrelated to this change, same category as the `test_
+bots.py` timeout noted in the third-pass entry above).
+
+**Fifth pass (2026-08-17, same day)** closed the three cost-shape gaps
+Phase 8 had flagged — Penance, Seasoned Tactician, Bone Mask — each its
+own small non-mana cost/rider primitive rather than a shared template:
+
+- **Penance** ("Put a card from your hand on top of your library: The
+  next time a black or red source of your choice would deal damage this
+  turn, prevent that damage.") needed two things. First, a genuinely new
+  non-mana cost (`costs.py`'s `_PUT_HAND_CARD_ON_LIBRARY_RE`, a new
+  `ActivationCost.put_hand_card_on_library` bool, `RulesEngine.put_hand_
+  card_on_top_of_library` — `Player.add_to_zone`'s own append-to-end
+  convention already means "top of deck is the list end", so this is a
+  three-line move, not a new zone-ordering concept). Which hand card pays
+  it is a genuine RULE 602.1 choice, so it needed the same "chosen_ids, or
+  auto-pick" plumbing `_resolve_discard_cost` already has for a plain
+  discard-N cost — added as a sibling, `ActivationMixin._resolve_put_hand_
+  card_cost`, and a new `hand_card_choices` parameter threaded through
+  `can_activate`/`_can_pay_activation_cost`/`_pay_activation_cost`/
+  `_auto_tap_for_activation_if_needed`/`activate_ability` exactly the way
+  `discard_choices` already is (no UI wiring needed for either — both stay
+  engine-internal auto-pick-by-default plumbing, per ENG-3's own prior
+  precedent). Second, and more surprising: Penance's printed text has no
+  "to you" at all — "prevent that damage" protects whoever the chosen
+  source hits next, not the caster specifically, which none of
+  `RequestPreventDamageSourceEffect`'s existing `recipient` values could
+  express (every one of them resolves to exactly one fixed player/object).
+  Added `recipient="any"`, which skips resolving a recipient at all and
+  reaches the *already-shipped* unscoped-recipient shield, `RulesEngine.
+  prevent_damage_from_source` (built in the first pass for Awe Strike/
+  Dazzling Reflection's targeted form, never before reached from a
+  chooser) — a new `_apply_chosen_object` branch keyed on `prevent_
+  shield["recipient_scope"] == "any"`. `source_filter`'s `color_any` (built
+  in the second pass for Greater Realm of Preservation) covered "a black
+  **or** red source" with no changes at all — confirmed by grep before
+  assuming a new filter key was needed.
+- **Seasoned Tactician** ("{3}, Exile the top four cards of your library:
+  …") needed `costs.exile_top_of_library` widened from a bare bool
+  (Thought Lash's own always-exactly-one) to a real printed count —
+  `_EXILE_TOP_LIBRARY_RE` gained an optional number-word/digit group
+  (reusing `_word_to_int`, the same helper `_EXILE_GRAVEYARD_RE`'s spelled-
+  out count already uses). `bool`→`int` is safe for every existing
+  truthiness check (`if cost.exile_top_of_library:`) since `int(True) ==
+  1`, but the two call sites that had hardcoded the literal `1`
+  (`game/engine/activation_mixin.py`'s legality check and payment loop,
+  `game/mana_potential.py`'s tap-plan commitment tracking) needed checking
+  individually — found and fixed all four before trusting the widening.
+  Confirmed non-regressing with a dedicated Thought Lash test
+  (`test_thought_lash_catalogue_entry_still_exiles_exactly_one_card`) that
+  a bare "top card" with no number still parses to exactly 1.
+- **Bone Mask** ("{2}, {T}: … Exile cards from the top of your library
+  equal to the damage prevented this way.") needed one new `apply_prevent_
+  rider` kind, `"exile_top_of_library_scaled"` — `mill`'s exile-instead-of-
+  graveyard sibling. No existing primitive exiled a fixed count off the
+  top of a library in one call (`dig_until`'s internals are shaped for a
+  predicate-driven dig, not a flat count), so this loops `RulesEngine.
+  exile` directly, mirroring `mill`'s own loop exactly.
+
+All execute-tested (`test_prevent_damage_family.py`, 60 cases now, plus a
+new `test_exile_top_n_cards_of_library_cost_is_recognized` in `test_
+prevent_damage.py`) — each card gets both a "does the shield behave"
+test (applying the effect directly, matching the file's existing
+convention) and a dedicated cost-payment test through a real `GameEngine.
+activate_ability` call (hand/library/exile zone contents checked), plus a
+negative "not payable" test per new cost gate. Regression sweep across
+`test_prevent_damage_family.py`/`test_prevent_damage.py`/`test_costs.py`/
+`test_additional_costs.py`/`test_auto_tap_action.py`/`test_mana_
+potential.py`/`test_game_engine.py`/`test_ability_catalogue.py`/`test_
+card_structures.py` (459 cases) and a full `pytest -q` run (3,989 passed,
+238 skipped, the same 2 pre-existing `test_dynamic_analysis.py` timing
+failures as the fourth pass, confirmed independent of this change by
+rerunning them in isolation) both stayed green throughout.
+
+`BACKLOG.md`'s `MEC-30` entry now carries only 3 Family B cards: Desperate
+Gambit, Mercenaries, and Rhystic Circle (the one still genuinely large
+remaining build — a multi-player tax-or-effect).
+
+Coverage 34.2%→34.2% (11,888→11,891/34,811, `PARSER_VERSION` unchanged at
+92 — the exact +3 delta, all three `AUTHORED`).
+
+**Sixth pass (2026-08-17, same day)** closed the two cards Phase 7 had
+flagged from the start as the family's genuinely bigger builds —
+Mercenaries and Rhystic Circle — confirming both really did need new
+primitives, not just wider existing ones:
+
+- **Mercenaries** ("{3}: The next time this creature would deal damage to
+  you this turn, prevent that damage. Any player may activate this
+  ability.") surfaced a real correctness gap the moment it was scoped:
+  RULE 602.2b makes whoever *activates* an ability that ability's
+  controller for its resolution, but this engine had no concept of
+  "activator" distinct from a permanent's own printed controller anywhere
+  in the effect-application path — `_controller_of` (`game/effects.py`)
+  only ever reads `source.controller_id`, which is exactly Mercenaries'
+  own controller regardless of who paid for and activated the ability.
+  Closing it needed two small, independently useful pieces: `Activation
+  Cost.any_player_may_activate` (`game/costs.py`), which `GameEngine.
+  can_activate` (`game/engine/activation_mixin.py`) now checks to skip its
+  ordinary "only the permanent's controller" eligibility gate — the real
+  eligibility widening the ticket had originally described; and
+  `GameContext.resolving_controller_id` (`game/effects.py`), RULE 602.2b's
+  activator, set/restored by `RulesEngine.resolve_top_of_stack` around a
+  stack item's own resolution (`game/rules/casting_mixin.py`) exactly
+  mirroring how `trigger_event` already saves/restores around the same
+  window — ordinarily identical to `_controller_of`'s own answer (a normal
+  ability's activator and its permanent's controller are the same player),
+  so every other card's behaviour is unaffected; it only actually diverges
+  under the new `any_player_may_activate` exception. `PreventDamageEffect`
+  gained two opt-in params reading it: `recipient_is_activator` (the
+  shield protects whoever activated it, not `_controller_of`) and
+  `watched_source_is_self` (narrows the shield to this permanent's own
+  damage specifically — passed through as `RulesEngine.prevent_damage_to_
+  player`'s existing `watched_source_id` param, which had never been wired
+  up to `PreventDamageEffect` itself before, only to the chosen-source
+  chooser family). Deliberately conservative: rather than changing `_
+  controller_of`'s global resolution order (97 call sites across the
+  codebase, several of them plausibly already relying on it reading a
+  *live* `source.controller_id` rather than a possibly-stale captured
+  activator — a triggered ability's own RULE 603.3d "controller when it
+  triggered" semantics being the clearest case where the two could
+  legitimately differ from each other for reasons unrelated to this
+  ticket), the new field is opt-in per effect, so nothing else changed
+  behaviour at all.
+- **Rhystic Circle** ("{1}: Any player may pay {1}. If no one does, the
+  next time a source of your choice would deal damage to you this turn,
+  prevent that damage.") needed the multi-player tax-or-effect the ticket
+  had flagged from the start as the one genuinely large remaining piece —
+  confirmed distinct from every existing "pay or else" primitive: RULE
+  118.3's `TaxedDrawEffect`/`pay_cost_then` ask exactly *one* specific
+  payer; PAR-13's `request_each_player_pay_or` asks *every* player but
+  applies its "unless" penalty independently to *each* decliner. Rhystic
+  Circle is neither — every player gets an independent chance to pay, but
+  the payoff effect fires **once**, for the caster, and only if
+  **literally everyone** declined; the *first* player to pay cancels the
+  entire sweep with no effect at all. Built as `RequestAllPlayersDecline
+  OrEffect`/`RulesEngine.request_all_players_decline_or` (registered as
+  `"all_players_decline_or"`) — structurally a chain of ordinary single-
+  player pay/decline choices over the same `_can_pay_player_cost`/`_pay_
+  player_cost` machinery every other "pay this or else" primitive already
+  shares (a new `pending_choice` kind, `"all_decline_or"`, dispatched by
+  `GameEngine.resolve_choice`), but with its own advance/resolve pair
+  (`_advance_all_decline_or`/`resolve_all_decline_or_choice`) rather than
+  reusing `request_each_player_pay_or`'s, since the two have genuinely
+  different termination semantics — one keeps asking regardless of any
+  individual answer, the other must stop dead the moment anyone pays.
+  Once everyone declines, the "if no one does" clause is an ordinary
+  `request_prevent_damage_source` spec built with `source=` the Rhystic
+  Circle permanent itself, so its own existing `_controller_of` resolution
+  already lands on the right player with no `resolving_controller_id`
+  involvement at all — unlike Mercenaries, only Rhystic Circle's own
+  controller can ever activate it in the first place, so there's no
+  activator/controller divergence to track here.
+
+All execute-tested (`test_prevent_damage_family.py`, 66 cases now):
+Mercenaries gets an eligibility test (a non-controller can activate),
+a shield test (the activator, not the permanent's controller, is
+protected — checked both ways), and a source-scoping test (a different
+attacker's damage isn't watched); Rhystic Circle gets all three real
+outcomes — every player declining (the shield grants, checked against the
+`RequestPreventDamageSourceEffect` chooser that follows), the first payer
+cancelling the whole sweep, and every player being unable to pay at all
+(both auto-skipped with no `pending_choice` opened for the sweep, the same
+"don't stall on an unaffordable choice" shortcut every sibling primitive
+already takes). Regression sweep across `test_prevent_damage_family.py`/
+`test_prevent_damage.py`/`test_costs.py`/`test_additional_costs.py`/
+`test_ability_catalogue.py`/`test_effect_families.py`/`test_effect_
+binder.py`/`test_cube_batch_a1.py`/`test_oracle_pipeline.py` (295 cases)
+and a full `pytest -q` run (3,996 passed, 238 skipped, the same lone
+pre-existing `test_dynamic_analysis.py` wall-clock timing failure as every
+prior pass this day) both stayed green — a wider sweep than usual given
+`resolve_top_of_stack` sits on the hot path for literally every spell/
+ability resolution in the engine.
+
+`BACKLOG.md`'s `MEC-30` entry now carries exactly one card: Desperate
+Gambit (a coin-flip-branches-between-double-and-prevent shape, reusing the
+existing `CoinFlipEffect` but needing a single-source-scoped damage-
+doubling shield no existing primitive expresses yet).
+
+Coverage 34.2%→34.2% (11,891→11,893/34,811, `PARSER_VERSION` unchanged at
+92 — the exact +2 delta, both `AUTHORED`).
+
+**Seventh pass (2026-08-17, same day)** closed the family's last card,
+Desperate Gambit ("Choose a source you control and flip a coin. If you
+win the flip, the next time that source would deal damage this turn, it
+deals double that damage instead. If you lose the flip, the next time it
+would deal damage this turn, prevent that damage.") — this closes MEC-30
+outright.
+
+The shape is a genuinely conditional effect *selection*, not a rider:
+which of "double" or "prevent" applies isn't known until the coin lands,
+and — unlike every prior card in the family, all of which either scope by
+recipient or by an unqualified/chosen source — both branches are scoped
+to the **one already-chosen source itself**, narrowed from "a source you
+control" (RULE 609.7a, not "of your choice" over anyone's permanents).
+Three small pieces, each reusing as much of the existing family as
+possible:
+
+- `ChooseSourceCoinFlipEffect` (`game/effects.py`, registered as
+  `"choose_source_coinflip"`) — the chosen-source chooser family's third
+  member alongside `RequestPreventDamageSourceEffect`/`RequestRedirect
+  DamageSourceEffect`, but candidates are `context.state.permanents_
+  controlled_by(player.id)` rather than an unscoped/filtered battlefield
+  scan, and nothing is decided about win/lose at chooser-open time — the
+  coin isn't flipped until the pick actually resolves.
+- A new `"remember_source_coinflip"` `CHOOSE_OBJECT_ACTIONS` entry
+  (`game/rules/misc_mixin.py`) is where the coin is actually flipped
+  (`RulesEngine.coin_flip`, RULE 705.1, already built and tested for
+  `CoinFlipEffect`'s own two-branch shape) — `True` (heads) calls the one
+  genuinely new primitive, `RulesEngine.grant_damage_multiplier_from_
+  source`; `False` (tails) calls the *already-shipped* `prevent_damage_
+  from_source`, whose own docstring had anticipated exactly this reuse
+  since the first pass ("Desperate Gambit's 'a source you control' chooser
+  sibling").
+- `grant_damage_multiplier_from_source` (`game/rules/damage_death_mixin.py`)
+  is the doubling mirror of `prevent_damage_from_source` — same shape (a
+  bespoke `ReplacementEffect` with `condition=lambda e, c: e.get(
+  "source_id") == watched_source_id`, filed on the source's own
+  controller's `player_effects`), *not* a new mode of the existing
+  `grant_damage_multiplier_this_turn` (Insult // Injury/Isengard
+  Unleashed's own primitive from the third pass): that one's `your_
+  sources_only` flag doubles *every* source the controller has for the
+  rest of the turn, controller-wide — there is no way to narrow it to one
+  specific, already-chosen permanent, which is exactly the same
+  distinction `prevent_damage_from_source` already draws against the
+  standing, unscoped `_double_damage_replacement` factory. Marked
+  `damage_multiplier_grant` (the same cleanup-sweep marker `grant_damage_
+  multiplier_this_turn` already uses) rather than `damage_prevention_
+  shield`, since it isn't a prevention effect.
+
+All execute-tested (`test_prevent_damage_family.py`, 69 cases now): a win
+test and a lose test, each driving `GameState.rng_seed`/`rng_counter`
+directly to a seed whose first `coin_flip()` call is deterministic (the
+same convention `test_cube_batch_21.py` established for `RulesEngine.
+random_int`/`coin_flip`), plus a test confirming the candidate pool really
+is scoped to "sources you control" and not "of your choice" — an
+opponent's permanent on the battlefield is never offered. Regression sweep
+across `test_prevent_damage_family.py`/`test_prevent_damage.py`/`test_
+ability_catalogue.py`/`test_effect_families.py`/`test_effect_binder.py`/
+`test_cube_batch_21.py`/`test_cube_batch_a1.py`/`test_oracle_pipeline.py`
+(248 cases) and a full `pytest -q` run (3,998 passed, 238 skipped, the
+same pre-existing `test_dynamic_analysis.py` wall-clock timing flakiness
+every pass this day has hit and independently confirmed unrelated) both
+stayed green.
+
+`BACKLOG.md`'s `MEC-30` entry is deleted — nothing from the standing
+`prevent_damage` replacement family is open any more, backend or
+frontend. Every card the original 80-row cache search surfaced (Family A
+and Family B alike) is now either `MODELED` through the oracle-text
+parser or hand-authored in `game/ability_catalogue.py`, and every
+replacement-effect primitive built along the way (RULE 613.6 `active_if`
+on any replacement, RULE 616.1c redirection, RULE 616.1e's real
+`can_replace` condition, the RULE 602.2b activator/controller
+distinction, the multi-player aggregate-outcome tax) is general enough
+for a future, unrelated card to reuse without rebuilding it.
+
+Coverage 34.2%→34.2% (11,893→11,894/34,811, `PARSER_VERSION` unchanged at
+92 — the exact +1 delta, `AUTHORED`). Across the fourth through seventh
+passes (this continuation): 11,888→11,894/34,811, +6 cards — Penance,
+Seasoned Tactician, Bone Mask, Mercenaries, Rhystic Circle, Desperate
+Gambit — on top of the 20+32+7+5+1 = 65 cards the first three passes and
+Phases 5-6 had already closed earlier the same day.

@@ -61,6 +61,7 @@ from ..effects import (
     RadiationMillEffect,
     ReboundFreeCastWindowEffect,
     ReplacementEffect,
+    ReplacementRegistry,
     ReturnSelfFromGraveyardEffect,
     SiegeDefeatedEffect,
     StaticAbility,
@@ -235,6 +236,22 @@ class DamageDeathMixin:
             final = resolved.get("amount", amount)
             if final <= 0:
                 return
+            # MEC-30: a redirect (`RulesEngine.redirect_damage_from_source`,
+            # RULE 616.1c — "that damage is dealt to `<X>` instead") rewrites
+            # ``target_id``/``is_player`` on the event itself; re-derive the
+            # *actual* recipient from the resolved event rather than the
+            # outer closure's original ``target``/``is_player``, so every
+            # branch below lands on wherever the damage actually ends up.
+            # Falls back to the original target if the resolved event's own
+            # id can't be found (shouldn't happen, but never silently drops
+            # damage on the floor).
+            final_is_player = bool(resolved.get("is_player", is_player))
+            if final_is_player == is_player and resolved.get("target_id") == target_id:
+                final_target = target
+            elif final_is_player:
+                final_target = self.state.player_by_id(resolved.get("target_id")) or target
+            else:
+                final_target = self.state.find_object(resolved.get("target_id")) or target
             # RULE 702.90b/c: damage from an infect source is never marked/
             # doesn't cause life loss at all — it is dealt as -1/-1 counters
             # (creature) or poison counters (player) instead. RULE 702.91a's
@@ -245,32 +262,32 @@ class DamageDeathMixin:
             # below (neither rule mentions those permanent types).
             infect = source is not None and has_infect(source)
             wither = source is not None and has_wither(source)
-            if is_player and infect:
-                self.add_player_counters(target, final, "poison", source=source)
-                self.state.record_stat(target.id, "damage_taken", amount=final)
+            if final_is_player and infect:
+                self.add_player_counters(final_target, final, "poison", source=source)
+                self.state.record_stat(final_target.id, "damage_taken", amount=final)
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
                     if combat and source.is_commander:
-                        target.add_commander_damage(source.instance_id, source.name, final)
+                        final_target.add_commander_damage(source.instance_id, source.name, final)
                     if combat:
                         self.state.combat_damage_to_players_this_turn.setdefault(
                             source.instance_id, set()
-                        ).add(target.id)
-            elif is_player:
+                        ).add(final_target.id)
+            elif final_is_player:
                 # RULE 120.3: damage dealt to a player causes that much life
                 # loss. This is a *consequence* of damage, not a separate
                 # event a player chose to trigger — go through the same
                 # `lose_life` choke point as any other life loss so triggers
                 # watching for "loses life" fire consistently regardless of
                 # cause.
-                self.lose_life(target, final, cause="damage")
-                self.state.record_stat(target.id, "damage_taken", amount=final)
+                self.lose_life(final_target, final, cause="damage")
+                self.state.record_stat(final_target.id, "damage_taken", amount=final)
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
                     # RULE 903.10a: combat damage from a commander is tallied
                     # separately toward the 21-damage loss threshold.
                     if combat and source.is_commander:
-                        target.add_commander_damage(source.instance_id, source.name, final)
+                        final_target.add_commander_damage(source.instance_id, source.name, final)
                     if combat:
                         # RULE 120.3: remember *who* this source hit this turn
                         # — "target player who was dealt combat damage by ~
@@ -279,13 +296,13 @@ class DamageDeathMixin:
                         # `GameState.combat_damage_to_players_this_turn`.
                         self.state.combat_damage_to_players_this_turn.setdefault(
                             source.instance_id, set()
-                        ).add(target.id)
-            elif getattr(target, "is_planeswalker", False):
+                        ).add(final_target.id)
+            elif getattr(final_target, "is_planeswalker", False):
                 # RULE 306.9: damage to a planeswalker removes that many
                 # loyalty counters (the 0-loyalty SBA then sends it to the
                 # graveyard).
-                target.add_counters("loyalty", -final)
-            elif getattr(target, "is_battle", False):
+                final_target.add_counters("loyalty", -final)
+            elif getattr(final_target, "is_battle", False):
                 # RULE 310.6: damage to a battle removes that many defense
                 # counters — combat *and* non-combat alike (a burn spell
                 # chips a battle down exactly like an attacker does), which
@@ -296,8 +313,8 @@ class DamageDeathMixin:
                 # (a "remove a defense counter" effect as much as damage)
                 # goes through one place. `add_counters` floors at zero, so
                 # overkill damage can't leave a negative count behind.
-                target.add_counters("defense", -final)
-            elif getattr(target, "is_creature", False) and (infect or wither):
+                final_target.add_counters("defense", -final)
+            elif getattr(final_target, "is_creature", False) and (infect or wither):
                 # RULE 702.90b/702.91a: damage from an infect or wither
                 # source is put on a creature as -1/-1 counters instead of
                 # being marked — routed through the ordinary `add_counters`
@@ -305,9 +322,9 @@ class DamageDeathMixin:
                 # itself subject to RULE 122's own counter-doubling
                 # replacements (Doubling Season et al.), same as any other
                 # counters being put on a permanent.
-                self.add_counters(target, final, "-1/-1", source=source)
+                self.add_counters(final_target, final, "-1/-1", source=source)
             else:
-                target.damage_marked += final
+                final_target.damage_marked += final
             # `copy_with` (not a fresh `GameEvent`) so `source_id`/`combat`/
             # `source_controller_id` survive onto the broadcast event — a
             # "whenever equipped creature deals combat damage to a player"
@@ -856,7 +873,13 @@ class DamageDeathMixin:
             effect.life_gain_prevention_shield = True
             player.player_effects.append(effect)
 
-    def prevent_damage_to_player(self, player: Player, amount: Union[int, str] = "all") -> None:
+    def prevent_damage_to_player(
+        self,
+        player: Player,
+        amount: Union[int, str] = "all",
+        watched_source_id: Optional[int] = None,
+        rider: Optional[dict] = None,
+    ) -> None:
         """RULE 615: grant ``player`` a turn-scoped damage-prevention shield
         (Riot Control's "all", Thought Lash's repeatable "the next 1") —
         Regenerate-shaped (a `ReplacementEffect` built and attached at
@@ -877,32 +900,113 @@ class DamageDeathMixin:
         expiry) by `GameEngine._step_cleanup`'s `damage_prevention_shield`
         marker check, mirroring the existing unused-regeneration-shield
         sweep.
+
+        ``watched_source_id`` (RULE 615/616.1d's "the next time **a source
+        of your choice** would deal damage to you this turn" — the Circle of
+        Protection/Rune of Protection family) narrows the shield to one
+        specific source instance, matched against the `DAMAGE` event's own
+        ``source_id`` — the shield still self-expires/gets swept exactly as
+        before even if that source never actually deals damage this turn.
+        ``rider`` fires a follow-up off the real prevented amount — see
+        `apply_prevent_rider` (Deflecting Palm/Reverse Damage-shaped).
         """
         remaining = None if amount == "all" else int(amount)
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
             replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
-            condition=lambda e, c: bool(e.get("is_player")) and e.get("target_id") == player.id,
+            condition=lambda e, c: (
+                bool(e.get("is_player")) and e.get("target_id") == player.id
+                and (watched_source_id is None or e.get("source_id") == watched_source_id)
+            ),
             description=f"{player.name}: Schadensverhinderung",
         )
         effect.damage_prevention_shield = True
+        effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
 
-        def _replace(event: GameEvent, _context: Any) -> Optional[GameEvent]:
+        def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
             nonlocal remaining
             dealt = int(event.get("amount", 0) or 0)
             if remaining is None:
+                prevented = dealt
+            else:
+                prevented = min(remaining, dealt)
+                remaining -= prevented
+                if remaining <= 0 and effect in player.player_effects:
+                    player.player_effects.remove(effect)
+            self.apply_prevent_rider(rider, prevented, event, player.id)
+            if remaining is None:
                 return None  # "all" — every point prevented, shield persists
-            prevented = min(remaining, dealt)
-            remaining -= prevented
-            if remaining <= 0 and effect in player.player_effects:
-                player.player_effects.remove(effect)
             new_amount = dealt - prevented
             return event.copy_with(amount=new_amount) if new_amount > 0 else None
 
         effect.replacement_fn = _replace
         player.player_effects.append(effect)
 
-    def prevent_damage_to_target(self, target: Any, amount: Union[int, str] = "all") -> None:
+    def prevent_damage_to_player_and_their_creatures(
+        self,
+        player: Player,
+        amount: Union[int, str] = "all",
+        watched_source_id: Optional[int] = None,
+        rider: Optional[dict] = None,
+    ) -> None:
+        """RULE 615/616.1d's "…would deal damage to you **and/or creatures
+        you control** this turn" (Shadowbane, MEC-30) — the recipient-union
+        sibling of `prevent_damage_to_player` just above: same one-chosen-
+        source shield shape, but the condition matches *either* ``player``
+        themself *or* any creature they currently control (checked live —
+        control can change mid-turn), instead of one fixed id. Kept as its
+        own method rather than a generic `recipient_union` list on the
+        one-shot chooser (Family A's own standing-shield vocabulary) since
+        exactly one real card needs this shape.
+        """
+        remaining = None if amount == "all" else int(amount)
+
+        def _condition(e: GameEvent, c: Any) -> bool:
+            if watched_source_id is not None and e.get("source_id") != watched_source_id:
+                return False
+            if e.get("is_player"):
+                return e.get("target_id") == player.id
+            target_obj = c.state.find_object(e.get("target_id"))
+            return (
+                target_obj is not None and target_obj.is_creature
+                and target_obj.controller_id == player.id
+            )
+
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+            condition=_condition,
+            description=f"{player.name}: Schadensverhinderung",
+        )
+        effect.damage_prevention_shield = True
+        effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
+
+        def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
+            nonlocal remaining
+            dealt = int(event.get("amount", 0) or 0)
+            if remaining is None:
+                prevented = dealt
+            else:
+                prevented = min(remaining, dealt)
+                remaining -= prevented
+                if remaining <= 0 and effect in player.player_effects:
+                    player.player_effects.remove(effect)
+            self.apply_prevent_rider(rider, prevented, event, player.id)
+            if remaining is None:
+                return None
+            new_amount = dealt - prevented
+            return event.copy_with(amount=new_amount) if new_amount > 0 else None
+
+        effect.replacement_fn = _replace
+        player.player_effects.append(effect)
+
+    def prevent_damage_to_target(
+        self,
+        target: Any,
+        amount: Union[int, str] = "all",
+        watched_source_id: Optional[int] = None,
+        rider: Optional[dict] = None,
+    ) -> None:
         """RULE 615, the *any-target* sibling of `prevent_damage_to_player`
         (PAR-15's "prevent the next N damage ... to any number of targets,
         divided as you choose" — Embolden/Remedy/Angel of Salvation): a
@@ -915,6 +1019,11 @@ class DamageDeathMixin:
         `replacement_effects`, swept by that same method's per-permanent
         loop — see the `regeneration_shield` sweep it sits beside). Same
         cumulative-bank semantics as the player-only method.
+
+        ``watched_source_id``/``rider`` — see `prevent_damage_to_player`
+        (Kithkin Armor's "a source of your choice" shielding *enchanted
+        creature* rather than a player is what needs this sibling instead
+        of the player-only method).
         """
         is_player = isinstance(target, Player)
         target_id = target.id if is_player else target.instance_id
@@ -922,26 +1031,301 @@ class DamageDeathMixin:
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
             replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
-            condition=lambda e, c: bool(e.get("is_player")) == is_player and e.get("target_id") == target_id,
+            condition=lambda e, c: (
+                bool(e.get("is_player")) == is_player and e.get("target_id") == target_id
+                and (watched_source_id is None or e.get("source_id") == watched_source_id)
+            ),
             description="Schadensverhinderung",
         )
         effect.damage_prevention_shield = True
+        effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
         holder = target.player_effects if is_player else target.replacement_effects
 
-        def _replace(event: GameEvent, _context: Any) -> Optional[GameEvent]:
+        def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
             nonlocal remaining
             dealt = int(event.get("amount", 0) or 0)
             if remaining is None:
+                prevented = dealt
+            else:
+                prevented = min(remaining, dealt)
+                remaining -= prevented
+                if remaining <= 0 and effect in holder:
+                    holder.remove(effect)
+            self.apply_prevent_rider(rider, prevented, event, target_id if is_player else getattr(target, "controller_id", None))
+            if remaining is None:
                 return None  # "all" — every point prevented, shield persists
-            prevented = min(remaining, dealt)
-            remaining -= prevented
-            if remaining <= 0 and effect in holder:
-                holder.remove(effect)
             new_amount = dealt - prevented
             return event.copy_with(amount=new_amount) if new_amount > 0 else None
 
         effect.replacement_fn = _replace
         holder.append(effect)
+
+    def redirect_damage_from_source(
+        self, source: GameObject, new_recipient: Any, amount: Union[int, str] = "all",
+    ) -> None:
+        """RULE 616.1c "the next time a source of your choice would deal
+        damage this turn, that damage is dealt to `<X>` instead" (Opal-Eye,
+        Konda's Yojimbo, MEC-30) — the redirect sibling of `prevent_damage_
+        from_source`: same one-watched-source shield shape, but rewrites
+        the `DAMAGE` event's own recipient (``target_id``/``is_player``)
+        instead of reducing ``amount``, so the damage still happens, just to
+        someone else. Deliberately **not** marked `prevents_damage` — a
+        redirect isn't a prevention (RULE 615 doesn't apply to it at all),
+        so "damage can't be prevented this turn" must not block it.
+
+        Filed on ``source``'s own controller's `player_effects`, same home
+        `prevent_damage_from_source` uses, swept by the same `damage_
+        prevention_shield` cleanup pass (the flag still drives cleanup
+        timing even though this isn't a prevention effect semantically).
+        """
+        controller = self.state.player_by_id(source.controller_id) if source.controller_id else None
+        if controller is None:
+            return
+        watched_source_id = source.instance_id
+        remaining = None if amount == "all" else int(amount)
+        new_is_player = not hasattr(new_recipient, "instance_id")
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+            condition=lambda e, c: e.get("source_id") == watched_source_id,
+            description=f"{source.name}: Schadensumleitung",
+        )
+        effect.damage_prevention_shield = True
+
+        def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
+            nonlocal remaining
+            dealt = int(event.get("amount", 0) or 0)
+            if remaining is not None:
+                redirected = min(remaining, dealt)
+                remaining -= redirected
+                if remaining <= 0 and effect in controller.player_effects:
+                    controller.player_effects.remove(effect)
+            overrides: dict[str, Any] = {
+                "target_id": new_recipient.id if new_is_player else new_recipient.instance_id,
+                "is_player": new_is_player,
+            }
+            if not new_is_player:
+                overrides["target_controller_id"] = new_recipient.controller_id
+            return event.copy_with(**overrides)
+
+        effect.replacement_fn = _replace
+        controller.player_effects.append(effect)
+
+    def prevent_damage_from_source(
+        self, source: GameObject, amount: Union[int, str] = "all", rider: Optional[dict] = None,
+    ) -> None:
+        """RULE 615/616.1d's *unscoped-recipient* one-shot shield — "the next
+        time **target creature** would deal damage this turn, prevent that
+        damage" (Awe Strike/Dazzling Reflection, ``source`` already pinned by
+        ordinary RULE 115 targeting, no "of your choice" chooser needed) and
+        Desperate Gambit's "a source you control" chooser sibling. Protects
+        *whoever* ``source`` would have hit, not one fixed recipient — the
+        mirror image of `prevent_damage_to_target`, which fixes the recipient
+        and (optionally) narrows the source; this fixes the source and never
+        narrows the recipient.
+
+        Filed on ``source``'s own controller's `player_effects` (an
+        arbitrary but consistent home — the condition itself doesn't check
+        "to", so whose list it sits on doesn't change what it does), swept
+        by the same `damage_prevention_shield` cleanup pass.
+        """
+        controller = self.state.player_by_id(source.controller_id) if source.controller_id else None
+        if controller is None:
+            return
+        watched_source_id = source.instance_id
+        remaining = None if amount == "all" else int(amount)
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+            condition=lambda e, c: e.get("source_id") == watched_source_id,
+            description=f"{source.name}: Schadensverhinderung",
+        )
+        effect.damage_prevention_shield = True
+        effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
+
+        def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
+            nonlocal remaining
+            dealt = int(event.get("amount", 0) or 0)
+            if remaining is None:
+                prevented = dealt
+            else:
+                prevented = min(remaining, dealt)
+                remaining -= prevented
+                if remaining <= 0 and effect in controller.player_effects:
+                    controller.player_effects.remove(effect)
+            self.apply_prevent_rider(rider, prevented, event, controller.id)
+            if remaining is None:
+                return None  # "all" — every point prevented, shield persists
+            new_amount = dealt - prevented
+            return event.copy_with(amount=new_amount) if new_amount > 0 else None
+
+        effect.replacement_fn = _replace
+        controller.player_effects.append(effect)
+
+    def grant_damage_multiplier_from_source(
+        self, source: GameObject, multiplier: int = 2,
+    ) -> None:
+        """RULE 616's *single-source-scoped* damage-doubling shield —
+        Desperate Gambit's coin-flip "win" branch (MEC-30): "the next time
+        **that source** would deal damage this turn, it deals double that
+        damage instead." The doubling mirror of `prevent_damage_from_
+        source` just above (same ``condition=lambda e, c: e.get(
+        "source_id") == watched_source_id`` shape, same "float on the
+        source's own controller's `player_effects`" home), *not*
+        `grant_damage_multiplier_this_turn`'s controller-wide `your_
+        sources_only` — that flag doubles *every* source the controller
+        has, whereas this narrows to one already-chosen permanent, the
+        same distinction `prevent_damage_from_source` already draws
+        against the standing, unscoped `_double_damage_replacement`
+        factory. Marked `damage_multiplier_grant` (not `damage_prevention_
+        shield`), the same cleanup-sweep marker `grant_damage_multiplier_
+        this_turn` uses, since this isn't a prevention effect and must
+        never be filtered by `disable_damage_prevention_this_turn`.
+        """
+        controller = self.state.player_by_id(source.controller_id) if source.controller_id else None
+        if controller is None:
+            return
+        watched_source_id = source.instance_id
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+            condition=lambda e, c: e.get("source_id") == watched_source_id,
+            description=f"{source.name}: Schadensverdopplung",
+        )
+        effect.damage_multiplier_grant = True
+
+        def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
+            dealt = int(event.get("amount", 0) or 0)
+            if dealt <= 0:
+                return event
+            return event.copy_with(amount=dealt * multiplier)
+
+        effect.replacement_fn = _replace
+        controller.player_effects.append(effect)
+
+    def apply_prevent_rider(
+        self,
+        rider: Optional[dict],
+        prevented: int,
+        event: GameEvent,
+        shield_controller_id: Optional[str],
+        shield_source: Optional[GameObject] = None,
+    ) -> None:
+        """Fire a "…and `<X>` this way" follow-up (RULE 616.1-adjacent) off
+        the *actual* amount a `prevent_damage`/`prevent_damage_to_*`/
+        `prevent_damage_from_source` shield just stopped — Swans of Bryn
+        Argoll's "the source's controller draws that many cards", Deflecting
+        Palm's "deals that much damage to that source's controller", Nine
+        Lives's "…and put an incarnation counter on this enchantment", and
+        siblings. Mirrors `_prevent_damage_convert_counters_replacement`'s
+        (`game/effects.py`) established pattern of calling an ordinary
+        engine method mid-replacement with the real computed amount, rather
+        than a second effect resolving independently later.
+
+        ``rider["recipient"]`` is ``"you"`` (the shield's own controller,
+        ``shield_controller_id``) or ``"source_controller"`` (whoever
+        controls the damage source that was just prevented — ``event``'s own
+        ``source_controller_id``) — unused by ``"add_self_counter"``, the one
+        rider kind that isn't scaled by ``prevented`` at all (Nine Lives adds
+        exactly one counter regardless of how much damage was actually
+        stopped), which is also the only kind needing ``shield_source`` (the
+        standing shield's own permanent — the one-shot `prevent_damage_to_*`/
+        `prevent_damage_from_source` callers have no such "self" and simply
+        omit it).
+
+        ``rider`` may also be a list of rider dicts (New Way Forward's own
+        "deals that much damage to that source's controller **and** you draw
+        that many cards" — two independent follow-ups off the same prevented
+        amount) — each is applied in turn.
+
+        ``rider["if_source_color"]`` (Shadowbane/Honorable Passage, MEC-30)
+        gates the whole rider on the *watched source's own* colour — "if
+        damage from a **black** source is prevented this way, you gain that
+        much life" is a rider that only sometimes fires, unlike every other
+        rider kind above (which always fires once anything was prevented at
+        all) — checked against ``event``'s own precomputed ``source_colors``.
+        """
+        if not rider or prevented <= 0:
+            return
+        if isinstance(rider, list):
+            for one in rider:
+                self.apply_prevent_rider(one, prevented, event, shield_controller_id, shield_source)
+            return
+        wanted_color = rider.get("if_source_color")
+        if wanted_color is not None and wanted_color not in (event.get("source_colors") or ()):
+            return
+        kind = rider.get("kind")
+        if kind == "add_self_counter":
+            if shield_source is not None:
+                self.add_counters(shield_source, 1, str(rider.get("counter", "+1/+1")), source=shield_source)
+            return
+        if kind == "deal_damage_to_source_controller":
+            # Always the *source's* controller, unconditionally — never the
+            # generic ``recipient`` resolution below, which would otherwise
+            # default to the shield's own controller (``"you"``) and hand
+            # the reflected damage straight back to the very player the
+            # shield protects: a DAMAGE event from the *same* watched
+            # source, to the *same* protected recipient — the shield would
+            # intercept its own reflection and recurse forever (confirmed
+            # by a real `RecursionError` while wiring Deflecting Palm).
+            source_controller_id = event.get("source_controller_id")
+            if source_controller_id is None:
+                return
+            try:
+                source_controller = self.state.player_by_id(source_controller_id)
+            except (KeyError, ValueError):
+                return
+            source_id = event.get("source_id")
+            source_obj = self.state.find_object(source_id) if source_id is not None else None
+            self.deal_damage(source_controller, prevented, source=source_obj)
+            return
+        recipient_key = rider.get("recipient", "you")
+        recipient_id = (
+            shield_controller_id if recipient_key == "you" else event.get("source_controller_id")
+        )
+        if recipient_id is None:
+            return
+        try:
+            recipient = self.state.player_by_id(recipient_id)
+        except (KeyError, ValueError):
+            return
+        if kind == "gain_life":
+            self.gain_life(recipient, prevented)
+        elif kind == "draw_cards":
+            self.draw(recipient, prevented)
+        elif kind == "mill":
+            self.mill(recipient, prevented)
+        elif kind == "exile_top_of_library_scaled":
+            # Bone Mask (MEC-30): "Exile cards from the top of your library
+            # equal to the damage prevented this way." — `mill`'s
+            # exile-instead-of-graveyard sibling; no existing primitive
+            # exiles a fixed count off the top in one call, so this loops
+            # `exile` directly the same way `mill` loops its own move.
+            for _ in range(prevented):
+                if not recipient.library:
+                    break
+                self.exile(recipient.library[-1])
+        elif kind == "create_tokens_scaled":
+            from ...services.token_database import default_token_database, synthesize_token_card
+
+            token = dict(rider.get("token") or {})
+            token_name = token.get("token_name")
+            card = None
+            if token_name and token.get("power") is None and token.get("toughness") is None:
+                card = default_token_database().get_token(token_name)
+            if card is None:
+                subtypes = list(token.get("subtypes", []))
+                card = synthesize_token_card(
+                    token_name or (subtypes[0] if subtypes else "Token"),
+                    power=token.get("power"),
+                    toughness=token.get("toughness"),
+                    colors=list(token.get("colors", [])),
+                    subtypes=subtypes,
+                    keywords=list(token.get("keywords", [])),
+                    legendary=bool(token.get("legendary", False)),
+                    is_artifact=bool(token.get("is_artifact", False)),
+                )
+            self.create_token(recipient.id, card, count=prevented)
 
     def prevent_all_combat_damage_this_turn(
         self, controller: Player, exclude_subtype: Optional[str] = None,
@@ -988,6 +1372,49 @@ class DamageDeathMixin:
             description="Fog: gesamter Kampfschaden in diesem Zug verhindert",
         )
         effect.damage_prevention_shield = True
+        effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
+        controller.player_effects.append(effect)
+
+    def disable_damage_prevention_this_turn(self) -> None:
+        """RULE 615: "Damage can't be prevented this turn." (Insult //
+        Injury/Isengard Unleashed, MEC-30) — a plain `GameState`-level flag
+        (`damage_prevention_disabled`), not a replacement effect: it has no
+        recipient or source of its own to key a `ReplacementEffect.
+        condition` off, it just excludes every effect `RulesEngine.
+        _run_replacement_loop` finds marked `prevents_damage` from that
+        turn's candidate list. Reset at cleanup like any other "this turn"
+        flag.
+        """
+        self.state.damage_prevention_disabled = True
+
+    def grant_damage_multiplier_this_turn(
+        self, controller: Player, source: GameObject, multiplier: int = 2,
+        to_opponent_only: bool = False,
+    ) -> None:
+        """RULE 616: "If a source you control would deal damage this turn,
+        it deals double/triple that damage instead." — the *spell-cast*
+        sibling of `_double_damage_replacement` (`game/effects.py`): that
+        factory only ever attaches to a *permanent's* own `replacement_
+        effects` (Furnace of Rath/Fiery Emancipation-shaped); a one-shot
+        sorcery (Insult // Injury/Isengard Unleashed, MEC-30) has no
+        permanent to attach to once it resolves, so this builds the exact
+        same replacement via `ReplacementRegistry.create` and files it on
+        the caster's `Player.player_effects` instead — the same "float on
+        the controller, not a permanent" idiom every one-shot RULE 615
+        shield above already uses. ``source`` (the resolving spell) is what
+        `your_sources_only` (always on here) reads its controller from —
+        a spell object still carries a `controller_id` after it leaves the
+        stack. Marked `damage_multiplier_grant` (not `damage_prevention_
+        shield` — this isn't a prevention effect and must *not* be filtered
+        by `disable_damage_prevention_this_turn`) for `GameEngine._step_
+        cleanup`'s own matching sweep.
+        """
+        effect = ReplacementRegistry.create("double_damage", {
+            "multiplier": multiplier, "your_sources_only": True,
+            "to_opponent_only": to_opponent_only,
+        })
+        effect.source = source
+        effect.damage_multiplier_grant = True
         controller.player_effects.append(effect)
 
     def _move_to_graveyard(self, obj: GameObject, cause: Optional[str] = None) -> None:

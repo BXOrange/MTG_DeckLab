@@ -238,6 +238,17 @@ class RulesEngine(
         #: dungeon rooms): the still-to-ask player ids, chained one
         #: `pay_cost_then` choice at a time; see `_advance_each_player_pay_or`.
         self._pending_each_player_pay_or: Optional[dict[str, Any]] = None
+        #: Backing state for a `request_all_players_decline_or` mass sweep
+        #: (Rhystic Circle's "Any player may pay {1}. If no one does,
+        #: `<effect>`." — RULE 118.3-adjacent, MEC-30): the still-to-ask
+        #: player ids, chained one `all_decline_or` choice at a time — the
+        #: *aggregate-outcome* mirror of `_pending_each_player_pay_or`
+        #: above (that one applies its effect once **per decliner**; this
+        #: one applies it once, only if **every** player declined, and the
+        #: first player to actually pay cancels the whole sweep with no
+        #: effect at all). See `request_all_players_decline_or`/
+        #: `_advance_all_decline_or`/`resolve_all_decline_or_choice`.
+        self._pending_all_decline_or: Optional[dict[str, Any]] = None
         #: Backing state for a `name_card` `pending_choice` (Demonic
         #: Consultation's "choose a card name") — the follow-up effects the
         #: chosen name gets substituted into; see `request_name_card`/
@@ -405,6 +416,12 @@ class RulesEngine(
             effects.extend(
                 e for e in player.player_effects if isinstance(e, ReplacementEffect)
             )
+            # MEC-30: an emblem can grant a replacement too (Ajani
+            # Steadfast's own "-7" — the first real one), the same "scan
+            # every player's emblems alongside the battlefield" convention
+            # `continuous.py`'s static-ability scan already uses.
+            for emblem in player.emblems:
+                effects.extend(emblem.replacement_effects)
         return effects
     def apply_replacements(
         self,
@@ -446,11 +463,18 @@ class RulesEngine(
         on_resolved: Optional[Callable[[Optional[GameEvent]], None]],
     ) -> Optional[GameEvent]:
         current: Optional[GameEvent] = event
+        prevention_disabled = self.state.damage_prevention_disabled
         while current is not None:
             applicable = [
                 effect
                 for effect in self._all_replacement_effects()
                 if id(effect) not in applied and effect.can_replace(current, self.context)
+                # RULE 615 (MEC-30): "Damage can't be prevented this turn."
+                # excludes every prevention-shaped effect from the candidate
+                # list outright — `double_damage`/`additional_damage` are
+                # never marked `prevents_damage`, so a card's own paired
+                # "…deals double damage instead" clause is unaffected.
+                and not (prevention_disabled and getattr(effect, "prevents_damage", False))
             ]
             if not applicable:
                 break

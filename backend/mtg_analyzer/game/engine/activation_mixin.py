@@ -81,6 +81,7 @@ class ActivationMixin:
         tap_choices: Optional[list[Any]] = None,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        hand_card_choices: Optional[list[int]] = None,
         assume_mana_available: bool = False,
     ) -> bool:
         """Whether ``player`` may activate ``ability`` of ``source`` right now.
@@ -90,8 +91,11 @@ class ActivationMixin:
         mana, tapping/untapping the source, a life/discard/counter payment,
         and a legal thing to sacrifice. ``discard_choices`` is the same RULE
         602.1 cost-choice shape as ``sacrifice_choice``, for a plain
-        "discard N cards" cost component (`_resolve_discard_cost`); ``None``
-        falls back to an auto-pick.
+        "discard N cards" cost component (`_resolve_discard_cost`);
+        ``hand_card_choices`` is its sibling for a "put a card from your hand
+        on top of your library" cost component (Penance, MEC-30 —
+        `_resolve_put_hand_card_cost`). Both ``None`` fall back to an
+        auto-pick.
 
         A ``discard_self`` cost (Channel/Cycling, RULE 702.29/28.2h) is the
         one shape activated from *hand* instead of the battlefield — the
@@ -129,8 +133,16 @@ class ActivationMixin:
             # ability family (`continuous.py`'s static scan, `_collect_triggers`).
             if source not in player.emblems or source.controller_id != player.id:
                 return False
-        elif source not in self.state.permanents() or source.controller_id != player.id:
+        elif source not in self.state.permanents():
             return False  # RULE 702.26c: a phased-out permanent's abilities can't be activated
+        elif source.controller_id != player.id and not ability.cost.any_player_may_activate:
+            # "Any player may activate this ability." (Mercenaries, MEC-30)
+            # is a standing exception to the ordinary "controller only"
+            # eligibility gate — the ability's *effect* still protects
+            # whoever actually activates it (RULE 602.2b), not this
+            # permanent's own controller; see `GameContext.
+            # resolving_controller_id`.
+            return False
         if ability not in source.activated_abilities and ability not in source.granted_activated_abilities:
             return False
         if getattr(source, "loses_all_abilities", False):
@@ -164,6 +176,7 @@ class ActivationMixin:
         return self._can_pay_activation_cost(
             player, source, ability.cost, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            hand_card_choices=hand_card_choices,
             assume_mana_available=assume_mana_available,
         )
     def _sorcery_speed_ok(self, player: Player) -> bool:
@@ -333,6 +346,7 @@ class ActivationMixin:
         tap_choices: Optional[list[Any]] = None,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        hand_card_choices: Optional[list[int]] = None,
         assume_mana_available: bool = False,
     ) -> bool:
         # {T} needs an untapped source; {Q} a tapped one. Either symbol also
@@ -372,6 +386,9 @@ class ActivationMixin:
                 return False
         if cost.discard_self and source not in player.hand:
             return False
+        if cost.put_hand_card_on_library:
+            if self._resolve_put_hand_card_cost(player, hand_card_choices) is None:
+                return False
         if cost.sacrifice and self._sacrifice_candidate(
             player, source, cost.sacrifice, chosen_id=sacrifice_choice
         ) is None:
@@ -406,7 +423,7 @@ class ActivationMixin:
             count, subtype = cost.sacrifice_count
             if self._resolve_sacrifice_count(player, count, subtype, tap_choices) is None:
                 return False
-        if cost.exile_top_of_library and not player.library:
+        if cost.exile_top_of_library and len(player.library) < cost.exile_top_of_library:
             return False
         if cost.exile_self_from_hand:
             # This path is for a battlefield permanent's own ability cost
@@ -710,6 +727,17 @@ class ActivationMixin:
         """
         pool = self._discard_cost_pool(player, exclude)
         return self._resolve_pool_cost(pool, count, chosen_ids)
+    def _resolve_put_hand_card_cost(
+        self, player: Player, chosen_ids: Optional[list[int]]
+    ) -> Optional[list[GameObject]]:
+        """The card to actually put on top of the library for a "put a card
+        from your hand on top of your library" cost component (Penance,
+        MEC-30) — the `_resolve_discard_cost` counterpart for this cost
+        shape, sharing its hand pool (any card in hand is eligible; unlike
+        `_discard_cost_pool`'s ``exclude``, no activated ability's own source
+        is ever a hand card) and `_resolve_pool_cost`'s "chosen_ids, or
+        auto-pick" resolution."""
+        return self._resolve_pool_cost(list(player.hand), 1, chosen_ids)
     def _return_to_hand_candidate(
         self, player: Player, subtype: str
     ) -> Optional[GameObject]:
@@ -731,6 +759,7 @@ class ActivationMixin:
         tap_choices: Optional[list[Any]] = None,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        hand_card_choices: Optional[list[int]] = None,
     ) -> None:
         """Charge every component of ``cost`` (RULE 601.2h analogue for
         abilities) — tap/untap the source, tap other permanents, pay mana,
@@ -738,7 +767,8 @@ class ActivationMixin:
         `activate_ability` and `tap_for_mana` (a mana ability's cost is
         charged exactly the same way, just without going on the stack).
         Assumes `_can_pay_activation_cost` already passed (with the same
-        ``tap_choices``/``sacrifice_choice``/``discard_choices``, if any).
+        ``tap_choices``/``sacrifice_choice``/``discard_choices``/
+        ``hand_card_choices``, if any).
         """
         if cost.taps_self:
             self.rules.set_tapped(source, True)
@@ -798,8 +828,15 @@ class ActivationMixin:
         if cost.unattach_self:
             source.last_unattached_from_id = source.attached_to
             source.attached_to = None
-        if cost.exile_top_of_library and player.library:
-            self.rules.exile(player.library[-1])
+        if cost.exile_top_of_library:
+            for _ in range(cost.exile_top_of_library):
+                if not player.library:
+                    break
+                self.rules.exile(player.library[-1])
+        if cost.put_hand_card_on_library:
+            chosen = self._resolve_put_hand_card_cost(player, hand_card_choices)
+            if chosen:
+                self.rules.put_hand_card_on_top_of_library(chosen[0])
         if cost.discard:
             if cost.discard == DISCARD_HAND:
                 self.rules.discard(player, len(player.hand))
@@ -847,6 +884,7 @@ class ActivationMixin:
         tap_choices: Optional[list[Any]] = None,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        hand_card_choices: Optional[list[int]] = None,
     ) -> None:
         """"Automatisches Tappen" for an ordinary activated ability's own
         mana cost — the `activate_ability` counterpart of `CastingMixin.
@@ -858,11 +896,13 @@ class ActivationMixin:
         if self.can_activate(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            hand_card_choices=hand_card_choices,
         ):
             return
         if not self.can_activate(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            hand_card_choices=hand_card_choices,
             assume_mana_available=True,
         ):
             return  # illegal for a reason other than mana — never auto-tap
@@ -889,6 +929,7 @@ class ActivationMixin:
         target_groups: Optional[list[list[Any]]] = None,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        hand_card_choices: Optional[list[int]] = None,
     ) -> None:
         """Pay an activated ability's cost and put it on the stack (RULE 602.2).
 
@@ -901,9 +942,11 @@ class ActivationMixin:
         "Sacrifice a <type>" cost (RULE 602.1 — a genuine cost choice, not an
         engine auto-pick; see `_sacrifice_candidate`); ``discard_choices`` is
         the same shape for a plain "discard N cards" cost component
-        (`_resolve_discard_cost`). Both ``None`` fall back to an auto-pick,
-        for non-interactive callers. Raises ValueError if the ability can't
-        be paid for.
+        (`_resolve_discard_cost`); ``hand_card_choices`` is its sibling for a
+        "put a card from your hand on top of your library" cost component
+        (Penance, MEC-30 — `_resolve_put_hand_card_cost`). All ``None`` fall
+        back to an auto-pick, for non-interactive callers. Raises ValueError
+        if the ability can't be paid for.
 
         ``target_groups``, when given, partitions ``targets`` per targeting
         effect (`StackItem.target_groups`) — needed only when the ability
@@ -929,16 +972,19 @@ class ActivationMixin:
         self._auto_tap_for_activation_if_needed(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            hand_card_choices=hand_card_choices,
         )
         if not self.can_activate(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            hand_card_choices=hand_card_choices,
         ):
             raise ValueError(f"cannot activate {source.name}'s ability")
 
         self._pay_activation_cost(
             player, source, ability.cost, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            hand_card_choices=hand_card_choices,
         )
         if ability.once_per_turn:
             ability._last_activated_turn = self.state.turn_number
