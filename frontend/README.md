@@ -31,13 +31,13 @@ in English and German:
   like "(LTR) 123" stripped (`src/js/parser.js`, a local pre-check);
   `POST /api/decks` is the authoritative follow-up, giving real Commander
   legality (color identity, ban list, partner) via the backend card
-  database — see `Done_Frontend.md` "Backend integration".
+  database — see `Done_Frontend.md` "Deck Import & Backend Integration".
 - **Decks verwalten**: saved decks (`savedDecksView.js`) — list/load/
   delete, per-deck legality badge, sleeve picker.
 - **Deck analysieren**: local/static deck analysis (`analyzeView.js` +
   `deckAnalysis.js`) — mana curve, type distribution, land archetypes,
   Command Zone categories, and a Commander-Brackets-style heuristic. Pure
-  client-side, no backend call — see `Done_Frontend.md` "Deck analysis".
+  client-side, no backend call — see `Done_Frontend.md` "Deck Analysis (frontend)".
 - **Goldfisch**: solo play against the real backend rules engine
   (`goldfishView.js`/`gameBoardView.js` → `POST /api/game/*`). Pick a
   saved (legal) deck, mulligan, then step through the turn — play lands,

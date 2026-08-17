@@ -1384,7 +1384,7 @@ Implementation state is three kinds of document, kept strictly apart —
 | Kind | File | Rule |
 | --- | --- | --- |
 | Open points | `BACKLOG.md` | The *single* backlog, backend **and** frontend, as categorized tickets (`ENG` game engine, `PAR` parser, `MEC` game mechanics, `PLR` player management, `VIS` visuals, `DB` database, `ANA` deck analysis — the former `TYP` card-types category is retired, RULE 300–315 being complete). Open scope only — no history. |
-| Worklogs | `Done_Backend.md`, `Done_Frontend.md` | Append-only. What shipped and *why it was built that way*. |
+| Worklogs | `Done_Backend.md`, `Done_Frontend.md` | Catalogues, organized by game-mechanic/app-area (not chronologically) — what shipped and *why it was built that way*, one entry per feature/primitive under a subsystem heading. Entry headings are the stable, searchable unit now (not the whole file being append-only); closing a ticket means filing its narrative under the matching subsystem entry, merging into it if one already covers the same primitive, rather than appending at the end. |
 | Examples | `PARSER_LONG_TAIL.md` | Standing strategy + recurring lessons + enumerated worked samples for the indefinite parser tail. Neither backlog nor worklog. |
 
 (The former `backend/ToDo_Backend.md` and `frontend/ToDo_Frontend.md` are
@@ -1465,11 +1465,20 @@ English and German.
 - **Commits**: only when asked; branch first if on `main`. End commit messages
   with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 - **Backlog/worklog split discipline**: `BACKLOG.md` is read in full often
-  (by humans and Claude) and, unlike `Done_*.md`, isn't append-only history
+  (by humans and Claude) and, unlike `Done_*.md`, isn't a durable catalogue
   — it holds *only* open work. **Closing a ticket = deleting it from
-  `BACKLOG.md`** and appending its narrative to the matching section of
-  `Done_Backend.md` / `Done_Frontend.md`. Never leave a `[x]`, a "shipped"
-  note, or even a "moved to Done_*.md" pointer behind; if only part of a
+  `BACKLOG.md`** and filing its narrative into `Done_Backend.md` /
+  `Done_Frontend.md`, organized by game-mechanic/app-area rather than by
+  date (see each file's own preamble): find the entry for the primitive/
+  feature the ticket touched and extend it, or add a new entry under the
+  matching subsystem section (e.g. `## Replacement Effects`, `##
+  Multiplayer`) if none exists yet — don't just append at the end of the
+  file, and don't create a second entry for a primitive that already has
+  one. A ticket that closed several cards by combining existing primitives
+  (a saved-deck/cube playability push) gets one short entry under `##
+  Deck/Cube Playability Batches` instead, naming what closed and pointing
+  at the primitive entries it used. Never leave a `[x]`, a "shipped" note,
+  or even a "moved to Done_*.md" pointer in `BACKLOG.md`; if only part of a
   ticket is done, keep only the part that isn't. Finished detail left in the
   backlog defeats the split and taxes every future read.
 - **No half-implementations — close the loop, don't let a deferred item

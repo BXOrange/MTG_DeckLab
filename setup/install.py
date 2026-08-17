@@ -41,7 +41,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BACKEND_DIR = ROOT / "backend"
-VENV_DIR = BACKEND_DIR / "venv"
+#: Windows gets its own venv directory rather than sharing "venv": a venv
+#: is not relocatable/cross-platform (its activation scripts and bundled
+#: pip hardcode the interpreter's own layout), so a venv created by
+#: install.sh under WSL/macOS/Linux has a "bin/" layout that a native
+#: Windows Python can't use (it needs "Scripts/"). Keeping them apart
+#: means switching between a WSL shell and a native Windows shell in the
+#: same checkout never corrupts either venv.
+VENV_DIR = BACKEND_DIR / ("venv_win" if sys.platform == "win32" else "venv")
 REQUIREMENTS = BACKEND_DIR / "requirements.txt"
 
 #: Local wheel cache used with `pip --find-links` so a venv can be created
