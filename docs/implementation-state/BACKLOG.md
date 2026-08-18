@@ -100,8 +100,10 @@ Plan-level sequencing lives in
   build Spree as a real mechanic (RULE 702.172, likely unlocking Escalate's
   RULE 702.53 for free alongside it — same "choose N, pay per choice"
   shape) before attempting either card again. **`cEDH Rocco` is now
-  78/98** — a first pass (2026-08-13, see `Done_Backend.md`'s "MEC-12:
-  Rocco first pass" entry), not yet finished; its own 20 residual gaps
+  79/98** (Aven Mindcensor closed 2026-08-18, see `Done_Backend.md`'s
+  "Aven Mindcensor's search narrowing …" entry) — a first pass (2026-08-13,
+  see `Done_Backend.md`'s "MEC-12: Rocco first pass" entry), not yet
+  finished; its own 19 residual gaps
   span several distinct unbuilt shapes (RULE 702.172 Spree/Escalate again;
   a "power greater than its base power" per-creature qualifier on the
   CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER aggregate; a card's own
@@ -127,13 +129,69 @@ Plan-level sequencing lives in
   subtype-list creature group — `PumpEffect` has no `subtypes` list param
   the way `AddCountersEffect` does), and Nissa/Sylvan Library's own
   multi-step choices — each individually diagnosed, not guessed at.
-  Current state of the remaining two (2026-08-13): **staples 183/215,
-  staples 2 446/607** — re-measure rather than trusting these numbers as
-  they age; the per-deck *totals* themselves also drift run to run since
-  these are live saved decks a user can keep editing, not a frozen
-  fixture. Worklog detail for what's shipped so far — batch by batch, why
-  each piece is built the way it is — is in `Done_Backend.md`'s "seven
-  'cEDH'-named saved decks" entries, not here.
+  Re-measured 2026-08-18, then updated as MEC-12 batches closed cards the
+  same day: **staples 193/215** (22 gaps — Abrupt Decay, Ashling the
+  Limitless, Cabal Ritual, Culling Ritual, Dauthi Voidwalker,
+  Delay, Derevi Empyrial Tactician, Mana Crypt, March of Swirling Mist,
+  Orcish Bowmasters, Praetor's Grasp, Sevinne's Reclamation, Teferi Time
+  Raveler, Tinder Wall, Touch the Spirit Realm, Tymna the Weaver, Yawgmoth's
+  Will, plus Ad Nauseam/Necropotence/Opposition Agent/Ranger-Captain of
+  Eos/Sylvan Library shared with the other decks above); **staples 2
+  474/607** (133 gaps — closed so far: Sakashima of a Thousand Faces/
+  Mockingbird/Flesh Duplicate/Imposter Mech, see `Done_Backend.md`'s
+  ""Enter as a copy, except …" family widened" entry, Felidar Guardian/
+  Displacer Kitten/Emiel the Blessed, see its "Plain 'exile, then return'
+  blink template …" entry, Aven Mindcensor, see its own "Aven
+  Mindcensor's search narrowing …" entry, Phyrexian Revoker/Pithing Needle,
+  see "Pithing Needle / Phyrexian Revoker's free-text naming lock",
+  Defense Grid/Suppression Field/Tithe Taker, see "Defense Grid / Suppression
+  Field / Tithe Taker's 'costs {N} more' tax family", Solitude/Parallax
+  Wave/Skyclave Apparition, see "Solitude / Parallax Wave / Skyclave
+  Apparition — the O-Ring/exile family's remaining shapes", Soul
+  Partition, see its own "Soul Partition's owner-held, opponent-taxed
+  exile permission" entry, and Abdel Adrian, Gorion's Ward, see its own
+  "Abdel Adrian, Gorion's Ward's 'exile any number you control' selection"
+  entry — **closing the whole O-Ring/exile family cluster this section
+  used to describe**; the rest span dozens of distinct shapes — a
+  copy-a-creature-you-control-or-target family sharing the shipped
+  `"blink"`/`"enter_as_copy"` primitives but not yet applied (Helm of the
+  Host, Twinflame, Heat Shimmer, Necrotic Ooze-adjacent), draw-replacement
+  (Alms Collector, Notion Thief, Chains of Mephistopheles, Omen Machine,
+  Dark Confidant),
+  graveyard/exile cast-permission and recursion (Animate Dead, Necromancy,
+  Protean Hulk, Yawgmoth's Will), land-animate (Kamahl Heart of Krosa,
+  Ashaya Soul of the Wild), and singleton bespoke builds (Doomsday's pile,
+  Necropotence's three-clause engine, Opposition Agent's
+  control-during-search) — none individually diagnosed below this level of
+  detail yet, re-diagnose per card rather than assuming this grouping is
+  complete or unchanged. Two cards initially mis-grouped under the tax
+  family above turned out to need their own, larger primitives instead —
+  **Leonin Arbiter** ("Players can't search libraries. Any player may pay
+  {2} for that player to ignore this effect until end of turn.") is
+  `GrantSearchProhibitedEffect`'s own shape widened to apply to *every*
+  player including its own controller (today hard-coded to "opponents
+  only" for Stranglehold) *plus* a genuinely new "any player may pay a
+  cost, any time, for a personal exemption until end of turn" special
+  action — not a one-shot aggregate-outcome tax like Rhystic Circle's own
+  `request_all_players_decline_or` (MEC-30), since this one is repeatable
+  per player and grants a standing exemption rather than cancelling a
+  single pending effect; and **Damping Sphere** ("If a land is tapped for 2
+  or more mana, it produces {C} instead of any other type and amount.
+  Each spell a player casts costs {1} more to cast for each other spell
+  that player has cast this turn.") combines an unbuilt mana-type-override-
+  by-amount-produced static with a genuine per-caster storm-count-scaled
+  tax (`per` in `cost_reduction`'s existing vocabulary scales by a board
+  *count*, not by how many spells the taxed player specifically has
+  already cast this turn — a new counter to read, `GameState.
+  spells_cast_this_turn` scoped per-player rather than a `count_selector`).
+  Six names in the raw scan (Balamb Garden, Dol Amroth, Jodah the unifier,
+  Seymour Guado, Thrum of the Vestige, Zidane Tribal) aren't real Scryfall
+  cards at all — not a modeling gap, don't chase them. Per-deck *totals*
+  also drift run to run since these are live saved decks a user can keep
+  editing, not a frozen fixture — re-measure before trusting any of the
+  numbers above. Worklog detail for what's shipped so far — batch by
+  batch, why each piece is built the way it is — is in `Done_Backend.md`'s
+  "seven 'cEDH'-named saved decks" entries, not here.
 
   The fourth-through-tenth-pass "broader gaps" this section used to
   describe in detail (Exert, Stasis's untap-skip, devotion-to-hybrid,

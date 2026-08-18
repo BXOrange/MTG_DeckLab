@@ -702,7 +702,7 @@ class CastingMixin:
         """
         reduction, _ = continuous.cost_reduction_for(self.state, player, obj)
         if obj is not None:
-            self_reduction, _ = continuous.self_cost_reduction_for(obj, self.state)
+            self_reduction, _ = continuous.self_cost_reduction_for(obj, self.state, caster_id=player.id)
             reduction += self_reduction
         if reduction > 0:
             cost = cost.reduce_generic(reduction)

@@ -158,6 +158,61 @@ def test_tangle_wire_taxes_the_active_player_per_remaining_fade_counter():
 
 
 # ---------------------------------------------------------------------------
+# Vanishing (RULE 702.61) — Aven Riftwatcher
+# ---------------------------------------------------------------------------
+
+
+def _play_riftwatcher(engine, state, p1):
+    bird = _catalogue_obj("Aven Riftwatcher")
+    engine.rules._apply_entry_counters(bird)
+    state.add_to_battlefield(bird)
+    return bird
+
+
+def test_vanishing_places_its_entry_counters_off_the_keyword():
+    engine, state, p1, _ = _engine()
+    bird = _play_riftwatcher(engine, state, p1)
+
+    assert bird.counters.get("time") == 3
+
+
+def test_vanishing_removes_a_counter_each_of_your_upkeeps():
+    engine, state, p1, _ = _engine()
+    bird = _play_riftwatcher(engine, state, p1)
+
+    state.fire_event(_step("upkeep"))
+    engine.resolve_until_stable()
+
+    assert bird.counters.get("time") == 2
+    assert bird in state.battlefield
+
+
+def test_vanishing_sacrifices_the_same_upkeep_the_last_counter_is_removed():
+    """RULE 702.61b has no Fading-style off-by-one: the removal that empties
+    the last time counter sacrifices the permanent in that same upkeep."""
+    engine, state, p1, _ = _engine()
+    bird = _play_riftwatcher(engine, state, p1)
+    bird.counters["time"] = 1
+
+    state.fire_event(_step("upkeep"))
+    engine.resolve_until_stable()
+
+    assert bird not in state.battlefield
+    assert bird in p1.graveyard
+
+
+def test_vanishing_only_counts_down_on_its_own_controllers_upkeep():
+    engine, state, p1, p2 = _engine()
+    bird = _play_riftwatcher(engine, state, p1)
+    state.active_player_index = 1  # p2's turn
+
+    state.fire_event(_step("upkeep"))
+    engine.resolve_until_stable()
+
+    assert bird.counters.get("time") == 3
+
+
+# ---------------------------------------------------------------------------
 # Soulbond (RULE 702.94) — Deadeye Navigator
 # ---------------------------------------------------------------------------
 

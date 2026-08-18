@@ -44,6 +44,7 @@ from ..effects import (
     BecomeMonarchEffect,
     CantBeCounteredEffect,
     ChooseBasicLandTypeReplacement,
+    ChooseCardNameReplacement,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     ChooseNamedModeReplacement,
@@ -567,11 +568,16 @@ class CastingResolutionMixin:
         # template) needs it after the spell has already left the stack.
         obj.x_paid = x
         # RULE 202.1/601.2h: how much mana was actually spent — 0 for a free
-        # cast, otherwise the converted value of the cost that was paid
-        # (already X-resolved and reduction-adjusted by the caller). Read by
-        # the "if no mana was spent to cast it" trigger family via the
-        # `SPELL_CAST` event's ``mana_spent`` key below.
-        obj.mana_spent_to_cast = 0 if free_cast else cost.converted_mana_cost
+        # cast, otherwise the resolved value of the cost that was paid
+        # (already X-resolved and reduction-adjusted by the caller).
+        # `ManaCost.resolved_value`, not `converted_mana_cost` — the latter
+        # deliberately keeps reporting 0 for `{X}` (RULE 202.3b's printed-
+        # cost model), which would silently undercount an {X} spell's own
+        # real spend (Mockingbird-shaped: "mana value <= the amount of mana
+        # spent to cast this creature"). Read by the "if no mana was spent
+        # to cast it" trigger family via the `SPELL_CAST` event's
+        # ``mana_spent`` key below.
+        obj.mana_spent_to_cast = 0 if free_cast else cost.resolved_value
 
         # RULE 601.2a: which zone the spell was cast *from* — snapshotted
         # before the move below, since by the time `SPELL_CAST` fires the
@@ -1331,7 +1337,8 @@ class CastingResolutionMixin:
         object that isn't in ``state.battlefield`` yet.
         """
         effect = obj.enter_as_copy_effects[0]
-        spec = TargetSpec(kind=effect.target_kind)
+        max_mana_value = obj.mana_spent_to_cast if effect.max_mana_value_from_mana_spent else None
+        spec = TargetSpec(kind=effect.target_kind, max_mana_value=max_mana_value)
         options = legal_targets(self.state, obj.controller_id, spec, source=obj)
         if not options:
             continuation()
@@ -1372,7 +1379,40 @@ class CastingResolutionMixin:
         if answer is not None and answer != "decline" and obj is not None and effect is not None:
             target = self._resolve_choice_option(choice["options"], str(answer))
             if target is not None and target is not obj:
-                copy_mechanics.become_copy(obj, target, effect.add_types, effect.add_subtypes)
+                # Snapshot ~'s own abilities *before* `become_copy` clears
+                # them (RULE 706.2) — Sakashima of a Thousand Faces' own
+                # "except it has ~'s other abilities" clause adds them back
+                # once the copy's abilities are bound.
+                own_triggered = list(obj.triggered_abilities) if effect.keep_own_abilities else []
+                own_static = list(obj.static_effects) if effect.keep_own_abilities else []
+                own_activated = list(obj.activated_abilities) if effect.keep_own_abilities else []
+                own_replacement = list(obj.replacement_effects) if effect.keep_own_abilities else []
+                # "…except it has [keyword] if [the copied creature] doesn't
+                # have [keyword]" (Flesh Duplicate) — checked against the
+                # *target*'s own printed keywords before the copy overwrites
+                # obj.card, since afterwards obj.card *is* target's card.
+                # Compared by keyword *name* (the word before any trailing
+                # number — "Vanishing" out of "Vanishing 3") since a bare
+                # `Card.keywords` entry never carries the printed N.
+                target_keyword_names = {
+                    str(kw).split()[0].lower()
+                    for kw in (getattr(target.card, "keywords", []) or [])
+                    if str(kw).strip()
+                }
+                conditional_keywords = [
+                    kw for kw in effect.add_keywords_if_target_lacks
+                    if kw.split()[0].lower() not in target_keyword_names
+                ]
+                copy_mechanics.become_copy(
+                    obj, target, effect.add_types, effect.add_subtypes,
+                    only_types=effect.only_types,
+                    add_keywords=effect.add_keywords + conditional_keywords,
+                )
+                if effect.keep_own_abilities:
+                    obj.triggered_abilities.extend(own_triggered)
+                    obj.static_effects.extend(own_static)
+                    obj.activated_abilities.extend(own_activated)
+                    obj.replacement_effects.extend(own_replacement)
                 # "…enters with an additional +1/+1/loyalty counter…"
                 # (Spark Double) — applied post-copy, once the resulting
                 # permanent's real type is known.
@@ -1433,18 +1473,32 @@ class CastingResolutionMixin:
             kind = "choose_named_mode"
             prompt = "Modus wählen"
             options = [{"id": label.strip().lower(), "label": label} for label in effect.options]
+        elif isinstance(effect, ChooseCardNameReplacement):
+            kind = "choose_card_name"
+            prompt = "Kartenname wählen"
+            # Unlike every other RULE 601.2b pick above, the answer space
+            # isn't enumerable (any Magic card is a legal name, not just one
+            # on this board) — the battlefield's own names are offered as
+            # convenience suggestions only, the same idiom `request_name_card`
+            # uses; `resolve_enter_choice` accepts any string for this kind.
+            options = [
+                {"id": name, "label": name}
+                for name in sorted({o.card.name for o in self.state.battlefield})
+            ]
         else:
             kind = "choose_color"
             prompt = "Farbe wählen"
             options = [{"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()]
 
-        if not options:
+        if not options and kind != "choose_card_name":
             # RULE 601.2b's choice still has to happen in principle, but
             # with no legal answer (e.g. a puzzle board with no creature
             # cards anywhere) there's nothing to pause on — chosen_type/
             # chosen_color stays None, and every dependent selector then
             # just matches nothing, the same safe fallback an ordinary
-            # unset subtype/colour filter already gets.
+            # unset subtype/colour filter already gets. ``choose_card_name``
+            # is exempt: a free-text naming choice has a legal answer (any
+            # string) regardless of whether the board offers any suggestions.
             _next()
             return
 
@@ -1456,6 +1510,7 @@ class CastingResolutionMixin:
             "player_id": obj.controller_id,
             "prompt": prompt,
             "options": options,
+            **({"free_text": True} if kind == "choose_card_name" else {}),
         }
     def resolve_enter_choice(self, answer: Optional[str]) -> None:
         """Answer a pending `choose_creature_type`/`choose_color` choice
@@ -1467,11 +1522,15 @@ class CastingResolutionMixin:
         unrecognized/missing ``answer`` defaults to the first offered option,
         the same treatment `resolve_add_mana_any_color_choice` gives a
         missing mandatory answer, so a dependent selector is never silently
-        starved by a skipped pick.
+        starved by a skipped pick. ``choose_card_name`` is the one exception —
+        like `resolve_name_card_choice`, its answer isn't validated against
+        the offered (suggestion-only) options at all; a missing answer names
+        the empty string, which simply matches no permanent.
         """
         choice = self.state.pending_choice
         if not choice or choice.get("kind") not in (
-            "choose_creature_type", "choose_color", "choose_named_mode", "choose_basic_land_type",
+            "choose_creature_type", "choose_color", "choose_named_mode",
+            "choose_basic_land_type", "choose_card_name",
         ):
             raise ValueError("no pending enter-choice to resolve")
         self.state.pending_choice = None
@@ -1482,15 +1541,20 @@ class CastingResolutionMixin:
         self._pending_enter_choice_continuation = None
 
         options = choice["options"]
-        valid_ids = {str(o["id"]) for o in options}
-        chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
-            str(options[0]["id"]) if options else None
-        )
+        if choice["kind"] == "choose_card_name":
+            chosen = str(answer) if answer else ""
+        else:
+            valid_ids = {str(o["id"]) for o in options}
+            chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
+                str(options[0]["id"]) if options else None
+            )
         if obj is not None and chosen is not None:
             if choice["kind"] in ("choose_creature_type", "choose_basic_land_type"):
                 obj.chosen_type = chosen
             elif choice["kind"] == "choose_named_mode":
                 obj.chosen_mode = chosen
+            elif choice["kind"] == "choose_card_name":
+                obj.chosen_card_name = chosen
             else:
                 obj.chosen_color = chosen
         if continuation is not None:

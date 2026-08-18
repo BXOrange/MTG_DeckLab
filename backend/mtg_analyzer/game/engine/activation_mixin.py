@@ -295,16 +295,29 @@ class ActivationMixin:
             return None
         return ManaCost.parse(("{" + chosen + "}") * mana.converted_mana_cost)
     def _reduced_activation_mana(
-        self, source: GameObject, mana: "ManaCost", cost: Optional["ActivationCost"] = None
+        self,
+        source: GameObject,
+        mana: "ManaCost",
+        cost: Optional["ActivationCost"] = None,
+        is_mana_ability: bool = False,
     ) -> "ManaCost":
-        """Apply any "activated abilities cost {N} less to activate" static
-        scoped to ``source`` (Power Artifact-shaped, RULE 601.2f-adjacent) —
-        nothing in the ordinary activation-cost path consulted a reduction
+        """Apply any "activated abilities cost {N} less/more to activate"
+        static scoped to ``source`` (Power Artifact-shaped reduction, RULE
+        601.2f-adjacent; Suppression Field/Tithe Taker-shaped *tax*, MEC-12)
+        — nothing in the ordinary activation-cost path consulted either
         before this (unlike a spell's cast cost, `continuous.
         cost_reduction_for`). See `continuous.activation_cost_reduction_for`
         for the static's own "can't reduce below N mana" floor, honoured
         here by capping the reduction rather than trusting `reduce_generic`'s
-        own floor-at-zero.
+        own floor-at-zero — meaningless for a tax, which only ever grows the
+        cost via `increase_generic`, the same "positive reduces, negative
+        increases" convention `CastingMixin._adjust_cost` already uses for a
+        spell's own net.
+
+        ``is_mana_ability`` is passed straight through to `continuous.
+        activation_cost_reduction_for` so a static's "…unless they're mana
+        abilities" carve-out actually exempts one; ``tap_for_mana`` is the
+        only caller that ever activates one.
 
         ``cost.dynamic_reduction`` (Mariposa Military Base's own printed
         "costs {1} less for each rad counter you have"; Eiganjo, Seat of the
@@ -316,7 +329,9 @@ class ActivationMixin:
         board-reading ``count_selector`` (`continuous.count_selector`),
         whichever the cost names.
         """
-        reduction, floor = continuous.activation_cost_reduction_for(self.state, source)
+        reduction, floor = continuous.activation_cost_reduction_for(
+            self.state, source, is_mana_ability=is_mana_ability
+        )
         if cost is not None and cost.dynamic_reduction:
             per = int(cost.dynamic_reduction.get("generic_per", 1))
             selector = cost.dynamic_reduction.get("count_selector")
@@ -332,7 +347,9 @@ class ActivationMixin:
                     player = None
                 if player is not None:
                     reduction += per * player.counters.get(kind, 0)
-        if reduction <= 0:
+        if reduction < 0:
+            return mana.increase_generic(-reduction)
+        if reduction == 0:
             return mana
         if floor and mana.converted_mana_cost - reduction < floor:
             reduction = max(0, mana.converted_mana_cost - floor)
@@ -348,6 +365,7 @@ class ActivationMixin:
         discard_choices: Optional[list[int]] = None,
         hand_card_choices: Optional[list[int]] = None,
         assume_mana_available: bool = False,
+        is_mana_ability: bool = False,
     ) -> bool:
         # {T} needs an untapped source; {Q} a tapped one. Either symbol also
         # needs a non-summoning-sick source unless it has haste (RULE 302.6,
@@ -357,7 +375,7 @@ class ActivationMixin:
         if cost.untaps_self and (not source.tapped or self._summoning_sick_for_tap(source)):
             return False
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
-        mana = self._reduced_activation_mana(source, mana, cost)
+        mana = self._reduced_activation_mana(source, mana, cost, is_mana_ability=is_mana_ability)
         if cost.spend_only_chosen_color:
             # Throne of Eldraine-shaped colour-lock: the whole mana cost must
             # be paid with mana of the source's chosen colour (RULE 601.2b) —
@@ -760,6 +778,7 @@ class ActivationMixin:
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         hand_card_choices: Optional[list[int]] = None,
+        is_mana_ability: bool = False,
     ) -> None:
         """Charge every component of ``cost`` (RULE 601.2h analogue for
         abilities) — tap/untap the source, tap other permanents, pay mana,
@@ -792,7 +811,7 @@ class ActivationMixin:
             for obj in self._resolve_sacrifice_count(player, count, subtype, tap_choices) or []:
                 self.rules.put_into_graveyard(obj)
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
-        mana = self._reduced_activation_mana(source, mana, cost)
+        mana = self._reduced_activation_mana(source, mana, cost, is_mana_ability=is_mana_ability)
         if cost.spend_only_chosen_color:
             # See `_can_pay_activation_cost` — pay the whole cost as
             # `chosen_color` pips (Throne of Eldraine).

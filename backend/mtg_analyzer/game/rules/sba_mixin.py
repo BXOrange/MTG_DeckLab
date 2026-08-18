@@ -509,6 +509,9 @@ class StateBasedActionsMixin:
         for obj in self.state.permanents():
             if not obj.is_legendary:
                 continue
+            controller = self.state.player_by_id(obj.controller_id)
+            if controller is not None and continuous.player_ignores_legend_rule(self.state, controller):
+                continue
             key = (obj.controller_id, obj.name)
             if key in seen:
                 # Keep the first seen, put this duplicate in the graveyard.

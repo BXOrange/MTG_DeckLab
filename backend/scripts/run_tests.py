@@ -17,7 +17,14 @@ process group and reports exactly which test was executing when it
 fired, so a hang is diagnosed from one command instead of a dangling
 prompt.
 
-Usage (from backend/, venv active):
+Resolves the backend venv itself (`setup/install.py`'s `ensure_backend_
+venv`/`VENV_DIR` — the same "venv_win on Windows, venv elsewhere" switch
+`start.sh`/`start.py` already use, see `VENV_DIR`'s docstring for why a
+venv isn't relocatable across that split) rather than trusting whatever
+interpreter launched this script, so it works the same run from any
+shell — no "activate the venv first" step to get wrong or forget.
+
+Usage (from backend/):
   python scripts/run_tests.py [--hard-timeout SECONDS] [pytest args...]
 """
 from __future__ import annotations
@@ -32,6 +39,9 @@ import threading
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BACKEND_ROOT.parent / "setup"))
+from install import ensure_backend_venv  # noqa: E402 (path must be set first)
+
 TEST_NODE_RE = re.compile(r"^(tests/\S+::\S+)")
 
 
@@ -48,7 +58,8 @@ def main() -> int:
     )
     args, pytest_args = parser.parse_known_args()
 
-    cmd = [sys.executable, "-m", "pytest", "-v", *pytest_args]
+    python = ensure_backend_venv()
+    cmd = [str(python), "-m", "pytest", "-v", *pytest_args]
     proc = subprocess.Popen(
         cmd,
         cwd=BACKEND_ROOT,

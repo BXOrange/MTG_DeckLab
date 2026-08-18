@@ -54,6 +54,7 @@ from ..effects import (
     TheRingTemptsYouEffect,
     GameContext,
     GameEffect,
+    GrantSearchLimitedToTopNEffect,
     GrantSearchProhibitedEffect,
     ImpulsiveDrawEffect,
     MarchesaDelayedReturnEffect,
@@ -728,7 +729,25 @@ class SearchMixin:
         `LIBRARY_SEARCHED`, both of which are keyed to ``"library"``."""
         objs: list[GameObject] = []
         if "library" in zones:
-            objs.extend(player.library)
+            # RULE 701.19a-adjacent narrowing: "If an opponent would search
+            # a library, that player searches the top N cards of that
+            # library instead." (Aven Mindcensor) — take the smallest N
+            # among every such grant that isn't ``player``'s own, mirroring
+            # `GrantSearchProhibitedEffect`'s own scan just above in
+            # `request_search`. `player.library[-n:]` since the list end is
+            # the top of the deck (`.pop()`'s own convention).
+            limits = [
+                e.n
+                for permanent in self.state.battlefield
+                if permanent.controller_id != player.id
+                for e in getattr(permanent, "static_effects", None) or []
+                if isinstance(e, GrantSearchLimitedToTopNEffect)
+            ]
+            if limits:
+                n = max(0, min(limits))
+                objs.extend(player.library[len(player.library) - n:])
+            else:
+                objs.extend(player.library)
         if "graveyard" in zones:
             objs.extend(player.graveyard)
         if "hand" in zones:

@@ -1134,14 +1134,17 @@ class TurnLoopMixin:
             self.rules.resolve_transmute_pay_x_choice(None if declined else str(answer))
         elif kind in (
             "choose_creature_type", "choose_color", "choose_named_mode", "choose_basic_land_type",
+            "choose_card_name",
         ):
             # RULE 601.2b(-adjacent): a mandatory pick (no "decline" option
             # is ever offered) — the option id is a creature-type name, a
             # WUBRG colour letter, (``choose_named_mode``) a lowercase mode
             # slug (Struggle for Project Purity's "choose Brotherhood or
-            # Enclave"), or (``choose_basic_land_type``, PAR-4) a basic land
-            # type name; `resolve_enter_choice` defaults an unrecognized/
-            # missing answer to the first offered option.
+            # Enclave"), (``choose_basic_land_type``, PAR-4) a basic land
+            # type name, or (``choose_card_name``, MEC-12) an arbitrary card
+            # name — `resolve_enter_choice` defaults an unrecognized/missing
+            # answer to the first offered option for every kind except the
+            # last, whose free-text answer is passed straight through.
             self.rules.resolve_enter_choice(None if declined else str(answer))
         elif kind == "choose_protector":
             # RULE 310.8a/310.11a: which player protects an entering battle —

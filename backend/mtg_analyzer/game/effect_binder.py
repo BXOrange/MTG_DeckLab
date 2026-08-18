@@ -36,6 +36,7 @@ from .effects import (
     RemoveCounterOrSacrificeEffect,
     SoulbondPairEffect,
     ChooseBasicLandTypeReplacement,
+    ChooseCardNameReplacement,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     ChooseNamedModeReplacement,
@@ -1647,6 +1648,40 @@ def _kw_fading(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     ]
 
 
+def _kw_vanishing(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    if n is None:
+        return []
+    # RULE 702.61b: "At the beginning of your upkeep, remove a time counter
+    # from this permanent. When the last is removed, sacrifice it." Same
+    # upkeep-trigger shape as Fading (`_kw_fading`), just a "time" counter
+    # and `sacrifice_on_last_removed=True` — see `RemoveCounterOrSacrifice
+    # Effect`'s docstring for the off-by-one this avoids. The entry counters
+    # themselves (RULE 702.61a) are placed by `RulesEngine.
+    # _apply_entry_counters`, alongside every other enters-with-counters
+    # clause.
+    controller_id = getattr(obj, "controller_id", None)
+
+    def _your_upkeep(event: Any, context: Any, cid=controller_id) -> bool:
+        if event.get("step") != "upkeep":
+            return False
+        state = getattr(context, "state", None)
+        active = getattr(state, "active_player", None) if state is not None else None
+        return active is not None and active.id == cid
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.STEP_BEGIN,
+            effects=[RemoveCounterOrSacrificeEffect(
+                kind="time", source=obj, sacrifice_on_last_removed=True,
+            )],
+            condition=_your_upkeep,
+            controller_id=controller_id,
+            source=obj,
+            description=spec.raw_text or f"Vanishing {n}",
+        )
+    ]
+
+
 def _kw_cumulative_upkeep(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     # RULE 702.24b: "At the beginning of your upkeep, put an age counter on
     # this permanent, then sacrifice it unless you pay its upkeep cost for
@@ -1769,6 +1804,7 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "soulbond": _kw_soulbond,
     "living_weapon": _kw_living_weapon,
     "fading": _kw_fading,
+    "vanishing": _kw_vanishing,
     "cumulative_upkeep": _kw_cumulative_upkeep,
     "renown": _kw_renown,
     "annihilator": _kw_annihilator,
@@ -2008,6 +2044,7 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
                         ChooseColorReplacement,
                         ChooseNamedModeReplacement,
                         ChooseBasicLandTypeReplacement,
+                        ChooseCardNameReplacement,
                     ),
                 ):
                     obj.enter_choice_effects.append(effect)

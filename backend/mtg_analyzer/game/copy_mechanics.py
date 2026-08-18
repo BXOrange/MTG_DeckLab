@@ -80,6 +80,8 @@ def become_copy(
     target: GameObject,
     add_types: Optional[list[str]] = None,
     add_subtypes: Optional[list[str]] = None,
+    only_types: Optional[list[str]] = None,
+    add_keywords: Optional[list[str]] = None,
 ) -> None:
     """``obj`` itself becomes a copy of ``target`` (RULE 706/707.2).
 
@@ -94,9 +96,9 @@ def become_copy(
 
     Mirrors `RulesEngine.copy_permanent`'s simplification of always reading
     the *front* face (RULE 712.4a's "currently shown face" nuance isn't
-    modeled for either). ``add_types``/``add_subtypes`` implement a copy
-    effect's own "except it's a(n) X in addition to its other types" clause
-    (`Card.as_copy`).
+    modeled for either). ``add_types``/``add_subtypes``/``only_types``/
+    ``add_keywords`` all pass straight through to `Card.as_copy` — see its
+    own docstring for each "except …" clause shape.
 
     RULE 707.2 "copy of a copy": ``target``'s copiable values are read off
     ``target._front_card`` rather than ``target.card`` directly — normally
@@ -110,7 +112,10 @@ def become_copy(
     from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
 
     copiable = getattr(target, "_front_card", target.card)
-    obj.card = copiable.as_copy(add_types=add_types, add_subtypes=add_subtypes)
+    obj.card = copiable.as_copy(
+        add_types=add_types, add_subtypes=add_subtypes,
+        only_types=only_types, add_keywords=add_keywords,
+    )
     obj._front_card = obj.card
 
     # A copy replaces the object's own copiable-derived abilities/keywords

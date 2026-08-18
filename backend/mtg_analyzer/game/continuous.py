@@ -443,6 +443,18 @@ def group_selector_objects(
         color = params.get("color")
     if color:  # colour-scoped anthem ("Black creatures get +1/+1", Bad Moon)
         result = [o for o in result if _has_color(o, list(color))]
+    if params.get("card_name_from_source"):
+        # "… with the chosen name …" (MEC-12, Pithing Needle/Phyrexian
+        # Revoker) — the naming-choice sibling of ``subtype_from_source``/
+        # ``color_from_source`` just above: reads the ability's own
+        # source's `chosen_card_name` (stamped by `RulesEngine.
+        # resolve_enter_choice`) fresh every recompute. ``None`` (the
+        # choice hasn't happened yet, or the source has left) narrows to
+        # "nothing", the same safe fallback those two selectors use.
+        chosen_name = getattr(src, "chosen_card_name", None)
+        if not chosen_name:
+            return []
+        result = [o for o in result if getattr(o.card, "name", None) == chosen_name]
     if params.get("tokens"):  # "creature tokens you control …" (RULE 111)
         result = [o for o in result if getattr(o, "is_token", False)]
     if params.get("exclude_self"):  # a global "Other creatures …" anthem
@@ -701,6 +713,14 @@ def count_selector(
     """
     bf = state.battlefield
     _source_card_name = getattr(source, "name", None)
+    if selector == "exiled_with_count":
+        # "Create a token for each permanent exiled this way." (MEC-12,
+        # Abdel Adrian, Gorion's Ward) — "that many" always refers back to
+        # ``source``'s own `GameObject.exiled_with_ids` (MEC-21's
+        # accumulating tracker), not a board count at all; ``source`` must
+        # be given (a bare test fixture omitting it gets 0, the same safe
+        # fallback every self-referential selector here gets).
+        return len(getattr(source, "exiled_with_ids", None) or [])
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
     if selector == "multicolored_permanents_you_control":
@@ -2180,6 +2200,22 @@ def cost_reduction_for(
         spell_subtype = ability.params.get("spell_subtype")
         if spell_subtype and (obj is None or not has_subtype(obj, str(spell_subtype))):
             continue
+        # RULE 613.6's ordinary ability-source-relative gate ("During your
+        # turn, spells your opponents cast cost {1} more…" — Tithe Taker) —
+        # `cost_floor_for` just below already checks this; this function
+        # never had, a latent gap MEC-12 closed rather than working around.
+        active_if = ability.params.get("active_if")
+        source_controller = getattr(ability.source, "controller_id", None)
+        if active_if and not static_conditions.condition_holds(
+            active_if, state, ability.source, source_controller
+        ):
+            continue
+        # "…except during its controller's turn." (Defense Grid) — "its"
+        # means the *taxed spell's* controller, i.e. ``player`` (the actual
+        # caster), not this static's own controller — so this is checked
+        # directly rather than through the ability-source-relative gate above.
+        if ability.params.get("except_caster_own_turn") and state.active_player is player:
+            continue
         signed = _cost_static_amount(ability, state, player.id)
         net += signed
         contributors.append(
@@ -2246,7 +2282,9 @@ def cost_floor_for(state: "GameState", player: "Player", obj: Optional["GameObje
     return floor
 
 
-def self_cost_reduction_for(obj: "GameObject", state: "GameState") -> tuple[int, list[dict[str, Any]]]:
+def self_cost_reduction_for(
+    obj: "GameObject", state: "GameState", caster_id: Optional[str] = None
+) -> tuple[int, list[dict[str, Any]]]:
     """Net generic-mana reduction from a "cost" static printed on ``obj``
     itself (Delve/Affinity-shaped: "This spell costs {1} less to cast for
     each ...") while ``obj`` is still in hand/graveyard/etc.
@@ -2255,6 +2293,14 @@ def self_cost_reduction_for(obj: "GameObject", state: "GameState") -> tuple[int,
     card that hasn't been cast yet needs its own static read straight off
     ``obj.static_effects`` — the binder attaches a spell's own statics there
     regardless of zone, same as any other static.
+
+    ``caster_id`` is the player actually attempting to cast ``obj`` right
+    now — distinct from ``obj.controller_id`` (which for an exiled/hand
+    card is ordinarily just its owner, not "whoever's about to cast it").
+    Needed for `except_same_controller_as` (MEC-12, Soul Partition's own
+    "**a spell cast by an opponent** this way costs {2} more" — a per-
+    instance tax stamped directly onto a specific exiled card at the
+    moment it was exiled, exempting only the exiler themself).
     """
     net = 0
     contributors: list[dict[str, Any]] = []
@@ -2271,6 +2317,9 @@ def self_cost_reduction_for(obj: "GameObject", state: "GameState") -> tuple[int,
         active_if = ability.params.get("active_if")
         if active_if and not static_conditions.condition_holds(active_if, state, obj, controller_id):
             continue
+        except_same = ability.params.get("except_same_controller_as")
+        if except_same is not None and caster_id == except_same:
+            continue
         signed = _cost_static_amount(ability, state, controller_id)
         net += signed
         contributors.append(
@@ -2283,31 +2332,53 @@ def self_cost_reduction_for(obj: "GameObject", state: "GameState") -> tuple[int,
     return net, contributors
 
 
-def activation_cost_reduction_for(state: "GameState", source: "GameObject") -> tuple[int, int]:
+def activation_cost_reduction_for(
+    state: "GameState", source: "GameObject", is_mana_ability: bool = False
+) -> tuple[int, int]:
     """Net generic-mana reduction for *activating* ``source``'s own
     activated ability (Power Artifact-shaped "Enchanted artifact's
     activated abilities cost {2} less to activate.") — the activation-cost
     analogue of `cost_reduction_for` (a *spell's* cast cost); consulted by
-    `GameEngine._reduced_activation_mana`.
+    `GameEngine._reduced_activation_mana`. A negative result is a genuine
+    *tax* (MEC-12, Suppression Field/Tithe Taker's "…cost {N} more to
+    activate") — the caller applies it the same way `_adjust_cost` already
+    applies `cost_reduction_for`'s own signed net to a spell.
 
     Only a ``"cost"``-layer static with ``params["scope"] == "activation"``
     counts (`cost_reduction_for` explicitly skips these, so a static never
     double-applies to both a spell's cast cost and an ability's activation
-    cost). Three group scopes: ``affects="attached_permanent"`` (Power
+    cost). Five group scopes: ``affects="attached_permanent"`` (Power
     Artifact), a ``subtype`` filter (Sam, Loyal Attendant's "Foods you
-    control"), or a ``card_type`` filter (Training Grounds's "creatures you
+    control"), a ``card_type`` filter (Training Grounds's "creatures you
     control" — a main card type rather than a creature subtype, so it reads
-    `_has_card_type` instead of `has_subtype`).
+    `_has_card_type` instead of `has_subtype`), ``affects=
+    "opponents_permanents"`` (Tithe Taker's "abilities your opponents
+    activate…" — the activation-cost mirror of `activation_prohibited`'s own
+    opponents scope), or ``affects="all_permanents"`` (Suppression Field's
+    unqualified "activated abilities cost {N} more…", unscoped by controller
+    entirely).
+
+    ``is_mana_ability`` mirrors `activation_prohibited`'s own param — a
+    static carrying ``except_mana_abilities`` (both real cards of this
+    shape print it) then never taxes a mana ability's own cost. Also
+    consults the ordinary ability-source-relative ``active_if`` gate (Tithe
+    Taker's "**during your turn**, …") — `cost_reduction_for`'s own sibling
+    check, same reasoning.
 
     Returns ``(net_reduction, floor)`` where ``floor`` is the highest
     "can't reduce the mana in that cost to less than N mana" clause among
-    the contributing statics (0 — no floor — if none set one).
+    the contributing statics (0 — no floor — if none set one; meaningless
+    for a tax, which never contributes to it since a floor only bounds how
+    far a *reduction* can go).
     """
     net = 0
     floor = 0
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "cost" or ability.params.get("scope") != "activation":
             continue
+        if is_mana_ability and ability.params.get("except_mana_abilities"):
+            continue
+        source_controller = getattr(ability.source, "controller_id", None)
         if ability.affects == "attached_permanent":
             if getattr(ability.source, "attached_to", None) != source.instance_id:
                 continue
@@ -2317,8 +2388,7 @@ def activation_cost_reduction_for(state: "GameState", source: "GameObject") -> t
             # narrowed variant this docstring flagged as unbuilt; scoped to
             # the reducing permanent's own controller, matching the "you
             # control" every printed card of this shape carries.
-            controller_id = getattr(ability.source, "controller_id", None)
-            if source.controller_id != controller_id or not has_subtype(
+            if source.controller_id != source_controller or not has_subtype(
                 source, str(ability.params["subtype"])
             ):
                 continue
@@ -2327,14 +2397,23 @@ def activation_cost_reduction_for(state: "GameState", source: "GameObject") -> t
             # to activate." (Training Grounds) — the same "you control"
             # group scope as the subtype branch above, narrowed by a main
             # card type instead of a creature subtype.
-            controller_id = getattr(ability.source, "controller_id", None)
-            if source.controller_id != controller_id or not _has_card_type(
+            if source.controller_id != source_controller or not _has_card_type(
                 source, str(ability.params["card_type"])
             ):
                 continue
+        elif ability.affects == "opponents_permanents":
+            if source_controller is None or source.controller_id == source_controller:
+                continue
+        elif ability.affects == "all_permanents":
+            pass  # unscoped — Suppression Field
         else:
             continue
-        net += _cost_static_amount(ability, state, getattr(ability.source, "controller_id", None))
+        active_if = ability.params.get("active_if")
+        if active_if and not static_conditions.condition_holds(
+            active_if, state, ability.source, source_controller
+        ):
+            continue
+        net += _cost_static_amount(ability, state, source_controller)
         floor = max(floor, int(ability.params.get("min_total", 0)))
     return net, floor
 
@@ -2673,6 +2752,22 @@ def has_no_maximum_hand_size(state: "GameState", player: "Player") -> bool:
     return False
 
 
+def player_ignores_legend_rule(state: "GameState", player: "Player") -> bool:
+    """Whether RULE 704.5j (the legend rule) is switched off for permanents
+    ``player`` controls right now ("The 'legend rule' doesn't apply to
+    permanents you control." — Sakashima of a Thousand Faces-shaped) —
+    consulted by `RulesEngine._apply_legend_rule` in place of its ordinary
+    same-name-same-controller SBA check. Same shape as
+    `has_no_maximum_hand_size` above.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "ignore_legend_rule":
+            continue
+        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
+            return True
+    return False
+
+
 def has_standing_flash_permission(state: "GameState", player: "Player", card: Any) -> bool:
     """Whether ``player`` may cast ``card`` at instant speed right now via a
     standing "You may cast spells as though they had flash." grant (High
@@ -2902,7 +2997,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
-     "extra_land_drop", "no_max_hand_size", "radiation_life_gain", "grant_escape",
+     "extra_land_drop", "no_max_hand_size", "ignore_legend_rule", "radiation_life_gain", "grant_escape",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
      "mana_multiplier"}
@@ -3059,6 +3154,9 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "no_max_hand_size":
         who = "each player" if ability.affects == "each_player" else "its controller"
         return f"{who} has no maximum hand size"
+    if ability.layer == "ignore_legend_rule":
+        clause = "each player controls" if ability.affects == "each_player" else "its controller controls"
+        return f"the legend rule doesn't apply to permanents {clause}"
     if ability.layer == "radiation_life_gain":
         who = "each player" if ability.affects == "each_player" else "its controller"
         return f"{who} gains life rather than loses life from radiation"

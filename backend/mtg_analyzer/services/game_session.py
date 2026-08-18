@@ -923,9 +923,12 @@ class GameSession:
         index = int(action.get("ability_index", 0))
         tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
         sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
+        discard_choices = self._resolve_discard_choices(action.get("discard_choices"))
+        hand_card_choices = self._resolve_hand_card_choices(action.get("hand_card_choices"))
         self.engine.activate_ability(
             active, self._object(action), index, targets, x, tap_choices,
             target_groups=target_groups, sacrifice_choice=sacrifice_choice,
+            discard_choices=discard_choices, hand_card_choices=hand_card_choices,
         )
 
     def _dispatch_declare_attackers(self, action: dict[str, Any], active: Player) -> None:
@@ -1584,6 +1587,27 @@ class GameSession:
         if sacrifice_choice is None:
             return None
         return int(sacrifice_choice)
+
+    @staticmethod
+    def _resolve_discard_choices(discard_choices: Optional[list[Any]]) -> Optional[list[int]]:
+        """The player's pick of *which* hand cards pay a "Discard N cards"
+        cost (RULE 602.1) — just instance ids; `GameEngine` resolves and
+        validates them against the hand itself. ``None`` (not an empty
+        list) when absent, so the engine falls back to its own auto-pick."""
+        if discard_choices is None:
+            return None
+        return [int(i) for i in discard_choices]
+
+    @staticmethod
+    def _resolve_hand_card_choices(hand_card_choices: Optional[list[Any]]) -> Optional[list[int]]:
+        """The player's pick of *which* hand card pays a "put a card from
+        your hand on top of your library" cost (RULE 602.1, Penance/
+        Seasoned Tactician) — just instance ids; `GameEngine` resolves and
+        validates them against the hand itself. ``None`` (not an empty
+        list) when absent, so the engine falls back to its own auto-pick."""
+        if hand_card_choices is None:
+            return None
+        return [int(i) for i in hand_card_choices]
 
     @staticmethod
     def _resolve_color_split(color_split: Optional[dict[str, Any]]) -> Optional[dict[str, int]]:

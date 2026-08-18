@@ -124,7 +124,8 @@ class ManaMixin:
         ability = abilities[ability_index]
         cost = ability.cost
         if not self._can_pay_activation_cost(
-            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
+            is_mana_ability=True,
         ):
             raise ValueError(f"cannot pay {source.name}'s mana ability cost")
         if not ability.options:
@@ -137,7 +138,8 @@ class ManaMixin:
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")
             produced = dict(ability.options[option_index])
         self._pay_activation_cost(
-            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
+            is_mana_ability=True,
         )
         restriction = ability.restriction
         if restriction is not None and restriction.get("kind") == "chosen_type_spell":

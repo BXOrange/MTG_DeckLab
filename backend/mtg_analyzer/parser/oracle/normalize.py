@@ -80,7 +80,8 @@ def _fold_self_reference(text: str) -> str:
 #: Runs after lowercasing, per-line (``^`` anchored with MULTILINE) since the
 #: label only ever opens a line, never appears mid-sentence.
 _ABILITY_WORD_RE = re.compile(
-    r"^(?:landfall|constellation|battalion|enrage|delirium|veil of time)\s*—\s*", re.MULTILINE
+    r"^(?:landfall|constellation|battalion|enrage|delirium|veil of time|avoidance)\s*—\s*",
+    re.MULTILINE,
 )
 
 

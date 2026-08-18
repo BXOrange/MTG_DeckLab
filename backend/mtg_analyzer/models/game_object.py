@@ -438,6 +438,19 @@ class GameObject:
         #: can't find, the same "dead reference is harmless" contract
         #: `linked_exile_id`'s own `imprinted_card_colors` reader uses.
         self.exiled_with_ids: list[int] = []
+        #: A generic single-slot "remember an object across a resolution
+        #: gap" field — `context.trigger_event` is only live for the one
+        #: resolution window a trigger's own effects run in (RULE 603.3), so
+        #: an effect that opens an *interactive* pause first (`pay_cost_
+        #: then`'s "you may pay") can't read the original firing event by
+        #: the time its "if you do" branch actually runs. `PayCostThenEffect`'s
+        #: ``remember_trigger_subject=True`` stamps the trigger's subject id
+        #: here at the (still-live) first `apply()`; `AddCountersEffect`'s
+        #: ``trigger_subject_key="remembered"`` reads it back on the deferred
+        #: side (Emiel the Blessed's "you may pay `<cost>`. If you do, put a
+        #: counter on **it**." referring to a creature that entered, not a
+        #: real RULE 115 target). ``None`` when nothing is remembered.
+        self.remembered_instance_id: Optional[int] = None
 
         #: Effects this object contributes while in play, consulted by the
         #: rules engine (mtg_analyzer/game/). Typed loosely to avoid a
@@ -526,6 +539,17 @@ class GameObject:
         #: declined — the clause is optional), same RULE 400.7
         #: reset-on-new-object treatment as the other ``chosen_*`` fields.
         self.chosen_permanent_id: Optional[int] = None
+        #: "As ~ enters the battlefield, choose a card name." (MEC-12,
+        #: Pithing Needle/Phyrexian Revoker-shaped) — a free-text RULE
+        #: 601.2b sibling of `chosen_type`/`chosen_color`: unlike those, the
+        #: answer space isn't enumerable from game state (any Magic card
+        #: name is legal, not just one already on this board), so it's
+        #: stamped verbatim rather than validated against an options list.
+        #: Read by `continuous.group_selector_objects`'s
+        #: ``card_name_from_source`` selector param. ``None`` until chosen,
+        #: same RULE 400.7 reset-on-new-object treatment as the other
+        #: ``chosen_*`` fields.
+        self.chosen_card_name: Optional[str] = None
         #: Static abilities (`StaticAbility`) this object grants through the
         #: layer system (RULE 613) — anthems, keyword grants, type changes,
         #: cost reductions. Read by `game/continuous.py`.
@@ -931,6 +955,7 @@ class GameObject:
         self.control_change_until_eot = None
         self.linked_exile_id = None
         self.exiled_with_ids = []
+        self.remembered_instance_id = None
         #: RULE 702.112b: a new object hasn't become renowned yet either —
         #: the "never reset" rule on this flag only ever meant "not reset by
         #: an ordinary recompute", not "not reset ever" (no code implemented
@@ -956,6 +981,7 @@ class GameObject:
         self.chosen_mode = None
         self.chosen_player_id = None
         self.chosen_permanent_id = None
+        self.chosen_card_name = None
         self.temp_power = 0
         self.temp_toughness = 0
         self.temp_keywords = set()
@@ -1402,6 +1428,7 @@ class GameObject:
             # tribe/color is visible, not just its effect.
             "chosen_type": self.chosen_type,
             "chosen_color": self.chosen_color,
+            "chosen_card_name": self.chosen_card_name,
             "attacking": self.attacking,
             "combat_defender": self.combat_defender,
             "blocking": self.blocking,

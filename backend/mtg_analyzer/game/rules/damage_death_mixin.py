@@ -1100,7 +1100,30 @@ class DamageDeathMixin:
                 remaining -= redirected
                 if remaining <= 0 and effect in controller.player_effects:
                     controller.player_effects.remove(effect)
+            else:
+                redirected = dealt
+            if redirected <= 0:
+                return event
+            leftover = dealt - redirected
+            if leftover > 0:
+                # A finite redirect budget can be exhausted mid-event: the
+                # un-redirected remainder still hits the original recipient
+                # as ordinary damage, since one replaced event can only
+                # carry a single recipient — this replacement's own budget
+                # is already spent (removed above) so the recursive event
+                # below can't loop back through it.
+                original_is_player = bool(event.get("is_player", False))
+                original_target_id = event.get("target_id")
+                original_target = (
+                    self.state.player_by_id(original_target_id) if original_is_player
+                    else self.state.find_object(original_target_id)
+                )
+                if original_target is not None:
+                    self.deal_damage(
+                        original_target, leftover, source=source, combat=bool(event.get("combat", False)),
+                    )
             overrides: dict[str, Any] = {
+                "amount": redirected,
                 "target_id": new_recipient.id if new_is_player else new_recipient.instance_id,
                 "is_player": new_is_player,
             }

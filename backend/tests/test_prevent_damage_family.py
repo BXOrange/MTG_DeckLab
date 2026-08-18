@@ -419,6 +419,13 @@ def test_gisela_blade_of_goldnight_catalogue_entry():
     _resolve_any_replacement_order_choice(engine)
     assert p1.life == 20 - 2  # half of 4, rounded up, survives
 
+    # An odd amount is the case an even-only `dealt` can't catch: "rounded
+    # up" prevention removes the larger half (ceil(3/2)=2), so only 1
+    # survives — not 2 (which would be prevention rounded *down*).
+    engine.deal_damage(p1, 3, source=attacker)
+    _resolve_any_replacement_order_choice(engine)
+    assert p1.life == 20 - 2 - 1  # half of 3, rounded up = 2 prevented, 1 survives
+
     engine.deal_damage(p2, 3, source=attacker)
     _resolve_any_replacement_order_choice(engine)
     assert p2.life == 20 - 6  # doubled, opponent-scoped
@@ -731,16 +738,21 @@ def test_hedron_field_purists_catalogue_entry_switches_band_by_level():
     attacker = _bf(state, _creature("Attacker"), controller="p2")
     engine = RulesEngine(state)
 
-    # No level counters yet — the LEVEL 1-4 band's own `active_if` only
-    # caps at 4 (no explicit min, same convention the synthetic
-    # `test_active_if_gates_a_leveler_style_amount_band` above already
-    # uses), so it's active from level 0.
+    # RULE 711.4b: with no level counters, an unleveled Leveler has its base
+    # characteristics only — neither band's ability is active yet. Matches
+    # the general parser-driven Leveler pipeline's own convention
+    # (`parser/oracle/gate.py`'s `_process_leveler_body`, `min_level=lo`),
+    # which always sets a lower bound for a "LEVEL 1-4"-shaped band.
     engine.deal_damage(p1, 3, source=attacker)
-    assert p1.life == 20 - 2  # LEVEL 1-4: prevent 1 of 3
+    assert p1.life == 20 - 3  # no counters yet: no prevention at all
+
+    purist.counters["level"] = 1
+    engine.deal_damage(p1, 3, source=attacker)
+    assert p1.life == 20 - 3 - 2  # LEVEL 1-4: prevent 1 of 3
 
     purist.counters["level"] = 5
     engine.deal_damage(p1, 3, source=attacker)
-    assert p1.life == 20 - 2 - 1  # LEVEL 5+: prevent 2 of 3
+    assert p1.life == 20 - 3 - 2 - 1  # LEVEL 5+: prevent 2 of 3
 
 
 def test_battletide_alchemist_catalogue_entry_scales_by_cleric_count():
@@ -1185,6 +1197,33 @@ def test_redirect_damage_from_source_rewrites_the_recipient():
     assert p1.life == 20 - 3
 
 
+def test_redirect_damage_from_source_caps_at_a_finite_budget():
+    """No real card prints a finite redirect amount today (both cards wired
+    to `redirect_damage_from_source` always pass "all"), but the primitive
+    itself must honour one: only the shield's own remaining budget gets
+    redirected, and the un-redirected remainder still lands on the original
+    recipient as ordinary damage — mirroring how a partially-exhausted
+    `prevent_damage_*` shield splits `dealt` into a survives/prevented
+    portion instead of silently dropping or over-redirecting it."""
+    state, p1, p2 = _state()
+    opal_eye = _bf(state, Card(id="Opal-Eye, Konda's Yojimbo", name="Opal-Eye, Konda's Yojimbo",
+                                type_line="Legendary Creature — Fox Samurai", is_creature=True,
+                                power=1, toughness=4))
+    attacker = _bf(state, _creature("Attacker"), controller="p2")
+    engine = RulesEngine(state)
+
+    engine.redirect_damage_from_source(attacker, opal_eye, 2)
+    engine.deal_damage(p1, 5, source=attacker)
+    assert opal_eye.damage_marked == 2  # only the shield's own budget redirected
+    assert p1.life == 20 - 3  # the un-redirected remainder still hits p1
+
+    # the shield is now exhausted — a second hit is unaffected
+    opal_eye.damage_marked = 0
+    engine.deal_damage(p1, 4, source=attacker)
+    assert opal_eye.damage_marked == 0
+    assert p1.life == 20 - 3 - 4
+
+
 def test_redirect_damage_from_source_is_not_blocked_by_disable_prevention():
     # A redirect isn't a prevention (RULE 615 doesn't apply to it), so
     # `disable_damage_prevention_this_turn` must leave it working.
@@ -1296,6 +1335,36 @@ def test_penance_cost_puts_the_chosen_hand_card_on_top_of_library():
     assert spend not in p1.hand
     assert keep in p1.hand
     assert p1.library and p1.library[-1] is spend  # top of deck is the list end
+    assert len(p1.library) == library_size + 1
+
+
+def test_penance_hand_card_choice_reachable_via_game_session():
+    """The raw-engine test above proves `activate_ability`'s own
+    `hand_card_choices` param works; this proves the choice actually
+    reaches it through `GameSession.apply_action` (`_dispatch_activate_
+    ability`) — the real path any UI/API caller uses, which previously
+    dropped `hand_card_choices`/`discard_choices` on the floor entirely."""
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.services.game_session import GameSession
+
+    state, p1, _p2 = _state()
+    penance = _bf(state, Card(id="Penance", name="Penance", type_line="Enchantment"))
+    engine = GameEngine(state)
+    session = GameSession(engine)
+
+    keep = GameObject(_creature("Keep"), owner_id="p1", zone=Zone.HAND)
+    spend = GameObject(_creature("Spend"), owner_id="p1", zone=Zone.HAND)
+    p1.hand.extend([keep, spend])
+    library_size = len(p1.library)
+
+    session.apply_action({
+        "type": "activate_ability", "instance_id": penance.instance_id,
+        "ability_index": 0, "hand_card_choices": [spend.instance_id],
+    })
+
+    assert spend not in p1.hand
+    assert keep in p1.hand
+    assert p1.library and p1.library[-1] is spend
     assert len(p1.library) == library_size + 1
 
 
@@ -1484,6 +1553,40 @@ def test_mercenaries_shield_only_watches_its_own_damage():
 
     engine.rules.deal_damage(p2, 4, source=other_attacker)
     assert p2.life == 20 - 4  # a different source isn't watched by this shield
+
+
+def test_mercenaries_ability_is_offered_via_legal_actions_to_a_non_controller():
+    """RULE 602.2b: `can_activate`/`activate_ability` accepting a
+    non-controller isn't enough by itself — `legal_actions()` is the single
+    source of truth the UI/bots actually consult (docs R4.3), so the
+    activated-ability enumeration must offer this ability to p2 too, not
+    just to p1 (Mercenaries' own controller)."""
+    from mtg_analyzer.game.game_engine import GameEngine
+
+    state, p1, p2 = _state()
+    mercenaries = _bf(state, Card(id="Mercenaries", name="Mercenaries",
+                                   type_line="Creature — Human Mercenary", is_creature=True,
+                                   power=3, toughness=3))
+    engine = GameEngine(state)
+    p2.mana_pool.add("C", 3)
+
+    offers = [
+        a for a in engine.legal_actions(p2)
+        if a.get("type") == "activate_ability" and a.get("instance_id") == mercenaries.instance_id
+    ]
+    assert offers, "Mercenaries should offer its ability to a non-controller via legal_actions()"
+
+    # An ordinary (non-"any player may activate") ability on someone else's
+    # permanent must still not be offered — this isn't a blanket "offer
+    # everything on the battlefield" widening. Bone Mask (already used
+    # above) has a real, ordinary activated ability bound via `_bf`'s own
+    # `bind_from_catalogue` call.
+    other = _bf(state, Card(id="Bone Mask", name="Bone Mask", type_line="Artifact"), controller="p1")
+    stray = [
+        a for a in engine.legal_actions(p2)
+        if a.get("type") == "activate_ability" and a.get("instance_id") == other.instance_id
+    ]
+    assert not stray, "an ordinary ability on someone else's permanent must stay hidden from a non-controller"
 
 
 # ---------------------------------------------------------------------------

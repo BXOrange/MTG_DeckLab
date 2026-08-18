@@ -986,7 +986,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Onslaught-shaped, unrelated to the range shape) were silently only ever
 #: offering one target, since the handler set a "count" key the "pump"
 #: `EffectRegistry` factory never read.
-PARSER_VERSION = "92"
+PARSER_VERSION = "93"
 
 
 @dataclass

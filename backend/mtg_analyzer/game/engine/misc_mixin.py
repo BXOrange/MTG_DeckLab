@@ -222,7 +222,7 @@ class MiscMixin:
                 )
                 if not simple or not ability.options:
                     continue
-                if not self._can_pay_activation_cost(active, source, cost, x=0):
+                if not self._can_pay_activation_cost(active, source, cost, x=0, is_mana_ability=True):
                     continue
                 self.tap_for_mana(active, source, ability_index=ability_index)  # option 0 (greedy)
                 break

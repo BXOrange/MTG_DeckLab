@@ -417,6 +417,8 @@ class Card:
         add_types: Optional[list[str]] = None,
         add_subtypes: Optional[list[str]] = None,
         not_legendary: bool = False,
+        only_types: Optional[list[str]] = None,
+        add_keywords: Optional[list[str]] = None,
     ) -> "Card":
         """This card's *copiable values* (RULE 706.2), as a fresh `Card`.
 
@@ -436,8 +438,25 @@ class Card:
         Recruitment/Hall of Mirrors-shaped) strips the Legendary supertype
         from both `is_legendary` and the printed type line, since some
         board/legality surfaces read the word directly rather than the flag.
+        ``only_types`` is the "…except it loses all other card types" sibling
+        of ``add_types`` (Imposter Mech-shaped) — replaces the type line's
+        whole main-type portion (and drops the copied creature's own
+        subtypes along with it, same "other card types" clause) instead of
+        appending; ``add_subtypes`` still applies on top, for a card that
+        both strips the original types *and* adds its own (Vehicle).
+        ``add_keywords`` appends raw keyword strings onto the copy (Flesh
+        Duplicate's conditional Vanishing, Imposter Mech's Crew) — RULE
+        707.2 replaces the original's printed text with the copied object's,
+        so a keyword the "except" clause grants has to be re-added here
+        rather than assumed to survive.
         """
         type_line = self.type_line
+        if only_types is not None:
+            _, dash, sub = type_line.partition("—")
+            type_line = " ".join(only_types).strip()
+            if add_subtypes:
+                type_line = f"{type_line} — {' '.join(add_subtypes)}".strip()
+            add_subtypes = None  # already folded in above
         if add_types:
             main, dash, sub = type_line.partition("—")
             type_line = f"{main.strip()} {' '.join(add_types)}".strip()
@@ -453,6 +472,44 @@ class Card:
             main, dash, sub = type_line.partition("—")
             main = re.sub(r"\bLegendary\b\s*", "", main).strip()
             type_line = f"{main} — {sub.strip()}" if dash else main
+        is_creature = self.is_creature
+        power, toughness = self.power, self.toughness
+        vehicle_power, vehicle_toughness = self.vehicle_power, self.vehicle_toughness
+        if only_types is not None:
+            is_creature = "creature" in {t.lower() for t in only_types} | {
+                t.lower() for t in (add_types or [])
+            }
+            if not is_creature and self.is_creature:
+                # RULE 208.1: a noncreature can't carry `power`/`toughness`
+                # (`Card.__init__`'s own invariant) — the copied creature's
+                # P/T is still copiable (RULE 706.2), it just moves to the
+                # vehicle-style slot a Vehicle's printed P/T lives in, same
+                # as `_crew_activated_ability`'s own read of this field.
+                vehicle_power, vehicle_toughness = self.power, self.toughness
+                power, toughness = None, None
+        keywords = list(self.keywords)
+        oracle_text = self.oracle_text
+        if add_keywords:
+            # `keywords_of` (combat.py) reads the bare-name list above for
+            # the evasion-type subset — Scryfall's own ``keywords`` array
+            # never carries a parametric keyword's number (`Aven
+            # Riftwatcher`'s is ``['Flying', 'Vanishing']``, not
+            # ``'Vanishing 3'``), and `parse_keywords` (`catalogue/
+            # keywords.py`) slug-matches each entry verbatim — a number
+            # baked into the string fails that match entirely. So the list
+            # gets each entry's bare name (first word); the full string
+            # (with its number) goes into `oracle_text` instead, where a
+            # keyword needing its own bound ability (Vanishing's upkeep
+            # trigger, Crew's activation) is actually read from — only
+            # reachable by re-parsing text (`effect_binder.bind_from_
+            # catalogue`, called right after this by `become_copy`), so the
+            # grant has to show up there too, as a plain new keyword line,
+            # exactly like a printed card's own.
+            bare_names = [k.split()[0] for k in add_keywords]
+            keywords.extend(n for n in bare_names if n not in keywords)
+            new_lines = [k for k in add_keywords if k.lower() not in (oracle_text or "").lower()]
+            if new_lines:
+                oracle_text = f"{oracle_text}\n" + "\n".join(new_lines) if oracle_text else "\n".join(new_lines)
         return Card(
             id=self.id,
             name=self.name,
@@ -461,18 +518,18 @@ class Card:
             mana_cost_string=self.mana_cost_string,
             converted_mana_cost=self.converted_mana_cost,
             color_identity=set(self.color_identity),
-            is_creature=self.is_creature,
+            is_creature=is_creature,
             is_instant=self.is_instant,
             is_sorcery=self.is_sorcery,
             is_land=self.is_land,
-            power=self.power,
-            toughness=self.toughness,
+            power=power,
+            toughness=toughness,
             loyalty=self.loyalty,
             defense=self.defense,
-            vehicle_power=self.vehicle_power,
-            vehicle_toughness=self.vehicle_toughness,
-            oracle_text=self.oracle_text,
-            keywords=list(self.keywords),
+            vehicle_power=vehicle_power,
+            vehicle_toughness=vehicle_toughness,
+            oracle_text=oracle_text,
+            keywords=keywords,
             image_uri_small=self.image_uri_small,
             image_uri_normal=self.image_uri_normal,
             image_uri_large=self.image_uri_large,

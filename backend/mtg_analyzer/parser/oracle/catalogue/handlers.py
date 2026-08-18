@@ -1065,6 +1065,42 @@ def _blink_non_subtype(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("blink", params)]
 
 
+#: The plainer sibling of `_BLINK_NON_SUBTYPE_RE`, with no subtype
+#: exclusion — "exile [up to N] [another] target creature/[nonland]
+#: permanent you control, then return that card/it to the battlefield
+#: under your/its owner's control" (Felidar Guardian/Emiel the Blessed/
+#: Displacer Kitten-shaped). "another" needs no special handling: every
+#: ``*_you_control`` `legal_targets` branch already excludes the source
+#: object regardless (`o is not source`), so a plain and an "another"-
+#: qualified target kind resolve identically. "up to N" threads through
+#: to `BlinkEffect`'s own ``optional``/``count_max`` (MEC-12) rather than
+#: the yes/no "you may" a *mandatory*-single-target blink relies on
+#: (stripped upstream, same as `_blink_non_subtype` needs no "you may" in
+#: its own pattern either).
+_BLINK_PLAIN_RE = _c(
+    r"exile (?:up to (?P<up_to>one|[0-9]+) )?(?:another )?target "
+    r"(?P<kind>nonland permanent|permanent|creature) you control, "
+    r"then return (?:that card|it) to the battlefield under (?P<who>your|its owner'?s) control"
+)
+
+
+def _blink_plain(m: re.Match[str]) -> list[EffectSpec]:
+    kind_word = m.group("kind")
+    target_kind = {
+        "creature": "creature_you_control",
+        "permanent": "permanent_you_control",
+        "nonland permanent": "nonland_permanent_you_control",
+    }[kind_word]
+    params: dict = {"target_kind": target_kind}
+    if m.group("who") == "your":
+        params["under_your_control"] = True
+    up_to = m.group("up_to")
+    if up_to:
+        params["optional"] = True
+        params["target_count_max"] = 1 if up_to == "one" else int(up_to)
+    return [EffectSpec("blink", params)]
+
+
 def _discard(m: re.Match[str]) -> list[EffectSpec]:
     # "you discard"/bare "discard" is the controller (untargeted); "target
     # player/opponent discards" is a real RULE 115 target; "each player/
@@ -5580,6 +5616,16 @@ HANDLERS: list[EffectHandler] = [
         "blink_non_subtype",
         _BLINK_NON_SUBTYPE_RE,
         _blink_non_subtype,
+    ),
+    # "exile [up to N] [another] target creature/[nonland] permanent you
+    # control, then return that card/it to the battlefield under your/its
+    # owner's control." (Felidar Guardian/Emiel the Blessed/Displacer
+    # Kitten-shaped) — tried after the subtype-exclusion row above so a
+    # Restoration Angel-shaped clause still matches that narrower row first.
+    EffectHandler(
+        "blink_plain",
+        _BLINK_PLAIN_RE,
+        _blink_plain,
     ),
     # "defending player reveals the top card of their library. If it's a
     # land card, that player puts it into their hand." (Goblin Guide-shaped).

@@ -961,7 +961,18 @@ class TriggerCollectionMixin:
             self._pending_trigger_effects = override
             self._pending_trigger_queue = queue
             self._pending_trigger_event = event
-            self.state.pending_choice = self._trigger_target_choice(ability, options)
+            # RULE 115.1a: "up to one target" is its own, target-level
+            # optionality (`spec.optional`) distinct from RULE 603.5's
+            # whole-ability "you may" (`ability.optional`) — a mandatory
+            # trigger can still decline *its own* "up to one" target. Bug
+            # found while building Displacer Kitten (MEC-12): the "no legal
+            # targets at all" branch just above already reads `spec.
+            # optional` correctly; this prompt-building branch didn't, so
+            # "up to one" only ever showed a decline button when the whole
+            # ability happened to *also* be a "you may".
+            self.state.pending_choice = self._trigger_target_choice(
+                ability, options, allow_decline=spec.optional or ability.optional,
+            )
             return False
         # RULE 115.1/603.3c generalized: 2+ *different* targeting effects (or
         # one effect wanting 2+ targets, expanded above) — gather one target

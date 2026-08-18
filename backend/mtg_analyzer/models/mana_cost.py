@@ -216,6 +216,21 @@ class ManaCost:
         """Whether this cost contains an unset ``{X}`` (RULE 107.3c)."""
         return any(s.kind == VARIABLE for s in self.symbols)
 
+    @property
+    def resolved_value(self) -> int:
+        """This cost's real mana value once any ``{X}`` is resolved (RULE
+        202.3b: on the stack/battlefield, X *is* the chosen value — unlike
+        `converted_mana_cost`, which deliberately keeps reporting 0 for an
+        unresolved ``{X}`` per the printed-cost model `ManaSymbol.cmc` uses).
+        Equal to `converted_mana_cost` for a cost with no ``{X}``, or one
+        that hasn't been through `with_x` yet. "How much mana was actually
+        spent" trackers (`GameObject.mana_spent_to_cast`) want this, not
+        the static `converted_mana_cost`.
+        """
+        return self.converted_mana_cost + sum(
+            s.amount for s in self.symbols if s.kind == VARIABLE
+        )
+
     def with_x(self, x: int) -> "ManaCost":
         """A copy with every ``{X}`` symbol resolved to the announced value.
 

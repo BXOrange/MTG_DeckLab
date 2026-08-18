@@ -1589,6 +1589,7 @@ class MiscSystemsMixin:
         then_specs: Optional[list[dict]] = None,
         then_specs_if_commander: Optional[list[dict]] = None,
         remember: bool = False,
+        track_exiled_with: bool = False,
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
     ) -> None:
@@ -1631,6 +1632,16 @@ class MiscSystemsMixin:
         multi-pick "remembers" only its own last pick, overwriting the
         rest — no printed Imprint card needs more than one).
 
+        ``track_exiled_with=True`` (MEC-12, Abdel Adrian, Gorion's Ward —
+        "exile **any number of** other nonland permanents you control") is
+        ``remember``'s accumulating sibling for a *multi*-pick exile,
+        mirroring `ExileEffect.track_exiled_with`'s own `GameObject.
+        exiled_with_ids` list exactly (every pick appended, not just the
+        last), for a "choose N/any number, unlike a RULE 115 target" shape
+        `ExileEffect`'s own target-gathering can't express — there is no
+        "target" here at all, just a selection among permanents this
+        player controls.
+
         ``prevent_shield`` (MEC-30, ``action="remember_source"`` only —
         RULE 615/616.1d's "a source of your choice") carries the shield to
         open once a pick is made: ``{"recipient_id", "recipient_is_player",
@@ -1657,7 +1668,8 @@ class MiscSystemsMixin:
             for obj in pool:
                 commander_taken = commander_taken or obj.is_commander
                 self._apply_chosen_object(
-                    player, obj, action, source, remember=remember, prevent_shield=prevent_shield,
+                    player, obj, action, source, remember=remember,
+                    track_exiled_with=track_exiled_with, prevent_shield=prevent_shield,
                     redirect_shield=redirect_shield,
                 )
             self._apply_choose_objects_tail(
@@ -1669,6 +1681,7 @@ class MiscSystemsMixin:
             source_id=source.instance_id if source is not None else None,
             picked=[], then_specs=then_specs,
             then_specs_if_commander=then_specs_if_commander, remember=remember,
+            track_exiled_with=track_exiled_with,
             prevent_shield=prevent_shield, redirect_shield=redirect_shield,
         )
     def _apply_choose_objects_tail(
@@ -1695,6 +1708,7 @@ class MiscSystemsMixin:
         then_specs: Optional[list[dict]] = None,
         then_specs_if_commander: Optional[list[dict]] = None,
         remember: bool = False,
+        track_exiled_with: bool = False,
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
     ) -> dict[str, Any]:
@@ -1738,6 +1752,10 @@ class MiscSystemsMixin:
             # ``source`` (`GameObject.linked_exile_id`) — see
             # `request_choose_objects`'s own docstring.
             "remember": remember,
+            # MEC-12: whether every ``"exile"`` pick should accumulate onto
+            # ``source`` (`GameObject.exiled_with_ids`) — see
+            # `request_choose_objects`'s own docstring.
+            "track_exiled_with": track_exiled_with,
         }
     def resolve_choose_objects_choice(self, instance_id: Optional[int]) -> None:
         """Answer a pending `choose_objects` decision: apply the action to
@@ -1764,6 +1782,7 @@ class MiscSystemsMixin:
             commander_taken = commander_taken or chosen.is_commander
             self._apply_chosen_object(
                 player, chosen, choice["action"], source, remember=bool(choice.get("remember")),
+                track_exiled_with=bool(choice.get("track_exiled_with")),
                 prevent_shield=choice.get("prevent_shield"),
                 redirect_shield=choice.get("redirect_shield"),
             )
@@ -1789,6 +1808,7 @@ class MiscSystemsMixin:
             then_specs=choice.get("then_specs"),
             then_specs_if_commander=choice.get("then_specs_if_commander"),
             remember=bool(choice.get("remember")),
+            track_exiled_with=bool(choice.get("track_exiled_with")),
             prevent_shield=choice.get("prevent_shield"),
             redirect_shield=choice.get("redirect_shield"),
         )
@@ -1824,6 +1844,7 @@ class MiscSystemsMixin:
         action: str,
         source: Optional[GameObject],
         remember: bool = False,
+        track_exiled_with: bool = False,
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
     ) -> None:
@@ -1906,6 +1927,11 @@ class MiscSystemsMixin:
                 # after this resolves" shape, same field `ExileEffect
                 # (remember=True)` uses for the unrelated O-Ring return.
                 source.linked_exile_id = obj.instance_id
+            if track_exiled_with and source is not None:
+                # MEC-12: Abdel Adrian's own "exile any number of…" —
+                # `remember`'s accumulating sibling, same field
+                # `ExileEffect(track_exiled_with=True)` uses.
+                source.exiled_with_ids.append(obj.instance_id)
         elif action == "choose_permanent" and source is not None:
             # MEC-26: Scheming Fence's own ETB pick — nothing happens to
             # ``obj`` itself, just a pointer stamped onto the source

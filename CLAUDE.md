@@ -224,8 +224,9 @@ the usual legality check (`savedDecksView.js`) and gained a matching
 ./start.sh                     # add --backend-tests to also run pytest
 
 # Backend tests directly (do this after any backend change)
-cd backend && python -m pytest -q
-# or: source backend/venv/bin/activate && pytest backend/tests/
+cd backend && python -m pytest -q                    # with the venv already active
+# or, from any shell/interpreter, no active venv needed:
+python backend/scripts/run_tests.py [pytest args...]  # resolves venv/venv_win itself
 ```
 
 The backend FastAPI app is `mtg_analyzer.api.app:app`. There is **no JS build

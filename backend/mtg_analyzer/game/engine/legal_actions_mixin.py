@@ -550,13 +550,22 @@ class LegalActionsMixin:
             # spell half, or a prepared copy, may be cast from exile — or
             # RULE 601.3b analogue's temporary "you may play/cast this"
             # permission (Light Up the Stage/Ragavan/Mnemonic Betrayal/
-            # Ephemerate's Rebound-shaped, `_has_temp_play_permission`).
+            # Ephemerate's Rebound-shaped, `_has_temp_play_permission`), or
+            # its standing, never-turn-swept sibling (Lukka, Coppercoat
+            # Outcast/Soul Partition-shaped, `_has_conditional_exile_
+            # permission` — MEC-12 found this one missing here too, the
+            # same "never actually offered" gap the comment below already
+            # documents for the temp permission).
             # Previously missing here entirely — `can_cast`/`cast_spell`
             # already supported this zone/permission combination, but
             # nothing ever surfaced it as an actual offered action, so no
             # caller (UI or otherwise) could ever actually cast one of
             # these; found end-to-end testing Ephemerate's Rebound.
-            castable = self._castable_from_exile(obj) or self._has_temp_play_permission(obj, player)
+            castable = (
+                self._castable_from_exile(obj)
+                or self._has_temp_play_permission(obj, player)
+                or self._has_conditional_exile_permission(obj, player)
+            )
             if castable and self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
             if self._has_temp_play_permission(obj, player) and self.can_play_land(player, obj):
@@ -658,7 +667,9 @@ class LegalActionsMixin:
                 # player picks those in the UI *after* choosing to activate,
                 # same as a target); `tap_for_mana` re-validates the actual
                 # choice at payment time.
-                if not self._can_pay_activation_cost(player, source, ability.cost, x=0):
+                if not self._can_pay_activation_cost(
+                    player, source, ability.cost, x=0, is_mana_ability=True
+                ):
                     continue
                 action = {
                     "type": "tap_for_mana",
@@ -763,6 +774,19 @@ class LegalActionsMixin:
         # list — both must enumerate the identical concatenation.
         for source in self.state.permanents_controlled_by(player.id):
             for index, ability in enumerate(source.activated_abilities + source.granted_activated_abilities):
+                if self._activatable_now_or_via_potential(player, source, ability):
+                    actions.append(self._activate_action(player, source, index, ability))
+
+        # RULE 602.2b: an ability "any player may activate" (Mercenaries)
+        # must be offered to non-controllers too, not just discoverable by a
+        # raw can_activate()/activate_ability() call — legal_actions() is the
+        # single source of truth the UI/bots consult.
+        for source in self.state.battlefield:
+            if source.controller_id == player.id or source.phased_out:
+                continue
+            for index, ability in enumerate(source.activated_abilities + source.granted_activated_abilities):
+                if not getattr(ability.cost, "any_player_may_activate", False):
+                    continue
                 if self._activatable_now_or_via_potential(player, source, ability):
                     actions.append(self._activate_action(player, source, index, ability))
 
