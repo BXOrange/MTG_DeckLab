@@ -224,6 +224,9 @@ class DrawDiscardMixin:
                 self.state.cards_drawn_this_turn[player.id] = (
                     self.state.cards_drawn_this_turn.get(player.id, 0) + len(drawn)
                 )
+                self.state.cards_drawn_this_turn_ids.setdefault(player.id, []).extend(
+                    o.instance_id for o in drawn if getattr(o, "instance_id", None) is not None
+                )
                 self.state.record_stat(player.id, "draw", amount=len(drawn))
                 self.state.fire_event(
                     GameEvent(EventType.DRAW, player_id=player.id, count=len(drawn))

@@ -238,6 +238,7 @@ class TurnLoopMixin:
             self.state.spells_cast_this_turn[player.id] = 0
         self.state.combats_this_turn = 0
         self.state.cards_drawn_this_turn[active.id] = 0
+        self.state.cards_drawn_this_turn_ids[active.id] = []
         self.state.life_gained_this_turn[active.id] = 0
         # RULE 120.3 history ("dealt combat damage by ~ *this turn*", Hope of
         # Ghirapur) — game-wide, not per active player: last turn's combat
@@ -1092,6 +1093,12 @@ class TurnLoopMixin:
             # Vault, Wandering Archaic) — "pay" charges the cost and runs
             # the follow-up; anything else runs the "if you don't" branch.
             self.rules.resolve_pay_cost_then_choice(None if declined else str(answer))
+        elif kind == "pay_life_or_return_to_library":
+            # Sylvan Library (MEC-40): "…pay 4 life or put the card on top
+            # of your library." — a mandatory per-card either/or, not a
+            # "may" (declining maps to "return", the same treatment a
+            # missing/invalid answer gets).
+            self.rules.resolve_pay_life_or_return_choice(str(answer) if not declined else "return")
         elif kind == "all_decline_or":
             # RULE 118.3-adjacent multi-player tax: "Any player may pay
             # <cost>. If no one does, <effect>." (Rhystic Circle, MEC-30) —

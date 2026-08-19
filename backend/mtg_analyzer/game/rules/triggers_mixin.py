@@ -159,6 +159,11 @@ class TriggerCollectionMixin:
             # layer-6-granted one, which is itself an ability it no longer has.
             if getattr(obj, "loses_all_abilities", False):
                 continue
+            # Elesh Norn, Mother of Machines (MEC-40) — the opponent-scoped
+            # sibling of the global check above, decided per candidate
+            # object since it depends on *whose* ability would fire.
+            if continuous.trigger_suppressed_for(self.state, event, obj.controller_id):
+                continue
             # `granted_triggered_abilities` (RULE 613.7f — a layer-6 "X have
             # '<triggered ability>'" static grant, e.g. Dionus, Elvish
             # Archdruid) sits alongside the object's own intrinsic abilities;
@@ -183,7 +188,7 @@ class TriggerCollectionMixin:
                     # multiplier baked into the ability itself, since each
                     # copy is separately orderable/targetable (RULE 603.3b)
                     # once 2+ end up pending together.
-                    copies = 1 + continuous.trigger_doubler_bonus(self.state, obj)
+                    copies = 1 + continuous.trigger_doubler_bonus(self.state, obj, event=event)
                     for _ in range(copies):
                         self.pending_triggers.append((ability, event))
         # RULE 114.4: an emblem's abilities function in the command zone —

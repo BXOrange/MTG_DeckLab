@@ -2735,6 +2735,29 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
     return False
 
 
+def cost_restricted(state: "GameState", kind: str) -> bool:
+    """Whether a standing static ("Players can't pay life or sacrifice
+    nonland permanents to cast spells or activate abilities." — Yasharn,
+    Implacable Earth, MEC-40) forbids paying a ``kind``-shaped cost
+    component right now (RULE 601.2h/602.2b — additional/activation costs).
+
+    ``kind`` is ``"pay_life"`` or ``"sacrifice_nonland_permanent"``. Global
+    (no ``affects``/controller scoping — the printed "**Players** can't…"
+    binds everyone, including Yasharn's own controller), checked at every
+    cost-payment choke point that offers a ``pay_life``/``sacrifice``
+    component (`GameEngine.can_cast`/`can_activate` and their paired
+    ``_pay_*_cost`` methods) rather than as a `continuous.recompute` layer,
+    the same "permission, not a characteristic" treatment `cast_prohibited`
+    gets.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "cost_restriction":
+            continue
+        if kind in (ability.params.get("kinds") or ()):
+            return True
+    return False
+
+
 def granted_escape_for(state: "GameState", obj: "GameObject") -> Optional[dict[str, Any]]:
     """The ``"grant_escape"`` static granting ``obj`` Escape right now (RULE
     702.138 as a *granted* keyword), as its params dict, or ``None``.
@@ -2909,6 +2932,16 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
             continue
         if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
             continue
+        type_filter = ability.params.get("type_filter")
+        if type_filter:
+            words = {str(w).lower() for w in type_filter}
+            matches = (
+                ("legendary" in words and getattr(card, "is_legendary", False))
+                or ("artifact" in words and getattr(card, "is_artifact", False))
+                or ("creature" in words and getattr(card, "is_creature", False))
+            )
+            if not matches:
+                continue
         gate = ability.params.get("active_if")
         controller_id = getattr(ability.source, "controller_id", None)
         if gate and not static_conditions.condition_holds(gate, state, ability.source, controller_id):
@@ -3065,11 +3098,41 @@ def trigger_suppressed(state: "GameState", event: Any) -> bool:
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "trigger_prohibition":
             continue
+        if ability.params.get("scope", "all") != "all":
+            # Opponent-scoped (Elesh Norn, Mother of Machines, MEC-40) —
+            # this fast global path can't answer "whose ability", so it's
+            # checked per-object instead by `trigger_suppressed_for`.
+            continue
         if ability.params.get("event") != event.type:
             continue
         subject_type = ability.params.get("subject_type")
         if subject_type and subject_type not in (event.get("object_types") or []):
             continue
+        return True
+    return False
+
+
+def trigger_suppressed_for(state: "GameState", event: Any, controller_id: Optional[str]) -> bool:
+    """The opponent-scoped sibling of `trigger_suppressed` above — "Permanents
+    entering don't cause abilities of permanents **your opponents**
+    control to trigger." (Elesh Norn, Mother of Machines, MEC-40).
+
+    Unlike the ``scope="all"`` case, this can't be decided once for the
+    whole event: it depends on whose ability would fire, so
+    `RulesEngine._collect_triggers` checks it per candidate object
+    (``controller_id``) rather than upfront.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "trigger_prohibition" or ability.params.get("scope") != "opponents":
+            continue
+        if ability.params.get("event") != event.type:
+            continue
+        subject_type = ability.params.get("subject_type")
+        if subject_type and subject_type not in (event.get("object_types") or []):
+            continue
+        source_controller = getattr(ability.source, "controller_id", None)
+        if source_controller is None or source_controller == controller_id:
+            continue  # not an opponent of the static's own controller
         return True
     return False
 
@@ -3120,7 +3183,8 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "extra_land_drop", "no_max_hand_size", "ignore_legend_rule", "radiation_life_gain", "grant_escape",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
-     "mana_multiplier", "mana_type_override", "skip_step", "search_redirect"}
+     "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
+     "cost_restriction"}
 )
 
 
@@ -3297,7 +3361,7 @@ def _describe_ability(ability: StaticAbility) -> str:
     return ability.affects
 
 
-def trigger_doubler_bonus(state: "GameState", obj: "GameObject") -> int:
+def trigger_doubler_bonus(state: "GameState", obj: "GameObject", event: Any = None) -> int:
     """RULE 603.3d: how many *additional* times a triggered ability of
     ``obj`` should be placed on the stack (0 in the overwhelming common
     case), from every active `effects.TriggerDoublerEffect` a
@@ -3310,6 +3374,13 @@ def trigger_doubler_bonus(state: "GameState", obj: "GameObject") -> int:
     the same chosen type make a matching trigger fire three times total,
     not four, matching how the rule itself composes rather than
     multiplying.
+
+    ``event`` (MEC-40, Elesh Norn, Mother of Machines) is the `GameEvent`
+    that fired ``obj``'s own trigger — consulted only by a doubler whose
+    own `TriggerDoublerEffect.cause_filter` is set, which skips the
+    ``chosen_type`` gate entirely in favour of matching that event's own
+    `EventType` (unscoped by ``obj``'s own creature type, matching the
+    printed "**a** triggered ability").
     """
     from .effects import TriggerDoublerEffect  # local: effects imports this module
 
@@ -3319,10 +3390,26 @@ def trigger_doubler_bonus(state: "GameState", obj: "GameObject") -> int:
     for doubler in state.battlefield:
         if doubler is obj or doubler.controller_id != obj.controller_id:
             continue
-        wanted = getattr(doubler, "chosen_type", None)
-        if not wanted or not _has_subtype(obj, wanted):
-            continue
         for effect in getattr(doubler, "static_effects", None) or []:
-            if isinstance(effect, TriggerDoublerEffect):
-                bonus += 1
+            if not isinstance(effect, TriggerDoublerEffect):
+                continue
+            if effect.cause_filter is not None:
+                if event is None or event.type not in effect.cause_filter:
+                    continue
+                if effect.cause_type_filter:
+                    caused_id = event.get("instance_id")
+                    caused = state.find_object(caused_id) if caused_id is not None else None
+                    card = getattr(caused, "card", None)
+                    words = effect.cause_type_filter
+                    matches = card is not None and (
+                        ("legendary" in words and getattr(card, "is_legendary", False))
+                        or ("artifact" in words and getattr(card, "is_artifact", False))
+                    )
+                    if not matches:
+                        continue
+            else:
+                wanted = getattr(doubler, "chosen_type", None)
+                if not wanted or not _has_subtype(obj, wanted):
+                    continue
+            bonus += 1
     return bonus

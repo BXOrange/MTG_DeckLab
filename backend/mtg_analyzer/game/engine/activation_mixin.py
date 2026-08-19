@@ -395,6 +395,16 @@ class ActivationMixin:
                 mana, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
             ):
                 return False
+        # Yasharn, Implacable Earth (MEC-40): "Players can't pay life or
+        # sacrifice nonland permanents to cast spells or activate
+        # abilities." — same choke point as `_can_pay_additional_cast_cost`'s
+        # own check, checked before the ordinary payability gates below.
+        if cost.pay_life and continuous.cost_restricted(self.state, "pay_life"):
+            return False
+        if cost.sacrifice and cost.sacrifice != "land" and continuous.cost_restricted(
+            self.state, "sacrifice_nonland_permanent"
+        ):
+            return False
         if cost.pay_life and player.life < cost.pay_life:
             return False
         if cost.pay_energy and player.counters.get("energy", 0) < cost.pay_energy:
@@ -409,6 +419,10 @@ class ActivationMixin:
                 return False
         if cost.sacrifice and self._sacrifice_candidate(
             player, source, cost.sacrifice, chosen_id=sacrifice_choice
+        ) is None:
+            return False
+        if cost.exile_creature and self._exile_creature_candidate(
+            player, chosen_id=sacrifice_choice
         ) is None:
             return False
         if cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand) is None:
@@ -431,6 +445,11 @@ class ActivationMixin:
                 return False
         if cost.crew_power:
             if self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) is None:
+                return False
+        if cost.saddle_power:
+            # RULE 702.171a (Guardian Sunmare, MEC-40) — identical pool
+            # shape to `crew_power` just above, reusing the same resolver.
+            if self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices) is None:
                 return False
         if cost.sacrifice_count:
             # Reuses the `tap_others` cost's own `tap_choices` slot for its
@@ -660,6 +679,22 @@ class ActivationMixin:
         if chosen_id is not None:
             return next((o for o in candidates if o.instance_id == chosen_id), None)
         return candidates[0] if candidates else None
+    def _exile_creature_candidate(
+        self, player: Player, chosen_id: Optional[int] = None,
+    ) -> Optional[GameObject]:
+        """A creature ``player`` controls, eligible to pay an
+        ``exile_creature`` cost (Food Chain, MEC-40 — "Exile a creature you
+        control: …") — the exile-cost sibling of `_sacrifice_candidate`,
+        reusing the same "chosen id, or first candidate" shape and the same
+        ``sacrifice_choice`` UI slot (no printed card needs both an
+        ordinary ``sacrifice`` *and* an ``exile_creature`` cost at once).
+        """
+        candidates = [
+            obj for obj in self.state.permanents_controlled_by(player.id) if obj.is_creature
+        ]
+        if chosen_id is not None:
+            return next((o for o in candidates if o.instance_id == chosen_id), None)
+        return candidates[0] if candidates else None
     def _sacrifice_cost_choice(
         self, player: Player, cost: "ActivationCost"
     ) -> dict[str, Any]:
@@ -806,6 +841,13 @@ class ActivationMixin:
                 self.rules.set_tapped(obj, True)
                 if obj.instance_id not in source.crewed_by_ids:
                     source.crewed_by_ids.append(obj.instance_id)
+        if cost.saddle_power:
+            # RULE 702.171a (Guardian Sunmare, MEC-40) — same pool/tap
+            # mechanics as ``crew_power`` just above; no "saddled_by"
+            # bookkeeping equivalent to `crewed_by_ids` since no printed
+            # card asks "who saddled it".
+            for obj in self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices) or []:
+                self.rules.set_tapped(obj, True)
         if cost.sacrifice_count:
             count, subtype = cost.sacrifice_count
             for obj in self._resolve_sacrifice_count(player, count, subtype, tap_choices) or []:
@@ -840,6 +882,19 @@ class ActivationMixin:
                 # RULE 701.16c: sacrifice isn't destruction — see the
                 # matching comment in `_pay_additional_cast_cost`.
                 self.rules.put_into_graveyard(victim)
+        if cost.exile_creature:
+            exiled = self._exile_creature_candidate(player, chosen_id=sacrifice_choice)
+            if exiled is not None:
+                mv = exiled.card.converted_mana_cost or 0
+                self.rules.exile(exiled)
+                # "…where X is 1 plus the exiled creature's mana value."
+                # (Food Chain, MEC-40) — the mana ability's own amount
+                # depends on *which* creature just paid this cost, only
+                # known now; `mana_options_for`'s own pre-resolved
+                # ``options`` can't reach it (nothing chosen yet at offer
+                # time), so `GameEngine.tap_for_mana` re-reads this stamp
+                # and overrides the produced amount right after payment.
+                source.last_cost_exiled_object_mv = mv
         if cost.return_to_hand:
             bounced = self._return_to_hand_candidate(player, cost.return_to_hand)
             if bounced is not None:

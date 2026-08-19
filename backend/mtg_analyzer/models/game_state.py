@@ -680,6 +680,13 @@ class GameState:
         #: on every successful draw, the same shape `spells_cast_this_turn`
         #: uses for `cast_limit`.
         self.cards_drawn_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: The *specific objects* drawn by each player this turn (Sylvan
+        #: Library, MEC-40 — "choose two cards in your hand drawn this
+        #: turn"), unlike `cards_drawn_this_turn`'s own plain count above:
+        #: some effects need to name *which* cards, not just how many.
+        #: Appended by `RulesEngine._single_draw`/`draw` alongside the count,
+        #: reset in lockstep with it (`GameEngine.begin_turn`).
+        self.cards_drawn_this_turn_ids: dict[str, list[int]] = {p.id: [] for p in players}
         #: Whether each player has already had "the first one they draw in
         #: [their] draw step" this draw step (MEC-32 — Notion Thief/Chains
         #: of Mephistopheles's shared exemption clause). Reset to ``False``

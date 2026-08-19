@@ -452,9 +452,22 @@ class CombatMixin:
             if not isinstance(target, GameObject):
                 key = (source.controller_id, target.id)
                 entry = player_hits.setdefault(
-                    key, {"max_power": 0, "amount": 0, "subtypes": set(), "is_commander": False}
+                    key, {
+                        "max_power": 0, "amount": 0, "subtypes": set(), "is_commander": False,
+                        "power_gt_base": False,
+                    }
                 )
                 entry["max_power"] = max(entry["max_power"], source.power or 0)
+                # "…each with power greater than its base power…" (Kutzil,
+                # Malamet Exemplar, MEC-40) — "base power" is the printed
+                # value (`Card.power`, already the *copied* value for a
+                # token/copy — RULE 707.2 rebases it there), unlike the
+                # current derived `source.power` (counters + static
+                # boosts). An "or greater" aggregate can't reuse
+                # ``max_power`` here: that's a single number, not "was
+                # *this* contributor's power above *its own* base".
+                if (source.power or 0) > (source.card.power or 0):
+                    entry["power_gt_base"] = True
                 # "…it deals **that much damage** to each other opponent."
                 # (Kediss, Emberclaw Familiar) — the actual combat damage
                 # total dealt to this opponent this step, distinct from
@@ -498,6 +511,7 @@ class CombatMixin:
                     amount=entry["amount"],
                     subtypes=sorted(entry["subtypes"]),
                     contributor_is_commander=entry["is_commander"],
+                    contributor_power_gt_base=entry["power_gt_base"],
                 )
             )
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:

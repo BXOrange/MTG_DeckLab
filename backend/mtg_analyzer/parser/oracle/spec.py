@@ -87,6 +87,7 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "opponent_cast_color_this_turn", "no_creatures_on_battlefield",
         "source_is_renowned", "shares_type_with_linked_exile", "source_was_cast",
         "source_entered_untapped", "cast_outside_sorcery_speed",
+        "cards_in_graveyard_at_least", "entering_object_unique_name",
     }
 )
 

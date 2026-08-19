@@ -75,6 +75,12 @@ def _grant_permits_cast(grant: TopLibraryPermissionEffect, card: "Card") -> bool
         return False
     if grant.noncreature_only and getattr(card, "is_creature", False):
         return False
+    if grant.creature_only and not getattr(card, "is_creature", False):
+        return False
+    if grant.subtypes:
+        type_line = (card.type_line or "").lower()
+        if not any(s in type_line for s in grant.subtypes):
+            return False
     if grant.chosen_type_creature_only:
         # Realmwalker: "creature spells of the chosen type" — the type is
         # only known once its own RULE 601.2b ETB choice has been made, so

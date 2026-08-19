@@ -419,6 +419,8 @@ class Card:
         not_legendary: bool = False,
         only_types: Optional[list[str]] = None,
         add_keywords: Optional[list[str]] = None,
+        set_power: Optional[int] = None,
+        set_toughness: Optional[int] = None,
     ) -> "Card":
         """This card's *copiable values* (RULE 706.2), as a fresh `Card`.
 
@@ -444,6 +446,10 @@ class Card:
         subtypes along with it, same "other card types" clause) instead of
         appending; ``add_subtypes`` still applies on top, for a card that
         both strips the original types *and* adds its own (Vehicle).
+        ``set_power``/``set_toughness`` (The Jolly Balloon Man, MEC-40 —
+        "…except it's a 1/1 red Balloon creature…") override the copied
+        creature's own printed P/T outright, applied last so they win over
+        whatever the copied card printed.
         ``add_keywords`` appends raw keyword strings onto the copy (Flesh
         Duplicate's conditional Vanishing, Imposter Mech's Crew) — RULE
         707.2 replaces the original's printed text with the copied object's,
@@ -487,6 +493,10 @@ class Card:
                 # as `_crew_activated_ability`'s own read of this field.
                 vehicle_power, vehicle_toughness = self.power, self.toughness
                 power, toughness = None, None
+        if set_power is not None:
+            power = set_power
+        if set_toughness is not None:
+            toughness = set_toughness
         keywords = list(self.keywords)
         oracle_text = self.oracle_text
         if add_keywords:

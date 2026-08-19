@@ -365,6 +365,14 @@ class CastingMixin:
             or (obj in player.graveyard and self._castable_from_graveyard(obj))
             or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
             or (
+                obj in player.graveyard
+                and self._self_graveyard_or_exile_cast_permission(obj)
+            )
+            or (
+                obj in player.exile
+                and self._self_graveyard_or_exile_cast_permission(obj)
+            )
+            or (
                 bool(player.library)
                 and obj is player.library[-1]
                 and self._castable_from_library(player, obj)
@@ -1345,6 +1353,17 @@ class CastingMixin:
         """
         if cost is None:
             return True
+        # Yasharn, Implacable Earth (MEC-40): "Players can't pay life or
+        # sacrifice nonland permanents to cast spells or activate
+        # abilities." — checked before the ordinary payability gates below
+        # so a Yasharn on the battlefield makes the whole additional cost
+        # illegal to pay, not merely unaffordable.
+        if cost.sacrifice and cost.sacrifice != "land" and continuous.cost_restricted(
+            self.state, "sacrifice_nonland_permanent"
+        ):
+            return False
+        if cost.pay_life and continuous.cost_restricted(self.state, "pay_life"):
+            return False
         if cost.sacrifice and self._sacrifice_candidate(
             player, obj, cost.sacrifice, chosen_id=sacrifice_choice
         ) is None:

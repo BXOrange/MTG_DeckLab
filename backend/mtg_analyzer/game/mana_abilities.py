@@ -101,6 +101,16 @@ _COLORS_AMONG_PERMANENTS_RE = re.compile(
     r"for each colou?r among permanents you control, add (?:one|1) mana of that colou?r\.?",
     re.IGNORECASE,
 )
+#: "Add X mana of any one color, where X is 1 plus the exiled creature's
+#: mana value." (Food Chain, MEC-40) — dispatched standalone, ahead of the
+#: generic `_ADD_CLAUSE_RE`/`_parse_clause` path, the same reason
+#: `_COLORS_AMONG_PERMANENTS_RE` is: the amount here isn't a literal/board
+#: count but the *cost's own paid object*, resolved by `GameEngine.
+#: tap_for_mana` right after `ActivationCost.exile_creature` is paid.
+_EXILED_CREATURE_MV_ADD_RE = re.compile(
+    r"add x mana of any one colou?r, where x is 1 plus the exiled creature'?s mana value\.?",
+    re.IGNORECASE,
+)
 #: "Add one mana of any color among legendary creatures and planeswalkers
 #: you control." (Mox Amber) / "...among legendary permanents you control."
 #: (Plaza of Heroes' second ability) — a genuine *menu* (the payer still
@@ -705,6 +715,15 @@ def _parse_mana_ability_lines(
         effect_text = effect_text.strip()
         if _TARGET_RE.search(effect_text) or _TARGET_RE.search(cost_text):
             continue  # RULE 605.1a — a targeted ability is never a mana ability
+        if _EXILED_CREATURE_MV_ADD_RE.search(effect_text):
+            cost = parse_activation_cost(cost_text)
+            abilities.append(ManaAbility(
+                cost=cost,
+                options=[{color: 1} for color in _ALL_COLORS],
+                amount_selector={"kind": "cost_exiled_creature_mv_plus_one"},
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
         if _COLORS_AMONG_PERMANENTS_RE.search(effect_text):
             # Its own "add one mana of **that** color" clause is a pronoun,
             # not an `_ADD_CLAUSE_RE`-shaped literal colour/count — and

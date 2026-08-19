@@ -367,6 +367,23 @@ class GameObject:
         #: has been used this turn — gates its ``once_per_turn`` restriction.
         #: Reset each untap step, same as `activated_loyalty_this_turn`.
         self.graveyard_casts_this_turn: int = 0
+        #: "Exile a creature you control: Add X mana of any one color,
+        #: where X is 1 plus the exiled creature's mana value." (Food
+        #: Chain, MEC-40) — the mana value of whichever creature most
+        #: recently paid this permanent's own `ActivationCost.
+        #: exile_creature` cost, stamped by `GameEngine._pay_activation_
+        #: cost` right as it's exiled and read immediately afterward by
+        #: `GameEngine.tap_for_mana` to size the mana actually produced —
+        #: nothing overwrites or resets it, since it's only ever consulted
+        #: in that same narrow window.
+        self.last_cost_exiled_object_mv: Optional[int] = None
+        #: RULE 702.171c: the turn number "Saddle N" (Guardian Sunmare,
+        #: MEC-40) last resolved on this permanent — "becomes saddled
+        #: until end of turn" needs no separate cleanup-step reset the way
+        #: a `temp_*` field would: `is_saddled` below just checks this
+        #: against the *current* turn number, so it naturally goes stale
+        #: the instant the turn changes.
+        self.saddled_until_turn: Optional[int] = None
         #: ENG-27: whether this object's own "if you haven't added mana
         #: with this ability this turn, you may add …" trigger (Carpet of
         #: Flowers) already has this turn. A per-*ability* gate, unlike

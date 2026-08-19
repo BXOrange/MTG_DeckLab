@@ -290,6 +290,68 @@ class MiscSystemsMixin:
         # since that dict is only ever populated by the mass primitive.
         if self._pending_each_player_pay_or is not None:
             self._advance_each_player_pay_or()
+    def request_pay_life_or_return_to_library(
+        self, player: Player, objs: list[GameObject], amount: int = 4,
+    ) -> None:
+        """"For each of those cards, pay 4 life or put the card on top of
+        your library." (Sylvan Library, MEC-40) — a genuine per-card
+        mandatory either/or decision (RULE 601.2h-style, not "may"),
+        offered one card at a time (`_open_pay_life_or_return_choice`
+        re-opens for the next until ``objs`` is exhausted), the same
+        "resolve one, re-open for the rest" shape `request_choose_objects`
+        uses for a multi-pick.
+        """
+        queue = [o.instance_id for o in objs if o is not None]
+        if not queue:
+            return
+        self._open_pay_life_or_return_choice(player, queue, amount)
+    def _open_pay_life_or_return_choice(
+        self, player: Player, queue: list[int], amount: int,
+    ) -> None:
+        obj_id = queue[0]
+        obj = self.state.find_object(obj_id)
+        if obj is None or obj not in player.hand:
+            # Left the zone some other way since being queued (rare) —
+            # nothing left to ask about this one; move on to the rest.
+            self._continue_pay_life_or_return(player, queue[1:], amount)
+            return
+        self.state.pending_choice = {
+            "kind": "pay_life_or_return_to_library",
+            "player_id": player.id,
+            "instance_id": obj_id,
+            "amount": amount,
+            "remaining": queue[1:],
+            "prompt": f"{amount} Leben zahlen oder {obj.name} auf die Bibliothek "
+                      f"zurücklegen?",
+            "options": [
+                {"id": "pay", "label": f"{amount} Leben zahlen"},
+                {"id": "return", "label": "Auf die Bibliothek zurücklegen"},
+            ],
+        }
+    def _continue_pay_life_or_return(
+        self, player: Player, remaining: list[int], amount: int,
+    ) -> None:
+        if remaining:
+            self._open_pay_life_or_return_choice(player, remaining, amount)
+    def resolve_pay_life_or_return_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `pay_life_or_return_to_library` choice.
+        ``answer == "pay"`` pays the life; anything else (including a
+        missing/invalid answer — a mandatory choice) puts the card back."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "pay_life_or_return_to_library":
+            raise ValueError("no pending pay-life-or-return choice to resolve")
+        self.state.pending_choice = None
+        player = self.state.player_by_id(choice["player_id"])
+        amount = choice["amount"]
+        if answer == "pay":
+            self.lose_life(player, amount, cause="cost")
+        else:
+            obj = self.state.find_object(choice["instance_id"])
+            if obj is not None and obj in player.hand:
+                player.hand.remove(obj)
+                obj.zone = Zone.LIBRARY
+                player.library.append(obj)
+        self._continue_pay_life_or_return(player, choice.get("remaining") or [], amount)
     def request_each_player_pay_or(
         self,
         cost: "ActivationCost",
@@ -2400,6 +2462,9 @@ class MiscSystemsMixin:
                     continue
                 if effect.scope == "creature_spells_you_control" and not is_creature:
                     continue
+                if effect.scope == "color_spells_you_control":
+                    if effect.color not in (getattr(obj, "colors", None) or set()):
+                        continue
                 return True
         return False
     def counter_spell(self, target: Any) -> None:

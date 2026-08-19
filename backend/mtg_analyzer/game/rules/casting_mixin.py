@@ -1002,6 +1002,7 @@ class CastingResolutionMixin:
             previous_targets=resumed.get("previous_targets"),
             created_objects=resumed.get("created_objects"),
             life_lost_this_way=resumed.get("life_lost_this_way", 0),
+            permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
             stack_item=stack_item,
         )
         if not deferred_again and stack_item is not None:

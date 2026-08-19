@@ -32,6 +32,7 @@ from .static_conditions import condition_holds
 from .effects import (
     ActivatedAbility,
     AttachEffect,
+    BecomeSaddledEffect,
     CumulativeUpkeepEffect,
     RemoveCounterOrSacrificeEffect,
     SoulbondPairEffect,
@@ -647,6 +648,20 @@ def _trigger_condition(
 
         predicates.append(_equipped_ok)
 
+    # "Whenever ~ attacks while saddled, …" (Guardian Sunmare, MEC-40,
+    # RULE 702.171c) — the ability's own source must currently carry a
+    # live "becomes saddled until end of turn" stamp
+    # (`GameObject.saddled_until_turn`, set by `effects.BecomeSaddledEffect`
+    # — `_saddle_activated_ability`), the same "checks the source's own
+    # live state, not the event's payload" idiom `requires_equipped` uses.
+    if trigger.get("requires_saddled"):
+        def _saddled_ok(event: Any, context: Any, src=source) -> bool:
+            state = getattr(context, "state", None)
+            turn = getattr(state, "turn_number", None)
+            return turn is not None and getattr(src, "saddled_until_turn", None) == turn
+
+        predicates.append(_saddled_ok)
+
     # "As long as this Equipment is attached to a creature, …" (Mirrormind
     # Crown) — the mirror image of `requires_equipped` above: the ability's
     # own source (the Equipment/Aura itself) must currently *be* attached to
@@ -757,6 +772,18 @@ def _trigger_condition(
             return bool(event.get("contributor_is_commander"))
 
         predicates.append(_contributor_is_commander_ok)
+
+    # "Whenever one or more creatures you control **each with power
+    # greater than its base power** deals combat damage to a player, …"
+    # (Kutzil, Malamet Exemplar, MEC-40) — the per-contributor qualifier
+    # sibling of ``contributor_is_commander`` just above, off the same
+    # aggregate event's own ``contributor_power_gt_base`` flag (stamped by
+    # `GameEngine._apply_combat_damage`).
+    if trigger.get("contributor_power_gt_base"):
+        def _contributor_power_gt_base_ok(event: Any, context: Any) -> bool:
+            return bool(event.get("contributor_power_gt_base"))
+
+        predicates.append(_contributor_power_gt_base_ok)
 
     # "Whenever an opponent draws their **second** card each turn, …"
     # (Faerie Mastermind) — an ordinal on `GameState.cards_drawn_this_
@@ -1423,6 +1450,8 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         return _cycling_activated_ability(obj, spec, keyword)
     if name == "crew":
         return _crew_activated_ability(obj, spec, keyword)
+    if name == "saddle":
+        return _saddle_activated_ability(obj, spec, keyword)
     if name not in {"equip", "fortify", "reconfigure"}:
         return None
 
@@ -1547,6 +1576,36 @@ def _crew_activated_ability(
         cost=cost,
         source=obj,
         description=spec.raw_text or f"Crew {n}",
+    )
+
+
+def _saddle_activated_ability(
+    obj: Any, spec: AbilitySpec, keyword: dict[str, Any]
+) -> Optional[ActivatedAbility]:
+    """RULE 702.171a: "Saddle N" — "Tap any number of other untapped
+    creatures you control with total power N or greater: This permanent
+    becomes saddled until end of turn." Same "recognized but inert"
+    history as Crew before MEC-29/`_crew_activated_ability` — bare keyword
+    recognition satisfied the coverage gate, but nothing bound it to any
+    real behaviour (MEC-40).
+
+    The cost (``ActivationCost.saddle_power``) reuses `GameEngine.
+    _resolve_crew_cost`/`_crew_pool` unchanged (`activation_mixin.py`'s own
+    dispatch checks ``crew_power`` and ``saddle_power`` as two independent
+    fields, both routed through the same pool-selection helpers — RULE
+    702.171a is worded identically to 702.122a's own "any number of other
+    untapped creatures… total power N or greater"). RULE 702.171d:
+    sorcery-speed only.
+    """
+    n = keyword.get("n")
+    if not isinstance(n, int) or n <= 0:
+        return None
+    cost = ActivationCost(saddle_power=n, sorcery_speed_only=True)
+    return ActivatedAbility(
+        effects=[BecomeSaddledEffect(source=obj)],
+        cost=cost,
+        source=obj,
+        description=spec.raw_text or f"Saddle {n}",
     )
 
 

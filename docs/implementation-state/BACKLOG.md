@@ -84,24 +84,18 @@ Plan-level sequencing lives in
   Glarb Bloomsday`, `cEDH staples`, `cEDH staples 2`, `cEDH M-K`, `cEDH
   Kinnan` (700+ unique cards across the seven, heavy overlap). Ordinary
   open work, not "no-deferral" scope forced to one sitting. `cEDH Kinnan`
-  (100/100) and `cEDH M-K` (97/97) are fully playable — see
-  `Done_Backend.md`'s "MEC-12: Kinnan and M-K completed". The draw-
-  replacement family (Alms Collector, Notion Thief, Chains of
-  Mephistopheles) closed 2026-08-19 — see `Done_Backend.md`'s "MEC-32"
-  entry. RULE 702.172a Spree/RULE 702.120 Escalate (`Ojer cEDH`'s Return
-  the Favor) closed 2026-08-19 — see `Done_Backend.md`'s "MEC-31" entry.
-  Omen Machine closed 2026-08-19 — see `Done_Backend.md`'s "MEC-33" entry.
-  Necromancy closed 2026-08-19 — see `Done_Backend.md`'s "MEC-44" entry.
-  Coverage as of 2026-08-19 (re-measure before trusting — these are
-  live, user-editable decks):
+  (100/100), `cEDH M-K` (97/97), and **`cEDH Rocco` (98/98)** are fully
+  playable — see `Done_Backend.md`'s "MEC-12: Kinnan and M-K completed"
+  and "MEC-40" entries. Coverage as of 2026-08-19 (re-measure before
+  trusting — these are live, user-editable decks):
 
   | Deck | Coverage | Residual, tracked as |
   | --- | --- | --- |
-  | `Ojer cEDH` | 75/77 | Chandra's Incinerator's dynamic cost reduction + a "creature/planeswalker *that damaged player* controls" target kind (doesn't exist); Balin's Tomb isn't a real Scryfall card. |
-  | `cEDH Rocco` | 79/98 | [MEC-40]. |
-  | `[cEDH] Glarb Bloomsday` | 91/100 | [MEC-41]. |
-  | `cEDH staples` | 196/215 | [MEC-42]. |
-  | `cEDH staples 2` | 494/607 | [MEC-43]. |
+  | `Ojer cEDH` | 75/77 | Chandra's Incinerator's dynamic cost reduction + a "creature/planeswalker *that damaged player* controls" target kind (doesn't exist); Balin's Tomb is real (the LOTR alt name for Ancient Tomb) but doesn't resolve — see CLAUDE.md's `flavor_name` gotcha, an import/card-database gap, not a parser/engine one. |
+  | `cEDH Rocco` | 98/98 | fully playable. |
+  | `[cEDH] Glarb Bloomsday` | 92/100 | [MEC-41]. |
+  | `cEDH staples` | 202/215 | [MEC-42]. |
+  | `cEDH staples 2` | 505/607 | [MEC-43]. |
 
   Six names in the raw scan (Balamb Garden, Dol Amroth, Jodah the unifier,
   Seymour Guado, Thrum of the Vestige, Zidane Tribal) aren't real Scryfall
@@ -109,42 +103,46 @@ Plan-level sequencing lives in
   batch by batch, why each piece is built the way it is — is in
   `Done_Backend.md`'s "seven 'cEDH'-named saved decks" entries, not here.
 
-- **MEC-40 · `cEDH Rocco`'s remaining 19 gaps** (Spree/Escalate closed as
-  MEC-31, 2026-08-19). Several distinct unbuilt shapes, not yet
-  individually diagnosed beyond: a "power greater than its base power"
-  per-creature qualifier on the `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`
-  aggregate; a card's own self-referential "cast this from your graveyard
-  **or exile**" permission, distinct from the existing granted-by-another-
-  permanent shape; "Saddle"/RULE 702.172-adjacent Vehicle crewing add-ons;
-  a cost-payment restriction ("can't pay life or sacrifice permanents to
-  cast/activate"); a same-name ETB-draw-engine qualifier; others not yet
-  individually diagnosed. Re-measure and diagnose fresh rather than
-  assuming this list is complete or unchanged.
+- **MEC-41 · `[cEDH] Glarb Bloomsday`'s remaining 8 gaps** (Doomsday closed
+  as MEC-37, Necropotence as MEC-38, Opposition Agent as MEC-39, Sylvan
+  Library as MEC-40, all 2026-08-19). Ad Nauseam/Gifts Ungiven/Bring to
+  Light's own reveal/choice shapes; Counterbalance's live-comparison
+  counter-spell condition; Valley Floodcaller's own trigger (a
+  named-subtype-list creature group — `PumpEffect` has no `subtypes` list
+  param the way `AddCountersEffect` does); Nissa's own multi-step
+  choices — each needs individual diagnosis, not a guess.
 
-- **MEC-41 · `[cEDH] Glarb Bloomsday`'s remaining gaps** (Doomsday closed
-  as MEC-37, Necropotence as MEC-38, Opposition Agent as MEC-39, all
-  2026-08-19). 9 gaps: Ad Nauseam/Gifts Ungiven/Bring to Light's own
-  reveal/choice shapes; Counterbalance's live-comparison counter-spell
-  condition; Valley Floodcaller's own trigger (a named-subtype-list
-  creature group — `PumpEffect` has no `subtypes` list param the way
-  `AddCountersEffect` does); Nissa/Sylvan Library's own multi-step choices
-  — each needs individual diagnosis, not a guess.
-
-- **MEC-42 · `cEDH staples`'s remaining 19 gaps.** Abrupt Decay, Ashling
-  the Limitless, Cabal Ritual, Culling Ritual, Dauthi Voidwalker, Delay,
-  Derevi Empyrial Tactician, Mana Crypt, March of Swirling Mist, Orcish
-  Bowmasters, Praetor's Grasp, Sevinne's Reclamation, Teferi Time Raveler,
-  Tinder Wall, Touch the Spirit Realm, Tymna the Weaver — plus Ad Nauseam/
-  Ranger-Captain of Eos/Sylvan Library shared with `[cEDH] Glarb Bloomsday`
-  (see [MEC-41]). None individually diagnosed yet.
+- **MEC-42 · `cEDH staples`'s remaining 13 gaps.** Abrupt Decay, Cabal
+  Ritual, Culling Ritual, Ranger-Captain of Eos, Tinder Wall, and Yasharn
+  (shared with `cEDH Rocco`) closed 2026-08-19 as part of MEC-40 (`Done_
+  Backend.md`'s "MEC-40 batch 1"/"MEC-40: cEDH Rocco done to completion"
+  entries — filed there since the primitives were built chasing `cEDH
+  Rocco`'s own ticket, and this deck shares the same cards). Still open:
+  Ashling the Limitless, Dauthi Voidwalker, Delay, Derevi Empyrial
+  Tactician, Mana Crypt, March of Swirling Mist, Orcish Bowmasters,
+  Praetor's Grasp, Sevinne's Reclamation, Teferi Time Raveler, Touch the
+  Spirit Realm, Tymna the Weaver — plus Ad Nauseam shared with `[cEDH]
+  Glarb Bloomsday` (see [MEC-41]). Delay is confirmed-blocked on RULE
+  702.61 Suspend's own time-counter/cast-on-zero mechanism, which has
+  never been built (only keyword-recognized) — a real ticket-sized gap on
+  its own, not a quick hand-author. None of the rest individually
+  diagnosed yet.
 
 - **MEC-43 · `cEDH staples 2`'s undiagnosed remainder** (MEC-31 Spree/
   Escalate, MEC-32 the draw-replacement family, MEC-33 Omen Machine,
   MEC-34 Animate Dead, MEC-35 Leonin Arbiter, MEC-36 Damping Sphere,
-  MEC-37 Doomsday, MEC-38 Necropotence, MEC-39 Opposition Agent, and
-  MEC-44 Necromancy all already subtracted, all closed 2026-08-19).
-  Dozens of distinct shapes remain (113 currently), none individually
-  diagnosed. Re-measure and diagnose per card rather than batch-guessing.
+  MEC-37 Doomsday, MEC-38 Necropotence, MEC-39 Opposition Agent, MEC-44
+  Necromancy, and every card MEC-40 closed for `cEDH Rocco` (Ranger-
+  Captain of Eos, Abrupt Decay, Cabal Ritual, Culling Ritual, Tinder Wall,
+  Vexing Shusher, Academy Rector, Ajani Nacatl Pariah/Avenger, Allosaurus
+  Shepherd, Domri Anarch of Bolas, Eladamri Korvecdal, Elesh Norn Mother
+  of Machines, Flamescroll Celebrant, Food Chain, Gandalf the White,
+  Guardian Project, Guardian Sunmare, Kutzil Malamet Exemplar,
+  Moon-Blessed Cleric, Sigarda Font of Blessings, Squee the Immortal,
+  Sylvan Library, The Jolly Balloon Man, Yasharn Implacable Earth), all
+  already subtracted, all closed 2026-08-19. Dozens of distinct shapes
+  remain (102 currently), none individually diagnosed. Re-measure and
+  diagnose per card rather than batch-guessing.
 
 ## PLR — Player management
 

@@ -214,6 +214,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # `forest` narrowed to the controller's own, the same split
         # `land_you_control` is to a bare "land".
         "forest_you_control",
+        # "target creature it's blocking" (Tinder Wall, MEC-40) — narrowed
+        # to whichever attacker(s) this ability's own source currently has
+        # assigned via `GameObject.blocking`/`additional_blocking`.
+        "creature_source_is_blocking",
     }
 ) | _GRAVEYARD_TARGET_KINDS
 
@@ -444,6 +448,7 @@ class TargetSpec:
             "nonbasic_land": "nichtgrundlegendes Land",
             "legendary_permanent": "legendäre bleibende Karte",
             "forest_you_control": "Wald unter deiner Kontrolle",
+            "creature_source_is_blocking": "Kreatur, die dies blockiert",
         }.get(self.kind, self.kind)
 
 
@@ -824,6 +829,23 @@ def legal_targets(
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+        ]
+    if kind == "creature_source_is_blocking":
+        # "{R}, Sacrifice ~: It deals 2 damage to target creature it's
+        # blocking." (Tinder Wall, MEC-40) — a genuine RULE 115 target (RULE
+        # 115.1a still applies, so a hexproof/protected attacker can't be
+        # named even though it's the only creature this Wall is currently
+        # blocking), narrowed to `source.blocking`/`source.additional_
+        # blocking` (RULE 509.1b's multi-block permission's own ids) instead
+        # of the whole battlefield. `_targetable_by` still runs — this is a
+        # target restriction, not a bypass of one.
+        attacker_ids = {i for i in ([source.blocking] if source.blocking else [])}
+        attacker_ids |= set(getattr(source, "additional_blocking", []) or [])
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.instance_id in attacker_ids
+            and _targetable_by(o, source)
         ]
     if kind == "spell_or_nonland_permanent_you_dont_control":
         # "Return target spell or nonland permanent an opponent controls to

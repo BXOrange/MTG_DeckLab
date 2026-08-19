@@ -915,7 +915,11 @@ _COST_LOOKS_REAL = re.compile(
     r"\{[^}]+\}|sacrifice|pay \d+ life|discard|put an? .+ counter on|"
     r"tap .+ untapped .+ you control|remove .+ counters?|"
     r"return an? [a-z]+ you control to (?:its|your) owner'?s?\s*hand|"
-    r"exile (?:this \w+|~) from (?:your|their) hand",
+    r"exile (?:this \w+|~) from (?:your|their) hand|"
+    # "Exile a creature you control: …" (Food Chain, MEC-40) — a RULE
+    # 605.1a mana-ability cost component (`costs._EXILE_CREATURE_RE`),
+    # the battlefield-zone sibling of the hand-zone exile cost just above.
+    r"exile an? [a-z]+ you control",
     re.I,
 )
 

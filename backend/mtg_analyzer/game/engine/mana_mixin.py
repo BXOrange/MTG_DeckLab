@@ -141,6 +141,20 @@ class ManaMixin:
             player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
             is_mana_ability=True,
         )
+        if cost.exile_creature:
+            # Food Chain (MEC-40): the amount depends on *which* creature
+            # just paid this cost — unresolvable at `mana_abilities_for`'s
+            # offer-time (nothing chosen yet, and `mana_abilities_for`
+            # always resolves/clears `amount_selector` into a fixed
+            # ``options`` amount before `tap_for_mana` ever sees it, so
+            # that field can't carry the "still unresolved" marker through
+            # — `cost.exile_creature` itself is checked directly instead).
+            # Recomputed here, now that `_pay_activation_cost` has stamped
+            # `GameObject.last_cost_exiled_object_mv`, overriding whatever
+            # placeholder `produced` held before payment.
+            mv = getattr(source, "last_cost_exiled_object_mv", None) or 0
+            color = next(iter(produced), "C")
+            produced = {color: mv + 1}
         restriction = ability.restriction
         if restriction is not None and restriction.get("kind") == "chosen_type_spell":
             # Cavern of Souls/Unclaimed Territory-shaped: "of the chosen

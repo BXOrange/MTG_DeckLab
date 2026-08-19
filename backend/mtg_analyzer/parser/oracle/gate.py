@@ -991,7 +991,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: gone by the time `normalize` is done, followed by 2+ "+ <cost> — <body>"
 #: mode lines) reaches `AbilitySpec.modes["mode_costs"]`, the per-mode-cost
 #: sibling of RULE 700.2's uniformly-priced "choose N or more" block.
-PARSER_VERSION = "94"
+#: MEC-40: `_destroy_mv`/`_MASS_DESTROY_NOUNS`/`_MASS_DESTROY_NOUNS_
+#: SINGULAR` widened with "nonland_permanent" (Abrupt Decay/Culling
+#: Ritual-shaped, a plain oversight — the kind already honoured
+#: `max_mana_value`); `segmenter._COST_LOOKS_REAL` widened to recognize
+#: "exile a/an <type> you control" as a real activation cost (Food Chain's
+#: own mana ability, the battlefield-zone sibling of the existing hand-zone
+#: "exile this card from your hand" cost sniff).
+PARSER_VERSION = "95"
 
 
 @dataclass

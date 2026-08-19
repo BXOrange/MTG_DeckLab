@@ -18736,3 +18736,919 @@ def _necromancy() -> list[AbilitySpec]:
 
 
 register("Necromancy", _necromancy)
+
+
+# ---------------------------------------------------------------------------
+# MEC-40: cEDH Rocco / cEDH staples remaining gaps (batch 1)
+# ---------------------------------------------------------------------------
+
+
+def _culling_ritual() -> list[AbilitySpec]:
+    """Culling Ritual (Sorcery, {2}{B}{G})
+
+    "Destroy each nonland permanent with mana value 2 or less. Add {B} or
+    {G} for each permanent destroyed this way."
+
+    The destroy half is a plain parser-claimable mass wipe on its own
+    (`_MASS_DESTROY_NOUNS_SINGULAR`'s new "nonland permanent" entry) —
+    hand-authored here only because the mana rider needs a same-resolution
+    accumulator (`GameContext.permanents_destroyed_this_way`, mirroring the
+    existing `life_lost_this_way`) the parser has no vocabulary for yet.
+
+    **Documented simplification**: the real card lets you split the
+    produced mana between {B} and {G} independently, mana by mana (RULE
+    106.1); `AddManaEffect.any_color_choices` offers one colour choice for
+    the *whole* amount instead (see its own docstring for why) — no
+    per-unit "how many of each" interactive shape exists yet. Still fully
+    usable colored mana, just less flexible than printed.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec(
+                    "destroy",
+                    {"selector": "all_nonland_permanents", "filter": {"max_mana_value": 2}},
+                ),
+                EffectSpec(
+                    "add_mana",
+                    {
+                        "colors": ["ANY"],
+                        "any_color_choices": ["B", "G"],
+                        "any_amount_from_context": "permanents_destroyed_this_way",
+                    },
+                ),
+            ],
+            raw_text="Destroy each nonland permanent with mana value 2 or "
+                     "less. Add {B} or {G} for each permanent destroyed "
+                     "this way.",
+        ),
+    ]
+
+
+register("Culling Ritual", _culling_ritual)
+
+
+def _cabal_ritual() -> list[AbilitySpec]:
+    """Cabal Ritual (Instant, {1}{B})
+
+    "Add {B}{B}{B}.
+    Threshold — Add {B}{B}{B}{B}{B} instead if there are seven or more
+    cards in your graveyard."
+
+    Modeled as a flat 3 B plus a *conditional extra 2 B* rather than a true
+    "instead" override — mathematically identical (5 = 3 + 2) and avoids
+    needing the general, still-unbuilt "if kicked, `<effect>` instead"
+    override primitive (CLAUDE.md's Notable Gaps) for what is, arithmetically,
+    an additive bonus. `EffectSpec.condition`'s new `cards_in_graveyard_at_
+    least` key (RULE 702.19 Threshold's own gate) is a plain graveyard-size
+    read, reusable by any future Threshold card with the same "Add X
+    instead" phrasing.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("add_mana", {"colors": ["B", "B", "B"]}),
+                EffectSpec(
+                    "add_mana", {"colors": ["B", "B"]},
+                    condition={"cards_in_graveyard_at_least": 7},
+                ),
+            ],
+            raw_text="Add {B}{B}{B}.\nThreshold — Add {B}{B}{B}{B}{B} "
+                     "instead if there are seven or more cards in your "
+                     "graveyard.",
+        ),
+    ]
+
+
+register("Cabal Ritual", _cabal_ritual)
+
+
+def _ranger_captain_of_eos() -> list[AbilitySpec]:
+    """Ranger-Captain of Eos (Creature — Human Soldier Ranger, {1}{W}{W})
+
+    "When this creature enters, you may search your library for a creature
+    card with mana value 1 or less, reveal it, put it into your hand, then
+    shuffle.
+    Sacrifice this creature: Your opponents can't cast noncreature spells
+    this turn."
+
+    The ETB is already parser-claimable as-is (`author_card.py reuse`
+    confirms it); hand-authored only because the sacrifice ability's own
+    "this turn" duration needs `GrantUntilEffect` to wrap the standing
+    `cast_prohibition` static (Gaddock Teeg-shaped) instead of a
+    permanent's own always-on line — `target_kind=None` since the
+    prohibition is scoped by the static's own ``scope="opponents"``
+    (read off the ability's ``source``, i.e. this card, which survives
+    being sacrificed since `GameEffect.source` keeps its object reference
+    regardless of zone), not by a chosen target.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec(
+                    "search",
+                    {"criteria": {"type": "creature", "max_mana_value": 1}, "destination": "hand"},
+                )
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            optional=True,
+            raw_text="When this creature enters, you may search your "
+                     "library for a creature card with mana value 1 or "
+                     "less, reveal it, put it into your hand, then "
+                     "shuffle.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec(
+                    "grant_until",
+                    {
+                        "static": {
+                            "type": "cast_prohibition",
+                            "params": {"scope": "opponents", "noncreature": True},
+                        },
+                        "duration": "end_of_turn",
+                        "target_kind": None,
+                    },
+                )
+            ],
+            cost={"text": "Sacrifice ~"},
+            raw_text="Sacrifice this creature: Your opponents can't cast "
+                     "noncreature spells this turn.",
+        ),
+    ]
+
+
+register("Ranger-Captain of Eos", _ranger_captain_of_eos)
+
+
+def _vexing_shusher() -> list[AbilitySpec]:
+    """Vexing Shusher (Creature — Goblin Shaman, {1}{R})
+
+    "This spell can't be countered.
+    {R/G}: Target spell can't be countered."
+
+    The static is already parser-claimable as-is; hand-authored only for
+    the activated ability, which is `MarkCantBeCounteredEffect`'s existing
+    resolve-time marker (built for Mistrise Village's untargeted "next
+    spell you cast") widened with a real `target_kind="spell"` RULE 115
+    target instead.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("cant_be_countered", {})],
+            raw_text="This spell can't be countered.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("mark_cant_be_countered", {"target_kind": "spell"})],
+            cost={"text": "{R/G}"},
+            raw_text="{R/G}: Target spell can't be countered.",
+        ),
+    ]
+
+
+register("Vexing Shusher", _vexing_shusher)
+
+
+def _tinder_wall() -> list[AbilitySpec]:
+    """Tinder Wall (Creature — Plant Wall, {G})
+
+    "Defender (This creature can't attack.)
+    Sacrifice this creature: Add {R}{R}.
+    {R}, Sacrifice this creature: It deals 2 damage to target creature it's
+    blocking."
+
+    Defender and the plain sacrifice-for-mana ability are both already
+    picked up independent of this registration (`parse_keywords`/
+    `mana_abilities_for` scan the card's own oracle text directly, not
+    gated by `ability_catalogue` registration) — hand-authored only for
+    the damage ability, which needs the new `"creature_source_is_
+    blocking"` target kind (`game/targeting.py`) no existing card had.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("damage", {"target_kind": "creature_source_is_blocking", "amount": 2})],
+            cost={"text": "{R}, Sacrifice ~"},
+            raw_text="{R}, Sacrifice this creature: It deals 2 damage to "
+                     "target creature it's blocking.",
+        ),
+    ]
+
+
+register("Tinder Wall", _tinder_wall)
+
+
+# ---------------------------------------------------------------------------
+# MEC-40: cEDH Rocco's remaining gaps, done to completion
+# ---------------------------------------------------------------------------
+
+
+def _academy_rector() -> list[AbilitySpec]:
+    """Academy Rector (Creature — Human Cleric, {3}{W})
+
+    "When this creature dies, you may exile it. If you do, search your
+    library for an enchantment card, put that card onto the battlefield,
+    then shuffle."
+
+    The "you may X. If you do, Y." shape collapses to the ability's own
+    `optional=True` (the same idiom Ranger-Captain of Eos's ETB and
+    Necromancy's reanimate already use) since there's no *further*
+    decision point between the exile and the search — declining the whole
+    ability leaves Academy Rector undisturbed in the graveyard.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("exile", {"target_kind": None}),
+                EffectSpec("search", {"criteria": {"type": "enchantment"}, "destination": "battlefield"}),
+            ],
+            trigger={"event": EventType.DIES, "condition": {"subject": "self"}},
+            optional=True,
+            raw_text="When this creature dies, you may exile it. If you "
+                     "do, search your library for an enchantment card, "
+                     "put that card onto the battlefield, then shuffle.",
+        ),
+    ]
+
+
+register("Academy Rector", _academy_rector)
+
+
+def _ajani_nacatl_pariah() -> list[AbilitySpec]:
+    """Ajani, Nacatl Pariah // Ajani, Nacatl Avenger (Legendary Creature —
+    Cat Warrior, {1}{W})
+
+    "When Ajani enters, create a 2/1 white Cat Warrior creature token.
+    Whenever one or more other Cats you control die, you may exile Ajani,
+    then return him to the battlefield transformed under his owner's
+    control."
+
+    The ETB token is already parser-claimable as-is. The transform trigger
+    reuses `ExileReturnTransformedEffect` (RULE 400.7/712.8, built for
+    Ayara/Clive/Jin-Gitaxias) completely unchanged — untargeted and always
+    self, exactly this shape. **Documented simplification**: a group DIES
+    trigger fires once per dying Cat rather than once per simultaneous
+    batch (RULE 603.3b's stricter "one or more" reading isn't modeled),
+    self-limiting in practice since the first firing exiles Ajani, and
+    every further firing that turn finds no source left to act on.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec(
+                    "create_token",
+                    {"count": 1, "power": 2, "toughness": 1, "colors": ["W"],
+                     "subtypes": ["Cat", "Warrior"], "keywords": [], "token_name": "Cat Warrior"},
+                )
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When ~ enters, create a 2/1 white Cat Warrior creature token.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile_return_transformed", {})],
+            trigger={
+                "event": EventType.DIES,
+                "condition": {"subject": "group", "controller": "you", "subtypes": ["cat"]},
+            },
+            optional=True,
+            raw_text="Whenever one or more other Cats you control die, "
+                     "you may exile ~, then return him to the battlefield "
+                     "transformed under his owner's control.",
+        ),
+    ]
+
+
+register("Ajani, Nacatl Pariah", _ajani_nacatl_pariah)
+
+
+def _allosaurus_shepherd() -> list[AbilitySpec]:
+    """Allosaurus Shepherd (Creature — Elf Shaman, {G})
+
+    "This spell can't be countered.
+    Green spells you control can't be countered.
+    {4}{G}{G}: Until end of turn, each Elf creature you control has base
+    power and toughness 5/5 and becomes a Dinosaur in addition to its
+    other creature types."
+
+    The self-uncounterable static is already parser-claimable. The second
+    static reuses `GrantCantBeCounteredEffect`'s new ``color`` param
+    (MEC-40). The activated ability reuses the standing ``creatures_you_
+    control_of_type_elf`` group selector (`continuous.group_selector_
+    objects`, an already-general subtype-scoped anthem affects string) via
+    `GrantUntilEffect` wrapping ``type_change`` — the same "until end of
+    turn" resolve-time grant Crew's own "becomes an artifact creature"
+    reuses (MEC-29).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("cant_be_countered", {})],
+            raw_text="This spell can't be countered.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_cant_be_countered", {"scope": "color_spells_you_control", "color": "G"})],
+            raw_text="Green spells you control can't be countered.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec(
+                    "grant_until",
+                    {
+                        "static": {
+                            "type": "type_change",
+                            "params": {
+                                "power": 5, "toughness": 5, "add_subtypes": ["Dinosaur"],
+                                "affects": "creatures_you_control_of_type_elf",
+                            },
+                        },
+                        "duration": "end_of_turn",
+                        "target_kind": None,
+                    },
+                )
+            ],
+            cost={"text": "{4}{G}{G}"},
+            raw_text="{4}{G}{G}: Until end of turn, each Elf creature you "
+                     "control has base power and toughness 5/5 and "
+                     "becomes a Dinosaur in addition to its other "
+                     "creature types.",
+        ),
+    ]
+
+
+register("Allosaurus Shepherd", _allosaurus_shepherd)
+
+
+def _domri_anarch_of_bolas() -> list[AbilitySpec]:
+    """Domri, Anarch of Bolas (Legendary Planeswalker — Domri, {1}{R}{G})
+
+    "Creatures you control get +1/+0.
+    +1: Add {R} or {G}. Creature spells you cast this turn can't be
+    countered.
+    −2: Target creature you control fights target creature you don't
+    control."
+
+    The anthem and the fight ability are already parser-claimable as-is.
+    The +1's mana half is the existing ``add_mana``/``colors=["ANY"]``
+    single-choice shape narrowed to R/G; its "can't be countered" half
+    reuses `arm_spell_watcher` (RULE 118.3, Dual Strike-shaped) with
+    ``card_types=["creature"]`` and ``repeat=True`` (Veil of Summer's own
+    "for the rest of the turn" idiom) feeding `MarkCantBeCounteredEffect`
+    via ``then_specs`` — no new primitive needed at all.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"power": 1, "toughness": 0, "affects": "creatures_you_control"})],
+            raw_text="Creatures you control get +1/+0.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("add_mana", {"colors": ["ANY"], "any_color_choices": ["R", "G"]}),
+                EffectSpec(
+                    "arm_spell_watcher",
+                    {"card_types": ["creature"], "repeat": True,
+                     "then_specs": [{"type": "mark_cant_be_countered", "params": {}}]},
+                ),
+            ],
+            cost={"loyalty": 1},
+            raw_text="+1: Add {R} or {G}. Creature spells you cast this "
+                     "turn can't be countered.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("fight", {"fighter_kind": "creature_you_control", "other_kind": "creature_you_dont_control"})],
+            cost={"loyalty": -2},
+            raw_text="−2: Target creature you control fights target "
+                     "creature you don't control.",
+        ),
+    ]
+
+
+register("Domri, Anarch of Bolas", _domri_anarch_of_bolas)
+
+
+def _eladamri_korvecdal() -> list[AbilitySpec]:
+    """Eladamri, Korvecdal (Legendary Creature — Elf Warrior, {1}{G}{G})
+
+    "You may look at the top card of your library any time.
+    You may cast creature spells from the top of your library.
+    {G}, {T}, Tap two untapped creatures you control: Reveal a card from
+    your hand or the top card of your library. If you reveal a creature
+    card this way, put it onto the battlefield. Activate only during your
+    turn."
+
+    The "look" permission is already parser-claimable; the "cast creature
+    spells from the top" clause is the same standing static widened with
+    `TopLibraryPermissionEffect.creature_only` (MEC-40). **Documented
+    simplification** on the reveal ability: `SearchLibraryEffect`'s
+    ``zones`` param has no "just the top card" source (only whole-zone
+    scans — "library"/"graveyard"/"hand"/"exile"), so it's modeled as
+    "reveal a card from your hand" only, dropping the "or the top card of
+    your library" alternative — Eladamri's own standing "look at the top
+    card any time" permission still lets a player plan around what that
+    card is even though this ability can't reach it directly.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("top_library_permission", {"look": True})],
+            raw_text="You may look at the top card of your library any time.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("top_library_permission", {"cast_spells": True, "creature_only": True})],
+            raw_text="You may cast creature spells from the top of your library.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec(
+                    "search",
+                    {
+                        "criteria": {"type": "creature"}, "zones": ["hand"],
+                        "destination": "battlefield", "optional": True, "count": 1,
+                    },
+                )
+            ],
+            cost={"text": "{G}, {T}, Tap two untapped creatures you control"},
+            raw_text="{G}, {T}, Tap two untapped creatures you control: "
+                     "Reveal a card from your hand or the top card of "
+                     "your library. If you reveal a creature card this "
+                     "way, put it onto the battlefield. Activate only "
+                     "during your turn.",
+        ),
+    ]
+
+
+register("Eladamri, Korvecdal", _eladamri_korvecdal)
+
+
+def _elesh_norn_mother_of_machines() -> list[AbilitySpec]:
+    """Elesh Norn, Mother of Machines (Legendary Creature — Phyrexian
+    Praetor, {4}{W})
+
+    "Vigilance
+    If a permanent entering causes a triggered ability of a permanent you
+    control to trigger, that ability triggers an additional time.
+    Permanents entering don't cause abilities of permanents your opponents
+    control to trigger."
+
+    Vigilance is already parser-claimable. The trigger-doubling clause is
+    `TriggerDoublerEffect`'s new ``cause_filter`` scoping (MEC-40, unscoped
+    by the doubled permanent's own type, unlike Roaming Throne's
+    ``chosen_type`` gate). The suppression clause reuses the standing
+    ``trigger_prohibition`` static (Tocatli Honor Guard/Torpor Orb-shaped)
+    widened with a new ``scope="opponents"`` (`continuous.trigger_
+    suppressed_for`), since the printed clause silences only *opponents'*
+    triggers, not the controller's own.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("trigger_doubler", {"cause_filter": [EventType.ENTERS_BATTLEFIELD]})],
+            raw_text="If a permanent entering causes a triggered ability "
+                     "of a permanent you control to trigger, that ability "
+                     "triggers an additional time.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("trigger_prohibition", {"event": EventType.ENTERS_BATTLEFIELD, "scope": "opponents"})],
+            raw_text="Permanents entering don't cause abilities of "
+                     "permanents your opponents control to trigger.",
+        ),
+    ]
+
+
+register("Elesh Norn, Mother of Machines", _elesh_norn_mother_of_machines)
+
+
+def _flamescroll_celebrant() -> list[AbilitySpec]:
+    """Flamescroll Celebrant // Revel in Silence (Creature — Human Shaman,
+    {1}{R})
+
+    "Whenever an opponent activates an ability that isn't a mana ability,
+    this creature deals 1 damage to that player.
+    {1}{R}: This creature gets +2/+0 until end of turn."
+
+    The pump ability is already parser-claimable. The trigger is Harsh
+    Mentor/Immolation Shaman's own already-shipped shape (RULE 602.2's
+    `EventType.ACTIVATED_ABILITY`, which mana abilities never reach at all
+    since they resolve through the separate `tap_for_mana` fast path
+    instead of the stack — "isn't a mana ability" needs no extra filter),
+    just copied verbatim.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 1, "selector": "event_player"})],
+            trigger={
+                "event": EventType.ACTIVATED_ABILITY,
+                "condition": {"subject": "group", "controller": "not_you"},
+            },
+            raw_text="Whenever an opponent activates an ability that "
+                     "isn't a mana ability, ~ deals 1 damage to that "
+                     "player.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("pump", {"power": 2, "toughness": 0})],
+            cost={"text": "{1}{R}"},
+            raw_text="{1}{R}: ~ gets +2/+0 until end of turn.",
+        ),
+    ]
+
+
+register("Flamescroll Celebrant", _flamescroll_celebrant)
+
+
+def _gandalf_the_white() -> list[AbilitySpec]:
+    """Gandalf the White (Legendary Creature — Avatar Wizard, {3}{W}{W})
+
+    "Flash
+    You may cast legendary spells and artifact spells as though they had
+    flash.
+    If a legendary permanent or an artifact entering or leaving the
+    battlefield causes a triggered ability of a permanent you control to
+    trigger, that ability triggers an additional time."
+
+    Flash is already parser-claimable. The standing flash-permission
+    static reuses `flash_permission`'s new ``type_filter`` (MEC-40,
+    ``noncreature_only``/``creature_only``'s sibling for a closed
+    "legendary"/"artifact" word list). The trigger-doubling clause is
+    Elesh Norn's own ``cause_filter`` widened to *two* event types
+    ("entering **or** leaving") plus the new ``cause_type_filter``
+    (unlike Elesh Norn's own unscoped "**a** permanent", this one is
+    narrowed to legendary permanents/artifacts specifically).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("flash_permission", {"type_filter": ["legendary", "artifact"]})],
+            raw_text="You may cast legendary spells and artifact spells "
+                     "as though they had flash.",
+        ),
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec(
+                    "trigger_doubler",
+                    {
+                        "cause_filter": [EventType.ENTERS_BATTLEFIELD, EventType.LEAVES_BATTLEFIELD],
+                        "cause_type_filter": ["legendary", "artifact"],
+                    },
+                )
+            ],
+            raw_text="If a legendary permanent or an artifact entering or "
+                     "leaving the battlefield causes a triggered ability "
+                     "of a permanent you control to trigger, that ability "
+                     "triggers an additional time.",
+        ),
+    ]
+
+
+register("Gandalf the White", _gandalf_the_white)
+
+
+def _guardian_project() -> list[AbilitySpec]:
+    """Guardian Project (Enchantment, {3}{G})
+
+    "Whenever a nontoken creature you control enters, if it doesn't have
+    the same name as another creature you control or a creature card in
+    your graveyard, draw a card."
+
+    The RULE 603.1 group-subject trigger condition ("a nontoken creature
+    you control enters") is already-general segmenter vocabulary. The
+    "if it doesn't have the same name as…" gate is the new
+    ``entering_object_unique_name`` `EffectSpec.condition` key (MEC-40).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec(
+                    "draw", {"count": 1},
+                    condition={"entering_object_unique_name": True},
+                )
+            ],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "group", "controller": "you", "type": "creature"},
+            },
+            raw_text="Whenever a nontoken creature you control enters, if "
+                     "it doesn't have the same name as another creature "
+                     "you control or a creature card in your graveyard, "
+                     "draw a card.",
+        ),
+    ]
+
+
+register("Guardian Project", _guardian_project)
+
+
+def _guardian_sunmare() -> list[AbilitySpec]:
+    """Guardian Sunmare (Creature — Horse Mount, {3}{W}{W})
+
+    "Ward {2}
+    Whenever this creature attacks while saddled, search your library for
+    a nonland permanent card with mana value 3 or less, put it onto the
+    battlefield, then shuffle.
+    Saddle 4"
+
+    Ward and Saddle are both already parser-claimable keywords — Saddle's
+    own cost/state (`ActivationCost.saddle_power`, `GameObject.saddled_
+    until_turn`, `effects.BecomeSaddledEffect`) is new real behaviour
+    (MEC-40; previously keyword-recognized only, per RULE 702.171). The
+    attack trigger's own "while saddled" gate is the new ``requires_
+    saddled`` trigger-condition key, the same "checks the source's own
+    live state" idiom `requires_equipped` uses.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec(
+                    "search",
+                    {
+                        "criteria": {
+                            "type": ["Creature", "Artifact", "Enchantment", "Planeswalker", "Battle"],
+                            "without_type": "Land", "max_mana_value": 3,
+                        },
+                        "destination": "battlefield",
+                    },
+                )
+            ],
+            trigger={
+                "event": EventType.ATTACKS, "condition": {"subject": "self"}, "requires_saddled": True,
+            },
+            raw_text="Whenever ~ attacks while saddled, search your "
+                     "library for a nonland permanent card with mana "
+                     "value 3 or less, put it onto the battlefield, then "
+                     "shuffle.",
+        ),
+    ]
+
+
+register("Guardian Sunmare", _guardian_sunmare)
+
+
+def _kutzil_malamet_exemplar() -> list[AbilitySpec]:
+    """Kutzil, Malamet Exemplar (Legendary Creature — Cat Warrior, {1}{G}{W})
+
+    "Your opponents can't cast spells during your turn.
+    Whenever one or more creatures you control each with power greater
+    than its base power deals combat damage to a player, draw a card."
+
+    The first static is already parser-claimable (``cast_prohibition``
+    with an ``active_if: your_turn`` RULE 613.6 gate). The trigger is the
+    new ``contributor_power_gt_base`` aggregate-event qualifier (MEC-40,
+    `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`'s own sibling to
+    MEC-29's ``contributor_power_at_least``/``contributor_subtype``).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("cast_prohibition", {"scope": "opponents", "active_if": {"kind": "your_turn"}})],
+            raw_text="Your opponents can't cast spells during your turn.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1})],
+            trigger={
+                "event": "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER",
+                "condition": {"subject": "you"},
+                "contributor_power_gt_base": True,
+            },
+            raw_text="Whenever one or more creatures you control each "
+                     "with power greater than its base power deals combat "
+                     "damage to a player, draw a card.",
+        ),
+    ]
+
+
+register("Kutzil, Malamet Exemplar", _kutzil_malamet_exemplar)
+
+
+def _moon_blessed_cleric() -> list[AbilitySpec]:
+    """Moon-Blessed Cleric (Creature — Human Elf Cleric, {2}{W})
+
+    "Divine Intervention — When this creature enters, you may search your
+    library for an enchantment card, reveal it, then shuffle and put that
+    card on top."
+
+    A plain optional search onto the library's own top — the ability-word
+    "Divine Intervention —" prefix carries no separate rules meaning
+    (RULE 207.2c reminder-text-style flavour heading).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {"criteria": {"type": "enchantment"}, "destination": "library_top"})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            optional=True,
+            raw_text="Divine Intervention — When ~ enters, you may search "
+                     "your library for an enchantment card, reveal it, "
+                     "then shuffle and put that card on top.",
+        ),
+    ]
+
+
+register("Moon-Blessed Cleric", _moon_blessed_cleric)
+
+
+def _sigarda_font_of_blessings() -> list[AbilitySpec]:
+    """Sigarda, Font of Blessings (Legendary Creature — Angel, {2}{G}{W})
+
+    "Flying
+    Other permanents you control have hexproof.
+    You may look at the top card of your library any time.
+    You may cast Angel spells and Human spells from the top of your
+    library."
+
+    Flying and the hexproof anthem are already parser-claimable. The look
+    permission is already-general `top_library_permission`. The cast
+    permission reuses its own new ``subtypes`` filter (MEC-40, Eladamri's
+    sibling ``creature_only`` narrowed to two named creature types
+    instead) — union semantics, either subtype qualifies.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("top_library_permission", {"look": True})],
+            raw_text="You may look at the top card of your library any time.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("top_library_permission", {"cast_spells": True, "subtypes": ["Angel", "Human"]})],
+            raw_text="You may cast Angel spells and Human spells from "
+                     "the top of your library.",
+        ),
+    ]
+
+
+register("Sigarda, Font of Blessings", _sigarda_font_of_blessings)
+
+
+def _squee_the_immortal() -> list[AbilitySpec]:
+    """Squee, the Immortal (Legendary Creature — Goblin, {1}{R}{R})
+
+    "You may cast this card from your graveyard or from exile."
+
+    A bare self-referential zone permission — `SelfGraveyardOrExileCast
+    PermissionEffect` (MEC-40), read directly off this object's own
+    ``static_effects`` regardless of which of the two zones it's
+    currently sitting in.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("self_graveyard_or_exile_cast_permission", {})],
+            raw_text="You may cast this card from your graveyard or from exile.",
+        ),
+    ]
+
+
+register("Squee, the Immortal", _squee_the_immortal)
+
+
+def _sylvan_library() -> list[AbilitySpec]:
+    """Sylvan Library (Enchantment, {1}{G})
+
+    "At the beginning of your draw step, you may draw two additional
+    cards. If you do, choose two cards in your hand drawn this turn. For
+    each of those cards, pay 4 life or put the card on top of your
+    library."
+
+    The whole "you may draw… if you do, choose… for each, pay-or-return"
+    sequence is `SylvanLibraryEffect` (MEC-40) — see its own docstring for
+    the documented "always the two just-drawn cards" simplification.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("sylvan_library", {"life": 4, "count": 2})],
+            trigger={
+                "event": EventType.STEP_BEGIN, "filter": {"step": "draw"}, "phase_relation": "you",
+            },
+            optional=True,
+            raw_text="At the beginning of your draw step, you may draw "
+                     "two additional cards. If you do, choose two cards "
+                     "in your hand drawn this turn. For each of those "
+                     "cards, pay 4 life or put the card on top of your "
+                     "library.",
+        ),
+    ]
+
+
+register("Sylvan Library", _sylvan_library)
+
+
+def _the_jolly_balloon_man() -> list[AbilitySpec]:
+    """The Jolly Balloon Man (Legendary Creature — Human Clown, {1}{R}{W})
+
+    "Haste
+    {1}, {T}: Create a token that's a copy of another target creature you
+    control, except it's a 1/1 red Balloon creature in addition to its
+    other colors and types and it has flying and haste. Sacrifice it at
+    the beginning of the next end step. Activate only as a sorcery."
+
+    Haste is already parser-claimable. The activated ability reuses
+    `CopyPermanentEffect`'s new ``set_power``/``set_toughness``
+    (MEC-40, "except it's a 1/1") and ``extra_temp_keywords`` (flying,
+    alongside the existing ``haste`` bool) plus its existing
+    ``add_subtypes``; the delayed self-sacrifice reuses the already-general
+    `CreateDelayedTriggerEffect` (RULE 603.7, step="end") the Marchesa
+    V4.2 batch's Kiki-Jiki primitive established. **Documented
+    simplification**: the token doesn't actually gain the printed extra
+    "red" colour (`Card` has no colour-override field — colours are
+    derived from mana cost, which a token has none of to override) —
+    cosmetic only, no gameplay-visible effect for a token sacrificed at
+    the next end step.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec(
+                    "copy_permanent",
+                    {
+                        "target_kind": "other_creature_you_control",
+                        "set_power": 1, "set_toughness": 1,
+                        "add_subtypes": ["Balloon"],
+                        "haste": True, "extra_temp_keywords": ["flying"],
+                    },
+                ),
+                EffectSpec(
+                    "create_delayed_trigger",
+                    {
+                        "step": "end", "scope": "any", "capture": "created_objects",
+                        "effects": [{"type": "sacrifice_specific", "params": {}}],
+                        "description": "The Jolly Balloon Man: Balloon-Token am "
+                                        "nächsten Endsegment opfern",
+                    },
+                ),
+            ],
+            cost={"text": "{1}, {T}", "sorcery_speed_only": True},
+            raw_text="{1}, {T}: Create a token that's a copy of another "
+                     "target creature you control, except it's a 1/1 red "
+                     "Balloon creature in addition to its other colors "
+                     "and types and it has flying and haste. Sacrifice it "
+                     "at the beginning of the next end step. Activate "
+                     "only as a sorcery.",
+        ),
+    ]
+
+
+register("The Jolly Balloon Man", _the_jolly_balloon_man)
+
+
+def _yasharn_implacable_earth() -> list[AbilitySpec]:
+    """Yasharn, Implacable Earth (Legendary Creature — Elemental Boar,
+    {2}{G}{W})
+
+    "When Yasharn enters, search your library for a basic Forest card and
+    a basic Plains card, reveal those cards, put them into your hand, then
+    shuffle.
+    Players can't pay life or sacrifice nonland permanents to cast spells
+    or activate abilities."
+
+    The ETB is two independent single-card searches (a Forest, then a
+    Plains — `SearchLibraryEffect` has no "two distinct named basics in
+    one search" shape, but running it twice with different criteria is
+    rules-equivalent and simpler). The restriction reuses the new
+    ``cost_restriction`` static (MEC-40), checked at every cost-payment
+    choke point that offers a pay-life/sacrifice component.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("search", {"criteria": {"basic": True, "type": "Forest"}, "destination": "hand"}),
+                EffectSpec("search", {"criteria": {"basic": True, "type": "Plains"}, "destination": "hand"}),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When ~ enters, search your library for a basic "
+                     "Forest card and a basic Plains card, reveal those "
+                     "cards, put them into your hand, then shuffle.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_restriction", {"kinds": ["pay_life", "sacrifice_nonland_permanent"]})],
+            raw_text="Players can't pay life or sacrifice nonland "
+                     "permanents to cast spells or activate abilities.",
+        ),
+    ]
+
+
+register("Yasharn, Implacable Earth", _yasharn_implacable_earth)

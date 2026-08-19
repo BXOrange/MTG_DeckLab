@@ -1519,9 +1519,13 @@ def _destroy_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # (`targeting.TargetSpec.max_mana_value`), tried before the plain
     # `_destroy` handler since it's a strict superset of that shape (the
     # trailing "with mana value N or less" clause `_destroy`'s own grammar
-    # doesn't recognise).
+    # doesn't recognise). MEC-40: "nonland_permanent" was missing from this
+    # tuple despite the docstring already naming Abrupt Decay by name — the
+    # kind itself (`targeting.py`'s "nonland_permanent" branch) already
+    # honours `max_mana_value`, so this was a plain oversight, not a missing
+    # engine primitive.
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in ("creature", "permanent"):
+    if kind is None or kind not in ("creature", "permanent", "nonland_permanent"):
         return None
     return [EffectSpec("destroy", {"target_kind": kind, "max_mana_value": int(m.group("mv"))})]
 
@@ -1693,6 +1697,10 @@ _MASS_DESTROY_NOUNS: dict[str, str] = {
     "planeswalkers": "all_planeswalkers",
     "permanents": "all_permanents",
     "lands": "all_lands",
+    # "destroy all nonland permanents..." — `_mass_selector_objects` already
+    # supports this selector (built for `_return_all_nonland`'s bounce
+    # sibling); only the destroy/exile noun table was missing the phrase.
+    "nonland permanents": "all_nonland_permanents",
 }
 #: "Destroy **each** artifact with mana value X or less." (Meltdown) —
 #: the singular-noun/"each" phrasing of the same mass wipe, alongside the
@@ -1705,6 +1713,10 @@ _MASS_DESTROY_NOUNS_SINGULAR: dict[str, str] = {
     "planeswalker": "all_planeswalkers",
     "permanent": "all_permanents",
     "land": "all_lands",
+    # "Destroy each nonland permanent with mana value 2 or less." (Culling
+    # Ritual, MEC-40) — the singular/"each" sibling of the plural entry
+    # above; same "all_nonland_permanents" selector.
+    "nonland permanent": "all_nonland_permanents",
 }
 #: The mana-value bound's own magnitude accepts ``x`` (Meltdown's own
 #: "with mana value X or less", X being this spell's announced {X}) as well

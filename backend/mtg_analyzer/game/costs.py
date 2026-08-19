@@ -48,6 +48,10 @@ _PAY_ENERGY_WORD_RE = re.compile(
 _SACRIFICE_RE = re.compile(
     r"sacrifice\s+(this\s+\w+|~|an?\s+(\w+)|another\s+(\w+))", re.IGNORECASE
 )
+#: "Exile a creature you control: …" (Food Chain, MEC-40) — a genuine RULE
+#: 605.1a mana-ability cost component distinct from `_SACRIFICE_RE` above
+#: (a different disposition, exile rather than the graveyard).
+_EXILE_CREATURE_RE = re.compile(r"exile a creature you control", re.IGNORECASE)
 #: PAR-13's compound sacrifice cost — see its check-site below. Real
 #: printings vary on whether "artifact"/"land" repeat their own article
 #: ("a creature, an artifact, or a land" vs. "a creature, artifact, or
@@ -217,6 +221,12 @@ class ActivationCost:
     taps_self: bool = False
     untaps_self: bool = False
     sacrifice: Optional[str] = None
+    #: "Exile a creature you control: …" (Food Chain, MEC-40) — a genuine
+    #: RULE 605.1a mana-ability cost component (paid, not targeted, so it
+    #: doesn't disqualify the ability from being a mana ability the way a
+    #: real target would) — a bool rather than `sacrifice`'s type-word
+    #: string since no printed card needs anything but "a creature" here.
+    exile_creature: bool = False
     pay_life: int = 0
     #: RULE 122 energy: how many energy counters this cost pays (a player-
     #: level resource, `Player.counters["energy"]` — the same generic
@@ -441,6 +451,16 @@ class ActivationCost:
     #: `_crew_pool`; the tapped creatures are recorded on the crewed
     #: permanent's own `GameObject.crewed_by_ids` (RULE 702.122c).
     crew_power: Optional[int] = None
+    #: RULE 702.171a: "Saddle N" — "Tap any number of other untapped
+    #: creatures you control with total power N or greater: This permanent
+    #: becomes saddled until end of turn." (Guardian Sunmare, MEC-40) —
+    #: structurally identical to ``crew_power``'s own "any number from a
+    #: pool, sized by a power threshold" shape (`_resolve_crew_cost`/
+    #: `_crew_pool` are reused unchanged), just a different result: a
+    #: `GameObject.saddled_until_turn` stamp instead of becoming a
+    #: creature. RULE 702.171d: activate only as a sorcery — see
+    #: `sorcery_speed_only`, already general.
+    saddle_power: Optional[int] = None
     raw: str = ""
 
     @property
@@ -456,6 +476,7 @@ class ActivationCost:
             or self.taps_self
             or self.untaps_self
             or self.sacrifice
+            or self.exile_creature
             or self.pay_life
             or self.pay_energy
             or self.discard
@@ -472,6 +493,7 @@ class ActivationCost:
             or self.sacrifice_filter
             or self.exile_hand_card_color
             or self.crew_power
+            or self.saddle_power
         )
 
     def label(self) -> str:
@@ -491,6 +513,8 @@ class ActivationCost:
             else:
                 what = f"a {self.sacrifice}"
             parts.append(f"Sacrifice {what}")
+        if self.exile_creature:
+            parts.append("Exile a creature you control")
         if self.pay_life:
             parts.append("Pay X life" if self.pay_life == PAY_LIFE_X else f"Pay {self.pay_life} life")
         if self.pay_energy:
@@ -737,6 +761,8 @@ def _parse_text(text: str) -> ActivationCost:
                 selector_match.group("phrase").strip().lower()
             )
 
+    if _EXILE_CREATURE_RE.search(cost_text):
+        cost.exile_creature = True
     if _SACRIFICE_CREATURE_ARTIFACT_OR_LAND_RE.search(cost_text):
         # PAR-13: "Sacrifice a creature, artifact, or land [of your/their
         # choice]." (Tomb of Annihilation's "Sandfall Cell") — the one

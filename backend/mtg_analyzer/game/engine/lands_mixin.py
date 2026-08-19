@@ -272,6 +272,20 @@ class LandsMixin:
             graveyard_cast_grant_for(player, self.state, obj.card) is not None
             or has_temporary_graveyard_play_permission(player, self.state)
         )
+    def _self_graveyard_or_exile_cast_permission(self, obj: GameObject) -> bool:
+        """Whether ``obj`` carries its own standing "you may cast this card
+        from your graveyard or from exile" permission (Squee, the
+        Immortal-shaped, MEC-40) — unlike `_graveyard_cast_permission`
+        above, granted by no *other* permanent, so it's read straight off
+        ``obj``'s own `static_effects` regardless of which of the two
+        zones it's currently sitting in.
+        """
+        from ..effects import SelfGraveyardOrExileCastPermissionEffect
+
+        return any(
+            isinstance(e, SelfGraveyardOrExileCastPermissionEffect)
+            for e in getattr(obj, "static_effects", None) or []
+        )
     def _castable_from_library(self, player: Player, obj: GameObject) -> bool:
         """Whether the top-of-library card ``obj`` is castable from there
         right now (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — see
