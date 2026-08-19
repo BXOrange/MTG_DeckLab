@@ -48,7 +48,15 @@ def conditional_flash_holds(
     RULE 601.2i's "the game returns to the moment before the illegal cast".
     """
     for key, value in condition.items():
-        if key == "entered_this_turn":
+        if key == "unconditional":
+            # MEC-44, Necromancy: "You may cast this spell as though it
+            # had flash." with no gate at all — the trivially-true member
+            # of this whitelist, so a plain flash grant can still reach
+            # `can_cast`'s `conditional_flash` check the same way every
+            # gated one does.
+            if not bool(value):
+                return False
+        elif key == "entered_this_turn":
             if bool(value) != (obj.turn_entered == state.turn_number):
                 return False
         elif key == "targets_a_commander":

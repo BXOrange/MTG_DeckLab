@@ -27,6 +27,13 @@ prints both suffixes on the same header. Non-bullet modal shapes ("Choose
 one. If you control a commander …") aren't this grammar — left unclaimed
 (fail-closed), a separate template for later work.
 
+RULE 702.172a **Spree** (`split_spree_block`/`SPREE_MODE_LINE_RE`) is a
+related but distinct block shape, not a variant of the grammar above: its
+header carries no count at all (every Spree block is "choose one or more"
+by definition), and each mode line prices itself individually
+("+ <cost> — <body>.") rather than sharing one printed spell cost the way
+an ordinary "• " modal block's modes do — MEC-31.
+
 Pure text splitting — **no `game/` imports** (front-end security boundary).
 """
 
@@ -48,6 +55,26 @@ MODAL_HEADER_RE = re.compile(
 
 #: One mode line: "• <effect body>." (Scryfall's modal bullet).
 MODE_LINE_RE = re.compile(r"^•\s*(?P<body>.+)$")
+
+#: RULE 702.172a Spree's own header — "Spree (Choose one or more additional
+#: costs.)" strips to a bare "spree" line once `normalize` peels its always-
+#: parenthesised reminder text, the same way `"escalate {2}"` above loses
+#: its own "(Pay this cost for each mode chosen beyond the first.)" tail.
+#: Unlike RULE 700.2's `MODAL_HEADER_RE`, Spree's is a fixed, contentless
+#: keyword line — the "choose one or more" instruction lives in the
+#: reminder text that's already gone, so there's no count/or-both/or-more
+#: to capture here at all; every Spree block is "choose 1 or more" by
+#: definition (RULE 702.172a).
+SPREE_HEADER_RE = re.compile(r"^spree\s*$")
+
+#: One Spree mode line: "+ <cost> — <effect body>." — the same shape as
+#: `MODE_LINE_RE`'s "• " bullet, but carrying its own per-mode mana cost
+#: instead of a bare bullet, since Spree (unlike RULE 700.2's ordinary
+#: modal block) prices *every* mode individually rather than sharing one
+#: printed cost across all of them (RULE 702.172a: "the total cost to cast
+#: this spell is its mana cost plus the additional cost of each mode
+#: chosen").
+SPREE_MODE_LINE_RE = re.compile(r"^\+\s*(?P<cost>\{[^}]+\})\s*—\s*(?P<body>.+)$")
 
 
 def collect_mode_bodies(lines: list[str], start: int) -> Optional[tuple[list[str], int]]:
@@ -96,3 +123,32 @@ def split_modal_block(
     if choose < 1 or choose > len(bodies):
         return None
     return bool(header.group("or_both")), bool(header.group("or_more")), choose, bodies, next_i
+
+
+def split_spree_block(
+    lines: list[str], start: int
+) -> Optional[tuple[list[str], list[str], int]]:
+    """If ``lines[start]`` is a bare Spree header, collect its "+ <cost> —
+    <body>" mode lines (RULE 702.172a).
+
+    Returns ``(mode_costs, mode_bodies, next_index)`` — ``mode_costs``
+    parallel to ``mode_bodies``, one raw mana-cost string per mode, in
+    printed order — or ``None`` when ``lines[start]`` isn't a Spree header
+    or it's followed by fewer than two "+ " lines (never a real printed
+    shape; fail closed rather than guess).
+    """
+    if SPREE_HEADER_RE.match(lines[start].strip()) is None:
+        return None
+    costs: list[str] = []
+    bodies: list[str] = []
+    i = start + 1
+    while i < len(lines):
+        mode = SPREE_MODE_LINE_RE.match(lines[i].strip())
+        if mode is None:
+            break
+        costs.append(mode.group("cost"))
+        bodies.append(mode.group("body").strip())
+        i += 1
+    if len(bodies) < 2:
+        return None
+    return costs, bodies, i

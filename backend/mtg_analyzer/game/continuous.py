@@ -730,6 +730,17 @@ def count_selector(
         # be given (a bare test fixture omitting it gets 0, the same safe
         # fallback every self-referential selector here gets).
         return len(getattr(source, "exiled_with_ids", None) or [])
+    if selector == "spells_cast_this_turn":
+        # "…costs {1} more to cast for each other spell that player has
+        # cast this turn." (MEC-36, Damping Sphere) — `_cost_static_amount`
+        # passes the *casting* player as ``controller_id`` here (not this
+        # static's own owner), and `RulesEngine._track_spell_cast`
+        # increments `GameState.spells_cast_this_turn` strictly *after*
+        # the spell's own cost is computed, so this already reads "every
+        # **other** spell cast this turn" with no off-by-one to correct.
+        if controller_id is None:
+            return 0
+        return state.spells_cast_this_turn.get(controller_id, 0)
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
     if selector == "multicolored_permanents_you_control":
@@ -2275,6 +2286,92 @@ def mana_production_multiplier_for(state: "GameState", player: "Player") -> int:
     return multiplier
 
 
+def skipped_steps_for(state: "GameState", player: "Player") -> set[str]:
+    """Step names ``player`` skips outright ("Skip your draw step." — MEC-38,
+    Necropotence) — a new `StaticAbility` layer, ``"skip_step"``, scoped to
+    its own controller (``affects="self"``, the same convention
+    `mana_production_multiplier_for` above uses) and consulted directly by
+    `RulesEngine.should_skip_step` alongside its pre-existing (but never
+    actually wired to any card) `Player.player_effects`/`StaticEffect`
+    check.
+
+    Deliberately a live battlefield read rather than something added to
+    `player_effects` when the source enters the battlefield and removed
+    when it leaves: `_battlefield_static_abilities` already re-derives
+    every permanent's static abilities fresh on every recompute, so there
+    is no separate lifecycle to build — the same reasoning
+    `mana_type_override_for`/`activation_prohibited` already lean on for
+    their own "consulted live, not synced onto the player" shape.
+    """
+    steps: set[str] = set()
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "skip_step":
+            continue
+        if getattr(ability.source, "controller_id", None) != player.id:
+            continue
+        step = ability.params.get("step")
+        if step:
+            steps.add(str(step))
+    return steps
+
+
+def search_redirect_controller_for(
+    state: "GameState", searching_player: "Player"
+) -> Optional[str]:
+    """"While an opponent is searching their library, they exile each card
+    they find. You may play those cards for as long as they remain
+    exiled, and you may spend mana as though it were mana of any color to
+    cast them." (MEC-39, Opposition Agent) — returns the controller who
+    gains the exile-cast + any-color-mana permission for each card
+    ``searching_player`` finds this search, or ``None`` if no such static
+    applies to them.
+
+    Deliberately doesn't model the card's own leading "You control your
+    opponents while they're searching their libraries" as an actual RULE
+    269.4 control exchange of the *player* — this engine's search flow has
+    no other decision point during a search a genuine control swap would
+    change (the searching player still picks which cards they find; only
+    where those cards *end up* is redirected), so the mechanical outcome
+    this function implements is the whole of what the card does. A new
+    `StaticAbility` layer, `"search_redirect"`, scoped to its own
+    controller (``affects="self"``) the same way `mana_type_override`'s
+    own unscoped-vs-scoped statics are told apart.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "search_redirect":
+            continue
+        owner_id = getattr(ability.source, "controller_id", None)
+        if owner_id is None or owner_id == searching_player.id:
+            continue
+        return owner_id
+    return None
+
+
+def mana_type_override_for(
+    state: "GameState", source: "GameObject", total_produced: int
+) -> Optional[str]:
+    """"If a land is tapped for 2 or more mana, it produces {C} instead of
+    any other type and amount." (MEC-36, Damping Sphere) — unscoped by
+    controller (any land tapped by anyone, not just this static's own
+    controller's), consulted by `GameEngine.tap_for_mana` right alongside
+    `mana_production_multiplier_for` above, after that multiplier has
+    already been applied — ``total_produced`` is the true amount that
+    would land in the pool this tap, which is what the printed threshold
+    actually cares about. Multiple copies don't compound (a boolean
+    override, not an additive one); the first applicable static found
+    wins.
+    """
+    if not source.is_land:
+        return None
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "mana_type_override":
+            continue
+        min_amount = int(ability.params.get("min_amount", 2) or 2)
+        if total_produced >= min_amount:
+            return str(ability.params.get("to", "C"))
+    return None
+
+
 def cost_floor_for(state: "GameState", player: "Player", obj: Optional["GameObject"] = None) -> int:
     """"Each spell that would cost less than N mana to cast costs N mana to
     cast instead." (Trinisphere) — a floor, not a delta, so it's kept out of
@@ -3023,7 +3120,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "extra_land_drop", "no_max_hand_size", "ignore_legend_rule", "radiation_life_gain", "grant_escape",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
-     "mana_multiplier"}
+     "mana_multiplier", "mana_type_override", "skip_step", "search_redirect"}
 )
 
 

@@ -159,6 +159,17 @@ class GameObject:
         #: time (`RulesEngine.cast_spell`), same "survives past the object
         #: leaving the stack" reasoning.
         self.cast_from_exile: bool = False
+        #: RULE 601.3a: whether this spell was cast at a time a sorcery
+        #: couldn't have been (not the caster's main phase, a nonempty
+        #: stack, or not their own turn) — legal only via a flash grant
+        #: (`conditional_flash`, `combat.has(obj, "flash")`, …), not RULE
+        #: 601.3a's own default window. "If you cast it any time a sorcery
+        #: couldn't have been cast, `<downside>`." (Necromancy-shaped, MEC-44)
+        #: — stamped once at cast time (`GameEngine._cast_current_face`,
+        #: alongside `mana_spent_to_cast`) since the board (and so the
+        #: answer) changes by the time anything reads it later; consumed by
+        #: `EffectSpec.condition`'s ``"cast_outside_sorcery_speed"`` gate.
+        self.cast_outside_sorcery_speed: bool = False
         #: RULE 702.94a Soulbond: the `instance_id` of the creature this one
         #: is paired with, held on **both** objects, or ``None`` when
         #: unpaired. A genuine piece of game state rather than a continuous
@@ -550,6 +561,18 @@ class GameObject:
         #: same RULE 400.7 reset-on-new-object treatment as the other
         #: ``chosen_*`` fields.
         self.chosen_card_name: Optional[str] = None
+        #: RULE 303.4f (MEC-34, Animate Dead-shaped): "Enchant creature card
+        #: in a graveyard" — the graveyard card this Aura was targeting at
+        #: cast time, stashed here because it isn't a permanent and so can't
+        #: actually attach as the Aura resolves the ordinary way (`RulesEngine.
+        #: _resolve_permanent_spell` leaves it unattached on the battlefield
+        #: instead of sending it to the graveyard for the failed attach).
+        #: The Aura's own "when this enters" ability reads this back
+        #: (`ReturnFromGraveyardEffect`'s ``target_kind="self_enchant_
+        #: target"``) to reanimate the right card and attach itself to the
+        #: result. ``None`` for every ordinary Aura, and reset on a new
+        #: object the same as every other cast-time-scoped field.
+        self.reanimate_target_id: Optional[int] = None
         #: Static abilities (`StaticAbility`) this object grants through the
         #: layer system (RULE 613) — anthems, keyword grants, type changes,
         #: cost reductions. Read by `game/continuous.py`.
@@ -922,6 +945,7 @@ class GameObject:
         self.buyback_paid = False
         self.mana_spent_to_cast = 0
         self.was_cast = False
+        self.cast_outside_sorcery_speed = False
         self.sacrificed_cost_mana_value = None
         self.paired_with = None
         self.merged_oracle_text = []
@@ -982,6 +1006,7 @@ class GameObject:
         self.chosen_player_id = None
         self.chosen_permanent_id = None
         self.chosen_card_name = None
+        self.reanimate_target_id = None
         self.temp_power = 0
         self.temp_toughness = 0
         self.temp_keywords = set()

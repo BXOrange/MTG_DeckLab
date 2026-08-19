@@ -165,6 +165,34 @@ class MiscMixin:
         # same as casting a spell or activating an ability does.
         self.give_priority(player)
         return turned
+    def pay_search_exemption_actions(self, player: Player) -> list[dict[str, Any]]:
+        """The offered `legal_actions` entry for RULE 116.2a's "Any player
+        may pay {2} for that player to ignore this effect until end of
+        turn." (MEC-35, Leonin Arbiter) — a special action, so (like `turn_
+        face_up_actions`) it carries no timing restriction of its own and
+        is only offered when payable. Not offered at all once already
+        exempt this turn (nothing left to gain by paying again) or when no
+        search prohibition currently applies to ``player``.
+        """
+        if not self.rules.is_search_prohibited_for(player):
+            return []
+        cost = ManaCost.parse("{2}")
+        if not player.mana_pool.can_pay(cost, life_available=player.life):
+            return []
+        return [{"type": "pay_search_exemption", "cost_label": "{2}"}]
+    def pay_search_exemption(self, player: Player) -> None:
+        """Take the RULE 116.2a special action of paying to ignore every
+        current search prohibition until end of turn (MEC-35, Leonin
+        Arbiter) — doesn't use the stack, same as `turn_face_up`.
+        """
+        cost = ManaCost.parse("{2}")
+        if not player.mana_pool.can_pay(cost, life_available=player.life):
+            raise ValueError(f"{player.name} cannot pay {{2}} for the search exemption")
+        life_spent = player.mana_pool.pay(cost, life_available=player.life)
+        self.rules.lose_life(player, life_spent, cause="cost")
+        self.state.search_exempt_until_turn[player.id] = self.state.turn_number
+        # RULE 117.3c: taking an action reclaims priority for its taker.
+        self.give_priority(player)
     def run_goldfish_turn(self) -> None:
         """Run one solo turn, auto-playing a greedy line (UC3, docs/02 UC5).
 

@@ -18093,3 +18093,646 @@ def _necrotic_ooze() -> list[AbilitySpec]:
 
 
 register("Necrotic Ooze", _necrotic_ooze)
+
+
+def _alms_collector() -> list[AbilitySpec]:
+    """Flash
+    If an opponent would draw two or more cards, instead you and that
+    player each draw a card.
+
+    — MEC-32. Flash is the ordinary keyword fold-in. The draw-replacement
+    clause needed a genuinely new primitive: no per-card `DRAW` event can
+    see "the whole attempted instruction was for 2+ cards" (each card in a
+    multi-draw is independently replaceable per RULE 120.3), so
+    `RulesEngine.draw` was restructured to fire one `EventType.DRAW_
+    INSTRUCTION` event for the whole call before splitting into per-card
+    `DRAW` events — see that event's own docstring and `effects.
+    _split_multi_draw_replacement`.
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("split_multi_draw", {"min_count": 2})],
+            raw_text="Flash\nIf an opponent would draw two or more cards, "
+                     "instead you and that player each draw a card.",
+        ),
+    ]
+
+
+register("Alms Collector", _alms_collector)
+
+
+def _notion_thief() -> list[AbilitySpec]:
+    """Flash
+    If an opponent would draw a card except the first one they draw in
+    each of their draw steps, instead that player skips that draw and you
+    draw a card.
+
+    — MEC-32. Flash is the ordinary keyword fold-in. The exemption clause
+    ("except the first one … in each of their draw steps") needed a new
+    `GameState.first_draw_done_this_step` per-player tracker, reset right
+    as a player's own draw step begins (`game/engine/turn_loop_mixin.py`'s
+    `_run_step`) — distinct from the existing whole-turn `cards_drawn_
+    this_turn`, since a draw from a spell earlier in the same turn must
+    not count as the step's own first draw. See `effects.
+    _steal_non_first_draw_replacement`.
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("steal_non_first_draw", {})],
+            raw_text="Flash\nIf an opponent would draw a card except the "
+                     "first one they draw in each of their draw steps, "
+                     "instead that player skips that draw and you draw a "
+                     "card.",
+        ),
+    ]
+
+
+register("Notion Thief", _notion_thief)
+
+
+def _chains_of_mephistopheles() -> list[AbilitySpec]:
+    """If a player would draw a card except the first one they draw in
+    each of their draw steps, that player discards a card instead. If the
+    player discards a card this way, they draw a card. If the player
+    doesn't discard a card this way, they mill a card.
+
+    — MEC-32. The same ``first_in_draw_step`` exemption Notion Thief's
+    entry above reads, but table-wide (no opponent/you scoping) and its
+    own three-branch discard/draw/mill body, genuinely bespoke enough to
+    need its own replacement type rather than a combination of existing
+    ones — see `effects._discard_instead_of_non_first_draw_replacement`
+    for the full RULE 616.1f recursive-termination reasoning (each
+    replaced draw's own compensating draw can itself be replaced again,
+    strictly shrinking the affected player's hand each time, until it's
+    empty and the mill branch fires instead).
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("discard_instead_of_non_first_draw", {})],
+            raw_text="If a player would draw a card except the first one "
+                     "they draw in each of their draw steps, that player "
+                     "discards a card instead. If the player discards a "
+                     "card this way, they draw a card. If the player "
+                     "doesn't discard a card this way, they mill a card.",
+        ),
+    ]
+
+
+register("Chains of Mephistopheles", _chains_of_mephistopheles)
+
+
+def _animate_dead() -> list[AbilitySpec]:
+    """Enchant creature card in a graveyard
+    When this Aura enters, if it's on the battlefield, it loses "enchant
+    creature card in a graveyard" and gains "enchant creature put onto the
+    battlefield with this Aura." Return enchanted creature card to the
+    battlefield under your control and attach this Aura to it. When this
+    Aura leaves the battlefield, that creature's controller sacrifices it.
+    Enchanted creature gets -1/-0.
+
+    — MEC-34, RULE 303.4f's reanimator-Aura template: the Aura's own cast
+    target is a graveyard *card*, not a battlefield permanent, so it can't
+    attach the ordinary way as it resolves. Needed three pieces, none of
+    them previously reachable by any shipped card: (1) `RulesEngine.
+    _resolve_permanent_spell` recognizes a graveyard-zone attach target
+    and leaves the Aura on the battlefield unattached instead of sending
+    it to the graveyard for the "failed" attach, stashing the target on
+    the new `GameObject.reanimate_target_id`; (2) `targeting.legal_
+    targets` gained a graveyard-wide branch for an "Enchant `<type>` card
+    in a graveyard" quality, since the existing "enchant" branch only ever
+    searched the battlefield; (3) the ETB ability itself —
+    `ReturnFromGraveyardEffect`'s new ``target_kind="self_enchant_
+    target"`` reads that stashed id back (rather than a fresh RULE 115
+    target) to reanimate the right card under this Aura's controller, then
+    the already-shipped `AttachEffect(target_kind="created")` attaches
+    this Aura to whatever `ReturnFromGraveyardEffect` just put onto the
+    battlefield. The "when this Aura leaves the battlefield, sacrifice
+    it" clause is the new `SacrificeAttachedPermanentEffect` (reads
+    `attached_to` live, since `GameState.remove_from_battlefield` never
+    clears it). The self-referential "it loses/gains" text-change clause
+    is RULE 303.4f reminder text describing exactly this behavior with no
+    separate gameplay effect — not modeled as its own clause. RULE 704.5n's
+    "Aura attached to nothing → owner's graveyard" SBA sweep never
+    interferes: it only ever revalidates a permanent whose `attached_to`
+    is already set, so the brief window where this Aura is on the
+    battlefield but not yet attached is naturally safe.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("return_from_graveyard", {
+                    "target_kind": "self_enchant_target",
+                    "under_your_control": True,
+                }),
+                EffectSpec("attach", {"target_kind": "created"}),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When this Aura enters, if it's on the battlefield, "
+                     "it loses \"enchant creature card in a graveyard\" "
+                     "and gains \"enchant creature put onto the "
+                     "battlefield with this Aura.\" Return enchanted "
+                     "creature card to the battlefield under your control "
+                     "and attach this Aura to it.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("sacrifice_attached_permanent", {})],
+            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When this Aura leaves the battlefield, that "
+                     "creature's controller sacrifices it.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": -1, "toughness": 0})],
+            raw_text="Enchanted creature gets -1/-0.",
+        ),
+    ]
+
+
+register("Animate Dead", _animate_dead)
+
+
+def _damping_sphere() -> list[AbilitySpec]:
+    """If a land is tapped for two or more mana, it produces {C} instead of
+    any other type and amount.
+    Each spell a player casts costs {1} more to cast for each other spell
+    that player has cast this turn.
+
+    — MEC-36. Two independent unscoped statics, neither previously
+    reachable. The first is a new `StaticAbility` layer,
+    `"mana_type_override"`, consulted directly by `GameEngine.
+    tap_for_mana` (`continuous.mana_type_override_for`) right alongside
+    the already-shipped `mana_multiplier` (Nyxbloom Ancient) — a boolean
+    override on the *true*, post-multiplier produced total, not a layer-6
+    ability grant. The second is `cost_reduction`'s existing `per`
+    count-selector vocabulary widened with a new `"spells_cast_this_turn"`
+    key: `continuous._cost_static_amount` already evaluates `per` against
+    the *casting* player (not this static's own controller), and
+    `RulesEngine._track_spell_cast` increments `GameState.spells_cast_
+    this_turn` strictly after cost is computed for the spell just cast —
+    so "for each other spell" falls out for free with no off-by-one
+    correction needed. That field's own reset had to widen from
+    "just the incoming active player" (its original RULE 731.2-only
+    scope) to every player, every turn, since a non-active player's own
+    running total needs to stay accurate too.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("mana_type_override", {"min_amount": 2, "to": "C"})],
+            raw_text="If a land is tapped for two or more mana, it "
+                     "produces {C} instead of any other type and amount.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_reduction", {
+                "affects": "all_spells",
+                "generic": 1,
+                "increase": True,
+                "per": "spells_cast_this_turn",
+            })],
+            raw_text="Each spell a player casts costs {1} more to cast "
+                     "for each other spell that player has cast this "
+                     "turn.",
+        ),
+    ]
+
+
+register("Damping Sphere", _damping_sphere)
+
+
+def _doomsday() -> list[AbilitySpec]:
+    """Search your library and graveyard for five cards and exile the
+    rest. Put the chosen cards on top of your library in any order. You
+    lose half your life, rounded up.
+
+    — MEC-37. The original ticket framing ("exile up to five cards in a
+    pile") turned out to describe a mechanic Doomsday doesn't actually
+    have — its real printed text needed no new search primitive at all,
+    only a re-check against the real oracle text: `SearchLibraryEffect`
+    already supports `zones=["library", "graveyard"]` (combined-zone
+    search), `exile_rest` (its own docstring already says
+    "…Doomsday-shaped", built with this exact card in mind but never
+    reached before now), and `destination="library_top"` — and since a
+    multi-card `library_top` search already offers its picks one at a
+    time and stacks each new pick *above* the last, the player already
+    has full control over the final order simply by choosing which card
+    to name each round (name the card that should be drawn last first,
+    the one that should be drawn first last) — RULE 601.2c's "in any
+    order" falls out for free. The only genuinely new piece is
+    `LoseLifeEffect`'s new `amount_from_half_own_life` param — "half your
+    life, rounded up" (RULE 107.3) — reading this ability's own controller
+    at resolution.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("search", {
+                    "criteria": "",
+                    "destination": "library_top",
+                    "count": 5,
+                    "optional": False,
+                    "zones": ["library", "graveyard"],
+                    "exile_rest": True,
+                }),
+                EffectSpec("lose_life", {"amount_from_half_own_life": True}),
+            ],
+            raw_text="Search your library and graveyard for five cards "
+                     "and exile the rest. Put the chosen cards on top of "
+                     "your library in any order. You lose half your "
+                     "life, rounded up.",
+        ),
+    ]
+
+
+register("Doomsday", _doomsday)
+
+
+def _necropotence() -> list[AbilitySpec]:
+    """Skip your draw step.
+    Whenever you discard a card, exile that card from your graveyard.
+    Pay 1 life: Exile the top card of your library face down. Put that
+    card into your hand at the beginning of your next end step.
+
+    — MEC-38. Three real pieces, none previously reachable: (1) "Skip
+    your draw step" is a new `StaticAbility` layer, `"skip_step"` —
+    `RulesEngine.should_skip_step` already existed but had never had a
+    real card wired to it (its own `Player.player_effects`/`StaticEffect`
+    path is a designed-but-never-instantiated primitive; this uses a live
+    battlefield read instead, `continuous.skipped_steps_for`, the same
+    "no separate enter/leave lifecycle to build" shape `mana_type_
+    override`/MEC-36 already established). (2) The discard trigger needed
+    a new per-card `EventType.DISCARD_CARD` (the existing `DISCARD` only
+    ever carried an aggregate `count`, the same granularity gap MEC-32
+    found on the draw side — `RulesEngine.discard`/`discard_specific`/RULE
+    614.12's "discard a land instead" now all fire it) plus `ExileEffect`'s
+    new `target_kind="trigger_subject"` (mirroring `TapEffect`'s own),
+    reading the discarded card's `instance_id` straight off the firing
+    event rather than a chosen target — by the time this resolves the
+    card is already sitting in the graveyard (discard moves it there
+    before firing), so this is a real zone change into exile. (3) The
+    activation cost is the already-shipped `ActivationCost.pay_life`; the
+    effect needed a new `ExileTopOfLibraryEffect` (deterministic top-card
+    exile, unlike `SearchLibraryEffect`'s real choice among the whole
+    zone even at `count=1`) feeding `CreateDelayedTriggerEffect`'s
+    existing `capture="created_objects"`, widened with a third captured
+    attribute name (`exiled_object`, alongside the pre-existing `objects`/
+    `target`) so the delayed half can reuse `ReturnUncastExiledEffect`
+    unchanged — previously only ever constructed directly in Python
+    (Beseech the Mirror/Rebound's own "if it wasn't cast this way" tail),
+    never reachable through the `EffectSpec` whitelist until this card
+    needed it as an ordinary delayed effect rather than a bespoke one.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("skip_step", {"step": "draw"})],
+            raw_text="Skip your draw step.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile", {"target_kind": "trigger_subject"})],
+            trigger={"event": "DISCARD_CARD", "condition": {"subject": "you"}},
+            raw_text="Whenever you discard a card, exile that card from "
+                     "your graveyard.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("exile_top_of_library", {"face_down": True}),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end", "capture": "created_objects",
+                    "effects": [
+                        {"type": "return_uncast_exiled", "params": {"destination": "hand"}}
+                    ],
+                }),
+            ],
+            cost={"text": "Pay 1 life"},
+            raw_text="Pay 1 life: Exile the top card of your library face "
+                     "down. Put that card into your hand at the beginning "
+                     "of your next end step.",
+        ),
+    ]
+
+
+register("Necropotence", _necropotence)
+
+
+def _opposition_agent() -> list[AbilitySpec]:
+    """Flash
+    You control your opponents while they're searching their libraries.
+    While an opponent is searching their library, they exile each card
+    they find. You may play those cards for as long as they remain
+    exiled, and you may spend mana as though it were mana of any color to
+    cast them.
+
+    — MEC-39. Flash is the ordinary keyword fold-in. The "you control
+    your opponents while searching" clause is deliberately not modeled as
+    a genuine RULE 269.4 control exchange of the player — this engine's
+    search flow has no other decision point during a search a real
+    control swap would change (the searching player still picks which
+    cards they find; only where those cards end up is redirected), so
+    the second, fully mechanical paragraph already describes the whole
+    gameplay outcome. `RulesEngine._finish_search` now consults a new
+    `StaticAbility` layer, `"search_redirect"` (`continuous.search_
+    redirect_controller_for`), right where it computes each found card's
+    destination: an opponent's search has *every* found card's
+    destination overridden to exile, and the already-shipped `GameState.
+    exile_cast_condition`/`mana_wildcard_permission` pair (every other
+    "play a card from exile" mechanism already uses these) is granted to
+    this permanent's controller rather than the found card's own owner —
+    the one genuine generalization needed, since every existing grantor
+    of those two maps had only ever pointed them at the exiled card's own
+    owner.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("search_redirect", {})],
+            raw_text="You control your opponents while they're searching "
+                     "their libraries.\nWhile an opponent is searching "
+                     "their library, they exile each card they find. You "
+                     "may play those cards for as long as they remain "
+                     "exiled, and you may spend mana as though it were "
+                     "mana of any color to cast them.",
+        ),
+    ]
+
+
+register("Opposition Agent", _opposition_agent)
+
+
+def _leonin_arbiter() -> list[AbilitySpec]:
+    """Players can't search libraries. Any player may pay {2} for that
+    player to ignore this effect until end of turn.
+
+    — MEC-35. Two pieces. (1) The already-shipped `grant_search_
+    prohibited` (Stranglehold's own effect type) gained a new `scope`
+    param: `"opponents"` (the pre-existing default, matching Stranglehold's
+    "**your opponents** can't…") vs. `"all"` (this card's own unqualified
+    "**Players** can't…", which also restricts its own controller). (2)
+    "Any player may pay {2}… to ignore this effect until end of turn" is a
+    genuine RULE 116.2a special action — no stack, no timing restriction,
+    repeatable (paying twice just wastes {2}, same as the real card) —
+    `GameEngine.pay_search_exemption`/`pay_search_exemption_actions`,
+    mirroring `turn_face_up`'s own established "offered only when payable,
+    reclaims priority for its taker" shape exactly. `GameState.search_
+    exempt_until_turn` is the same "stops matching once the turn advances,
+    no cleanup bookkeeping needed" idiom `temp_flash_until_turn` already
+    uses. The exemption is read as "ignore every current search
+    prohibition," not just this one specific effect (the printed wording
+    says "this effect") — no shipped card yet combines Leonin Arbiter with
+    a second, independent prohibition source, so the simpler reading costs
+    nothing today; narrow it if that ever changes.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_search_prohibited", {"scope": "all"})],
+            raw_text="Players can't search libraries. Any player may pay "
+                     "{2} for that player to ignore this effect until end "
+                     "of turn.",
+        ),
+    ]
+
+
+register("Leonin Arbiter", _leonin_arbiter)
+
+
+def _return_the_favor() -> list[AbilitySpec]:
+    """Spree (Choose one or more additional costs.)
+    + {1} — Copy target instant spell, sorcery spell, activated ability, or
+    triggered ability. You may choose new targets for the copy.
+    + {1} — Change the target of target spell or ability with a single
+    target.
+
+    — MEC-31, the ticket's own named card (`Ojer cEDH`). RULE 702.172a
+    Spree — a genuine new modal shape, not RULE 700.2's "choose N or more"
+    with a shared cost: every mode prices *itself*
+    (`AbilitySpec.modes["mode_costs"]`, one raw mana-cost string per
+    option, parallel to ``options``/``descriptions`` — the parser's own
+    `catalogue/modal.split_spree_block` builds the same dict for a
+    cache-wide Spree card; this one is hand-authored only for its first
+    mode's effect body, not its modal shape). `effect_binder._build_mode_
+    entries` folds ``mode_costs[i]`` onto ``spell_modes[i]["cost"]``;
+    `GameEngine._modal_extra_cost` sums the chosen combination's own costs
+    on top of the printed {R}{R}, consulted by `effective_cast_cost`/
+    `can_cast`/`_auto_tap_for_cast_if_needed` and surfaced per legal-action
+    combination by `_modal_cast_actions`/`_cast_action` (each combination
+    locks independently when its own total isn't affordable).
+
+    The second mode ("change the target…") is exactly the parser's own
+    already-built `_change_target` handler output — `EffectSpec
+    ("change_target", {"spell_or_ability": True})`, ENG-26's union
+    spell-or-ability stack-item lookup, unchanged.
+
+    The first mode ("copy target … spell, activated ability, or triggered
+    ability … choose new targets") is hand-authored with the same two
+    simplifications every other targeted-copy catalogue entry already
+    carries (Reiterate/Narset's Reversal/Dualcaster Mage) —
+    `CopySpellEffect`'s own docstring names both: it only targets a real
+    spell (`TargetSpec(kind="spell")`, RULE 707.10's copiable-object rule
+    still applies fine to instants/sorceries but `RulesEngine.copy_spell`
+    has no path for an *ability* StackItem at all, whose `obj` is always
+    `None` — a real, separate primitive this card doesn't need to build to
+    become playable, tracked as its own future gap rather than silently
+    modeled here), and it keeps the original's targets rather than opening
+    an interactive "choose new targets" pick (`copy_spell`'s own
+    `new_targets` param exists but no caller wires an interactive choice to
+    it yet). Both match every real card sharing this template today.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [],
+            modes={
+                "choose": 1,
+                "at_least": True,
+                "mode_costs": ["{1}", "{1}"],
+                "options": [
+                    [EffectSpec("copy_spell", {"card_types": ["instant", "sorcery"]})],
+                    [EffectSpec("change_target", {"spell_or_ability": True})],
+                ],
+                "descriptions": [
+                    "Copy target instant spell, sorcery spell, activated ability, "
+                    "or triggered ability. You may choose new targets for the copy.",
+                    "Change the target of target spell or ability with a single target.",
+                ],
+            },
+            raw_text="Spree (Choose one or more additional costs.)\n"
+                     "+ {1} — Copy target instant spell, sorcery spell, activated "
+                     "ability, or triggered ability. You may choose new targets for "
+                     "the copy.\n"
+                     "+ {1} — Change the target of target spell or ability with a "
+                     "single target.",
+        ),
+    ]
+
+
+register("Return the Favor", _return_the_favor)
+
+
+def _omen_machine() -> list[AbilitySpec]:
+    """Players can't draw cards.
+    At the beginning of each player's draw step, that player exiles the
+    top card of their library. If it's a land card, the player puts it
+    onto the battlefield. Otherwise, the player casts it without paying
+    its mana cost if able.
+
+    — MEC-33. Two independent pieces, neither needing a genuinely new
+    engine mechanism once diagnosed against what already exists. (1) "Players
+    can't draw cards" is just RULE 121.5-adjacent `draw_limit`
+    (`continuous.max_draws_per_turn`, already built for Spirit of the
+    Labyrinth/Narset, Parter of Veils) at `max_per_turn=0` with its
+    already-default `affects="all"` — a flat cap of zero *is* an outright
+    ban, no new code at all, just a value the primitive had never been
+    asked for before. (2) The replacement action is a `STEP_BEGIN`
+    trigger on the "draw" step with no `phase_relation` at all (RULE
+    500.7 — since only the active player ever has a draw step, an
+    unscoped "at the beginning of the draw step" trigger fires exactly
+    once per turn, for whoever that is — the same "each player's step"
+    shape a `phase_relation` of "you"/"not_you" would otherwise narrow,
+    just left unnarrowed here) chaining `ExileTopOfLibraryEffect`'s new
+    `player_selector="active_player"` (mirroring `DealDamageEffect`'s own
+    `"active_player"` selector, the established "no subject of its own,
+    read live off `GameState.active_player`" idiom — Roiling Vortex-
+    shaped) into the new `LandOrFreeCastEffect`, which reads whatever
+    `ExileTopOfLibraryEffect` just exiled (`GameContext.created_objects`)
+    and either puts a land onto the battlefield or attempts a free cast
+    "if able" (RULE 601.2c — no legal target, and it just stays exiled;
+    the printed text names no other fallback). The same tail also prints
+    on Wild Evocation (off a *revealed random hand card* instead of an
+    exiled library card), confirming `LandOrFreeCastEffect` is a real
+    two-card shared primitive worth building generally rather than a
+    one-off tied to how the card got there.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("draw_limit", {"max_per_turn": 0})],
+            raw_text="Players can't draw cards.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("exile_top_of_library", {"player_selector": "active_player"}),
+                EffectSpec("land_or_free_cast", {"player_selector": "active_player"}),
+            ],
+            trigger={"event": "STEP_BEGIN", "filter": {"step": "draw"}},
+            raw_text="At the beginning of each player's draw step, that player "
+                     "exiles the top card of their library. If it's a land "
+                     "card, the player puts it onto the battlefield. "
+                     "Otherwise, the player casts it without paying its mana "
+                     "cost if able.",
+        ),
+    ]
+
+
+register("Omen Machine", _omen_machine)
+
+
+def _necromancy() -> list[AbilitySpec]:
+    """You may cast this spell as though it had flash. If you cast it any
+    time a sorcery couldn't have been cast, the controller of the
+    permanent it becomes sacrifices it at the beginning of the next
+    cleanup step.
+    When this enchantment enters, if it's on the battlefield, it becomes
+    an Aura with "enchant creature put onto the battlefield with
+    Necromancy." Put target creature card from a graveyard onto the
+    battlefield under your control and attach this enchantment to it.
+    When this enchantment leaves the battlefield, that creature's
+    controller sacrifices it.
+
+    — MEC-44, RULE 303.4f's *non-Aura* reanimator template (Animate Dead's
+    own sibling ticket, MEC-34 — that card is a real Aura from load time;
+    this one prints as a plain Enchantment and only becomes an Aura once
+    it resolves). Three real gaps closed, none needing as much new
+    machinery as first diagnosed. (1) The unconditional flash grant needed
+    only a trivially-true `conditional_flash={"unconditional": True}`
+    key (`ALLOWED_CAST_CONDITION_KEYS`/`condition_query.
+    conditional_flash_holds`), since every prior key gated on something.
+    (2) "If cast at a time a sorcery couldn't have been cast, sacrifice at
+    next cleanup" needed a new `GameObject.cast_outside_sorcery_speed`
+    flag, stamped once at cast time (`GameEngine._cast_current_face`,
+    since the board — and so the answer — has moved on by the time this
+    resolves) and read by a new `EffectSpec.condition` key of the same
+    name gating a `create_delayed_trigger`/`sacrifice_self` pair — no new
+    delayed-trigger primitive at all: `CreateDelayedTriggerEffect`'s
+    existing `step`/`scope` params already cover "at the beginning of the
+    next cleanup step" (RULE 514), and `sacrifice_self` already exists
+    (Dress Down/Underworld Breach). (3) "It becomes an Aura with
+    '`<quoted text>`'" — the ticket's own flagged "real blocker" — turned
+    out to need far less than fresh threading through every
+    `_attachment_kind`/`_attachment_legal`/`_detach_attachments_from`
+    reader: all three already read `GameObject.parametric_keywords` fresh
+    off the live object every call, never a load-time snapshot, so the
+    new `BecomeAuraEffect` just writes `parametric_keywords["enchant"]`
+    directly and every reader picks it up for free.
+
+    Reuses Animate Dead's own `ReturnFromGraveyardEffect`/`AttachEffect
+    (target_kind="created")`/`SacrificeAttachedPermanentEffect` wholesale,
+    but with a genuine RULE 115 target on the *reanimate* clause itself
+    (`target_kind="any_graveyard_creature"` — "**a** graveyard", any
+    player's, unlike Animate Dead's own printed-on-the-Aura target)
+    rather than Animate Dead's stashed-at-cast-time shape, since Necromancy
+    carries no "Enchant" line at cast time at all for `_resolve_permanent_
+    spell`'s graveyard-attach recognition to key off — its target is
+    chosen when the *triggered ability* resolves instead. **Documented
+    simplification**, matching Animate Dead's own: the "it loses/gains"
+    self-referential quality-text-change isn't modeled as its own clause
+    (RULE 303.4f reminder text describing exactly this behavior, no
+    separate gameplay effect) — `BecomeAuraEffect`'s `quality="creature"`
+    default is close enough that `_attachment_legal`'s permissive fallback
+    (any quality string it doesn't recognize matches everything) covers it
+    regardless.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("become_aura", {"quality": "creature"}),
+                EffectSpec("return_from_graveyard", {
+                    "target_kind": "any_graveyard_creature",
+                    "under_your_control": True,
+                }),
+                EffectSpec("attach", {"target_kind": "created"}),
+                EffectSpec(
+                    "create_delayed_trigger",
+                    {
+                        "step": "cleanup", "scope": "controller",
+                        "effects": [{"type": "sacrifice_self", "params": {}}],
+                        "description": "Necromancy: am Anfang des nächsten "
+                                        "Aufräumschritts opfern",
+                    },
+                    condition={"cast_outside_sorcery_speed": True},
+                ),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            conditional_flash={"unconditional": True},
+            raw_text="You may cast this spell as though it had flash. If "
+                     "you cast it any time a sorcery couldn't have been "
+                     "cast, the controller of the permanent it becomes "
+                     "sacrifices it at the beginning of the next cleanup "
+                     "step.\nWhen this enchantment enters, if it's on the "
+                     "battlefield, it becomes an Aura with \"enchant "
+                     "creature put onto the battlefield with Necromancy.\" "
+                     "Put target creature card from a graveyard onto the "
+                     "battlefield under your control and attach this "
+                     "enchantment to it.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("sacrifice_attached_permanent", {})],
+            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When this enchantment leaves the battlefield, that "
+                     "creature's controller sacrifices it.",
+        ),
+    ]
+
+
+register("Necromancy", _necromancy)

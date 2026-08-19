@@ -511,6 +511,29 @@ class SearchMixin:
                 if obj is not None:
                     player.library.insert(0, obj)
 
+    def _has_search_exemption(self, player: Player) -> bool:
+        """RULE 116.2a (MEC-35, Leonin Arbiter): has ``player`` paid {2}
+        this turn to ignore a search prohibition? See `GameState.
+        search_exempt_until_turn`'s own docstring."""
+        return self.state.search_exempt_until_turn.get(player.id) == self.state.turn_number
+
+    def is_search_prohibited_for(self, player: Player) -> bool:
+        """Whether ``player`` is currently barred from searching at all
+        (RULE 701.19a — Stranglehold's ``scope="opponents"``/Leonin
+        Arbiter's ``scope="all"``), accounting for this turn's RULE 116.2a
+        exemption if any. The same check `request_search`'s own guard
+        makes, factored out so `GameEngine.pay_search_exemption_actions`
+        can decide whether the special action is even worth offering.
+        """
+        if self._has_search_exemption(player):
+            return False
+        return any(
+            isinstance(e, GrantSearchProhibitedEffect)
+            and (e.scope == "all" or permanent.controller_id != player.id)
+            for permanent in self.state.battlefield
+            for e in getattr(permanent, "static_effects", None) or []
+        )
+
     def request_search(
         self,
         player: Player,
@@ -595,15 +618,18 @@ class SearchMixin:
         just shuffles (if applicable), no choice needed.
         """
         # RULE 701.19a: "Your opponents can't search libraries."
-        # (Stranglehold-shaped) — an effect instructing a prohibited player
-        # to search simply doesn't; skipped here rather than at every call
-        # site, the same "one choke point" idiom `deal_damage`/`gain_life`
-        # use for their own replacement checks.
-        if any(
-            isinstance(e, GrantSearchProhibitedEffect) and permanent.controller_id != player.id
-            for permanent in self.state.battlefield
-            for e in getattr(permanent, "static_effects", None) or []
-        ):
+        # (Stranglehold-shaped) / "Players can't search libraries." (MEC-35,
+        # Leonin Arbiter's own unscoped variant, `scope="all"`) — an effect
+        # instructing a prohibited player to search simply doesn't; skipped
+        # here rather than at every call site, the same "one choke point"
+        # idiom `deal_damage`/`gain_life` use for their own replacement
+        # checks. A player who's paid this turn's RULE 116.2a exemption
+        # (`GameEngine.pay_search_exemption`) ignores every such effect,
+        # not just one — the printed clause says "ignore **this** effect",
+        # but no shipped card yet combines Leonin Arbiter with a second,
+        # independent search-prohibition source, so the simpler "ignore
+        # them all" reading costs nothing today.
+        if self.is_search_prohibited_for(player):
             return
         zones = list(zones) if zones else ["library"]
         if "library" in zones:
@@ -952,10 +978,20 @@ class SearchMixin:
             if source_obj is not None:
                 source_obj.linked_exile_id = chosen[0].instance_id
 
+        # MEC-39 (Opposition Agent): "While an opponent is searching their
+        # library, they exile each card they find. You may play those
+        # cards..." — a standing redirect that overrides *every* found
+        # card's destination to exile and grants the redirect's own
+        # controller (not the searching player) the play/mana permissions
+        # for it, regardless of what the search itself asked for.
+        redirect_controller_id = continuous.search_redirect_controller_for(self.state, player)
         dest_list = list(destinations) if destinations else []
         rules = list(destination_if) if destination_if else []
         effective_destinations: list[str] = []
         for index, obj in enumerate(chosen):
+            if redirect_controller_id is not None:
+                effective_destinations.append("exile")
+                continue
             dest = dest_list[index] if index < len(dest_list) else destination
             # RULE 701.19c: a *conditional* destination branches on the card
             # that was actually found ("onto the battlefield tapped if it's
@@ -989,6 +1025,15 @@ class SearchMixin:
                 player.add_to_zone(obj, obj.zone)
                 continue
             self._put_searched_card(player, obj, dest)
+            if redirect_controller_id is not None:
+                # RULE 605.1a/601.3a-adjacent: "you may play those cards for
+                # as long as they remain exiled, and you may spend mana as
+                # though it were mana of any color to cast them" — the same
+                # standing exile-cast + any-color-mana permission pair every
+                # other "play from exile" card grants, just to a *different*
+                # player than the card's own owner.
+                self.state.exile_cast_condition[obj.instance_id] = (redirect_controller_id, {})
+                self.state.mana_wildcard_permission[obj.instance_id] = "color"
             if extra_counters and dest in ("battlefield", "battlefield_tapped"):
                 # Neoform: "…onto the battlefield **with an additional +1/+1
                 # counter on it**" — RULE 614.1c-adjacent, but applied here
@@ -1018,10 +1063,18 @@ class SearchMixin:
             self.shuffle_library(player)
 
         if exile_rest:
+            # MEC-37 (Doomsday): when ``destination`` is itself one of the
+            # searched ``zones`` ("library_top" while zones includes
+            # "library"), a chosen card is already back in a searched zone
+            # by this point (`_put_searched_card` above) — excluded here by
+            # id, or this sweep would immediately re-catch and exile the
+            # very cards it just found and placed.
+            chosen_ids = {obj.instance_id for obj in chosen}
             rest = [
                 obj
                 for obj in self._search_zone_objects(player, zones)
-                if card_query.matches(obj.card, criteria)
+                if obj.instance_id not in chosen_ids
+                and card_query.matches(obj.card, criteria)
             ]
             for obj in rest:
                 player.remove_from_zone(obj, obj.zone)

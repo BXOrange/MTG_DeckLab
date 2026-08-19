@@ -62,7 +62,32 @@ class EventType:
 
     # Object/zone movement.
     DRAW = "DRAW"
+    #: A player would draw ``count`` cards as one instruction (RULE 120.3 —
+    #: by default each card in a multi-card draw is its own independent
+    #: instance of "drawing a card," so an ordinary replacement (a doubler,
+    #: the empty-library win-instead shield) reads the per-card `DRAW`
+    #: event below, one call per card, exactly as it always has). Fired
+    #: once per `RulesEngine.draw()` call, *before* it's split into that
+    #: many per-card `DRAW` events, for the rare replacement that cares
+    #: about the whole attempted instruction rather than one card in it
+    #: (Alms Collector's "if an opponent would draw **two or more**
+    #: cards" — MEC-32). Carries ``player_id`` and ``count`` (the
+    #: requested total); kept as its own event type so it can never
+    #: double-apply an ordinary per-card `DRAW` replacement by also
+    #: matching here.
+    DRAW_INSTRUCTION = "DRAW_INSTRUCTION"
     DISCARD = "DISCARD"
+    #: A single card was discarded (RULE 701.8) — fired once per card by
+    #: every discard site (`RulesEngine.discard`/`discard_specific`/RULE
+    #: 614.12's "discard a land instead"), in addition to (and after) the
+    #: plain aggregate `DISCARD` above, which only ever carries a batch
+    #: ``count`` — the same "aggregate event, plus a per-card sibling"
+    #: convention `MILL`/`MILL_CARD` already established. Carries
+    #: ``player_id`` and ``instance_id``, so "whenever you discard a card,
+    #: exile **that card** from your graveyard" (MEC-38, Necropotence) has
+    #: a real object to point at (`effects.ExileEffect`'s own
+    #: ``target_kind="trigger_subject"``).
+    DISCARD_CARD = "DISCARD_CARD"
     ENTERS_BATTLEFIELD = "ENTERS_BATTLEFIELD"
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"

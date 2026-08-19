@@ -169,6 +169,13 @@ class ManaMixin:
             # `ability.options` (which a `color_split`-driven "any
             # combination" ability already resolved to a fixed total above).
             produced = {color: amount * multiplier for color, amount in produced.items()}
+        override = continuous.mana_type_override_for(self.state, source, sum(produced.values()))
+        if override is not None:
+            # RULE 605.1: "If a land is tapped for 2 or more mana, it
+            # produces {C} instead of any other type and amount." (MEC-36,
+            # Damping Sphere) — checked against the true post-multiplier
+            # total, right before it lands in the pool.
+            produced = {override: sum(produced.values())}
         player.mana_pool.add_many(
             produced, restriction=restriction, source_kind=mana_source_kind_for(source)
         )

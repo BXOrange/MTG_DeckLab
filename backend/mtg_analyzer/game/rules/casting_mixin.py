@@ -978,11 +978,21 @@ class CastingResolutionMixin:
         shipped card is shaped that way; the alternative (persisting the
         event through the suspension) would have to survive the state
         `clone()` that undo takes, which the event object isn't built for.
+
+        MEC-37 (Doomsday): a parked entry belonging to a top-level *spell*
+        (as opposed to a triggered/activated ability) also carries that
+        spell's own `StackItem`. If the drained remainder finishes with
+        nothing left to pause on, `_finish_spell_routing` runs here — the
+        spell wasn't actually done resolving (RULE 608.2m) while its own
+        interactive effect was still open, so routing it to the graveyard/
+        etc. had to wait for exactly this moment rather than happening
+        eagerly back when `_apply_stack_item` first paused on it.
         """
         if self.state.pending_choice or not self.state.deferred_effects:
             return False
         resumed = self.state.deferred_effects.pop()
-        _apply_effects_partitioned(
+        stack_item = resumed.get("stack_item")
+        deferred_again = _apply_effects_partitioned(
             resumed["effects"],
             self.context,
             resumed["targets"],
@@ -992,7 +1002,16 @@ class CastingResolutionMixin:
             previous_targets=resumed.get("previous_targets"),
             created_objects=resumed.get("created_objects"),
             life_lost_this_way=resumed.get("life_lost_this_way", 0),
+            stack_item=stack_item,
         )
+        if not deferred_again and stack_item is not None:
+            # RULE 608.2m: this remainder just finished with nothing left
+            # to pause on — the spell it belongs to is only *now* actually
+            # done resolving, so route it to its next zone (ordinarily the
+            # graveyard) here, the same tail `_apply_stack_item` runs
+            # synchronously when nothing pauses at all.
+            if not self._finish_spell_routing(stack_item):
+                self.check_state_based_actions()
         return True
     def _apply_stack_item(self, item: StackItem) -> Optional[StackItem]:
         """Apply an already-popped stack item's effects and route the card
@@ -1014,72 +1033,93 @@ class CastingResolutionMixin:
             # the partitioned targets, not the whole shared list — see
             # `StackItem.target_groups`. Shared with the nested (wrapper)
             # path above so both get the same partitioning *and* the same
-            # RULE 608.2 suspend-on-pending-choice behaviour.
-            _apply_effects_partitioned(
-                item.effects, self.context, item.targets, item.target_groups
-            )
-
-        if item.kind == "spell" and item.obj is not None:
-            obj = item.obj
-            if self.is_permanent_spell(obj.card):
-                # Self-contained: fires its own SPELL_RESOLVED (may pause on
-                # an `enter_as_copy` choice first — RULE 614.1c/614.12 — so
-                # it can't rely on the shared tail below).
-                self._resolve_permanent_spell(item, obj)
+            # RULE 608.2 suspend-on-pending-choice behaviour. ``stack_item``
+            # (MEC-37) is what lets `resume_deferred_effects` find its way
+            # back here once a paused remainder finally finishes.
+            if _apply_effects_partitioned(
+                item.effects, self.context, item.targets, item.target_groups, stack_item=item,
+            ):
+                # RULE 608.2m: one of this spell's own effects opened an
+                # interactive choice — it isn't actually done resolving
+                # yet, so routing it to the graveyard/etc. now would be
+                # premature (and, for a search naming the caster's own
+                # graveyard, visibly wrong: the still-resolving spell would
+                # show up as a candidate in its own search). `resume_
+                # deferred_effects` finishes the routing once the paused
+                # remainder truly drains.
                 return item
-            if obj.adventure_snapshot is not None:
-                # RULE 715.3d: the Adventure instant/sorcery resolved — exile
-                # the card (as the creature, not the spell half) instead of
-                # the graveyard; it may be cast as the creature from there.
-                snapshot = obj.adventure_snapshot
-                obj.adventure_snapshot = None
-                self.restore_face(obj, snapshot)
-                self.exile(obj)
-                obj.adventure_castable = True
-            elif obj.buyback_paid:
-                # RULE 702.27a: Buyback's additional cost was paid at cast
-                # time — return the card to its owner's hand instead of the
-                # graveyard, reusing the same zone-routing `return_to_hand`
-                # an Unsummon-style bounce uses.
-                obj.buyback_paid = False
-                self.return_to_hand(obj)
-            elif obj.cast_via_flashback:
-                # RULE 702.34a: a spell cast via Flashback is exiled instead
-                # of going to the graveyard when it resolves.
-                obj.cast_via_flashback = False
-                self.exile(obj)
-            elif obj.rebound_pending:
-                # RULE 702.88b: a Rebound spell cast from hand is exiled
-                # instead of going to the graveyard, then a delayed trigger
-                # reopens its free-cast window at the controller's next
-                # upkeep (`ReboundFreeCastWindowEffect`).
-                obj.rebound_pending = False
-                self.exile(obj)
-                self.state.delayed_triggers.append(
-                    DelayedTrigger(
-                        controller_id=obj.controller_id,
-                        step="upkeep",
-                        scope="controller",
-                        effects=[ReboundFreeCastWindowEffect(source=obj)],
-                        description=f"{obj.name}: ohne Bezahlen der Manakosten aus dem Exil wirken",
-                    )
-                )
-            elif obj.zone != Zone.STACK:
-                # One of this instant/sorcery's own resolving effects already
-                # moved it elsewhere — a trailing "Exile ~." self-exile
-                # clause (Mnemonic Betrayal/Teferi's Protection-shaped,
-                # `ExileEffect`'s ``target_kind=None`` self mode) is the only
-                # shape that does this today. Honour it instead of also
-                # routing the card to the graveyard afterward.
-                pass
-            else:
-                self._move_to_graveyard(obj)
-            self.state.fire_event(
-                GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
-            )
 
-        self.check_state_based_actions()
+        if not self._finish_spell_routing(item):
+            self.check_state_based_actions()
         return item
+    def _finish_spell_routing(self, item: StackItem) -> bool:
+        """RULE 608.2m/608.3: send a resolved spell to its next zone
+        (ordinarily the graveyard) now that every one of its effects has
+        actually happened — split out of `_apply_stack_item` so `resume_
+        deferred_effects` can reach the exact same tail once a deferred
+        remainder it was waiting on finally finishes. Returns whether it
+        already ran its own state-based-action check (the permanent-spell
+        branch, self-contained since it may itself pause on an
+        `enter_as_copy` choice — RULE 614.1c/614.12), so the caller knows
+        not to run a second, redundant one.
+        """
+        if item.kind != "spell" or item.obj is None:
+            return False
+        obj = item.obj
+        if self.is_permanent_spell(obj.card):
+            self._resolve_permanent_spell(item, obj)
+            return True
+        if obj.adventure_snapshot is not None:
+            # RULE 715.3d: the Adventure instant/sorcery resolved — exile
+            # the card (as the creature, not the spell half) instead of
+            # the graveyard; it may be cast as the creature from there.
+            snapshot = obj.adventure_snapshot
+            obj.adventure_snapshot = None
+            self.restore_face(obj, snapshot)
+            self.exile(obj)
+            obj.adventure_castable = True
+        elif obj.buyback_paid:
+            # RULE 702.27a: Buyback's additional cost was paid at cast
+            # time — return the card to its owner's hand instead of the
+            # graveyard, reusing the same zone-routing `return_to_hand`
+            # an Unsummon-style bounce uses.
+            obj.buyback_paid = False
+            self.return_to_hand(obj)
+        elif obj.cast_via_flashback:
+            # RULE 702.34a: a spell cast via Flashback is exiled instead
+            # of going to the graveyard when it resolves.
+            obj.cast_via_flashback = False
+            self.exile(obj)
+        elif obj.rebound_pending:
+            # RULE 702.88b: a Rebound spell cast from hand is exiled
+            # instead of going to the graveyard, then a delayed trigger
+            # reopens its free-cast window at the controller's next
+            # upkeep (`ReboundFreeCastWindowEffect`).
+            obj.rebound_pending = False
+            self.exile(obj)
+            self.state.delayed_triggers.append(
+                DelayedTrigger(
+                    controller_id=obj.controller_id,
+                    step="upkeep",
+                    scope="controller",
+                    effects=[ReboundFreeCastWindowEffect(source=obj)],
+                    description=f"{obj.name}: ohne Bezahlen der Manakosten aus dem Exil wirken",
+                )
+            )
+        elif obj.zone != Zone.STACK:
+            # One of this instant/sorcery's own resolving effects already
+            # moved it elsewhere — a trailing "Exile ~." self-exile
+            # clause (Mnemonic Betrayal/Teferi's Protection-shaped,
+            # `ExileEffect`'s ``target_kind=None`` self mode) is the only
+            # shape that does this today. Honour it instead of also
+            # routing the card to the graveyard afterward.
+            pass
+        else:
+            self._move_to_graveyard(obj)
+        self.state.fire_event(
+            GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
+        )
+        return False
     def _resolve_permanent_spell(self, item: StackItem, obj: GameObject) -> None:
         """Finish resolving a permanent spell (RULE 608.3): summoning
         sickness, RULE 614.1 tapped-entry, the battlefield zone change,
@@ -1139,7 +1179,19 @@ class CastingResolutionMixin:
             self.state.add_to_battlefield(obj, saga_lore_override=read_ahead_count)
             if self._attachment_kind(obj) == "enchant":
                 targets = [t for t in item.targets if isinstance(t, GameObject)]
-                if not (targets and self.attach_to_target(obj, targets[0])):
+                target = targets[0] if targets else None
+                # RULE 303.4f (MEC-34): "Enchant creature card in a
+                # graveyard" — the target isn't a permanent at all, so it
+                # can never attach the ordinary way. Leave the Aura on the
+                # battlefield unattached instead of sending it straight back
+                # to the graveyard for the "failed" attach: its own "when
+                # this enters" ability (queued by the ENTERS_BATTLEFIELD
+                # event just below) is what reanimates the stashed target
+                # and attaches this Aura to the result.
+                target_in_graveyard = target is not None and target.zone == Zone.GRAVEYARD
+                if target_in_graveyard:
+                    obj.reanimate_target_id = target.instance_id
+                elif not (target is not None and self.attach_to_target(obj, target)):
                     self._move_to_graveyard(obj)
                     self.state.fire_event(
                         GameEvent(
@@ -1255,6 +1307,9 @@ class CastingResolutionMixin:
         if land is not None and player is not None and land in player.hand:
             player.remove_from_zone(land, Zone.HAND)
             player.add_to_zone(land, Zone.GRAVEYARD)
+            self.state.fire_event(
+                GameEvent(EventType.DISCARD_CARD, player_id=player.id, instance_id=land.instance_id)
+            )
             self.state.fire_event(GameEvent(EventType.DISCARD, player_id=player.id, count=1))
         if continuation is not None:
             continuation()

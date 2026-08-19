@@ -229,7 +229,13 @@ class TurnLoopMixin:
         # roller has already rolled it *this turn*, so the tally resets with
         # every other per-turn counter here.
         self.state.planar_die_rolls_this_turn.clear()
-        self.state.spells_cast_this_turn[active.id] = 0
+        # MEC-36: widened from `active.id`-only to every player (Damping
+        # Sphere needs a non-active player's own running total to stay
+        # accurate too — see the field's own docstring), the same
+        # game-wide reset scope `noncreature_spells_cast_this_turn` below
+        # already uses.
+        for player in self.state.players:
+            self.state.spells_cast_this_turn[player.id] = 0
         self.state.combats_this_turn = 0
         self.state.cards_drawn_this_turn[active.id] = 0
         self.state.life_gained_this_turn[active.id] = 0
@@ -422,6 +428,12 @@ class TurnLoopMixin:
             # mid-turn is correctly the *second* one regardless of who
             # controls the effect that grants it.
             self.state.combats_this_turn += 1
+        if step.name == "draw":
+            # MEC-32: reset right as this player's own draw step begins, so
+            # `RulesEngine._single_draw` can tell "the step's own first
+            # draw" apart from a later one within the same step (Notion
+            # Thief/Chains of Mephistopheles's shared exemption clause).
+            self.state.first_draw_done_this_step[self.state.active_player.id] = False
         self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name))
         self._fire_delayed_triggers(step.name)
         # RULE 611: "until the beginning of the next end step" — swept as

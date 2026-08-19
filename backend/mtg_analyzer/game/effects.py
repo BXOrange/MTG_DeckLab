@@ -33,7 +33,7 @@ from ..models import card_query
 from ..models.events import EventType, GameEvent
 from ..models.game_object import Zone
 from ..models.mana_cost import ManaCost
-from .targeting import TargetSpec
+from .targeting import TargetSpec, all_requirements_satisfiable, requirements_with_targets
 
 if TYPE_CHECKING:  # avoid an import cycle with rules_engine at runtime
     from ..models.game_object import GameObject
@@ -707,8 +707,14 @@ def _apply_effects_partitioned(
     created_objects: Optional[list[Any]] = None,
     life_lost_this_way: int = 0,
     previous_selector: Optional[str] = None,
-) -> None:
+    stack_item: Optional[Any] = None,
+) -> bool:
     """Apply each of ``effects`` against its own share of ``targets``.
+
+    Returns whether the list paused partway through (an effect opened a
+    `pending_choice`, deferring the remainder) rather than running to
+    completion — see ``stack_item`` below and `RulesEngine._apply_stack_
+    item`'s own use of the return value.
 
     Mirrors `RulesEngine.resolve_top_of_stack`'s per-effect
     `StackItem.target_groups` dispatch, for a *nested* effects list —
@@ -748,6 +754,20 @@ def _apply_effects_partitioned(
     antecedent today (widen the whitelist, not this function, as another
     card needs a different one — same convention `effect_binder.
     _GROUP_SUBJECT_RETARGET_FIELDS` uses).
+
+    ``stack_item`` (MEC-37, Doomsday) is threaded through into the parked
+    `deferred_effects` entry unchanged, purely so `RulesEngine.
+    resume_deferred_effects` can find its way back to the *spell* this
+    effects list belongs to once the remainder finally finishes with
+    nothing left to pause on — RULE 608.2m only sends a resolved spell to
+    its next zone (ordinarily the graveyard) *after* every one of its
+    effects has actually happened, so `RulesEngine._apply_stack_item`
+    skips that routing entirely while this function's return value says
+    "paused," rather than running it prematurely while the spell's own
+    interactive effect (a search, say) is still waiting on an answer — a
+    real bug a search naming the caster's own graveyard could otherwise
+    see: the still-resolving spell showing up as a candidate in its own
+    search a moment before RULE 608.2m actually puts it there.
     """
     state = getattr(context, "state", None)
     already_pending = getattr(state, "pending_choice", None) if state is not None else None
@@ -797,9 +817,11 @@ def _apply_effects_partitioned(
                         "created_objects": list(context.created_objects),
                         "life_lost_this_way": context.life_lost_this_way,
                         "previous_selector": context.previous_selector,
+                        "stack_item": stack_item,
                     }
                 )
-                return
+                return True
+        return False
     finally:
         context.previous_targets = outer_previous
         context.created_objects = outer_created
@@ -2051,6 +2073,17 @@ class ConditionalEffect(GameEffect):
             # (`GameObject.was_cast`), distinguishing a real cast from a
             # searched/reanimated/token entry.
             if bool(getattr(self.source, "was_cast", False)) != bool(source_was_cast):
+                return False
+        cast_outside_sorcery_speed = self.condition.get("cast_outside_sorcery_speed")
+        if cast_outside_sorcery_speed is not None:
+            # "If you cast it any time a sorcery couldn't have been cast,
+            # `<downside>`." (RULE 601.3a, MEC-44 — Necromancy-shaped) —
+            # `GameObject.cast_outside_sorcery_speed`, stamped once at cast
+            # time (`GameEngine._cast_current_face`) since the board has
+            # moved on by the time this resolves.
+            if bool(getattr(self.source, "cast_outside_sorcery_speed", False)) != bool(
+                cast_outside_sorcery_speed
+            ):
                 return False
         source_is_renowned = self.condition.get("source_is_renowned")
         if source_is_renowned is not None:
@@ -3790,9 +3823,16 @@ class LoseLifeEffect(GameEffect):
         amount_from_burden_counters_on_self: bool = False,
         amount_from_count_selector: Optional[str] = None,
         amount_from_spells_cast_this_turn: bool = False,
+        amount_from_half_own_life: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: "You lose half your life, rounded up." (MEC-37, Doomsday) —
+        #: reads this effect's own controller's *current* life total at
+        #: resolution (RULE 107.3 rounds up), independently of the
+        #: selector/target resolution below since the real card never
+        #: prints one — always the caster themself.
+        self.amount_from_half_own_life = amount_from_half_own_life
         #: "…each opponent loses life equal to the number of tapped
         #: creatures you control." (Throne of the God-Pharaoh) — a live
         #: `continuous.count_selector` read, scoped to this effect's own
@@ -3866,6 +3906,10 @@ class LoseLifeEffect(GameEffect):
             caster = _event_player(context, key="player_id")
             count = context.state.spells_cast_this_turn.get(getattr(caster, "id", None), 0)
             amount = self.amount * count
+        if self.amount_from_half_own_life:
+            controller = _controller_of(self.source, context)
+            life = getattr(controller, "life", 0)
+            amount = -(-life // 2)  # ceiling division (RULE 107.3 rounds up)
         if amount <= 0:
             return
         if self.selector in _LOSE_LIFE_SELECTORS:
@@ -4794,7 +4838,16 @@ class GrantSearchProhibitedEffect(GameEffect):
     `GrantCantBeCounteredEffect` uses; scanned by `RulesEngine.
     request_search`'s own guard rather than the layer engine (a
     permission, not a characteristic).
+
+    ``scope="opponents"`` (the default, Stranglehold's own shape) prohibits
+    only players other than this effect's own controller; ``scope="all"``
+    (MEC-35, "**Players** can't search libraries." — Leonin Arbiter) drops
+    that exemption, prohibiting the controller too.
     """
+
+    def __init__(self, scope: str = "opponents", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.scope = scope if scope in ("opponents", "all") else "opponents"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None
@@ -4919,6 +4972,18 @@ class ExileEffect(GameEffect):
     target artifacts and/or enchantments controlled by **different
     players**") is `targeting.TargetSpec.distinct_controllers` — see its
     docstring; only meaningful with ``count >= 2``.
+
+    ``target_kind="trigger_subject"`` (MEC-38, Necropotence's "whenever
+    you discard a card, exile **that card** from your graveyard") is a
+    fourth, non-RULE-115 mode alongside the target/self/selector shapes
+    above — the acted-on object isn't chosen at all, it's whichever card
+    the firing event itself names, read live off `GameContext.
+    trigger_event` (``trigger_event_key``, ``"instance_id"`` by default)
+    the same way `TapEffect`'s own ``target_kind="trigger_subject"``
+    already does. By the time this fires the named card is already
+    sitting in the graveyard (`RulesEngine.discard`/`discard_specific`
+    move it there before firing), so this is a real zone change, not a
+    no-op.
     """
 
     def __init__(
@@ -4938,6 +5003,7 @@ class ExileEffect(GameEffect):
         max_mana_value: Optional[int] = None,
         grant_owner_play_permission: bool = False,
         owner_play_permission_tax: Optional[int] = None,
+        trigger_event_key: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -4945,6 +5011,8 @@ class ExileEffect(GameEffect):
         self.filter = filter
         self.remember = remember
         self.track_exiled_with = track_exiled_with
+        self._trigger_subject_mode = target_kind == "trigger_subject"
+        self.trigger_event_key = trigger_event_key or "instance_id"
         #: "For as long as that card remains exiled, its owner may play
         #: it." (MEC-12, Soul Partition/Praetor's Grasp-shaped) — the
         #: standing, unconditional sibling of Lukka's own board-gated
@@ -4961,7 +5029,7 @@ class ExileEffect(GameEffect):
         #: param whenever/if it's ever actually cast.
         self.owner_play_permission_tax = owner_play_permission_tax
         self.target_spec: Optional[TargetSpec] = None
-        if self.selector is None and target_kind is not None:
+        if self.selector is None and target_kind is not None and not self._trigger_subject_mode:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter,
                 distinct_controllers=distinct_controllers,
@@ -4978,6 +5046,13 @@ class ExileEffect(GameEffect):
         if self.selector is not None:
             for obj in _mass_selector_objects(context, self.selector, self.filter):
                 context.exile(obj)
+            return
+        if self._trigger_subject_mode:
+            event = context.trigger_event
+            obj_id = (event or {}).get(self.trigger_event_key)
+            target = context.state.find_object(obj_id) if obj_id is not None else None
+            if target is not None:
+                context.exile(target)
             return
         if self.target_spec is None:
             target = (targets[0] if targets else None) or self.target or self.source
@@ -5008,6 +5083,148 @@ class ExileEffect(GameEffect):
                         target,
                     )
                     target.static_effects.extend(tax)
+
+
+class ExileTopOfLibraryEffect(GameEffect):
+    """"Exile the top card of your library[, face down]." (MEC-38,
+    Necropotence-shaped) — deterministic, no chooser at all, unlike
+    `SearchLibraryEffect` (which offers the *whole* zone as a real RULE
+    115.1a-ish pick even with ``count=1``): always the literal top card.
+    ``face_down=True`` stamps `GameObject.face_down_in_exile`, the same
+    flag `RulesEngine._put_searched_card`'s own ``"exile_face_down"``
+    destination uses. Appends the exiled card to `GameContext.
+    created_objects` so a following clause ("Put that card into your
+    hand at the beginning of your next end step.") can reach it — see
+    `CreateDelayedTriggerEffect`'s ``capture="created_objects"``.
+
+    ``player_selector="active_player"`` (MEC-33, Omen Machine — "at the
+    beginning of **each player's** draw step, **that player** exiles…")
+    reads `GameState.active_player` live at resolution instead of this
+    effect's own source's controller — a `STEP_BEGIN` trigger with no
+    ``phase_relation`` fires once per turn regardless of whose turn it is
+    (RULE 500.1: a draw step only ever belongs to the turn's own active
+    player, so "each player's draw step" and "the active player's draw
+    step, every turn" are the same set of firings), the same "no subject
+    of its own, read live off `GameState.active_player`" idiom
+    `DealDamageEffect`'s own ``"active_player"`` selector already
+    established (Roiling Vortex-shaped).
+    """
+
+    def __init__(
+        self, face_down: bool = False, player_selector: str = "controller",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.face_down = face_down
+        self.player_selector = player_selector
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.player_selector == "active_player":
+            player = context.state.active_player
+        else:
+            player = _controller_of(self.source, context)
+        if player is None or not player.library:
+            return
+        top = player.library[-1]
+        context.exile(top)
+        if self.face_down:
+            # Set *after* the move: `RulesEngine._remove_from_current_zone`
+            # (which `exile()` calls to pull the card out of its old zone)
+            # unconditionally clears this flag as its own RULE 400.7 "a
+            # card leaving exile turns face up" behavior — harmless for
+            # that case, but it would silently undo this card *entering*
+            # exile face down if set beforehand.
+            top.face_down_in_exile = True
+        context.created_objects.append(top)
+
+
+class LandOrFreeCastEffect(GameEffect):
+    """"If it's a land card, the player puts it onto the battlefield.
+    Otherwise, the player casts it without paying its mana cost if able."
+    (MEC-33 — Omen Machine's own tail; the same tail also prints on Wild
+    Evocation off a different source card, "reveals a card at random from
+    their hand" instead of an exiled top card, confirming this is a real
+    shared template worth its own primitive rather than a one-off).
+
+    Acts on whatever card an earlier effect in the same resolution just
+    made available — `GameContext.created_objects[-1]`, the same "read
+    what a previous clause created" idiom `AttachEffect(target_kind=
+    "created")`/`ReturnFromGraveyardEffect(target_kind=
+    "self_enchant_target")` already use, rather than a RULE 115 target of
+    its own (nothing here is chosen — it's whichever card the source
+    effect surfaced). ``player_selector`` matches `ExileTopOfLibraryEffect`'s
+    own param exactly (``"controller"`` default, ``"active_player"`` for
+    Omen Machine's "each player's draw step, that player…" scoping).
+
+    A land goes straight to the battlefield (RULE 305.1 — no stack, no
+    legality check beyond existing). Anything else is cast via
+    `RulesEngine.cast_without_paying` (RULE 118.9/601.3b) — but only when
+    "able": a spell requiring a target it has none of simply can't be cast,
+    the same RULE 601.2c gate `GameEngine.has_legal_targets` checks before
+    ever offering a real cast action, replicated here directly off
+    `targeting.py` since an effect has no `GameEngine` to call through
+    (`GameContext.engine` is the `RulesEngine`). "If able" names no other
+    fallback in either printed card, so an uncastable nonland card is left
+    exactly where the source effect left it (in exile, or wherever) —
+    neither card's text says to do anything else with it.
+
+    **Documented simplification**: a targeted card is auto-targeted at its
+    first legal option per requirement rather than opening a real choice —
+    this engine has no "pause mid-resolution for a nested cast+targeting
+    cycle" primitive yet (`game/rules/misc_mixin.py`'s own `"grant_free_
+    cast"` branch, MEC-20, names the same gap for Expertise's own same-turn
+    free cast), so every other automatic-cast primitive in this codebase
+    accepts the same "first legal candidate, no prompt" reading rather than
+    leaving the card silently uncast whenever it happens to have 2+ legal
+    targets.
+    """
+
+    def __init__(self, player_selector: str = "controller", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.player_selector = player_selector
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        obj = context.created_objects[-1] if context.created_objects else None
+        if obj is None:
+            return
+        if self.player_selector == "active_player":
+            player = context.state.active_player
+        else:
+            player = _controller_of(self.source, context)
+        if player is None:
+            return
+        if obj.card.is_land:
+            obj.summoning_sick = True
+            context.engine._remove_from_current_zone(player, obj)
+            context.state.add_to_battlefield(obj)
+            context.state.fire_event(
+                GameEvent(
+                    EventType.ENTERS_BATTLEFIELD,
+                    controller_id=player.id,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                )
+            )
+            return
+        requirements = requirements_with_targets(context.state, player.id, obj)
+        if not all_requirements_satisfiable(requirements):
+            return  # "if able" — no legal target, so it can't be cast
+        cast_targets: list[Any] = []
+        for req in requirements:
+            options = req.get("options") or []
+            if not options:
+                continue
+            pick = options[0]
+            if "instance_id" in pick:
+                resolved = context.state.find_object(pick["instance_id"])
+            elif "player_id" in pick:
+                resolved = context.state.player_by_id(pick["player_id"])
+            else:
+                resolved = None
+            if resolved is not None:
+                cast_targets.append(resolved)
+        context.engine.cast_without_paying(player, obj, targets=cast_targets or None)
 
 
 class ExileAnyNumberYouControlEffect(GameEffect):
@@ -6822,9 +7039,20 @@ class ReturnFromGraveyardEffect(GameEffect):
         # already treats a shuffle destination as a placement + a follow-up
         # `shuffle_library` call rather than its own zone.
         self.shuffle_after = shuffle_after
-        self.target_spec = TargetSpec(
-            kind=target_kind, optional=optional, count=count, subtype=subtype,
-            max_mana_value=max_mana_value,
+        # RULE 303.4f (MEC-34): "Return enchanted creature card to the
+        # battlefield…" (Animate Dead-shaped) — a fifth, non-RULE-115 mode
+        # alongside the ordinary target/self shapes `AttachEffect`'s own
+        # ``target_kind="created"`` mirrors: the card to return isn't a
+        # fresh choice at all, it's the *same* graveyard card this Aura's
+        # own spell already targeted when cast, stashed on `GameObject.
+        # reanimate_target_id` since it can't attach the ordinary way.
+        self._self_enchant_mode = target_kind == "self_enchant_target"
+        self.target_spec = (
+            TargetSpec(
+                kind=target_kind, optional=optional, count=count, subtype=subtype,
+                max_mana_value=max_mana_value,
+            )
+            if not self._self_enchant_mode else None
         )
 
     def _apply_one(self, context: GameContext, target: Any) -> None:
@@ -6866,6 +7094,13 @@ class ReturnFromGraveyardEffect(GameEffect):
                 context.lose_life(player, int(mv))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self._self_enchant_mode:
+            target_id = getattr(self.source, "reanimate_target_id", None)
+            target = context.state.find_object(target_id) if target_id is not None else None
+            if target is None:
+                return
+            self._apply_one(context, target)
+            return
         if self.target_spec.effective_count != 1:
             chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
             for target in chosen:
@@ -7163,6 +7398,16 @@ class CreateDelayedTriggerEffect(GameEffect):
             for effect in inner:
                 if hasattr(effect, "objects"):
                     effect.objects = made
+                elif hasattr(effect, "exiled_object") and made:
+                    # "…Put that card into your hand at the beginning of
+                    # your next end step." (MEC-38, Necropotence) —
+                    # `ReturnUncastExiledEffect.exiled_object`, the same
+                    # single-object capture `.target` gets just below,
+                    # named differently since this effect already uses
+                    # `.target`-shaped semantics for something else (RULE
+                    # 608.2's referent here is specifically "the card *this
+                    # same resolution* just exiled").
+                    effect.exiled_object = made[0]
                 elif hasattr(effect, "target") and made:
                     effect.target = made[0]
         # "Its controller may draw up to two cards at the beginning of the
@@ -7602,6 +7847,28 @@ class SacrificeSpecificEffect(GameEffect):
                 # graveyard, so it can't be stopped by a regeneration shield
                 # (RULE 701.16c) — `put_into_graveyard`, not `destroy`.
                 context.engine.put_into_graveyard(obj)
+
+
+class SacrificeAttachedPermanentEffect(GameEffect):
+    """"When this Aura leaves the battlefield, that creature's controller
+    sacrifices it." (MEC-34, RULE 303.4f's reanimator-Aura template —
+    Animate Dead/Necromancy) — reads `self.source.attached_to` live at
+    resolution rather than baking in a fixed object the way
+    `SacrificeSpecificEffect` does, since the acting object here is only
+    known once this LEAVES_BATTLEFIELD trigger actually fires.
+    `GameState.remove_from_battlefield` never clears `attached_to`, so the
+    just-departed Aura's own field still names the creature it was
+    attached to the moment it left.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        host_id = getattr(self.source, "attached_to", None)
+        if host_id is None:
+            return
+        host = context.state.find_object(host_id)
+        if host is None or host not in context.state.battlefield:
+            return
+        context.engine.put_into_graveyard(host)
 
 
 class ExileSpecificEffect(GameEffect):
@@ -8296,6 +8563,48 @@ class GrantCombatRestrictionEffect(GameEffect):
                 "instance_id": self.source.instance_id,
             }
         target.temp_combat_restrictions.append(restriction)
+
+
+class BecomeAuraEffect(GameEffect):
+    """"…it becomes an Aura with '`<quoted enchant text>`.'" (RULE 305.1c/
+    303.4f — Necromancy-shaped, MEC-44). Stamps `GameObject.
+    parametric_keywords["enchant"]` directly onto this effect's own source
+    at resolution. Every attachment-family reader (`RulesEngine.
+    _attachment_kind`/`_attachment_legal`/`_detach_attachments_from`)
+    already reads that dict fresh off the live object each call rather than
+    a cached/load-time snapshot — the same dict `effect_binder.py` writes
+    exactly once, at bind time, for every ordinary Aura/Equipment/Fortify/
+    Reconfigure card — so a plain runtime write here is picked up by every
+    consumer for free; no threading needed, despite the field never having
+    been *written* to mid-game by anything before this effect.
+
+    ``quality`` is the enchant restriction's *type* word (``"creature"`` by
+    default) — `_attachment_legal`'s own quality vocabulary (``"creature"``/
+    ``"artifact"``/``"land"``/…) already falls through to permissive
+    ``True`` for anything it doesn't recognize, the same simplification
+    Animate Dead's own (already-an-Aura-from-load) quality string relies
+    on: neither card's *exact* printed restriction ("creature card in a
+    graveyard" / "creature put onto the battlefield with `<this>`") is a
+    real characteristic this engine's simple word-match vocabulary can
+    express, and no shipped card needs it enforced that precisely.
+
+    Scoped to `parametric_keywords["enchant"]` specifically, not a general
+    "becomes a `<type>` with `<quoted ability>`" primitive (RULE 305.1c,
+    which could grant *any* ability, not just an attachment restriction) —
+    that stays real, separate future work; see this card's own catalogue
+    entry for why building the fully general version wasn't worth it for
+    one card.
+    """
+
+    def __init__(self, quality: str = "creature", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.quality = quality
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        self.source.parametric_keywords = dict(self.source.parametric_keywords or {})
+        self.source.parametric_keywords["enchant"] = {"quality": self.quality}
 
 
 class AttachEffect(GameEffect):
@@ -13053,6 +13362,7 @@ EffectRegistry.register(
         amount_from_burden_counters_on_self=bool(p.get("amount_from_burden_counters_on_self", False)),
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_from_spells_cast_this_turn=bool(p.get("amount_from_spells_cast_this_turn", False)),
+        amount_from_half_own_life=bool(p.get("amount_from_half_own_life", False)),
     ),
 )
 EffectRegistry.register(
@@ -13177,7 +13487,10 @@ EffectRegistry.register(
     "grant_cant_be_countered",
     lambda p: GrantCantBeCounteredEffect(scope=p.get("scope", "you")),
 )
-EffectRegistry.register("grant_search_prohibited", lambda p: GrantSearchProhibitedEffect())
+EffectRegistry.register(
+    "grant_search_prohibited",
+    lambda p: GrantSearchProhibitedEffect(scope=p.get("scope", "opponents")),
+)
 EffectRegistry.register(
     "grant_search_limited_to_top_n",
     lambda p: GrantSearchLimitedToTopNEffect(n=p.get("n", p.get("count", 4))),
@@ -13243,7 +13556,38 @@ EffectRegistry.register(
         max_mana_value=p.get("max_mana_value"),
         grant_owner_play_permission=bool(p.get("grant_owner_play_permission", False)),
         owner_play_permission_tax=p.get("owner_play_permission_tax"),
+        trigger_event_key=p.get("trigger_event_key"),
     ),
+)
+EffectRegistry.register(
+    # "Exile the top card of your library[, face down]." (MEC-38,
+    # Necropotence) — deterministic, no chooser, unlike "exile"/"search".
+    "exile_top_of_library",
+    lambda p: ExileTopOfLibraryEffect(
+        face_down=bool(p.get("face_down", False)),
+        player_selector=p.get("player_selector", "controller"),
+    ),
+)
+EffectRegistry.register(
+    # "If it's a land card, the player puts it onto the battlefield.
+    # Otherwise, the player casts it without paying its mana cost if
+    # able." (MEC-33, Omen Machine/Wild Evocation's shared tail) — see
+    # `LandOrFreeCastEffect`.
+    "land_or_free_cast",
+    lambda p: LandOrFreeCastEffect(player_selector=p.get("player_selector", "controller")),
+)
+EffectRegistry.register(
+    # "Put that card into your hand." (MEC-38, Necropotence's own delayed
+    # trigger, and Beseech the Mirror/Rebound's existing "if it wasn't
+    # cast this way" tail — see `ReturnUncastExiledEffect`'s own
+    # docstring) — never built as its own EffectSpec entry point before;
+    # every prior use constructed it directly in Python inside another
+    # effect's own `apply()`. ``exiled_object`` is set at resolve time by
+    # `CreateDelayedTriggerEffect`'s `capture="created_objects"`, never a
+    # bare param (a raw object reference can't cross the EffectSpec
+    # security boundary).
+    "return_uncast_exiled",
+    lambda p: ReturnUncastExiledEffect(exiled_object=None, destination=p.get("destination", "hand")),
 )
 EffectRegistry.register(
     # RULE 702.45-adjacent Imprint: "you may exile a `<filter>` card from
@@ -13806,6 +14150,13 @@ EffectRegistry.register(
     lambda p: ExileSpecificEffect(objects=[]),
 )
 EffectRegistry.register(
+    # "When this Aura leaves the battlefield, that creature's controller
+    # sacrifices it." (MEC-34, Animate Dead/Necromancy) — no params at all,
+    # reads `self.source.attached_to` live at resolution.
+    "sacrifice_attached_permanent",
+    lambda p: SacrificeAttachedPermanentEffect(),
+)
+EffectRegistry.register(
     # "Each opponent may discard a card. If they don't, they lose N life.
     # Repeat this process M more times." (Professor Onyx's −8)
     "discard_or_lose_life",
@@ -14079,6 +14430,12 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind", "permanent"),
     ),
+)
+EffectRegistry.register(
+    # "…it becomes an Aura with '<quoted enchant text>.'" (RULE 305.1c/
+    # 303.4f, MEC-44 — Necromancy) — see `BecomeAuraEffect`.
+    "become_aura",
+    lambda p: BecomeAuraEffect(quality=p.get("quality", "creature")),
 )
 EffectRegistry.register(
     # "Whenever a[n] <X> you control enters, you may attach it to target
@@ -14952,6 +15309,44 @@ EffectRegistry.register(
         "mana_multiplier",
         affects="self",
         params={"multiplier": int(p.get("multiplier", 2) or 2)},
+    ),
+)
+EffectRegistry.register(
+    # "Skip your draw step." (MEC-38, Necropotence) — consulted directly by
+    # `RulesEngine.should_skip_step` via `continuous.skipped_steps_for`,
+    # the same "not a RULE 613 layer, read live off the battlefield" shape
+    # `mana_type_override`/`mana_multiplier` already use.
+    "skip_step",
+    lambda p: StaticAbility(
+        "skip_step",
+        affects="self",
+        params={"step": p.get("step", "draw")},
+    ),
+)
+EffectRegistry.register(
+    # "While an opponent is searching their library, they exile each card
+    # they find. You may play those cards..." (MEC-39, Opposition Agent)
+    # — consulted directly by `RulesEngine._finish_search` via
+    # `continuous.search_redirect_controller_for`.
+    "search_redirect",
+    lambda p: StaticAbility("search_redirect", affects="self", params={}),
+)
+EffectRegistry.register(
+    # "If a land is tapped for 2 or more mana, it produces {C} instead of
+    # any other type and amount." (MEC-36, Damping Sphere) — unscoped
+    # (``affects="all_lands"``, matching every land regardless of
+    # controller, the same "unqualified reach" `cost_reduction`'s own
+    # ``affects="all_spells"`` uses), consulted directly by `GameEngine.
+    # tap_for_mana` via `continuous.mana_type_override_for`, alongside
+    # `mana_multiplier` above.
+    "mana_type_override",
+    lambda p: StaticAbility(
+        "mana_type_override",
+        affects="all_lands",
+        params={
+            "min_amount": int(p.get("min_amount", 2) or 2),
+            "to": p.get("to", "C"),
+        },
     ),
 )
 EffectRegistry.register(
@@ -16267,6 +16662,130 @@ def _win_instead_of_empty_draw_replacement(params: dict[str, Any]) -> Replacemen
     return effect
 
 
+def _split_multi_draw_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If an opponent would draw two or more cards, instead you and that
+    player each draw a card." (Alms Collector, MEC-32, RULE 616.1) —
+    intercepts `EventType.DRAW_INSTRUCTION` (`RulesEngine.draw`'s own
+    aggregate event, fired once per ``draw()`` call before it's split into
+    individual per-card `EventType.DRAW` events) rather than the ordinary
+    per-card event every other draw replacement in this file reads: the
+    "two or more" test is about the whole attempted instruction, which no
+    per-card event can see. ``min_count`` (default 2) is the printed
+    threshold. The whole original instruction is cancelled (returns
+    ``None``) and replaced by exactly one fresh, un-doubled `draw()` call
+    for each player — so neither resulting draw's own count ever reaches
+    ``min_count`` again, and this doesn't re-trigger itself.
+    """
+    min_count = int(params.get("min_count", 2))
+    effect = ReplacementEffect(
+        event_type=EventType.DRAW_INSTRUCTION,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, context: GameContext) -> bool:
+        src = effect.source
+        if src is None:
+            return False
+        opponent_id = event.get("player_id")
+        if opponent_id is None or opponent_id == src.controller_id:
+            return False
+        return event.get("count", 1) >= min_count
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        opponent = context.state.player_by_id(event.get("player_id"))
+        controller = context.state.player_by_id(src.controller_id)
+        context.draw(opponent, 1)
+        context.draw(controller, 1)
+        return None
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
+def _steal_non_first_draw_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If an opponent would draw a card except the first one they draw in
+    each of their draw steps, instead that player skips that draw and you
+    draw a card." (Notion Thief, MEC-32, RULE 616.1) — the per-card sibling
+    of Alms Collector's instruction-level replacement above: reads the
+    ordinary per-card `EventType.DRAW` event's own ``first_in_draw_step``
+    flag (`RulesEngine._single_draw`, computed live off the new
+    `GameState.first_draw_done_this_step` per-player tracker reset each
+    time a player's own draw step begins, `game/engine/turn_loop_mixin.py`'s
+    `_run_step`) rather than re-deriving position from `cards_drawn_this_
+    turn`, since a draw from an unrelated spell elsewhere in the same turn
+    must not count as "the step's own first draw."
+    """
+    effect = ReplacementEffect(
+        event_type=EventType.DRAW,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, context: GameContext) -> bool:
+        src = effect.source
+        if src is None:
+            return False
+        opponent_id = event.get("player_id")
+        if opponent_id is None or opponent_id == src.controller_id:
+            return False
+        return not event.get("first_in_draw_step")
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        controller = context.state.player_by_id(effect.source.controller_id)
+        context.draw(controller, 1)
+        return None
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
+def _discard_instead_of_non_first_draw_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If a player would draw a card except the first one they draw in
+    each of their draw steps, that player discards a card instead. If the
+    player discards a card this way, they draw a card. If the player
+    doesn't discard a card this way, they mill a card." (Chains of
+    Mephistopheles, MEC-32, RULE 616.1) — reads the same ``first_in_draw_
+    step`` flag `_steal_non_first_draw_replacement` reads, but applies
+    table-wide (no opponent/you scoping at all, unlike Notion Thief) and
+    its own compensating draw is a fresh `RulesEngine.draw` call that can
+    (and, per the printed card, should) be replaced by this same effect
+    again if the affected player's hand still has a card to discard —
+    RULE 616.1f's "repeat this process until there are no more applicable
+    replacement effects" loop terminates naturally once their hand empties
+    (each recursive discard strictly shrinks it), at which point the
+    "doesn't discard this way" branch mills instead of drawing. The
+    discard itself is the engine's ordinary non-interactive `RulesEngine.
+    discard` (auto-chosen, no chooser in MVP) — the same documented
+    simplification every other untargeted discard in this engine already
+    uses, not something new to this card.
+    """
+    effect = ReplacementEffect(
+        event_type=EventType.DRAW,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, context: GameContext) -> bool:
+        return not event.get("first_in_draw_step")
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        player = context.state.player_by_id(event.get("player_id"))
+        if player.hand:
+            context.discard(player, 1)
+            context.draw(player, 1)
+        else:
+            context.mill(player, 1)
+        return None
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
 class ReplacementRegistry:
     """Maps a whitelisted replacement-type name to a `ReplacementEffect` factory.
 
@@ -16304,3 +16823,6 @@ ReplacementRegistry.register("double_tokens", _double_tokens_replacement)
 ReplacementRegistry.register("create_one_of_each_named_token", _create_one_of_each_named_token_replacement)
 ReplacementRegistry.register("additional_named_token", _additional_named_token_replacement)
 ReplacementRegistry.register("win_instead_of_empty_draw", _win_instead_of_empty_draw_replacement)
+ReplacementRegistry.register("split_multi_draw", _split_multi_draw_replacement)
+ReplacementRegistry.register("steal_non_first_draw", _steal_non_first_draw_replacement)
+ReplacementRegistry.register("discard_instead_of_non_first_draw", _discard_instead_of_non_first_draw_replacement)

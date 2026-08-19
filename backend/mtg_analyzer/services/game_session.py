@@ -914,6 +914,12 @@ class GameSession:
             active, self._object(action), int(action.get("option_index", 0))
         )
 
+    def _dispatch_pay_search_exemption(self, action: dict[str, Any], active: Player) -> None:
+        # RULE 116.2a (MEC-35, Leonin Arbiter): pay {2} to ignore every
+        # current search prohibition until end of turn — no stack, same
+        # "no window to respond" shape as `turn_face_up` above.
+        self.engine.pay_search_exemption(active)
+
     def _dispatch_activate_ability(self, action: dict[str, Any], active: Player) -> None:
         # Pay the ability's cost and put it on the stack (RULE 602); like a
         # spell it then waits for priority to resolve.
@@ -995,6 +1001,7 @@ class GameSession:
         "cast_spell": _dispatch_cast_spell,
         "roll_planar_die": _dispatch_roll_planar_die,
         "turn_face_up": _dispatch_turn_face_up,
+        "pay_search_exemption": _dispatch_pay_search_exemption,
         "activate_ability": _dispatch_activate_ability,
         "attack": _dispatch_declare_attackers,
         "declare_attackers": _dispatch_declare_attackers,

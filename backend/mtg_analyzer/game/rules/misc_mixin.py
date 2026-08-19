@@ -2976,4 +2976,9 @@ class MiscSystemsMixin:
                 if effect.duration == "once":
                     effect.active = False
                 return True
+        # MEC-38 (Necropotence's "Skip your draw step."): a standing,
+        # battlefield-sourced skip rather than a one-shot/duration-scoped
+        # `player_effects` entry — see `continuous.skipped_steps_for`.
+        if step_name in continuous.skipped_steps_for(self.state, player):
+            return True
         return False

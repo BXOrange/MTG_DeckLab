@@ -623,9 +623,16 @@ class GameState:
         #: exactly one of ``"day"``/``"night"`` for the rest of the game.
         self.day_night: Optional[str] = None
         #: Spells cast by each player *this turn* (RULE 731.2's "did the
-        #: active player cast any/2+ spells last turn" check) — reset for the
-        #: new active player in `GameEngine.begin_turn`, incremented off the
-        #: `SPELL_CAST` event by `RulesEngine._track_spell_cast`.
+        #: active player cast any/2+ spells last turn" check, and MEC-36's
+        #: Damping Sphere — "costs {1} more for each **other** spell that
+        #: player has cast this turn," read cross-player via `continuous.
+        #: count_selector`'s ``"spells_cast_this_turn"``) — reset for
+        #: *every* player each `GameEngine.begin_turn` (widened from the
+        #: original RULE 731.2-only "just the incoming active player" scope
+        #: once Damping Sphere needed a non-active player's own count to
+        #: stay accurate too, the same `mana_produced_this_turn`/`cast_
+        #: instant_or_sorcery_this_turn` game-wide idiom below), incremented
+        #: off the `SPELL_CAST` event by `RulesEngine._track_spell_cast`.
         self.spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: Noncreature spells cast by each player *this turn* ("~ deals
         #: damage to that player equal to the number of noncreature spells
@@ -673,6 +680,19 @@ class GameState:
         #: on every successful draw, the same shape `spells_cast_this_turn`
         #: uses for `cast_limit`.
         self.cards_drawn_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: Whether each player has already had "the first one they draw in
+        #: [their] draw step" this draw step (MEC-32 — Notion Thief/Chains
+        #: of Mephistopheles's shared exemption clause). Reset to ``False``
+        #: for the active player only, right as their own ``"draw"`` step
+        #: begins (`GameEngine._run_step`) — deliberately *not* reset by
+        #: `cards_drawn_this_turn`'s own per-turn reset above, since a draw
+        #: from a spell earlier in the same turn must not count as "the
+        #: step's own first draw." Consulted and flipped to ``True`` by
+        #: `RulesEngine._single_draw`, which only ever computes it while
+        #: `current_step == "draw"` for the drawing player themself — a
+        #: draw anywhere else in the turn always reads as "not first,"
+        #: correctly, since it can never be the draw step's own first card.
+        self.first_draw_done_this_step: dict[str, bool] = {p.id: False for p in players}
         #: Life actually gained by each player *this turn* (RULE 119.3 —
         #: "whenever ~ attacks, if you gained 3 or more life this turn,
         #: <effect>", Frodo, Adventurous Hobbit-shaped). Reset for the new
@@ -721,6 +741,16 @@ class GameState:
         #: bookkeeping (it simply stops matching once the turn advances,
         #: unlike the `temp_*` `GameObject` fields `_step_cleanup` clears).
         self.temp_flash_until_turn: dict[str, int] = {}
+        #: RULE 116.2a-adjacent (MEC-35, Leonin Arbiter): "Any player may
+        #: pay {2} for that player to ignore this effect until end of
+        #: turn." — ``{player_id: turn_number}``, the same "stops matching
+        #: once the turn advances, no cleanup bookkeeping" shape as
+        #: `temp_flash_until_turn` right above. Consulted by
+        #: `RulesEngine._has_search_exemption`, which every `request_
+        #: search` prohibition check now also allows past; set by
+        #: `GameEngine.pay_search_exemption` (a genuine RULE 116.2a special
+        #: action — no stack, offered any time the payer has priority).
+        self.search_exempt_until_turn: dict[str, int] = {}
         #: Who each source has dealt *combat* damage to this turn (RULE
         #: 120.3): ``{source instance_id: {player_id, …}}``, stamped by
         #: `RulesEngine.deal_damage` and cleared for the whole game in

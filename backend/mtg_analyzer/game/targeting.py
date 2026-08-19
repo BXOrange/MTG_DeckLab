@@ -668,6 +668,25 @@ def legal_targets(
         if attachment_kind == "enchant":
             quality = ((source.parametric_keywords or {}).get("enchant") or {}).get("quality", "")
             quality = str(quality).strip().lower()
+            if quality.endswith("card in a graveyard"):
+                # RULE 303.4f (MEC-34): "Enchant creature card in a
+                # graveyard" (Animate Dead-shaped reanimator Auras) — the
+                # target is a graveyard *card*, not a battlefield permanent,
+                # so it's drawn from every player's graveyard instead and
+                # skips `_targetable_by`'s protection/hexproof checks
+                # entirely (those are battlefield-only qualities a
+                # graveyard card never has). ``type_word`` is whatever
+                # precedes "card in a graveyard" ("creature" for every
+                # printed card today; bare "card in a graveyard" — no type
+                # word — matches anything).
+                type_word = quality[: -len("card in a graveyard")].strip()
+                results = []
+                for player in state.players:
+                    for o in player.graveyard:
+                        if type_word == "creature" and not o.is_creature:
+                            continue
+                        results.append({"instance_id": o.instance_id, "name": o.name})
+                return results
             if not quality or quality in {"permanent", "anything"}:
                 return [
                     {"instance_id": o.instance_id, "name": o.name}

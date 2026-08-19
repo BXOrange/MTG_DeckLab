@@ -35,7 +35,7 @@ from .catalogue.levels import (
     split_class_blocks,
     split_leveler_blocks,
 )
-from .catalogue.modal import MODAL_HEADER_RE, collect_mode_bodies, split_modal_block
+from .catalogue.modal import MODAL_HEADER_RE, collect_mode_bodies, split_modal_block, split_spree_block
 from .catalogue.opening_hand import (
     opening_hand_battlefield_conditional_permission_line,
     opening_hand_battlefield_permission_line,
@@ -986,7 +986,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Onslaught-shaped, unrelated to the range shape) were silently only ever
 #: offering one target, since the handler set a "count" key the "pump"
 #: `EffectRegistry` factory never read.
-PARSER_VERSION = "93"
+#: MEC-31: RULE 702.172a Spree's own block grammar (`catalogue/modal.
+#: split_spree_block` — a "spree" header line, its reminder text already
+#: gone by the time `normalize` is done, followed by 2+ "+ <cost> — <body>"
+#: mode lines) reaches `AbilitySpec.modes["mode_costs"]`, the per-mode-cost
+#: sibling of RULE 700.2's uniformly-priced "choose N or more" block.
+PARSER_VERSION = "94"
 
 
 @dataclass
@@ -1405,6 +1410,36 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             parser=provenance,
         ))
 
+    def _process_spree_block(header: str, mode_costs: list[str], mode_bodies: list[str]) -> None:
+        nonlocal all_claimed
+        # RULE 702.172a: Spree's own block shape — always "choose one or
+        # more" (`at_least=True, choose=1`, the same combinatorial offer
+        # Farewell's "choose N or more" already drives via `_modal_cast_
+        # actions`), but priced per mode rather than once for the whole
+        # spell (`mode_costs`, threaded through `AbilitySpec._validate_
+        # modes`/`effect_binder._build_mode_entries` into each mode's own
+        # `spell_modes[i]["cost"]`, read by `GameEngine._modal_extra_cost`).
+        parsed = _parse_mode_options(mode_bodies)
+        if parsed is None:
+            all_claimed = False
+            unclaimed.append(header)
+            unclaimed.extend(f"+ {c} — {b}" for c, b in zip(mode_costs, mode_bodies))
+            return
+        options, descriptions = parsed
+        effect_specs.append(AbilitySpec(
+            "spell_effect",
+            effects=[],
+            modes={
+                "at_least": True,
+                "choose": 1,
+                "options": options,
+                "descriptions": descriptions,
+                "mode_costs": mode_costs,
+            },
+            raw_text=header,
+            parser=provenance,
+        ))
+
     def _process_triggered_modal_block(
         header: str,
         event: str,
@@ -1528,6 +1563,12 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         lines = [line for line in normalized.split("\n") if line.strip()]
         i = 0
         while i < len(lines):
+            spree_block = split_spree_block(lines, i) if allow_spell_effect else None
+            if spree_block is not None:
+                mode_costs, mode_bodies, next_i = spree_block
+                _process_spree_block(lines[i], mode_costs, mode_bodies)
+                i = next_i
+                continue
             block = split_modal_block(lines, i) if allow_spell_effect else None
             if block is not None:
                 or_both, or_more, choose, mode_bodies, next_i = block

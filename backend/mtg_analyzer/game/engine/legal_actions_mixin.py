@@ -308,6 +308,17 @@ class LegalActionsMixin:
                     if escape_cost is not None and escape_cost.exile_from_graveyard:
                         action["escape_exile_count"] = escape_cost.exile_from_graveyard
 
+            # MEC-31: RULE 702.172a Spree / RULE 702.120 Escalate — this
+            # specific mode *combination*'s own surcharge on top of the
+            # printed cost, distinct from every cost adjustment below (those
+            # apply the same regardless of which modes were chosen; this one
+            # varies per combination, which is exactly why `_modal_cast_
+            # actions` offers one action per combination rather than one
+            # shared offer with a menu). Locked the same way Entwine's own
+            # priced "both" offer is above, since two combinations of the
+            # same card can differ in whether they're affordable at all.
+            modal_extra_cost = self._modal_extra_cost(obj, mode) if mode is not None else None
+
             # Static cost adjustment (RULE 601.2f): surface base vs. reduced so the
             # UI can show "was {3}, now {1}" and the static-effects panel can
             # attribute it. Only attached when something actually changes the cost.
@@ -317,13 +328,20 @@ class LegalActionsMixin:
             contributors = contributors + self_contributors
             floor = continuous.cost_floor_for(self.state, player, obj)
             tax = self.commander_tax(player, obj)
-            if (reduction or tax or graveyard_keyword or floor > cost.converted_mana_cost) and cost.raw:
+            if (
+                reduction or tax or graveyard_keyword or floor > cost.converted_mana_cost or modal_extra_cost
+            ) and cost.raw:
                 action["base_cost"] = cost.raw
-                action["effective_cost"] = self.effective_cast_cost(player, obj).raw
+                action["effective_cost"] = self.effective_cast_cost(player, obj, mode=mode).raw
                 if reduction:
                     action["cost_reduction"] = contributors
                 if tax:
                     action["commander_tax"] = tax
+                if modal_extra_cost is not None:
+                    action["modal_extra_cost"] = modal_extra_cost.raw
+            if modal_extra_cost is not None and not self.can_cast(player, obj, mode=mode):
+                action["locked"] = True
+                action["lock_reason"] = "Manakosten nicht bezahlbar"
 
             # RULE 601.2b: surface the additional cast cost (if any) so the UI
             # can show it alongside the mana cost, and lock the offer when its
@@ -360,7 +378,13 @@ class LegalActionsMixin:
         (``itertools.combinations``), each tagged with a list of indices
         instead of a bare int (see `_effects_for_mode`). For "choose *N* or
         more" (``obj.spell_modes_at_least`` — Farewell-shaped): one action
-        per combination of *every* size from ``N`` to all modes.
+        per combination of *every* size from ``N`` to all modes — the same
+        combination sweep RULE 702.172a Spree/RULE 702.120 Escalate reuse
+        (MEC-31, ``choose=1, at_least=True`` either way): each combination's
+        own `_cast_action` locks independently when *that specific*
+        combination's surcharge (`_modal_extra_cost`) isn't affordable,
+        since unlike Farewell's flat "choose N or more" every combination
+        here can cost a different amount.
         """
         modes = list(getattr(obj, "spell_modes", None) or [])
         choose = getattr(obj, "spell_modes_choose", 1)
@@ -830,4 +854,9 @@ class LegalActionsMixin:
             for index, ability in enumerate(combined):
                 if ability.cost.graveyard_zone and self.can_activate(player, source, ability):
                     actions.append(self._activate_action(player, source, index, ability))
+
+        # RULE 116.2a (MEC-35, Leonin Arbiter's own "any player may pay
+        # {2}…" exemption) — a special action, not tied to any object in a
+        # particular zone, so it isn't discovered by any of the loops above.
+        actions.extend(self.pay_search_exemption_actions(player))
         return actions

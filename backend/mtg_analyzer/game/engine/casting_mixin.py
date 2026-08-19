@@ -147,6 +147,65 @@ class CastingMixin:
         if not raw:
             return None
         return ManaCost.parse(str(raw))
+    @staticmethod
+    def _escalate_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.120: ``obj``'s Escalate cost as a `ManaCost`, or ``None``
+        if it carries no Escalate keyword (or one with no parsed cost) —
+        the same shape `_buyback_cost`/`_mutate_cost` take for their own
+        cost-bearing keywords. Already a plain parsed parametric keyword
+        (`parser/oracle/catalogue/keywords.py`'s cost-bearing table) —
+        Escalate needed no parser handler of its own (MEC-31): only
+        `_modal_extra_cost` below, which reads this once per mode chosen
+        *beyond the first*, was missing.
+        """
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("escalate")
+        if not param or not param.get("cost"):
+            return None
+        return ManaCost.parse(str(param["cost"]))
+    def _modal_extra_cost(self, obj: GameObject, mode: Any) -> Optional["ManaCost"]:
+        """RULE 702.172a Spree / RULE 702.120 Escalate (MEC-31): the extra
+        mana a chosen mode *combination* costs on top of the spell's own
+        printed cost, for a "choose one or more" modal block whose modes
+        aren't priced identically.
+
+        Spree prices each mode individually — ``obj.spell_modes[i]["cost"]``
+        (attached per option by `effect_binder._build_mode_entries` from the
+        parser's ``modes["mode_costs"]``, or a hand-authored catalogue
+        entry's own ``modes`` dict) — so the total is the sum of every
+        *chosen* mode's own cost. Escalate is the opposite split: one flat
+        keyword cost (`_escalate_cost`) paid once per mode chosen *beyond
+        the first*, regardless of which modes those are — Blessed
+        Alliance's "Escalate {2}" printed once, not per mode. The two never
+        appear on the same card; Spree is checked first since it's the one
+        that needs ``obj.spell_modes`` at all.
+
+        ``None`` (no surcharge) for a bare int/``"both"`` mode — neither
+        mechanic's header is ever anything but "choose one or more", so a
+        single-mode/"both" selection can't be either — or when ``obj``
+        carries neither.
+        """
+        if not isinstance(mode, (list, tuple)):
+            return None
+        modes = list(getattr(obj, "spell_modes", None) or [])
+        total: Optional["ManaCost"] = None
+        for i in mode:
+            if 0 <= i < len(modes):
+                raw = modes[i].get("cost")
+                if raw:
+                    piece = ManaCost.parse(str(raw))
+                    total = piece if total is None else total.add(piece)
+        if total is not None:
+            return total
+        escalate_cost = self._escalate_cost(obj)
+        if escalate_cost is None:
+            return None
+        extra = max(0, len(mode) - 1)
+        if extra <= 0:
+            return None
+        total = escalate_cost
+        for _ in range(extra - 1):
+            total = total.add(escalate_cost)
+        return total
     def legal_mutate_hosts(self, player: Player, obj: GameObject) -> list[GameObject]:
         """RULE 702.140a: the creatures ``obj`` could mutate onto — "target
         **non-Human** creature you own".
@@ -209,6 +268,7 @@ class CastingMixin:
         obj: GameObject,
         x: int = 0,
         face: str = "front",
+        mode: Optional[Any] = None,
         kicked: int = 0,
         kicker_x: int = 0,
         buyback: bool = False,
@@ -276,6 +336,14 @@ class CastingMixin:
         whether an otherwise-legal cast is *just* short on mana, in which
         case it's worth trying to auto-tap for the rest (`game/mana_
         potential.py`) before failing for real.
+
+        ``mode`` (MEC-31), when it's a chosen combination of modal indices,
+        is consulted only for its cost side here — RULE 702.172a Spree/RULE
+        702.120 Escalate's own per-combination surcharge
+        (`_modal_extra_cost`), folded into the mana-pool check below via
+        `effective_cast_cost`. Every other modal shape (a bare int, or
+        ``"both"``) prices identically regardless of ``mode``, so passing it
+        is harmless there too.
         """
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
@@ -459,7 +527,7 @@ class CastingMixin:
                 return False
         elif not assume_mana_available:
             cost = self.effective_cast_cost(
-                player, obj, x, face=face, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
+                player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                 mutate=mutate, entwine=entwine, targets=targets,
             )
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
@@ -589,6 +657,7 @@ class CastingMixin:
         obj: GameObject,
         x: int = 0,
         face: str = "front",
+        mode: Optional[Any] = None,
         kicked: int = 0,
         kicker_x: int = 0,
         buyback: bool = False,
@@ -628,6 +697,12 @@ class CastingMixin:
         one reads the caster's actual, already-chosen targets) — omitted
         (``None``) at every offer-time preview caller, the same "no surcharge
         until the real cast supplies it" treatment `can_cast` gives it.
+
+        ``mode``, when it's a chosen combination of modal indices, adds RULE
+        702.172a Spree/RULE 702.120 Escalate's own surcharge for that
+        combination (`_modal_extra_cost`, MEC-31) — ``None``/a bare
+        int/``"both"`` add nothing, since neither mechanic's header is ever
+        anything but "choose one or more".
         """
         card = self._face_card(obj, face) or obj.card
         if mutate:
@@ -674,6 +749,11 @@ class CastingMixin:
             entwine_cost = self._entwine_cost(obj)
             if entwine_cost is not None:
                 cost = cost.add(entwine_cost)
+        modal_extra_cost = self._modal_extra_cost(obj, mode)
+        if modal_extra_cost is not None:
+            # MEC-31: RULE 702.172a Spree / RULE 702.120 Escalate — likewise
+            # additive, on top of everything above, never substituted.
+            cost = cost.add(modal_extra_cost)
         strive_cost = getattr(obj, "strive_cost", None)
         if strive_cost is not None and targets:
             # "This spell costs <cost> more to cast for each target beyond
@@ -957,6 +1037,7 @@ class CastingMixin:
         obj: GameObject,
         x: int,
         face: str = "front",
+        mode: Optional[Any] = None,
         kicked: int = 0,
         kicker_x: int = 0,
         buyback: bool = False,
@@ -1005,21 +1086,21 @@ class CastingMixin:
         (`ManaPool.pay_distinct_colors`), never through auto-tap.
         """
         if free or alt_cost or self.can_cast(
-            player, obj, x, face=face, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
+            player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             targets=targets,
         ):
             return
         if not self.can_cast(
-            player, obj, x, face=face, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
+            player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             targets=targets, assume_mana_available=True,
         ):
             return  # illegal for a reason other than mana — never auto-tap
         cost = self.effective_cast_cost(
-            player, obj, x, face=face, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
+            player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
             entwine=entwine, targets=targets,
         )
         try:
@@ -1064,13 +1145,13 @@ class CastingMixin:
                 raise ValueError(f"{obj.name}: 'both' requires paying the entwine cost")
         with self._mode_effects_applied(obj, mode):
             self._auto_tap_for_cast_if_needed(
-                player, obj, x, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
+                player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets,
             )
             if not self.can_cast(
-                player, obj, x, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
+                player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets,
@@ -1109,6 +1190,16 @@ class CastingMixin:
                 if obj in player.graveyard and graveyard_keyword is None
                 else None
             )
+            # MEC-44: RULE 601.3a — remembered once, here, since whether a
+            # sorcery could have been cast depends on the board at THIS
+            # moment (own main phase, empty stack, own turn), not whatever
+            # it is by the time a later effect reads it ("if you cast it
+            # any time a sorcery couldn't have been cast, `<downside>`.",
+            # Necromancy-shaped) — legal only via some flash grant when
+            # this is true, never RULE 601.3a's own default window.
+            obj.cast_outside_sorcery_speed = not (
+                player is self.state.active_player and self._in_main_phase() and not self.state.stack
+            )
             if free:
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups)
             elif alt_cost:
@@ -1129,7 +1220,7 @@ class CastingMixin:
                 self.rules.lose_life(player, obj.card.converted_mana_cost, cause="cost")
             else:
                 cost = self.effective_cast_cost(
-                    player, obj, x, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
+                    player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
                     entwine=entwine, targets=targets,
                 )
                 result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)

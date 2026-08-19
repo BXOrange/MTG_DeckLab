@@ -146,8 +146,42 @@ class DrawDiscardMixin:
     """Draw, mill, discard."""
 
     def draw(self, player: Player, count: int = 1) -> None:
-        for _ in range(count):
+        if count <= 0:
+            return
+        if count == 1:
+            # The overwhelmingly common case (every turn-based draw-step
+            # draw, most card-draw spells) — skip straight to the per-card
+            # path below with no instruction-level replacement pass at all.
+            # No shipped `DRAW_INSTRUCTION` replacement ever applies to a
+            # single-card instruction (Alms Collector's own `min_count` is
+            # 2), so this is a pure performance fast path, not a behaviour
+            # change — `draw()` is the single most heavily-exercised
+            # primitive in the engine, and doubling its replacement-scan
+            # cost for every ordinary one-card draw measurably slowed down
+            # long games (a bot test's own many-hundred-turn line went from
+            # comfortably under the per-test timeout to tripping it).
             self._single_draw(player)
+            return
+        # MEC-32: fire one event for the whole "draw `count` cards"
+        # instruction *before* splitting it into individual card moves
+        # below — see `EventType.DRAW_INSTRUCTION`'s own docstring for why
+        # this is a separate event type from the per-card `DRAW` each
+        # `_single_draw` call fires (so an ordinary per-card replacement
+        # can't double-apply against both). Only a replacement that
+        # specifically registers against `DRAW_INSTRUCTION` (Alms
+        # Collector's "if an opponent would draw two or more cards") ever
+        # sees this one; nothing else changes for every other draw
+        # replacement already shipped.
+        event = GameEvent(EventType.DRAW_INSTRUCTION, player_id=player.id, count=count)
+
+        def _finish(resolved: Optional[GameEvent]) -> None:
+            if resolved is None:
+                return
+            n = resolved.get("count", count)
+            for _ in range(n):
+                self._single_draw(player)
+
+        self.apply_replacements(event, on_resolved=_finish)
     def _single_draw(self, player: Player) -> None:
         # RULE 121.5-adjacent "each player can't draw more than N cards each
         # turn." (Spirit of the Labyrinth) — a cap checked *before* this draw
@@ -159,7 +193,18 @@ class DrawDiscardMixin:
         draw_limit = continuous.max_draws_per_turn(self.state, player)
         if draw_limit is not None and self.state.cards_drawn_this_turn.get(player.id, 0) >= draw_limit:
             return
-        event = GameEvent(EventType.DRAW, player_id=player.id, count=1)
+        # MEC-32: "the first one they draw in each of their draw steps" only
+        # ever means the step's own built-in draw — a card drawn from a
+        # spell/ability at any other time (including elsewhere in the same
+        # turn) is never exempt, so this stays `False` unless we're
+        # literally inside `player`'s own draw step right now.
+        first_in_draw_step = False
+        if self.state.current_step == "draw" and self.state.active_player.id == player.id:
+            first_in_draw_step = not self.state.first_draw_done_this_step.get(player.id, False)
+            self.state.first_draw_done_this_step[player.id] = True
+        event = GameEvent(
+            EventType.DRAW, player_id=player.id, count=1, first_in_draw_step=first_in_draw_step,
+        )
 
         def _finish(resolved: Optional[GameEvent]) -> None:
             if resolved is None:
@@ -216,6 +261,9 @@ class DrawDiscardMixin:
             player.graveyard.append(obj)
             self._flag_commander_zone_choice(obj)  # RULE 903.9a
             discarded += 1
+            self.state.fire_event(
+                GameEvent(EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id)
+            )
         if discarded:
             self.state.fire_event(
                 GameEvent(EventType.DISCARD, player_id=player.id, count=discarded)
@@ -287,6 +335,9 @@ class DrawDiscardMixin:
         player.remove_from_zone(obj, Zone.HAND)
         player.add_to_zone(obj, Zone.GRAVEYARD)
         self._flag_commander_zone_choice(obj)  # RULE 903.9a
+        self.state.fire_event(
+            GameEvent(EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id)
+        )
         self.state.fire_event(
             GameEvent(EventType.DISCARD, player_id=player.id, count=1)
         )

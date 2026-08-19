@@ -86,7 +86,7 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "not_already_exerted", "is_first_combat_phase", "is_your_turn",
         "opponent_cast_color_this_turn", "no_creatures_on_battlefield",
         "source_is_renowned", "shares_type_with_linked_exile", "source_was_cast",
-        "source_entered_untapped",
+        "source_entered_untapped", "cast_outside_sorcery_speed",
     }
 )
 
@@ -100,7 +100,14 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
 #: `condition_query.conditional_flash_holds`'s docstring for why this one
 #: alone is checked against the caster's actual chosen targets rather than
 #: purely off the object/state the way ``"entered_this_turn"`` is.
-ALLOWED_CAST_CONDITION_KEYS: frozenset[str] = frozenset({"entered_this_turn", "targets_a_commander"})
+#: ``"unconditional"`` (MEC-44, Necromancy — "You may cast this spell as
+#: though it had flash.", no gate at all) is the trivially-true member every
+#: other key here lacked: a plain, unqualified flash grant still needs a
+#: `conditional_flash` entry to reach `combat.has(obj, "flash")`-shaped
+#: legality (`can_cast`'s own check), it just never has anything to test.
+ALLOWED_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
+    {"entered_this_turn", "targets_a_commander", "unconditional"}
+)
 
 #: RULE 601.2f/117.3a-adjacent: "If you control a commander, you may cast
 #: this spell without paying its mana cost." (Deadly Rollick/Deflecting
@@ -659,6 +666,21 @@ class AbilitySpec:
                 raise SpecValidationError(
                     "'modes' entwine requires a plain 'choose one' block"
                 )
+        mode_costs = self.modes.get("mode_costs")
+        if mode_costs is not None:
+            # RULE 702.172a Spree: unlike Entwine (one shared upgrade cost),
+            # every mode carries its *own* additional cost — so this is only
+            # meaningful on the "choose one or more" shape (`at_least`, not
+            # `or_both`/a fixed `choose`), one entry per option.
+            if not isinstance(mode_costs, list) or len(mode_costs) != len(options):
+                raise SpecValidationError("'modes' mode_costs must match its options 1:1")
+            for cost in mode_costs:
+                if not isinstance(cost, str) or not cost.strip():
+                    raise SpecValidationError("'modes' mode_costs entries must be mana-cost strings")
+            if not self.modes.get("at_least") or choose != 1:
+                raise SpecValidationError(
+                    "'modes' mode_costs (Spree) requires a 'choose one or more' block"
+                )
 
     def _validate_additional_cost(self) -> None:
         """Structural check for an ``additional_cost`` clause (RULE 601.2b/604.3)."""
@@ -699,6 +721,8 @@ class AbilitySpec:
             raise SpecValidationError("'entered_this_turn' condition must be a bool")
         if key == "targets_a_commander" and not isinstance(value, bool):
             raise SpecValidationError("'targets_a_commander' condition must be a bool")
+        if key == "unconditional" and not isinstance(value, bool):
+            raise SpecValidationError("'unconditional' condition must be a bool")
 
     def _validate_impulsive_draw_on_combat_damage(self) -> None:
         """Structural check for an ``impulsive_draw_on_combat_damage`` marker."""
@@ -932,6 +956,7 @@ class AbilitySpec:
             "choose": int(self.modes.get("choose", 1)),
             "options": [[e.to_dict() for e in opt] for opt in self.modes.get("options", [])],
             "descriptions": list(self.modes.get("descriptions") or []),
+            "mode_costs": list(self.modes.get("mode_costs") or []) or None,
         }
 
     @staticmethod
@@ -946,6 +971,7 @@ class AbilitySpec:
                 [EffectSpec.from_dict(e) for e in opt] for opt in (data.get("options") or [])
             ],
             "descriptions": list(data.get("descriptions") or []),
+            "mode_costs": list(data.get("mode_costs") or []) or None,
         }
 
     @classmethod

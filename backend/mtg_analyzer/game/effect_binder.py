@@ -186,6 +186,9 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # Glowing One/Infesting Radroach, The Wise Mothman) — `RulesEngine.mill`
     # fires this per nonland card, keyed by whose library it came from.
     "MILL_CARD": "player_id",
+    # "Whenever you discard a card, …" (MEC-38, Necropotence) — same
+    # per-card-sibling-of-an-aggregate shape as `MILL_CARD` above.
+    "DISCARD_CARD": "player_id",
     # "Whenever a creature you control deals combat damage to a player, …"
     # (RULE 120.3, Bident of Thassa/Deepfathom Skulker) — a DAMAGE event
     # names the damage's *source*, so "you control" is that source's
@@ -1853,13 +1856,25 @@ def _build_mode_entries(modes: dict[str, Any], source: Any) -> list[dict[str, An
     ...], "description": str}`` entries, one per printed mode — shared by a
     modal spell's ``obj.spell_modes`` (`_attach_modes`) and a modal
     triggered ability's own ``TriggeredAbility.modes``
-    (`bind_ability`'s ``triggered`` branch)."""
-    return [
-        {"effects": build_effects(option, source), "description": description}
-        for option, description in zip(
-            modes.get("options", []), modes.get("descriptions") or []
-        )
-    ]
+    (`bind_ability`'s ``triggered`` branch).
+
+    A ``"cost"`` key is added per entry when ``modes`` carries
+    ``mode_costs`` (RULE 702.172a Spree, MEC-31 — a raw mana-cost string
+    per mode, parallel to ``options``/``descriptions``), read by
+    `GameEngine._modal_extra_cost` to price a chosen mode combination on
+    top of the spell's own printed cost. Absent for every other modal
+    shape, same as before this existed.
+    """
+    mode_costs = modes.get("mode_costs") or []
+    entries = []
+    for i, (option, description) in enumerate(
+        zip(modes.get("options", []), modes.get("descriptions") or [])
+    ):
+        entry: dict[str, Any] = {"effects": build_effects(option, source), "description": description}
+        if i < len(mode_costs) and mode_costs[i]:
+            entry["cost"] = mode_costs[i]
+        entries.append(entry)
+    return entries
 
 
 def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:

@@ -474,5 +474,16 @@ def test_exile_rest_engine_moves_leftover_matches_to_exile_and_skips_shuffle():
         eng.rules.resolve_search_choice(cid)
 
     assert len(picked) == 5  # every card in the 5-card library+graveyard
-    assert p1.library == [] and p1.graveyard == []
+    # MEC-37: every one of the 5 cards was itself *chosen* (destination
+    # "library_top"), so there is nothing left over for exile_rest to
+    # exile — it must not re-catch the very cards this search just placed
+    # back into one of its own searched zones (a real, latent bug this
+    # test had been unknowingly encoding as "expected" until Doomsday's
+    # own hand-authoring surfaced it: exile_rest's sweep used to re-scan
+    # `zones` without excluding the freshly-chosen cards, so a
+    # library_top/library_bottom destination combined with a "library"
+    # search zone silently ate every pick).
+    assert {o.instance_id for o in p1.library} == set(picked)
+    assert p1.graveyard == []
+    assert p1.exile == []
     assert not any(e.type == EventType.SHUFFLE for e in eng.state.event_log)
