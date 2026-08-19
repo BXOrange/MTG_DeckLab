@@ -79,3 +79,16 @@ def graveyard_cast_grant_for(
 
 def may_cast_spell_from_graveyard(player: "Player", state: "GameState", card: "Card") -> bool:
     return graveyard_cast_grant_for(player, state, card) is not None
+
+
+def has_temporary_graveyard_play_permission(player: "Player", state: "GameState") -> bool:
+    """"Until end of turn, you may play lands and cast spells from your
+    graveyard." (Yawgmoth's Will-shaped, MEC-12) — a player-scoped, turn-
+    stamped grant distinct from every permission above: those are all
+    anchored to some *other* permanent's own `static_effects` and read
+    `graveyard_cast_grant_for`'s per-card filters (which explicitly exclude
+    lands, since no other permission source ever needed to cover them);
+    this one covers the caster's *whole* graveyard, lands included, for
+    exactly the turn it was granted on.
+    """
+    return player.graveyard_play_permission_until_turn == state.turn_number

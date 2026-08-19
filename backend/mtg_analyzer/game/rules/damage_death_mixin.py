@@ -1458,9 +1458,18 @@ class DamageDeathMixin:
         if obj.cast_via_graveyard_cast_permission_until_turn == self.state.turn_number:
             self.exile(obj)
             return
+        owner = self.state.player_by_id(obj.owner_id)
+        # "If a card would be put into your graveyard from anywhere this
+        # turn, exile that card instead." (Yawgmoth's Will's own second
+        # clause, MEC-12) — a card only ever enters its own *owner's*
+        # graveyard (RULE 404.4/700.4), which is exactly what "your
+        # graveyard" means here; the player-scoped, whole-turn sibling of
+        # the per-object check just above.
+        if owner is not None and owner.graveyard_redirect_to_exile_until_turn == self.state.turn_number:
+            self.exile(obj)
+            return
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
-        owner = self.state.player_by_id(obj.owner_id)
 
         # RULE 616.1: a "if ~ would die, exile it instead" replacement
         # (Gloomshrieker/Corpseweaver Prodigy) intercepts a creature's

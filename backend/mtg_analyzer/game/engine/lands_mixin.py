@@ -57,7 +57,7 @@ from ..targeting import (
     resolved_count,
     spell_target_specs,
 )
-from ..graveyard_cast import graveyard_cast_grant_for
+from ..graveyard_cast import graveyard_cast_grant_for, has_temporary_graveyard_play_permission
 from ..top_library import (
     may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
@@ -83,6 +83,11 @@ class LandsMixin:
                 and may_play_land_from_top_of_library(player, self.state)
             )
             or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player))
+            or (
+                obj.zone == Zone.GRAVEYARD
+                and obj in player.graveyard
+                and has_temporary_graveyard_play_permission(player, self.state)
+            )
         )
         return (
             card is not None
@@ -258,9 +263,15 @@ class LandsMixin:
         Flashback/Escape keyword vocabulary. Cast this way, ``obj`` pays its
         own normal mana cost (`effective_cast_cost` only substitutes an
         alternative cost for a recognised graveyard keyword, so this falls
-        through to the printed cost unchanged).
+        through to the printed cost unchanged). Also true under Yawgmoth's
+        Will's own player-scoped "you may cast spells from your graveyard"
+        grant (`has_temporary_graveyard_play_permission`), which covers
+        every card rather than one permanent's own filtered set.
         """
-        return graveyard_cast_grant_for(player, self.state, obj.card) is not None
+        return (
+            graveyard_cast_grant_for(player, self.state, obj.card) is not None
+            or has_temporary_graveyard_play_permission(player, self.state)
+        )
     def _castable_from_library(self, player: Player, obj: GameObject) -> bool:
         """Whether the top-of-library card ``obj`` is castable from there
         right now (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — see

@@ -388,6 +388,7 @@ class GameContext:
         destination_if: Optional[list[dict[str, Any]]] = None,
         attach_to_creature_you_control: bool = False,
         remember_source_id: Optional[int] = None,
+        total_mana_value_budget: Optional[int] = None,
     ) -> None:
         self.engine.request_search(
             player, criteria, destination, count, optional,
@@ -395,6 +396,7 @@ class GameContext:
             extra_counters=extra_counters, destination_if=destination_if,
             attach_to_creature_you_control=attach_to_creature_you_control,
             remember_source_id=remember_source_id,
+            total_mana_value_budget=total_mana_value_budget,
         )
 
     def request_intuition(
@@ -3697,6 +3699,51 @@ class ExtraLandPlayEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is not None:
             player.extra_land_plays_this_turn += self.count
+
+
+class GraveyardPlayPermissionThisTurnEffect(GameEffect):
+    """"Until end of turn, you may play lands and cast spells from your
+    graveyard." (Yawgmoth's Will-shaped, MEC-12) — a *player*-scoped
+    standing permission, unlike `GraveyardCastPermissionEffect` (Lurrus-
+    shaped), which lives on a permanent's own `static_effects` and vanishes
+    the instant that permanent leaves the battlefield. The sorcery granting
+    this one is already gone (to the graveyard, or — thanks to Yawgmoth's
+    Will's own second clause below — exile) long before end of turn, so the
+    permission is tracked on the player directly rather than scanned off a
+    permanent. Stamps `Player.graveyard_play_permission_until_turn` to the
+    current turn number; `game/graveyard_cast.py`'s `has_temporary_
+    graveyard_play_permission` reads it back — a stamped turn number
+    naturally "expires" the moment `GameState.turn_number` advances, so
+    nothing needs a separate sweep. Unlike every existing graveyard-cast
+    permission source, this one covers lands too.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            player.graveyard_play_permission_until_turn = context.state.turn_number
+
+
+class GraveyardRedirectToExileEffect(GameEffect):
+    """"If a card would be put into your graveyard from anywhere this
+    turn, exile that card instead." (Yawgmoth's Will's own second clause,
+    MEC-12) — the player-scoped, turn-limited sibling of
+    `GraveyardCastPermissionEffect.exile_if_would_be_put_into_graveyard`'s
+    per-*object* redirect (which only ever catches the one spell cast via
+    its own permission): this one catches every card this player *owns*,
+    from any zone, for any reason, for the rest of the turn. Stamps
+    `Player.graveyard_redirect_to_exile_until_turn`, checked directly in
+    `RulesEngine._move_to_graveyard` — the one choke point every
+    graveyard-bound move funnels through — against whichever player owns
+    the moving card, since a card only ever enters its own owner's
+    graveyard (RULE 404.4/700.4), which is exactly what "your graveyard"
+    means here.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            player.graveyard_redirect_to_exile_until_turn = context.state.turn_number
 
 
 #: `LoseLifeEffect`'s mass-selector vocabulary ("each opponent loses N
@@ -7557,6 +7604,39 @@ class SacrificeSpecificEffect(GameEffect):
                 context.engine.put_into_graveyard(obj)
 
 
+class ExileSpecificEffect(GameEffect):
+    """Exile the exact permanents baked into this effect (RULE 406/701.5a).
+
+    The plural counterpart of `SacrificeSpecificEffect` (same "the rules
+    already fixed which objects, nothing to choose or target" shape),
+    needed for a *delayed* "exile them" tail whose referent is `GameContext.
+    created_objects` (MEC-12, Twinflame's "…create a token that's a copy of
+    that creature… Exile **those tokens** at the beginning of the next end
+    step.") — `CreateDelayedTriggerEffect`'s own ``capture="created_
+    objects"`` branch already special-cases any inner effect exposing an
+    ``.objects`` list (as `SacrificeSpecificEffect` does for Kiki-Jiki's
+    singular "sacrifice it"), but `ExileEffect` only ever carries one
+    ``.target``, silently dropping every token past the first for a
+    multi-target source like Twinflame. Silently skips any object that
+    already left the battlefield by the time this resolves — a token that
+    died some other way first has already ceased to exist (RULE 111.7),
+    so there is nothing left to move.
+    """
+
+    def __init__(
+        self,
+        objects: list["GameObject"],
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.objects = objects
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for obj in list(self.objects):
+            if obj in context.state.battlefield:
+                context.engine.exile(obj)
+
+
 class ReturnUncastExiledEffect(GameEffect):
     """The "…if it wasn't cast this way" tail every optional free-cast-from-
     exile window needs: Beseech the Mirror's "put the exiled card into your
@@ -9065,6 +9145,33 @@ class ExileTopThenGrantConditionalCastEffect(GameEffect):
                 context.state.exile_cast_condition[obj.instance_id] = (player.id, dict(self.condition))
 
 
+class RevealTopThenTakeAndLoseLifeEffect(GameEffect):
+    """"Reveal the top card of your library and put that card into your
+    hand. You lose life equal to its mana value." (MEC-12, Dark Confidant-
+    shaped) — fully deterministic, no player choice at all (unlike `look_
+    top_select`'s interactive "pick M of these", there is only one card and
+    nothing to choose among), so both clauses are one atomic effect rather
+    than two sequenced ones needing a resolve-time referent to share.
+
+    Deliberately **not** routed through `RulesEngine.draw`/`DrawCardEffect`
+    — RULE 121.4: an effect that moves a card from library to hand without
+    the word "draw" isn't a draw at all, so it must never trigger a draw
+    replacement/"whenever you draw a card" ability, or count toward "cards
+    drawn this turn". Reveal itself has no state to model (this engine has
+    no face-up/face-down public-knowledge tracking for a solo/local game);
+    only the zone change and the life loss are real, observable effects.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or not player.library:
+            return
+        obj = player.library.pop()
+        obj.zone = Zone.HAND
+        player.hand.append(obj)
+        context.lose_life(player, int(obj.card.converted_mana_cost or 0))
+
+
 class ExileThenControllerRevealGreaterManaValueEffect(GameEffect):
     """"Exile target creature you control, then reveal cards from the top
     of your library until you reveal a creature card with greater mana
@@ -10023,6 +10130,9 @@ class CopyPermanentEffect(GameEffect):
         add_subtypes: Optional[list[str]] = None,
         not_legendary: bool = False,
         referent: str = "source",
+        target_count: int = 1,
+        target_count_max: Optional[int] = None,
+        target_optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -10072,12 +10182,38 @@ class CopyPermanentEffect(GameEffect):
         #: live at resolution, the same concept `TapEffect`'s own
         #: ``"attached_permanent"`` mode uses.
         self._attached_mode = target_kind == "attached_permanent"
+        #: "Choose any number of target creatures you control. For each of
+        #: them, create a token that's a copy of that creature…" (Twinflame-
+        #: shaped, MEC-12) — a genuine *per-target* multi-copy, unlike
+        #: ``count``'s existing "N copies of the (one) target" meaning
+        #: (Rite of Replication-shaped); named distinctly so both can
+        #: combine on some future card without colliding.
+        self.target_count = target_count
         self.target_spec = (
-            TargetSpec(kind=target_kind)
+            TargetSpec(kind=target_kind, count=target_count, count_max=target_count_max, optional=target_optional)
             if target_kind is not None and not self._attached_mode else None
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if (
+            self.target_spec is not None and not self._attached_mode
+            and self.target_spec.effective_count != 1
+        ):
+            controller_id = (
+                self.source.controller_id if self.source is not None
+                else context.active_player.id
+            )
+            for one in _chosen_targets(targets, self.target_spec.effective_count):
+                made = context.copy_permanent(
+                    controller_id, one, 1,
+                    add_types=self.add_types, add_subtypes=self.add_subtypes,
+                    not_legendary=self.not_legendary,
+                )
+                context.created_objects.extend(made)
+                if self.haste:
+                    for obj in made:
+                        obj.temp_keywords.add("haste")
+            return
         target = (targets[0] if targets else None) or self.target
         if self._attached_mode:
             attached_to = getattr(self.source, "attached_to", None)
@@ -10455,8 +10591,18 @@ class SearchLibraryEffect(GameEffect):
         destination_if: Optional[list[dict[str, Any]]] = None,
         attach_to_creature_you_control: bool = False,
         remember: bool = False,
+        total_mana_value_budget: Optional[int] = None,
     ) -> None:
         super().__init__(source)
+        #: "…for any number of creature cards with **total** mana value 6
+        #: or less…" (Protean Hulk, MEC-12) — a running budget shared
+        #: across the *whole* multi-pick search, unlike `criteria`'s own
+        #: ``max_mana_value`` (a fixed per-card cap): each round's own
+        #: eligible pool additionally excludes any card whose mana value
+        #: would push the sum of everything picked so far over this total.
+        #: See `RulesEngine.request_search`'s own docstring for how the
+        #: running total is threaded through the choice loop.
+        self.total_mana_value_budget = total_mana_value_budget
         #: "Exile a card from a graveyard. [...] the exiled card." (Cemetery
         #: Gatekeeper) — `ExileEffect.remember`'s own sibling for a search-
         #: shaped exile: stamps the found card's `instance_id` onto this
@@ -10540,6 +10686,7 @@ class SearchLibraryEffect(GameEffect):
             extra_counters=self.extra_counters, destination_if=self.destination_if,
             attach_to_creature_you_control=self.attach_to_creature_you_control,
             remember_source_id=self.source.instance_id if self.remember and self.source is not None else None,
+            total_mana_value_budget=self.total_mana_value_budget,
         )
 
 
@@ -12889,6 +13036,14 @@ EffectRegistry.register(
     lambda p: ExtraLandPlayEffect(count=p.get("count", 1)),
 )
 EffectRegistry.register(
+    "graveyard_play_permission_this_turn",  # Yawgmoth's Will's own first clause
+    lambda p: GraveyardPlayPermissionThisTurnEffect(),
+)
+EffectRegistry.register(
+    "graveyard_redirect_to_exile_this_turn",  # Yawgmoth's Will's own second clause
+    lambda p: GraveyardRedirectToExileEffect(),
+)
+EffectRegistry.register(
     "lose_life",
     lambda p: LoseLifeEffect(
         amount=p.get("amount", 0), player=p.get("player"), selector=p.get("selector"),
@@ -13005,6 +13160,12 @@ EffectRegistry.register(
     lambda p: ExileTopThenGrantConditionalCastEffect(
         count=int(p.get("count", 1) or 1), condition=p.get("condition"),
     ),
+)
+EffectRegistry.register(
+    # "Reveal the top card of your library and put that card into your
+    # hand. You lose life equal to its mana value." (MEC-12, Dark Confidant)
+    "reveal_top_then_take_and_lose_life",
+    lambda p: RevealTopThenTakeAndLoseLifeEffect(),
 )
 EffectRegistry.register(
     # "End the turn." (Day's Undoing/Time Stop-shaped reminder text)
@@ -13637,6 +13798,14 @@ EffectRegistry.register(
     lambda p: SacrificeSpecificEffect(objects=[]),
 )
 EffectRegistry.register(
+    # "Exile those tokens at the beginning of the next end step." (Twinflame-
+    # shaped, MEC-12) — the plural sibling of `sacrifice_specific` just
+    # above, same "empty default, only ever populated by `CreateDelayedTrigger
+    # Effect`'s own `capture='created_objects'`" idiom.
+    "exile_specific",
+    lambda p: ExileSpecificEffect(objects=[]),
+)
+EffectRegistry.register(
     # "Each opponent may discard a card. If they don't, they lose N life.
     # Repeat this process M more times." (Professor Onyx's −8)
     "discard_or_lose_life",
@@ -14144,6 +14313,9 @@ EffectRegistry.register(
         add_subtypes=p.get("add_subtypes"),
         not_legendary=bool(p.get("not_legendary", False)),
         referent=p.get("referent", "source"),
+        target_count=int(p.get("target_count", 1) or 1),
+        target_count_max=p.get("target_count_max"),
+        target_optional=bool(p.get("target_optional", False)),
     ),
 )
 EffectRegistry.register(
@@ -14168,6 +14340,7 @@ EffectRegistry.register(
         extra_counters=p.get("extra_counters"),
         attach_to_creature_you_control=bool(p.get("attach_to_creature_you_control", False)),
         remember=bool(p.get("remember", False)),
+        total_mana_value_budget=p.get("total_mana_value_budget"),
     ),
 )
 EffectRegistry.register(

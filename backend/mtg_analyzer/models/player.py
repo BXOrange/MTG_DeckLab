@@ -74,6 +74,24 @@ class Player:
         #: grant (`game/continuous.py`'s `extra_land_plays_for`).
         self.extra_land_plays_this_turn = 0
 
+        #: "Until end of turn, you may play lands and cast spells from
+        #: your graveyard." (Yawgmoth's Will-shaped, MEC-12) — the turn
+        #: number this permission was granted for; a stamped value
+        #: naturally "expires" the moment `GameState.turn_number` moves on,
+        #: so nothing needs to reset it back to ``None``. Read by
+        #: `game/graveyard_cast.py`'s `has_temporary_graveyard_play_
+        #: permission`.
+        self.graveyard_play_permission_until_turn: Optional[int] = None
+        #: "If a card would be put into your graveyard from anywhere this
+        #: turn, exile that card instead." (Yawgmoth's Will's own second
+        #: clause) — the player-scoped, turn-limited sibling of
+        #: `GameObject.cast_via_graveyard_cast_permission_until_turn`
+        #: (which only ever catches the one spell cast via its own
+        #: permission); checked directly in `RulesEngine._move_to_graveyard`
+        #: against whichever player *owns* the card, since a card only ever
+        #: enters its own owner's graveyard (RULE 404.4/700.4).
+        self.graveyard_redirect_to_exile_until_turn: Optional[int] = None
+
         #: Whether this player has lost (RULE 104.3). Kept distinct from
         #: removal from the game so history/UI can show the reason.
         self.has_lost = False

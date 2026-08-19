@@ -1038,6 +1038,34 @@ def _abdel_adrian_gorions_ward() -> list[AbilitySpec]:
 register("Abdel Adrian, Gorion's Ward", _abdel_adrian_gorions_ward)
 
 
+def _dark_confidant() -> list[AbilitySpec]:
+    """At the beginning of your upkeep, reveal the top card of your
+    library and put that card into your hand. You lose life equal to its
+    mana value.
+
+    — MEC-12 (cEDH staples 2). New `RevealTopThenTakeAndLoseLifeEffect` —
+    deliberately not routed through `DrawCardEffect`/`RulesEngine.draw` at
+    all (RULE 121.4: a card entering hand without the printed word "draw"
+    isn't a draw, so it must never trip a draw-replacement/"whenever you
+    draw" trigger, or count toward cards drawn this turn — load-bearing
+    for this exact cluster, since Alms Collector/Notion Thief/Chains of
+    Mephistopheles all key off "would draw a card").
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("reveal_top_then_take_and_lose_life", {})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
+            raw_text="Zu Beginn deines Versorgungssegments, decke die oberste "
+                     "Karte deiner Bibliothek auf und nimm diese Karte auf "
+                     "deine Hand. Du verlierst Leben in Höhe ihres Manawerts.",
+        ),
+    ]
+
+
+register("Dark Confidant", _dark_confidant)
+
+
 def _cursed_mirror() -> list[AbilitySpec]:
     """{T}: ~ becomes a copy of target creature until end of turn.
 
@@ -17676,3 +17704,392 @@ def _scab_clan_berserker() -> list[AbilitySpec]:
 
 
 register("Scab-Clan Berserker", _scab_clan_berserker)
+
+
+def _kamahl_heart_of_krosa() -> list[AbilitySpec]:
+    """At the beginning of combat on your turn, creatures you control get
+    +3/+3 and gain trample until end of turn.
+    {1}{G}: Until end of turn, target land you control becomes a 1/1
+    Elemental creature with vigilance, indestructible, and haste. It's
+    still a land.
+    Partner (You can have two commanders if both have partner.)
+
+    — Partner and the combat-trigger pump are already parser-`MODELED`
+    (`gate.parse_oracle` claims both; copied verbatim here rather than
+    re-derived, per the hand-author-card skill's own guidance) — hand-
+    authoring is only needed at all because of the third ability's "target
+    land you control becomes a 1/1 … creature … It's still a land" shape
+    (MEC-12), which no prior card had needed: RULE 611's `GrantUntilEffect`
+    already covers "until end of turn", and `targeting.py` already has
+    ``land_you_control``, but nothing had chained *two* `grant_until`
+    statics onto the *same* resolve-time target before. Built as two
+    ordinary `grant_until` `EffectSpec`s in one effect list — the first
+    targets the land and stamps a `type_change` (``add_types=["creature"]``,
+    literal 1/1), the second reuses `GameContext.previous_targets` via
+    `GrantUntilEffect`'s own existing ``previous_subject`` pronoun (the
+    same "Tap target land. It doesn't untap …" idiom `_apply_effects_
+    partitioned` already threads through any effect exposing `target_specs`)
+    to lay a `grant_keyword` static onto that exact land without
+    re-targeting — no new engine primitive, just the first card to combine
+    two already-shipped ones this way. "It's still a land" needs no code:
+    `type_change`'s ``add_types`` only *adds* the creature type, never
+    removing land — though it did surface a real, general bug fixed
+    alongside this card: see Ashaya, Soul of the Wild's own entry just
+    below for the `GameObject.is_land` fix that direction depends on too.
+    """
+    return [
+        AbilitySpec(
+            "keyword", [], keyword={"name": "partner"},
+            raw_text="Partner (You can have two commanders if both have partner.)",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("pump", {
+                "power": 3, "toughness": 3, "keywords": ["trample"],
+                "selector": "creatures_you_control",
+            })],
+            trigger={
+                "event": "STEP_BEGIN",
+                "filter": {"step": "begin_combat"},
+                "phase_relation": "you",
+            },
+            raw_text="At the beginning of combat on your turn, creatures "
+                     "you control get +3/+3 and gain trample until end of "
+                     "turn.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("grant_until", {
+                    "static": {"type": "type_change", "params": {
+                        "add_types": ["creature"], "power": 1, "toughness": 1,
+                    }},
+                    "duration": "end_of_turn", "target_kind": "land_you_control",
+                }),
+                EffectSpec("grant_until", {
+                    "static": {"type": "grant_keyword", "params": {
+                        "keywords": ["vigilance", "indestructible", "haste"],
+                    }},
+                    "duration": "end_of_turn", "target_kind": None,
+                    "previous_subject": True,
+                }),
+            ],
+            cost={"mana": "{1}{G}"},
+            raw_text="{1}{G}: Until end of turn, target land you control "
+                     "becomes a 1/1 Elemental creature with vigilance, "
+                     "indestructible, and haste. It's still a land.",
+        ),
+    ]
+
+
+register("Kamahl, Heart of Krosa", _kamahl_heart_of_krosa)
+
+
+def _ashaya_soul_of_the_wild() -> list[AbilitySpec]:
+    """Ashaya's power and toughness are each equal to the number of lands
+    you control.
+    Nontoken creatures you control are Forest lands in addition to their
+    other types. (They're still affected by summoning sickness.)
+
+    — Both clauses are genuinely new ground for the layer engine (MEC-12),
+    not reachable by the oracle-text parser today. The first is RULE
+    604.3's ordinary characteristic-defining P/T, built on `pt_cda`
+    (registered in `effects.py` since an earlier batch but never bound by
+    any card until now) reading the already-existing ``"lands_you_control"``
+    `continuous.count_selector`. The second is the *reverse* direction of
+    every other "X becomes a land" grant this engine has modeled so far — a
+    creature gaining the land type, rather than a land gaining the creature
+    type — which needed two things: `continuous.affected_objects`'s new
+    ``"nontoken_creatures_you_control"`` scope (RULE 108.3's token filter
+    applied to the ordinary controller-scoped creature set), and a real,
+    general latent bug fix: `GameObject.is_land` had only ever read the
+    printed card, never folding in a layer-4 `add_types` grant the way
+    `is_creature` already does — so *no* card could ever have made
+    something a land this way, regardless of phrasing. Fixed generally
+    (mirrors `is_creature`'s own printed-or-added/removed pattern) rather
+    than special-cased for this card; Kamahl, Heart of Krosa's own land-to-
+    creature direction (this same batch) doesn't depend on it, since
+    `is_creature` already had the fix, but any future "a land becomes a
+    creature and loses land-ness" or "a creature becomes a land" card now
+    reads correctly either way. Once `is_land` is fixed, the Forest subtype
+    grant automatically reaches `mana_abilities._derived_basic_mana_
+    options`'s existing RULE 305.6 "a land with a basic land type has that
+    type's intrinsic mana ability" pass — so a creature Ashaya grants
+    Forest to picks up "{T}: Add {G}." with no extra code — and equally
+    automatically becomes a legal casualty of land destruction. The
+    reminder text's "still affected by summoning sickness" needs no code:
+    nothing about gaining an additional type touches `GameObject.
+    summoning_sick`.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("pt_cda", {
+                "affects": "self",
+                "power_count": "lands_you_control", "toughness_count": "lands_you_control",
+            })],
+            raw_text="Ashaya's power and toughness are each equal to the "
+                     "number of lands you control.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("type_change", {
+                "affects": "nontoken_creatures_you_control",
+                "add_types": ["land"], "add_subtypes": ["Forest"],
+            })],
+            raw_text="Nontoken creatures you control are Forest lands in "
+                     "addition to their other types.",
+        ),
+    ]
+
+
+register("Ashaya, Soul of the Wild", _ashaya_soul_of_the_wild)
+
+
+def _yawgmoths_will() -> list[AbilitySpec]:
+    """Until end of turn, you may play lands and cast spells from your
+    graveyard.
+    If a card would be put into your graveyard from anywhere this turn,
+    exile that card instead.
+
+    — Two new player-scoped, turn-limited primitives (MEC-12), neither
+    expressible as a permanent-anchored static since the sorcery granting
+    them is gone from every zone but graveyard/exile long before end of
+    turn — there is no permanent left on the battlefield for the layer
+    engine to scan. `GraveyardPlayPermissionThisTurnEffect` stamps
+    `Player.graveyard_play_permission_until_turn`, read by
+    `game/graveyard_cast.py`'s new `has_temporary_graveyard_play_
+    permission` from both `GameEngine.can_play_land` (lands) and
+    `_graveyard_cast_permission` (spells) — the first graveyard-cast
+    permission source that has ever covered lands too, since Lurrus of the
+    Dream-Den's own permanent-anchored grant explicitly excludes them.
+    `GraveyardRedirectToExileEffect` stamps `Player.graveyard_redirect_
+    to_exile_until_turn`, checked directly in `RulesEngine.
+    _move_to_graveyard` — the one choke point every graveyard-bound move
+    funnels through regardless of cause — against whichever player *owns*
+    the moving card, since a card only ever enters its own owner's
+    graveyard (RULE 404.4/700.4), the player-scoped, whole-turn sibling of
+    the existing per-*object* `cast_via_graveyard_cast_permission_until_
+    turn` check (Lurrus's own trailing "exile instead" clause) already
+    sitting right above it. Together: anything cast/played this way that
+    would otherwise die/be discarded/be countered this same turn is exiled
+    instead of returning to the graveyard for a second recursion — the
+    actual point of the card.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("graveyard_play_permission_this_turn", {}),
+                EffectSpec("graveyard_redirect_to_exile_this_turn", {}),
+            ],
+            raw_text="Until end of turn, you may play lands and cast "
+                     "spells from your graveyard. If a card would be put "
+                     "into your graveyard from anywhere this turn, exile "
+                     "that card instead.",
+        ),
+    ]
+
+
+register("Yawgmoth's Will", _yawgmoths_will)
+
+
+def _protean_hulk() -> list[AbilitySpec]:
+    """When this creature dies, search your library for any number of
+    creature cards with total mana value 6 or less, put them onto the
+    battlefield, then shuffle.
+
+    — Needed a genuinely new `SearchLibraryEffect` primitive (MEC-12):
+    every existing multi-pick search bounds each round by a fixed
+    per-card ``max_mana_value`` in ``criteria``, but this is a *running
+    total* shared across the whole open-ended pick — a creature that costs
+    5 and one that costs 1 are both individually well under 6, but picking
+    both exhausts the budget for a third. `SearchLibraryEffect.total_mana_
+    value_budget` (`RulesEngine.request_search`/`_search_choice`/
+    `resolve_search_choice`, all three threading a `spent_mana_value`
+    running total through the recursive multi-round loop) narrows each
+    round's own eligible pool to whatever still fits the *remaining*
+    budget, on top of `criteria`'s ordinary type filter — orthogonal to,
+    and reusable alongside, a real per-card cap should some future card
+    need both at once. "Any number" reuses the already-established
+    ``count=99`` sentinel other open-ended searches use, since the real
+    stopping condition here is the budget running out, not the count.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {
+                "criteria": {"type": "Creature"}, "destination": "battlefield",
+                "count": 99, "optional": True, "total_mana_value_budget": 6,
+            })],
+            trigger={"event": "DIES", "condition": {"subject": "self"}},
+            raw_text="When this creature dies, search your library for "
+                     "any number of creature cards with total mana value "
+                     "6 or less, put them onto the battlefield, then "
+                     "shuffle.",
+        ),
+    ]
+
+
+register("Protean Hulk", _protean_hulk)
+
+
+def _helm_of_the_host() -> list[AbilitySpec]:
+    """At the beginning of combat on your turn, create a token that's a
+    copy of equipped creature, except the token isn't legendary. That
+    token gains haste.
+    Equip {5}
+
+    — Equip is synthesized by the keyword catalogue; the triggered ability
+    itself needed no new primitive at all (MEC-12). `CopyPermanentEffect`
+    already supports ``target_kind="attached_permanent"`` (Mirrormind
+    Crown's own "copies of equipped creature"), ``not_legendary``
+    (Multiversal Recruitment-shaped), and ``haste`` (Kiki-Jiki, Mirror
+    Breaker-shaped) — Helm of the Host is simply the first card combining
+    exactly these three already-shipped params on one effect.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("copy_permanent", {
+                "target_kind": "attached_permanent", "not_legendary": True, "haste": True,
+            })],
+            trigger={
+                "event": "STEP_BEGIN",
+                "filter": {"step": "begin_combat"},
+                "phase_relation": "you",
+            },
+            raw_text="At the beginning of combat on your turn, create a "
+                     "token that's a copy of equipped creature, except "
+                     "the token isn't legendary. That token gains haste.",
+        ),
+    ]
+
+
+register("Helm of the Host", _helm_of_the_host)
+
+
+def _twinflame() -> list[AbilitySpec]:
+    """Strive — This spell costs {2}{R} more to cast for each target
+    beyond the first.
+    Choose any number of target creatures you control. For each of them,
+    create a token that's a copy of that creature, except it has haste.
+    Exile those tokens at the beginning of the next end step.
+
+    — Strive itself is an already-shipped primitive (`AbilitySpec.
+    strive_cost`, `GameEngine`'s per-extra-target cost scaling); the real
+    gap was `CopyPermanentEffect` only ever copying its *first* target,
+    even when RULE 115.1a's own "any number of target creatures" widens
+    the target count past one (MEC-12). Widened with a genuinely new
+    ``target_count``/``target_count_max``/``target_optional`` param triple
+    (deliberately distinct from the existing ``count``, which still means
+    "N copies of the (one) target" — Rite of Replication-shaped, and could
+    combine with this on some future card): when the target spec's own
+    ``effective_count != 1``, `apply()` now makes one token copy *per*
+    chosen target instead of ``count`` copies of just the first, mirroring
+    the established `PumpEffect`/`AddCountersEffect` "each of up to N gets
+    the full amount" idiom. "Any number of" reuses the parser's own
+    ``_ANY_NUMBER_TARGET_CAP`` (10) sentinel. The delayed exile needed one
+    small new primitive: `ExileSpecificEffect`, the plural sibling of
+    `SacrificeSpecificEffect` (Kiki-Jiki-shaped) — the existing
+    `CreateDelayedTriggerEffect`'s ``capture="created_objects"`` branch
+    already special-cased any inner effect exposing a plain ``.objects``
+    list, but `ExileEffect` only ever carries one ``.target``, silently
+    dropping every token past the first for a multi-target source like
+    this one.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("copy_permanent", {
+                    "target_kind": "creature_you_control", "target_count": 10,
+                    "target_optional": True, "haste": True,
+                }),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end", "capture": "created_objects",
+                    "effects": [{"type": "exile_specific", "params": {}}],
+                }),
+            ],
+            strive_cost="{2}{R}",
+            raw_text="Strive — This spell costs {2}{R} more to cast for "
+                     "each target beyond the first. Choose any number of "
+                     "target creatures you control. For each of them, "
+                     "create a token that's a copy of that creature, "
+                     "except it has haste. Exile those tokens at the "
+                     "beginning of the next end step.",
+        ),
+    ]
+
+
+register("Twinflame", _twinflame)
+
+
+def _heat_shimmer() -> list[AbilitySpec]:
+    """Create a token that's a copy of target creature, except it has
+    haste and "At the beginning of the end step, exile this token."
+
+    — The single-target sibling of Twinflame's own delayed-exile shape
+    (MEC-12, this same batch): rather than literally granting a quoted
+    triggered ability onto the freshly-made token (a real but heavier
+    mechanism this engine already avoids for exactly this template — see
+    Kiki-Jiki/Puppeteer Clique's own "create/reanimate with haste,
+    [sacrifice/exile] it at the beginning of the next end step" primitive
+    in `Done_Backend.md`'s Marchesa V4.2 entry), the caster-side
+    `create_delayed_trigger`/`exile_specific` pair reaches the identical
+    board outcome — the token is gone at the next end step regardless of
+    which player controls it. Target is any creature (not "you control"),
+    unlike Twinflame — `CopyPermanentEffect`'s plain ``"creature"``
+    ``target_kind`` default already matches.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("copy_permanent", {"target_kind": "creature", "haste": True}),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end", "capture": "created_objects",
+                    "effects": [{"type": "exile_specific", "params": {}}],
+                }),
+            ],
+            raw_text="Create a token that's a copy of target creature, "
+                     "except it has haste and \"At the beginning of the "
+                     "end step, exile this token.\"",
+        ),
+    ]
+
+
+register("Heat Shimmer", _heat_shimmer)
+
+
+def _necrotic_ooze() -> list[AbilitySpec]:
+    """As long as this creature is on the battlefield, it has all
+    activated abilities of all creature cards in all graveyards.
+
+    — The third ``source_mode`` for `grant_borrowed_activated_ability`
+    (MEC-12, alongside MEC-21/MEC-26's ``exiled_with``/``group``/
+    ``chosen_permanent``): ``"all_graveyards"`` reads straight off every
+    player's live `Player.graveyard` list rather than a single donor or a
+    battlefield selector — the "in all graveyards" scope this card is
+    actually named for. `continuous._apply_borrowed_activated_abilities`'s
+    existing per-(grantee, donor, ability-index) caching, RULE 113.7c
+    source-redirect, and creature-only donor filter are all reused as-is;
+    "as long as this creature is on the battlefield" needs no `active_if`
+    gate — a static ability only ever applies while its own source is on
+    the battlefield in the first place (RULE 613.1).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_borrowed_activated_ability", {
+                "affects": "self",
+                "source_mode": "all_graveyards",
+            })],
+            raw_text="As long as this creature is on the battlefield, it "
+                     "has all activated abilities of all creature cards "
+                     "in all graveyards.",
+        ),
+    ]
+
+
+register("Necrotic Ooze", _necrotic_ooze)

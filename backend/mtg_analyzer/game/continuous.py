@@ -303,6 +303,15 @@ def group_selector_objects(
         ]
     elif affects == "creatures_you_control":
         result = [o for o in battlefield if o.is_creature and o.controller_id == controller_id]
+    elif affects == "nontoken_creatures_you_control":
+        # "Nontoken creatures you control are Forest lands in addition to
+        # their other types." (Ashaya, Soul of the Wild, MEC-12) — the
+        # token-excluding sibling of ``creatures_you_control``, RULE 108.3's
+        # "nontoken" filter applied to the controller-scoped creature set.
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id == controller_id and not o.is_token
+        ]
     elif affects == "other_creatures_you_control":
         result = [
             o for o in battlefield
@@ -2037,6 +2046,20 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
             )
             if creature_only:
                 donors = [d for d in donors if d.is_creature]
+        elif source_mode == "all_graveyards":
+            # "~ has all activated abilities of all creature cards in all
+            # graveyards." (Necrotic Ooze-shaped, MEC-12) — every player's
+            # graveyard is a live, always-current zone list (unlike
+            # ``exiled_with``'s snapshot of ids that may have moved on), so
+            # this reads straight off `Player.graveyard` with no staleness
+            # check needed. ``creature_only`` is always effectively True
+            # here (only a creature card ever has activated abilities worth
+            # borrowing this way), but the flag is still honoured for
+            # consistency with the other two modes.
+            for player in state.players:
+                donors.extend(player.graveyard)
+            if creature_only:
+                donors = [d for d in donors if d.card.is_creature]
         if not donors:
             continue
         for obj in affected_objects(state, ability):

@@ -1036,7 +1036,14 @@ class GameObject:
 
     @property
     def is_land(self) -> bool:
-        return self.card.is_land
+        # Printed land, or made one by a layer-4 type-changing effect (e.g.
+        # Ashaya, Soul of the Wild's "nontoken creatures you control are
+        # Forest lands in addition to their other types") — mirrors
+        # `is_creature`'s own printed-or-added/removed pattern, which this
+        # property had never picked up.
+        if self.card.is_land:
+            return "land" not in self._removed_types
+        return "land" in self._added_types
 
     @property
     def is_legendary(self) -> bool:

@@ -525,6 +525,7 @@ class SearchMixin:
         destination_if: Optional[list[dict[str, Any]]] = None,
         attach_to_creature_you_control: bool = False,
         remember_source_id: Optional[int] = None,
+        total_mana_value_budget: Optional[int] = None,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -574,6 +575,17 @@ class SearchMixin:
         301.5c: an unattached Equipment is always legal to *have*, just
         does nothing. Ignored for any non-battlefield destination.
 
+        ``total_mana_value_budget`` (Protean Hulk's own "search your
+        library for **any number** of creature cards with **total** mana
+        value 6 or less" — MEC-12) is a running budget shared across the
+        *whole* multi-pick search, unlike ``criteria``'s own
+        ``max_mana_value`` (a fixed per-card cap checked in isolation):
+        each round's eligible pool additionally excludes any card whose own
+        mana value would push the sum of everything picked so far over this
+        total. Pair with a generously large ``count`` (the established
+        ``99`` sentinel other "any number of" searches already use) so the
+        budget, not the count, is what actually ends the search.
+
         Records the eligible cards (across ``zones``) as a `state.
         pending_choice` — the engine's resolve loop stops on it and the
         session surfaces it, and `resolve_search_choice` finishes the search
@@ -602,6 +614,10 @@ class SearchMixin:
             obj
             for obj in self._search_zone_objects(player, zones)
             if card_query.matches(obj.card, criteria)
+            and (
+                total_mana_value_budget is None
+                or obj.card.converted_mana_cost <= total_mana_value_budget
+            )
         ]
         if not eligible or count <= 0:
             if "library" in zones and not exile_rest:
@@ -613,6 +629,7 @@ class SearchMixin:
             extra_counters=extra_counters, destination_if=destination_if,
             attach_to_creature_you_control=attach_to_creature_you_control,
             remember_source_id=remember_source_id,
+            total_mana_value_budget=total_mana_value_budget,
         )
 
     def request_intuition(
@@ -775,6 +792,8 @@ class SearchMixin:
         player = self.state.player_by_id(choice["player_id"])
         found: list[int] = list(choice["found"])
         zones = choice.get("zones") or ["library"]
+        total_mana_value_budget = choice.get("total_mana_value_budget")
+        spent_mana_value = choice.get("spent_mana_value", 0)
 
         declined = instance_id is None
         if not declined:
@@ -782,13 +801,23 @@ class SearchMixin:
             if instance_id not in eligible_ids:
                 raise ValueError(f"{instance_id} is not a valid search target")
             found.append(instance_id)
+            if total_mana_value_budget is not None:
+                picked = next(
+                    o for o in self._search_zone_objects(player, zones)
+                    if o.instance_id == instance_id
+                )
+                spent_mana_value += picked.card.converted_mana_cost
 
         remaining = choice["count"] - len(found)
+        remaining_budget = (
+            None if total_mana_value_budget is None else total_mana_value_budget - spent_mana_value
+        )
         still_eligible = [
             obj
             for obj in self._search_zone_objects(player, zones)
             if obj.instance_id not in found
             and card_query.matches(obj.card, choice["criteria"])
+            and (remaining_budget is None or obj.card.converted_mana_cost <= remaining_budget)
         ]
         if not declined and remaining > 0 and still_eligible:
             self.state.pending_choice = self._search_choice(
@@ -800,6 +829,8 @@ class SearchMixin:
                 destination_if=choice.get("destination_if"),
                 attach_to_creature_you_control=choice.get("attach_to_creature_you_control", False),
                 remember_source_id=choice.get("remember_source_id"),
+                total_mana_value_budget=total_mana_value_budget,
+                spent_mana_value=spent_mana_value,
             )
             return
 
@@ -829,13 +860,19 @@ class SearchMixin:
         destination_if: Optional[list[dict[str, Any]]] = None,
         attach_to_creature_you_control: bool = False,
         remember_source_id: Optional[int] = None,
+        total_mana_value_budget: Optional[int] = None,
+        spent_mana_value: int = 0,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
         zones = list(zones) if zones else ["library"]
+        remaining_budget = (
+            None if total_mana_value_budget is None else total_mana_value_budget - spent_mana_value
+        )
         eligible = [
             {"instance_id": obj.instance_id, "name": obj.name}
             for obj in self._search_zone_objects(player, zones)
             if obj.instance_id not in found and card_query.matches(obj.card, criteria)
+            and (remaining_budget is None or obj.card.converted_mana_cost <= remaining_budget)
         ]
         # Each eligible card is one option; declining an optional search is a
         # further option. `options` is the general form the UI renders (as a
@@ -868,6 +905,8 @@ class SearchMixin:
             "destination_if": [dict(rule) for rule in destination_if] if destination_if else None,
             "attach_to_creature_you_control": bool(attach_to_creature_you_control),
             "remember_source_id": remember_source_id,
+            "total_mana_value_budget": total_mana_value_budget,
+            "spent_mana_value": spent_mana_value,
             "criteria": card_query.normalize(criteria),
             "description": description,
             "prompt": prompt,

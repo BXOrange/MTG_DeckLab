@@ -582,6 +582,12 @@ class LegalActionsMixin:
             )
             if castable and self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
+            # Yawgmoth's Will's own first clause also covers lands, unlike
+            # every other graveyard-cast permission source — `can_play_land`
+            # already gates on `card.is_land`, so this is cheap to try for
+            # every graveyard card.
+            if self.can_play_land(player, obj):
+                actions.append(self._land_action(obj))
 
         if player.library:
             # Oracle of Mul Daya/Glarb, Calamity's Augur-shaped: a permanent
