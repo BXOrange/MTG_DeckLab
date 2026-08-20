@@ -1088,6 +1088,13 @@ class TurnLoopMixin:
             self.rules.resolve_look_top_pay_life_loop_choice(
                 None if declined else str(answer)
             )
+        elif kind == "reveal_top_hand_lose_life_loop":
+            # Ad Nauseam's own open-ended "you may repeat this process any
+            # number of times" — "again" reveals/hands/loses-life and
+            # re-opens; anything else stops.
+            self.rules.resolve_reveal_top_hand_lose_life_loop_choice(
+                None if declined else str(answer)
+            )
         elif kind == "pay_cost_then":
             # RULE 118.3: "you may pay <cost>. If you do, <effect>." (Mana
             # Vault, Wandering Archaic) — "pay" charges the cost and runs
@@ -1226,9 +1233,9 @@ class TurnLoopMixin:
             self.rules.resolve_surveil_choice(None if declined else int(answer))
         elif kind == "intuition_search":
             # Intuition's own first phase: the searching player picks each
-            # card one at a time — mandatory, no decline (RULE 701.19's
-            # "search for N cards" isn't "up to").
-            self.rules.resolve_intuition_search_choice(int(answer))
+            # card one at a time — mandatory unless ``search_optional``
+            # (MEC-41, Gifts Ungiven's "up to four") offers a real decline.
+            self.rules.resolve_intuition_search_choice(None if declined else int(answer))
         elif kind == "intuition_choose":
             # Intuition's own second phase: the *targeted opponent* (not
             # the searcher) picks which revealed card goes to the

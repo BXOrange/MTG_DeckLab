@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Optional
 
-from ..models.game_object import GameObject
+from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState
 from . import combat
 
@@ -555,6 +555,21 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
         return False
     if combat.has_hexproof(obj) and obj.controller_id != source.controller_id:
         return False
+    # "Creatures you control can't be the targets of blue or black spells
+    # this turn." (Autumn's Veil, MEC-41) — narrower than hexproof (spells
+    # only, never abilities) and unlike protection/hexproof above, not
+    # scoped to an *opponent's* source (the printed text has no "your
+    # opponents control" qualifier). No activated/triggered ability in this
+    # engine has its own source's ``zone`` be anything but the permanent it
+    # lives on (almost always the battlefield), so "not a battlefield
+    # permanent" is this engine's proxy for "is a spell being cast" — the
+    # same simplification every X-cost-target gap in this file already
+    # accepts rather than threading a genuine ``is_spell`` flag through
+    # every one of `legal_targets`' many call sites.
+    restricted_colors = getattr(obj, "temp_cant_be_target_of_spell_colors", None)
+    if restricted_colors and source.zone != Zone.BATTLEFIELD:
+        if set(getattr(source, "colors", None) or set()) & restricted_colors:
+            return False
     return True
 
 

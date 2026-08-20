@@ -3247,13 +3247,180 @@ is in the rules-engine categories below them.
 - **Files:** `game/costs.py` (`exile_creature`, `saddle_power`, their `is_free`/`label()` entries, `_EXILE_CREATURE_RE`), `game/mana_abilities.py` (`_EXILED_CREATURE_MV_ADD_RE` dispatch), `parser/oracle/segmenter.py` (`_COST_LOOKS_REAL` widened), `parser/oracle/gate.py` (`PARSER_VERSION` → 95), `game/engine/mana_mixin.py` (`tap_for_mana`'s exile-creature amount override), `game/engine/activation_mixin.py` (`_exile_creature_candidate`, `saddle_power` cost payment, the `cost_restriction` checks in `_can_pay_activation_cost`), `game/engine/casting_mixin.py` (the `cost_restriction` check in `_can_pay_additional_cast_cost`), `game/engine/lands_mixin.py` (`_self_graveyard_or_exile_cast_permission`), `game/effect_binder.py` (`_saddle_activated_ability`, `requires_saddled` trigger condition), `game/effects.py` (`SelfGraveyardOrExileCastPermissionEffect`, `BecomeSaddledEffect`, `SylvanLibraryEffect`, `TriggerDoublerEffect.cause_filter`/`cause_type_filter`, `GrantCantBeCounteredEffect.color`, `TopLibraryPermissionEffect.creature_only`/`subtypes`, `CopyPermanentEffect.set_power`/`set_toughness`/`extra_temp_keywords`, `MarkCantBeCounteredEffect`'s bug fix, the new `entering_object_unique_name`/`cost_exiled_creature_mv_plus_one`-adjacent condition branch, `cost_restriction` static registration), `game/continuous.py` (`cost_restricted`, `trigger_suppressed_for`, `trigger_doubler_bonus`'s `event` param, `has_standing_flash_permission`'s `type_filter`), `game/top_library.py` (`_grant_permits_cast`'s new filters), `game/engine/combat_mixin.py` (`contributor_power_gt_base` event field), `game/rules/draw_discard_mixin.py` (`cards_drawn_this_turn_ids`), `game/engine/turn_loop_mixin.py` (its reset, the new pending-choice dispatch), `game/rules/misc_mixin.py` (`request_pay_life_or_return_to_library`/`resolve_pay_life_or_return_choice`), `models/game_object.py` (`last_cost_exiled_object_mv`, `saddled_until_turn`), `models/game_state.py` (`cards_drawn_this_turn_ids`), `models/card.py` (`as_copy`'s `set_power`/`set_toughness`), `game/rules/copies_mixin.py` (`copy_permanent`'s new params), `parser/oracle/spec.py` (`entering_object_unique_name` in `_ALLOWED_CONDITION_KEYS`), `game/ability_catalogue.py` (all 18 cards).
 - **Tests:** `tests/test_mec40_batch2_family.py` (new, 26 tests — one execute test per primitive/clause across all 18 cards).
 
-### MEC-40/42/43 coverage note
+### MEC-41: `[cEDH] Glarb Bloomsday` done to completion — the remaining 8 gaps, no deferrals
 
-Every card above closed against `cEDH Rocco` (all 18 — the deck is now
-98/98), plus whichever of the two other decks' own residual lists happened
-to share the same card names (`cEDH staples`/`cEDH staples 2` — see
-`BACKLOG.md`'s `MEC-12` coverage table for the current per-deck numbers,
-re-measured after each batch).
+- **What:** All 8 of `[cEDH] Glarb Bloomsday`'s remaining gap cards (Ad
+  Nauseam, Autumn's Veil, Bring to Light, Counterbalance, Lazotep Quarry,
+  Nissa Steward of Elements, Valley Floodcaller, Gifts Ungiven) closed in
+  one batch, taking the deck to 100/100. As with MEC-40, the ticket's own
+  filing had assumed most of these needed new mechanisms; measured
+  against the real engine, each turned out to be a real but modest
+  extension of something already shipped. **Ad Nauseam** ("Reveal the top
+  card of your library and put that card into your hand. You lose life
+  equal to its mana value. You may repeat this process any number of
+  times.") is a new `RevealTopHandLoseLifeLoopEffect`/`RulesEngine.
+  request_reveal_top_hand_lose_life_loop` — the engine's *second*
+  open-ended, self-re-opening loop (Lim-Dûl's Vault's `look_top_pay_
+  life_loop` being the first), deliberately not a parameterization of
+  that one: the life lost varies per revealed card instead of a flat
+  cost, the destination is hand rather than back into the library, and
+  RULE 118.4 (which bars paying more life than you have) simply doesn't
+  apply to a life-*loss* effect the way it does the Vault's life
+  *payment* — nothing here stops the loop once life would go to 0 or
+  below, matching the real card's own well-known behaviour (SBAs aren't
+  checked mid-resolution). **Autumn's Veil**'s second clause ("creatures
+  you control can't be the targets of blue or black spells this turn") is
+  a new, genuinely reusable RULE 115 targeting-restriction primitive —
+  `GrantCantBeTargetOfSpellColorEffect` stamping a turn-scoped
+  `GameObject.temp_cant_be_target_of_spell_colors` set, checked by
+  `targeting._targetable_by` — deliberately narrower than both hexproof
+  (which also blocks *abilities*, and which this engine has no
+  colour-qualified form of at all — Veil of Summer's own entry documents
+  that exact gap) and full protection (which also blocks damage/
+  blocking/enchanting); distinguishing "is this source a spell" from "an
+  ability" reuses the existing `source.zone != BATTLEFIELD` proxy rather
+  than threading a new flag through `legal_targets`' several dozen call
+  sites. **Documented simplification**: the first clause ("can't be
+  countered by blue or black spells") is modeled as unconditional "can't
+  be countered this turn" (Veil of Summer's own `mark_your_spells_on_
+  stack_cant_be_countered`/`arm_spell_watcher(repeat=True)` shape) —
+  `RulesEngine._is_cant_be_countered`'s RULE 118 check has no notion of
+  *what* is doing the countering at all, and this is a strict widening
+  (protects against every counterspell, not just blue/black ones), not a
+  wrongly-narrower one; qualifying it by the countering spell's own
+  colour is a real, disproportionate build for how rare non-blue/black
+  counterspells are. **Bring to Light**'s Converge ("...mana value less
+  than or equal to the number of colors of mana spent to cast this
+  spell...") needed RULE 702.108a's own count for the first time:
+  `GameObject.colors_spent_to_cast`, diffed off the payer's `ManaPool`
+  before vs. after payment in `RulesEngine.cast_spell` (deliberately not
+  touching `ManaPool.pay()`'s own payment solver, which only tracks
+  colours spent on *constrained* pips, never the ones that happened to
+  cover the generic portion — a snapshot diff sidesteps needing to). It
+  reaches `SearchLibraryEffect`'s criteria through the *already-existing*
+  `RulesEngine._substitute_x` — the same per-resolving-stack-item pass
+  that already substitutes `"x"`/`"source_x_paid"` sentinels into a
+  criteria dict's `max_mana_value` (Green Sun's Zenith, Invasion of
+  Ikoria) — which just gained a third sentinel, `"colors_spent_to_cast"`,
+  rather than building a parallel dynamic-criteria mechanism next to it.
+  `SearchLibraryEffect` also gained a new destination, `"exile_free_
+  cast"` — exiling the found card with a *standing* (never turn-swept)
+  free-cast permission, combining `GameState.exile_cast_condition`'s
+  existing empty-condition-always-holds idiom (`ExileEffect.grant_owner_
+  play_permission`'s own precedent) with `GameState.free_cast_instance_
+  ids`, distinct from the already-shipped `"cast_free"` (which casts
+  immediately, Sunforger-shaped, rather than parking the card until the
+  caster chooses to use it). **Counterbalance** ("Whenever an opponent
+  casts a spell, you may reveal the top card of your library. If you do,
+  counter that spell if it has the same mana value as the revealed
+  card.") is `RevealTopThenCounterIfMVMatchEffect`, the counter-target
+  sibling of Powerbalance's own `reveal_top_then_free_cast_if_mv_match`
+  (Vivi B4 batch) — same reveal-is-informational/"you may" simplification
+  and the same `GameContext.trigger_event`-sourced mana value, resolving
+  into `CounterSpellEffect`'s own `target_from_trigger_event="instance_
+  id"` idiom through `context.counter` (rather than a free cast) so RULE
+  118 "can't be countered" stays honoured. **Lazotep Quarry**'s third
+  ability ("{X}{2}, {T}, Sacrifice a Desert: Exile target creature card
+  with mana value X from your graveyard. Create a token that's a copy of
+  it, except it's a 4/4 black Zombie.") is the first card in this engine
+  to combine an activated ability's own announced `{X}` with a
+  graveyard-mana-value-linked target: `GameEngine.activate_ability` now
+  stamps `source.x_paid = x` the same way `RulesEngine.cast_spell`
+  already stamps a spell's own `x_paid`, which for free makes every
+  existing X-reading effect (`AddCountersEffect.x_multiplier`, etc.) work
+  for an ability's own source too. New `ExileOwnGraveyardCardManaValueX
+  Effect` (a `request_choose_objects` pick among mana-value-X graveyard
+  creatures) chained via `then_specs` into `CreateTokenCopyOfLinkedExile
+  Effect` (the true-copy sibling of `CreateTokenForLinkedExileEffect`,
+  reusing `RulesEngine.copy_permanent`'s existing `set_power`/
+  `set_toughness`/`add_subtypes` overrides instead of a synthesized X/X).
+  **Documented simplifications**: RULE 115's "target" is read as this
+  resolve-time pick instead of a genuine announce-time target — a real
+  RULE 115 target here would need X threaded into `legal_targets` *before*
+  targets are gathered (RULE 601.2b announces X ahead of RULE 602.2b's
+  targets), which no activated ability in this engine does yet, and
+  building that sequencing for one card's own graveyard-only pick (where
+  hexproof/protection/an opponent's response don't apply regardless) is
+  disproportionate; colour ("black") is dropped, the same simplification
+  The Jolly Balloon Man's own entry already accepts (`Card.as_copy` has
+  no colour override). The two mana abilities needed no hand-authoring at
+  all — `game/mana_abilities.py`'s `parse_mana_abilities` reads a card's
+  printed text unconditionally, independent of `ability_catalogue`
+  registration. **Nissa, Steward of Elements**'s 0 ability ("Look at the
+  top card of your library. If it's a land card or a creature card with
+  mana value less than or equal to the number of loyalty counters on
+  Nissa, you may put that card onto the battlefield.") is a new
+  `RevealTopThenMaybeBattlefieldIfLandOrCheapCreatureEffect` — a genuine
+  "you may" (unlike the deterministic `RevealTopThenLandBattlefieldOr
+  DrawEffect` Thrasios already uses), opened only when the top card
+  qualifies, routed through a new `request_choose_objects` action,
+  `"library_to_battlefield"` (general enough for any future "look at the
+  top card, you may put it onto the battlefield" template). Its −6
+  ("Untap up to two target lands you control. They become 5/5 Elemental
+  creatures with flying and haste until end of turn. They're still
+  lands.") needed no new primitive at all: it's Kamahl, Heart of Krosa's
+  own "target land becomes a creature until end of turn, still a land"
+  `grant_until`/`type_change`+`grant_keyword` chain (MEC-12), just
+  widened from Kamahl's single target to "up to two" via `TapEffect`'s
+  own pre-existing "untap up to two target lands" shape (Snap-shaped,
+  ENG-30) for the untap half. **Valley Floodcaller**'s trigger ("Whenever
+  you cast a noncreature spell, Birds, Frogs, Otters, and Rats you
+  control get +1/+1 until end of turn. Untap them.") needed `PumpEffect`/
+  `TapEffect`'s own new `subtypes` param — a `selector`-group narrowed by
+  a subtype-name list, the sibling `AddCountersEffect.subtypes` already
+  had and neither of these two previously did (mirroring
+  `AddCountersEffect`'s exact type-line-parsing check). Its Flash and
+  standing flash-permission clauses were already parser-`MODELED`
+  (`flash_permission`'s `noncreature_only` param, built with this very
+  card named in its own registry comment already). **Gifts Ungiven**
+  ("Search your library for up to four cards with different names and
+  reveal them. Target opponent chooses two of those cards. Put the chosen
+  cards into your graveyard and the rest into your hand. Then shuffle.")
+  generalizes Intuition's own two-phase `intuition_search`/`RulesEngine.
+  request_intuition` shape rather than building a parallel one: new
+  `search_optional` (RULE 701.19's "up to `<N>`", a decline option that
+  stops the search early), `distinct_names` (excludes, each round, any
+  library card sharing a name with one already found), and
+  `chosen_count`/`chosen_destination`/`rest_destination` (letting the
+  *chooser's own* pick move more than one card, and swapping which pile
+  is which — Gifts Ungiven's opponent pick sends the chosen pair to the
+  graveyard and the rest to the searcher's hand, the mirror image of
+  Intuition's "chosen → hand, rest → graveyard"). Intuition's own
+  existing behaviour is unchanged (every new param defaults to its
+  original fixed shape), confirmed by a regression test.
+- **Files:** `models/game_object.py` (`colors_spent_to_cast`, `temp_cant_
+  be_target_of_spell_colors`), `game/rules/casting_mixin.py`
+  (`colors_spent_to_cast` diff in `cast_spell`, `_substitute_x`'s new
+  `"colors_spent_to_cast"` sentinel), `game/rules/search_mixin.py`
+  (`request_reveal_top_hand_lose_life_loop`/`resolve_reveal_top_hand_
+  lose_life_loop_choice`, `_put_searched_card`'s new `"exile_free_cast"`
+  destination, `request_intuition`'s new params threaded through its
+  whole two-phase choice-building/resolving chain), `game/rules/misc_
+  mixin.py` (`CHOOSE_OBJECT_ACTIONS`'s new `"library_to_battlefield"` +
+  its `_apply_chosen_object` branch), `game/engine/activation_mixin.py`
+  (`activate_ability`'s `source.x_paid = x` stamp), `game/engine/turn_
+  loop_mixin.py` (the new `reveal_top_hand_lose_life_loop` pending-choice
+  dispatch, `intuition_search`'s dispatch now passing through a real
+  decline), `game/targeting.py` (`_targetable_by`'s new colour-restriction
+  check), `game/effects.py` (`GrantCantBeTargetOfSpellColorEffect`,
+  `RevealTopThenCounterIfMVMatchEffect`, `RevealTopHandLoseLifeLoopEffect`,
+  `RevealTopThenMaybeBattlefieldIfLandOrCheapCreatureEffect`,
+  `ExileOwnGraveyardCardManaValueXEffect`, `CreateTokenCopyOfLinkedExile
+  Effect`, `PumpEffect.subtypes`, `TapEffect.subtypes`, `IntuitionEffect`'s
+  new params, all matching `EffectRegistry` entries), `game/ability_
+  catalogue.py` (all 8 cards).
+- **Tests:** `tests/test_mec41_family.py` (new, 16 tests — one or two
+  execute tests per card, plus a regression test confirming Intuition's
+  own unchanged behaviour under the generalized code).
+
+### MEC-40/41/42/43 coverage note
+
+Every card above closed against its own named deck (`cEDH Rocco` — all 18,
+now 98/98; `[cEDH] Glarb Bloomsday` — all 8, now 100/100), plus whichever
+of the other decks' own residual lists happened to share the same card
+names (`cEDH staples`/`cEDH staples 2` — see `BACKLOG.md`'s `MEC-12`
+coverage table for the current per-deck numbers, re-measured after each
+batch).
 
 ## Player Assets & Identity
 

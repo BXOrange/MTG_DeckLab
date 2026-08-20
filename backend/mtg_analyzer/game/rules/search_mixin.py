@@ -660,32 +660,55 @@ class SearchMixin:
 
     def request_intuition(
         self, searcher: Player, chooser_id: str, count: int, source: Optional[GameObject] = None,
+        search_optional: bool = False, distinct_names: bool = False,
+        chosen_count: int = 1, chosen_destination: str = "hand",
+        rest_destination: str = "graveyard",
     ) -> None:
         """"Search your library for three cards and reveal them. Target
         opponent chooses one. Put that card into your hand and the rest
         into your graveyard. Then shuffle." (Intuition) — self-contained
         (two chained `pending_choice`s: ``searcher`` picks ``count`` cards
         first, then ``chooser_id`` — a real RULE 115 target, not the
-        searcher — picks one of them for the searcher's hand) rather than
-        composed from `request_search`, whose single ``destination`` has
-        no way to express "hold these aside for a *second* player's pick".
+        searcher — picks from among them) rather than composed from
+        `request_search`, whose single ``destination`` has no way to
+        express "hold these aside for a *second* player's pick".
+
+        Generalized (MEC-41, Gifts Ungiven) past Intuition's own fixed
+        shape: ``search_optional`` is RULE 701.19's "up to `<count>`"
+        (a decline option stops the search early); ``distinct_names``
+        excludes from each round's options any card sharing a name with
+        one already found ("with different names"); ``chosen_count``/
+        ``chosen_destination``/``rest_destination`` let the *chooser's*
+        own pick move more than one card, and to swap which pile is which
+        — Gifts Ungiven's opponent choice sends the *chosen* pair to the
+        graveyard and the *rest* to the searcher's hand, the mirror image
+        of Intuition's own "chosen → hand, rest → graveyard".
         """
         if not searcher.library or count <= 0:
             self.shuffle_library(searcher)
             return
         self.state.pending_choice = self._intuition_search_choice(
-            searcher, chooser_id, count, [], source
+            searcher, chooser_id, count, [], source, search_optional, distinct_names,
+            chosen_count, chosen_destination, rest_destination,
         )
 
     def _intuition_search_choice(
         self, searcher: Player, chooser_id: str, count: int, found: list[int],
-        source: Optional[GameObject],
+        source: Optional[GameObject], search_optional: bool, distinct_names: bool,
+        chosen_count: int, chosen_destination: str, rest_destination: str,
     ) -> dict[str, Any]:
+        found_names = {
+            self._object_by_instance_id(iid).name
+            for iid in found if self._object_by_instance_id(iid) is not None
+        }
         options = [
             {"id": str(obj.instance_id), "label": obj.name, "instance_id": obj.instance_id}
             for obj in searcher.library
             if obj.instance_id not in found
+            and not (distinct_names and obj.name in found_names)
         ]
+        if search_optional:
+            options.append({"id": "decline", "label": "Aufhören"})
         return {
             "kind": "intuition_search",
             "player_id": searcher.id,
@@ -693,65 +716,100 @@ class SearchMixin:
             "count": count,
             "found": list(found),
             "source_id": source.instance_id if source is not None else None,
+            "search_optional": search_optional,
+            "distinct_names": distinct_names,
+            "chosen_count": chosen_count,
+            "chosen_destination": chosen_destination,
+            "rest_destination": rest_destination,
             "prompt": f"Intuition: wähle {count - len(found)} Karte(n) aus deiner Bibliothek",
             "options": options,
         }
 
-    def resolve_intuition_search_choice(self, instance_id: int) -> None:
-        """Answer one pick of Intuition's first phase (mandatory — RULE
-        701.19's "search for `<count>` cards" doesn't offer "up to")."""
+    def resolve_intuition_search_choice(self, instance_id: Optional[int]) -> None:
+        """Answer one pick of the search phase — ``None`` (only legal when
+        ``search_optional``, RULE 701.19's "up to") stops early; otherwise
+        mandatory (Intuition's own plain "search for `<count>` cards")."""
         choice = self.state.pending_choice
         if not choice or choice.get("kind") != "intuition_search":
             raise ValueError("no pending intuition search to resolve")
-        eligible_ids = {int(e["instance_id"]) for e in choice["options"]}
-        if instance_id not in eligible_ids:
-            raise ValueError(f"{instance_id} is not a valid search target")
         searcher = self.state.player_by_id(choice["player_id"])
-        found = list(choice["found"]) + [instance_id]
-        if len(found) < choice["count"] and len(found) < len(searcher.library):
-            self.state.pending_choice = self._intuition_search_choice(
-                searcher, choice["chooser_id"], choice["count"], found,
-                self._object_by_instance_id(choice["source_id"]),
-            )
-            return
+        found = list(choice["found"])
+        if instance_id is None:
+            if not choice.get("search_optional"):
+                raise ValueError("this intuition search isn't optional")
+        else:
+            eligible_ids = {
+                int(e["instance_id"]) for e in choice["options"] if "instance_id" in e
+            }
+            if instance_id not in eligible_ids:
+                raise ValueError(f"{instance_id} is not a valid search target")
+            found = found + [instance_id]
+            if len(found) < choice["count"] and len(found) < len(searcher.library):
+                self.state.pending_choice = self._intuition_search_choice(
+                    searcher, choice["chooser_id"], choice["count"], found,
+                    self._object_by_instance_id(choice["source_id"]),
+                    choice.get("search_optional", False), choice.get("distinct_names", False),
+                    choice["chosen_count"], choice["chosen_destination"], choice["rest_destination"],
+                )
+                return
         chooser = self.state.player_by_id(choice["chooser_id"])
-        self.state.pending_choice = self._intuition_choose_choice(searcher, chooser, found)
+        self.state.pending_choice = self._intuition_choose_choice(
+            searcher, chooser, found, [], choice["chosen_count"],
+            choice["chosen_destination"], choice["rest_destination"],
+        )
 
     def _intuition_choose_choice(
-        self, searcher: Player, chooser: Player, found: list[int],
+        self, searcher: Player, chooser: Player, found: list[int], picked: list[int],
+        chosen_count: int, chosen_destination: str, rest_destination: str,
     ) -> dict[str, Any]:
         options = [
             {"id": str(iid), "label": self._object_by_instance_id(iid).name, "instance_id": iid}
             for iid in found
-            if self._object_by_instance_id(iid) is not None
+            if iid not in picked and self._object_by_instance_id(iid) is not None
         ]
         return {
             "kind": "intuition_choose",
             "player_id": chooser.id,
             "searcher_id": searcher.id,
             "found": list(found),
-            "prompt": f"Intuition: welche Karte kommt in {searcher.name}s Hand?",
+            "picked": list(picked),
+            "chosen_count": chosen_count,
+            "chosen_destination": chosen_destination,
+            "rest_destination": rest_destination,
+            "prompt": f"Intuition: welche Karte(n) kommen in {searcher.name}s "
+                      f"{'Hand' if chosen_destination == 'hand' else 'Friedhof'}?",
             "options": options,
         }
 
     def resolve_intuition_choose_choice(self, instance_id: int) -> None:
-        """The opponent's mandatory pick (RULE 601.2c — "chooses one" has
-        no decline): the chosen card goes to the searcher's hand, the rest
-        to their graveyard, then the library is shuffled."""
+        """The opponent's mandatory pick (RULE 601.2c — "chooses `<N>`" has
+        no decline): re-opens until ``chosen_count`` are picked, the same
+        "one at a time" shape `request_choose_objects` uses. Once done, the
+        picked cards go to ``chosen_destination``, the rest to
+        ``rest_destination``, then the library is shuffled."""
         choice = self.state.pending_choice
         if not choice or choice.get("kind") != "intuition_choose":
             raise ValueError("no pending intuition choice to resolve")
         found = list(choice["found"])
-        if instance_id not in found:
+        if instance_id not in found or instance_id in choice["picked"]:
             raise ValueError(f"{instance_id} is not a legal choice")
+        picked = list(choice["picked"]) + [instance_id]
         searcher = self.state.player_by_id(choice["searcher_id"])
+        chooser = self.state.player_by_id(choice["player_id"])
+        if len(picked) < choice["chosen_count"] and len(picked) < len(found):
+            self.state.pending_choice = self._intuition_choose_choice(
+                searcher, chooser, found, picked, choice["chosen_count"],
+                choice["chosen_destination"], choice["rest_destination"],
+            )
+            return
         self.state.pending_choice = None
         for iid in found:
             obj = self._object_by_instance_id(iid)
             if obj is None or obj not in searcher.library:
                 continue
             searcher.library.remove(obj)
-            if iid == instance_id:
+            dest = choice["chosen_destination"] if iid in picked else choice["rest_destination"]
+            if dest == "hand":
                 obj.zone = Zone.HAND
                 searcher.hand.append(obj)
             else:
@@ -1132,6 +1190,23 @@ class SearchMixin:
             # same free-cast primitive cascade/discover use, just reached
             # from a genuine library search instead of an exile-until-hit.
             self.cast_without_paying(player, obj)
+        elif destination == "exile_free_cast":
+            # "…exile that card…. You may cast that card without paying
+            # its mana cost." (Bring to Light, MEC-41) — unlike
+            # ``"cast_free"`` above, the found card doesn't cast
+            # immediately: it sits in exile with a **standing** (never
+            # turn-swept) free-cast permission, the same combination
+            # `ExileEffect.grant_owner_play_permission`'s `GameState.
+            # exile_cast_condition` uses for ordinary-cost exile-casting
+            # (an empty condition dict always holds — `static_conditions.
+            # condition_holds`) plus `GameState.free_cast_instance_ids` so
+            # the eventual cast costs nothing when it happens.
+            player.add_to_zone(obj, Zone.EXILE)
+            self.state.fire_event(
+                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
+            )
+            self.state.exile_cast_condition[obj.instance_id] = (player.id, {})
+            self.state.free_cast_instance_ids.add(obj.instance_id)
         else:  # hand (default) — most tutors
             player.add_to_zone(obj, Zone.HAND)
     def request_impulsive_look(
@@ -1687,6 +1762,54 @@ class SearchMixin:
             # drawn again.
             player.library.insert(0, obj)
         self.request_look_top_pay_life_loop(player, count, life_cost)
+    def request_reveal_top_hand_lose_life_loop(self, player: Player) -> None:
+        """"Reveal the top card of your library and put that card into
+        your hand. You lose life equal to its mana value. You may repeat
+        this process any number of times." (Ad Nauseam, MEC-41) — the
+        engine's second **open-ended**, self-re-opening loop (see
+        `request_look_top_pay_life_loop`'s own docstring for the first),
+        but distinct enough not to share it: each iteration moves a card
+        to hand rather than bottoming a batch, the life lost is the
+        revealed card's own mana value rather than a flat cost, and —
+        RULE 118.4 doesn't apply to a life-*loss* effect the way it does a
+        life-*payment* cost — nothing here refuses to keep going once life
+        would go to 0 or below; SBAs simply aren't checked mid-resolution
+        (RULE 704.3), so the loop is only bounded by the player's own
+        choice or an empty library.
+        """
+        if not player.library:
+            return
+        top = player.library[-1]
+        self.state.pending_choice = {
+            "kind": "reveal_top_hand_lose_life_loop",
+            "player_id": player.id,
+            "prompt": f"{top.name} (Manawert {top.card.converted_mana_cost}) "
+                      "aufdecken, auf die Hand nehmen und entsprechend Leben "
+                      "verlieren?",
+            "looking_at": [{"instance_id": top.instance_id, "name": top.name}],
+            "options": [
+                {"id": "again", "label": "Fortsetzen"},
+                {"id": "decline", "label": "Aufhören"},
+            ],
+        }
+    def resolve_reveal_top_hand_lose_life_loop_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `reveal_top_hand_lose_life_loop` choice — take
+        the top card (reveal is purely informational, same idiom every
+        other reveal effect in this engine uses) or stop."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "reveal_top_hand_lose_life_loop":
+            raise ValueError("no pending reveal-top-hand-lose-life choice to resolve")
+        self.state.pending_choice = None
+        if answer != "again":
+            return
+        player = self.state.player_by_id(choice["player_id"])
+        if not player.library:
+            return
+        top = player.library.pop()
+        top.zone = Zone.HAND
+        player.hand.append(top)
+        self.lose_life(player, top.card.converted_mana_cost, cause="effect")
+        self.request_reveal_top_hand_lose_life_loop(player)
     def exile_until_duplicate_name(
         self, player: Player, seen_names: Optional[set[str]] = None
     ) -> None:

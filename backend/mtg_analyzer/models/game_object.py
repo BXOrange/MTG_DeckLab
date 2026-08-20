@@ -143,6 +143,15 @@ class GameObject:
         #: the spell has already left the stack. Deliberately *not* the same
         #: as the event's ``free`` flag — see `EventType.SPELL_CAST`.
         self.mana_spent_to_cast: int = 0
+        #: RULE 702.108a Converge's own count: which of the five colors
+        #: (never colorless) actually paid for this spell's cost — every
+        #: colored pip's own color plus whatever colors happened to cover
+        #: its generic portion, diffed off the payer's `ManaPool` before vs.
+        #: after payment (`RulesEngine.cast_spell`). Empty for a free/
+        #: alternative-cost cast, same as `mana_spent_to_cast`. Read by
+        #: `SearchLibraryEffect.mana_value_from`'s ``"colors_spent_to_cast"``
+        #: source (Bring to Light, MEC-41) via ``len(...)``.
+        self.colors_spent_to_cast: frozenset = frozenset()
         #: Whether this permanent actually went through `RulesEngine.
         #: cast_spell`/`cast_without_paying` (RULE 601.2), as opposed to
         #: being put onto the battlefield directly (a search/reanimation
@@ -843,6 +852,15 @@ class GameObject:
         #: printed-text protection, so it's kept off the card and unioned in at
         #: check time instead.
         self.temp_protections: set[str] = set()
+        #: "Creatures you control can't be the targets of blue or black
+        #: spells this turn." (Autumn's Veil, MEC-41) — RULE 115's own
+        #: targeting restriction, narrower than `temp_protections`'
+        #: full RULE 702.16 protection (which also blocks damage/blocking/
+        #: enchanting) and than hexproof (which also blocks *abilities*):
+        #: only a spell whose own color is in this set is refused as a
+        #: target, checked by `targeting._targetable_by`. Cleared at
+        #: cleanup (RULE 514.2) alongside `temp_protections`.
+        self.temp_cant_be_target_of_spell_colors: set[str] = set()
         #: "~ gains all activated abilities of target creature until end of
         #: turn." (MEC-23, Quicksilver Elemental) — a resolve-time snapshot
         #: of the target's `activated_abilities` at the moment of
@@ -1032,6 +1050,7 @@ class GameObject:
         self.temp_cant_block = False
         self.temp_combat_restrictions = []
         self.temp_protections = set()
+        self.temp_cant_be_target_of_spell_colors = set()
         self.temp_granted_activated_abilities = []
         self.copy_target_id = None
         self._copy_base = None

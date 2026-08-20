@@ -419,8 +419,16 @@ class GameContext:
 
     def request_intuition(
         self, searcher: "Player", chooser_id: str, count: int, source: Optional["GameObject"] = None,
+        search_optional: bool = False, distinct_names: bool = False,
+        chosen_count: int = 1, chosen_destination: str = "hand",
+        rest_destination: str = "graveyard",
     ) -> None:
-        self.engine.request_intuition(searcher, chooser_id, count, source)
+        self.engine.request_intuition(
+            searcher, chooser_id, count, source,
+            search_optional=search_optional, distinct_names=distinct_names,
+            chosen_count=chosen_count, chosen_destination=chosen_destination,
+            rest_destination=rest_destination,
+        )
 
     def choose_objects(
         self,
@@ -6206,6 +6214,97 @@ class CreateTokenForLinkedExileEffect(GameEffect):
         context.created_objects.extend(made)
 
 
+class ExileOwnGraveyardCardManaValueXEffect(GameEffect):
+    """"Exile target creature card with mana value X from your graveyard.
+    ..." (Lazotep Quarry, MEC-41's own ``{X}{2}, {T}, Sacrifice a Desert:``
+    activated ability) — opens a `request_choose_objects` pick among the
+    controller's own graveyard creature cards whose mana value equals the
+    source's own announced ``{X}`` (`GameObject.x_paid`, now stamped for an
+    ability's own source too — see `GameEngine.activate_ability`).
+
+    **Documented simplification**: RULE 115's "target" is read as this
+    resolve-time pick instead. A genuine RULE 115 target here would need X
+    threaded into `legal_targets` *before* targets are gathered (RULE
+    601.2b announces X ahead of RULE 602.2b's targets) — no activated
+    ability in this engine does that yet (`GameEngine._ability_target_
+    requirements` computes every requirement's legal options with no X
+    known), and building that sequencing for one card's own graveyard-only
+    pick (where hexproof/protection/an opponent's response don't apply
+    regardless) is disproportionate. ``then_specs`` fires once a pick is
+    made, via ``remember=True``'s `GameObject.linked_exile_id`.
+    """
+
+    def __init__(
+        self,
+        creature_only: bool = True,
+        then_specs: Optional[list[dict]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.creature_only = creature_only
+        self.then_specs = list(then_specs or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        x = getattr(self.source, "x_paid", 0) or 0
+        candidates = [
+            o for o in player.graveyard
+            if (o.is_creature or not self.creature_only)
+            and o.card.converted_mana_cost == x
+        ]
+        context.engine.request_choose_objects(
+            player, candidates, "exile", count=1, source=self.source,
+            remember=True, then_specs=self.then_specs,
+        )
+
+
+class CreateTokenCopyOfLinkedExileEffect(GameEffect):
+    """The token-*copy* sibling of `CreateTokenForLinkedExileEffect` just
+    above: makes a token that's a genuine copy of the linked exiled card's
+    own printed characteristics (RULE 707.2) instead of a synthesized X/X,
+    reusing the same override vocabulary `CopyPermanentEffect` already
+    exposes (``set_power``/``set_toughness``/``add_subtypes``). Lazotep
+    Quarry's own "... Create a token that's a copy of it, except it's a 4/4
+    ... Zombie." (MEC-41), paired with `ExileOwnGraveyardCardManaValueX
+    Effect`'s own ``remember=True`` pick.
+
+    Colour ("black") is dropped, the same documented simplification The
+    Jolly Balloon Man's own catalogue entry accepts — `Card.as_copy` has no
+    colour-override mechanism (CLAUDE.md's own documented gotcha).
+    """
+
+    def __init__(
+        self,
+        set_power: Optional[int] = None,
+        set_toughness: Optional[int] = None,
+        add_subtypes: Optional[list[str]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.set_power = set_power
+        self.set_toughness = set_toughness
+        self.add_subtypes = add_subtypes
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        linked_id = getattr(self.source, "linked_exile_id", None)
+        self.source.linked_exile_id = None
+        if linked_id is None:
+            return
+        card_obj = context.state.find_object(linked_id)
+        if card_obj is None or card_obj.zone != Zone.EXILE:
+            return
+        controller_id = self.source.controller_id
+        made = context.engine.copy_permanent(
+            controller_id, card_obj, set_power=self.set_power,
+            set_toughness=self.set_toughness, add_subtypes=self.add_subtypes,
+        )
+        context.created_objects.extend(made or [])
+
+
 class ExileLibraryEffect(GameEffect):
     """"Exile all cards from your library." (Paradigm Shift-shaped) — an
     untargeted, hidden-zone-to-exile mass move: a library's contents are
@@ -8488,6 +8587,36 @@ class GrantProtectionEffect(GameEffect):
         context.engine.grant_protection_choice(target, controller, self.allow_colorless)
 
 
+class GrantCantBeTargetOfSpellColorEffect(GameEffect):
+    """"Creatures you control can't be the targets of blue or black spells
+    this turn." (Autumn's Veil, MEC-41) — an untargeted, group-scoped RULE
+    115 targeting restriction, narrower than protection/hexproof (see
+    `targeting._targetable_by`'s own docstring for why those don't fit):
+    only refuses a *spell* whose own color is in ``colors``, checked
+    against the new turn-scoped `GameObject.temp_cant_be_target_of_spell_
+    colors` (cleared at cleanup like `temp_protections`).
+    """
+
+    def __init__(
+        self, colors: Optional[list[str]] = None, selector: str = "creatures_you_control",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.colors = [str(c).upper() for c in (colors or [])]
+        self.selector = selector
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if not self.colors:
+            return
+        from . import continuous  # avoid the continuous↔effects import cycle
+
+        controller_id = getattr(self.source, "controller_id", None)
+        for obj in continuous.group_selector_objects(
+            context.state, controller_id, self.selector, src=self.source,
+        ):
+            obj.temp_cant_be_target_of_spell_colors.update(self.colors)
+
+
 class LoseGameEffect(GameEffect):
     """The effect's controller loses the game (RULE 104.3a) — Final Fortune's
     "you lose the game" downside, resolved via the same `_player_loses` path
@@ -8585,11 +8714,20 @@ class TapEffect(GameEffect):
         previous_subject: bool = False,
         trigger_event_key: Optional[str] = None,
         creature_filter: Optional[dict] = None,
+        subtypes: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.untap = untap
         self.selector = selector if _is_valid_tap_selector(selector) else None
+        #: "Untap them." (Valley Floodcaller, MEC-41), narrowing a
+        #: ``selector`` group by subtype the same way `PumpEffect.subtypes`/
+        #: `AddCountersEffect.subtypes` already do — Valley Floodcaller's
+        #: own trigger duplicates the pump clause's ``["bird", "frog",
+        #: "otter", "rat"]`` list rather than a cross-clause pronoun, since
+        #: `GameContext.previous_selector` only carries the bare selector
+        #: *name* (MEC-28), not any subtype narrowing layered on top of it.
+        self.subtypes = [s.lower() for s in subtypes] if subtypes else None
         self._attached_mode = target_kind == "attached_permanent"
         #: ENG-29's sibling: MEC-28's RULE 603.1 "group" subject — "whenever
         #: a creature you control attacks alone, ... untap it/that creature."
@@ -8632,7 +8770,16 @@ class TapEffect(GameEffect):
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             controller_id = getattr(self.source, "controller_id", None)
-            for obj in group_selector_objects(context.state, controller_id, self.selector, src=self.source):
+            group = group_selector_objects(context.state, controller_id, self.selector, src=self.source)
+            if self.subtypes is not None:
+                group = [
+                    obj for obj in group
+                    if any(
+                        s in obj.card.type_line.partition("—")[2].strip().lower().split()
+                        for s in self.subtypes
+                    )
+                ]
+            for obj in group:
                 context.set_tapped(obj, tapped=not self.untap)
             return
         if self._attached_mode:
@@ -9876,6 +10023,32 @@ class RevealTopThenLandBattlefieldOrDrawEffect(GameEffect):
             context.draw(player, 1)
 
 
+class RevealTopThenMaybeBattlefieldIfLandOrCheapCreatureEffect(GameEffect):
+    """"Look at the top card of your library. If it's a land card or a
+    creature card with mana value less than or equal to the number of
+    loyalty counters on ~, you may put that card onto the battlefield."
+    (Nissa, Steward of Elements' 0 ability, MEC-41) — a genuine "you may"
+    (unlike `RevealTopThenLandBattlefieldOrDrawEffect`'s deterministic
+    land-or-draw branch just above), offered only when the top card
+    actually qualifies; `GameObject.loyalty` is the live loyalty-counter
+    count (RULE 606.5b).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or not player.library or self.source is None:
+            return
+        top = player.library[-1]
+        qualifies = top.card.is_land or (
+            top.is_creature and top.card.converted_mana_cost <= self.source.loyalty
+        )
+        if not qualifies:
+            return
+        context.choose_objects(
+            player, [top], "library_to_battlefield", count=1, optional=True, source=self.source,
+        )
+
+
 class MonstrosityEffect(GameEffect):
     """RULE 701.37a: "Monstrosity N" — the body of ``<cost>: Monstrosity N``.
 
@@ -10219,12 +10392,20 @@ class PumpEffect(GameEffect):
         amount_from_count_selector_negative: bool = False,
         creature_filter: Optional[dict] = None,
         previous_subject: bool = False,
+        subtypes: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.power = power
         self.toughness = toughness
         self.keywords = list(keywords or [])
         self.selector = selector
+        #: "Birds, Frogs, Otters, and Rats you control get +1/+1 until end
+        #: of turn." (Valley Floodcaller, MEC-41) — the ``selector``-group
+        #: sibling of `AddCountersEffect.subtypes` (same "any of these
+        #: subtypes" membership check against the object's own printed
+        #: type line), which this effect never had despite sharing the
+        #: exact same `group_selector_objects` base.
+        self.subtypes = [s.lower() for s in subtypes] if subtypes else None
         self.unblockable = unblockable
         #: ENG-30: "1 or 2 target creatures … . They gain vigilance and
         #: lifelink until end of turn." (A-Bretagard Stronghold-shaped) — the
@@ -10345,6 +10526,14 @@ class PumpEffect(GameEffect):
                     return
             controller_id = getattr(self.source, "controller_id", None)
             group = group_selector_objects(context.state, controller_id, selector, src=self.source)
+            if self.subtypes is not None:
+                group = [
+                    obj for obj in group
+                    if any(
+                        s in obj.card.type_line.partition("—")[2].strip().lower().split()
+                        for s in self.subtypes
+                    )
+                ]
             if self.per_recipient_controller_counter:
                 base_power, base_toughness = self.power, self.toughness
                 for obj in group:
@@ -11075,12 +11264,28 @@ class IntuitionEffect(GameEffect):
     your graveyard. Then shuffle." (Intuition) — see
     `RulesEngine.request_intuition` for the two-phase shape (the searcher
     picks the cards, then the *targeted opponent* — a real RULE 115 target,
-    not the searcher — picks one for the searcher's hand).
+    not the searcher — picks from among them).
+
+    Generalized (MEC-41, Gifts Ungiven) via the same params `request_
+    intuition` gained — ``search_optional``/``distinct_names`` shape the
+    *searcher's* phase, ``chosen_count``/``chosen_destination``/
+    ``rest_destination`` the *chooser's* one. All default to Intuition's
+    own original fixed shape, unchanged.
     """
 
-    def __init__(self, count: int = 3, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, count: int = 3, source: Optional["GameObject"] = None,
+        search_optional: bool = False, distinct_names: bool = False,
+        chosen_count: int = 1, chosen_destination: str = "hand",
+        rest_destination: str = "graveyard",
+    ) -> None:
         super().__init__(source)
         self.count = count
+        self.search_optional = search_optional
+        self.distinct_names = distinct_names
+        self.chosen_count = chosen_count
+        self.chosen_destination = chosen_destination
+        self.rest_destination = rest_destination
         self.target_spec = TargetSpec(kind="opponent")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -11089,7 +11294,12 @@ class IntuitionEffect(GameEffect):
         chooser_id = getattr(chooser, "id", None)
         if searcher is None or chooser_id is None:
             return
-        context.request_intuition(searcher, chooser_id, self.count, self.source)
+        context.request_intuition(
+            searcher, chooser_id, self.count, self.source,
+            search_optional=self.search_optional, distinct_names=self.distinct_names,
+            chosen_count=self.chosen_count, chosen_destination=self.chosen_destination,
+            rest_destination=self.rest_destination,
+        )
 
 
 class SearchLibraryEffect(GameEffect):
@@ -11105,7 +11315,10 @@ class SearchLibraryEffect(GameEffect):
       ``{"basic": True}`` / ``{"type": "Creature", "max_mana_value": 3}``.
     * ``destination`` — *where* the found card goes: ``"hand"`` (default),
       ``"battlefield"``, ``"battlefield_tapped"``, ``"library_top"``,
-      ``"library_bottom"``, ``"graveyard"``, or ``"exile"``.
+      ``"library_bottom"``, ``"graveyard"``, ``"exile"``, ``"cast_free"``
+      (casts it immediately, Sunforger-shaped), or ``"exile_free_cast"``
+      (exiles it with a *standing* "you may cast it without paying its
+      mana cost" permission instead — Bring to Light, MEC-41).
     * ``count`` — how many cards (search for "up to N"); the choice is
       offered one card at a time.
     * ``zones`` — *where* to look: ``["library"]`` (default, RULE 701.19)
@@ -11416,6 +11629,36 @@ class RevealTopThenFreeCastIfMVMatchEffect(GameEffect):
         if cast_mv is None or top.card.converted_mana_cost != cast_mv:
             return
         context.choose_objects(player, [top], "cast_free", count=1, optional=True, source=self.source)
+
+
+class RevealTopThenCounterIfMVMatchEffect(GameEffect):
+    """"Whenever an opponent casts a spell, you may reveal the top card of
+    your library. If you do, counter that spell if it has the same mana
+    value as the revealed card." (Counterbalance, MEC-41)
+
+    The counter-target sibling of `RevealTopThenFreeCastIfMVMatchEffect`
+    (Powerbalance) just above — same reveal-is-informational/"you may"
+    simplification and the same `GameContext.trigger_event`-sourced mana
+    value, but resolving into `CounterSpellEffect`'s own
+    ``target_from_trigger_event="instance_id"`` idiom (the firing
+    SPELL_CAST event's own spell) through `context.counter` rather than a
+    free cast, so RULE 118 "can't be countered" is still honoured
+    (`RulesEngine.counter_unless_pays`).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or not player.library:
+            return
+        top = player.library[-1]
+        event = context.trigger_event or {}
+        cast_mv = event.get("mana_value")
+        instance_id = event.get("instance_id")
+        if cast_mv is None or instance_id is None or top.card.converted_mana_cost != cast_mv:
+            return
+        target = context.state.find_object(instance_id)
+        if target is not None:
+            context.counter(target, source=self.source)
 
 
 class ReturnRemainingExiledEffect(GameEffect):
@@ -12402,6 +12645,22 @@ class LookTopPayLifeLoopEffect(GameEffect):
         if player is None:
             return
         context.engine.request_look_top_pay_life_loop(player, self.count, self.life_cost)
+
+
+class RevealTopHandLoseLifeLoopEffect(GameEffect):
+    """"Reveal the top card of your library and put that card into your
+    hand. You lose life equal to its mana value. You may repeat this
+    process any number of times." (Ad Nauseam, MEC-41) — see `RulesEngine.
+    request_reveal_top_hand_lose_life_loop`'s own docstring for why this is
+    a distinct open-ended loop from `LookTopPayLifeLoopEffect` just above,
+    not a parameterization of it.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.engine.request_reveal_top_hand_lose_life_loop(player)
 
 
 class ScrambleSpellEffect(GameEffect):
@@ -13704,6 +13963,14 @@ EffectRegistry.register(
     lambda p: RevealTopThenLandBattlefieldOrDrawEffect(),
 )
 EffectRegistry.register(
+    # "Look at the top card of your library. If it's a land card or a
+    # creature card with mana value less than or equal to the number of
+    # loyalty counters on ~, you may put that card onto the battlefield."
+    # (Nissa, Steward of Elements, MEC-41)
+    "reveal_top_then_maybe_battlefield_if_land_or_cheap_creature",
+    lambda p: RevealTopThenMaybeBattlefieldIfLandOrCheapCreatureEffect(),
+)
+EffectRegistry.register(
     # "When ~ dies, if it was a creature, return it to the battlefield
     # under its owner's control. It's an enchantment." (Enduring Vitality)
     "dies_return_as_enchantment",
@@ -13982,6 +14249,19 @@ EffectRegistry.register(
     "create_token_for_linked_exile",
     lambda p: CreateTokenForLinkedExileEffect(
         colors=p.get("colors"), subtypes=p.get("subtypes"), keywords=p.get("keywords"),
+    ),
+)
+EffectRegistry.register(
+    "exile_own_graveyard_card_mana_value_x",
+    lambda p: ExileOwnGraveyardCardManaValueXEffect(
+        creature_only=bool(p.get("creature_only", True)), then_specs=p.get("then_specs"),
+    ),
+)
+EffectRegistry.register(
+    "create_token_copy_of_linked_exile",
+    lambda p: CreateTokenCopyOfLinkedExileEffect(
+        set_power=p.get("set_power"), set_toughness=p.get("set_toughness"),
+        add_subtypes=p.get("add_subtypes"),
     ),
 )
 EffectRegistry.register("exile_library", lambda p: ExileLibraryEffect())
@@ -14548,6 +14828,13 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Reveal the top card of your library and put that card into your
+    # hand. You lose life equal to its mana value. You may repeat this
+    # process any number of times." (Ad Nauseam, MEC-41)
+    "reveal_top_hand_lose_life_loop",
+    lambda p: RevealTopHandLoseLifeLoopEffect(),
+)
+EffectRegistry.register(
     # RULE 108.4/701.10: "exchange control of ~ and up to one target
     # creature an opponent controls" (Gilded Drake) — a genuine two-way
     # swap, not a one-way grab.
@@ -14636,6 +14923,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "grant_cant_be_target_of_spell_color",
+    lambda p: GrantCantBeTargetOfSpellColorEffect(
+        colors=p.get("colors"), selector=p.get("selector", "creatures_you_control"),
+    ),
+)
+EffectRegistry.register(
     "lose_game", lambda p: LoseGameEffect(reason=p.get("reason", "effect"))
 )
 EffectRegistry.register(
@@ -14666,6 +14959,7 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         trigger_event_key=p.get("trigger_event_key"),
         creature_filter=p.get("creature_filter"),
+        subtypes=p.get("subtypes"),
     ),
 )
 EffectRegistry.register(
@@ -14864,6 +15158,7 @@ EffectRegistry.register(
         amount_from_count_selector_negative=bool(p.get("amount_from_count_selector_negative", False)),
         creature_filter=p.get("creature_filter"),
         previous_subject=bool(p.get("previous_subject", False)),
+        subtypes=p.get("subtypes"),
     ),
 )
 EffectRegistry.register(
@@ -14963,7 +15258,14 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "intuition_search",
-    lambda p: IntuitionEffect(count=p.get("count", 3)),
+    lambda p: IntuitionEffect(
+        count=p.get("count", 3),
+        search_optional=bool(p.get("search_optional", False)),
+        distinct_names=bool(p.get("distinct_names", False)),
+        chosen_count=p.get("chosen_count", 1),
+        chosen_destination=p.get("chosen_destination", "hand"),
+        rest_destination=p.get("rest_destination", "graveyard"),
+    ),
 )
 EffectRegistry.register(
     "search",
@@ -15010,6 +15312,10 @@ EffectRegistry.register(
 EffectRegistry.register(
     "reveal_top_then_free_cast_if_mv_match",
     lambda p: RevealTopThenFreeCastIfMVMatchEffect(),
+)
+EffectRegistry.register(
+    "reveal_top_then_counter_if_mv_match",
+    lambda p: RevealTopThenCounterIfMVMatchEffect(),
 )
 EffectRegistry.register(
     "exile_opponents_graveyards_impulsive_cast",  # Mnemonic Betrayal

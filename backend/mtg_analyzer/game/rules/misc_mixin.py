@@ -1637,6 +1637,13 @@ class MiscSystemsMixin:
             # flipped and the branch resolved entirely inside
             # `_apply_chosen_object`.
             "remember_source_coinflip",
+            # MEC-41 (Nissa, Steward of Elements' 0 ability — "Look at the
+            # top card of your library. ... you may put that card onto the
+            # battlefield."): a library-zone pick, unlike every other
+            # action above — general enough for any future "look at the
+            # top card, you may put it onto the battlefield" template to
+            # reuse rather than a one-off.
+            "library_to_battlefield",
         }
     )
     def request_choose_objects(
@@ -1994,6 +2001,15 @@ class MiscSystemsMixin:
                 # `remember`'s accumulating sibling, same field
                 # `ExileEffect(track_exiled_with=True)` uses.
                 source.exiled_with_ids.append(obj.instance_id)
+        elif action == "library_to_battlefield":
+            # MEC-41 (Nissa, Steward of Elements' 0 ability): the object is
+            # still sitting in the library at this point (unlike every
+            # other action above, which acts on a battlefield permanent or
+            # a hand card) — `_finish_search`'s own `_remove_search_hit`
+            # does the same library-pop-then-move split.
+            if obj in player.library:
+                player.remove_from_zone(obj, Zone.LIBRARY)
+            self._put_searched_card(player, obj, "battlefield")
         elif action == "choose_permanent" and source is not None:
             # MEC-26: Scheming Fence's own ETB pick — nothing happens to
             # ``obj`` itself, just a pointer stamped onto the source

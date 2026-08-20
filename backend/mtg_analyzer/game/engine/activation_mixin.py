@@ -1060,6 +1060,16 @@ class ActivationMixin:
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             hand_card_choices=hand_card_choices,
         )
+        # RULE 107.3c/601.2b: remember the announced X on the ability's own
+        # source, mirroring `RulesEngine.cast_spell`'s `obj.x_paid` stamp —
+        # every existing X-reading effect (`AddCountersEffect.x_multiplier`,
+        # etc.) already reads `getattr(self.source, "x_paid", 0)`, so this
+        # is what makes an activated ability's own ``{X}`` cost reach them
+        # too (Lazotep Quarry, MEC-41). A second ability activated off the
+        # same source before this one resolves would overwrite it — rare
+        # enough (no shipped card depends on two X-cost activations of the
+        # same permanent racing on the stack) to accept as-is.
+        source.x_paid = x
         if ability.once_per_turn:
             ability._last_activated_turn = self.state.turn_number
 

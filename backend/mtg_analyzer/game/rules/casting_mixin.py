@@ -74,6 +74,12 @@ from ..effects import (
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
 
+#: RULE 702.108a Converge's colors — the five WUBRG colors, never colorless
+#: ``"C"`` (`ManaPool.pool`'s own key vocabulary includes colorless, which
+#: Converge explicitly doesn't count).
+_FIVE_COLORS: tuple[str, ...] = ("W", "U", "B", "R", "G")
+
+
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
 
@@ -555,9 +561,20 @@ class CastingResolutionMixin:
                 require_source_kind=require_source_kind,
             ):
                 raise ValueError(f"{player.id} cannot pay for {obj.name}")
+            # RULE 702.108a Converge: which colors actually paid for this
+            # cast, including whatever colors happened to cover the generic
+            # portion — `ManaPool.pay()` itself only tracks colors spent on
+            # *constrained* pips (`_find_payment`'s own ``colored_spends``),
+            # so this diffs the pool before/after instead of touching the
+            # payment solver (`GameObject.colors_spent_to_cast`).
+            pool_before = dict(player.mana_pool.pool)
             life_spent = player.mana_pool.pay(
                 cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
                 require_source_kind=require_source_kind,
+            )
+            obj.colors_spent_to_cast = frozenset(
+                color for color in _FIVE_COLORS
+                if pool_before.get(color, 0) > player.mana_pool.pool.get(color, 0)
             )
         self.lose_life(player, life_spent, cause="cost")
         if free_cast:
@@ -872,12 +889,14 @@ class CastingResolutionMixin:
 
         Also walks a ``filter``/``criteria`` dict attribute (`DestroyEffect`/
         `ExileEffect`'s mass-wipe filter, `SearchLibraryEffect`'s search
-        criteria) for an ``"x"``/``"-x"`` sentinel on its own
-        ``max_mana_value``/``min_mana_value`` key — "destroy all creatures
-        with mana value X or less" (Meltdown) and "search your library for a
-        creature card with mana value X or less" (Green Sun's Zenith/Chord of
-        Calling/Finale of Devastation) both need the substitution one level
-        deeper than a plain effect attribute, which the per-``attr`` loop
+        criteria) for an ``"x"``/``"-x"``/``"source_x_paid"``/
+        ``"colors_spent_to_cast"`` sentinel on its own ``max_mana_value``/
+        ``min_mana_value`` key — "destroy all creatures with mana value X
+        or less" (Meltdown), "search your library for a creature card with
+        mana value X or less" (Green Sun's Zenith/Chord of Calling/Finale
+        of Devastation), and RULE 702.108a Converge's own count (Bring to
+        Light, MEC-41) all need the substitution one level deeper than a
+        plain effect attribute, which the per-``attr`` loop
         below can't reach on its own.
 
         Unwraps a `ConditionalEffect` (RULE 702.33b's "if it was kicked, …"
@@ -913,6 +932,20 @@ class CastingResolutionMixin:
                         # `GameObject.x_paid` (stamped once at cast time,
                         # `RulesEngine.cast_spell`) instead.
                         mapping[mv_key] = getattr(effect.source, "x_paid", 0) or 0
+                    elif mv_value == "colors_spent_to_cast":
+                        # RULE 702.108a Converge — "…mana value less than or
+                        # equal to the number of colors of mana spent to
+                        # cast this spell." (Bring to Light, MEC-41). A
+                        # *count* of the resolving spell's own
+                        # `GameObject.colors_spent_to_cast` (diffed off the
+                        # payer's `ManaPool` at `RulesEngine.cast_spell`),
+                        # not an X at all — reuses this same substitution
+                        # choke point since it's the identical "criteria's
+                        # own mana-value bound, known only at resolution"
+                        # shape ``"x"``/``"source_x_paid"`` already cover.
+                        mapping[mv_key] = len(
+                            getattr(effect.source, "colors_spent_to_cast", None) or ()
+                        )
             for attr in ("amount", "count", "power", "toughness"):
                 value = getattr(effect, attr, None)
                 if value == "x":

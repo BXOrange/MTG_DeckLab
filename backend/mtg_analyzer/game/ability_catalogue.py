@@ -19652,3 +19652,350 @@ def _yasharn_implacable_earth() -> list[AbilitySpec]:
 
 
 register("Yasharn, Implacable Earth", _yasharn_implacable_earth)
+
+
+# MEC-41: [cEDH] Glarb Bloomsday's remaining 8 gaps, done to completion
+
+
+def _ad_nauseam() -> list[AbilitySpec]:
+    """Reveal the top card of your library and put that card into your
+    hand. You lose life equal to its mana value. You may repeat this
+    process any number of times.
+
+    — MEC-41. New `reveal_top_hand_lose_life_loop`/`RulesEngine.request_
+    reveal_top_hand_lose_life_loop` — the engine's second open-ended,
+    self-re-opening loop (see its own docstring for why it's a genuinely
+    distinct shape from Lim-Dûl's Vault's `look_top_pay_life_loop`, not a
+    parameterization of it): life lost varies per revealed card instead of
+    a flat cost, the destination is hand instead of back into the library,
+    and nothing stops the loop at 0 life (RULE 118.4 doesn't apply to a
+    life-*loss* effect, only to paying life as a cost) — SBAs simply
+    aren't checked mid-resolution.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("reveal_top_hand_lose_life_loop", {})],
+            raw_text="Reveal the top card of your library and put that "
+                     "card into your hand. You lose life equal to its "
+                     "mana value. You may repeat this process any number "
+                     "of times.",
+        ),
+    ]
+
+
+register("Ad Nauseam", _ad_nauseam)
+
+
+def _autumns_veil() -> list[AbilitySpec]:
+    """Spells you control can't be countered by blue or black spells this
+    turn, and creatures you control can't be the targets of blue or black
+    spells this turn.
+
+    — MEC-41. New `grant_cant_be_target_of_spell_color` for the second
+    clause — RULE 115's own targeting restriction, deliberately narrower
+    than hexproof (which also blocks *abilities*, and which this engine
+    has no colour-qualified form of yet — Veil of Summer's own entry
+    documents that gap) and than full protection (which also blocks
+    damage/blocking/enchanting); see the effect's own docstring.
+    **Documented simplification**: the first clause is modeled as
+    unconditional "can't be countered this turn" (Veil of Summer's own
+    `mark_your_spells_on_stack_cant_be_countered`/`arm_spell_watcher
+    (repeat=True)` shape) rather than qualified by the countering spell's
+    own colour — `RulesEngine._is_cant_be_countered`'s RULE 118 check has
+    no notion of *what* is doing the countering at all, only whether the
+    target carries the marker, and this is a strict *widening* (protects
+    against every counterspell, not just blue/black ones) rather than a
+    wrongly-narrower one; non-blue/black counterspells are rare enough
+    that building the qualified form is disproportionate to this one card.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("mark_your_spells_on_stack_cant_be_countered", {}),
+                EffectSpec("arm_spell_watcher", {
+                    "then_specs": [{"type": "mark_cant_be_countered", "params": {}}],
+                    "repeat": True,
+                }),
+                EffectSpec("grant_cant_be_target_of_spell_color", {
+                    "colors": ["U", "B"], "selector": "creatures_you_control",
+                }),
+            ],
+            raw_text="Spells you control can't be countered by blue or "
+                     "black spells this turn, and creatures you control "
+                     "can't be the targets of blue or black spells this "
+                     "turn.",
+        ),
+    ]
+
+
+register("Autumn's Veil", _autumns_veil)
+
+
+def _bring_to_light() -> list[AbilitySpec]:
+    """Converge — Search your library for a creature, instant, or sorcery
+    card with mana value less than or equal to the number of colors of
+    mana spent to cast this spell, exile that card, then shuffle. You may
+    cast that card without paying its mana cost.
+
+    — MEC-41. RULE 702.108a Converge's own count (`GameObject.colors_
+    spent_to_cast`, diffed off the payer's `ManaPool` before vs. after
+    payment at `RulesEngine.cast_spell`) reaches `SearchLibraryEffect`'s
+    criteria the same way the existing ``"x"``/``"source_x_paid"``
+    sentinels do — `RulesEngine._substitute_x`'s own criteria-walking pass
+    gained a third sentinel, ``"colors_spent_to_cast"``. The exile-then-
+    standing-free-cast destination (``"exile_free_cast"``) is also new
+    (see `SearchLibraryEffect`'s own docstring) — distinct from the
+    already-shipped ``"cast_free"`` (which casts immediately, Sunforger-
+    shaped): here the found card sits in exile with a standing permission
+    until the caster chooses to use it, exactly as printed.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("search", {
+                "criteria": {
+                    "type": ["Creature", "Instant", "Sorcery"],
+                    "max_mana_value": "colors_spent_to_cast",
+                },
+                "destination": "exile_free_cast",
+                "zones": ["library"],
+            })],
+            raw_text="Converge — Search your library for a creature, "
+                     "instant, or sorcery card with mana value less than "
+                     "or equal to the number of colors of mana spent to "
+                     "cast this spell, exile that card, then shuffle. You "
+                     "may cast that card without paying its mana cost.",
+        ),
+    ]
+
+
+register("Bring to Light", _bring_to_light)
+
+
+def _counterbalance() -> list[AbilitySpec]:
+    """Whenever an opponent casts a spell, you may reveal the top card of
+    your library. If you do, counter that spell if it has the same mana
+    value as the revealed card.
+
+    — MEC-41. New `reveal_top_then_counter_if_mv_match` — the counter-
+    target sibling of Powerbalance's own `reveal_top_then_free_cast_if_
+    mv_match` (Vivi B4 batch); see that effect's docstring for the shared
+    "reveal is informational" simplification.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("reveal_top_then_counter_if_mv_match", {})],
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "group", "controller": "not_you"},
+            },
+            raw_text="Whenever an opponent casts a spell, you may reveal "
+                     "the top card of your library. If you do, counter "
+                     "that spell if it has the same mana value as the "
+                     "revealed card.",
+        ),
+    ]
+
+
+register("Counterbalance", _counterbalance)
+
+
+def _lazotep_quarry() -> list[AbilitySpec]:
+    """{T}: Add {C}.
+    {T}, Sacrifice a creature: Add one mana of any color.
+    {X}{2}, {T}, Sacrifice a Desert: Exile target creature card with mana
+    value X from your graveyard. Create a token that's a copy of it,
+    except it's a 4/4 black Zombie. Activate only as a sorcery.
+
+    — MEC-41. The two mana abilities are plain oracle-derived RULE 605.1a
+    lines (`game/mana_abilities.py`'s `parse_mana_abilities`, read off the
+    card's own printed text unconditionally regardless of catalogue
+    registration — see this module's own opening docstring) and need no
+    entry here; only the third needs hand-authoring. New
+    `exile_own_graveyard_card_mana_value_x` (reading the ability's own
+    announced ``{X}`` via `GameObject.x_paid`, now stamped for an
+    activated ability's own source too — see `GameEngine.activate_
+    ability`) chained via ``then_specs`` into `create_token_copy_of_
+    linked_exile`. **Documented simplifications**: RULE 115's "target" is
+    read as a resolve-time pick instead (see the first effect's own
+    docstring for why); colour ("black") is dropped, the same
+    simplification The Jolly Balloon Man's own entry accepts (`Card.
+    as_copy` has no colour override).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("exile_own_graveyard_card_mana_value_x", {
+                "then_specs": [
+                    {"type": "create_token_copy_of_linked_exile", "params": {
+                        "set_power": 4, "set_toughness": 4, "add_subtypes": ["Zombie"],
+                    }},
+                ],
+            })],
+            cost={"text": "{X}{2}, {T}, Sacrifice a Desert", "sorcery_speed_only": True},
+            raw_text="{X}{2}, {T}, Sacrifice a Desert: Exile target "
+                     "creature card with mana value X from your "
+                     "graveyard. Create a token that's a copy of it, "
+                     "except it's a 4/4 black Zombie. Activate only as a "
+                     "sorcery.",
+        ),
+    ]
+
+
+register("Lazotep Quarry", _lazotep_quarry)
+
+
+def _nissa_steward_of_elements() -> list[AbilitySpec]:
+    """+2: Scry 2.
+    0: Look at the top card of your library. If it's a land card or a
+    creature card with mana value less than or equal to the number of
+    loyalty counters on Nissa, Steward of Elements, you may put that card
+    onto the battlefield.
+    −6: Untap up to two target lands you control. They become 5/5
+    Elemental creatures with flying and haste until end of turn. They're
+    still lands.
+
+    — MEC-41. +2 is the already-shipped plain ``scry`` effect. New
+    `reveal_top_then_maybe_battlefield_if_land_or_cheap_creature` for the
+    0 ability (`GameObject.loyalty`'s live count). The −6 reuses Kamahl,
+    Heart of Krosa's own "target land becomes a creature until end of
+    turn, still a land" `grant_until`/`type_change`+`grant_keyword` chain
+    (MEC-12) verbatim, just widened to "up to two" targets — `TapEffect`'s
+    own pre-existing "untap up to two target lands" shape (Snap-shaped) —
+    instead of Kamahl's single one.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("scry", {"count": 2})],
+            cost={"loyalty": 2},
+            raw_text="+2: Scry 2.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("reveal_top_then_maybe_battlefield_if_land_or_cheap_creature", {})],
+            cost={"loyalty": 0},
+            raw_text="0: Look at the top card of your library. If it's a "
+                     "land card or a creature card with mana value less "
+                     "than or equal to the number of loyalty counters on "
+                     "Nissa, Steward of Elements, you may put that card "
+                     "onto the battlefield.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("tap", {
+                    "target_kind": "land_you_control", "count": 2, "optional": True, "untap": True,
+                }),
+                EffectSpec("grant_until", {
+                    "static": {"type": "type_change", "params": {
+                        "add_types": ["creature"], "add_subtypes": ["Elemental"],
+                        "power": 5, "toughness": 5,
+                    }},
+                    "duration": "end_of_turn", "target_kind": None, "previous_subject": True,
+                }),
+                EffectSpec("grant_until", {
+                    "static": {"type": "grant_keyword", "params": {"keywords": ["flying", "haste"]}},
+                    "duration": "end_of_turn", "target_kind": None, "previous_subject": True,
+                }),
+            ],
+            cost={"loyalty": -6},
+            raw_text="−6: Untap up to two target lands you control. They "
+                     "become 5/5 Elemental creatures with flying and "
+                     "haste until end of turn. They're still lands.",
+        ),
+    ]
+
+
+register("Nissa, Steward of Elements", _nissa_steward_of_elements)
+
+
+def _valley_floodcaller() -> list[AbilitySpec]:
+    """Flash
+    You may cast noncreature spells as though they had flash.
+    Whenever you cast a noncreature spell, Birds, Frogs, Otters, and Rats
+    you control get +1/+1 until end of turn. Untap them.
+
+    — MEC-41. Flash and the standing flash-permission clause are already
+    parser-MODELED (copied verbatim per the hand-author-card skill's own
+    guidance — `flash_permission`'s ``noncreature_only``, already built
+    with this very card in mind, see its own registry comment); the third
+    clause needed `PumpEffect`/`TapEffect`'s own new ``subtypes`` param —
+    a ``selector`` group narrowed by a subtype list, the sibling
+    `AddCountersEffect.subtypes` already had, that neither previously did.
+    **Documented note**: the pump and untap clauses each carry their own
+    copy of the four-subtype list rather than a cross-clause pronoun,
+    since `GameContext.previous_selector` (MEC-28) only carries the bare
+    selector *name*, not any subtype narrowing layered on top of it.
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "flash"}, raw_text="Flash"),
+        AbilitySpec(
+            "static",
+            [EffectSpec("flash_permission", {"noncreature_only": True})],
+            raw_text="You may cast noncreature spells as though they had "
+                     "flash.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("pump", {
+                    "power": 1, "toughness": 1, "selector": "creatures_you_control",
+                    "subtypes": ["bird", "frog", "otter", "rat"],
+                }),
+                EffectSpec("tap", {
+                    "selector": "creatures_you_control", "untap": True,
+                    "subtypes": ["bird", "frog", "otter", "rat"],
+                }),
+            ],
+            trigger={
+                "event": "SPELL_CAST", "condition": {"subject": "you"},
+                "spell_exclude_card_types": ["creature"],
+            },
+            raw_text="Whenever you cast a noncreature spell, Birds, "
+                     "Frogs, Otters, and Rats you control get +1/+1 until "
+                     "end of turn. Untap them.",
+        ),
+    ]
+
+
+register("Valley Floodcaller", _valley_floodcaller)
+
+
+def _gifts_ungiven() -> list[AbilitySpec]:
+    """Search your library for up to four cards with different names and
+    reveal them. Target opponent chooses two of those cards. Put the
+    chosen cards into your graveyard and the rest into your hand. Then
+    shuffle.
+
+    — MEC-41. Intuition's own two-phase `intuition_search`/`RulesEngine.
+    request_intuition` shape, generalized with ``search_optional``/
+    ``distinct_names``/``chosen_count``/``chosen_destination``/
+    ``rest_destination`` — see that method's own docstring for exactly how
+    Gifts Ungiven's shape differs from Intuition's (2 chosen instead of 1,
+    and the chosen/rest destinations swapped — Gifts Ungiven's opponent
+    pick sends the *chosen* pair to the graveyard and the *rest* to the
+    searcher's hand, the mirror image of Intuition's "chosen → hand, rest
+    → graveyard").
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("intuition_search", {
+                "count": 4, "search_optional": True, "distinct_names": True,
+                "chosen_count": 2, "chosen_destination": "graveyard",
+                "rest_destination": "hand",
+            })],
+            raw_text="Search your library for up to four cards with "
+                     "different names and reveal them. Target opponent "
+                     "chooses two of those cards. Put the chosen cards "
+                     "into your graveyard and the rest into your hand. "
+                     "Then shuffle.",
+        ),
+    ]
+
+
+register("Gifts Ungiven", _gifts_ungiven)
