@@ -41,6 +41,7 @@ from .effects import (
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     ChooseNamedModeReplacement,
+    ChooseNumberReplacement,
     ConditionalEffect,
     EffectRegistry,
     GameEffect,
@@ -856,6 +857,41 @@ def _trigger_condition(
             return bool(event.get("source_targets_only_single_creature"))
 
         predicates.append(_single_creature_target_ok)
+
+    # "…a spell with mana value equal to the number of charge counters on
+    # this artifact, counter that spell." (Chalice of the Void, MEC-43) —
+    # reads the firing SPELL_CAST event's own ``mana_value`` against a live
+    # counter count on the ability's own source; the self-referential
+    # sibling of `requires_source_instant_or_sorcery`'s "read a flag off
+    # the event" idiom, just comparing against board state instead of a
+    # precomputed flag.
+    counter_kind = trigger.get("mana_value_equals_source_counters")
+    if counter_kind:
+        def _mv_equals_counters_ok(event: Any, context: Any, src=source, kind=str(counter_kind)) -> bool:
+            mana_value = event.get("mana_value")
+            if mana_value is None:
+                return False
+            return int(mana_value) == int((getattr(src, "counters", None) or {}).get(kind, 0))
+
+        predicates.append(_mv_equals_counters_ok)
+
+    # "Whenever a source you control deals noncombat damage to an
+    # opponent, …" (Chandra's Incinerator, MEC-45) — the recipient half
+    # `_subject_condition`'s ``"group"``/``"controller": "you"`` check
+    # doesn't cover (that scopes the *source*, not who was hit): the DAMAGE
+    # event's own player target must be some player other than this
+    # ability's own controller. Combined with the DAMAGE event's own
+    # ``"filter": {"combat": False}`` (an exact-match AND already
+    # supported above) for the "noncombat" half.
+    if trigger.get("requires_damage_to_opponent"):
+        def _damage_to_opponent_ok(event: Any, context: Any, src=source) -> bool:
+            if not event.get("is_player"):
+                return False
+            controller_id = getattr(src, "controller_id", None)
+            target_id = event.get("target_id")
+            return target_id is not None and target_id != controller_id
+
+        predicates.append(_damage_to_opponent_ok)
 
     # "Whenever you cast a creature spell of the chosen type, draw a card."
     # (Vanquisher's Banner) — unlike `spell_card_types`'s fixed-at-bind-time
@@ -2119,6 +2155,7 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
                         ChooseNamedModeReplacement,
                         ChooseBasicLandTypeReplacement,
                         ChooseCardNameReplacement,
+                        ChooseNumberReplacement,
                     ),
                 ):
                     obj.enter_choice_effects.append(effect)

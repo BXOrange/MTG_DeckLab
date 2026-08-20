@@ -657,6 +657,13 @@ class GameState:
         #: alongside `spells_cast_this_turn` by `RulesEngine.
         #: _track_spell_cast`.
         self.noncreature_spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: Nonartifact spells cast by each player *this turn* ("Each player
+        #: who has cast a nonartifact spell this turn can't cast additional
+        #: nonartifact spells." — Ethersworn Canonist, MEC-43) — the
+        #: nonartifact-scoped sibling of `noncreature_spells_cast_this_turn`
+        #: above, same game-wide-every-player reset scope, incremented
+        #: alongside it by `RulesEngine._track_spell_cast`.
+        self.nonartifact_spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: How many combat phases this turn has had (RULE 603.4's "if it's
         #: the first combat phase of the turn" intervening-if — Karlach,
         #: Fury of Avernus/Finest Hour/Genji Glove-shaped extra-combat
@@ -779,6 +786,16 @@ class GameState:
         #: Keyed by source rather than by player so two copies of the same
         #: card each track their own victims.
         self.combat_damage_to_players_this_turn: dict[int, set[str]] = {}
+        #: Total *noncombat* damage each player has dealt to opponents
+        #: *this turn* ("This spell costs {X} less to cast, where X is the
+        #: total amount of noncombat damage dealt to your opponents this
+        #: turn." — Chandra's Incinerator, MEC-45): ``{dealing player_id:
+        #: summed amount}`` — an amount total, unlike
+        #: `combat_damage_to_players_this_turn`'s own per-source hit-*set*
+        #: (RULE 120.3 only ever asks "was this player hit", never "how
+        #: much"). Incremented by `RulesEngine.deal_damage`, reset
+        #: game-wide in `GameEngine.begin_turn`.
+        self.noncombat_damage_to_opponents_this_turn: dict[str, int] = {}
         #: How many creatures have died under each player's control *this
         #: turn* (RULE 700.4) — ``{player_id: count}``, incremented off the
         #: `DIES` event by `RulesEngine._track_creature_death` and cleared

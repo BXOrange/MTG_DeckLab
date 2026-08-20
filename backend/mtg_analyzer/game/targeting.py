@@ -203,6 +203,13 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Soaring City's Channel ability) — the same four-permanent-type
         # union idiom, no player half, enchantment instead of opponent.
         "artifact_creature_enchantment_or_planeswalker",
+        # "target creature or planeswalker that player controls" (Chandra's
+        # Incinerator, MEC-45 — "that player" is whichever opponent the
+        # firing DAMAGE trigger event named as its recipient, not a fixed
+        # "opponent" role) — the trigger-event-scoped sibling of
+        # `creature_or_planeswalker_you_control`; only resolvable when
+        # `legal_targets` is given the firing ``trigger_event``.
+        "creature_or_planeswalker_that_player_controls",
         # "target creature or planeswalker" (Imodane deck batch —
         # Stonesplitter Bolt/Lithomantic Barrage/Torch Breath/Torch the
         # Tower, a hugely common modern removal-spell template) — the
@@ -450,6 +457,8 @@ class TargetSpec:
             "creature_or_planeswalker": "Kreatur oder Planeswalker",
             "creature_or_planeswalker_you_control":
                 "Kreatur oder Planeswalker unter deiner Kontrolle",
+            "creature_or_planeswalker_that_player_controls":
+                "Kreatur oder Planeswalker unter der Kontrolle dieses Spielers",
             "battle_or_opponent": "Schlacht oder Gegner",
             "creature_planeswalker_or_battle": "Kreatur, Planeswalker oder Schlacht",
             "attached_aura_or_equipment_you_control":
@@ -637,6 +646,7 @@ def legal_targets(
     controller_id: str,
     spec: TargetSpec,
     source: Optional[GameObject] = None,
+    trigger_event: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     """The currently legal targets for ``spec`` as JSON-able descriptors.
 
@@ -651,6 +661,14 @@ def legal_targets(
     already keeps a spell with no legal targets from being cast (601.2c).
     Determinism/serializability matters: these descriptors flow to the UI and
     back through `game_session._resolve_targets`.
+
+    ``trigger_event`` is the `GameEvent` payload that fired the *triggered
+    ability* being targeted, when there is one — needed only by
+    ``kind="creature_or_planeswalker_that_player_controls"`` (MEC-45), which
+    reads whichever player the event names as its recipient rather than a
+    fixed "you"/"opponent" role; every other kind ignores it, so a caller
+    with no event in hand (an ordinary spell/activated-ability cast) simply
+    omits it.
     """
     kind = spec.kind
     # "…with mana value X or less." as a genuine RULE 115 target bound
@@ -1121,6 +1139,26 @@ def legal_targets(
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             if (o.is_creature or o.is_planeswalker)
+            and o is not source
+            and _targetable_by(o, source)
+        ]
+    if kind == "creature_or_planeswalker_that_player_controls":
+        # "target creature or planeswalker **that player** controls"
+        # (Chandra's Incinerator, MEC-45) — "that player" is whoever the
+        # firing DAMAGE trigger event named as its recipient
+        # (``target_id``, only meaningful when ``is_player`` is set); no
+        # event in hand (or a non-player recipient) means no legal player
+        # to scope to, so this fails closed to an empty list rather than
+        # guessing a fixed role.
+        event = trigger_event or {}
+        target_player_id = event.get("target_id") if event.get("is_player") else None
+        if target_player_id is None:
+            return []
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.is_creature or o.is_planeswalker)
+            and o.controller_id == target_player_id
             and o is not source
             and _targetable_by(o, source)
         ]

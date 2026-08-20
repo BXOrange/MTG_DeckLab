@@ -49,6 +49,7 @@ from ..effects import (
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     ChooseNamedModeReplacement,
+    ChooseNumberReplacement,
     DiscardEffect,
     DrawCardEffect,
     LoseLifeEffect,
@@ -1626,20 +1627,28 @@ class CastingResolutionMixin:
                 {"id": name, "label": name}
                 for name in sorted({o.card.name for o in self.state.battlefield})
             ]
+        elif isinstance(effect, ChooseNumberReplacement):
+            kind = "choose_number"
+            prompt = "Zahl wählen"
+            # Sanctum Prelate (MEC-43): the same "answer space isn't
+            # enumerable" shape `choose_card_name` uses — any non-negative
+            # integer is a legal choice, not just a small fixed set.
+            options = []
         else:
             kind = "choose_color"
             prompt = "Farbe wählen"
             options = [{"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()]
 
-        if not options and kind != "choose_card_name":
+        if not options and kind not in ("choose_card_name", "choose_number"):
             # RULE 601.2b's choice still has to happen in principle, but
             # with no legal answer (e.g. a puzzle board with no creature
             # cards anywhere) there's nothing to pause on — chosen_type/
             # chosen_color stays None, and every dependent selector then
             # just matches nothing, the same safe fallback an ordinary
-            # unset subtype/colour filter already gets. ``choose_card_name``
-            # is exempt: a free-text naming choice has a legal answer (any
-            # string) regardless of whether the board offers any suggestions.
+            # unset subtype/colour filter already gets. ``choose_card_name``/
+            # ``choose_number`` are exempt: a free-text choice has a legal
+            # answer (any string/integer) regardless of whether the board
+            # offers any suggestions.
             _next()
             return
 
@@ -1651,7 +1660,7 @@ class CastingResolutionMixin:
             "player_id": obj.controller_id,
             "prompt": prompt,
             "options": options,
-            **({"free_text": True} if kind == "choose_card_name" else {}),
+            **({"free_text": True} if kind in ("choose_card_name", "choose_number") else {}),
         }
     def resolve_enter_choice(self, answer: Optional[str]) -> None:
         """Answer a pending `choose_creature_type`/`choose_color` choice
@@ -1671,7 +1680,7 @@ class CastingResolutionMixin:
         choice = self.state.pending_choice
         if not choice or choice.get("kind") not in (
             "choose_creature_type", "choose_color", "choose_named_mode",
-            "choose_basic_land_type", "choose_card_name",
+            "choose_basic_land_type", "choose_card_name", "choose_number",
         ):
             raise ValueError("no pending enter-choice to resolve")
         self.state.pending_choice = None
@@ -1684,6 +1693,16 @@ class CastingResolutionMixin:
         options = choice["options"]
         if choice["kind"] == "choose_card_name":
             chosen = str(answer) if answer else ""
+        elif choice["kind"] == "choose_number":
+            # Sanctum Prelate (MEC-43): a missing/unparseable answer
+            # defaults to 0 — the same "skipped mandatory pick" safe
+            # fallback every other RULE 601.2b choice here gets, not a
+            # printed default (RULE 601.2b names no default for a "choose a
+            # number" clause).
+            try:
+                chosen = str(int(str(answer)))
+            except (TypeError, ValueError):
+                chosen = "0"
         else:
             valid_ids = {str(o["id"]) for o in options}
             chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
@@ -1696,6 +1715,8 @@ class CastingResolutionMixin:
                 obj.chosen_mode = chosen
             elif choice["kind"] == "choose_card_name":
                 obj.chosen_card_name = chosen
+            elif choice["kind"] == "choose_number":
+                obj.chosen_number = int(chosen)
             else:
                 obj.chosen_color = chosen
         if continuation is not None:

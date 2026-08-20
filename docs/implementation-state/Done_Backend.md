@@ -3776,14 +3776,167 @@ is in the rules-engine categories below them.
   (all 9 cards).
 - **Tests:** `tests/test_mec43_family.py` (new, 13 tests).
 
+### MEC-43: `cEDH staples 2` — second batch, two shared-primitive clusters (+ MEC-45)
+
+- **What:** Gaddock Teeg, Sanctum Prelate, Chalice of the Void, Ethersworn
+  Canonist, Birthing Pod, Oswald Fiddlebender — the two "worth building
+  once, not per-card" clusters `BACKLOG.md` had flagged in the first
+  batch's own diagnosis — plus Chandra's Incinerator, closing MEC-45
+  (`Ojer cEDH`'s last real engine gap; the deck's only remaining item is
+  now the unrelated Balin's Tomb `flavor_name` import gap).
+
+  **Cluster 1 — `cast_prohibition`'s literal/eq mana-value threshold.**
+  Every prior `cast_prohibition` card read its mana-value bound off a
+  dynamic `max_mana_value_selector` (a `count_selector` name evaluated
+  against the board); nothing let a static carry a bare *literal*
+  threshold. Added `max_mana_value` (an int, or the new `"chosen_number"`
+  sentinel) and `cmp` (`"gt"` default / `"eq"`) to both the `cast_
+  prohibition` `EffectSpec` factory and `continuous.cast_prohibited`.
+  Gaddock Teeg's "mana value 4 or greater can't be cast" turned out to
+  need no `cmp="eq"` at all — the pre-existing `mv <= allowed` check
+  already reads as "prohibited above `allowed`", so a literal `3` was the
+  whole fix; its second, independent clause ("spells with {X} in their
+  mana costs can't be cast") is a wholly unrelated flat check
+  (`has_x_cost`, a substring test on `mana_cost_string`), not a second
+  mana-value comparison, so it's its own separate `cast_prohibition`
+  static rather than a combined one. Sanctum Prelate needed the real
+  `cmp="eq"` case plus a genuinely new RULE 601.2b pick this engine had
+  never built: "as this enters, choose a **number**" (every prior
+  enter-choice — creature type/color/named-mode/card-name — picks from
+  either a small enumerable set or, for card name, free text; a number is
+  the second free-text case). `ChooseNumberReplacement` — a fifth
+  `enter_choice_effects` sibling of `ChooseCreatureTypeReplacement`/
+  `ChooseColorReplacement`/`ChooseNamedModeReplacement`/
+  `ChooseCardNameReplacement` — reuses `ChooseCardNameReplacement`'s own
+  free-text `pending_choice` shape (`kind="choose_number"`, `free_text:
+  True`) and stamps the parsed int onto the new `GameObject.chosen_
+  number`, read back live by `max_mana_value="chosen_number"`. Ethersworn
+  Canonist ("each player who has cast a nonartifact spell this turn can't
+  cast additional nonartifact spells") turned out not to be a mana-value
+  restriction at all — a boolean-flag family instead, so `cast_prohibited`
+  gained a second, independent knob: `nonartifact` (the `noncreature`
+  check's mirror, scoped to *not artifact* rather than *not creature*) and
+  `min_count_selector` (prohibited once a named `count_selector`, read
+  **for the casting player**, is >= 1 — checked before the current cast's
+  own increment lands, the same "already reflects the very spell" ordering
+  `spells_cast_this_turn`'s whole family relies on, so a player's own
+  *first* nonartifact spell is never wrongly caught). Backing tracker:
+  `GameState.nonartifact_spells_cast_this_turn`, the nonartifact-scoped
+  sibling of `noncreature_spells_cast_this_turn`, incremented in lockstep
+  by the same `RulesEngine._track_spell_cast` subscriber and reset the
+  same game-wide-every-player way.
+
+  Chalice of the Void turned out **not** to be a third `cast_prohibition`
+  static at all, despite `BACKLOG.md`'s own framing as this cluster's
+  "counter-trigger sibling" — its printed effect is "**counter that
+  spell**" (RULE 701.5), not a prohibition on casting it in the first
+  place. Its first clause ("enters with X charge counters") needed no
+  code at all: `ability_catalogue.entry_counters` already recognizes
+  "enters with X `<kind>` counters" (`is_x: True`) directly off a card's
+  *raw* oracle text at every battlefield-entry site, independent of
+  catalogue registration — confirmed live against the cached text. The
+  trigger reuses `CounterSpellEffect.target_from_trigger_event`
+  (Vexing Bauble's pre-existing "if no mana was spent to cast it, counter
+  that spell" shape — "counter *that* spell" names the very spell whose
+  cast fired the ability, not a chosen target) with one new predicate,
+  `mana_value_equals_source_counters` (`effect_binder._trigger_condition`)
+  — the firing `SPELL_CAST` event's `mana_value` against a live count off
+  the ability's own source, since nothing previously compared an event
+  field to a counter kind on the source itself.
+
+  **Cluster 2 — activation-cost sacrifice-value stamping.**
+  `GameObject.sacrificed_cost_mana_value` (Eldritch Evolution/Neoform, the
+  original state-tracking batch) was only ever stamped for a **spell's**
+  RULE 601.2b additional sacrifice cost (`_pay_additional_cast_cost`); the
+  equivalent **activated-ability** sacrifice-cost path
+  (`_pay_activation_cost`) sacrificed the victim and stamped nothing —
+  confirmed via `sacrificed_cost_mana_value`'s own grep, a real gap, not
+  a misreading. Mirrored the stamp there (right after the victim reaches
+  the graveyard), plus the same unconditional per-payment reset the
+  cast-cost site already does (so a stale value from an *earlier*
+  activation that sacrificed something can't leak into a later one that
+  doesn't). `SearchLibraryEffect.mana_value_from` needed no changes at
+  all — it already reads generically off whatever `GameObject` an
+  effect's own `source` resolves to, an activated ability's own permanent
+  here exactly as it was a spell's own object before. Birthing Pod and
+  Oswald Fiddlebender are both the identical Neoform-shaped "search for a
+  card with mana value equal to 1 plus the sacrificed X's mana value, put
+  it onto the battlefield" template — one card, one artifact — so both
+  closed from the existing search machinery with no further engine work.
+
+  **Latent bug found and fixed along the way (unrelated card, same
+  function):** Void Winnower's own `cast_prohibition` clause ("…spells
+  with even mana values") had shipped in the MEC-12 Kinnan/M-K batch
+  carrying an `even_mana_value` param that the `cast_prohibition`
+  `EffectSpec` factory never actually captured (not in the params dict,
+  not in `_selectors`' whitelist) — so it silently fell through, and
+  `cast_prohibited` had nothing to compare mana value against at all,
+  meaning the clause prohibited **every** opponent spell unconditionally
+  regardless of mana value (no test had ever exercised it). Found while
+  widening this exact factory for `max_mana_value`/`cmp`; fixed by adding
+  `even_mana_value` as its own independent flat check, the same shape
+  `has_x_cost` uses.
+
+  **MEC-45 (Chandra's Incinerator).** "This spell costs {X} less…where X
+  is the total amount of noncombat damage dealt to your opponents this
+  turn" reuses `self_cost_reduction_for`/`_cost_static_amount`'s existing
+  `per`-count_selector multiply unchanged — the only new piece is
+  `GameState.noncombat_damage_to_opponents_this_turn`, a running
+  per-player *amount* total (unlike `combat_damage_to_players_this_turn`'s
+  own per-source hit-*set*, since RULE 120.3 only ever asks "was this
+  player hit", never "how much"), incremented directly in `RulesEngine.
+  deal_damage`'s existing player-damage branch and registered as an
+  ordinary `count_selector` value. The trigger ("whenever a source you
+  control deals noncombat damage to an opponent, ~ deals that much damage
+  to target creature or planeswalker that player controls") needed two
+  genuinely new pieces on the *target* side (the amount side was already
+  general — `DealDamageEffect.amount_from_trigger_event`, Imodane's own
+  primitive): a `requires_damage_to_opponent` trigger-condition predicate
+  (the DAMAGE event's recipient must be some player other than this
+  ability's own controller — the existing `"group"`/`"controller": "you"`
+  check only ever scopes the *source*, never who was hit; combined with
+  the DAMAGE event's own already-general `"filter": {"combat": False}`
+  for "noncombat"), and a wholly new `targeting.py` kind, `creature_or_
+  planeswalker_that_player_controls` — "that player" is whichever
+  opponent the *firing* trigger event actually named, not a fixed
+  "opponent" role, so `legal_targets` gained a new `trigger_event`
+  parameter (threaded from `triggers_mixin.py`'s two target-gathering
+  call sites, both of which already had the firing event in scope but
+  had never passed it through).
+
+- **Files:** `game/continuous.py` (`cast_prohibited`'s `max_mana_value`/
+  `cmp`/`has_x_cost`/`nonartifact`/`min_count_selector`/`even_mana_value`,
+  two new `count_selector` entries), `game/effects.py` (the matching
+  `cast_prohibition` factory params, `ChooseNumberReplacement` +
+  `choose_number_on_enter` registration), `game/engine/activation_
+  mixin.py` (the sacrifice-cost stamp + its reset), `game/engine/turn_
+  loop_mixin.py` (two new per-turn resets), `game/rules/misc_mixin.py`
+  (`_track_spell_cast`'s new nonartifact tally), `game/rules/damage_
+  death_mixin.py` (the noncombat-damage-to-opponents increment),
+  `game/rules/casting_mixin.py` (`_offer_enter_choices`/`resolve_enter_
+  choice`'s new `choose_number` kind), `game/effect_binder.py`
+  (`mana_value_equals_source_counters`/`requires_damage_to_opponent`
+  predicates, `ChooseNumberReplacement` wired into `enter_choice_effects`),
+  `game/targeting.py` (`creature_or_planeswalker_that_player_controls`,
+  `legal_targets`'s new `trigger_event` param), `game/rules/triggers_
+  mixin.py` (threading `trigger_event` through both target-gathering call
+  sites), `models/game_object.py` (`chosen_number`), `models/game_state.py`
+  (`nonartifact_spells_cast_this_turn`, `noncombat_damage_to_opponents_
+  this_turn`), `game/ability_catalogue.py` (all 7 cards).
+- **Tests:** `tests/test_mec43_cast_prohibition_family.py` (new, 17
+  tests) — a separate file from the first batch's own `tests/test_mec43_
+  family.py`, since that name was already taken.
+
 ### MEC-40/41/42/43 coverage note
 
 Every card above closed against its own named deck (`cEDH Rocco` — all 18,
 now 98/98; `[cEDH] Glarb Bloomsday` — all 8, now 100/100; `cEDH staples` —
-all 12, now 215/215 including Delay's own same-day follow-up pass), plus
-whichever of the other decks' own residual lists happened to share the
-same card names (`cEDH staples 2` — now 557/602 after MEC-43's own first
-batch on top of the shared cards above). `BACKLOG.md`'s `MEC-12` (the
+all 12, now 215/215 including Delay's own same-day follow-up pass;
+`Ojer cEDH` — Chandra's Incinerator, now 76/77, its only residual item
+the unrelated Balin's Tomb import gap), plus whichever of the other
+decks' own residual lists happened to share the same card names
+(`cEDH staples 2` — now 563/602 after MEC-43's own first and second
+batches on top of the shared cards above). `BACKLOG.md`'s `MEC-12` (the
 original umbrella ticket for all seven "cEDH"-named decks) was folded
 into `MEC-43` and retired once `MEC-42` closed — by 2026-08-20 `MEC-43`'s
 own diagnosis was the only one of the three still carrying open scope;

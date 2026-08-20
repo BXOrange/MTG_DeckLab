@@ -89,11 +89,11 @@ Plan-level sequencing lives in
 
   | Deck | Coverage | Residual, tracked as |
   | --- | --- | --- |
-  | `Ojer cEDH` | 75/77 | [MEC-45] (Chandra's Incinerator); Balin's Tomb is real (the LOTR alt name for Ancient Tomb) but doesn't resolve — see CLAUDE.md's `flavor_name` gotcha, an import/card-database gap, not a parser/engine one. |
+  | `Ojer cEDH` | 76/77 | Balin's Tomb is real (the LOTR alt name for Ancient Tomb) but doesn't resolve — see CLAUDE.md's `flavor_name` gotcha, an import/card-database gap, not a parser/engine one; this is now the deck's only residual item. |
   | `cEDH Rocco` | 98/98 | fully playable. |
   | `[cEDH] Glarb Bloomsday` | 100/100 | fully playable. |
   | `cEDH staples` | 215/215 | fully playable. |
-  | `cEDH staples 2` | 557/602 (5 names aren't real cards) | below, this ticket. |
+  | `cEDH staples 2` | 563/602 (5 names aren't real cards) | below, this ticket. |
 
   Six names in the raw scan (Balamb Garden, Dol Amroth, Jodah the unifier,
   Seymour Guado, Thrum of the Vestige, Zidane Tribal) aren't real Scryfall
@@ -101,7 +101,7 @@ Plan-level sequencing lives in
   batch by batch, why each piece is built the way it is — is in
   `Done_Backend.md`'s "seven 'cEDH'-named saved decks" entries, not here.
 
-  **`cEDH staples 2`'s remaining 45 gaps**, diagnosed and clustered
+  **`cEDH staples 2`'s remaining 39 gaps**, diagnosed and clustered
   2026-08-20 (re-measure before trusting — a live, user-editable deck).
   Every card also shared by `cEDH staples`/`cEDH Rocco`/`[cEDH] Glarb
   Bloomsday` (Dauthi Voidwalker, Derevi Empyrial Tactician, March of
@@ -111,14 +111,22 @@ Plan-level sequencing lives in
   already closed for this deck too, plus a first batch of this ticket's
   own (Contamination, Leveler, Natural Order, Magda Brazen Outlaw,
   Unmarked Grave, Unsubstantiate, Starting Town, Teferi Master of Time,
-  March of Otherworldly Light — `Done_Backend.md`'s "MEC-43" entry), are
-  all already subtracted from the 45 below.
+  March of Otherworldly Light) and a second batch closing both
+  shared-primitive clusters `cast_prohibition`'s literal/eq mana-value
+  threshold and `sacrificed_cost_mana_value`'s activation-cost stamping
+  unlocked (Gaddock Teeg, Sanctum Prelate, Chalice of the Void,
+  Ethersworn Canonist, Birthing Pod, Oswald Fiddlebender —
+  `Done_Backend.md`'s "MEC-43" entry), are all already subtracted from
+  the 39 below.
 
   **Near-free reuses first** (a real primitive already exists, just
   needs recoloring/param-widening — same shape this batch's own 9 cards
   were): Aetherflux Reservoir (`spells_cast_this_turn` + a plain
-  activated ability), Altar of Dementia (a `sacrifice` cost + `MillEffect`,
-  mirroring the `sacrificed_cost_mana_value` tracker but for power),
+  activated ability), Altar of Dementia (a `sacrifice` cost + `MillEffect`;
+  `GameObject.sacrificed_cost_mana_value` is now also stamped for an
+  activated ability's own sacrifice cost, not just a spell's — MEC-43's
+  cluster 2, below — but Altar needs the *power*-scoped sibling of that
+  stamp, `sacrificed_cost_power`, which still doesn't exist),
   Burnt Offering/Sacrifice/Rain of Filth (sacrifice-for-scaled-mana, reusing
   `AddManaEffect`'s dynamic-amount params), Conspicuous Snoop
   (`top_library.py` + `grant_borrowed_activated_ability`'s existing modes,
@@ -138,30 +146,17 @@ Plan-level sequencing lives in
   "animate a noncreature permanent" gap below), Jeweled Amulet (a small
   "note the color spent" tracker), Llawan Cephalid Empress
   (`ReturnToHandEffect` with a color+type filter + `cast_prohibition`
-  needing a combined color+type filter), Mana Breach (a cast-triggered
-  self-bounce-a-land, both halves ordinary alone), Selvala Heart of the
-  Wilds (mana ability already claimed; only a "greatest power" ETB
-  comparison trigger is new), Shifting Woodland (`BecomeCopyUntilEndOfTurnEffect`
-  retargeted at a graveyard card), Tataru Taru (ordinary ETB + a
-  once-per-turn-gated trigger), Uba Mask (a new draw replacement + the
-  existing `temp_play_permissions` exile-cast family), Acererak the
-  Archlich (dungeons/venturing + `sacrifice_unless_pay`, both already
-  built, combined).
-
-  **Two shared-primitive clusters worth building once, not per-card:**
-  1. `cast_prohibition`/`cast_limit` needs a **fixed/literal threshold**
-     (today only a dynamic count-selector) and an **"equal to" comparison
-     mode** — unlocks Gaddock Teeg, Sanctum Prelate, and (its own counter-
-     trigger sibling) Chalice of the Void together; Ethersworn Canonist
-     needs a further new "already cast a nonartifact spell this turn"
-     boolean-flag restriction, a different shape from the threshold/count
-     family. Llawan (above) also wants the same filter widened with color.
-  2. `GameObject.sacrificed_cost_mana_value` is stamped only for a
-     **spell's** RULE 601.2b additional cost, never an **activated
-     ability's** sacrifice cost — mirroring that stamp into activation-cost
-     payment unlocks Birthing Pod and Oswald Fiddlebender together (Altar
-     of Dementia, above, needs the same idea for power instead of mana
-     value).
+  needing a combined color+type filter — MEC-43's cluster 1 built the
+  literal/eq threshold family this deck needed for other cards, but
+  Llawan's own color+type combination filter is still open), Mana Breach
+  (a cast-triggered self-bounce-a-land, both halves ordinary alone),
+  Selvala Heart of the Wilds (mana ability already claimed; only a
+  "greatest power" ETB comparison trigger is new), Shifting Woodland
+  (`BecomeCopyUntilEndOfTurnEffect` retargeted at a graveyard card),
+  Tataru Taru (ordinary ETB + a once-per-turn-gated trigger), Uba Mask (a
+  new draw replacement + the existing `temp_play_permissions` exile-cast
+  family), Acererak the Archlich (dungeons/venturing + `sacrifice_
+  unless_pay`, both already built, combined).
 
   **A recurring primitive gap, not yet built**: "animate a noncreature
   permanent into an X/Y creature with keywords" has no existing shape in
@@ -193,29 +188,6 @@ Plan-level sequencing lives in
   trigger-verb table deliberately excludes "becomes untapped" today since
   no event carries an `instance_id` for it; a real, narrow, project-level
   gap rather than a build-it-now item).
-
-- **MEC-45 · `Ojer cEDH`'s last gap, Chandra's Incinerator.** Two
-  unclaimed clauses (`parser_probe.py card`):
-
-  1. "This spell costs {X} less to cast, where X is the total amount of
-     noncombat damage dealt to your opponents this turn." — near-free:
-     `continuous.self_cost_reduction_for`/`_cost_static_amount` (Delve/
-     Affinity's own printed "costs less" static) already multiplies by
-     *any* registered `count_selector` via its `per` param — no new
-     cost-reduction mechanism needed, just a new per-turn tracker
-     (`GameState`, incremented wherever `RulesEngine.deal_damage` fires a
-     non-combat hit against an opponent) registered as a `count_selector`
-     value, the same shape `continuous.count_selector`'s existing
-     `"opponents_dealt_combat_damage_this_turn"` entry already established
-     for combat damage.
-  2. "Whenever a source you control deals noncombat damage to an
-     opponent, ~ deals that much damage to target creature or
-     planeswalker that player controls." — the amount half is already
-     general (`DealDamageEffect.amount_from_trigger_event`, Imodane's own
-     primitive); the target half is genuinely new — `targeting.py` has no
-     kind scoped to "controlled by whichever player the firing event
-     names," only fixed roles (`"opponent"`, `"you"`, a literal
-     `spell_filter`/`subtype`). A real, narrow addition, not a rebuild.
 
 ## PLR — Player management
 

@@ -297,6 +297,14 @@ class DamageDeathMixin:
                         self.state.combat_damage_to_players_this_turn.setdefault(
                             source.instance_id, set()
                         ).add(final_target.id)
+                    elif source.controller_id is not None and source.controller_id != final_target.id:
+                        # Chandra's Incinerator (MEC-45): "the total amount
+                        # of noncombat damage dealt to your opponents this
+                        # turn" — summed per dealing player, the amount-sum
+                        # sibling of `combat_damage_to_players_this_turn`'s
+                        # own per-source hit-set (which only tracks combat).
+                        counts = self.state.noncombat_damage_to_opponents_this_turn
+                        counts[source.controller_id] = counts.get(source.controller_id, 0) + final
             elif getattr(final_target, "is_planeswalker", False):
                 # RULE 306.9: damage to a planeswalker removes that many
                 # loyalty counters (the 0-loyalty SBA then sends it to the

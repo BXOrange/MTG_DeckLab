@@ -244,6 +244,9 @@ class TurnLoopMixin:
         # Ghirapur) — game-wide, not per active player: last turn's combat
         # damage is stale for everyone once a new turn starts.
         self.state.combat_damage_to_players_this_turn.clear()
+        # Chandra's Incinerator's own running per-turn amount total, same
+        # game-wide reset scope as the row above.
+        self.state.noncombat_damage_to_opponents_this_turn.clear()
         # RULE 700.4 history ("unless a creature died under your control this
         # turn", Bontu the Glorified) — game-wide for the same reason.
         self.state.creatures_died_this_turn.clear()
@@ -265,6 +268,10 @@ class TurnLoopMixin:
         # own running per-player noncreature-spell count.
         for player in self.state.players:
             self.state.noncreature_spells_cast_this_turn[player.id] = 0
+        # Ethersworn Canonist's own running per-player nonartifact-spell
+        # count (MEC-43) — same game-wide reset scope as the row above.
+        for player in self.state.players:
+            self.state.nonartifact_spells_cast_this_turn[player.id] = 0
         # Veil of Summer-shaped "if an opponent has cast a blue or black
         # spell this turn" — same game-wide reset scope as the row above.
         for player in self.state.players:
@@ -1165,17 +1172,20 @@ class TurnLoopMixin:
             self.rules.resolve_transmute_pay_x_choice(None if declined else str(answer))
         elif kind in (
             "choose_creature_type", "choose_color", "choose_named_mode", "choose_basic_land_type",
-            "choose_card_name",
+            "choose_card_name", "choose_number",
         ):
             # RULE 601.2b(-adjacent): a mandatory pick (no "decline" option
             # is ever offered) — the option id is a creature-type name, a
             # WUBRG colour letter, (``choose_named_mode``) a lowercase mode
             # slug (Struggle for Project Purity's "choose Brotherhood or
             # Enclave"), (``choose_basic_land_type``, PAR-4) a basic land
-            # type name, or (``choose_card_name``, MEC-12) an arbitrary card
-            # name — `resolve_enter_choice` defaults an unrecognized/missing
-            # answer to the first offered option for every kind except the
-            # last, whose free-text answer is passed straight through.
+            # type name, (``choose_card_name``, MEC-12) an arbitrary card
+            # name, or (``choose_number``, MEC-43) an integer as a string —
+            # `resolve_enter_choice` defaults an unrecognized/missing answer
+            # to the first offered option for every kind except the last
+            # two, whose free-text answer is passed straight through
+            # (``choose_number`` further defaults an unparseable answer to
+            # 0, since it has no offered options to fall back on at all).
             self.rules.resolve_enter_choice(None if declined else str(answer))
         elif kind == "choose_protector":
             # RULE 310.8a/310.11a: which player protects an entering battle —

@@ -610,6 +610,14 @@ class GameObject:
         #: same RULE 400.7 reset-on-new-object treatment as the other
         #: ``chosen_*`` fields.
         self.chosen_card_name: Optional[str] = None
+        #: "As this creature enters, choose a number." (Sanctum Prelate,
+        #: MEC-43) — the free-text-numeric sibling of `chosen_card_name`,
+        #: same "answer space isn't enumerable" shape, just an int instead
+        #: of a card name. Read by `continuous.cast_prohibited`'s
+        #: ``max_mana_value="chosen_number"`` sentinel. ``None`` until
+        #: chosen, same RULE 400.7 reset-on-new-object treatment as the
+        #: other ``chosen_*`` fields.
+        self.chosen_number: Optional[int] = None
         #: RULE 303.4f (MEC-34, Animate Dead-shaped): "Enchant creature card
         #: in a graveyard" — the graveyard card this Aura was targeting at
         #: cast time, stashed here because it isn't a permanent and so can't
@@ -1066,6 +1074,7 @@ class GameObject:
         self.chosen_player_id = None
         self.chosen_permanent_id = None
         self.chosen_card_name = None
+        self.chosen_number = None
         self.reanimate_target_id = None
         self.temp_power = 0
         self.temp_toughness = 0
@@ -1522,6 +1531,7 @@ class GameObject:
             "chosen_type": self.chosen_type,
             "chosen_color": self.chosen_color,
             "chosen_card_name": self.chosen_card_name,
+            "chosen_number": self.chosen_number,
             "attacking": self.attacking,
             "combat_defender": self.combat_defender,
             "blocking": self.blocking,

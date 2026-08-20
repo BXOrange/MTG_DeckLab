@@ -755,6 +755,26 @@ def count_selector(
         for victims in state.combat_damage_to_players_this_turn.values():
             hit |= victims
         return len(hit & opponent_ids)
+    if selector == "noncombat_damage_to_opponents_this_turn":
+        # "This spell costs {X} less to cast, where X is the total amount
+        # of noncombat damage dealt to your opponents this turn." (Chandra's
+        # Incinerator, MEC-45) — unlike `opponents_dealt_combat_damage_this_
+        # turn` above (a per-source *hit-set*, since RULE 120.3 only ever
+        # asks "was this player hit", never "how much"), this is a running
+        # *amount* summed per dealing player — `RulesEngine.deal_damage`
+        # increments it directly, so no union/re-derivation is needed here.
+        if controller_id is None:
+            return 0
+        return state.noncombat_damage_to_opponents_this_turn.get(controller_id, 0)
+    if selector == "nonartifact_spells_cast_this_turn":
+        # "Each player who has cast a nonartifact spell this turn can't
+        # cast additional nonartifact spells." (Ethersworn Canonist,
+        # MEC-43) — the nonartifact sibling of `noncreature_spells_cast_
+        # this_turn`, read by `cast_prohibited`'s own ``min_count_selector``
+        # gate rather than any cost-reduction `per`.
+        if controller_id is None:
+            return 0
+        return state.nonartifact_spells_cast_this_turn.get(controller_id, 0)
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
     if selector == "multicolored_permanents_you_control":
@@ -2765,6 +2785,31 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
       the casting player**, not the static's controller ("*that player*'s"
       lands): the spell is forbidden when its mana value exceeds that count.
       Omitted, the prohibition is unconditional on mana value.
+    * ``max_mana_value`` — a **literal** threshold (MEC-43, Gaddock Teeg:
+      "mana value 4 or greater can't be cast" — no board count involved at
+      all) rather than a `count_selector` name; also accepts the sentinel
+      ``"chosen_number"``, read live off ``ability.source.chosen_number``
+      (Sanctum Prelate's own RULE 601.2b "as this enters, choose a number").
+      Takes precedence over ``max_mana_value_selector`` when both are set.
+    * ``cmp`` — how ``max_mana_value``/``max_mana_value_selector`` compares:
+      ``"gt"`` (default — prohibited when mana value exceeds the threshold,
+      the pre-existing behaviour) or ``"eq"`` (Sanctum Prelate: prohibited
+      only when mana value *equals* the chosen number, everything else
+      still castable).
+    * ``has_x_cost`` — "Noncreature spells with {X} in their mana costs
+      can't be cast." (Gaddock Teeg's second, independent clause) — a flat
+      check on the card's own printed cost, unrelated to mana *value*.
+    * ``even_mana_value`` — "…spells with even mana values. (Zero is
+      even.)" (Void Winnower, MEC-12) — another independent flat check,
+      same idiom as ``has_x_cost``.
+    * ``nonartifact`` — the `noncreature` sibling scoped the other way:
+      restrict only *nonartifact* spells (Ethersworn Canonist).
+    * ``min_count_selector`` — MEC-43's Ethersworn Canonist: "Each player
+      who has cast a nonartifact spell this turn can't cast additional
+      nonartifact spells." — no mana-value component at all; prohibited
+      once a `count_selector` read **for the casting player** is >= 1.
+      Mutually exclusive with the mana-value knobs above (a static uses one
+      family or the other).
     * ``hand_only`` — "…can't cast spells from anywhere other than their
       hands." (Drannith Magistrate) — restricted to the zone the card is
       actually being cast *from* (``zone``, RULE 601.2a), so an ordinary
@@ -2796,13 +2841,56 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
             continue
         if ability.params.get("noncreature") and getattr(card, "is_creature", False):
             continue
+        if ability.params.get("nonartifact") and getattr(card, "is_artifact", False):
+            continue
         if ability.params.get("hand_only") and zone in (None, "hand"):
             continue
-        selector = ability.params.get("max_mana_value_selector")
-        if selector is not None:
-            allowed = count_selector(state, player.id, str(selector), source=ability.source)
-            if getattr(card, "converted_mana_cost", 0) <= allowed:
+        if ability.params.get("has_x_cost"):
+            if "X" not in (getattr(card, "mana_cost_string", "") or ""):
                 continue
+            return True
+        if ability.params.get("even_mana_value"):
+            # Void Winnower (MEC-12): "spells with even mana values.
+            # (Zero is even.)" — a latent bug fixed alongside MEC-43's own
+            # `max_mana_value` addition (see the matching comment in
+            # `effects.py`'s ``cast_prohibition`` factory).
+            if getattr(card, "converted_mana_cost", 0) % 2 != 0:
+                continue
+            return True
+        min_selector = ability.params.get("min_count_selector")
+        if min_selector is not None:
+            count = count_selector(state, player.id, str(min_selector), source=ability.source)
+            if count < 1:
+                continue
+            return True
+        literal = ability.params.get("max_mana_value")
+        cmp = ability.params.get("cmp", "gt")
+        if literal is not None:
+            allowed = (
+                getattr(ability.source, "chosen_number", None)
+                if literal == "chosen_number" else literal
+            )
+            if allowed is None:
+                # RULE 601.2b's choice was never made (a puzzle board that
+                # skipped battlefield entry, or `chosen_number` still unset)
+                # — fail closed to "no prohibition" rather than guessing.
+                continue
+            mv = getattr(card, "converted_mana_cost", 0)
+            if cmp == "eq":
+                if mv != allowed:
+                    continue
+            elif mv <= allowed:
+                continue
+        else:
+            selector = ability.params.get("max_mana_value_selector")
+            if selector is not None:
+                allowed = count_selector(state, player.id, str(selector), source=ability.source)
+                mv = getattr(card, "converted_mana_cost", 0)
+                if cmp == "eq":
+                    if mv != allowed:
+                        continue
+                elif mv <= allowed:
+                    continue
         return True
     return False
 

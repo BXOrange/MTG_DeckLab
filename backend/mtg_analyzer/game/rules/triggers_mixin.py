@@ -995,7 +995,7 @@ class TriggerCollectionMixin:
             # of exactly this one effect's picks).
             spec = specs[0]
             controller_id = ability.controller_id or self.state.active_player.id
-            options = legal_targets(self.state, controller_id, spec, source=ability.source)
+            options = legal_targets(self.state, controller_id, spec, source=ability.source, trigger_event=event)
             if not options:
                 if spec.optional:
                     # RULE 115.1a: "up to one target" is satisfied by
@@ -1101,7 +1101,7 @@ class TriggerCollectionMixin:
             return True
         spec = specs[idx]
         controller_id = ability.controller_id or self.state.active_player.id
-        options = legal_targets(self.state, controller_id, spec, source=ability.source)
+        options = legal_targets(self.state, controller_id, spec, source=ability.source, trigger_event=event)
         # RULE 601.2c: the same object can't be chosen twice for one
         # requirement, so the rounds an expanded multi-target spec was split
         # into exclude each other's picks. Cross-*requirement* exclusion is a

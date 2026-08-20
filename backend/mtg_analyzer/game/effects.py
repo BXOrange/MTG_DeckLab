@@ -11415,6 +11415,26 @@ class ChooseCardNameReplacement(GameEffect):
         return None  # consulted by RulesEngine._offer_enter_choices, not applied
 
 
+class ChooseNumberReplacement(GameEffect):
+    """"As this creature enters, choose a number." (RULE 601.2b, Sanctum
+    Prelate — MEC-43) — a fifth `enter_choice_effects` sibling of
+    `ChooseCreatureTypeReplacement`/`ChooseColorReplacement`/
+    `ChooseNamedModeReplacement`/`ChooseCardNameReplacement`, the
+    free-text-numeric case: `RulesEngine._offer_enter_choices` offers a
+    free-text choice (same idiom `ChooseCardNameReplacement` uses for an
+    unenumerable answer space) and stamps the parsed integer onto
+    `GameObject.chosen_number` — read back by `continuous.cast_prohibited`'s
+    ``max_mana_value="chosen_number"`` sentinel.
+    """
+
+    def __init__(self, description: str = "") -> None:
+        super().__init__(None)
+        self.description = description
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # consulted by RulesEngine._offer_enter_choices, not applied
+
+
 class BecomeCopyUntilEndOfTurnEffect(GameEffect):
     """*This* permanent becomes a copy of a target creature until end of
     turn (Cursed Mirror-style: "{T}: ~ becomes a copy of target creature
@@ -15362,6 +15382,12 @@ EffectRegistry.register(
     lambda p: ChooseNamedModeReplacement(options=list(p.get("options", []))),
 )
 EffectRegistry.register(
+    # "As this creature enters, choose a number." (Sanctum Prelate, MEC-43)
+    # — hand-authored only, no oracle-text grammar yet.
+    "choose_number_on_enter",
+    lambda p: ChooseNumberReplacement(),
+)
+EffectRegistry.register(
     "become_copy_until_eot",  # "~ becomes a copy of target creature until end of turn" (Cursed Mirror)
     lambda p: BecomeCopyUntilEndOfTurnEffect(
         target=p.get("target"),
@@ -16456,6 +16482,28 @@ EffectRegistry.register(
             "scope": p.get("scope", "opponents"),
             "noncreature": bool(p.get("noncreature", False)),
             "max_mana_value_selector": p.get("max_mana_value_selector"),
+            # MEC-43: `max_mana_value_selector`'s literal sibling (Gaddock
+            # Teeg's flat "4 or greater", or the ``"chosen_number"``
+            # sentinel for Sanctum Prelate's RULE 601.2b pick), plus the
+            # ``cmp`` mode both knobs share and the two independent
+            # restriction families (`has_x_cost`/`nonartifact` +
+            # `min_count_selector`) — see `continuous.cast_prohibited`'s
+            # own docstring for the full vocabulary.
+            **({"max_mana_value": p["max_mana_value"]} if p.get("max_mana_value") is not None else {}),
+            "cmp": p.get("cmp", "gt"),
+            "has_x_cost": bool(p.get("has_x_cost", False)),
+            "nonartifact": bool(p.get("nonartifact", False)),
+            # "Your opponents can't cast spells with even mana values.
+            # (Zero is even.)" (Void Winnower, MEC-12) — latent bug found
+            # while widening this factory for MEC-43: this key was already
+            # written by that catalogue entry but never captured here, so
+            # it silently fell through `_selectors`' whitelist and the
+            # clause prohibited *every* opponent spell regardless of mana
+            # value (`cast_prohibited` had no ``max_mana_value``/
+            # ``max_mana_value_selector`` to check, so it returned ``True``
+            # unconditionally the moment scope/noncreature matched).
+            "even_mana_value": bool(p.get("even_mana_value", False)),
+            **({"min_count_selector": p["min_count_selector"]} if p.get("min_count_selector") else {}),
             # "…can't cast spells from anywhere other than their hands."
             # (Drannith Magistrate) — `continuous.cast_prohibited`'s own
             # zone check.

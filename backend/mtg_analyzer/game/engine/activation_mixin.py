@@ -839,6 +839,11 @@ class ActivationMixin:
         ``tap_choices``/``sacrifice_choice``/``discard_choices``/
         ``hand_card_choices``, if any).
         """
+        # MEC-43: cleared unconditionally, same as `_pay_additional_cast_
+        # cost`'s own reset — a stale value from a *previous* activation of
+        # this same permanent's sacrifice cost must not leak into a later
+        # one that didn't sacrifice anything (or sacrificed nothing found).
+        source.sacrificed_cost_mana_value = None
         if cost.taps_self:
             self.rules.set_tapped(source, True)
         if cost.untaps_self:
@@ -897,6 +902,15 @@ class ActivationMixin:
                 # RULE 701.16c: sacrifice isn't destruction — see the
                 # matching comment in `_pay_additional_cast_cost`.
                 self.rules.put_into_graveyard(victim)
+                # MEC-43 (Birthing Pod/Oswald Fiddlebender): mirrors
+                # `_pay_additional_cast_cost`'s own `sacrificed_cost_mana_
+                # value` stamp, which only ever covered a *spell's* RULE
+                # 601.2b additional cost — an activated ability's own
+                # sacrifice cost had never stamped anything at all, the
+                # same "stamp on `source` for cost-payment-driven
+                # magnitude" idiom `cost.exile_creature`'s own
+                # `last_cost_exiled_object_mv` just below already uses.
+                source.sacrificed_cost_mana_value = victim.card.converted_mana_cost
         if cost.exile_creature:
             exiled = self._exile_creature_candidate(player, chosen_id=sacrifice_choice)
             if exiled is not None:

@@ -20923,3 +20923,291 @@ def _delay() -> list[AbilitySpec]:
 
 
 register("Delay", _delay)
+
+
+def _gaddock_teeg() -> list[AbilitySpec]:
+    """Noncreature spells with mana value 4 or greater can't be cast.
+    Noncreature spells with {X} in their mana costs can't be cast.
+
+    — MEC-43, one of `cast_prohibition`'s two "shared primitive" clusters:
+    the first clause needed a **literal** threshold (`max_mana_value`, new
+    — every prior `cast_prohibition` card read a dynamic `count_selector`
+    instead), the second a wholly independent flat check on the printed
+    cost string (`has_x_cost`) unrelated to mana value at all. Two
+    separate statics rather than one combined check, since a spell can
+    trip either clause without the other (a noncreature {X} spell of mana
+    value 2 is still illegal). ``scope="all"``: unlike the "opponents"
+    default this static family started with, Gaddock Teeg restricts
+    *every* player, its own controller included.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("cast_prohibition", {
+                "scope": "all", "noncreature": True, "max_mana_value": 3,
+            })],
+            raw_text="Noncreature spells with mana value 4 or greater "
+                     "can't be cast.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("cast_prohibition", {
+                "scope": "all", "noncreature": True, "has_x_cost": True,
+            })],
+            raw_text="Noncreature spells with {X} in their mana costs "
+                     "can't be cast.",
+        ),
+    ]
+
+
+register("Gaddock Teeg", _gaddock_teeg)
+
+
+def _sanctum_prelate() -> list[AbilitySpec]:
+    """As this creature enters, choose a number.
+    Noncreature spells with mana value equal to the chosen number can't
+    be cast.
+
+    — MEC-43. The other half of `cast_prohibition`'s literal-threshold
+    cluster: an "equal to" comparison (`cmp="eq"`, new) against a number
+    picked as this enters, not a fixed constant — `ChooseNumberReplacement`
+    (new, a fifth `enter_choice_effects` sibling of `ChooseCreatureType
+    Replacement`/`ChooseColorReplacement`/`ChooseNamedModeReplacement`/
+    `ChooseCardNameReplacement`) offers a free-text numeric pick the same
+    way `ChooseCardNameReplacement` offers a free-text name, stamping
+    `GameObject.chosen_number`; `max_mana_value`'s new ``"chosen_number"``
+    sentinel reads it back live off this object every check, so a Replay-
+    mode edit to the choice is honoured immediately.
+    """
+    return [
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("choose_number_on_enter", {})],
+            raw_text="As this creature enters, choose a number.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("cast_prohibition", {
+                "scope": "all", "noncreature": True,
+                "max_mana_value": "chosen_number", "cmp": "eq",
+            })],
+            raw_text="Noncreature spells with mana value equal to the "
+                     "chosen number can't be cast.",
+        ),
+    ]
+
+
+register("Sanctum Prelate", _sanctum_prelate)
+
+
+def _chalice_of_the_void() -> list[AbilitySpec]:
+    """This artifact enters with X charge counters on it.
+    Whenever a player casts a spell with mana value equal to the number
+    of charge counters on this artifact, counter that spell.
+
+    — MEC-43, the "counter-trigger sibling" of Gaddock Teeg/Sanctum
+    Prelate's `cast_prohibition` cluster: unlike those two, Chalice
+    doesn't stop the spell from being *cast* at all — it lets it be cast
+    and then counters it, RULE 701.5's actual mechanism, so this is a
+    triggered ability rather than a third `cast_prohibition`. The first
+    clause needs no code at all: `ability_catalogue.entry_counters`
+    (`parser.oracle.catalogue.counters.entry_counters`) already recognizes
+    "enters with X `<kind>` counters" generically off the card's own raw
+    oracle text at every battlefield-entry site, independent of whether
+    the card has a catalogue registration — confirmed live against this
+    card's cached text. The trigger reuses `CounterSpellEffect.
+    target_from_trigger_event` (Vexing Bauble's own "if no mana was spent
+    to cast it, counter that spell" shape) for "counter *that* spell" —
+    the very spell whose cast fired this ability, not a chosen target —
+    and a new `mana_value_equals_source_counters` trigger-condition key
+    (`effect_binder._trigger_condition`) for the live "mana value == this
+    permanent's own charge-counter count" comparison, since no existing
+    predicate reads a counter count off the ability's own source.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("counter", {"target_from_trigger_event": "instance_id"})],
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "group"},
+                "mana_value_equals_source_counters": "charge",
+            },
+            raw_text="Whenever a player casts a spell with mana value "
+                     "equal to the number of charge counters on this "
+                     "artifact, counter that spell.",
+        ),
+    ]
+
+
+register("Chalice of the Void", _chalice_of_the_void)
+
+
+def _ethersworn_canonist() -> list[AbilitySpec]:
+    """Each player who has cast a nonartifact spell this turn can't cast
+    additional nonartifact spells.
+
+    — MEC-43, `cast_prohibition`'s second shared-primitive cluster: a
+    boolean-flag restriction rather than any mana-value comparison at
+    all — "already cast a nonartifact spell this turn", a different shape
+    from the literal/selector mana-value family Gaddock Teeg/Sanctum
+    Prelate use. `GameState.nonartifact_spells_cast_this_turn` (new, the
+    nonartifact-scoped sibling of `noncreature_spells_cast_this_turn`,
+    incremented in lockstep by the same `RulesEngine._track_spell_cast`)
+    backs a new `min_count_selector` param: prohibited once that count is
+    >= 1 **for the casting player**, checked before the current cast's own
+    increment lands (the same "already reflects the very spell" ordering
+    every other `spells_cast_this_turn`-family check relies on, so a
+    player's own *first* nonartifact spell is never wrongly caught). RULE
+    613.6-adjacent ``scope="all"``: the restriction binds every player,
+    Canonist's own controller included, exactly like Gaddock Teeg.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("cast_prohibition", {
+                "scope": "all", "nonartifact": True,
+                "min_count_selector": "nonartifact_spells_cast_this_turn",
+            })],
+            raw_text="Each player who has cast a nonartifact spell this "
+                     "turn can't cast additional nonartifact spells.",
+        ),
+    ]
+
+
+register("Ethersworn Canonist", _ethersworn_canonist)
+
+
+def _birthing_pod() -> list[AbilitySpec]:
+    """{1}{G/P}, {T}, Sacrifice a creature: Search your library for a
+    creature card with mana value equal to 1 plus the sacrificed
+    creature's mana value, put that card onto the battlefield, then
+    shuffle. Activate only as a sorcery.
+
+    — MEC-43, the other shared-primitive cluster: `GameObject.sacrificed_
+    cost_mana_value` was only ever stamped for a *spell's* RULE 601.2b
+    additional cost (`_pay_additional_cast_cost`) — an *activated
+    ability's* own sacrifice cost (`_pay_activation_cost`) stamped
+    nothing at all. Mirroring the same stamp there (right after the
+    victim reaches the graveyard, cleared unconditionally at the top of
+    every payment the same way the cast-cost site does) is the one new
+    piece; `SearchLibraryEffect.mana_value_from` (Eldritch Evolution/
+    Neoform's own "N plus the sacrificed X's mana value" shape) already
+    reads it generically off whatever `GameObject` an effect's ``source``
+    resolves to — an activated ability's own permanent, here — with no
+    changes needed on the search side at all.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("search", {
+                "criteria": {"type": "Creature"},
+                "destination": "battlefield",
+                "mana_value_from": {"source": "sacrificed_cost", "plus": 1, "cmp": "eq"},
+            })],
+            cost={"text": "{1}{G/P}, {T}, Sacrifice a creature", "sorcery_speed_only": True},
+            raw_text="{1}{G/P}, {T}, Sacrifice a creature: Search your "
+                     "library for a creature card with mana value equal "
+                     "to 1 plus the sacrificed creature's mana value, put "
+                     "that card onto the battlefield, then shuffle. "
+                     "Activate only as a sorcery.",
+        ),
+    ]
+
+
+register("Birthing Pod", _birthing_pod)
+
+
+def _oswald_fiddlebender() -> list[AbilitySpec]:
+    """Magical Tinkering — {W}, {T}, Sacrifice an artifact: Search your
+    library for an artifact card with mana value equal to 1 plus the
+    sacrificed artifact's mana value, put it onto the battlefield, then
+    shuffle. Activate only as a sorcery.
+
+    — MEC-43, Birthing Pod's own artifact-scoped mirror, closing the same
+    activation-cost sacrifice-stamp cluster's second card. "Magical
+    Tinkering" is a bare ability word (RULE 207.2c) — flavour only, no
+    rules meaning, so it's dropped rather than modeled.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("search", {
+                "criteria": {"type": "Artifact"},
+                "destination": "battlefield",
+                "mana_value_from": {"source": "sacrificed_cost", "plus": 1, "cmp": "eq"},
+            })],
+            cost={"text": "{W}, {T}, Sacrifice an artifact", "sorcery_speed_only": True},
+            raw_text="Magical Tinkering — {W}, {T}, Sacrifice an "
+                     "artifact: Search your library for an artifact card "
+                     "with mana value equal to 1 plus the sacrificed "
+                     "artifact's mana value, put it onto the battlefield, "
+                     "then shuffle. Activate only as a sorcery.",
+        ),
+    ]
+
+
+register("Oswald Fiddlebender", _oswald_fiddlebender)
+
+
+def _chandras_incinerator() -> list[AbilitySpec]:
+    """This spell costs {X} less to cast, where X is the total amount of
+    noncombat damage dealt to your opponents this turn.
+    Trample
+    Whenever a source you control deals noncombat damage to an opponent,
+    this creature deals that much damage to target creature or
+    planeswalker that player controls.
+
+    — MEC-45 (Ojer cEDH's last gap). The cost reduction reuses
+    `self_cost_reduction_for`'s existing "generic-times-count_selector"
+    multiply-by-`per` shape (Delve/Affinity's own mechanism) — the only
+    new piece is `GameState.noncombat_damage_to_opponents_this_turn`, a
+    running per-player *amount* total (`RulesEngine.deal_damage`
+    increments it directly on any noncombat hit against an opponent),
+    registered as a `count_selector` value the same way every other
+    per-turn tracker is. The trigger's amount half is already fully
+    general (`DealDamageEffect.amount_from_trigger_event`, Imodane's own
+    primitive); its target half needed two genuinely new pieces: a
+    `requires_damage_to_opponent` trigger-condition predicate (the DAMAGE
+    event's recipient must be some player other than this ability's own
+    controller — the "group"/"controller": "you" check only ever scopes
+    the *source*, not who was hit) combined with the DAMAGE event's own
+    already-general ``"filter": {"combat": False}`` for "noncombat", and a
+    wholly new `targeting.py` kind, ``creature_or_planeswalker_that_
+    player_controls`` — "that player" is whichever opponent the *firing*
+    trigger event actually named, not a fixed "opponent" role, so
+    `legal_targets` needed a new ``trigger_event`` parameter threaded from
+    `triggers_mixin.py`'s own two target-gathering call sites.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_reduction", {
+                "affects": "self", "generic": 1,
+                "per": "noncombat_damage_to_opponents_this_turn",
+            })],
+            raw_text="This spell costs {X} less to cast, where X is the "
+                     "total amount of noncombat damage dealt to your "
+                     "opponents this turn.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {
+                "target_kind": "creature_or_planeswalker_that_player_controls",
+                "amount_from_trigger_event": "amount",
+            })],
+            trigger={
+                "event": "DAMAGE",
+                "condition": {"subject": "group", "controller": "you"},
+                "filter": {"combat": False},
+                "requires_damage_to_opponent": True,
+            },
+            raw_text="Whenever a source you control deals noncombat "
+                     "damage to an opponent, this creature deals that "
+                     "much damage to target creature or planeswalker "
+                     "that player controls.",
+        ),
+    ]
+
+
+register("Chandra's Incinerator", _chandras_incinerator)

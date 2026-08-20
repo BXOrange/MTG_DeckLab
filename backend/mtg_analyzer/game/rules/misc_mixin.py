@@ -1010,6 +1010,11 @@ class MiscSystemsMixin:
         if "creature" not in object_types:
             nc_counts = self.state.noncreature_spells_cast_this_turn
             nc_counts[player_id] = nc_counts.get(player_id, 0) + 1
+        if "artifact" not in object_types:
+            # Ethersworn Canonist (MEC-43) — the nonartifact-scoped sibling
+            # of the noncreature tally above.
+            na_counts = self.state.nonartifact_spells_cast_this_turn
+            na_counts[player_id] = na_counts.get(player_id, 0) + 1
         # Veil of Summer-shaped "if an opponent has cast a blue or black
         # spell this turn" — SPELL_CAST carries no ``colors`` of its own,
         # so this reads the cast object's live colour off the stack it was
