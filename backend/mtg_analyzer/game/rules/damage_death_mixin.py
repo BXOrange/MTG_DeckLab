@@ -1468,6 +1468,15 @@ class DamageDeathMixin:
         if owner is not None and owner.graveyard_redirect_to_exile_until_turn == self.state.turn_number:
             self.exile(obj)
             return
+        # "If a card would be put into an opponent's graveyard from
+        # anywhere, instead exile it with a void counter on it." (Dauthi
+        # Voidwalker, MEC-42) — a standing (never-swept) redirect, unlike
+        # the two turn-scoped checks just above.
+        void_holder_id = continuous.void_counter_redirect_controller_for(self.state, obj)
+        if void_holder_id is not None:
+            self.exile(obj)
+            self.state.void_counter_holder[obj.instance_id] = void_holder_id
+            return
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
 

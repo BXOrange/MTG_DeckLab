@@ -270,6 +270,37 @@ class ManaCost:
                 reduced.append(symbol)
         return ManaCost(reduced, raw=ManaCost(reduced).render())
 
+    def reduce_generic_and_x(self, amount: int) -> "ManaCost":
+        """`reduce_generic`'s own sibling for a cost carrying ``{X}``
+        (March of Swirling Mist, MEC-42): reduces any printed generic pips
+        first, then spills the remainder onto the ``VARIABLE`` symbol's own
+        amount, floored at 0 — safe to call either before or after
+        `with_x` (that call keeps the symbol's `kind` as ``VARIABLE``, only
+        ever changing its ``amount``). RULE 601.2f cost reductions do apply
+        to the generic mana ``{X}`` resolves into once announced (RULE
+        107.3f) — unlike `reduce_generic` alone, which only ever matches a
+        printed `GENERIC` symbol and leaves a bare `VARIABLE` one
+        untouched, silently doing nothing for a cost with no *other*
+        generic component.
+        """
+        if amount <= 0:
+            return ManaCost(list(self.symbols), raw=self.raw)
+        remaining = amount
+        reduced: list[ManaSymbol] = []
+        for symbol in self.symbols:
+            if remaining > 0 and symbol.kind == GENERIC:
+                take = min(remaining, symbol.amount)
+                remaining -= take
+                if symbol.amount - take > 0:
+                    reduced.append(ManaSymbol(GENERIC, amount=symbol.amount - take))
+            elif remaining > 0 and symbol.kind == VARIABLE:
+                take = min(remaining, symbol.amount)
+                remaining -= take
+                reduced.append(ManaSymbol(VARIABLE, amount=symbol.amount - take))
+            else:
+                reduced.append(symbol)
+        return ManaCost(reduced, raw=ManaCost(reduced).render())
+
     def increase_generic(self, amount: int) -> "ManaCost":
         """A copy with ``amount`` generic mana added (a "cost {N} more" tax).
 

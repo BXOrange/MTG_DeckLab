@@ -3413,12 +3413,327 @@ is in the rules-engine categories below them.
   execute tests per card, plus a regression test confirming Intuition's
   own unchanged behaviour under the generalized code).
 
+### MEC-42: `cEDH staples` done to completion — 11 of its 12 named gaps
+
+- **What:** Ashling, the Limitless; Dauthi Voidwalker; Derevi, Empyrial
+  Tactician; Mana Crypt; March of Swirling Mist; Orcish Bowmasters;
+  Praetor's Grasp; Sevinne's Reclamation; Teferi, Time Raveler; Touch the
+  Spirit Realm; Tymna the Weaver — the last card, Delay, is confirmed-
+  blocked on RULE 702.61 Suspend (never built, only keyword-recognized),
+  a real ticket-sized gap left open rather than papered over.
+
+  **Evoke (RULE 702.74)** had never been built at all (Solitude's own
+  catalogue entry explicitly flagged it unmodeled) — this batch built the
+  real mana-cost half: a new `evoke` param threaded through `can_cast`/
+  `effective_cast_cost`/`cast_spell` exactly like Mutate's own cost
+  substitution (`GameEngine._evoke_cost`, `GameObject.cast_via_evoke`),
+  plus a genuinely new "sacrifice it when it enters" consequence (not a
+  replacement — its own ETB trigger fires first) wired right after
+  `_resolve_permanent_spell`'s ENTERS_BATTLEFIELD event. This closes the
+  whole *mana-cost* Evoke family for free (Mulldrifter/Shriekmaw-shaped)
+  — but not Solitude/Endurance/Fury/Subtlety/Grief's, whose Evoke cost is
+  "exile a `<color>` card from your hand" (RULE 118.9's alternative-cost
+  shape, never even parsed into `parametric_keywords` since the
+  segmenter's cost-run regex only matches mana symbols); those five keep
+  their own "not modeled" notes, unchanged. Ashling's own *grant*
+  ("Elemental permanent spells you cast from your hand gain evoke {4}")
+  is a new `grant_evoke` static (`continuous.granted_evoke_cost_for`, the
+  hand-cast-cost sibling of `has_standing_flash_permission`'s "permission
+  static outside the layer engine" idiom, since a card still in hand has
+  nothing for RULE 613's layer engine to have stamped). Ashling's second
+  ability ("whenever you sacrifice a nontoken Elemental, create a token
+  copy with haste, sacrifice it at the next end step unless you pay
+  {W}{U}{B}{R}{G}") needed two more small primitives: `CopyPermanentEffect`'s
+  new `referent="trigger_event"` (reads the firing SACRIFICE event's own
+  `instance_id` via `GameState.find_object`, which searches every zone —
+  the sacrificed creature is already in the graveyard by the time the
+  trigger resolves, so neither the existing `"source"` nor `"previous"`
+  referent could name it), and `SacrificeUnlessPayEffect`'s new `target`
+  override so the existing Kiki-Jiki/Puppeteer Clique `create_delayed_
+  trigger(capture="created_objects")` primitive can bake the *token*, not
+  Ashling herself, into the delayed sacrifice.
+
+  **Dauthi Voidwalker**'s "if a card would be put into an opponent's
+  graveyard from anywhere, instead exile it with a void counter on it" is
+  a new standing `void_counter_redirect` static (`continuous.void_
+  counter_redirect_controller_for`, the same battlefield-static-scan
+  idiom Opposition Agent's `search_redirect` already uses), checked from
+  `RulesEngine._move_to_graveyard` — the one choke point every
+  graveyard-bound move funnels through — right alongside the existing
+  Lurrus/Yawgmoth's Will redirects; `GameState.void_counter_holder`
+  (`instance_id -> holder player_id`) is the marker, never swept. The
+  activated ability's own `ChooseVoidCounterCardEffect` gathers the live
+  candidate pool (every opponent's exile zone, filtered to that marker)
+  and reuses MEC-20's already-general `"grant_free_cast"` chooser action
+  — a same-turn free-cast window, exactly what "you may play it this
+  turn without paying its mana cost" asks for.
+
+  **Derevi, Empyrial Tactician**'s "you may tap or untap target
+  permanent" needed a genuine new choice — `TapEffect`'s existing
+  `untap` bool is fixed at bind time, but this is a real decision at
+  resolution — so `TapEffect.choose_tap_or_untap` opens a new, small
+  `RulesEngine.request_tap_or_untap_choice`/`resolve_tap_or_untap_choice`
+  `pending_choice` instead of applying a fixed tap/untap directly. Two
+  `AbilitySpec`s (ETB self, and the already-general RULE 603.1
+  group-subject "a creature you control deals combat damage to a player"
+  shape Bident of Thassa/Rapacious Guest already use) share the effect
+  *shape*, each its own fresh `EffectSpec`. Its own third ability — a
+  flat-cost "put Derevi onto the battlefield from the command zone" bare
+  battlefield-entry, no stack, activated from a zone no activated ability
+  in this engine can be offered from — is a documented, deliberate
+  non-goal: RULE 903's ordinary command-zone *casting* (already fully
+  supported, tax and all) reaches the identical outcome.
+
+  **Mana Crypt** is `CoinFlipEffect`'s already-established "damage with
+  `selector='controller'`" shape (Mana Vault's own "deals 1 damage to
+  you") at its own printed amount; the mana ability needs no catalogue
+  entry at all (`game/mana_abilities.py` reads plain "{T}: Add …" text
+  unconditionally, independent of registration).
+
+  **March of Swirling Mist**'s additional cost ("you may exile any
+  number of blue cards from your hand. This spell costs {2} less to
+  cast for each card exiled this way") is a genuinely new RULE 601.2b
+  "announce a value, adjust cost, then pay it" shape — a new `exile_
+  discount` param threaded through the same `can_cast`/`effective_cast_
+  cost`/`cast_spell` chain evoke uses, gated by a new `exile_discount_
+  cost` static (`continuous.exile_discount_spec_for`, read off the
+  spell's own `static_effects` in hand, the same way Delve/Affinity's
+  own "costs less" static already is) so the mechanism stays generic
+  rather than hardcoded to blue/{2}. Found and fixed a real, general
+  gap on the way: `ManaCost.reduce_generic` only ever matches a printed
+  `GENERIC` symbol, silently doing nothing for a cost (like March's own
+  `{X}{U}`) whose only generic component is `{X}` itself — new `ManaCost.
+  reduce_generic_and_x` spills the remainder onto the `VARIABLE` symbol's
+  own amount after generic is exhausted (RULE 107.3f: `{X}` becomes real
+  generic mana once announced, so RULE 601.2f reductions do apply to it).
+  "Up to X target creatures phase out" needed `PhaseOutEffect` widened
+  from a single fixed target to a real multi-target count (`TargetSpec.
+  count_selector`'s new `"source_x_paid"` entry, reading `GameObject.
+  x_paid` fresh at target-gathering time, the same "live count, not a
+  printed one" idiom Goad's own count-selector already established for a
+  different source).
+
+  **Orcish Bowmasters**'s "except the first one they draw in each of
+  their draw steps" reuses MEC-32's own `EventType.DRAW` `first_in_draw_
+  step` flag — via a plain `filter` exact-match, the *first* trigger
+  consumer of it. Found and fixed a real, previously-invisible bug on
+  the way: `RulesEngine._single_draw` computed `first_in_draw_step`
+  correctly but only ever threaded it into the *input* event `apply_
+  replacements` reads (MEC-32's own Notion Thief/Chains of Mephistopheles
+  consumers); the event actually broadcast to trigger-collection (`_finish`'s
+  own `state.fire_event` call) never carried the field at all, so no
+  trigger's own "except the first ... draw step" condition could ever
+  have worked, on any card, until now. Amass (RULE 701.48) had no
+  primitive at all — new `AmassEffect` (create a 0/0 black Army `<Type>`
+  token if you don't already control one, else put N counters on one you
+  do, auto-picking among multiple exactly like every other untargeted
+  "no chooser for an equally-valid pick" idiom in this engine).
+
+  **Praetor's Grasp**'s "search **target opponent's** library" needed
+  `SearchLibraryEffect`'s own controller (who actually picks) to differ
+  from the library it searches/shuffles (the RULE 115 target) — new
+  `player_from_target` resolving `player` to the targeted opponent, and a
+  new `chooser` param threading a real "who answers" identity through
+  `RulesEngine.request_search` down to `_search_choice`/`_finish_search`/
+  `_put_searched_card` (`pending_choice["player_id"]` becomes "who
+  answers", a new `library_owner_id` carries "whose library" — reusable
+  by any future Bribery/Mind's Desire-shaped card). The new `"exile_face_
+  down_standing_cast"` destination combines the existing face-down-in-
+  exile marker (Beseech the Mirror) with a standing (never-swept)
+  `GameState.exile_cast_condition` grant to the *chooser*, not the
+  searched player — the ordinary-cost sibling of Bring to Light's own
+  same-player `"exile_free_cast"` (MEC-41). Also fixed a real, general
+  gap found on the way: `can_play_land` never checked `_has_conditional_
+  exile_permission` at all, so this permission (or Lukka's own) could
+  never actually offer a land, on any card.
+
+  **Sevinne's Reclamation**'s reanimation half is `ReturnFromGraveyardEffect`'s
+  already-general `target_kind="graveyard_permanent"`/`max_mana_value`
+  (RULE 701.3 family). "If this spell was cast from a graveyard, you may
+  copy this spell..." needed a genuine new self-copy primitive — new
+  `RulesEngine.copy_self_spell`, `copy_spell`'s sibling that builds the
+  copy `StackItem` directly off this spell's own `GameObject` rather than
+  looking up a live stack entry (by the time this trailing clause
+  resolves, the original has already been popped off `GameState.stack`
+  for resolution). Reads `GameObject.cast_via_flashback` directly (still
+  true at this point — the "exile instead of graveyard" clearing happens
+  only after every effect, this one included, has resolved). Documented
+  simplification: the copy keeps the original's own already-gathered
+  target by default (RULE 707.10c's default outcome), the same "no real
+  new-targeting yet" simplification `CopySpellEffect` already documents
+  for every other copy-a-spell card.
+
+  **Teferi, Time Raveler**'s static ("each opponent can cast spells only
+  any time they could cast a sorcery") is a new `sorcery_speed_only`
+  static (`continuous.forced_sorcery_speed_only`, consulted directly in
+  `GameEngine.can_cast`'s own timing computation, forcing sorcery-speed
+  even over an instant/Flash spell for a restricted opponent) — the
+  mirror image of `flash_permission`'s existing "permission static
+  outside the layer engine" treatment. The +1 reuses that same `flash_
+  permission` static with a widened `type_filter` (a new `"sorcery"`
+  word, `continuous.has_standing_flash_permission`'s own list check)
+  wrapped in `GrantUntilEffect` at the already-supported `"your_next_
+  turn"` duration. The −3 was already fully `MODELED` by the oracle-text
+  parser; reused as-is via the `hand-author-card` skill's own `reuse`
+  command.
+
+  **Touch the Spirit Realm**'s ETB is the established O-Ring shape
+  (`ExileEffect(remember=True)` + `ReturnLinkedExileEffect` on LEAVES_
+  BATTLEFIELD, Shire Shirriff/Leonin Relic-Warder-shaped), just a new
+  union target kind — `targeting`'s new `"artifact_or_creature"`, the
+  same "two single-type kinds getting their own combined kind" idiom
+  `artifact_or_enchantment` already established. Channel (RULE 702.29)
+  needed no new primitive: its "Discard this card:" cost is already
+  `ActivationCost.discard_self`, already fully wired for a hand-zone
+  activation (`GameEngine.can_activate`'s own documented Channel/Cycling
+  branch) — just never bound to a real card doing anything but Cycling
+  before. Its own return clause reuses `ReturnLinkedExileEffect` again,
+  fired from a plain `create_delayed_trigger` (`step="end", scope="any"`)
+  instead of a LEAVES_BATTLEFIELD trigger.
+
+  **Tymna the Weaver**'s trigger needed a genuine new count selector —
+  `continuous.count_selector`'s new `"opponents_dealt_combat_damage_
+  this_turn"`, aggregating `GameState.combat_damage_to_players_this_turn`
+  (RULE 120.3, previously only ever read per-source) across every source
+  that hit this turn, unlike that field's own keyed-by-source shape. The
+  pay-X-draw-X body is the new `PayLifeEqualToOpponentsCombatDamagedDraw
+  ThatManyEffect` — computes X once, then opens the already-general
+  `RulesEngine.request_pay_cost_then` choice with a dynamically built
+  `ActivationCost(pay_life=X)`/draw-X-cards pair, since `PayCostThenEffect`'s
+  own fixed cost-text shape has no way to plug in a live board count.
+
+- **Files:** `game/engine/casting_mixin.py` (`_evoke_cost`, the `evoke`/
+  `exile_discount` params through `can_cast`/`effective_cast_cost`/
+  `cast_spell`/`_cast_current_face`/`_auto_tap_for_cast_if_needed`, the
+  `sorcery_speed` override), `game/rules/casting_mixin.py` (the
+  post-ENTERS_BATTLEFIELD evoke-sacrifice check), `game/rules/copies_
+  mixin.py` (`copy_self_spell`), `game/rules/damage_death_mixin.py` (the
+  void-counter redirect check in `_move_to_graveyard`), `game/rules/draw_
+  discard_mixin.py` (the `first_in_draw_step` broadcast fix), `game/rules/
+  misc_mixin.py` (`request_tap_or_untap_choice`/`resolve_tap_or_untap_
+  choice`, `CHOOSE_OBJECT_ACTIONS`), `game/rules/search_mixin.py`
+  (`request_search`/`_search_choice`/`_finish_search`/`_put_searched_
+  card`'s `chooser`/`library_owner_id` threading, the new `"exile_face_
+  down_standing_cast"` destination), `game/engine/lands_mixin.py`/
+  `legal_actions_mixin.py` (the `_has_conditional_exile_permission` land
+  gap fix), `game/engine/turn_loop_mixin.py` (the `tap_or_untap`
+  pending-choice dispatch), `game/continuous.py` (`granted_evoke_cost_
+  for`, `void_counter_redirect_controller_for`, `exile_discount_spec_
+  for`, `forced_sorcery_speed_only`, the new `"opponents_dealt_combat_
+  damage_this_turn"`/`"sorcery"` selector entries), `game/targeting.py`
+  (`"artifact_or_creature"`, `TargetSpec`'s new `"source_x_paid"` count
+  selector), `game/effects.py` (`AmassEffect`, `ChooseVoidCounterCardEffect`,
+  `CopySelfIfCastFromGraveyardEffect`, `PayLifeEqualToOpponentsCombatDamaged
+  DrawThatManyEffect`, `PhaseOutEffect`'s multi-target widening,
+  `TapEffect.choose_tap_or_untap`, `SacrificeUnlessPayEffect.target`,
+  `CopyPermanentEffect`'s `referent="trigger_event"`, all matching
+  `EffectRegistry` entries), `models/mana_cost.py`
+  (`reduce_generic_and_x`), `models/game_object.py` (`cast_via_evoke`),
+  `models/game_state.py` (`void_counter_holder`), `game/ability_
+  catalogue.py` (all 11 cards).
+- **Tests:** `tests/test_mec42_family.py` (new, 19 tests covering every
+  card's real in-engine behaviour, including the general Evoke primitive
+  off a real cached evoke creature independent of Ashling's own grant).
+
+### MEC-43: `cEDH staples 2` — first batch, 9 near-free reuses
+
+- **What:** Contamination, Leveler, Natural Order, Magda Brazen Outlaw,
+  Unmarked Grave, Unsubstantiate, Starting Town, Teferi Master of Time,
+  March of Otherworldly Light — the first slice of `cEDH staples 2`'s
+  45-card remainder, all near-free reuses of primitives shipped for
+  entirely different cards, plus a handful of small, genuinely reusable
+  additions found along the way.
+
+  **Contamination**'s upkeep clause is already `MODELED` by the parser;
+  its mana-override clause is an exact param match for `mana_type_
+  override` (Damping Sphere) with `min_amount=1`/`to="B"` instead of
+  Damping Sphere's `2`/`"C"`. **Leveler** is `ExileLibraryEffect`
+  (registered for Paradigm Shift, never actually used by a card before
+  now). **Natural Order**'s search half is parser-`MODELED`; its "sacrifice
+  a green creature" additional cost needed a new `"<color>_creature"`
+  compound sacrifice-cost sentinel (`_matches_sacrifice_type`'s new
+  branch + `_SACRIFICE_COLOR_WORDS`, and the matching whitelist entry in
+  `AbilitySpec._validate_additional_cost`). **Magda**'s anthem and
+  tap-trigger are already parser-`MODELED` (reused via the `hand-author-
+  card` skill's own `reuse` command rather than re-derived by hand); its
+  activated ability is `ActivationCost.sacrifice_count`'s already-shipped
+  `(count, subtype)` shape at `(5, "treasure")`. **Unmarked Grave** needed
+  a new `"nonlegendary": True` search-criteria key (`models/card_query.py`),
+  the negation of the already-recognized "legendary" type-line word.
+
+  **Unsubstantiate** ("return target spell or creature") reuses
+  `RulesEngine.bounce_spell_or_permanent` (Sink into Stupor/Hullbreaker
+  Horror, MEC-12 M-K) almost unchanged — that method was already fully
+  generic (falls back to ordinary `return_to_hand` whenever the target
+  isn't currently a spell on the stack), so only a new, narrower
+  `targeting` union kind (`"spell_or_creature"`) was needed, not a new
+  resolve-time mechanism. **Starting Town**'s "enters tapped unless it's
+  your first, second, or third turn of the game" needed a genuinely new
+  RULE 614.1 conditional-enters-tapped gate — `parser/oracle/catalogue/
+  lands.py`'s new `_UNLESS_TURN_AT_MOST_RE`/`"unless_turn_at_most"` kind
+  (`PARSER_VERSION` bumped to 96), consumed at both existing dispatch
+  sites in `game/rules/casting_mixin.py`. Since `land_tap_condition`
+  reads a card's own oracle text directly (independent of catalogue
+  registration, exactly like a mana ability), this closed the card with
+  **no catalogue entry needed at all** once the parser recognized the
+  clause — confirmed via `MODELED` coverage. **Documented simplification**:
+  "your Nth turn" (RULE 500.1, a player's own turn count) has no tracker
+  in this engine; `GameState.round_number` ("how often the turn has come
+  back to whoever started") is used as the proxy — exact for the
+  overwhelming common case, wrong only if a player's own turn count ever
+  diverges from the table's shared round count (joining/leaving mid-game).
+
+  **Teferi, Master of Time**'s instant-speed loyalty-activation clause
+  reuses The Wandering Emperor's own `conditional_flash` mechanism
+  (`GameEngine._can_activate_loyalty`) with MEC-44's already-shipped
+  `"unconditional": True` member (Necromancy's own "as though it had
+  flash" with no gate) instead of Emperor's "entered this turn" gate — no
+  new primitive. Its −3/+1 are already parser-`MODELED`; its −10 is
+  `TakeExtraTurnEffect` listed twice (no `count` param exists, so "two
+  extra turns" is just two queued turns). **March of Otherworldly
+  Light**'s additional cost is an exact recolor of March of Swirling
+  Mist's own `exile_discount_cost` static (MEC-42) — white instead of
+  blue. Its exile clause ("with mana value X or less") surfaced a real,
+  general gap: `_substitute_x`'s existing `"x"` sentinel only ever
+  resolves a *resolve-time* `filter`/`criteria` dict (a search/mass-
+  effect shape) or, new this batch, a `TargetSpec.max_mana_value` at
+  *resolution* — but a genuine RULE 115 **target** bound by `{X}` has to
+  be gathered/offered at *cast* time, before resolution, when the announced
+  X is known but not yet stamped anywhere reachable. Fixed generally:
+  `GameEngine._cast_current_face` now stamps `GameObject.x_paid` early
+  (right after entering `_mode_effects_applied`, before `has_legal_
+  targets` runs) — harmless, since the real post-resolution stamp
+  overwrites it with the identical value — and `targeting.legal_targets`
+  resolves a `spec.max_mana_value` of `"x"`/`"-x"` off that same field
+  before dispatching to any per-kind branch, so every existing and future
+  "target `<X>` with mana value X or less" card benefits, not just this
+  one. (March of Swirling Mist's own "up to X target creatures phase out"
+  count, MEC-42, likely had the identical latent gap through the
+  interactive board path — this fix closes that too, not just a new card.)
+
+- **Files:** `game/engine/activation_mixin.py` (`_matches_sacrifice_type`'s
+  new `"<color>_creature"` branch, `_SACRIFICE_COLOR_WORDS`),
+  `parser/oracle/spec.py` (`_ADDITIONAL_COST_SACRIFICE_TYPES` widened,
+  `PARSER_VERSION` implicitly unaffected — that bump lives in `gate.py`),
+  `parser/oracle/gate.py` (`PARSER_VERSION` 95 → 96),
+  `parser/oracle/catalogue/lands.py` (`_UNLESS_TURN_AT_MOST_RE`/
+  `"unless_turn_at_most"`), `game/rules/casting_mixin.py` (the new kind's
+  two dispatch sites), `game/engine/casting_mixin.py` (the early
+  `x_paid` stamp in `_cast_current_face`), `game/targeting.py`
+  (`legal_targets`'s new `"x"`/`"-x"` `max_mana_value` resolution, the new
+  `"artifact_creature_or_enchantment"`/`"spell_or_creature"` union kinds),
+  `models/card_query.py` (`"nonlegendary"`), `game/ability_catalogue.py`
+  (all 9 cards).
+- **Tests:** `tests/test_mec43_family.py` (new, 13 tests).
+
 ### MEC-40/41/42/43 coverage note
 
 Every card above closed against its own named deck (`cEDH Rocco` — all 18,
-now 98/98; `[cEDH] Glarb Bloomsday` — all 8, now 100/100), plus whichever
-of the other decks' own residual lists happened to share the same card
-names (`cEDH staples`/`cEDH staples 2` — see `BACKLOG.md`'s `MEC-12`
+now 98/98; `[cEDH] Glarb Bloomsday` — all 8, now 100/100; `cEDH staples` —
+11 of its 12, now 214/215, Delay the sole documented holdout), plus
+whichever of the other decks' own residual lists happened to share the
+same card names (`cEDH staples 2` — now 557/602 after MEC-43's own first
+batch on top of the shared cards above — see `BACKLOG.md`'s `MEC-12`
 coverage table for the current per-deck numbers, re-measured after each
 batch).
 

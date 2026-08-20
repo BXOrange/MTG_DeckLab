@@ -741,6 +741,20 @@ def count_selector(
         if controller_id is None:
             return 0
         return state.spells_cast_this_turn.get(controller_id, 0)
+    if selector == "opponents_dealt_combat_damage_this_turn":
+        # "...where X is the number of opponents that were dealt combat
+        # damage this turn." (Tymna the Weaver, MEC-42) — unlike `GameState.
+        # combat_damage_to_players_this_turn`'s own keyed-by-source shape
+        # (built for "player damaged **by ~**"), this reads it unscoped by
+        # source: any opponent hit by *any* creature this turn counts,
+        # regardless of who controlled the attacker.
+        if controller_id is None:
+            return 0
+        opponent_ids = {p.id for p in state.living_players() if p.id != controller_id}
+        hit: set[str] = set()
+        for victims in state.combat_damage_to_players_this_turn.values():
+            hit |= victims
+        return len(hit & opponent_ids)
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
     if selector == "multicolored_permanents_you_control":
@@ -2347,6 +2361,64 @@ def search_redirect_controller_for(
     return None
 
 
+def forced_sorcery_speed_only(state: "GameState", player: "Player") -> bool:
+    """Whether ``player`` is under a standing "can cast spells only any
+    time they could cast a sorcery" restriction (Teferi, Time Raveler's
+    own static, MEC-42) — forces RULE 601.3b sorcery-speed timing even
+    for a spell that otherwise carries Flash/is an instant. Checked
+    directly in `GameEngine.can_cast`'s own timing computation, the same
+    "permission/restriction static outside the layer engine" treatment
+    `has_standing_flash_permission` gets for the opposite direction.
+    "Each **opponent**" — this only ever restricts a player other than
+    the granting permanent's own controller.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "sorcery_speed_only":
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        if controller_id is None or controller_id == player.id:
+            continue
+        return True
+    return False
+
+
+def exile_discount_spec_for(obj: Any) -> Optional[dict[str, Any]]:
+    """"As an additional cost to cast this spell, you may exile any number
+    of `<color>` cards from your hand. This spell costs `<N>` less to cast
+    for each card exiled this way." (March of Swirling Mist, MEC-42) —
+    ``{"color": "U", "generic_per_card": 2}`` if ``obj`` prints this
+    clause, else ``None``. Read straight off ``obj.static_effects`` the
+    same way `self_cost_reduction_for` reads a spell's own printed "costs
+    less" static while it's still in hand — an `exile_discount_cost`
+    layer, not a battlefield-scoped one.
+    """
+    for ability in getattr(obj, "static_effects", None) or ():
+        if getattr(ability, "layer", None) == "exile_discount_cost":
+            return dict(ability.params)
+    return None
+
+
+def void_counter_redirect_controller_for(state: "GameState", obj: Any) -> Optional[str]:
+    """"If a card would be put into an opponent's graveyard from anywhere,
+    instead exile it with a void counter on it." (Dauthi Voidwalker,
+    MEC-42) — ``obj`` is about to enter *its own owner's* graveyard (RULE
+    404.4/700.4), so "an opponent's graveyard" means any Dauthi Voidwalker
+    whose controller differs from ``obj.owner_id``; returns that
+    controller (who earns the void counter, `GameState.void_counter_
+    holder`), or ``None``. Same battlefield-static-scan idiom as `search_
+    redirect_controller_for`, checked from `RulesEngine._move_to_graveyard`
+    alongside the Lurrus/Yawgmoth's Will redirects already there.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "void_counter_redirect":
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        if controller_id is None or controller_id == getattr(obj, "owner_id", None):
+            continue
+        return controller_id
+    return None
+
+
 def mana_type_override_for(
     state: "GameState", source: "GameObject", total_produced: int
 ) -> Optional[str]:
@@ -2939,6 +3011,9 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
                 ("legendary" in words and getattr(card, "is_legendary", False))
                 or ("artifact" in words and getattr(card, "is_artifact", False))
                 or ("creature" in words and getattr(card, "is_creature", False))
+                # "You may cast **sorcery** spells as though they had
+                # flash." (Teferi, Time Raveler's own +1, MEC-42).
+                or ("sorcery" in words and bool(getattr(card, "is_sorcery", False)))
             )
             if not matches:
                 continue
@@ -2948,6 +3023,38 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
             continue
         return True
     return False
+
+
+def granted_evoke_cost_for(state: "GameState", obj: Any) -> Optional["ManaCost"]:
+    """Whether ``obj`` (a card still in hand, being considered for casting)
+    has been granted Evoke by a standing battlefield static ("Elemental
+    permanent spells you cast from your hand gain evoke {4} as you cast
+    them." — Ashling, the Limitless, MEC-42) — the hand-cast-cost sibling
+    of `has_standing_flash_permission`'s own "permission static outside the
+    layer engine" idiom, since a card sitting in hand has no `static_trace`
+    of its own for RULE 613's layer engine to have stamped anything onto.
+    Returns the granted cost as a `ManaCost`, or ``None``.
+    """
+    from ..models.mana_cost import ManaCost  # local: avoid a continuous<->models import cycle
+
+    card = getattr(obj, "card", None)
+    if card is None:
+        return None
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "grant_evoke":
+            continue
+        if getattr(ability.source, "controller_id", None) != getattr(obj, "controller_id", None):
+            continue
+        cost = ability.params.get("cost")
+        if not cost:
+            continue
+        subtype = ability.params.get("subtype")
+        if subtype:
+            sub = (getattr(card, "type_line", "") or "").partition("—")[2].strip().lower().split()
+            if str(subtype).lower() not in sub:
+                continue
+        return ManaCost.parse(str(cost))
+    return None
 
 
 def any_color_for_activation(state: "GameState", player: "Player", source: "GameObject") -> Optional[str]:

@@ -82,7 +82,13 @@ class LandsMixin:
                 and obj is player.library[-1]
                 and may_play_land_from_top_of_library(player, self.state)
             )
-            or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player))
+            or (
+                obj.zone == Zone.EXILE
+                and (
+                    self._has_temp_play_permission(obj, player)
+                    or self._has_conditional_exile_permission(obj, player)
+                )
+            )
             or (
                 obj.zone == Zone.GRAVEYARD
                 and obj in player.graveyard

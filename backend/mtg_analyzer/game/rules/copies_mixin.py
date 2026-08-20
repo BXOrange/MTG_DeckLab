@@ -234,6 +234,45 @@ class CopiesMixin:
             self.state.stack.append(copy_item)
             copies.append(copy_item)
         return copies
+    def copy_self_spell(
+        self, obj: GameObject, controller_id: str, targets: Optional[list[Any]] = None,
+    ) -> Optional[StackItem]:
+        """"You may copy this spell [and may choose a new target for the
+        copy]." (Sevinne's Reclamation's own trailing clause, MEC-42) —
+        the self-copy sibling of `copy_spell` above, needed because by the
+        time a spell's own *trailing* effect resolves, the original has
+        already been popped off `GameState.stack` (RULE 608.2m — this
+        function runs from inside that same resolution), so there is no
+        live `StackItem` left for `_stack_item_for` to find. Builds the
+        copy directly off ``obj`` (still a valid `GameObject` reference)
+        instead.
+
+        ``targets`` keeps the original's own already-gathered targets by
+        default (RULE 707.10c's default outcome) — the same "no genuine
+        new-target choice, MVP keeps the original's" simplification
+        `copy_spell` already documents for every other consumer, not a
+        fresh gap. Passing ``self.source``'s own resolving ``targets``
+        (the shared list every effect on the same stack item reads) is
+        what makes the copy actually reanimate something instead of
+        finding no target at all and quietly doing nothing.
+        """
+        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
+
+        copiable = getattr(obj, "_front_card", obj.card)
+        copy_obj = GameObject(copiable.as_copy(), owner_id=controller_id, zone=Zone.STACK)
+        copy_obj.is_token = True
+        copy_obj.is_copy = True
+        bind_from_catalogue(copy_obj)
+        copy_item = StackItem(
+            kind="spell",
+            controller_id=controller_id,
+            effects=self._effects_for_spell(copy_obj),
+            obj=copy_obj,
+            description=f"{obj.name} (Kopie)",
+            targets=list(targets or []),
+        )
+        self.state.stack.append(copy_item)
+        return copy_item
     def make_prepared(self, obj: GameObject) -> None:
         """``obj`` becomes prepared (RULE 722.3a — a preparation card's
         "~ becomes prepared" effect).

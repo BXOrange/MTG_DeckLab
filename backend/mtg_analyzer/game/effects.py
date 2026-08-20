@@ -318,6 +318,9 @@ class GameContext:
     ) -> None:
         self.engine.copy_spell(target, controller_id, count, new_targets)
 
+    def copy_self_spell(self, obj: "GameObject", controller_id: str, targets: Optional[list] = None) -> None:
+        self.engine.copy_self_spell(obj, controller_id, targets=targets)
+
     def make_prepared(self, obj: "GameObject") -> None:
         self.engine.make_prepared(obj)
 
@@ -407,6 +410,7 @@ class GameContext:
         attach_to_creature_you_control: bool = False,
         remember_source_id: Optional[int] = None,
         total_mana_value_budget: Optional[int] = None,
+        chooser: Optional["Player"] = None,
     ) -> None:
         self.engine.request_search(
             player, criteria, destination, count, optional,
@@ -415,6 +419,7 @@ class GameContext:
             attach_to_creature_you_control=attach_to_creature_you_control,
             remember_source_id=remember_source_id,
             total_mana_value_budget=total_mana_value_budget,
+            chooser=chooser,
         )
 
     def request_intuition(
@@ -4353,17 +4358,28 @@ class SacrificeUnlessPayEffect(GameEffect):
     pay`, which reuses ward's pay-or-lose-it choice machinery.
     """
 
-    def __init__(self, cost: str = "", source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, cost: str = "", source: Optional["GameObject"] = None,
+        target: Optional["GameObject"] = None,
+    ) -> None:
         super().__init__(source)
         self.cost_text = str(cost or "")
+        #: "…sacrifice **it** unless you pay `<cost>`." naming a *different*
+        #: permanent than this ability's own source (Ashling, the
+        #: Limitless, MEC-42 — the token its own sacrifice trigger just
+        #: made, not Ashling itself) — filled in by `CreateDelayedTrigger
+        #: Effect`'s ``capture="created_objects"`` the same way it already
+        #: fills `SacrificeSpecificEffect.target`-shaped effects; falls
+        #: back to ``source`` (every existing caller's own shape) when unset.
+        self.target = target
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
 
-        source = self.source
-        if source is None:
+        subject = self.target or self.source
+        if subject is None:
             return
-        player = _controller_of(source, context)
+        player = _controller_of(subject, context)
         if player is None:
             return
         cost = parse_activation_cost(self.cost_text)
@@ -4375,7 +4391,7 @@ class SacrificeUnlessPayEffect(GameEffect):
             # can express, so this is a belt-and-braces guard for a
             # hand-authored entry, not a path real oracle text reaches.)
             return
-        context.engine.request_sacrifice_unless_pay(player, cost, source)
+        context.engine.request_sacrifice_unless_pay(player, cost, subject)
 
 
 class TaxedDrawEffect(GameEffect):
@@ -4639,6 +4655,33 @@ class CopySpellEffect(GameEffect):
             return
         for target in targets:
             context.copy_spell(target, controller_id, self.count)
+
+
+class CopySelfIfCastFromGraveyardEffect(GameEffect):
+    """"If this spell was cast from a graveyard, you may copy this spell
+    and may choose a new target for the copy." (Sevinne's Reclamation,
+    MEC-42) — reads `GameObject.cast_via_flashback` directly off this
+    effect's own source: still ``True`` at this point, since `RulesEngine.
+    _finish_resolving_stack_item`'s own "exile instead of graveyard"
+    branch (which clears it) only runs *after* every one of the spell's
+    effects — this one included — has already resolved. Opens
+    `RulesEngine.copy_self_spell` rather than `CopySpellEffect`'s ordinary
+    `copy_spell` (which looks up a *live* `StackItem` — the original is
+    already off the stack by now).
+
+    **Documented simplification**: "you may" is read as unconditional
+    (always copies when cast from a graveyard) — the same accepted
+    simplification this engine already gives every other untargeted
+    "you may" trigger with no real downside to declining.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None or not getattr(self.source, "cast_via_flashback", False):
+            return
+        controller_id = getattr(self.source, "controller_id", None)
+        if controller_id is None:
+            return
+        context.copy_self_spell(self.source, controller_id, targets=targets)
 
 
 class ChangeTargetEffect(GameEffect):
@@ -6303,6 +6346,36 @@ class CreateTokenCopyOfLinkedExileEffect(GameEffect):
             set_toughness=self.set_toughness, add_subtypes=self.add_subtypes,
         )
         context.created_objects.extend(made or [])
+
+
+class ChooseVoidCounterCardEffect(GameEffect):
+    """"Choose an exiled card an opponent owns with a void counter on it.
+    You may play it this turn without paying its mana cost." (Dauthi
+    Voidwalker, MEC-42) — gathers the live candidate pool (any card in an
+    *opponent's* exile zone still carrying `GameState.void_counter_
+    holder`, stamped by `continuous.void_counter_redirect_controller_for`'s
+    standing replacement) and opens the already-general chooser via the
+    ``"grant_free_cast"`` action (MEC-20's "arm a temporary, same-turn
+    free-cast window" shape) — just over a different candidate pool than
+    that action's own hand-zone origin.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        candidates = [
+            obj
+            for other in context.state.players
+            if other.id != player.id
+            for obj in other.exile
+            if obj.instance_id in context.state.void_counter_holder
+        ]
+        if not candidates:
+            return
+        context.engine.request_choose_objects(
+            player, candidates, "grant_free_cast", count=1, optional=True, source=self.source,
+        )
 
 
 class ExileLibraryEffect(GameEffect):
@@ -8715,10 +8788,18 @@ class TapEffect(GameEffect):
         trigger_event_key: Optional[str] = None,
         creature_filter: Optional[dict] = None,
         subtypes: Optional[list[str]] = None,
+        choose_tap_or_untap: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.untap = untap
+        #: "You may tap **or untap** target permanent." (Derevi, Empyrial
+        #: Tactician, MEC-42) — a real choice at resolution, layered on top
+        #: of RULE 115's own "up to one" target optionality (``optional``
+        #: above only ever decides *whether there's a target at all*).
+        #: Opens `RulesEngine.request_tap_or_untap_choice` instead of
+        #: applying ``untap`` directly.
+        self.choose_tap_or_untap = choose_tap_or_untap
         self.selector = selector if _is_valid_tap_selector(selector) else None
         #: "Untap them." (Valley Floodcaller, MEC-41), narrowing a
         #: ``selector`` group by subtype the same way `PumpEffect.subtypes`/
@@ -8804,7 +8885,10 @@ class TapEffect(GameEffect):
         if target is None and self.target_spec is None:
             target = self.source
         if target is not None:
-            context.set_tapped(target, tapped=not self.untap)
+            if self.choose_tap_or_untap:
+                context.engine.request_tap_or_untap_choice(target, source=self.source)
+            else:
+                context.set_tapped(target, tapped=not self.untap)
 
 
 #: MEC-28: which effect types' own `selector` `_apply_effects_partitioned`
@@ -9406,6 +9490,8 @@ class PhaseOutEffect(GameEffect):
         optional: bool = False,
         previous_subject: bool = False,
         self_target: bool = False,
+        count: int = 1,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -9422,13 +9508,41 @@ class PhaseOutEffect(GameEffect):
         #: split has the identical shape).
         self.self_target = self_target
         if target_kind is not None and not previous_subject:
-            self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+            #: "Up to X target creatures phase out." (March of Swirling
+            #: Mist, MEC-42) — ``count_selector="source_x_paid"`` reads the
+            #: spell's own announced {X} fresh at target-gathering time
+            #: (`targeting.resolved_count`), the same shape Goad's own
+            #: "up to X target creatures" already established (ENG-30-
+            #: adjacent, just a different count source).
+            self.target_spec = TargetSpec(
+                kind=target_kind, optional=optional, count=count, count_selector=count_selector,
+            )
+
+    def _phase_out_one(self, context: GameContext, target: Any) -> None:
+        target.phased_out = True
+        for obj in context.state.battlefield:
+            if obj.attached_to == target.instance_id:
+                obj.attached_to = None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.previous_subject:
             prev = list(context.previous_targets)
             target = prev[0] if prev else None
-        elif self.target_spec is not None:
+            if target is not None:
+                self._phase_out_one(context, target)
+            return
+        if self.target_spec is not None and self.target_spec.count_selector:
+            # A dynamic (e.g. X-sized) multi-target count, resolved once at
+            # target-gathering time (`targeting.resolved_count`) — every
+            # target actually gathered phases out, not just the first.
+            # ``effective_count`` can't be used to slice here (it reads
+            # only ``count``/``count_max``, not a live ``count_selector``),
+            # so every entry the caller already gathered for this one
+            # targeting effect is used as-is.
+            for one in (targets or []):
+                self._phase_out_one(context, one)
+            return
+        if self.target_spec is not None:
             target = (targets[0] if targets else None) or self.target
         elif self.self_target:
             target = self.source
@@ -9439,10 +9553,7 @@ class PhaseOutEffect(GameEffect):
             target = None
         if target is None:
             return
-        target.phased_out = True
-        for obj in context.state.battlefield:
-            if obj.attached_to == target.instance_id:
-                obj.attached_to = None
+        self._phase_out_one(context, target)
 
 
 class BecomePreparedEffect(GameEffect):
@@ -9697,6 +9808,78 @@ class RenownEffect(GameEffect):
         context.add_counters(self.source, self.amount, "+1/+1", source=self.source)
         self.source.renowned = True
         context.fire_event(GameEvent(EventType.RENOWNED, instance_id=self.source.instance_id))
+
+
+class AmassEffect(GameEffect):
+    """RULE 701.48 Amass `<Type>` N: "If you don't control an Army creature,
+    create a 0/0 black Army `<Type>` creature token first. Put N +1/+1
+    counters on an Army you control." (Orcish Bowmasters, MEC-42) —
+    auto-picks the first Army you control when one already exists and
+    there's more than one to choose from (RULE 701.48b does let the
+    amassing player choose), the same "no chooser for an equally-valid
+    pick" idiom this engine's other untargeted picks already use, since
+    nothing here differentiates otherwise-identical Army tokens.
+    """
+
+    def __init__(self, subtype: str = "Zombies", count: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.subtype = str(subtype)
+        self.count = max(0, int(count))
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import synthesize_token_card  # avoid a services↔effects cycle
+
+        player = _controller_of(self.source, context)
+        if player is None or self.count <= 0:
+            return
+        army = next(
+            (
+                o for o in context.state.battlefield
+                if o.controller_id == player.id and o.is_creature
+                and "army" in o.card.type_line.partition("—")[2].strip().lower().split()
+            ),
+            None,
+        )
+        if army is None:
+            card = synthesize_token_card(
+                self.subtype, power=0, toughness=0, colors=["B"],
+                subtypes=["Army", self.subtype],
+            )
+            made = context.create_token(player.id, card, 1) or []
+            context.created_objects.extend(made)
+            army = made[0] if made else None
+        if army is not None:
+            context.add_counters(army, self.count, "+1/+1", source=self.source)
+
+
+class PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect(GameEffect):
+    """"You may pay X life, where X is the number of opponents that were
+    dealt combat damage this turn. If you do, draw X cards." (Tymna the
+    Weaver, MEC-42) — computes X once (`continuous.count_selector`'s new
+    ``"opponents_dealt_combat_damage_this_turn"``), then opens the
+    general `RulesEngine.request_pay_cost_then` choice with a
+    *dynamically built* ``ActivationCost(pay_life=X)`` and a matching
+    draw-X-cards follow-up, rather than `PayCostThenEffect`'s own fixed
+    cost-text shape (which has no way to plug in a live board count).
+    X=0 skips the choice outright — there's nothing to gain from paying
+    0 life to draw 0 cards, the same "don't stall on a choice nobody can
+    meaningfully act on" idiom `request_pay_cost_then` already applies
+    to an unpayable cost.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from . import continuous  # function-scoped: avoid the continuous<->effects import cycle
+        from .costs import ActivationCost  # function-scoped: costs<->effects import cycle
+
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        x = continuous.count_selector(context.state, player.id, "opponents_dealt_combat_damage_this_turn")
+        if x <= 0:
+            return
+        context.engine.request_pay_cost_then(
+            player, ActivationCost(pay_life=x), [{"type": "draw", "params": {"count": x}}], self.source,
+        )
 
 
 class GrantUntilEffect(GameEffect):
@@ -10888,7 +11071,16 @@ class CopyPermanentEffect(GameEffect):
         #: ``referent="previous"`` is the new pronoun mode, the same
         #: `GameContext.previous_targets` `GoadEffect`/`FightEffect` already
         #: read for "goad it"/pronoun fights.
-        self.referent = referent if referent in ("source", "previous") else "source"
+        #: ``referent="trigger_event"`` (Ashling, the Limitless, MEC-42 —
+        #: "Whenever you sacrifice a nontoken Elemental, create a token
+        #: that's a copy of **it**.") reads the firing event's own
+        #: ``instance_id`` and resolves it via `GameState.find_object`,
+        #: which searches every zone, not just the battlefield — unlike
+        #: ``"previous"``'s RULE 608.2 pronoun (an earlier clause's own
+        #: target), this is the trigger's *subject itself*, already gone
+        #: from the battlefield by the time a SACRIFICE/DIES trigger
+        #: resolves.
+        self.referent = referent if referent in ("source", "previous", "trigger_event") else "source"
         #: "…except it has haste." (Kiki-Jiki, Mirror Breaker-shaped) — a
         #: temp keyword grant on the freshly-made token(s), the same
         #: `temp_keywords` set every other resolve-time haste grant uses.
@@ -10978,6 +11170,10 @@ class CopyPermanentEffect(GameEffect):
             if self.referent == "previous":
                 prev = list(context.previous_targets)
                 target = prev[0] if prev else None
+            elif self.referent == "trigger_event":
+                event = context.trigger_event
+                iid = (event or {}).get("instance_id")
+                target = context.state.find_object(iid) if iid is not None else None
             else:
                 target = self.source
         if target is None:
@@ -11376,8 +11572,21 @@ class SearchLibraryEffect(GameEffect):
         attach_to_creature_you_control: bool = False,
         remember: bool = False,
         total_mana_value_budget: Optional[int] = None,
+        player_from_target: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "Search **target opponent's** library for a card…" (Praetor's
+        #: Grasp, MEC-42) — ``player`` becomes whichever player this
+        #: ability's own RULE 115 target resolved to (the library that gets
+        #: searched/shuffled and stays the found card's owner), while the
+        #: *chooser* — who actually answers the search — stays this
+        #: effect's own controller, via `RulesEngine.request_search`'s
+        #: ``chooser`` param. Distinct from every other ``player`` sentinel
+        #: above (``"previous_target_controller"`` etc.), which all still
+        #: make the target both the searcher *and* the one who answers.
+        self.player_from_target = player_from_target
+        if player_from_target:
+            self.target_spec = TargetSpec(kind="opponent", description="Gegner")
         #: "…for any number of creature cards with **total** mana value 6
         #: or less…" (Protean Hulk, MEC-12) — a running budget shared
         #: across the *whole* multi-pick search, unlike `criteria`'s own
@@ -11462,8 +11671,18 @@ class SearchLibraryEffect(GameEffect):
             )
             if player is None:
                 return
+        elif self.player_from_target:
+            chosen = _chosen_targets(targets, 1, None)
+            target = chosen[0] if chosen else None
+            if target is None or hasattr(target, "instance_id"):
+                # Not actually resolved to a player (missing/withered
+                # target) — fail closed, same as every other targeted
+                # effect with no legal target left.
+                return
+            player = target
         else:
             player = self.player or context.active_player
+        chooser = _controller_of(self.source, context) if self.player_from_target else None
         context.request_search(
             player, self._resolved_criteria(), self.destination, self.count, self.optional,
             zones=self.zones, destinations=self.destinations, exile_rest=self.exile_rest,
@@ -11471,6 +11690,7 @@ class SearchLibraryEffect(GameEffect):
             attach_to_creature_you_control=self.attach_to_creature_you_control,
             remember_source_id=self.source.instance_id if self.remember and self.source is not None else None,
             total_mana_value_budget=self.total_mana_value_budget,
+            chooser=chooser,
         )
 
 
@@ -13933,6 +14153,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "copy_self_if_cast_from_graveyard",
+    lambda p: CopySelfIfCastFromGraveyardEffect(),
+)
+EffectRegistry.register(
     "change_target",
     lambda p: ChangeTargetEffect(
         target=p.get("target"),
@@ -14263,6 +14487,10 @@ EffectRegistry.register(
         set_power=p.get("set_power"), set_toughness=p.get("set_toughness"),
         add_subtypes=p.get("add_subtypes"),
     ),
+)
+EffectRegistry.register(
+    "choose_void_counter_card",
+    lambda p: ChooseVoidCounterCardEffect(),
 )
 EffectRegistry.register("exile_library", lambda p: ExileLibraryEffect())
 EffectRegistry.register(
@@ -14960,6 +15188,7 @@ EffectRegistry.register(
         trigger_event_key=p.get("trigger_event_key"),
         creature_filter=p.get("creature_filter"),
         subtypes=p.get("subtypes"),
+        choose_tap_or_untap=bool(p.get("choose_tap_or_untap", False)),
     ),
 )
 EffectRegistry.register(
@@ -15236,6 +15465,14 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "pay_life_equal_to_opponents_combat_damaged_draw_that_many",
+    lambda p: PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect(),
+)
+EffectRegistry.register(
+    "amass",  # RULE 701.48 "Amass <Type> N" (Orcish Bowmasters, MEC-42)
+    lambda p: AmassEffect(subtype=p.get("subtype", "Zombies"), count=int(p.get("count", 1))),
+)
+EffectRegistry.register(
     "copy_permanent",  # "Create a token that's a copy of target creature" (RULE 707)
     lambda p: CopyPermanentEffect(
         count=p.get("count", 1),
@@ -15286,6 +15523,7 @@ EffectRegistry.register(
         attach_to_creature_you_control=bool(p.get("attach_to_creature_you_control", False)),
         remember=bool(p.get("remember", False)),
         total_mana_value_budget=p.get("total_mana_value_budget"),
+        player_from_target=bool(p.get("player_from_target", False)),
     ),
 )
 EffectRegistry.register(
@@ -15408,6 +15646,8 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         self_target=bool(p.get("self_target", False)),
+        count=int(p.get("count", 1)),
+        count_selector=p.get("count_selector"),
     ),
 )
 EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("mana_value")))
@@ -15924,6 +16164,39 @@ EffectRegistry.register(
     lambda p: StaticAbility("search_redirect", affects="self", params={}),
 )
 EffectRegistry.register(
+    # "If a card would be put into an opponent's graveyard from anywhere,
+    # instead exile it with a void counter on it." (Dauthi Voidwalker,
+    # MEC-42) — consulted by `continuous.void_counter_redirect_controller_
+    # for` (`RulesEngine._move_to_graveyard`'s own redirect chain, same
+    # choke point Yawgmoth's Will/Lurrus already use).
+    "void_counter_redirect",
+    lambda p: StaticAbility("void_counter_redirect", affects="self", params={}),
+)
+EffectRegistry.register(
+    # "Each opponent can cast spells only any time they could cast a
+    # sorcery." (Teferi, Time Raveler, MEC-42) — consulted by
+    # `continuous.forced_sorcery_speed_only` (`GameEngine.can_cast`'s own
+    # timing computation).
+    "sorcery_speed_only",
+    lambda p: StaticAbility("sorcery_speed_only", affects="opponents", params={}),
+)
+EffectRegistry.register(
+    # "As an additional cost to cast this spell, you may exile any number
+    # of blue cards from your hand. This spell costs {2} less to cast for
+    # each card exiled this way." (March of Swirling Mist, MEC-42) —
+    # consulted by `continuous.exile_discount_spec_for`, read straight off
+    # the spell's own `static_effects` (still in hand) the same way
+    # Delve/Affinity's own `self_cost_reduction_for` static is.
+    "exile_discount_cost",
+    lambda p: StaticAbility(
+        "exile_discount_cost", affects="self",
+        params={
+            "color": p.get("color", "U"),
+            "generic_per_card": int(p.get("generic_per_card", 2)),
+        },
+    ),
+)
+EffectRegistry.register(
     # "If a land is tapped for 2 or more mana, it produces {C} instead of
     # any other type and amount." (MEC-36, Damping Sphere) — unscoped
     # (``affects="all_lands"``, matching every land regardless of
@@ -16233,6 +16506,22 @@ EffectRegistry.register(
     # just above.
     "ignore_legend_rule",
     lambda p: StaticAbility("ignore_legend_rule", affects=p.get("affects", "you"), params={}),
+)
+EffectRegistry.register(
+    # "Elemental permanent spells you cast from your hand gain evoke {4} as
+    # you cast them." (Ashling, the Limitless, MEC-42) — consulted by
+    # `continuous.granted_evoke_cost_for` (`GameEngine.can_cast`/
+    # `effective_cast_cost`'s ``evoke`` branch), the hand-cast-cost sibling
+    # of ``flash_permission`` right below.
+    "grant_evoke",
+    lambda p: StaticAbility(
+        "grant_evoke",
+        affects="self",
+        params={
+            "cost": str(p.get("cost")) if p.get("cost") else None,
+            "subtype": p.get("subtype"),
+        },
+    ),
 )
 EffectRegistry.register(
     # "You may cast spells as though they had flash." (High Fae Trickster/

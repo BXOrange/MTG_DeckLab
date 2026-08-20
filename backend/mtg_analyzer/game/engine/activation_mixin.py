@@ -66,6 +66,13 @@ from ..top_library import (
     top_library_life_payment_required,
 )
 
+#: "Sacrifice a green creature." (Natural Order, MEC-43) — the
+#: ``"<color>_creature"`` additional-cost sentinel's own color-name to
+#: WUBRG-letter mapping, matched against `GameObject.colors`.
+_SACRIFICE_COLOR_WORDS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+}
+
 #: Maximum hand size enforced at cleanup (RULE 402.2 / 514.1).
 
 
@@ -739,6 +746,14 @@ class ActivationMixin:
         if what == "artifact_or_creature":
             # Deadly Dispute/Costly Plunder-shaped additional cost.
             return obj.is_creature or obj.card.is_artifact
+        color_letter = _SACRIFICE_COLOR_WORDS.get(what[: -len("_creature")]) if what.endswith("_creature") else None
+        if color_letter is not None:
+            # "Sacrifice a green creature." (Natural Order, MEC-43) — a
+            # color+type compound sacrifice cost, a `<color>_creature`
+            # sentinel this catalogue chooses itself (not derived from
+            # printed text by a parser handler), matched against the
+            # object's own layer-5 derived colours.
+            return obj.is_creature and color_letter in obj.colors
         # A genuine subtype word (RULE 205.3 — "Sacrifice a Mountain"/
         # "Sacrifice a Human", `costs._SACRIFICE_RE`'s generic single-word
         # capture from oracle text) — matched narrowly rather than falling

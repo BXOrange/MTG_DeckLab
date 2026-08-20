@@ -701,6 +701,38 @@ class MiscSystemsMixin:
                 return
         if source is not None and source in self.state.battlefield:
             self.put_into_graveyard(source)
+    def request_tap_or_untap_choice(self, target: GameObject, source: Optional[GameObject] = None) -> None:
+        """"You may tap or untap target permanent." (Derevi, Empyrial
+        Tactician — MEC-42) — a genuine two-way choice layered on top of
+        RULE 115's own target (unlike `TapEffect`'s plain ``untap`` bool,
+        fixed at bind time), so it needs its own small `pending_choice`
+        rather than reusing that effect's target-only optionality.
+        """
+        self._pending_tap_or_untap_target_id = target.instance_id
+        self.state.pending_choice = {
+            "kind": "tap_or_untap",
+            "player_id": getattr(source, "controller_id", None) or self.state.active_player.id,
+            "prompt": f"{target.name} tappen oder enttappen?",
+            "options": [
+                {"id": "tap", "label": "Tappen"},
+                {"id": "untap", "label": "Enttappen"},
+                {"id": "decline", "label": "Nichts tun"},
+            ],
+        }
+    def resolve_tap_or_untap_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `tap_or_untap` choice — ``"tap"``/``"untap"``
+        do the obvious thing; anything else (a decline) does nothing."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "tap_or_untap":
+            raise ValueError("no pending tap-or-untap choice to resolve")
+        self.state.pending_choice = None
+        target_id = self._pending_tap_or_untap_target_id
+        self._pending_tap_or_untap_target_id = None
+        if answer not in ("tap", "untap") or target_id is None:
+            return
+        target = self.state.find_object(target_id)
+        if target is not None and target in self.state.battlefield:
+            self.set_tapped(target, tapped=(answer == "tap"))
     def offer_opening_hand_battlefield_choice(self, player: Player, obj: GameObject) -> None:
         """RULE 103.6: a card printing a pregame setup permission
         (`game/ability_catalogue.pregame_setup_permission`) offers

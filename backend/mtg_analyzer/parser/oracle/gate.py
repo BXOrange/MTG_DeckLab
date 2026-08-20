@@ -998,7 +998,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "exile a/an <type> you control" as a real activation cost (Food Chain's
 #: own mana ability, the battlefield-zone sibling of the existing hand-zone
 #: "exile this card from your hand" cost sniff).
-PARSER_VERSION = "95"
+PARSER_VERSION = "96"
 
 
 @dataclass

@@ -216,7 +216,13 @@ MANA_SOURCE_KINDS: frozenset[str] = frozenset({"treasure", "basic_land", "creatu
 #: `game/costs.py`'s `parse_activation_cost` still does the actual charging,
 #: fed this dict the same way it already accepts an `AbilitySpec.cost` dict.
 _ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset(
-    {"creature", "artifact", "land", "artifact_or_creature"}
+    {
+        "creature", "artifact", "land", "artifact_or_creature",
+        # "…sacrifice a green creature." (Natural Order, MEC-43) — the
+        # same ``"<color>_creature"`` sentinel `_matches_sacrifice_type`
+        # (`game/engine/activation_mixin.py`) already recognizes.
+        "white_creature", "blue_creature", "black_creature", "red_creature", "green_creature",
+    }
 )
 
 

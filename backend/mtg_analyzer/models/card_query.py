@@ -73,6 +73,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
         "type", "basic", "max_mana_value", "min_mana_value",
         "max_power", "min_power", "max_toughness", "min_toughness",
         "name", "not_name", "color", "without_type", "has_mana_ability", "or",
+        "nonlegendary",
     }
 )
 
@@ -111,6 +112,12 @@ def matches(card: Card, criteria: Criteria) -> bool:
     if without_type is not None and _type_matches(type_line, without_type):
         return False
     if crit.get("basic") and "basic" not in type_line:
+        return False
+    # "a nonlegendary card" (Unmarked Grave, MEC-43) — the negation of the
+    # already-recognized "legendary" type-line word, its own key rather
+    # than a magic string in ``without_type`` so a criteria dict stays
+    # literal data (mirrors ``not_name``'s own treatment of ``name``).
+    if crit.get("nonlegendary") and "legendary" in type_line:
         return False
     if "max_mana_value" in crit and card.converted_mana_cost > crit["max_mana_value"]:
         return False

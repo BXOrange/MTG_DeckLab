@@ -253,6 +253,12 @@ class GameObject:
         #: Flashback — if so, `RulesEngine.resolve_top_of_stack` exiles it
         #: instead of sending it to the graveyard, then clears this flag.
         self.cast_via_flashback: bool = False
+        #: RULE 702.74a (MEC-42): whether this permanent spell was cast for
+        #: its Evoke cost — if so, `RulesEngine._resolve_permanent_spell`
+        #: sacrifices it right after it enters the battlefield (a
+        #: consequence, not a replacement — its own ETB trigger still
+        #: fires first), then clears this flag.
+        self.cast_via_evoke: bool = False
         #: Lurrus of the Dream-Den-shaped: the turn number this spell was
         #: cast via a standing graveyard-cast permission
         #: (`game/graveyard_cast.py`), or ``None`` if it wasn't. Consulted
@@ -989,6 +995,7 @@ class GameObject:
         self.bargained = False
         self.face_down_in_exile = False
         self.cast_via_flashback = False
+        self.cast_via_evoke = False
         self.rebound_pending = False
         self.commander_zone_choice_pending = False
         self.tapped = False

@@ -137,6 +137,8 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # into Stupor) — the ``"spell"``/``nonland_permanent_you_dont_
         # control`` union.
         "spell_or_nonland_permanent_you_dont_control",
+        # "target spell or creature" (Unsubstantiate, MEC-43).
+        "spell_or_creature",
         # "target spell you don't control" (Hullbreaker Horror) — the
         # controller-scoped mirror of the plain ``"spell"`` kind.
         "spell_you_dont_control",
@@ -148,6 +150,13 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target artifact or enchantment" (Archdruid's Charm) — the union of
         # the two single-type kinds, a common printed phrasing.
         "artifact_or_enchantment",
+        # "target artifact or creature" (Touch the Spirit Realm, MEC-42).
+        "artifact_or_creature",
+        # "target artifact, creature, or enchantment" (March of
+        # Otherworldly Light, MEC-43) — the three-kind union, no
+        # planeswalker (unlike `artifact_creature_enchantment_or_
+        # planeswalker`, a different printed template).
+        "artifact_creature_or_enchantment",
         # "target artifact, enchantment, or nonbasic land" (Boseiju, Who
         # Endures's Channel ability) — `artifact_or_enchantment` widened
         # with `nonbasic_land`, the same three-kind-union idiom
@@ -427,6 +436,9 @@ class TargetSpec:
             "creature_you_dont_control": "Kreatur, die du nicht kontrollierst",
             "artifact_you_dont_control": "Artefakt, das du nicht kontrollierst",
             "artifact_or_enchantment": "Artefakt oder Verzauberung",
+            "artifact_or_creature": "Artefakt oder Kreatur",
+            "spell_or_creature": "Zauberspruch oder Kreatur",
+            "artifact_creature_or_enchantment": "Artefakt, Kreatur oder Verzauberung",
             "artifact_enchantment_or_nonbasic_land":
                 "Artefakt, Verzauberung oder nichtgrundlegendes Land",
             "opponent": "Gegner",
@@ -641,6 +653,18 @@ def legal_targets(
     back through `game_session._resolve_targets`.
     """
     kind = spec.kind
+    # "…with mana value X or less." as a genuine RULE 115 target bound
+    # (March of Otherworldly Light, MEC-43) — unlike `_substitute_x`'s
+    # resolve-time-only substitution (a search/mass-effect criteria dict,
+    # never a `TargetSpec`), a real target has to be gathered/offered
+    # *before* the spell resolves, so the sentinel must resolve here, off
+    # `GameObject.x_paid` — which `GameEngine._cast_current_face` stamps
+    # early (before this target-offer step runs) precisely so this can
+    # read it, not just at the usual post-resolution point `cast_spell`
+    # stamps it for real.
+    if spec.max_mana_value in ("x", "-x"):
+        x_paid = int(getattr(source, "x_paid", 0) or 0)
+        spec = replace(spec, max_mana_value=x_paid if spec.max_mana_value == "x" else -x_paid)
     if kind == "permanent" and source is not None:
         attachment_kind = None
         if hasattr(source, "parametric_keywords"):
@@ -886,6 +910,22 @@ def legal_targets(
             and _targetable_by(o, source)
         ]
         return spells + permanents
+    if kind == "spell_or_creature":
+        # "Return target spell or creature to its owner's hand."
+        # (Unsubstantiate, MEC-43) — the same two-branches-concatenated
+        # idiom as ``spell_or_nonland_permanent_you_dont_control`` just
+        # above, narrowed to creatures and with no controller restriction.
+        spells = [
+            {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
+            for item in state.stack
+            if item.kind == "spell" and item.obj is not None and item.obj is not source
+        ]
+        creatures = [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_creature and o is not source and _targetable_by(o, source)
+        ]
+        return spells + creatures
     if kind == "creature_you_dont_control":
         # RULE 115: the mirror image of `creature_you_control` — an
         # opponent's creature (or, strictly, any creature this ability's
@@ -1019,6 +1059,30 @@ def legal_targets(
             if (o.card.is_artifact or o.card.is_enchantment)
             and o is not source
             and _targetable_by(o, source)
+        ]
+    if kind == "artifact_or_creature":
+        # "Exile target artifact or creature." (Touch the Spirit Realm,
+        # MEC-42) — the same union idiom as ``artifact_or_enchantment``
+        # just above, just the other pairing.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.card.is_artifact or o.is_creature)
+            and o is not source
+            and _targetable_by(o, source)
+        ]
+    if kind == "artifact_creature_or_enchantment":
+        # "Exile target artifact, creature, or enchantment with mana
+        # value X or less." (March of Otherworldly Light, MEC-43) —
+        # the three-kind union, honouring ``spec.max_mana_value`` like
+        # the plain ``permanent``/``permanent_you_control`` kinds do.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.card.is_artifact or o.is_creature or o.card.is_enchantment)
+            and o is not source
+            and _targetable_by(o, source)
+            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
     if kind == "artifact_enchantment_or_nonbasic_land":
         return [
@@ -1231,7 +1295,7 @@ def legal_targets(
 #: The vocabulary `TargetSpec.count_selector` may name. Whitelisted like
 #: every other card-text-derived name in this package; an unknown one falls
 #: back to the printed ``count``.
-TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({"opponents", "source_monstrosity_x"})
+TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({"opponents", "source_monstrosity_x", "source_x_paid"})
 
 
 def resolved_count(
@@ -1253,6 +1317,12 @@ def resolved_count(
         return spec.count
     if selector == "opponents":
         return sum(1 for p in state.living_players() if p.id != controller_id)
+    if selector == "source_x_paid":
+        # "Up to X target creatures phase out." (March of Swirling Mist,
+        # MEC-42) — the spell's own announced {X} (`GameObject.x_paid`,
+        # stamped by `RulesEngine.cast_spell`), read fresh at target-
+        # gathering time rather than a fixed printed count.
+        return max(0, int(getattr(source, "x_paid", 0) or 0))
     # "goad up to X target creatures" where X is the monstrosity just
     # announced — `GameObject.monstrosity_x` is stamped by
     # `RulesEngine.monstrosity` precisely so a *later* ability of the same

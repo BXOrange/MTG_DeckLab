@@ -896,6 +896,8 @@ class GameSession:
             entwine=bool(action.get("entwine", False)),
             free=bool(action.get("free", False)),
             alt_cost=bool(action.get("alt_cost", False)),
+            evoke=bool(action.get("evoke", False)),
+            exile_discount=int(action.get("exile_discount", 0)),
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:

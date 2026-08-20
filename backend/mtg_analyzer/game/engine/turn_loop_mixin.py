@@ -1095,6 +1095,11 @@ class TurnLoopMixin:
             self.rules.resolve_reveal_top_hand_lose_life_loop_choice(
                 None if declined else str(answer)
             )
+        elif kind == "tap_or_untap":
+            # Derevi, Empyrial Tactician's own "you may tap or untap target
+            # permanent" (MEC-42) — a genuine two-way choice on top of RULE
+            # 115's own target, not just an "up to one" decline.
+            self.rules.resolve_tap_or_untap_choice(None if declined else str(answer))
         elif kind == "pay_cost_then":
             # RULE 118.3: "you may pay <cost>. If you do, <effect>." (Mana
             # Vault, Wandering Archaic) — "pay" charges the cost and runs

@@ -95,8 +95,8 @@ Plan-level sequencing lives in
   | `Ojer cEDH` | 75/77 | Chandra's Incinerator's dynamic cost reduction + a "creature/planeswalker *that damaged player* controls" target kind (doesn't exist); Balin's Tomb is real (the LOTR alt name for Ancient Tomb) but doesn't resolve — see CLAUDE.md's `flavor_name` gotcha, an import/card-database gap, not a parser/engine one. |
   | `cEDH Rocco` | 98/98 | fully playable. |
   | `[cEDH] Glarb Bloomsday` | 100/100 | fully playable. |
-  | `cEDH staples` | 203/215 | [MEC-42]. |
-  | `cEDH staples 2` | 516/607 | [MEC-43]. |
+  | `cEDH staples` | 214/215 | [MEC-42] (Delay only). |
+  | `cEDH staples 2` | 557/602 (5 names aren't real cards) | [MEC-43]. |
 
   Six names in the raw scan (Balamb Garden, Dol Amroth, Jodah the unifier,
   Seymour Guado, Thrum of the Vestige, Zidane Tribal) aren't real Scryfall
@@ -104,38 +104,111 @@ Plan-level sequencing lives in
   batch by batch, why each piece is built the way it is — is in
   `Done_Backend.md`'s "seven 'cEDH'-named saved decks" entries, not here.
 
-- **MEC-42 · `cEDH staples`'s remaining 12 gaps.** Abrupt Decay, Cabal
-  Ritual, Culling Ritual, Ranger-Captain of Eos, Tinder Wall, and Yasharn
-  (shared with `cEDH Rocco`) closed 2026-08-19 as part of MEC-40; Ad
-  Nauseam (shared with `[cEDH] Glarb Bloomsday`) closed 2026-08-20 as part
-  of MEC-41 (`Done_Backend.md`'s matching entries — filed there since the
-  primitives were built chasing those tickets, and this deck shares the
-  same cards). Still open: Ashling the Limitless, Dauthi Voidwalker,
-  Delay, Derevi Empyrial Tactician, Mana Crypt, March of Swirling Mist,
-  Orcish Bowmasters, Praetor's Grasp, Sevinne's Reclamation, Teferi Time
-  Raveler, Touch the Spirit Realm, Tymna the Weaver. Delay is
-  confirmed-blocked on RULE 702.61 Suspend's own time-counter/cast-on-zero
-  mechanism, which has never been built (only keyword-recognized) — a real
-  ticket-sized gap on its own, not a quick hand-author. None of the rest
-  individually diagnosed yet.
+- **MEC-42 · `cEDH staples`'s last card, Delay.** Everything else in the
+  original 12-gap list (Ashling the Limitless, Dauthi Voidwalker, Derevi
+  Empyrial Tactician, Mana Crypt, March of Swirling Mist, Orcish
+  Bowmasters, Praetor's Grasp, Sevinne's Reclamation, Teferi Time Raveler,
+  Touch the Spirit Realm, Tymna the Weaver — plus Abrupt Decay/Cabal
+  Ritual/Culling Ritual/Ranger-Captain of Eos/Tinder Wall/Yasharn via
+  MEC-40 and Ad Nauseam via MEC-41) closed 2026-08-20 — see
+  `Done_Backend.md`'s "MEC-42" entry. Delay is confirmed-blocked on RULE
+  702.61 Suspend's own time-counter/cast-on-zero mechanism, which has
+  never been built (only keyword-recognized) — a real ticket-sized gap on
+  its own, not a quick hand-author.
 
-- **MEC-43 · `cEDH staples 2`'s undiagnosed remainder** (MEC-31 Spree/
-  Escalate, MEC-32 the draw-replacement family, MEC-33 Omen Machine,
-  MEC-34 Animate Dead, MEC-35 Leonin Arbiter, MEC-36 Damping Sphere,
-  MEC-37 Doomsday, MEC-38 Necropotence, MEC-39 Opposition Agent, MEC-44
-  Necromancy, every card MEC-40 closed for `cEDH Rocco` (Ranger-Captain of
-  Eos, Abrupt Decay, Cabal Ritual, Culling Ritual, Tinder Wall, Vexing
-  Shusher, Academy Rector, Ajani Nacatl Pariah/Avenger, Allosaurus
-  Shepherd, Domri Anarch of Bolas, Eladamri Korvecdal, Elesh Norn Mother
-  of Machines, Flamescroll Celebrant, Food Chain, Gandalf the White,
-  Guardian Project, Guardian Sunmare, Kutzil Malamet Exemplar,
-  Moon-Blessed Cleric, Sigarda Font of Blessings, Squee the Immortal,
-  Sylvan Library, The Jolly Balloon Man, Yasharn Implacable Earth), and
-  every card MEC-41 closed that this deck also shares (Ad Nauseam,
-  Autumn's Veil, Bring to Light, Counterbalance, Gifts Ungiven, Valley
-  Floodcaller), all already subtracted. Dozens of distinct shapes remain
-  (91 as of 2026-08-20), none individually diagnosed. Re-measure and
-  diagnose per card rather than batch-guessing.
+- **MEC-43 · `cEDH staples 2`'s remaining 45 gaps**, diagnosed and
+  clustered 2026-08-20 (re-measure before trusting — a live, user-editable
+  deck). Every card MEC-31 through MEC-44, MEC-40's `cEDH Rocco` batch,
+  MEC-41's `[cEDH] Glarb Bloomsday` batch, and 9 of MEC-42's 11-card
+  `cEDH staples` batch (Dauthi Voidwalker, Derevi Empyrial Tactician,
+  March of Swirling Mist, Orcish Bowmasters, Praetor's Grasp, Sevinne's
+  Reclamation, Teferi Time Raveler, Touch the Spirit Realm, Tymna the
+  Weaver — Ashling the Limitless/Mana Crypt aren't in this deck) already
+  closed for this deck, plus a first MEC-43 batch itself (Contamination,
+  Leveler, Natural Order, Magda Brazen Outlaw, Unmarked Grave,
+  Unsubstantiate, Starting Town, Teferi Master of Time, March of
+  Otherworldly Light — `Done_Backend.md`'s "MEC-43" entry), are all
+  already subtracted from the 45 below.
+
+  **Near-free reuses first** (a real primitive already exists, just
+  needs recoloring/param-widening — same shape this batch's own 9 cards
+  were): Aetherflux Reservoir (`spells_cast_this_turn` + a plain
+  activated ability), Altar of Dementia (a `sacrifice` cost + `MillEffect`,
+  mirroring the `sacrificed_cost_mana_value` tracker but for power),
+  Burnt Offering/Sacrifice/Rain of Filth (sacrifice-for-scaled-mana, reusing
+  `AddManaEffect`'s dynamic-amount params), Conspicuous Snoop
+  (`top_library.py` + `grant_borrowed_activated_ability`'s existing modes,
+  a `"top_of_library"` source mode away), Defense of the Heart
+  (`SearchLibraryEffect(count=2, destination="battlefield")` + a board-count
+  trigger gate), Earthcraft (a small new "tap a creature" activation-cost
+  shape), Hermit Druid (`dig_until`'s existing dig, a `rest_destination=
+  "graveyard"` value away), Kogla the Titan Ape (fight-on-ETB already
+  claimed; the {1}{G} ability is a plain bounce+grant), Leyline of the Void
+  (`void_counter_redirect`, MEC-42, unscoped to any graveyard instead of
+  "opponent's"), Rest in Peace (the same static, "exile all graveyards" ETB
+  is a new mass zone-move), Soulless Jailer (a new standing "can't enter
+  from a graveyard" prohibition + the already-shipped
+  `graveyard_library_cast_prohibition`), Chain of Smog (`CopySpellEffect`
+  with a non-caster chooser), Destiny Spinner (`GrantCantBeCounteredEffect`
+  needs a two-type `scope`; its land-animation half is the recurring
+  "animate a noncreature permanent" gap below), Jeweled Amulet (a small
+  "note the color spent" tracker), Llawan Cephalid Empress
+  (`ReturnToHandEffect` with a color+type filter + `cast_prohibition`
+  needing a combined color+type filter), Mana Breach (a cast-triggered
+  self-bounce-a-land, both halves ordinary alone), Selvala Heart of the
+  Wilds (mana ability already claimed; only a "greatest power" ETB
+  comparison trigger is new), Shifting Woodland (`BecomeCopyUntilEndOfTurnEffect`
+  retargeted at a graveyard card), Tataru Taru (ordinary ETB + a
+  once-per-turn-gated trigger), Uba Mask (a new draw replacement + the
+  existing `temp_play_permissions` exile-cast family), Acererak the
+  Archlich (dungeons/venturing + `sacrifice_unless_pay`, both already
+  built, combined).
+
+  **Two shared-primitive clusters worth building once, not per-card:**
+  1. `cast_prohibition`/`cast_limit` needs a **fixed/literal threshold**
+     (today only a dynamic count-selector) and an **"equal to" comparison
+     mode** — unlocks Gaddock Teeg, Sanctum Prelate, and (its own counter-
+     trigger sibling) Chalice of the Void together; Ethersworn Canonist
+     needs a further new "already cast a nonartifact spell this turn"
+     boolean-flag restriction, a different shape from the threshold/count
+     family. Llawan (above) also wants the same filter widened with color.
+  2. `GameObject.sacrificed_cost_mana_value` is stamped only for a
+     **spell's** RULE 601.2b additional cost, never an **activated
+     ability's** sacrifice cost — mirroring that stamp into activation-cost
+     payment unlocks Birthing Pod and Oswald Fiddlebender together (Altar
+     of Dementia, above, needs the same idea for power instead of mana
+     value).
+
+  **A recurring primitive gap, not yet built**: "animate a noncreature
+  permanent into an X/Y creature with keywords" has no existing shape in
+  this engine (Destiny Spinner's land-animation half is the only instance
+  here, but the template recurs across the wider cache — worth building
+  as a real primitive rather than re-deferring per card that needs it).
+
+  **Genuinely bigger builds, each its own real subsystem:**
+  Aluren (a standing, *any-player*-scoped, class-wide free-cast permission
+  — distinct from every existing single-card-armed free-cast grant, and
+  the first grant not scoped to one controller), Knowledge Pool (a cast-
+  *substitution* mechanism — intercepts the act of casting into a shared,
+  growing exiled pool, not a resolve-time effect), The Tabernacle at
+  Pendrell Vale (a mass, continuously-re-derived, layer-6-granted
+  sacrifice-unless-pay applied to *every* creature on the board, including
+  opponents'), Smokestack (N-per-player simultaneous interactive sacrifice
+  choices every upkeep, scaled by a counter — bigger than the existing
+  one-pick-per-player sequencing), Rings of Brighthearth ("copy an
+  activated ability, choose new targets" — `StackItem.stack_id` from
+  ENG-26 gives it something to reference, but the copy-and-re-resolve
+  mechanism itself doesn't exist), Isochron Scepter (a repeatable "cast a
+  copy of an exiled card, leaving the original behind" activated ability —
+  close to but distinct from cascade's free-cast-from-exile).
+
+  **Two narrower, real gaps:** Runic Armasaur (`EventType.ACTIVATED_
+  ABILITY` already fires — needs only a trigger-condition binder wiring
+  for "opponent activates a non-mana ability", no new engine primitive);
+  Mesmeric Orb ("whenever a permanent becomes untapped" — CLAUDE.md's own
+  trigger-verb table deliberately excludes "becomes untapped" today since
+  no event carries an `instance_id` for it; a real, narrow, project-level
+  gap rather than a build-it-now item, similar in spirit to Delay/Suspend).
 
 ## PLR — Player management
 

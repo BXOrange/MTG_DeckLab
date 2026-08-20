@@ -76,6 +76,16 @@ _UNLESS_TYPES_RE = re.compile(
 #: `_UNLESS_OPPONENTS_RE`, which counts opponent *players*, not lands) — the
 #: "Turbulent" land cycle: "~ enters tapped unless your opponents control N
 #: or more lands."
+#: MEC-43: "~ enters tapped unless it's your first, second, or third turn
+#: of the game." (Starting Town-shaped) — deterministic on the game's own
+#: turn count, not the board; matched by counting the listed ordinals
+#: (a real card always lists a leading 1..N run, "first[, second[, ...]]").
+_ORDINALS = ("first", "second", "third", "fourth", "fifth")
+_UNLESS_TURN_AT_MOST_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped unless it'?s your ((?:{'|'.join(_ORDINALS)})"
+    rf"(?:,? (?:or )?(?:{'|'.join(_ORDINALS)}))*) turns? of the game\.?$",
+    re.IGNORECASE,
+)
 _UNLESS_OPPONENTS_COUNT_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} tapped unless your opponents control (\d+) or (more|fewer) lands\.?$",
     re.IGNORECASE,
@@ -139,6 +149,10 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     - ``{"kind": "unless_opponents", "count": N}`` — a Commander
       "Battlebond" land: untapped iff the game has at least ``N`` opponents
       of the controller.
+    - ``{"kind": "unless_turn_at_most", "count": N}`` — MEC-43, Starting
+      Town-shaped: untapped iff it's still (any player's, not just the
+      controller's — see the engine-side simplification note)
+      ``count``-or-earlier turn of the game.
     - ``{"kind": "unless_opponents_count", "cmp": "le" | "ge", "count": N}``
       — the "Turbulent" land cycle: untapped iff the *total* count of lands
       across all opponents compares as stated (unlike ``unless_count``,
@@ -159,6 +173,10 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     if match:
         cmp_op = "le" if match.group(2).lower() == "fewer" else "ge"
         return {"kind": "unless_opponents_count", "cmp": cmp_op, "count": int(match.group(1))}
+    match = _UNLESS_TURN_AT_MOST_RE.match(line)
+    if match:
+        listed = re.findall("|".join(_ORDINALS), match.group(1), re.IGNORECASE)
+        return {"kind": "unless_turn_at_most", "count": len(listed) or 1}
     match = _UNLESS_OPPONENTS_RE.match(line)
     if match:
         return {"kind": "unless_opponents", "count": int(match.group(1))}

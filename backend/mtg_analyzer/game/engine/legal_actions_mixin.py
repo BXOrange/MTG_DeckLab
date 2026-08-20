@@ -190,6 +190,7 @@ class LegalActionsMixin:
         entwine: bool = False,
         free: bool = False,
         alt_cost: bool = False,
+        evoke: bool = False,
     ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
@@ -237,21 +238,26 @@ class LegalActionsMixin:
         if mode is not None:
             action["mode"] = mode
             action["mode_description"] = self._mode_description(obj, mode)
-        if free or alt_cost:
+        if free or alt_cost or evoke:
             # RULE 601.2f-adjacent free cast / RULE 118.9 alternative cost
-            # (MEC-15) — a wholly different payment method from the printed
-            # mana cost, so none of the mana-value/{X}/Kicker/Buyback/cost-
-            # reduction/additional-cost fields below apply; only the
-            # target-requirement tail (below the entwine/mana block) is
-            # still relevant, since targets don't depend on how the spell
-            # was paid for.
+            # (MEC-15) / RULE 702.74b Evoke (MEC-42) — a wholly different
+            # payment method from the printed mana cost, so none of the
+            # mana-value/{X}/Kicker/Buyback/cost-reduction/additional-cost
+            # fields below apply; only the target-requirement tail (below
+            # the entwine/mana block) is still relevant, since targets
+            # don't depend on how the spell was paid for.
             if free:
                 action["free"] = True
-            else:
+            elif alt_cost:
                 action["alt_cost"] = True
                 alt_cast_cost = getattr(obj, "alt_cast_cost", None)
                 if alt_cast_cost is not None:
                     action["alt_cost_label"] = alt_cast_cost.label()
+            else:
+                action["evoke"] = True
+                evoke_cost = self._evoke_cost(obj) or continuous.granted_evoke_cost_for(self.state, obj)
+                if evoke_cost is not None:
+                    action["evoke_cost_label"] = evoke_cost.raw
         else:
             # RULE 702.42a: the Entwine offer is the same "both modes" action as
             # RULE 700.2e's, but priced — so it carries its cost and locks when
@@ -453,6 +459,21 @@ class LegalActionsMixin:
             player, obj, face=face, alt_cost=True
         ):
             return True
+        # RULE 702.74b (MEC-42): Evoke pays real mana (just a different
+        # amount), so — unlike free/alt_cost's zero-mana paths above — it
+        # needs the same mana-potential probe `_plain_castable_now_or_via_
+        # potential` runs for the printed cost, just against the evoke cost.
+        has_evoke = (
+            self._evoke_cost(obj) is not None
+            or continuous.granted_evoke_cost_for(self.state, obj) is not None
+        )
+        if has_evoke:
+            if self.can_cast(player, obj, face=face, evoke=True):
+                return True
+            if self.can_cast(player, obj, face=face, evoke=True, assume_mana_available=True):
+                cost = self.effective_cast_cost(player, obj, face=face, evoke=True)
+                if mana_potential.is_castable_via_potential(self, player, cost):
+                    return True
         return False
     def _activatable_now_or_via_potential(
         self, player: Player, source: GameObject, ability: ActivatedAbility,
@@ -500,6 +521,15 @@ class LegalActionsMixin:
             actions.append(self._cast_action(player, obj, free=True))
         if getattr(obj, "alt_cast_cost", None) is not None and self.can_cast(player, obj, alt_cost=True):
             actions.append(self._cast_action(player, obj, alt_cost=True))
+        # RULE 702.74b (MEC-42): a printed or granted Evoke cost is a third,
+        # independent payment method — same "offered alongside, never in
+        # place of" treatment as free/alt_cost above.
+        has_evoke = (
+            self._evoke_cost(obj) is not None
+            or continuous.granted_evoke_cost_for(self.state, obj) is not None
+        )
+        if has_evoke and self.can_cast(player, obj, evoke=True):
+            actions.append(self._cast_action(player, obj, evoke=True))
 
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
         """Every action ``player`` may legally take in the current state.
@@ -592,7 +622,10 @@ class LegalActionsMixin:
             )
             if castable and self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
-            if self._has_temp_play_permission(obj, player) and self.can_play_land(player, obj):
+            if (
+                self._has_temp_play_permission(obj, player)
+                or self._has_conditional_exile_permission(obj, player)
+            ) and self.can_play_land(player, obj):
                 actions.append(self._land_action(obj))
 
         for obj in list(player.graveyard):

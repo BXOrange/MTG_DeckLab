@@ -18,6 +18,7 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from typing import Any, Callable, Optional, Union
 
@@ -294,6 +295,17 @@ class CastingResolutionMixin:
                 obj.tapped = not (opponent_lands <= condition["count"])
             else:
                 obj.tapped = not (opponent_lands >= condition["count"])
+        elif kind == "unless_turn_at_most":
+            # Starting Town (MEC-43): untapped iff the game is still early.
+            # **Documented simplification**: RULE 614.1's "your Nth turn"
+            # means the controller's *own* turn count (RULE 500.1 — every
+            # player's turn is a turn), which this engine tracks nowhere;
+            # `GameState.round_number` ("how often the turn has come back
+            # to whoever started", CLAUDE.md) is used as the proxy instead
+            # — exact for the overwhelming common case (every seat started
+            # together, nobody's mid-game player count changed), wrong only
+            # if players joined/left after turn 1.
+            obj.tapped = not (self.state.round_number <= condition["count"])
         elif kind == "pay_life":
             obj.tapped = True
             self._pending_land_choice_obj = obj
@@ -393,6 +405,8 @@ class CastingResolutionMixin:
                 opponent_lands <= condition["count"] if condition["cmp"] == "le"
                 else opponent_lands >= condition["count"]
             )
+        elif kind == "unless_turn_at_most":
+            tapped = not (self.state.round_number <= condition["count"])
         elif kind in ("pay_life", "optional_bonus_rad", "reveal_types"):
             return None
         else:
@@ -946,6 +960,28 @@ class CastingResolutionMixin:
                         mapping[mv_key] = len(
                             getattr(effect.source, "colors_spent_to_cast", None) or ()
                         )
+            # "Exile target artifact, creature, or enchantment with mana
+            # value X or less." (March of Otherworldly Light, MEC-43) — the
+            # identical sentinel shape as ``filter``/``criteria`` just
+            # above, but `ExileEffect`/`DestroyEffect`'s own ``max_mana_
+            # value``/``min_mana_value`` folds straight into their
+            # `TargetSpec` at construction time (a genuine RULE 115
+            # target-offer cap, not a mass-selector filter), so it needs
+            # its own substitution site rather than sharing the ``filter``/
+            # ``criteria`` dict loop above.
+            target_spec = getattr(effect, "target_spec", None)
+            if target_spec is not None:
+                # `TargetSpec` is a frozen dataclass — `dataclasses.replace`
+                # builds the substituted copy rather than mutating in place.
+                updates: dict[str, int] = {}
+                for mv_key in ("max_mana_value", "min_mana_value"):
+                    mv_value = getattr(target_spec, mv_key, None)
+                    if mv_value == "x":
+                        updates[mv_key] = x
+                    elif mv_value == "-x":
+                        updates[mv_key] = -x
+                if updates:
+                    effect.target_spec = dataclasses.replace(target_spec, **updates)
             for attr in ("amount", "count", "power", "toughness"):
                 value = getattr(effect, attr, None)
                 if value == "x":
@@ -1246,6 +1282,14 @@ class CastingResolutionMixin:
                     object_types=sorted(obj.type_words),
                 )
             )
+            if obj.cast_via_evoke:
+                # RULE 702.74a: "it's sacrificed when it enters the
+                # battlefield" — a consequence of entering, not a
+                # replacement, so the ENTERS_BATTLEFIELD event (and
+                # whatever ETB trigger it queues) fires first, above.
+                obj.cast_via_evoke = False
+                if obj in self.state.permanents():
+                    self.put_into_graveyard(obj)
             self.state.fire_event(
                 GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
             )

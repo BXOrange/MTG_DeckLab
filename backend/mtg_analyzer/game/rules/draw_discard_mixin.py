@@ -229,7 +229,18 @@ class DrawDiscardMixin:
                 )
                 self.state.record_stat(player.id, "draw", amount=len(drawn))
                 self.state.fire_event(
-                    GameEvent(EventType.DRAW, player_id=player.id, count=len(drawn))
+                    GameEvent(
+                        EventType.DRAW, player_id=player.id, count=len(drawn),
+                        # MEC-42: this is the event trigger-collection
+                        # actually sees — `first_in_draw_step` was
+                        # previously only ever threaded into the *input*
+                        # event `apply_replacements` reads (MEC-32,
+                        # Notion Thief/Chains of Mephistopheles), never
+                        # forwarded here, so no trigger's own "except the
+                        # first ... draw step" condition (Orcish
+                        # Bowmasters-shaped) could ever actually read it.
+                        first_in_draw_step=first_in_draw_step,
+                    )
                 )
 
         self.apply_replacements(event, on_resolved=_finish)

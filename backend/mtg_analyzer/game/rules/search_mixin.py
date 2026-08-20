@@ -549,6 +549,7 @@ class SearchMixin:
         attach_to_creature_you_control: bool = False,
         remember_source_id: Optional[int] = None,
         total_mana_value_budget: Optional[int] = None,
+        chooser: Optional[Player] = None,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -585,6 +586,15 @@ class SearchMixin:
         land card. Otherwise, put it into your hand." Unlike ``destinations``
         it can't be resolved when the search opens, only once the player has
         said which card they found.
+
+        ``chooser`` (Praetor's Grasp-shaped RULE 701.19a "search **target
+        opponent's** library" — MEC-42) lets the picking player differ from
+        ``player``, whose library is actually searched/shuffled and who
+        stays the found card's owner throughout; defaults to ``player``
+        (every other caller's existing behaviour, unchanged). Stored as the
+        pending choice's own ``player_id`` (the general "who answers"
+        convention `_intuition_choose_choice` already established), with
+        ``player``'s id kept alongside as ``library_owner_id``.
 
         ``attach_to_creature_you_control=True`` (Stonehewer Giant/Quest for
         the Holy Relic's own "…put it onto the battlefield, **attach it to a
@@ -656,6 +666,7 @@ class SearchMixin:
             attach_to_creature_you_control=attach_to_creature_you_control,
             remember_source_id=remember_source_id,
             total_mana_value_budget=total_mana_value_budget,
+            chooser=chooser,
         )
 
     def request_intuition(
@@ -873,7 +884,8 @@ class SearchMixin:
         choice = self.state.pending_choice
         if not choice or choice.get("kind") != "search":
             raise ValueError("no pending search to resolve")
-        player = self.state.player_by_id(choice["player_id"])
+        player = self.state.player_by_id(choice.get("library_owner_id", choice["player_id"]))
+        chooser_id = choice["player_id"]
         found: list[int] = list(choice["found"])
         zones = choice.get("zones") or ["library"]
         total_mana_value_budget = choice.get("total_mana_value_budget")
@@ -915,6 +927,7 @@ class SearchMixin:
                 remember_source_id=choice.get("remember_source_id"),
                 total_mana_value_budget=total_mana_value_budget,
                 spent_mana_value=spent_mana_value,
+                chooser=self.state.player_by_id(chooser_id),
             )
             return
 
@@ -928,6 +941,7 @@ class SearchMixin:
             destination_if=choice.get("destination_if"),
             attach_to_creature_you_control=choice.get("attach_to_creature_you_control", False),
             remember_source_id=choice.get("remember_source_id"),
+            chooser_id=chooser_id,
         )
     def _search_choice(
         self,
@@ -946,6 +960,7 @@ class SearchMixin:
         remember_source_id: Optional[int] = None,
         total_mana_value_budget: Optional[int] = None,
         spent_mana_value: int = 0,
+        chooser: Optional[Player] = None,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
         zones = list(zones) if zones else ["library"]
@@ -980,7 +995,8 @@ class SearchMixin:
             prompt += f" (noch {count - len(found)})"
         return {
             "kind": "search",
-            "player_id": player.id,
+            "player_id": (chooser or player).id,
+            "library_owner_id": player.id,
             "destination": destination,
             "destinations": list(destinations) if destinations else None,
             "zones": zones,
@@ -1016,6 +1032,7 @@ class SearchMixin:
         destination_if: Optional[list[dict[str, Any]]] = None,
         attach_to_creature_you_control: bool = False,
         remember_source_id: Optional[int] = None,
+        chooser_id: Optional[str] = None,
     ) -> None:
         """Move every chosen card to its destination, then shuffle the
         library (RULE 701.19e) — unless ``exile_rest`` suppresses it
@@ -1082,7 +1099,7 @@ class SearchMixin:
                 # re-add rather than a real "return" move.
                 player.add_to_zone(obj, obj.zone)
                 continue
-            self._put_searched_card(player, obj, dest)
+            self._put_searched_card(player, obj, dest, chooser_id=chooser_id)
             if redirect_controller_id is not None:
                 # RULE 605.1a/601.3a-adjacent: "you may play those cards for
                 # as long as they remain exiled, and you may spend mana as
@@ -1149,7 +1166,10 @@ class SearchMixin:
         if obj is not None:
             player.remove_from_zone(obj, obj.zone)
         return obj
-    def _put_searched_card(self, player: Player, obj: GameObject, destination: str) -> None:
+    def _put_searched_card(
+        self, player: Player, obj: GameObject, destination: str,
+        chooser_id: Optional[str] = None,
+    ) -> None:
         if destination in ("battlefield", "battlefield_tapped"):
             obj.summoning_sick = True
             obj.tapped = destination == "battlefield_tapped"
@@ -1207,6 +1227,25 @@ class SearchMixin:
             )
             self.state.exile_cast_condition[obj.instance_id] = (player.id, {})
             self.state.free_cast_instance_ids.add(obj.instance_id)
+        elif destination == "exile_face_down_standing_cast":
+            # "Search target opponent's library for a card and exile it
+            # face down. [...] You may play that card for as long as it
+            # remains exiled." (Praetor's Grasp, MEC-42) — the same
+            # face-down-in-exile marker as ``"exile_face_down"`` above, but
+            # the standing (never turn-swept) cast permission goes to
+            # ``chooser_id`` (the caster, RULE 701.19a's "target opponent"
+            # shape — the found card's *owner* never changes, it stays
+            # exiled among ``player``'s own cards) rather than to
+            # ``player`` itself the way ``"exile_free_cast"``'s same-player
+            # search grants it to. Ordinary mana cost still applies —
+            # unlike ``"exile_free_cast"``, `GameState.free_cast_instance_
+            # ids` is never touched.
+            obj.face_down_in_exile = True
+            player.add_to_zone(obj, Zone.EXILE)
+            self.state.fire_event(
+                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
+            )
+            self.state.exile_cast_condition[obj.instance_id] = (chooser_id or player.id, {})
         else:  # hand (default) — most tutors
             player.add_to_zone(obj, Zone.HAND)
     def request_impulsive_look(

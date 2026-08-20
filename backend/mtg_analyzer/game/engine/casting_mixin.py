@@ -133,6 +133,22 @@ class CastingMixin:
             return None
         return ManaCost.parse(str(param["cost"]))
     @staticmethod
+    def _evoke_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.74b: ``obj``'s Evoke cost as a `ManaCost`, or ``None``
+        if it carries no Evoke keyword (or one with no parsed cost) — the
+        same shape `_mutate_cost`/`_escalate_cost` take for their own
+        cost-bearing keywords. Structurally closest to Mutate (a hand-cast
+        substitution with its own post-resolution behaviour), not
+        Flashback/Escape (both graveyard-only) — see `_finish` in
+        `game/rules/casting_mixin.py`'s `_resolve_permanent_spell` for the
+        "sacrificed when it enters" half (MEC-42, Ashling, the Limitless's
+        own granted evoke also reads this).
+        """
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("evoke")
+        if not param or not param.get("cost"):
+            return None
+        return ManaCost.parse(str(param["cost"]))
+    @staticmethod
     def _entwine_cost(obj: GameObject) -> Optional["ManaCost"]:
         """RULE 702.42a: ``obj``'s Entwine cost as a `ManaCost`, or ``None``
         if it isn't a modal spell carrying one.
@@ -277,6 +293,8 @@ class CastingMixin:
         mutate: bool = False,
         bargained: bool = False,
         entwine: bool = False,
+        evoke: bool = False,
+        exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         targets: Optional[list[Any]] = None,
@@ -456,6 +474,12 @@ class CastingMixin:
             or has_top_library_flash
             or continuous.has_standing_flash_permission(self.state, player, card)
         )
+        if continuous.forced_sorcery_speed_only(self.state, player):
+            # Teferi, Time Raveler (MEC-42): "each opponent can cast spells
+            # only any time they could cast a sorcery" — overrides every
+            # Flash/instant-speed exemption just computed above, for a
+            # restricted player.
+            sorcery_speed = True
         if face == "face_down":
             # RULE 708.4: an object cast face down is turned face down
             # *before* it goes on the stack, so "effects that care about the
@@ -493,6 +517,24 @@ class CastingMixin:
         if entwine and self._entwine_cost(obj) is None:
             # RULE 702.42a: Entwine is only payable on a spell that has one.
             return False
+        if evoke and self._evoke_cost(obj) is None and continuous.granted_evoke_cost_for(self.state, obj) is None:
+            # RULE 702.74b: Evoke is only payable on a spell that carries
+            # (or was granted, Ashling the Limitless-shaped) one.
+            return False
+        if exile_discount:
+            # March of Swirling Mist (MEC-42): only legal on a spell that
+            # actually prints this additional cost, and only up to the
+            # number of *other* matching-color cards actually in hand.
+            spec = continuous.exile_discount_spec_for(obj)
+            if spec is None:
+                return False
+            color = str(spec.get("color", "U"))
+            eligible_in_hand = sum(
+                1 for c in player.hand
+                if c is not obj and color in (getattr(c, "colors", None) or set())
+            )
+            if exile_discount > eligible_in_hand:
+                return False
         if bargained and not self._bargain_candidate(player):
             # RULE 701.x: Bargain is optional, but *choosing* to bargain
             # requires something to sacrifice.
@@ -536,7 +578,7 @@ class CastingMixin:
         elif not assume_mana_available:
             cost = self.effective_cast_cost(
                 player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
-                mutate=mutate, entwine=entwine, targets=targets,
+                mutate=mutate, entwine=entwine, evoke=evoke, exile_discount=exile_discount, targets=targets,
             )
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
             wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
@@ -671,6 +713,8 @@ class CastingMixin:
         buyback: bool = False,
         mutate: bool = False,
         entwine: bool = False,
+        evoke: bool = False,
+        exile_discount: int = 0,
         targets: Optional[list[Any]] = None,
     ) -> "ManaCost":
         """``obj``'s mana cost after static cost adjustments (RULE 601.2f/903.8).
@@ -721,6 +765,15 @@ class CastingMixin:
             mutate_cost = self._mutate_cost(obj)
             if mutate_cost is not None:
                 return self._adjust_cost(mutate_cost, player, obj)
+        if evoke:
+            # RULE 702.74b: likewise a substitution, not an addition — a
+            # printed keyword cost, or one granted by another permanent
+            # (Ashling, the Limitless-shaped, `continuous.granted_evoke_
+            # cost_for`), since a grant has no keyword line of its own to
+            # read.
+            evoke_cost = self._evoke_cost(obj) or continuous.granted_evoke_cost_for(self.state, obj)
+            if evoke_cost is not None:
+                return self._adjust_cost(evoke_cost, player, obj)
         if obj in player.graveyard:
             keyword = self._graveyard_cast_keyword(obj)
             if keyword == "flashback":
@@ -771,6 +824,17 @@ class CastingMixin:
             # Aerial Formation's "{2}{U} more").
             for _ in range(max(0, len(targets) - 1)):
                 cost = cost.add(strive_cost)
+        if exile_discount:
+            # March of Swirling Mist (MEC-42): "you may exile any number
+            # of blue cards from your hand. This spell costs {2} less to
+            # cast for each card exiled this way." — RULE 601.2b's
+            # announced-and-then-paid shape, the same "compute the
+            # adjusted cost before payment" treatment Kicker's own extra
+            # cost gets, just subtracted — `reduce_generic_and_x`, since
+            # this printed cost's only generic component is {X} itself.
+            spec = continuous.exile_discount_spec_for(obj)
+            if spec is not None:
+                cost = cost.reduce_generic_and_x(int(spec.get("generic_per_card", 2)) * exile_discount)
         return cost
     @staticmethod
     def commander_tax(player: Player, obj: GameObject) -> int:
@@ -847,6 +911,8 @@ class CastingMixin:
         mutate_under: bool = False,
         bargained: bool = False,
         entwine: bool = False,
+        evoke: bool = False,
+        exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
     ):
@@ -939,7 +1005,7 @@ class CastingMixin:
                 result = self._cast_current_face(
                     player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                     target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
-                    mutate_under=mutate_under, bargained=bargained, entwine=entwine,
+                    mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                     sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 )
             except Exception:
@@ -951,7 +1017,7 @@ class CastingMixin:
         return self._cast_current_face(
             player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
             target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
-            mutate_under=mutate_under, bargained=bargained, entwine=entwine,
+            mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
         )
     def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
@@ -1054,6 +1120,8 @@ class CastingMixin:
         mutate: bool = False,
         bargained: bool = False,
         entwine: bool = False,
+        evoke: bool = False,
+        exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         targets: Optional[list[Any]] = None,
@@ -1095,21 +1163,21 @@ class CastingMixin:
         """
         if free or alt_cost or self.can_cast(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-            alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
+            alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             targets=targets,
         ):
             return
         if not self.can_cast(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-            alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
+            alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             targets=targets, assume_mana_available=True,
         ):
             return  # illegal for a reason other than mana — never auto-tap
         cost = self.effective_cast_cost(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
-            entwine=entwine, targets=targets,
+            entwine=entwine, evoke=evoke, exile_discount=exile_discount, targets=targets,
         )
         try:
             self.auto_tap_for(player, cost=cost)
@@ -1132,6 +1200,8 @@ class CastingMixin:
         mutate_under: bool = False,
         bargained: bool = False,
         entwine: bool = False,
+        evoke: bool = False,
+        exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
     ):
@@ -1152,15 +1222,26 @@ class CastingMixin:
             if not entwine or self._entwine_cost(obj) is None:
                 raise ValueError(f"{obj.name}: 'both' requires paying the entwine cost")
         with self._mode_effects_applied(obj, mode):
+            # RULE 601.2c/601.2b ordering: X is announced *before* targets
+            # are chosen, so a target requirement whose own bound reads {X}
+            # ("target permanent with mana value X or less" — March of
+            # Otherworldly Light, MEC-43; "up to X target creatures" —
+            # March of Swirling Mist, MEC-42) needs it stamped here already,
+            # not only after `cast_spell` commits for real below (`targeting.
+            # legal_targets`'s own ``"x"``/``"-x"`` sentinel resolution reads
+            # this same field). Harmless to stamp early: the real cast path
+            # re-stamps the identical value once resolved.
+            if x:
+                obj.x_paid = x
             self._auto_tap_for_cast_if_needed(
                 player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-                alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
+                alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets,
             )
             if not self.can_cast(
                 player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-                alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
+                alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets,
             ):
@@ -1229,7 +1310,7 @@ class CastingMixin:
             else:
                 cost = self.effective_cast_cost(
                     player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
-                    entwine=entwine, targets=targets,
+                    entwine=entwine, evoke=evoke, exile_discount=exile_discount, targets=targets,
                 )
                 result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
                 if kicked and kicker_x > 0 and self._kicker_x_distinct_colors(obj):
@@ -1239,6 +1320,21 @@ class CastingMixin:
                     # the pool — `can_cast` already verified this sequence is
                     # payable.
                     player.mana_pool.pay_distinct_colors(kicker_x)
+                if exile_discount:
+                    # March of Swirling Mist (MEC-42): the additional cost
+                    # itself, paid *after* the (already-discounted) mana
+                    # cost — RULE 601.2b, same "cost as part of casting"
+                    # ordering as the sacrifice/discard additional costs
+                    # right below. Auto-picked, the same "no chooser for an
+                    # equally-valid pick" idiom this engine's other untargeted
+                    # picks already use, since which matching-color card is
+                    # exiled has no further mechanical consequence.
+                    spec = continuous.exile_discount_spec_for(obj)
+                    color = str((spec or {}).get("color", "U"))
+                    for _ in range(exile_discount):
+                        victim = self._exile_hand_card_candidate(player, color, exclude=obj)
+                        if victim is not None:
+                            self.rules.exile(victim)
             # RULE 601.2b/601.2h: an additional cost is paid as part of
             # casting, not resolving — so it stays paid even if the spell is
             # later countered. Paid *after* the mana cost (just above) so a
@@ -1291,6 +1387,11 @@ class CastingMixin:
             # `RulesEngine.resolve_top_of_stack` to exile the spell instead
             # of returning it to the graveyard on resolution.
             obj.cast_via_flashback = graveyard_keyword == "flashback"
+            # RULE 702.74a: record an Evoke cast — consulted right after
+            # `_resolve_permanent_spell` adds the object to the battlefield
+            # to sacrifice it (a *consequence* of entering, not a
+            # replacement of it, so its own ETB trigger still fires first).
+            obj.cast_via_evoke = evoke
             # Lurrus-shaped: record the casting turn so `_move_to_graveyard`
             # can honor the permission source's own "if a spell cast this
             # way would be put into a graveyard this turn, exile it

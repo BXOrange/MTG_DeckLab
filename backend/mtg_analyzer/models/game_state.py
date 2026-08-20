@@ -439,6 +439,17 @@ class GameState:
         #: swept at cleanup since there's no turn window to expire.
         self.exile_cast_condition: dict[int, tuple[str, dict]] = {}
 
+        #: RULE 701.17-adjacent "void counter" marker (Dauthi Voidwalker,
+        #: MEC-42) — ``instance_id -> holder player_id`` for a card exiled
+        #: by `continuous.void_counter_redirect_controller_for`'s standing
+        #: redirect instead of reaching its owner's graveyard; the holder
+        #: is whichever Dauthi Voidwalker's controller earned it, who may
+        #: later name it in that ability's own "choose an exiled card an
+        #: opponent owns with a void counter on it" activation. Never
+        #: swept — a void counter, like a real counter, persists on the
+        #: card for as long as it stays in exile.
+        self.void_counter_holder: dict[int, str] = {}
+
         #: RULE 605.1a "you may spend mana as though it were mana of any
         #: color/type" (Mnemonic Betrayal-shaped), scoped to *casting one
         #: specific exiled card* — ``instance_id -> "color" | "type"``,
