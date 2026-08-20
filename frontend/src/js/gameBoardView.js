@@ -177,6 +177,10 @@ export function createGameBoardView(opts = {}) {
   // The stack overlays the board while non-empty; can be pushed aside to a
   // compact corner card so priority actions can be taken on the board below.
   let stackAside = false;
+  // A pending-choice popup (search/scry/surveil/ward/…) overlays the board
+  // the same way; same "push aside" escape hatch, e.g. to check the
+  // graveyard or a permanent's text before answering.
+  let choiceAside = false;
   // Attacking creatures whose "choose a defender" submenu is open (2+ legal
   // defenders, RULE 508.1a).
   const attackMenuOpen = new Set();
@@ -938,9 +942,10 @@ export function createGameBoardView(opts = {}) {
     setLatestByInstance(byInstance);
     const stackNonEmpty = s.stack.length > 0;
     if (!stackNonEmpty) stackAside = false;
+    if (!pending) choiceAside = false;
 
     root.innerHTML = `
-      <div class="goldfish${pending || castTargeting ? ' choosing' : ''}">
+      <div class="goldfish${(pending && !choiceAside) || castTargeting ? ' choosing' : ''}">
         ${moveFeedHtml()}
         <div class="gf-topbar">
           <div class="gf-turninfo">
@@ -959,7 +964,7 @@ export function createGameBoardView(opts = {}) {
         ${statusHtml()}
         ${view.observer ? '<p class="server-status gf-observer-note">👁️ Beobachter-Modus – du siehst das öffentliche Spielfeld, aber keine Handkarten.</p>' : ''}
         ${waitingOnChoiceHtml(s)}
-        ${pending ? pendingChoiceHtml(pending) : ''}
+        ${pending ? pendingChoiceHtml(pending, choiceAside) : ''}
         ${castTargeting ? castTargetModalHtml() : ''}
 
         ${controlsHtml(stackNonEmpty, pending, gameOver)}
@@ -1563,25 +1568,35 @@ export function createGameBoardView(opts = {}) {
   // thing to do is answer. Each server-provided option becomes one button —
   // except `replacement_order` (RULE 616.1) and `order_triggers`
   // (RULE 603.3b), which get a drag-and-drop reorderable list instead (see
-  // `replacementOrderHtml`/`triggerOrderHtml`).
-  function pendingChoiceHtml(pending) {
+  // `replacementOrderHtml`/`triggerOrderHtml`), and `scry`/`surveil`, which
+  // get inline card-face thumbnails instead of bare name buttons (see
+  // `lookTopChoiceHtml`). `aside` mirrors `stackOverlayHtml`'s own
+  // push-aside escape hatch (`data-choice-aside` below) — a player deciding
+  // e.g. a surveil may want to check the board (a graveyard, a permanent's
+  // text) before answering rather than being fully blocked.
+  function pendingChoiceHtml(pending, aside = false) {
     const icon = CHOICE_ICONS[pending.kind] || '❔';
     const heading = pending.prompt || pending.description || 'Entscheidung nötig';
     const body = pending.kind === 'replacement_order'
       ? replacementOrderHtml(pending)
       : pending.kind === 'order_triggers'
         ? triggerOrderHtml(pending)
-        : simpleChoiceButtonsHtml(pending);
+        : pending.kind === 'scry' || pending.kind === 'surveil'
+          ? lookTopChoiceHtml(pending)
+          : simpleChoiceButtonsHtml(pending);
+    const asideLabel = aside ? '⤢ Entscheidung einblenden' : '⤡ Zur Seite schieben';
 
     return `
-      <div class="gf-modal-overlay">
+      <div class="gf-modal-overlay${aside ? ' aside' : ''}">
         <div class="gf-modal" role="dialog" aria-modal="true">
           <div class="gf-modal-head">
             <span class="gf-modal-icon">${icon}</span>
             <div>
               <h4>${escapeHtml(heading)}</h4>
               <p class="gf-modal-who">Entscheidung für ${escapeHtml(playerName(pending.player_id))}</p>
+              ${pending.source_name ? `<p class="gf-modal-source">Ausgelöst durch: ${escapeHtml(pending.source_name)}</p>` : ''}
             </div>
+            <button type="button" class="gf-modal-aside" data-choice-aside title="Board darunter ansehen, ohne zu entscheiden">${asideLabel}</button>
           </div>
           ${body}
         </div>
@@ -1606,6 +1621,33 @@ export function createGameBoardView(opts = {}) {
       .join('');
 
     return `<div class="gf-choice-options">${buttons}</div>`;
+  }
+
+  // scry/surveil (RULE 701.18/701.31): the away and order phases both offer
+  // exactly the looked-at cards plus a decline, but unlike a generic search
+  // the player needs to actually *read* each card to decide — a bare name
+  // button forces a hover to see it, so this renders an inline face thumbnail
+  // per option (`opt.card_id`, see `_look_top_choice`) alongside the label,
+  // still hoverable for the full-size tooltip via `data-hover-card`.
+  function lookTopChoiceHtml(pending) {
+    const options = pending.options || [];
+    const cards = options
+      .map((opt) => {
+        if (opt.id === 'decline') {
+          const action = JSON.stringify({ type: 'decline' });
+          return `<button type="button" class="gf-lt-card gf-lt-decline" data-action='${escapeAttr(action)}'>
+            <span class="gf-lt-decline-label">${escapeHtml(opt.label || 'Fertig')}</span>
+          </button>`;
+        }
+        const action = JSON.stringify({ type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label });
+        const img = opt.card_id ? cardImageUrl(opt.card_id, 'small', 'front') : null;
+        return `<button type="button" class="gf-lt-card" data-hover-card="${escapeHtml(opt.label || '')}" data-action='${escapeAttr(action)}'>
+          ${img ? `<img class="gf-lt-card-img" src="${escapeAttr(img)}" alt="${escapeAttr(opt.label || '')}" loading="lazy">` : ''}
+          <span class="gf-lt-card-label">${escapeHtml(opt.label || opt.id)}</span>
+        </button>`;
+      })
+      .join('');
+    return `<div class="gf-lt-options">${cards}</div>`;
   }
 
   // RULE 616.1: 2+ simultaneously-applicable replacement effects (e.g.
@@ -2000,6 +2042,13 @@ export function createGameBoardView(opts = {}) {
     // Push the stack overlay aside (or bring it back).
     root.querySelector('[data-stack-aside]')?.addEventListener('click', () => {
       stackAside = !stackAside;
+      render();
+    });
+
+    // Push a pending-choice popup aside (or bring it back) — same escape
+    // hatch as the stack overlay above.
+    root.querySelector('[data-choice-aside]')?.addEventListener('click', () => {
+      choiceAside = !choiceAside;
       render();
     });
 

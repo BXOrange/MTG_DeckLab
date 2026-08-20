@@ -80,20 +80,16 @@ Plan-level sequencing lives in
 > special-casing to stay that way.
 
 - **MEC-43 · Make the seven "cEDH"-named saved decks/cubes fully
-  playable** (sole tracker — MEC-12 and MEC-42 folded in and retired).
-  User request 2026-08-06: `Ojer cEDH`, `cEDH Rocco`, `[cEDH] Glarb
-  Bloomsday`, `cEDH staples`, `cEDH staples 2`, `cEDH M-K`, `cEDH Kinnan`
-  (700+ unique cards across the seven, heavy overlap). Ordinary open work,
-  not "no-deferral" scope forced to one sitting. `cEDH Kinnan`, `cEDH
-  M-K`, `cEDH Rocco`, `[cEDH] Glarb Bloomsday`, and `cEDH staples` are all
-  fully playable — see `Done_Backend.md`'s "MEC-12: Kinnan and M-K
-  completed", "MEC-40", "MEC-41", and "MEC-42" entries. Coverage as of
-  2026-08-20 (re-measure before trusting — these are live, user-editable
-  decks):
+  playable** (sole tracker for this work). User request 2026-08-06:
+  `Ojer cEDH`, `cEDH Rocco`, `[cEDH] Glarb Bloomsday`, `cEDH staples`,
+  `cEDH staples 2`, `cEDH M-K`, `cEDH Kinnan` (700+ unique cards across
+  the seven, heavy overlap). Ordinary open work, not "no-deferral" scope
+  forced to one sitting. Coverage as of 2026-08-20 (re-measure before
+  trusting — these are live, user-editable decks):
 
   | Deck | Coverage | Residual, tracked as |
   | --- | --- | --- |
-  | `Ojer cEDH` | 75/77 | Chandra's Incinerator's dynamic cost reduction + a "creature/planeswalker *that damaged player* controls" target kind (doesn't exist); Balin's Tomb is real (the LOTR alt name for Ancient Tomb) but doesn't resolve — see CLAUDE.md's `flavor_name` gotcha, an import/card-database gap, not a parser/engine one. |
+  | `Ojer cEDH` | 75/77 | [MEC-45] (Chandra's Incinerator); Balin's Tomb is real (the LOTR alt name for Ancient Tomb) but doesn't resolve — see CLAUDE.md's `flavor_name` gotcha, an import/card-database gap, not a parser/engine one. |
   | `cEDH Rocco` | 98/98 | fully playable. |
   | `[cEDH] Glarb Bloomsday` | 100/100 | fully playable. |
   | `cEDH staples` | 215/215 | fully playable. |
@@ -107,17 +103,16 @@ Plan-level sequencing lives in
 
   **`cEDH staples 2`'s remaining 45 gaps**, diagnosed and clustered
   2026-08-20 (re-measure before trusting — a live, user-editable deck).
-  Every card MEC-31 through MEC-44, MEC-40's `cEDH Rocco` batch, MEC-41's
-  `[cEDH] Glarb Bloomsday` batch, and 9 of MEC-42's 11-card `cEDH staples`
-  batch (Dauthi Voidwalker, Derevi Empyrial Tactician, March of Swirling
-  Mist, Orcish Bowmasters, Praetor's Grasp, Sevinne's Reclamation, Teferi
-  Time Raveler, Touch the Spirit Realm, Tymna the Weaver — Ashling the
-  Limitless/Mana Crypt aren't in this deck) already closed for this deck,
-  plus a first batch of this ticket's own (Contamination, Leveler, Natural
-  Order, Magda Brazen Outlaw, Unmarked Grave, Unsubstantiate, Starting
-  Town, Teferi Master of Time, March of Otherworldly Light —
-  `Done_Backend.md`'s "MEC-43" entry), are all already subtracted from the
-  45 below.
+  Every card also shared by `cEDH staples`/`cEDH Rocco`/`[cEDH] Glarb
+  Bloomsday` (Dauthi Voidwalker, Derevi Empyrial Tactician, March of
+  Swirling Mist, Orcish Bowmasters, Praetor's Grasp, Sevinne's
+  Reclamation, Teferi Time Raveler, Touch the Spirit Realm, Tymna the
+  Weaver — Ashling the Limitless/Mana Crypt aren't in this deck) is
+  already closed for this deck too, plus a first batch of this ticket's
+  own (Contamination, Leveler, Natural Order, Magda Brazen Outlaw,
+  Unmarked Grave, Unsubstantiate, Starting Town, Teferi Master of Time,
+  March of Otherworldly Light — `Done_Backend.md`'s "MEC-43" entry), are
+  all already subtracted from the 45 below.
 
   **Near-free reuses first** (a real primitive already exists, just
   needs recoloring/param-widening — same shape this batch's own 9 cards
@@ -133,7 +128,7 @@ Plan-level sequencing lives in
   shape), Hermit Druid (`dig_until`'s existing dig, a `rest_destination=
   "graveyard"` value away), Kogla the Titan Ape (fight-on-ETB already
   claimed; the {1}{G} ability is a plain bounce+grant), Leyline of the Void
-  (`void_counter_redirect`, MEC-42, unscoped to any graveyard instead of
+  (`void_counter_redirect` unscoped to any graveyard instead of
   "opponent's"), Rest in Peace (the same static, "exile all graveyards" ETB
   is a new mass zone-move), Soulless Jailer (a new standing "can't enter
   from a graveyard" prohibition + the already-shipped
@@ -198,6 +193,29 @@ Plan-level sequencing lives in
   trigger-verb table deliberately excludes "becomes untapped" today since
   no event carries an `instance_id` for it; a real, narrow, project-level
   gap rather than a build-it-now item).
+
+- **MEC-45 · `Ojer cEDH`'s last gap, Chandra's Incinerator.** Two
+  unclaimed clauses (`parser_probe.py card`):
+
+  1. "This spell costs {X} less to cast, where X is the total amount of
+     noncombat damage dealt to your opponents this turn." — near-free:
+     `continuous.self_cost_reduction_for`/`_cost_static_amount` (Delve/
+     Affinity's own printed "costs less" static) already multiplies by
+     *any* registered `count_selector` via its `per` param — no new
+     cost-reduction mechanism needed, just a new per-turn tracker
+     (`GameState`, incremented wherever `RulesEngine.deal_damage` fires a
+     non-combat hit against an opponent) registered as a `count_selector`
+     value, the same shape `continuous.count_selector`'s existing
+     `"opponents_dealt_combat_damage_this_turn"` entry already established
+     for combat damage.
+  2. "Whenever a source you control deals noncombat damage to an
+     opponent, ~ deals that much damage to target creature or
+     planeswalker that player controls." — the amount half is already
+     general (`DealDamageEffect.amount_from_trigger_event`, Imodane's own
+     primitive); the target half is genuinely new — `targeting.py` has no
+     kind scoped to "controlled by whichever player the firing event
+     names," only fixed roles (`"opponent"`, `"you"`, a literal
+     `spell_filter`/`subtype`). A real, narrow addition, not a rebuild.
 
 ## PLR — Player management
 

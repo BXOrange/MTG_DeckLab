@@ -263,11 +263,11 @@ class GameContext:
     ) -> None:
         self.engine.add_player_counters(player, amount, kind, source=source)
 
-    def scry(self, player: "Player", count: int = 1) -> None:
-        self.engine.scry(player, count)
+    def scry(self, player: "Player", count: int = 1, source: Optional["GameObject"] = None) -> None:
+        self.engine.scry(player, count, source=source)
 
-    def surveil(self, player: "Player", count: int = 1) -> None:
-        self.engine.surveil(player, count)
+    def surveil(self, player: "Player", count: int = 1, source: Optional["GameObject"] = None) -> None:
+        self.engine.surveil(player, count, source=source)
 
     def look_top_select(
         self,
@@ -10780,7 +10780,7 @@ class ScryEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is not None:
-            context.scry(player, self.count)
+            context.scry(player, self.count, source=self.source)
 
 
 class SurveilEffect(GameEffect):
@@ -10793,7 +10793,7 @@ class SurveilEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is not None:
-            context.surveil(player, self.count)
+            context.surveil(player, self.count, source=self.source)
 
 
 class LookTopSelectEffect(GameEffect):

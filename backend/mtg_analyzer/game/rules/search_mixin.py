@@ -179,17 +179,19 @@ class SearchMixin:
             "order": ("Überwachen: welche Karte kommt zuoberst?", "Reihenfolge behalten"),
         },
     }
-    def scry(self, player: Player, count: int) -> None:
+    def scry(self, player: Player, count: int, source: Optional["GameObject"] = None) -> None:
         """Scry ``count`` (RULE 701.18): look at the top ``count`` cards, put
         any number of them on the bottom and the rest back on top in any order.
 
         A real, interactive decision — see `_LOOK_TOP_KINDS` for the shape it
         shares with `surveil`. That is what makes Vancouver's "scry 1 after
         keeping a mulliganed hand" a real choice rather than theatre
-        (`services/game_session.py`'s ``vancouver`` mulligan style).
+        (`services/game_session.py`'s ``vancouver`` mulligan style). ``source``
+        is the permanent/spell whose ability caused the scry, if any — carried
+        through only so the pending-choice popup can say where it came from.
         """
-        self._look_at_top(player, count, "scry")
-    def surveil(self, player: Player, count: int) -> None:
+        self._look_at_top(player, count, "scry", source=source)
+    def surveil(self, player: Player, count: int, source: Optional["GameObject"] = None) -> None:
         """Surveil ``count`` (RULE 701.31): look at the top ``count`` cards,
         put any number into the *graveyard* and the rest back on top in any
         order — scry with a different destination (`_LOOK_TOP_KINDS`).
@@ -199,8 +201,10 @@ class SearchMixin:
         actions distinct (nothing that watches milling should see a surveil),
         so no `MILL`/`MILL_CARD` event fires here.
         """
-        self._look_at_top(player, count, "surveil")
-    def _look_at_top(self, player: Player, count: int, kind: str) -> None:
+        self._look_at_top(player, count, "surveil", source=source)
+    def _look_at_top(
+        self, player: Player, count: int, kind: str, source: Optional["GameObject"] = None
+    ) -> None:
         """The shared body of `scry`/`surveil`: fire the keyword's event, then
         open its decision.
 
@@ -220,7 +224,10 @@ class SearchMixin:
             return
         # Top card first, which is the order a player reads them in.
         remaining = [obj.instance_id for obj in reversed(looked)]
-        self.state.pending_choice = self._look_top_choice(player, kind, "away", remaining, [], [])
+        source_name = source.name if source is not None else None
+        self.state.pending_choice = self._look_top_choice(
+            player, kind, "away", remaining, [], [], source_name
+        )
     def _look_top_choice(
         self,
         player: Player,
@@ -229,6 +236,7 @@ class SearchMixin:
         remaining: list[int],
         away: list[int],
         top: list[int],
+        source_name: Optional[str] = None,
     ) -> dict[str, Any]:
         """Build one step of the serializable `scry`/`surveil` decision.
 
@@ -236,12 +244,15 @@ class SearchMixin:
         first), ``away`` the ones already sent to the bottom/graveyard and
         ``top`` the ones already placed, topmost first. All three are instance
         ids rather than objects, so the choice survives the state `clone()`
-        undo takes.
+        undo takes. ``source_name`` is the causing permanent/spell's name, if
+        known, carried along so the frontend can show where the scry/surveil
+        came from — the same purpose `_trigger_order_choice`'s own
+        ``source_name`` serves.
         """
         prompt, decline_label = self._LOOK_TOP_KINDS[kind][phase]
         looked = [(iid, self._object_by_instance_id(iid)) for iid in remaining]
         options: list[dict[str, Any]] = [
-            {"id": str(iid), "label": obj.name, "instance_id": iid}
+            {"id": str(iid), "label": obj.name, "instance_id": iid, "card_id": obj.card.id}
             for iid, obj in looked
             if obj is not None
         ]
@@ -255,6 +266,7 @@ class SearchMixin:
             "top": list(top),
             "prompt": prompt,
             "options": options,
+            "source_name": source_name,
         }
     def resolve_scry_choice(self, instance_id: Optional[int]) -> None:
         """Answer a pending `scry` decision (RULE 701.18)."""
@@ -280,6 +292,7 @@ class SearchMixin:
         away: list[int] = list(choice["away"])
         top: list[int] = list(choice["top"])
         phase = choice["phase"]
+        source_name = choice.get("source_name")
 
         if instance_id is None:
             if phase == "order":
@@ -298,7 +311,7 @@ class SearchMixin:
             self._finish_look_top(player, kind, away, top + remaining)
             return
         self.state.pending_choice = self._look_top_choice(
-            player, kind, phase, remaining, away, top
+            player, kind, phase, remaining, away, top, source_name
         )
     def _finish_look_top(
         self, player: Player, kind: str, away: list[int], top: list[int]

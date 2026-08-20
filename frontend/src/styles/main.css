@@ -3393,6 +3393,56 @@ textarea {
   font-style: italic;
 }
 
+/* scry/surveil (`lookTopChoiceHtml`): each looked-at card as a clickable
+   thumbnail instead of a bare name button, since the whole point is reading
+   the card to decide where it goes. */
+.gf-lt-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.gf-lt-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  width: 110px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.gf-lt-card:hover {
+  border-color: var(--accent);
+}
+
+.gf-lt-card-img {
+  width: 100%;
+  border-radius: 4px;
+  display: block;
+}
+
+.gf-lt-card-label {
+  font-size: 0.72rem;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.gf-lt-decline {
+  justify-content: center;
+  min-height: 60px;
+}
+
+.gf-lt-decline-label {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--text-dim);
+}
+
 /* Dim the board while a choice is pending, to focus on the prompt. */
 .goldfish.choosing .gf-play {
   opacity: 0.55;
@@ -3436,6 +3486,11 @@ textarea {
   margin-bottom: 0.8rem;
 }
 
+.gf-modal-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
 .gf-modal-icon {
   font-size: 1.5rem;
   line-height: 1;
@@ -3450,6 +3505,53 @@ textarea {
   margin: 0.15rem 0 0;
   font-size: 0.75rem;
   color: var(--text-dim);
+}
+
+/* Which permanent/spell caused this decision (`pending.source_name` —
+   e.g. a surveil triggered by Dragon's Rage Channeler), same field
+   `triggerOrderHtml` already shows for RULE 603.3b ordering. */
+.gf-modal-source {
+  margin: 0.1rem 0 0;
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+/* Push-aside toggle, styled like the stack overlay's own `.gf-stack-aside`. */
+.gf-modal-aside {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  padding: 0.2rem 0.5rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gf-modal-aside:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Pushed aside: same trick as `.gf-stack-overlay.aside` — the backdrop
+   stops capturing clicks so the board underneath is reachable, and the
+   panel shrinks to a compact card docked in a corner. */
+.gf-modal-overlay.aside {
+  pointer-events: none;
+  background: transparent;
+  backdrop-filter: none;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 0.4rem;
+}
+
+.gf-modal-overlay.aside .gf-modal {
+  pointer-events: auto;
+  max-width: 260px;
+  max-height: 60vh;
+  transform: scale(0.97);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
 }
 
 /* Target-picker modal: a cancel row under the offered targets. */
