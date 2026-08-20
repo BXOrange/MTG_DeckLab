@@ -498,8 +498,11 @@ class GameContext:
         target: Any,
         unless_pays: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        suspend_instead: Optional[int] = None,
     ) -> None:
-        self.engine.counter_unless_pays(target, unless_pays, source)
+        self.engine.counter_unless_pays(
+            target, unless_pays, source, suspend_time_counters=suspend_instead
+        )
 
     def counter_ability(self, target: Any) -> None:
         self.engine.counter_ability(target)
@@ -4514,6 +4517,7 @@ class CounterSpellEffect(GameEffect):
         color: Optional[str] = None,
         source: Optional["GameObject"] = None,
         target_from_trigger_event: Optional[str] = None,
+        suspend_instead: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -4524,6 +4528,11 @@ class CounterSpellEffect(GameEffect):
         #: event" idiom `DestroyEffect.target_from_trigger_event` already
         #: established.
         self.target_from_trigger_event = target_from_trigger_event
+        #: RULE 702.62 (Delay, MEC-42): "exile it with N time counters on it
+        #: instead of putting it into its owner's graveyard. If it doesn't
+        #: have suspend, it gains suspend." Threaded straight through to
+        #: `RulesEngine.counter_unless_pays`/`counter_spell`.
+        self.suspend_instead = suspend_instead
         spell_filter: dict[str, Any] = {}
         if noncreature:
             spell_filter["noncreature"] = True
@@ -4545,11 +4554,17 @@ class CounterSpellEffect(GameEffect):
             instance_id = event.get(self.target_from_trigger_event)
             target = context.state.find_object(instance_id) if instance_id is not None else None
             if target is not None:
-                context.counter(target, unless_pays=self.unless_pays, source=self.source)
+                context.counter(
+                    target, unless_pays=self.unless_pays, source=self.source,
+                    suspend_instead=self.suspend_instead,
+                )
             return
         target = (targets[0] if targets else None) or self.target
         if target is not None:
-            context.counter(target, unless_pays=self.unless_pays, source=self.source)
+            context.counter(
+                target, unless_pays=self.unless_pays, source=self.source,
+                suspend_instead=self.suspend_instead,
+            )
 
 
 class CounterAbilityEffect(GameEffect):
@@ -13008,6 +13023,44 @@ class RemoveCounterOrSacrificeEffect(GameEffect):
         context.put_into_graveyard(obj)
 
 
+class SuspendUpkeepEffect(GameEffect):
+    """RULE 702.62a's 2nd+3rd Suspend abilities, combined the same way
+    Vanishing's own upkeep pair already is (`RemoveCounterOrSacrificeEffect`
+    above): "At the beginning of your upkeep, if this card is suspended,
+    remove a time counter from it," then "When the last time counter is
+    removed from this card, if it's exiled, you may play it without paying
+    its mana cost if able."
+
+    Unlike Vanishing, ``source`` here is never a permanent — a suspended
+    card sits in exile the whole time (RULE 702.62b), so there's nothing to
+    sacrifice at zero; instead the free-cast window opens exactly the way
+    Rebound's own delayed half does (`ReboundFreeCastWindowEffect` →
+    `RulesEngine.grant_free_cast_window_from_exile`), including that
+    primitive's documented same-turn-only simplification for the "you may"
+    choice. `granted_suspend_haste` arms RULE 702.62a's trailing "if you
+    cast a creature spell this way, it gains haste" clause, consumed once
+    at resolution by `RulesEngine._resolve_permanent_spell` exactly like
+    `cast_via_evoke`.
+
+    Collected fresh each owner's-upkeep by `_collect_suspend_triggers`
+    (`game/rules/triggers_mixin.py`) rather than bound once at load time —
+    a card can become suspended mid-game with no printed Suspend at all
+    (Delay's granted suspend), so there's no permanent `TriggeredAbility`
+    to have pre-attached one to.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        obj = self.source
+        if obj is None or obj.zone != Zone.EXILE or obj.counters.get("time", 0) <= 0:
+            return
+        obj.add_counters("time", -1)
+        if obj.counters.get("time", 0) > 0:
+            return
+        if obj.card.is_creature:
+            obj.granted_suspend_haste = True
+        context.engine.grant_free_cast_window_from_exile(obj)
+
+
 def _scale_cumulative_upkeep_cost(cost: "ActivationCost", n: int) -> "ActivationCost":
     """RULE 702.24b: "…unless you pay its upkeep cost **for each age
     counter** on it" — the whole printed cost, paid ``n`` times over, not a
@@ -14133,6 +14186,7 @@ EffectRegistry.register(
         mana_value=p.get("mana_value"),
         color=p.get("color"),
         target_from_trigger_event=p.get("target_from_trigger_event"),
+        suspend_instead=p.get("suspend_instead"),
     ),
 )
 EffectRegistry.register(

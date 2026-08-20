@@ -14,6 +14,7 @@ from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.game_state import StackItem
 
 from tests.test_game_engine import make_engine
 
@@ -507,3 +508,73 @@ def test_tymna_postcombat_main_offers_pay_life_draw_x():
 
     assert p1.life == 29
     assert len(p1.hand) == 1
+
+
+# ---------------------------------------------------------------------------
+# Delay (MEC-42's last card — RULE 702.62 Suspend, built as a real primitive)
+# ---------------------------------------------------------------------------
+
+
+def _fire_upkeep(eng, active_player_id):
+    eng.state.active_player_index = [p.id for p in eng.state.players].index(active_player_id)
+    eng.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="upkeep", phase="upkeep"))
+    eng.resolve_until_stable()
+
+
+def test_delay_counters_spell_into_exile_with_suspend_and_time_counters():
+    eng = make_engine(_filler(5), _filler(5), hand=0)
+    state = eng.state
+    p2 = state.player_by_id("p2")
+
+    victim = GameObject(_vanilla("Victim", mana_cost_string="{3}"), owner_id="p2", zone=Zone.STACK)
+    state.stack.append(StackItem(kind="spell", controller_id="p2", obj=victim, description="Victim", effects=[]))
+
+    delay = GameObject(_named("Delay"), owner_id="p1", zone=Zone.STACK)
+    bind_from_catalogue(delay)
+    state.stack.append(StackItem(
+        kind="spell", controller_id="p1", obj=delay, description="Delay",
+        effects=eng.rules._effects_for_spell(delay), targets=[victim],
+    ))
+    eng.rules.resolve_top_of_stack()  # resolve Delay
+
+    assert victim not in p2.graveyard
+    assert victim in p2.exile, "countered into exile, not the graveyard"
+    assert victim.counters.get("time") == 3
+    assert victim.granted_suspend is True
+
+
+def test_delay_suspended_creature_counts_down_and_casts_free_with_haste():
+    eng = make_engine(_filler(5), _filler(5), hand=0)
+    state = eng.state
+    p2 = state.player_by_id("p2")
+
+    victim_card = Card(
+        id="Suspended Bear", name="Suspended Bear", type_line="Creature — Bear",
+        is_creature=True, power=2, toughness=2, mana_cost_string="{3}", converted_mana_cost=3,
+    )
+    victim = GameObject(victim_card, owner_id="p2", zone=Zone.EXILE)
+    bind_from_catalogue(victim)
+    victim.granted_suspend = True
+    victim.add_counters("time", 3)
+    p2.exile.append(victim)
+
+    _fire_upkeep(eng, "p2")
+    assert victim.counters.get("time") == 2, "first upkeep removes one counter"
+    assert victim.instance_id not in state.free_cast_instance_ids
+
+    _fire_upkeep(eng, "p2")
+    assert victim.counters.get("time") == 1
+
+    _fire_upkeep(eng, "p2")
+    assert victim.counters.get("time", 0) == 0, "last counter removed"
+    assert victim.instance_id in state.free_cast_instance_ids, "free-cast window opened"
+    assert victim.granted_suspend_haste is True
+
+    state.current_step = "main1"
+    assert eng.can_cast(p2, victim)
+    eng.cast_spell(p2, victim)
+    eng.resolve_until_stable()
+
+    assert victim in state.battlefield
+    assert "haste" in victim.temp_keywords
+    assert victim.granted_suspend_haste is False, "consumed once at resolution"

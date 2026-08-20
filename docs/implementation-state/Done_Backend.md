@@ -3413,14 +3413,13 @@ is in the rules-engine categories below them.
   execute tests per card, plus a regression test confirming Intuition's
   own unchanged behaviour under the generalized code).
 
-### MEC-42: `cEDH staples` done to completion — 11 of its 12 named gaps
+### MEC-42: `cEDH staples` done to completion — all 12 named gaps
 
 - **What:** Ashling, the Limitless; Dauthi Voidwalker; Derevi, Empyrial
   Tactician; Mana Crypt; March of Swirling Mist; Orcish Bowmasters;
   Praetor's Grasp; Sevinne's Reclamation; Teferi, Time Raveler; Touch the
-  Spirit Realm; Tymna the Weaver — the last card, Delay, is confirmed-
-  blocked on RULE 702.61 Suspend (never built, only keyword-recognized),
-  a real ticket-sized gap left open rather than papered over.
+  Spirit Realm; Tymna the Weaver, plus — closed in a follow-up pass the
+  same day once RULE 702.62 Suspend existed as a real primitive — Delay.
 
   **Evoke (RULE 702.74)** had never been built at all (Solitude's own
   catalogue entry explicitly flagged it unmodeled) — this batch built the
@@ -3602,6 +3601,49 @@ is in the rules-engine categories below them.
   `ActivationCost(pay_life=X)`/draw-X-cards pair, since `PayCostThenEffect`'s
   own fixed cost-text shape has no way to plug in a live board count.
 
+  **Delay** ("Counter target spell. If the spell is countered this way,
+  exile it with three time counters on it instead of putting it into its
+  owner's graveyard. If it doesn't have suspend, it gains suspend.") was
+  left open past this batch's first pass — `parser_probe.py blocked`
+  confirms the countering clause is a genuine singleton (SOLO on 1), but
+  it can't resolve correctly without RULE 702.62 Suspend's own time-
+  counter/cast-on-zero mechanism, which had never been built at all (only
+  keyword-recognized, per CLAUDE.md). A same-day follow-up pass built
+  that as a real, general primitive rather than special-casing Delay
+  alone: `RulesEngine.counter_spell`'s new `suspend_time_counters` param
+  (threaded through `counter_unless_pays`, `CounterSpellEffect.
+  suspend_instead`, `GameContext.counter`) redirects a countered spell to
+  exile with N time counters instead of the graveyard, stamping
+  `GameObject.granted_suspend` when the card has no printed Suspend of
+  its own. RULE 702.62a's second and third abilities — "at the beginning
+  of your upkeep, remove a time counter" and "when the last is removed,
+  you may cast it without paying its mana cost" — are collected fresh
+  every owner's upkeep by a new `_collect_suspend_triggers`
+  (`game/rules/triggers_mixin.py`) rather than bound once at load time: a
+  suspended card sits in exile, never a permanent, so `_collect_
+  triggers`'s battlefield-only scan can never see it, and Suspend can be
+  *granted* mid-game with nothing printed on the card to have pre-
+  attached a bound `TriggeredAbility` to — the same "no permanent to hang
+  an ability off" shape `_collect_inherent_triggers` already uses for
+  Monarch/Initiative. `SuspendUpkeepEffect` (`game/effects.py`) is the
+  combined atomic action (remove one counter; at zero, open the free-cast
+  window), the same "remove, then branch on empty" shape Vanishing's own
+  upkeep pair (`RemoveCounterOrSacrificeEffect`) already established. The
+  free-cast offer itself reuses `RulesEngine.grant_free_cast_window_from_
+  exile` — the same same-turn-only standing permission Rebound's own
+  delayed half already grants (`ReboundFreeCastWindowEffect`), a
+  documented fidelity trade-off for "no synchronous mid-resolution
+  yes/no chooser" rather than a new one invented for Suspend. "If you
+  cast a creature spell this way, it gains haste" is `GameObject.
+  granted_suspend_haste`, stamped alongside the window and consumed once
+  at resolution in `RulesEngine._resolve_permanent_spell` exactly like
+  `cast_via_evoke`. Deliberately *not* built: RULE 702.62a's own first
+  ability (paying the Suspend cost from hand as a special action, rather
+  than a spell redirecting a countered card into it) — Delay's own path
+  never needs it, and no other card in these seven cEDH decks prints a
+  bare "Suspend N—cost" yet; left as a real, separately-scoped gap (see
+  `BACKLOG.md`'s `MEC-43`) rather than silently assumed done.
+
 - **Files:** `game/engine/casting_mixin.py` (`_evoke_cost`, the `evoke`/
   `exile_discount` params through `can_cast`/`effective_cast_cost`/
   `cast_spell`/`_cast_current_face`/`_auto_tap_for_cast_if_needed`, the
@@ -3611,29 +3653,37 @@ is in the rules-engine categories below them.
   void-counter redirect check in `_move_to_graveyard`), `game/rules/draw_
   discard_mixin.py` (the `first_in_draw_step` broadcast fix), `game/rules/
   misc_mixin.py` (`request_tap_or_untap_choice`/`resolve_tap_or_untap_
-  choice`, `CHOOSE_OBJECT_ACTIONS`), `game/rules/search_mixin.py`
+  choice`, `CHOOSE_OBJECT_ACTIONS`, the `counter_spell`/`counter_unless_
+  pays`/`resolve_counter_unless_pays_choice` `suspend_time_counters`
+  threading), `game/rules/search_mixin.py`
   (`request_search`/`_search_choice`/`_finish_search`/`_put_searched_
   card`'s `chooser`/`library_owner_id` threading, the new `"exile_face_
-  down_standing_cast"` destination), `game/engine/lands_mixin.py`/
-  `legal_actions_mixin.py` (the `_has_conditional_exile_permission` land
-  gap fix), `game/engine/turn_loop_mixin.py` (the `tap_or_untap`
-  pending-choice dispatch), `game/continuous.py` (`granted_evoke_cost_
-  for`, `void_counter_redirect_controller_for`, `exile_discount_spec_
-  for`, `forced_sorcery_speed_only`, the new `"opponents_dealt_combat_
-  damage_this_turn"`/`"sorcery"` selector entries), `game/targeting.py`
-  (`"artifact_or_creature"`, `TargetSpec`'s new `"source_x_paid"` count
-  selector), `game/effects.py` (`AmassEffect`, `ChooseVoidCounterCardEffect`,
-  `CopySelfIfCastFromGraveyardEffect`, `PayLifeEqualToOpponentsCombatDamaged
-  DrawThatManyEffect`, `PhaseOutEffect`'s multi-target widening,
-  `TapEffect.choose_tap_or_untap`, `SacrificeUnlessPayEffect.target`,
-  `CopyPermanentEffect`'s `referent="trigger_event"`, all matching
-  `EffectRegistry` entries), `models/mana_cost.py`
-  (`reduce_generic_and_x`), `models/game_object.py` (`cast_via_evoke`),
-  `models/game_state.py` (`void_counter_holder`), `game/ability_
-  catalogue.py` (all 11 cards).
-- **Tests:** `tests/test_mec42_family.py` (new, 19 tests covering every
-  card's real in-engine behaviour, including the general Evoke primitive
-  off a real cached evoke creature independent of Ashling's own grant).
+  down_standing_cast"` destination), `game/rules/triggers_mixin.py`
+  (`_has_suspend`, `_collect_suspend_triggers`), `game/engine/lands_
+  mixin.py`/`legal_actions_mixin.py` (the `_has_conditional_exile_
+  permission` land gap fix), `game/engine/turn_loop_mixin.py` (the
+  `tap_or_untap` pending-choice dispatch), `game/continuous.py`
+  (`granted_evoke_cost_for`, `void_counter_redirect_controller_for`,
+  `exile_discount_spec_for`, `forced_sorcery_speed_only`, the new
+  `"opponents_dealt_combat_damage_this_turn"`/`"sorcery"` selector
+  entries), `game/targeting.py` (`"artifact_or_creature"`, `TargetSpec`'s
+  new `"source_x_paid"` count selector), `game/effects.py` (`AmassEffect`,
+  `ChooseVoidCounterCardEffect`, `CopySelfIfCastFromGraveyardEffect`,
+  `PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect`,
+  `PhaseOutEffect`'s multi-target widening, `TapEffect.choose_tap_or_
+  untap`, `SacrificeUnlessPayEffect.target`, `CopyPermanentEffect`'s
+  `referent="trigger_event"`, `SuspendUpkeepEffect`, `CounterSpellEffect.
+  suspend_instead`, `GameContext.counter`'s `suspend_instead` param, all
+  matching `EffectRegistry` entries), `models/mana_cost.py`
+  (`reduce_generic_and_x`), `models/game_object.py` (`cast_via_evoke`,
+  `granted_suspend`, `granted_suspend_haste`), `models/game_state.py`
+  (`void_counter_holder`), `game/ability_catalogue.py` (all 12 cards).
+- **Tests:** `tests/test_mec42_family.py` (21 tests covering every card's
+  real in-engine behaviour, including the general Evoke primitive off a
+  real cached evoke creature independent of Ashling's own grant, and
+  Delay's full RULE 702.62 cycle — counter-into-exile-with-suspend, three
+  owner's upkeeps counting down, the free-cast window opening, and haste
+  on the eventual free cast).
 
 ### MEC-43: `cEDH staples 2` — first batch, 9 near-free reuses
 
@@ -3730,12 +3780,15 @@ is in the rules-engine categories below them.
 
 Every card above closed against its own named deck (`cEDH Rocco` — all 18,
 now 98/98; `[cEDH] Glarb Bloomsday` — all 8, now 100/100; `cEDH staples` —
-11 of its 12, now 214/215, Delay the sole documented holdout), plus
+all 12, now 215/215 including Delay's own same-day follow-up pass), plus
 whichever of the other decks' own residual lists happened to share the
 same card names (`cEDH staples 2` — now 557/602 after MEC-43's own first
-batch on top of the shared cards above — see `BACKLOG.md`'s `MEC-12`
-coverage table for the current per-deck numbers, re-measured after each
-batch).
+batch on top of the shared cards above). `BACKLOG.md`'s `MEC-12` (the
+original umbrella ticket for all seven "cEDH"-named decks) was folded
+into `MEC-43` and retired once `MEC-42` closed — by 2026-08-20 `MEC-43`'s
+own diagnosis was the only one of the three still carrying open scope;
+see `BACKLOG.md`'s `MEC-43` entry for the current per-deck coverage
+table, re-measured after each batch.
 
 ## Player Assets & Identity
 

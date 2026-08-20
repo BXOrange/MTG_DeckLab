@@ -79,24 +79,25 @@ Plan-level sequencing lives in
 > card — that's ordinary runtime behavior, not scheduled work, and needs no
 > special-casing to stay that way.
 
-- **MEC-12 · Make the seven "cEDH"-named saved decks/cubes fully
-  playable.** User request 2026-08-06: `Ojer cEDH`, `cEDH Rocco`, `[cEDH]
-  Glarb Bloomsday`, `cEDH staples`, `cEDH staples 2`, `cEDH M-K`, `cEDH
-  Kinnan` (700+ unique cards across the seven, heavy overlap). Ordinary
-  open work, not "no-deferral" scope forced to one sitting. `cEDH Kinnan`
-  (100/100), `cEDH M-K` (97/97), **`cEDH Rocco` (98/98)**, and **`[cEDH]
-  Glarb Bloomsday` (100/100)** are fully playable — see `Done_Backend.md`'s
-  "MEC-12: Kinnan and M-K completed", "MEC-40", and "MEC-41" entries.
-  Coverage as of 2026-08-20 (re-measure before trusting — these are live,
-  user-editable decks):
+- **MEC-43 · Make the seven "cEDH"-named saved decks/cubes fully
+  playable** (sole tracker — MEC-12 and MEC-42 folded in and retired).
+  User request 2026-08-06: `Ojer cEDH`, `cEDH Rocco`, `[cEDH] Glarb
+  Bloomsday`, `cEDH staples`, `cEDH staples 2`, `cEDH M-K`, `cEDH Kinnan`
+  (700+ unique cards across the seven, heavy overlap). Ordinary open work,
+  not "no-deferral" scope forced to one sitting. `cEDH Kinnan`, `cEDH
+  M-K`, `cEDH Rocco`, `[cEDH] Glarb Bloomsday`, and `cEDH staples` are all
+  fully playable — see `Done_Backend.md`'s "MEC-12: Kinnan and M-K
+  completed", "MEC-40", "MEC-41", and "MEC-42" entries. Coverage as of
+  2026-08-20 (re-measure before trusting — these are live, user-editable
+  decks):
 
   | Deck | Coverage | Residual, tracked as |
   | --- | --- | --- |
   | `Ojer cEDH` | 75/77 | Chandra's Incinerator's dynamic cost reduction + a "creature/planeswalker *that damaged player* controls" target kind (doesn't exist); Balin's Tomb is real (the LOTR alt name for Ancient Tomb) but doesn't resolve — see CLAUDE.md's `flavor_name` gotcha, an import/card-database gap, not a parser/engine one. |
   | `cEDH Rocco` | 98/98 | fully playable. |
   | `[cEDH] Glarb Bloomsday` | 100/100 | fully playable. |
-  | `cEDH staples` | 214/215 | [MEC-42] (Delay only). |
-  | `cEDH staples 2` | 557/602 (5 names aren't real cards) | [MEC-43]. |
+  | `cEDH staples` | 215/215 | fully playable. |
+  | `cEDH staples 2` | 557/602 (5 names aren't real cards) | below, this ticket. |
 
   Six names in the raw scan (Balamb Garden, Dol Amroth, Jodah the unifier,
   Seymour Guado, Thrum of the Vestige, Zidane Tribal) aren't real Scryfall
@@ -104,31 +105,19 @@ Plan-level sequencing lives in
   batch by batch, why each piece is built the way it is — is in
   `Done_Backend.md`'s "seven 'cEDH'-named saved decks" entries, not here.
 
-- **MEC-42 · `cEDH staples`'s last card, Delay.** Everything else in the
-  original 12-gap list (Ashling the Limitless, Dauthi Voidwalker, Derevi
-  Empyrial Tactician, Mana Crypt, March of Swirling Mist, Orcish
-  Bowmasters, Praetor's Grasp, Sevinne's Reclamation, Teferi Time Raveler,
-  Touch the Spirit Realm, Tymna the Weaver — plus Abrupt Decay/Cabal
-  Ritual/Culling Ritual/Ranger-Captain of Eos/Tinder Wall/Yasharn via
-  MEC-40 and Ad Nauseam via MEC-41) closed 2026-08-20 — see
-  `Done_Backend.md`'s "MEC-42" entry. Delay is confirmed-blocked on RULE
-  702.61 Suspend's own time-counter/cast-on-zero mechanism, which has
-  never been built (only keyword-recognized) — a real ticket-sized gap on
-  its own, not a quick hand-author.
-
-- **MEC-43 · `cEDH staples 2`'s remaining 45 gaps**, diagnosed and
-  clustered 2026-08-20 (re-measure before trusting — a live, user-editable
-  deck). Every card MEC-31 through MEC-44, MEC-40's `cEDH Rocco` batch,
-  MEC-41's `[cEDH] Glarb Bloomsday` batch, and 9 of MEC-42's 11-card
-  `cEDH staples` batch (Dauthi Voidwalker, Derevi Empyrial Tactician,
-  March of Swirling Mist, Orcish Bowmasters, Praetor's Grasp, Sevinne's
-  Reclamation, Teferi Time Raveler, Touch the Spirit Realm, Tymna the
-  Weaver — Ashling the Limitless/Mana Crypt aren't in this deck) already
-  closed for this deck, plus a first MEC-43 batch itself (Contamination,
-  Leveler, Natural Order, Magda Brazen Outlaw, Unmarked Grave,
-  Unsubstantiate, Starting Town, Teferi Master of Time, March of
-  Otherworldly Light — `Done_Backend.md`'s "MEC-43" entry), are all
-  already subtracted from the 45 below.
+  **`cEDH staples 2`'s remaining 45 gaps**, diagnosed and clustered
+  2026-08-20 (re-measure before trusting — a live, user-editable deck).
+  Every card MEC-31 through MEC-44, MEC-40's `cEDH Rocco` batch, MEC-41's
+  `[cEDH] Glarb Bloomsday` batch, and 9 of MEC-42's 11-card `cEDH staples`
+  batch (Dauthi Voidwalker, Derevi Empyrial Tactician, March of Swirling
+  Mist, Orcish Bowmasters, Praetor's Grasp, Sevinne's Reclamation, Teferi
+  Time Raveler, Touch the Spirit Realm, Tymna the Weaver — Ashling the
+  Limitless/Mana Crypt aren't in this deck) already closed for this deck,
+  plus a first batch of this ticket's own (Contamination, Leveler, Natural
+  Order, Magda Brazen Outlaw, Unmarked Grave, Unsubstantiate, Starting
+  Town, Teferi Master of Time, March of Otherworldly Light —
+  `Done_Backend.md`'s "MEC-43" entry), are all already subtracted from the
+  45 below.
 
   **Near-free reuses first** (a real primitive already exists, just
   needs recoloring/param-widening — same shape this batch's own 9 cards
@@ -208,7 +197,7 @@ Plan-level sequencing lives in
   Mesmeric Orb ("whenever a permanent becomes untapped" — CLAUDE.md's own
   trigger-verb table deliberately excludes "becomes untapped" today since
   no event carries an `instance_id` for it; a real, narrow, project-level
-  gap rather than a build-it-now item, similar in spirit to Delay/Suspend).
+  gap rather than a build-it-now item).
 
 ## PLR — Player management
 

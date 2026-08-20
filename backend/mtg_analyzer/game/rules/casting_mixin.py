@@ -1290,6 +1290,14 @@ class CastingResolutionMixin:
                 obj.cast_via_evoke = False
                 if obj in self.state.permanents():
                     self.put_into_graveyard(obj)
+            if obj.granted_suspend_haste:
+                # RULE 702.62a: "If you cast a creature spell this way, it
+                # gains haste…" — stamped by `SuspendUpkeepEffect` when the
+                # free-cast window opened, consumed once here exactly like
+                # `cast_via_evoke` above.
+                obj.granted_suspend_haste = False
+                if obj in self.state.permanents():
+                    obj.temp_keywords.add("haste")
             self.state.fire_event(
                 GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
             )

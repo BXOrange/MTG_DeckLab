@@ -65,6 +65,7 @@ from ..effects import (
     SiegeDefeatedEffect,
     StaticAbility,
     StaticEffect,
+    SuspendUpkeepEffect,
     TakeInitiativeEffect,
     TriggeredAbility,
     WardEffect,
@@ -104,6 +105,16 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # the one compound word any shipped card needs.
         return obj.is_creature or obj.card.is_planeswalker
     return True  # unknown type word → any permanent, so the cost is payable
+
+
+def _has_suspend(obj: GameObject) -> bool:
+    """RULE 702.62: whether ``obj`` carries Suspend, printed or granted
+    (Delay's "if it doesn't have suspend, it gains suspend" —
+    `GameObject.granted_suspend`). Shared by `_collect_suspend_triggers`
+    below so either source is treated identically."""
+    if getattr(obj, "granted_suspend", False):
+        return True
+    return bool((getattr(obj, "parametric_keywords", None) or {}).get("suspend"))
 
 
 def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
@@ -218,6 +229,7 @@ class TriggerCollectionMixin:
         self._collect_mill_return_from_graveyard_triggers(event)
         self._collect_graveyard_function_triggers(event)
         self._collect_cycled_triggers(event)
+        self._collect_suspend_triggers(event)
     def _resolve_mana_trigger(self, ability: "TriggeredAbility", event: GameEvent) -> None:
         """Apply a triggered mana ability immediately (RULE 605.4).
 
@@ -799,6 +811,40 @@ class TriggerCollectionMixin:
                         continue
                     if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
                         self.pending_triggers.append((ability, event))
+    def _collect_suspend_triggers(self, event: GameEvent) -> None:
+        """RULE 702.62a: Suspend's 2nd/3rd abilities "function in the exile
+        zone" — a suspended card is never a permanent, so `_collect_
+        triggers`'s main loop (`state.permanents()`) can never see it, the
+        same reason `_collect_cycled_triggers`/`_collect_graveyard_function_
+        triggers` scan a dedicated zone instead. Built fresh each owner's
+        upkeep off live suspended state (zone + `_has_suspend` + a time
+        counter, RULE 702.62b's own definition) rather than a bound
+        `TriggeredAbility`, the same "no permanent to hang an ability off"
+        shape `_collect_inherent_triggers` uses for Monarch/Initiative —
+        necessary here regardless of Delay, since Suspend can be *granted*
+        mid-game with nothing printed on the card to bind at load time.
+        """
+        if event.type != EventType.STEP_BEGIN or event.get("step") != "upkeep":
+            return
+        active_id = self.state.active_player.id
+        for player in self.state.players:
+            for obj in list(player.exile):
+                if obj.owner_id != active_id:
+                    continue
+                if not _has_suspend(obj) or obj.counters.get("time", 0) <= 0:
+                    continue
+                ability = TriggeredAbility(
+                    trigger_event=EventType.STEP_BEGIN,
+                    effects=[SuspendUpkeepEffect(source=obj)],
+                    controller_id=obj.owner_id,
+                    source=obj,
+                    description=(
+                        "At the beginning of your upkeep, remove a time "
+                        "counter from this card. When the last is removed, "
+                        "you may cast it without paying its mana cost."
+                    ),
+                )
+                self.pending_triggers.append((ability, event))
     def put_triggers_on_stack(self) -> int:
         """Move fired triggers onto the stack (RULE 603.3). Returns count.
 

@@ -35,6 +35,7 @@ from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, 
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
+from .triggers_mixin import _has_suspend
 from ..effects import (
     _apply_effects_partitioned,
     AddCountersEffect,
@@ -2515,7 +2516,7 @@ class MiscSystemsMixin:
                         continue
                 return True
         return False
-    def counter_spell(self, target: Any) -> None:
+    def counter_spell(self, target: Any, suspend_time_counters: Optional[int] = None) -> None:
         """Remove a spell (a `StackItem` or its game object) from the stack.
 
         A countered spell goes to its owner's graveyard (RULE 701.5g) and
@@ -2523,6 +2524,16 @@ class MiscSystemsMixin:
         countered" (RULE 118) or an "unless its controller pays" condition
         (RULE 601) go through `counter_unless_pays` instead, which calls this
         only once both are settled.
+
+        ``suspend_time_counters`` (Delay, MEC-42, RULE 702.62): "exile it
+        with N time counters on it instead of putting it into its owner's
+        graveyard. If it doesn't have suspend, it gains suspend." — redirects
+        the landing zone and arms `GameObject.granted_suspend` when the card
+        has no printed Suspend of its own, so `_collect_suspend_triggers`
+        (`game/rules/triggers_mixin.py`) picks it up from exile exactly as a
+        printed-Suspend card would. The commander-zone-choice replacement
+        (RULE 903.9) only ever applies to a graveyard-or-library-bound move,
+        so it's skipped on this branch.
         """
         item = self._stack_item_for(target)
         if item is None:
@@ -2530,8 +2541,14 @@ class MiscSystemsMixin:
         self.state.stack.remove(item)
         if item.obj is not None:
             owner = self.state.player_by_id(item.obj.owner_id)
-            owner.add_to_zone(item.obj, Zone.GRAVEYARD)
-            self._flag_commander_zone_choice(item.obj)
+            if suspend_time_counters:
+                owner.add_to_zone(item.obj, Zone.EXILE)
+                if not _has_suspend(item.obj):
+                    item.obj.granted_suspend = True
+                item.obj.add_counters("time", suspend_time_counters)
+            else:
+                owner.add_to_zone(item.obj, Zone.GRAVEYARD)
+                self._flag_commander_zone_choice(item.obj)
         self.state.fire_event(
             GameEvent(EventType.SPELL_RESOLVED, spell=item.description, countered=True)
         )
@@ -2621,7 +2638,11 @@ class MiscSystemsMixin:
             return
         self.counter_spell(target)
     def counter_unless_pays(
-        self, target: Any, unless_pays: Optional[str], source: Optional[GameObject] = None
+        self,
+        target: Any,
+        unless_pays: Optional[str],
+        source: Optional[GameObject] = None,
+        suspend_time_counters: Optional[int] = None,
     ) -> None:
         """`CounterSpellEffect`'s resolve-time logic (RULE 118/601/701.5).
 
@@ -2635,6 +2656,13 @@ class MiscSystemsMixin:
         decision, so the spell is simply countered without pausing — this is
         also what keeps a passive goldfish-dummy opponent (who never holds
         mana) from stalling resolution on a choice nobody can act on.
+
+        ``suspend_time_counters`` (Delay, MEC-42) is threaded straight
+        through to every `counter_spell` call this method makes, including
+        the interactive decline path (stashed as `_pending_counter_suspend`,
+        the same convention `_pending_counter_target`/`_pending_counter_cost`
+        already use) — no real card combines "unless pays" with Delay's own
+        redirect today, but nothing here assumes they're mutually exclusive.
         """
         item = self._stack_item_for(target)
         if item is None or item.obj is None:
@@ -2643,7 +2671,7 @@ class MiscSystemsMixin:
         if self._is_cant_be_countered(obj):
             return
         if not unless_pays:
-            self.counter_spell(target)
+            self.counter_spell(target, suspend_time_counters=suspend_time_counters)
             return
         cost = ManaCost.parse(unless_pays)
         if cost.has_variable:
@@ -2652,10 +2680,11 @@ class MiscSystemsMixin:
         if controller is None or not controller.mana_pool.can_pay(
             cost, life_available=controller.life
         ):
-            self.counter_spell(target)
+            self.counter_spell(target, suspend_time_counters=suspend_time_counters)
             return
         self._pending_counter_target = target
         self._pending_counter_cost = cost
+        self._pending_counter_suspend = suspend_time_counters
         self.state.pending_choice = {
             "kind": "counter_unless_pays",
             "player_id": controller.id,
@@ -2678,8 +2707,10 @@ class MiscSystemsMixin:
         self.state.pending_choice = None
         target = self._pending_counter_target
         cost = self._pending_counter_cost
+        suspend_time_counters = getattr(self, "_pending_counter_suspend", None)
         self._pending_counter_target = None
         self._pending_counter_cost = None
+        self._pending_counter_suspend = None
         if target is None:
             return
         if answer == "pay" and cost is not None:
@@ -2690,7 +2721,7 @@ class MiscSystemsMixin:
                     life_spent = controller.mana_pool.pay(cost, life_available=controller.life)
                     self.lose_life(controller, life_spent, cause="cost")
             return
-        self.counter_spell(target)
+        self.counter_spell(target, suspend_time_counters=suspend_time_counters)
     def _fire_becomes_target_events(self, item: StackItem) -> None:
         """MEC-19: fire `EventType.BECOMES_TARGET` once per target of
         ``item`` — see that constant's own docstring for the full field

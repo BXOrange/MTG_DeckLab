@@ -259,6 +259,23 @@ class GameObject:
         #: consequence, not a replacement — its own ETB trigger still
         #: fires first), then clears this flag.
         self.cast_via_evoke: bool = False
+        #: RULE 702.62 (MEC-42, Delay): whether this object has Suspend
+        #: *granted* onto it rather than printed ("If it doesn't have
+        #: suspend, it gains suspend.") — `_has_suspend` (`game/rules/
+        #: triggers_mixin.py`) reads this alongside `parametric_keywords`'s
+        #: own printed "suspend" entry so `_collect_suspend_triggers` treats
+        #: either source identically. Never reset per-cast like
+        #: `cast_via_evoke` above — once granted it's a standing
+        #: characteristic of the object for as long as it exists, mirroring
+        #: `has_rebound`.
+        self.granted_suspend: bool = False
+        #: RULE 702.62a's third ability ("If you cast a creature spell this
+        #: way, it gains haste…"): stamped by `SuspendUpkeepEffect` right
+        #: before it opens the free-cast window (`grant_free_cast_window_
+        #: from_exile`), consumed by `RulesEngine._resolve_permanent_spell`
+        #: exactly like `cast_via_evoke` above — set, read once at
+        #: resolution, cleared.
+        self.granted_suspend_haste: bool = False
         #: Lurrus of the Dream-Den-shaped: the turn number this spell was
         #: cast via a standing graveyard-cast permission
         #: (`game/graveyard_cast.py`), or ``None`` if it wasn't. Consulted
@@ -996,6 +1013,7 @@ class GameObject:
         self.face_down_in_exile = False
         self.cast_via_flashback = False
         self.cast_via_evoke = False
+        self.granted_suspend_haste = False
         self.rebound_pending = False
         self.commander_zone_choice_pending = False
         self.tapped = False
