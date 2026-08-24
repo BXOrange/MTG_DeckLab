@@ -2935,6 +2935,15 @@ class MiscSystemsMixin:
             for obj in self.state.permanents_controlled_by(player.id)
         ):
             return False
+        # RULE 122 energy: "unless you pay an amount of {E} equal to its
+        # mana value." (Volatile Stormdrake, MEC-43) — the same
+        # affordability check `GameEngine._can_pay_activation_cost` already
+        # makes for an activated ability's own `pay_energy` component; this
+        # shared pay-or-lose-it machinery (ward/sacrifice_unless_pay/
+        # counter_unless_pays) had never gained it before, since no prior
+        # card printed an energy-costed "unless" clause.
+        if cost.pay_energy and player.counters.get("energy", 0) < cost.pay_energy:
+            return False
         return True
     def _pay_player_cost(self, player: Player, cost: ActivationCost) -> None:
         """Charge ``player`` a cost's components — reuses the same per-kind
@@ -2949,6 +2958,8 @@ class MiscSystemsMixin:
             self.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
         if cost.sacrifice:
             self.sacrifice(player, cost.sacrifice, 1)
+        if cost.pay_energy:
+            self.add_player_counters(player, -cost.pay_energy, "energy")
     def resolve_ward_choice(self, answer: Optional[str]) -> None:
         """Answer a pending `ward` choice (RULE 702.21).
 

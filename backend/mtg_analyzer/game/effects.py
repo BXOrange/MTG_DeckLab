@@ -2866,11 +2866,19 @@ class DrawCardEffect(GameEffect):
         target_kind: Optional[str] = None,
         selector: Optional[str] = None,
         amount_from_count_selector: Optional[str] = None,
+        count_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
         self.count_selector = count_selector if count_selector in _DRAW_COUNT_SELECTORS else None
+        #: "Whenever you lose life, draw that many cards." (Vilis, Broker
+        #: of Blood, MEC-43) — "that many" is the firing `LIFE_LOST`
+        #: event's own ``amount`` field, the same "read this firing's own
+        #: payload" idiom `ImpulsiveDrawEffect.count_from_trigger_event`/
+        #: `CreateTokenEffect.count_from_trigger_event` already use.
+        #: Overrides ``count``/every other selector below when set.
+        self.count_from_trigger_event = count_from_trigger_event
         #: "draw X cards, where X is the number of `<noun phrase>` you
         #: control." (MEC-27's own draw-verb-family gap — Intelligence
         #: Bobblehead-shaped) — the full `continuous.count_selector`
@@ -2906,7 +2914,10 @@ class DrawCardEffect(GameEffect):
         if player is None:
             player = _controller_of(self.source, context)
         count = self.count
-        if self.count_selector == "auras_and_equipment_attached_to_self":
+        if self.count_from_trigger_event:
+            event = context.trigger_event
+            count = int((event or {}).get(self.count_from_trigger_event) or 0)
+        elif self.count_selector == "auras_and_equipment_attached_to_self":
             count = _attached_auras_and_equipment_count(context, self.source)
         elif self.count_selector == "opponents_you_have":
             controller_id = getattr(self.source, "controller_id", None)
@@ -12780,6 +12791,65 @@ class ExchangeControlEffect(GameEffect):
             context.put_into_graveyard(mine)
 
 
+class ExchangeControlThenEnergySacrificeEffect(GameEffect):
+    """"Exchange control of this creature and target creature an opponent
+    controls. If you do, you get {E}{E}{E}{E}, then sacrifice that creature
+    unless you pay an amount of {E} equal to its mana value." (Volatile
+    Stormdrake) — RULE 608.2b's "if you do" here gates on whether the
+    *exchange* (RULE 701.10, the same swap `ExchangeControlEffect` does)
+    actually happened, a condition no generic `ConditionalEffect` key
+    covers and `_apply_effects_partitioned` has no channel to signal
+    between separate effect instances — the same reason a genuine "action,
+    if you do, consequence" card gets one bespoke composite effect rather
+    than two effects and a cross-effect flag (see Temur Sabertooth's
+    `ReturnCreatureGrantIndestructibleEffect`/Akiri's own analogous
+    effect). "that creature" is the one just exchanged in — now under this
+    ability's controller, who must pay {E} equal to *its* mana value
+    (read live, post-exchange) or lose it.
+
+    Like `ExchangeControlEffect`, ``target_kind="creature"`` isn't narrowed
+    to "an opponent controls" at the `TargetSpec` level (Gilded Drake's own
+    established simplification) — the exchange itself already no-ops if
+    the chosen target shares this ability's controller.
+    """
+
+    def __init__(self, target_kind: str = "creature", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind=target_kind, optional=True)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        mine = self.source
+        theirs = targets[0] if targets else None
+        # RULE 112.7a: this ability's controller is fixed as of when it was
+        # put on the stack — captured *before* the swap below, since "you"
+        # in "you get {E}{E}{E}{E}" must stay this permanent's original
+        # controller even though the swap is about to hand ``mine`` to
+        # ``theirs``'s former controller instead.
+        player = _controller_of(mine, context)
+        battlefield = context.state.permanents()
+        exchangeable = (
+            mine is not None
+            and theirs is not None
+            and player is not None
+            and mine in battlefield
+            and theirs in battlefield
+            and mine.controller_id != theirs.controller_id
+        )
+        if not exchangeable:
+            return
+        mine.controller_id, theirs.controller_id = theirs.controller_id, mine.controller_id
+        mine.summoning_sick = True
+        theirs.summoning_sick = True
+        context.recompute()
+        context.add_player_counters(player, 4, "energy", source=mine)
+        from .costs import ActivationCost  # function-scoped: costs↔effects cycle
+        mv = theirs.card.converted_mana_cost or 0
+        context.engine.request_sacrifice_unless_pay(player, ActivationCost(pay_energy=mv), theirs)
+
+
 class PhaseOutAllYouControlEffect(GameEffect):
     """"Until your next turn, your life total can't change and you gain
     protection from everything. All permanents you control phase out."
@@ -14351,6 +14421,7 @@ EffectRegistry.register(
         count=p.get("count", 1), player=p.get("player"), count_selector=p.get("count_selector"),
         target_kind=p.get("target_kind"), selector=p.get("selector"),
         amount_from_count_selector=p.get("amount_from_count_selector"),
+        count_from_trigger_event=p.get("count_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
@@ -15543,6 +15614,15 @@ EffectRegistry.register(
     lambda p: ExchangeControlEffect(
         target_kind=p.get("target_kind", "creature"),
         sacrifice_self_if_no_exchange=bool(p.get("sacrifice_self_if_no_exchange", False)),
+    ),
+)
+EffectRegistry.register(
+    # Volatile Stormdrake's own compound "exchange control... if you do,
+    # you get {E}{E}{E}{E}, then sacrifice that creature unless you pay {E}
+    # equal to its mana value." (MEC-43).
+    "exchange_control_then_energy_sacrifice",
+    lambda p: ExchangeControlThenEnergySacrificeEffect(
+        target_kind=p.get("target_kind", "creature"),
     ),
 )
 EffectRegistry.register(

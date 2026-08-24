@@ -103,10 +103,10 @@ Plan-level sequencing lives in
   | `cEDH staples` | 215/215 | fully playable. |
   | `cEDH M-K` | 97/97 | fully playable (MEC-12's Kinnan/M-K completion batch still holds). |
   | `cEDH Kinnan` | 100/100 | fully playable (ditto). |
-  | `cEDH staples 2` | 573/606 (1 name not a real card) | 32 genuinely uncovered — see below. |
-  | `K'rrik cEDH` | 53/71 | 18 uncovered — see below. |
+  | `cEDH staples 2` | 574/606 (1 name not a real card) | 31 genuinely uncovered — see below. |
+  | `K'rrik cEDH` | 54/71 | 17 uncovered — see below. |
 
-  **Remaining, not yet built** (`cEDH staples 2`'s 32 + `K'rrik cEDH`'s 18
+  **Remaining, not yet built** (`cEDH staples 2`'s 31 + `K'rrik cEDH`'s 17
   uncovered — the clustering below is from the 2026-08-24 diagnosis and
   still **not cross-checked against `primitives`/`Done_Backend.md` the way
   an actual batch must be** — treat every "near-free" call as a hypothesis
@@ -120,15 +120,8 @@ Plan-level sequencing lives in
     — Oko, Thief of Crowns' +1 shares the same clause but needs
     `grant_until` resolve-time wiring plus Oko's other two loyalty
     abilities (its own −5 is a control exchange, RULE 701.10, already
-    shipped for Gilded Drake/Volatile Stormdrake below) — a bigger lift
-    than "near-free", left open as its own small batch.
-  - **Small, self-contained**: Vilis, Broker of Blood ("whenever you lose
-    life, draw that many cards" — check whether a LOSE_LIFE event already
-    carries an amount a trigger can read, the same shape Aetherflux
-    Reservoir's `spells_cast_this_turn` count-selector reuse established
-    for a different event); Volatile Stormdrake (the Gilded Drake-shaped
-    control exchange, RULE 701.10, already shipped, plus an
-    Energy-conditional sacrifice-unless-pay).
+    shipped for Gilded Drake/Volatile Stormdrake, see `Done_Backend.md`) —
+    a bigger lift than "near-free", left open as its own small batch.
 
   Dance of the Dead is the odd one out in the reanimation family (already
   shipped, see `Done_Backend.md`) — RULE 704.5n Necromancy-shaped, the

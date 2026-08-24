@@ -207,6 +207,12 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # `RulesEngine.gain_life` fires `LIFE_GAINED` per-player, same
     # convention as every other player-subject event above.
     "LIFE_GAINED": "player_id",
+    # "Whenever you lose life, …" (RULE 118/119, Vilis Broker of Blood-
+    # shaped, MEC-43) — `RulesEngine.lose_life` fires `LIFE_LOST` per-player
+    # (the single choke point for every cause of life loss, including
+    # combat/noncombat damage — see its own docstring), same ``player_id``
+    # convention as `LIFE_GAINED` just above.
+    "LIFE_LOST": "player_id",
     # "Whenever the Ring tempts you, …" (RULE 701.51a, Tales of Middle-
     # earth) — `RulesEngine.the_ring_tempts_you` fires this per-player, same
     # convention as SCRY/SURVEIL/LIFE_GAINED above.

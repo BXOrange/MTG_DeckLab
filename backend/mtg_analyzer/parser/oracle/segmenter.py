@@ -207,6 +207,14 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # oracle-text recognition and the matching `effect_binder`
     # `_GROUP_CONTROLLER_EVENT_KEYS` entry were missing.
     (re.compile(r"^you gain life$"), "LIFE_GAINED"),
+    # "Whenever you lose life, …" (RULE 118/119, Vilis, Broker of Blood-
+    # shaped, MEC-43) — `LIFE_GAINED`'s own loss-side sibling; `LIFE_LOST`
+    # already exists as the post-replacement trigger source (`RulesEngine.
+    # lose_life`'s single choke point for every cause of life loss,
+    # including combat/noncombat damage), so only this oracle-text
+    # recognition and the matching `effect_binder` `_GROUP_CONTROLLER_
+    # EVENT_KEYS` entry were missing.
+    (re.compile(r"^you lose life$"), "LIFE_LOST"),
     # "Whenever the Ring tempts you, …" (RULE 701.51a, Tales of Middle-earth
     # — Aragorn, Company Leader/Galadriel of Lothlórien/Sméagol, Helpful
     # Guide-shaped). `EventType.RING_TEMPTED` fires from `RulesEngine.

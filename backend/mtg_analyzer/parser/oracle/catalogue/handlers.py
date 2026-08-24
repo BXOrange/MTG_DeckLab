@@ -747,6 +747,18 @@ def _damage_each_creature_to_controller(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": "each_creature_controller"})]
 
 
+#: "draw that many cards" (Vilis, Broker of Blood's "whenever you lose
+#: life, draw that many cards" — MEC-43) — "that many" refers back to the
+#: firing event's own ``amount`` (RULE 603.1), the same `count_from_
+#: trigger_event` idiom `_create_token_that_many`/the "put that many
+#: counters" row already use for their own effect types.
+_DRAW_THAT_MANY_RE = _c(r"draws? that many cards?")
+
+
+def _draw_that_many(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("draw", {"count_from_trigger_event": "amount"})]
+
+
 def _draw(m: re.Match[str]) -> list[EffectSpec]:
     # `COUNT_X` also matches a literal "x" (RULE 107.3c's own announced
     # {X}, "draw X cards" — Contaminated Drink), resolved via the same
@@ -5726,6 +5738,14 @@ HANDLERS: list[EffectHandler] = [
         "pay_cost_then_draw",
         _PAY_COST_THEN_DRAW_RE,
         _pay_cost_then_draw,
+    ),
+    # "draw that many cards" (Vilis, Broker of Blood-shaped "that many"
+    # trigger-event payoff) — tried before the plain row below since it's a
+    # strict superset match on that specific phrase.
+    EffectHandler(
+        "draw_that_many",
+        _DRAW_THAT_MANY_RE,
+        _draw_that_many,
     ),
     # "draw a card" / "draw 3 cards" / "you draw two cards" / "draw X cards" /
     # "target player draws a card" / "each opponent draws a card"

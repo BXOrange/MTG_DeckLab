@@ -4385,6 +4385,77 @@ type`/`_land_types_of` helpers), `parser/oracle/catalogue/handlers.py`
 **Tests:** `tests/test_mec43_round3_search_widenings.py` (new, 6 tests).
 Coverage: `cEDH staples 2` 572→573/606, `K'rrik cEDH` 50→53/71.
 
+### MEC-43: round 3, "small, self-contained" (Vilis Broker of Blood, Volatile Stormdrake)
+
+Two more cards from the same round-3 diagnosis, both confirmed near-free
+before building (`Done_Backend.md`'s own fail-closed rule for this
+ticket) — one turned out to be a pure oracle-text recognition gap, the
+other needed one genuinely new composite effect plus a real fix to a
+shared, previously-unexercised primitive.
+
+- **Vilis, Broker of Blood** ("Whenever you lose life, draw that many
+  cards."): `EventType.LIFE_LOST` already exists as `RulesEngine.
+  lose_life`'s single choke point for every cause of life loss — damage
+  (RULE 120.3, `deal_damage` itself routes through `lose_life`), a cost
+  paid with life, or a direct effect — so the card's own reminder text
+  ("Damage causes loss of life.") needed no engine work at all. Only two
+  small gaps: `segmenter.py`'s `_PLAYER_TRIGGER_CONDITIONS` had no "you
+  lose life" entry (mirroring the existing "you gain life" →
+  `LIFE_GAINED` row, plus the matching `effect_binder._GROUP_CONTROLLER_
+  EVENT_KEYS["LIFE_LOST"] = "player_id"`), and `DrawCardEffect` had no way
+  to read "that many" off the firing event — `count_from_trigger_event`
+  (mirroring `ImpulsiveDrawEffect`/`CreateTokenEffect`'s own identical
+  field) closes that. The trigger-condition addition alone incidentally
+  finished two more cache-wide cards for free, since both already print
+  the pre-existing "for the first time each turn" suffix (stripped before
+  condition dispatch, so it composes automatically): Gonti's Machinations
+  ("...you get {E}.") and Vengeful Warchief ("...put a +1/+1 counter on
+  ~."). The "during your turn" variant (the four-card Shadowheart cycle)
+  is a different, unbuilt gate — noted but deliberately not built this
+  round, since it needs a genuine new trigger-condition suffix (whether
+  the controller is the active player), not just a bare event mapping.
+- **Volatile Stormdrake** ("When this creature enters, exchange control
+  of this creature and target creature an opponent controls. If you do,
+  you get {E}{E}{E}{E}, then sacrifice that creature unless you pay an
+  amount of {E} equal to its mana value."): the exchange half (RULE
+  701.10) was already shipped for Gilded Drake (`ExchangeControlEffect`),
+  and "you get {E}{E}{E}{E}" is the already-shipped `add_player_counters`
+  (kind `"energy"`). The real gap is RULE 608.2b's "if you do" gating on
+  whether the *exchange itself* succeeded — a condition no generic
+  `EffectSpec.condition` key covers and `_apply_effects_partitioned` has
+  no channel to signal between separate effect instances, so — following
+  this engine's own established convention for that exact shape (Temur
+  Sabertooth's `ReturnCreatureGrantIndestructibleEffect`, Akiri's
+  analogous effect) — it's one new bespoke composite effect,
+  `ExchangeControlThenEnergySacrificeEffect`, rather than two effects and
+  a cross-effect flag. One subtlety it gets right that a naive port of
+  `ExchangeControlEffect` wouldn't: RULE 112.7a means this ability's
+  controller is fixed as of when it triggered, so "you" in "you get
+  {E}{E}{E}{E}" is captured *before* the swap, not read off the
+  permanent's new (post-exchange) controller. Building this surfaced a
+  real, general, previously-dormant bug: the shared pay-or-lose-it
+  machinery (`_can_pay_player_cost`/`_pay_player_cost`, shared by
+  ward/`sacrifice_unless_pay`/`counter_unless_pays`) had never gained
+  `ActivationCost.pay_energy` support at all — every prior card printing
+  that shared machinery's "unless you pay `<cost>`" used mana/life/
+  discard/sacrifice, never energy, so an energy-costed "unless" clause
+  would previously have been silently free to pay and never actually
+  deducted. Fixed by adding the same affordability/payment branches
+  `GameEngine._can_pay_activation_cost`/`_pay_activation_cost` already
+  have for an activated ability's own `pay_energy` component.
+
+**Files:** `game/effects.py` (`DrawCardEffect.count_from_trigger_event`,
+`ExchangeControlThenEnergySacrificeEffect`, its `EffectRegistry`
+registration), `game/effect_binder.py`
+(`_GROUP_CONTROLLER_EVENT_KEYS["LIFE_LOST"]`), `game/rules/misc_mixin.py`
+(`_can_pay_player_cost`/`_pay_player_cost`'s new `pay_energy` branches),
+`parser/oracle/segmenter.py` (`_PLAYER_TRIGGER_CONDITIONS`'s new "you
+lose life" row), `parser/oracle/catalogue/handlers.py`
+(`_DRAW_THAT_MANY_RE`/`_draw_that_many`), `game/ability_catalogue.py`
+(Volatile Stormdrake).
+**Tests:** `tests/test_mec43_round3_small_self_contained.py` (new, 7 tests).
+Coverage: `cEDH staples 2` 573→574/606, `K'rrik cEDH` 53→54/71.
+
 ### MEC-40/41/42/43 coverage note
 
 Every card above closed against its own named deck (`cEDH Rocco` — all 18,
