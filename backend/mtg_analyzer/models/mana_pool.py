@@ -90,6 +90,20 @@ class ManaPool:
         #: with no mana component at all, since callers skip `pay()`
         #: entirely rather than calling it with an empty cost.
         self.last_payment_types: dict[str, int] = {}
+        #: How much of `pool` (per type) came from a snow-typed source (RULE
+        #: 205.4g — "{S} spent", MEC-43 round 3) — a subset count, always
+        #: ``<= pool[type]``, mirroring `pool_by_source`'s "shadow tally"
+        #: shape but boolean-tagged rather than bucketed by permanent kind
+        #: (a lot can be *both* ``source_kind="basic_land"`` and snow — a
+        #: Snow-Covered Forest — so this can't reuse that single-valued
+        #: field without corrupting PAR-19's own basic-land/treasure/
+        #: creature bucketing). Only ever populated via `add`'s ``is_snow``
+        #: flag; drained in lockstep by `_consume`, snow-first (an arbitrary
+        #: but harmless deterministic order, the same tier of simplification
+        #: `_spend_generic`'s own colorless-first order already is) so a
+        #: payment that *could* have used snow mana is credited with having
+        #: done so rather than silently preferring plain mana instead.
+        self.snow_pool: dict[str, int] = {t: 0 for t in MANA_TYPES}
         if amounts:
             for mana_type, amount in amounts.items():
                 self.add(mana_type, amount)
@@ -100,7 +114,7 @@ class ManaPool:
 
     def add(
         self, mana_type: str, amount: int = 1, restriction: Optional[dict] = None,
-        source_kind: Optional[str] = None,
+        source_kind: Optional[str] = None, is_snow: bool = False,
     ) -> None:
         """Add ``amount`` mana of ``mana_type`` (``W U B R G C``).
 
@@ -110,7 +124,9 @@ class ManaPool:
         (PAR-19, only meaningful alongside ``restriction=None``) tags which
         kind of permanent produced it (``"treasure"``/``"basic_land"``/
         ``"creature"``/…) for `pool_by_source`'s own, independent filter —
-        see that field's docstring.
+        see that field's docstring. ``is_snow`` (MEC-43 round 3) tags it as
+        snow-sourced for `snow_pool`'s own independent, orthogonal count —
+        see that field's docstring for why it can't reuse ``source_kind``.
         """
         if mana_type not in self.pool:
             raise ValueError(f"unknown mana type: {mana_type!r}")
@@ -119,6 +135,8 @@ class ManaPool:
         if restriction is None:
             self.pool[mana_type] += amount
             self._add_to_source_pool(mana_type, amount, source_kind)
+            if is_snow:
+                self.snow_pool[mana_type] = self.snow_pool.get(mana_type, 0) + amount
             return
         for lot in self.restricted:
             if lot["restriction"] == restriction:
@@ -128,10 +146,12 @@ class ManaPool:
 
     def add_many(
         self, amounts: dict[str, int], restriction: Optional[dict] = None,
-        source_kind: Optional[str] = None,
+        source_kind: Optional[str] = None, is_snow: bool = False,
     ) -> None:
         for mana_type, amount in amounts.items():
-            self.add(mana_type, amount, restriction=restriction, source_kind=source_kind)
+            self.add(
+                mana_type, amount, restriction=restriction, source_kind=source_kind, is_snow=is_snow,
+            )
 
     def set_amount(self, mana_type: str, amount: int) -> None:
         """Set ``mana_type`` to an absolute ``amount`` — the Replay editor's
@@ -157,6 +177,7 @@ class ManaPool:
         """
         for mana_type in self.pool:
             self.pool[mana_type] = 0
+            self.snow_pool[mana_type] = 0
         self.restricted.clear()
         self.pool_by_source.clear()
 
@@ -305,6 +326,10 @@ class ManaPool:
         if amount > 0:
             self.pool[mana_type] -= amount
             self._consume_from_source_pool(mana_type, amount, require_source_kind)
+            # Snow-first (see `snow_pool`'s own docstring for why).
+            snow_take = min(amount, self.snow_pool.get(mana_type, 0))
+            if snow_take:
+                self.snow_pool[mana_type] -= snow_take
 
     def _spend_generic(
         self, amount: int, usable_lots: list[dict] = (), require_source_kind: Optional[str] = None,
@@ -446,6 +471,7 @@ class ManaPool:
             {"restriction": lot["restriction"], "amounts": dict(lot["amounts"])} for lot in self.restricted
         ]
         copy.pool_by_source = {k: dict(v) for k, v in self.pool_by_source.items()}
+        copy.snow_pool = dict(self.snow_pool)
         return copy
 
     def can_pay_distinct_colors(self, n: int) -> bool:

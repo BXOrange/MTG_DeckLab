@@ -4275,6 +4275,116 @@ unique card via `is_registered`/`parse_oracle` exactly like
 `coverage_report.py` does cache-wide, keyed off the resolved `Card.
 name`'s canonical form rather than the decklist's own text.
 
+### MEC-43: round 3, `SearchLibraryEffect` widenings (`cEDH staples 2`/`K'rrik cEDH`)
+
+The round-2 diagnosis had clustered four cards as "already-general
+`SearchLibraryEffect` criteria/gate widenings" — a fair first read of the
+constructor signature, but only two of the four actually turned out to be
+free once checked against the effect's real code, confirming this file's
+own "verify, don't assume" rule for this ticket.
+
+- **Beseech the Queen** ("mana value less than or equal to the number of
+  lands you control"): `SearchLibraryEffect.mana_value_from` already
+  supported a *dynamic* bound (Eldritch Evolution/Neoform's
+  `"sacrificed_cost"` source), just not a board-count one. Widened
+  `_resolved_criteria` with a new `"count_selector"` source, reading
+  `continuous.count_selector(state, controller_id, ..., source=self.
+  source)` — `"lands_you_control"` already existed there for an unrelated
+  characteristic-defining P/T, so this needed zero new count-selector
+  vocabulary, only a new way to *reach* it from a search. A dedicated
+  parser regex (`_SEARCH_MV_LANDS_QUALIFIER_RE`) rather than a fourth
+  `_SEARCH_MV_QUALIFIER` alternative, since the existing one only ever
+  captures a literal digit/`x`.
+- **Final Parting** ("Search your library for two cards. Put one into your
+  hand and the other into your graveyard. Then shuffle."): a genuinely
+  free reuse of the `destinations` split `_search_split_destination`
+  already builds for Cultivate/Kodama's Reach — the only real gap was
+  recognition. Its own bare "N cards" (no criteria, no "up to", no
+  "reveal") and three-sentence-with-periods phrasing didn't fit
+  `_SEARCH_CRITERIA`/`_SEARCH_SPLIT_DESTINATION_RE`'s comma-joined
+  single-clause shape, so it got its own regex
+  (`_SEARCH_TWO_CARDS_SPLIT_RE`) with literal `\.\s*` sentence
+  boundaries — the same "whole span, not a connector split" idiom
+  `_SEARCH_EXILE_REST_RE` (Doomsday) already established, confirmed by
+  checking `segmenter.py`'s `parse_effect_body`: the *whole* un-split
+  body is tried against the handler registry (`match_clause`) before the
+  `_CONNECTORS` period/semicolon/"then"/"and" fallback ever splits it.
+- **Search for Glory** ("Search your library for a snow permanent card, a
+  legendary card, or a Saga card, ... You gain 1 life for each {S} spent
+  to cast this spell."): the search half was free — `models.card_query`
+  already has a general `"or"` combinator (an unused-until-now feature),
+  so the three-way criteria is `{"or": [{"type": "Snow", "without_type":
+  ["Instant", "Sorcery"]}, {"type": "Legendary"}, {"type": "Saga"}]}` with
+  no engine change at all. The life-gain half needed a wholly new
+  primitive: this engine had never tracked snow-*sourced* mana at all
+  (`{S}` symbols fell back to "count as generic" in `models/mana_cost.py`,
+  and "for each {S} spent" doesn't mean a literal `{S}` pip in the
+  printed cost anyway — it means however much of the payment came from a
+  snow-typed permanent, regardless of what mana type it produced).
+  Modeled as `ManaPool.snow_pool` — a `pool_by_source`-shaped shadow
+  tally, but *orthogonal* to `source_kind` rather than reusing it: a
+  Snow-Covered Forest is both `source_kind="basic_land"` (PAR-19) *and*
+  snow, and `source_kind` only ever holds one value per lot, so folding
+  "snow" into it would have silently broken any "spend only mana from
+  basic lands" restriction on a snow basic. `ManaPool.add`/`add_many`
+  gained an `is_snow` flag (set at the tap site,
+  `mana_abilities.is_snow_source_for` — a plain type-line "snow" check,
+  wired into both of `game/engine/mana_mixin.py`'s `add_many` calls
+  alongside the existing `mana_source_kind_for`); `_consume` drains it in
+  lockstep with `pool`, snow-first (an arbitrary but harmless
+  deterministic order credit, the same simplification tier
+  `_spend_generic`'s own colorless-first order already is — this engine
+  has no interactive "which mana pays which pip" choice to consult
+  instead). `GameObject.mana_spent_to_cast_snow` is the `colors_spent_
+  to_cast`/RULE 702.108a-Converge-shaped before/after diff at cast time
+  (`game/rules/casting_mixin.py`'s `cast_spell`), read via `continuous.
+  count_selector`'s new self-referential `"snow_mana_spent_to_cast"`
+  entry — the same idiom `sacrificed_cost_mana_value`/`sacrificed_cost_
+  power` already use. Along the way this surfaced a real, general,
+  previously-dormant bug: `GainLifeEffect.apply()`'s `count_selector`
+  branch never passed `source=self.source` to `continuous.count_
+  selector` (unlike `MillEffect`'s identical call, which does) — every
+  self-referential count-selector kind silently evaluated to 0 on a
+  life-gain effect, not just this new one, since `source` defaulted to
+  `None` and every self-referential entry reads it via `getattr`.
+- **Myriad Landscape** ("Search your library for up to two basic land
+  cards **that share a land type**, put them onto the battlefield
+  tapped, then shuffle."): the real gap — a cross-pick constraint no
+  existing criteria shape could express, since `card_query.matches`
+  judges exactly one candidate at a time with no visibility into what a
+  multi-pick search has already found. `SearchLibraryEffect.
+  share_land_type` threads a new bool through `GameContext.
+  request_search`/`RulesEngine.request_search` down to both places a
+  round's eligible pool is computed (`request_search`'s own first-round
+  `eligible`, and `resolve_search_choice`/`_search_choice`'s later
+  rounds) — `_shares_land_type` (new, `game/rules/search_mixin.py`) is
+  vacuously true for the first pick (nothing found yet to share with),
+  then checks the candidate's basic land type word(s) against every
+  already-found card's. A dedicated regex
+  (`_SEARCH_PUT_THEN_SHUFFLE_SHARE_TYPE_RE`, tried before the plain
+  `_SEARCH_PUT_THEN_SHUFFLE_RE` row since it's a strict superset) rather
+  than an optional group spliced into the shared `_SEARCH_CRITERIA`
+  machinery, since only this one shape needs the new param.
+
+**Files:** `game/effects.py` (`SearchLibraryEffect.mana_value_from`'s
+`"count_selector"` source, `SearchLibraryEffect.share_land_type`,
+`GameContext.request_search`'s matching param, `GainLifeEffect`'s
+`source=self.source` fix), `game/continuous.py`
+(`count_selector`'s new `"snow_mana_spent_to_cast"` entry),
+`models/mana_pool.py` (`snow_pool`, `add`/`add_many`'s `is_snow`,
+`_consume`'s snow-first drain, `empty`/`clone`), `models/game_object.py`
+(`mana_spent_to_cast_snow`), `game/mana_abilities.py`
+(`is_snow_source_for`), `game/engine/mana_mixin.py` (both `add_many` call
+sites), `game/rules/casting_mixin.py` (the snow before/after diff,
+alongside the existing Converge one; `request_search`/`_search_choice`/
+`resolve_search_choice`'s `share_land_type` threading, `_shares_land_
+type`/`_land_types_of` helpers), `parser/oracle/catalogue/handlers.py`
+(`_SEARCH_MV_LANDS_QUALIFIER_RE`, `_SEARCH_TWO_CARDS_SPLIT_RE`,
+`_SEARCH_SNOW_LEGENDARY_SAGA_RE`, `_GAIN_LIFE_PER_SNOW_SPENT_RE`,
+`_SEARCH_PUT_THEN_SHUFFLE_SHARE_TYPE_RE`, and their handler functions).
+**Tests:** `tests/test_mec43_round3_search_widenings.py` (new, 6 tests).
+Coverage: `cEDH staples 2` 572→573/606, `K'rrik cEDH` 50→53/71.
+
 ### MEC-40/41/42/43 coverage note
 
 Every card above closed against its own named deck (`cEDH Rocco` — all 18,

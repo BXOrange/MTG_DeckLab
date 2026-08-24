@@ -39,6 +39,7 @@ from ..costs import (
 from ..effects import ActivatedAbility
 from ..mana_abilities import (
     hand_mana_abilities_for,
+    is_snow_source_for,
     mana_abilities_for,
     mana_source_kind_for,
     option_label,
@@ -191,7 +192,8 @@ class ManaMixin:
             # total, right before it lands in the pool.
             produced = {override: sum(produced.values())}
         player.mana_pool.add_many(
-            produced, restriction=restriction, source_kind=mana_source_kind_for(source)
+            produced, restriction=restriction, source_kind=mana_source_kind_for(source),
+            is_snow=is_snow_source_for(source),
         )
         if ability.self_damage:
             # RULE 605.1a: a mana ability may have effects besides producing
@@ -264,7 +266,8 @@ class ManaMixin:
             produced = dict(ability.options[option_index])
         self.rules.exile(source)
         player.mana_pool.add_many(
-            produced, restriction=ability.restriction, source_kind=mana_source_kind_for(source)
+            produced, restriction=ability.restriction, source_kind=mana_source_kind_for(source),
+            is_snow=is_snow_source_for(source),
         )
         if ability.self_damage:
             self.rules.deal_damage(player, ability.self_damage, source=source)

@@ -108,6 +108,36 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     return True  # unknown type word → any permanent, so the cost is payable
 
 
+#: RULE 305.6's five basic land types — a local copy of `continuous.
+#: _BASIC_LAND_TYPES` rather than an import (that name is module-private,
+#: and this module already keeps a few other rules constants as small local
+#: copies rather than cross-module imports — see `_matches_permanent_type`'s
+#: own docstring just above).
+_BASIC_LAND_TYPE_WORDS: frozenset[str] = frozenset(
+    {"plains", "island", "swamp", "mountain", "forest"}
+)
+
+
+def _land_types_of(card: Card) -> frozenset[str]:
+    """The basic land type word(s) printed on ``card``'s type line."""
+    type_line = (card.type_line or "").lower()
+    return frozenset(w for w in _BASIC_LAND_TYPE_WORDS if w in type_line)
+
+
+def _shares_land_type(
+    candidate: GameObject, found: list[GameObject], share_land_type: bool,
+) -> bool:
+    """"...basic land cards that share a land type." (Myriad Landscape,
+    MEC-43 round 3) — whether ``candidate`` shares a basic land type with at
+    least one already-found card in this same multi-pick search. Vacuously
+    true when the constraint isn't active, or nothing's been found yet (the
+    *first* pick is always unconstrained — nothing to share with)."""
+    if not share_land_type or not found:
+        return True
+    candidate_types = _land_types_of(candidate.card)
+    return any(candidate_types & _land_types_of(f.card) for f in found)
+
+
 def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
     """The creature-type choices to offer for a RULE 601.2b "as ~ enters,
     choose a creature type" pick.
@@ -563,6 +593,7 @@ class SearchMixin:
         remember_source_id: Optional[int] = None,
         total_mana_value_budget: Optional[int] = None,
         chooser: Optional[Player] = None,
+        share_land_type: bool = False,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -632,6 +663,15 @@ class SearchMixin:
         ``99`` sentinel other "any number of" searches already use) so the
         budget, not the count, is what actually ends the search.
 
+        ``share_land_type`` ("...basic land cards **that share a land
+        type**." — Myriad Landscape, MEC-43 round 3) is a cross-pick
+        constraint rather than a per-card one: the *first* pick is
+        unconstrained, but every pick after that must share a basic land
+        type (RULE 305.6) with at least one card already found this same
+        search (`_shares_land_type`) — unlike ``criteria``, which is
+        checked against each candidate in isolation and can't express "in
+        relation to what was already picked."
+
         Records the eligible cards (across ``zones``) as a `state.
         pending_choice` — the engine's resolve loop stops on it and the
         session surfaces it, and `resolve_search_choice` finishes the search
@@ -680,6 +720,7 @@ class SearchMixin:
             remember_source_id=remember_source_id,
             total_mana_value_budget=total_mana_value_budget,
             chooser=chooser,
+            share_land_type=share_land_type,
         )
 
     def request_intuition(
@@ -903,6 +944,7 @@ class SearchMixin:
         zones = choice.get("zones") or ["library"]
         total_mana_value_budget = choice.get("total_mana_value_budget")
         spent_mana_value = choice.get("spent_mana_value", 0)
+        share_land_type = choice.get("share_land_type", False)
 
         declined = instance_id is None
         if not declined:
@@ -921,12 +963,16 @@ class SearchMixin:
         remaining_budget = (
             None if total_mana_value_budget is None else total_mana_value_budget - spent_mana_value
         )
+        found_objs = [
+            o for o in (self._object_by_instance_id(iid) for iid in found) if o is not None
+        ]
         still_eligible = [
             obj
             for obj in self._search_zone_objects(player, zones)
             if obj.instance_id not in found
             and card_query.matches(obj.card, choice["criteria"])
             and (remaining_budget is None or obj.card.converted_mana_cost <= remaining_budget)
+            and _shares_land_type(obj, found_objs, share_land_type)
         ]
         if not declined and remaining > 0 and still_eligible:
             self.state.pending_choice = self._search_choice(
@@ -941,6 +987,7 @@ class SearchMixin:
                 total_mana_value_budget=total_mana_value_budget,
                 spent_mana_value=spent_mana_value,
                 chooser=self.state.player_by_id(chooser_id),
+                share_land_type=share_land_type,
             )
             return
 
@@ -974,17 +1021,22 @@ class SearchMixin:
         total_mana_value_budget: Optional[int] = None,
         spent_mana_value: int = 0,
         chooser: Optional[Player] = None,
+        share_land_type: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
         zones = list(zones) if zones else ["library"]
         remaining_budget = (
             None if total_mana_value_budget is None else total_mana_value_budget - spent_mana_value
         )
+        found_objs = [
+            o for o in (self._object_by_instance_id(iid) for iid in found) if o is not None
+        ]
         eligible = [
             {"instance_id": obj.instance_id, "name": obj.name}
             for obj in self._search_zone_objects(player, zones)
             if obj.instance_id not in found and card_query.matches(obj.card, criteria)
             and (remaining_budget is None or obj.card.converted_mana_cost <= remaining_budget)
+            and _shares_land_type(obj, found_objs, share_land_type)
         ]
         # Each eligible card is one option; declining an optional search is a
         # further option. `options` is the general form the UI renders (as a
@@ -1020,6 +1072,7 @@ class SearchMixin:
             "remember_source_id": remember_source_id,
             "total_mana_value_budget": total_mana_value_budget,
             "spent_mana_value": spent_mana_value,
+            "share_land_type": share_land_type,
             "criteria": card_query.normalize(criteria),
             "description": description,
             "prompt": prompt,

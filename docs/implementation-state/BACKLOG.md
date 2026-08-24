@@ -97,8 +97,8 @@ Plan-level sequencing lives in
   | `cEDH staples` | 215/215 | fully playable. |
   | `cEDH M-K` | 97/97 | fully playable (MEC-12's Kinnan/M-K completion batch still holds). |
   | `cEDH Kinnan` | 100/100 | fully playable (ditto). |
-  | `cEDH staples 2` | 572/606 (1 name not a real card) | 34 genuinely uncovered — see below. |
-  | `K'rrik cEDH` | 50/71 | 21 uncovered — see below. |
+  | `cEDH staples 2` | 573/606 (1 name not a real card) | 32 genuinely uncovered — see below. |
+  | `K'rrik cEDH` | 53/71 | 18 uncovered — see below. |
 
   Re-measured 2026-08-24 with `scripts/deck_coverage.py` (the MEC-44 tool
   below, now checked in and used for every number on this page). Of the
@@ -191,8 +191,40 @@ Plan-level sequencing lives in
   round's diagnosis) — an earlier diagnosis pass's own coverage-tool bug,
   not a real gap; no work needed.
 
-  **Round 2 remainder, not yet built** (`cEDH staples 2`'s 34 + `K'rrik
-  cEDH`'s 21 uncovered, re-measured after the closures above — see the
+  **Round 3, `SearchLibraryEffect` widenings — closed 2026-08-24** (4 more
+  cards; each turned out to need a genuinely new, if small, primitive once
+  actually checked against the effect's real code rather than assumed
+  free from its constructor signature alone — the round-2 diagnosis had
+  called all four "already-general," which held for two of them):
+  Beseech the Queen (`SearchLibraryEffect.mana_value_from`'s new
+  `"count_selector"` source — `continuous.count_selector`'s existing
+  `"lands_you_control"` entry, previously only reachable from
+  `"sacrificed_cost"`); Final Parting (a genuinely free reuse of the
+  existing `destinations` split, Cultivate/Kodama's Reach-shaped — just a
+  parser handler for its own bare-"N cards"/three-sentence phrasing);
+  Search for Glory (`card_query`'s `"or"` combinator was free, but "gain 1
+  life for each {S} spent to cast this spell" needed a wholly new
+  tracking primitive — `ManaPool.snow_pool`, a `pool_by_source`-shaped but
+  orthogonal "was this snow-sourced" subset count, since a lot can be
+  both `source_kind="basic_land"` *and* snow; `GameObject.
+  mana_spent_to_cast_snow`, a `colors_spent_to_cast`-shaped before/after
+  diff at cast time; `continuous.count_selector`'s new
+  `"snow_mana_spent_to_cast"` self-referential entry); Myriad Landscape
+  (`SearchLibraryEffect.share_land_type`/`RulesEngine.request_search`'s
+  new cross-pick constraint — "share a land type" judges a candidate
+  against what's *already been found* this same search, a shape no
+  existing criteria dict could express since `card_query.matches` only
+  ever sees one candidate in isolation). Also found and fixed a real,
+  general bug along the way: `GainLifeEffect.apply()`'s `count_selector`
+  branch never threaded `source=self.source` through to `continuous.
+  count_selector` (unlike `MillEffect`'s own identical call), silently
+  zeroing out any self-referential selector kind used on a life-gain
+  effect — not just the new snow one. Covered by `tests/
+  test_mec43_round3_search_widenings.py` (6 tests). Coverage: `cEDH
+  staples 2` 572→573/606, `K'rrik cEDH` 50→53/71.
+
+  **Round 2 remainder, not yet built** (`cEDH staples 2`'s 32 + `K'rrik
+  cEDH`'s 18 uncovered, re-measured after the closures above — see the
   coverage table; the clustering below is unchanged from the original
   2026-08-24 diagnosis and still **not cross-checked against `primitives`/
   `Done_Backend.md` the way an actual batch must be** for anything past
@@ -202,11 +234,6 @@ Plan-level sequencing lives in
   *Near-free reuse candidates, clustered* (a shape already shipped is
   cited by name; confirm with `python $BENCH primitives '<shape>'` before
   building):
-  - **`SearchLibraryEffect` criteria/gate widenings** (already-general):
-    Beseech the Queen (mana value ≤ lands you control), Final Parting
-    (one search, two destinations — hand and graveyard), Search for
-    Glory (a three-type OR criteria + life gained per {S} spent), Myriad
-    Landscape (paired search, "share a land type").
   - **The "loses all abilities, becomes a 3/3 green Elk creature" template**
     — Kenrith's Transformation closed above; Oko, Thief of Crowns' +1
     shares the same clause but needs `grant_until` resolve-time wiring

@@ -2556,6 +2556,21 @@ _SEARCH_PUT_THEN_SHUFFLE_RE = _c(
     rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
     r"then shuffle"
 )
+#: "search your library for <criteria> that share a land type, [reveal
+#: <pronoun>,] put <pronoun> <destination>, then shuffle." (Myriad
+#: Landscape, MEC-43 round 3) — the same put-then-shuffle order as
+#: `_SEARCH_PUT_THEN_SHUFFLE_RE` just above, plus the cross-pick "that share
+#: a land type" qualifier (RULE 305.6) between the criteria and the
+#: put-clause; a separate regex rather than an optional group spliced into
+#: the shared one, since only this one shape maps onto `"search"`'s new
+#: ``share_land_type`` param (`SearchLibraryEffect`/`RulesEngine.
+#: request_search`).
+_SEARCH_PUT_THEN_SHUFFLE_SHARE_TYPE_RE = _c(
+    rf"search your library for {_SEARCH_CRITERIA} that share a land type,?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
 #: "search your library for <criteria>, [reveal <pronoun>,] then shuffle and
 #: put <pronoun> on top [of your library]." — the reordered shuffle-then-put
 #: order, always to the top of the library (Vampiric/Mystical/Enlightened/
@@ -2628,6 +2643,104 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("search", params)]
 
 
+def _search_put_then_shuffle_share_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    destination = _search_destination_kind(m.group("dest"))
+    if destination is None:
+        return None
+    params: dict = {
+        "criteria": _search_criteria_from_match(m),
+        "destination": destination,
+        "share_land_type": True,
+    }
+    count = _search_count_from_match(m)
+    if count is not None:
+        params["count"] = count
+    return [EffectSpec("search", params)]
+
+
+#: "search your library for a card with mana value less than or equal to the
+#: number of lands you control, [reveal <pronoun>,] put <pronoun>
+#: <destination>, then shuffle." (Beseech the Queen, MEC-43 round 3) — a
+#: board-count mana-value bound instead of `_SEARCH_CRITERIA`'s own literal
+#: digit/``x`` (`_SEARCH_MV_QUALIFIER`), so it's its own regex rather than a
+#: fourth `_SEARCH_MV_QUALIFIER` alternative; maps onto `"search"`'s
+#: ``mana_value_from`` param with the new ``"count_selector"`` source
+#: (`SearchLibraryEffect._resolved_criteria`, `continuous.count_selector`'s
+#: existing ``"lands_you_control"`` entry).
+_SEARCH_MV_LANDS_QUALIFIER_RE = _c(
+    r"search your library for a card with mana value less than or equal to "
+    r"the number of lands you control,?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+
+
+def _search_mv_lands_qualifier(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    destination = _search_destination_kind(m.group("dest"))
+    if destination is None:
+        return None
+    return [
+        EffectSpec(
+            "search",
+            {
+                "criteria": {},
+                "mana_value_from": {"source": "count_selector", "count_selector": "lands_you_control"},
+                "destination": destination,
+            },
+        )
+    ]
+
+
+#: "search your library for a snow permanent card, a legendary card, or a
+#: Saga card, [reveal <pronoun>,] put <pronoun> <destination>, then
+#: shuffle." (Search for Glory, MEC-43 round 3) — a three-way OR across
+#: disjoint criteria shapes (a "snow" supertype card that's also a
+#: *permanent*, vs. two plain type-line substrings) `_SEARCH_CRITERIA`'s own
+#: single type-list grammar can't express, so it's its own regex mapped
+#: straight onto `models.card_query`'s already-general ``"or"`` combinator —
+#: "snow permanent" is ``{"type": "Snow", "without_type": ["Instant",
+#: "Sorcery"]}`` (RULE 205.4g's supertype, minus the two non-permanent card
+#: types). This card's own trailing life-gain sentence is a wholly separate
+#: clause (`_GAIN_LIFE_PER_SNOW_SPENT_RE` below), reached independently by
+#: the segmenter's own period-connector split, not by this regex.
+_SEARCH_SNOW_LEGENDARY_SAGA_RE = _c(
+    r"search your library for a snow permanent card, a legendary card, or a saga card,?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+
+
+def _search_snow_legendary_saga(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    destination = _search_destination_kind(m.group("dest"))
+    if destination is None:
+        return None
+    criteria = {
+        "or": [
+            {"type": "Snow", "without_type": ["Instant", "Sorcery"]},
+            {"type": "Legendary"},
+            {"type": "Saga"},
+        ]
+    }
+    return [EffectSpec("search", {"criteria": criteria, "destination": destination})]
+
+
+#: "You gain 1 life for each {S} spent to cast this spell." (Search for
+#: Glory's own trailing sentence) — reads `GameObject.mana_spent_to_cast_
+#: snow` (MEC-43 round 3, `ManaPool.snow_pool`) via the already-general
+#: ``"gain_life"`` `count_selector` hook (`continuous.count_selector`'s new
+#: ``"snow_mana_spent_to_cast"`` entry), the same self-referential idiom
+#: `sacrificed_cost_mana_value`/`sacrificed_cost_power` already use. Scoped
+#: to the literal "1 life" this card prints — no known card scales the
+#: amount, so a multiplier is left unbuilt rather than guessed at.
+_GAIN_LIFE_PER_SNOW_SPENT_RE = _c(r"you gain 1 life for each \{s\} spent to cast this spell")
+
+
+def _gain_life_per_snow_spent(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {"count_selector": "snow_mana_spent_to_cast"})]
+
+
 #: "search your library for <criteria>, put <pronoun> onto the battlefield,
 #: attach it to a creature you control, then shuffle." (Stonehewer Giant/
 #: Quest for the Holy Relic-shaped combined search-then-attach — MEC-12
@@ -2697,6 +2810,40 @@ def _search_split_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if count is not None:
         params["count"] = count
     return [EffectSpec("search", params)]
+
+
+#: "search your library for N cards. Put 1 <destA> and the other <destB>.
+#: Then shuffle." (Final Parting, MEC-43 round 3) — the same split
+#: destination as `_SEARCH_SPLIT_DESTINATION_RE` just above, but printed as
+#: three plain sentences (bare "N cards", no criteria/reveal clause) instead
+#: of one comma-joined one, so it needs its own literal ``\.\s*`` sentence
+#: boundaries rather than reusing `_SEARCH_CRITERIA`/`_SEARCH_REVEAL` (same
+#: idiom `_SEARCH_EXILE_REST_RE` below already uses for its own two-sentence
+#: Doomsday shape).
+_SEARCH_TWO_CARDS_SPLIT_RE = _c(
+    r"search your library for (?P<count>\d+) cards?\.\s*"
+    rf"put 1 (?P<dest1>{_SEARCH_DESTINATION_ALT}) and the other "
+    rf"(?P<dest2>{_SEARCH_DESTINATION_ALT})\.\s*"
+    r"then shuffle"
+)
+
+
+def _search_two_cards_split(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dest1 = _search_destination_kind(m.group("dest1"))
+    dest2 = _search_destination_kind(m.group("dest2"))
+    if dest1 is None or dest2 is None:
+        return None
+    return [
+        EffectSpec(
+            "search",
+            {
+                "criteria": {},
+                "destination": dest1,
+                "destinations": [dest1, dest2],
+                "count": int(m.group("count")),
+            },
+        )
+    ]
 
 
 #: The criteria noun phrase for a "library and/or graveyard" search — same
@@ -6178,6 +6325,14 @@ HANDLERS: list[EffectHandler] = [
     # <destination>, then shuffle." (RULE 701.19 — the general tutor/ramp/
     # fetch family: unrestricted tutors, basic-land fetches, criteria-
     # filtered tutors, "reveal" variants).
+    # "search your library for <criteria> that share a land type, ... then
+    # shuffle." (Myriad Landscape-shaped cross-pick constraint) — tried
+    # before the plain row below since it's a strict superset of it.
+    EffectHandler(
+        "search_put_then_shuffle_share_type",
+        _SEARCH_PUT_THEN_SHUFFLE_SHARE_TYPE_RE,
+        _search_put_then_shuffle_share_type,
+    ),
     EffectHandler(
         "search_put_then_shuffle",
         _SEARCH_PUT_THEN_SHUFFLE_RE,
@@ -6191,6 +6346,29 @@ HANDLERS: list[EffectHandler] = [
         "search_put_attach_then_shuffle",
         _SEARCH_PUT_ATTACH_THEN_SHUFFLE_RE,
         _search_put_attach_then_shuffle,
+    ),
+    # "search your library for a card with mana value less than or equal to
+    # the number of lands you control, ... then shuffle." (Beseech the
+    # Queen-shaped board-count mana-value bound).
+    EffectHandler(
+        "search_mv_lands_qualifier",
+        _SEARCH_MV_LANDS_QUALIFIER_RE,
+        _search_mv_lands_qualifier,
+    ),
+    # "search your library for a snow permanent card, a legendary card, or
+    # a Saga card, ... then shuffle." (Search for Glory's own three-way OR
+    # criteria).
+    EffectHandler(
+        "search_snow_legendary_saga",
+        _SEARCH_SNOW_LEGENDARY_SAGA_RE,
+        _search_snow_legendary_saga,
+    ),
+    # "You gain 1 life for each {S} spent to cast this spell." (Search for
+    # Glory's own trailing sentence).
+    EffectHandler(
+        "gain_life_per_snow_spent",
+        _GAIN_LIFE_PER_SNOW_SPENT_RE,
+        _gain_life_per_snow_spent,
     ),
     # "search your library for <criteria>, [reveal <pronoun>,] then shuffle
     # and put <pronoun> on top." (the reordered shuffle-then-put-on-top
@@ -6207,6 +6385,14 @@ HANDLERS: list[EffectHandler] = [
         "search_split_destination",
         _SEARCH_SPLIT_DESTINATION_RE,
         _search_split_destination,
+    ),
+    # "search your library for N cards. Put 1 <destA> and the other
+    # <destB>. Then shuffle." (Final Parting-shaped three-sentence split
+    # destination, no criteria).
+    EffectHandler(
+        "search_two_cards_split",
+        _SEARCH_TWO_CARDS_SPLIT_RE,
+        _search_two_cards_split,
     ),
     # "search your library and/or graveyard for <criteria>, [reveal
     # <pronoun>,] put <pronoun> <destination>. If you search[ed] your

@@ -152,6 +152,17 @@ class GameObject:
         #: `SearchLibraryEffect.mana_value_from`'s ``"colors_spent_to_cast"``
         #: source (Bring to Light, MEC-41) via ``len(...)``.
         self.colors_spent_to_cast: frozenset = frozenset()
+        #: The snow sibling of `colors_spent_to_cast` (MEC-43 round 3,
+        #: Search for Glory's "gain 1 life for each {S} spent to cast this
+        #: spell") — how much mana tapped from a snow-typed source (RULE
+        #: 205.4g) paid this spell's cost, diffed off `ManaPool.snow_pool`
+        #: the same before/after way, not a real per-symbol {S} in the
+        #: printed cost (this engine has no snow-typed mana pips at all;
+        #: "{S} spent" always means snow-*sourced* mana of any color/type).
+        #: Read via `continuous.count_selector`'s ``"snow_mana_spent_to_
+        #: cast"`` entry. 0, same as `mana_spent_to_cast`, for a free/
+        #: alternative-cost cast.
+        self.mana_spent_to_cast_snow: int = 0
         #: Whether this permanent actually went through `RulesEngine.
         #: cast_spell`/`cast_without_paying` (RULE 601.2), as opposed to
         #: being put onto the battlefield directly (a search/reanimation

@@ -583,6 +583,7 @@ class CastingResolutionMixin:
             # so this diffs the pool before/after instead of touching the
             # payment solver (`GameObject.colors_spent_to_cast`).
             pool_before = dict(player.mana_pool.pool)
+            snow_before = sum(player.mana_pool.snow_pool.values())
             life_spent = player.mana_pool.pay(
                 cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
                 require_source_kind=require_source_kind,
@@ -591,6 +592,9 @@ class CastingResolutionMixin:
                 color for color in _FIVE_COLORS
                 if pool_before.get(color, 0) > player.mana_pool.pool.get(color, 0)
             )
+            # MEC-43 round 3: the snow sibling of the Converge diff just
+            # above (`GameObject.mana_spent_to_cast_snow`).
+            obj.mana_spent_to_cast_snow = snow_before - sum(player.mana_pool.snow_pool.values())
         self.lose_life(player, life_spent, cause="cost")
         if free_cast:
             self.state.free_cast_instance_ids.discard(obj.instance_id)

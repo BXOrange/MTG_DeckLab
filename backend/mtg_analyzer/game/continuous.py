@@ -741,6 +741,15 @@ def count_selector(
     if selector == "sacrificed_cost_power":
         # The power sibling (Altar of Dementia) of the entry just above.
         return int(getattr(source, "sacrificed_cost_power", None) or 0)
+    if selector == "snow_mana_spent_to_cast":
+        # "You gain 1 life for each {S} spent to cast this spell." (Search
+        # for Glory, MEC-43 round 3) — `GameObject.mana_spent_to_cast_snow`,
+        # stamped by `RulesEngine.cast_spell`'s own before/after diff of
+        # `ManaPool.snow_pool` (the same idiom `colors_spent_to_cast`/
+        # Converge already uses for *which colors* paid a cost, just
+        # snow-tagged instead of color-tagged); ``0`` for the same
+        # self-referential fallback every other entry here gets.
+        return int(getattr(source, "mana_spent_to_cast_snow", None) or 0)
     if selector == "spells_cast_this_turn":
         # "…costs {1} more to cast for each other spell that player has
         # cast this turn." (MEC-36, Damping Sphere) — `_cost_static_amount`

@@ -663,6 +663,16 @@ def mana_source_kind_for(source: Any) -> Optional[str]:
     return None
 
 
+def is_snow_source_for(source: Any) -> bool:
+    """Whether ``source`` (a tapped permanent) has the snow supertype (RULE
+    205.4g) — `tap_for_mana`'s tag for `ManaPool.add`'s own ``is_snow``
+    (MEC-43 round 3, "{S} spent" tracking). A plain type-line word check,
+    same fidelity as `mana_source_kind_for`'s own ``"basic"`` check just
+    above — this engine has no dedicated ``Card.is_snow`` field."""
+    card = getattr(source, "card", source)
+    return "snow" in (getattr(card, "type_line", "") or "").lower()
+
+
 def mana_options(card: Any) -> list[dict[str, int]]:
     """Mutually-exclusive ways a card taps for mana (empty if it can't).
 

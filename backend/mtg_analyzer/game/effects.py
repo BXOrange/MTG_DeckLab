@@ -411,6 +411,7 @@ class GameContext:
         remember_source_id: Optional[int] = None,
         total_mana_value_budget: Optional[int] = None,
         chooser: Optional["Player"] = None,
+        share_land_type: bool = False,
     ) -> None:
         self.engine.request_search(
             player, criteria, destination, count, optional,
@@ -420,6 +421,7 @@ class GameContext:
             remember_source_id=remember_source_id,
             total_mana_value_budget=total_mana_value_budget,
             chooser=chooser,
+            share_land_type=share_land_type,
         )
 
     def request_intuition(
@@ -3506,7 +3508,9 @@ class GainLifeEffect(GameEffect):
         elif self.count_selector and player is not None:
             from . import continuous  # avoid the continuous↔effects import cycle
 
-            amount = continuous.count_selector(context.state, player.id, self.count_selector)
+            amount = continuous.count_selector(
+                context.state, player.id, self.count_selector, source=self.source
+            )
         context.gain_life(player, amount)
 
 
@@ -11915,9 +11919,16 @@ class SearchLibraryEffect(GameEffect):
     exact "equal to 1 plus …". The base value is read off the spell object's
     own `GameObject.sacrificed_cost_mana_value`, stamped when the RULE
     601.2b additional cost was paid — `StackItem.x` can't carry it (it only
-    ever threads an *announced* {X}). Merged into ``criteria`` at resolution
-    time as ``max_mana_value``/``mana_value``, so `models.card_query` needs
-    no dynamic vocabulary of its own.
+    ever threads an *announced* {X}). ``{"source": "count_selector",
+    "count_selector": "lands_you_control"}`` (MEC-43 round 3, Beseech the
+    Queen's "mana value less than or equal to the number of lands you
+    control") reads the base off a live board count instead
+    (`continuous.count_selector`, the same whitelisted vocabulary a
+    characteristic-defining P/T uses) — evaluated fresh when the search
+    opens, not cached from announcement, since RULE 601.2c legality is
+    checked at the *search*'s own resolution. Merged into ``criteria`` at
+    resolution time as ``max_mana_value``/``mana_value``, so
+    `models.card_query` needs no dynamic vocabulary of its own.
 
     ``type_restriction`` is accepted as a deprecated alias for a string
     ``criteria`` so older fixtures keep working.
@@ -11942,8 +11953,14 @@ class SearchLibraryEffect(GameEffect):
         remember: bool = False,
         total_mana_value_budget: Optional[int] = None,
         player_from_target: bool = False,
+        share_land_type: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "...basic land cards **that share a land type**." (Myriad
+        #: Landscape, MEC-43 round 3) — a cross-pick constraint on a
+        #: multi-card search; see `RulesEngine.request_search`'s own
+        #: docstring for how it's enforced round by round.
+        self.share_land_type = share_land_type
         #: "Search **target opponent's** library for a card…" (Praetor's
         #: Grasp, MEC-42) — ``player`` becomes whichever player this
         #: ability's own RULE 115 target resolved to (the library that gets
@@ -12001,16 +12018,23 @@ class SearchLibraryEffect(GameEffect):
         #: `RulesEngine._finish_search`'s own docstring for the auto-pick.
         self.attach_to_creature_you_control = attach_to_creature_you_control
 
-    def _resolved_criteria(self) -> Any:
+    def _resolved_criteria(self, context: Optional[GameContext] = None) -> Any:
         """``criteria`` with any `mana_value_from` bound to a real number."""
         if not self.mana_value_from:
             return self.criteria
-        base = getattr(self.source, "sacrificed_cost_mana_value", None)
-        if base is None:
-            # RULE 601.2b's cost was never paid (or the record is gone) —
-            # fail closed to "nothing matches" rather than silently
-            # searching for an unrestricted card.
-            base = -1
+        if self.mana_value_from.get("source") == "count_selector" and context is not None:
+            from . import continuous  # avoid the continuous↔effects import cycle
+            base = continuous.count_selector(
+                context.state, getattr(self.source, "controller_id", None),
+                self.mana_value_from["count_selector"], source=self.source,
+            )
+        else:
+            base = getattr(self.source, "sacrificed_cost_mana_value", None)
+            if base is None:
+                # RULE 601.2b's cost was never paid (or the record is gone) —
+                # fail closed to "nothing matches" rather than silently
+                # searching for an unrestricted card.
+                base = -1
         value = base + int(self.mana_value_from.get("plus", 0))
         criteria = dict(self.criteria) if isinstance(self.criteria, dict) else (
             {"type": self.criteria} if self.criteria else {}
@@ -12053,13 +12077,14 @@ class SearchLibraryEffect(GameEffect):
             player = self.player or context.active_player
         chooser = _controller_of(self.source, context) if self.player_from_target else None
         context.request_search(
-            player, self._resolved_criteria(), self.destination, self.count, self.optional,
+            player, self._resolved_criteria(context), self.destination, self.count, self.optional,
             zones=self.zones, destinations=self.destinations, exile_rest=self.exile_rest,
             extra_counters=self.extra_counters, destination_if=self.destination_if,
             attach_to_creature_you_control=self.attach_to_creature_you_control,
             remember_source_id=self.source.instance_id if self.remember and self.source is not None else None,
             total_mana_value_budget=self.total_mana_value_budget,
             chooser=chooser,
+            share_land_type=self.share_land_type,
         )
 
 
@@ -15978,6 +16003,7 @@ EffectRegistry.register(
         remember=bool(p.get("remember", False)),
         total_mana_value_budget=p.get("total_mana_value_budget"),
         player_from_target=bool(p.get("player_from_target", False)),
+        share_land_type=bool(p.get("share_land_type", False)),
     ),
 )
 EffectRegistry.register(
