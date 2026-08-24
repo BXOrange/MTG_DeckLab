@@ -60,6 +60,10 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     or bool(o.card.is_artifact or o.card.is_enchantment),
     "nonland_permanent": lambda o: o.is_creature or o.is_planeswalker
     or bool(o.card.is_artifact or o.card.is_enchantment),
+    # "Put target artifact or creature card from a graveyard onto the
+    # battlefield…" (MEC-43 round 2, Beacon of Unrest) — the artifact
+    # sibling of `creature_or_planeswalker` below.
+    "artifact_or_creature": lambda o: o.is_creature or bool(o.card.is_artifact),
     # "return a creature or planeswalker card from your graveyard to your
     # hand" (Takenuma, Abandoned Mire's Channel ability) — the union of the
     # two single-type filters, same idiom as `instant_or_sorcery` above.

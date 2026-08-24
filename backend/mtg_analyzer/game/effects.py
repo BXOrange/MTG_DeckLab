@@ -2789,7 +2789,16 @@ class DealDamageEffect(GameEffect):
 #: the same "auto-resolve the common case" simplification `ProliferateEffect`/
 #: `SacrificeEffect` already use elsewhere in this engine.
 _DRAW_COUNT_SELECTORS: frozenset[str] = frozenset(
-    {"auras_and_equipment_attached_to_self", "opponents_you_have", "burden_counters_on_self"}
+    {
+        "auras_and_equipment_attached_to_self", "opponents_you_have", "burden_counters_on_self",
+        # "Target player draws cards equal to half the number of cards in
+        # their library… Round up." (MEC-43 round 2, Peer into the Abyss)
+        # — read off the *resolved drawing player's own* library, not the
+        # ability's controller (`amount_from_half_own_life`'s sibling for
+        # "half your life" is always the caster; this one is always
+        # whoever the target/`player` param resolves to).
+        "half_target_library_round_up",
+    }
 )
 
 
@@ -2907,6 +2916,9 @@ class DrawCardEffect(GameEffect):
             # printed order), so the count includes it.
             counters = getattr(self.source, "counters", None) or {}
             count = int(counters.get("burden", 0))
+        elif self.count_selector == "half_target_library_round_up":
+            library = len(getattr(player, "library", None) or [])
+            count = -(-library // 2)  # ceiling division (RULE 107.3 rounds up)
         elif self.amount_from_count_selector:
             from . import continuous  # avoid the continuous↔effects import cycle
 
@@ -3075,6 +3087,11 @@ class RevealHandChooseDiscardEffect(GameEffect):
     ``card_types`` is the inclusive opposite ("a creature or planeswalker
     card" — Despise-shaped). No filter at all (Coercion's bare "a card")
     leaves both unset and ``card_types`` `None`.
+
+    ``max_mana_value`` (MEC-43 round 2, Inquisition of Kozilek — "…a
+    nonland card from it with mana value 3 or less…") narrows the
+    candidate pool further, same "card's own printed `converted_mana_cost`"
+    read every other mana-value filter in this file uses.
     """
 
     def __init__(
@@ -3085,6 +3102,7 @@ class RevealHandChooseDiscardEffect(GameEffect):
         exclude_land: bool = False,
         exclude_creature: bool = False,
         card_types: Optional[list[str]] = None,
+        max_mana_value: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.target_spec = TargetSpec(kind=target_kind)
@@ -3092,6 +3110,7 @@ class RevealHandChooseDiscardEffect(GameEffect):
         self.exclude_land = exclude_land
         self.exclude_creature = exclude_creature
         self.card_types = card_types
+        self.max_mana_value = max_mana_value
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
@@ -3113,6 +3132,8 @@ class RevealHandChooseDiscardEffect(GameEffect):
             }
             if not any(checks.get(t, False) for t in self.card_types):
                 return False
+        if self.max_mana_value is not None and (card.converted_mana_cost or 0) > self.max_mana_value:
+            return False
         return True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -3250,6 +3271,16 @@ def _mass_selector_objects(
         # other mass-wipe qualifier here uses.
         if filt.get("nonbasic"):
             result = [o for o in result if "basic" not in (o.card.type_line or "").lower()]
+        subtype = filt.get("subtype")
+        if subtype:
+            # "exile all Nightmares." (MEC-43 round 2, Chainer, Dementia
+            # Master) — delegates to `combat.matches_object_filter`'s own
+            # subtype check rather than a bare type-line read, since the
+            # subtype here is often *granted* (Chainer's own reanimated
+            # creatures), not printed.
+            from . import combat  # local: avoid the combat<->effects import cycle
+
+            result = [o for o in result if combat.matches_object_filter(o, {"subtype": subtype})]
     return result
 
 
@@ -3987,6 +4018,33 @@ class GraveyardRedirectToExileEffect(GameEffect):
             player.graveyard_redirect_to_exile_until_turn = context.state.turn_number
 
 
+class ExchangeLifeTotalsEffect(GameEffect):
+    """"Two target players exchange life totals." (Soul Conduit, MEC-43
+    round 2) — a genuine simultaneous swap, distinct from every other life
+    effect in this file (`GainLifeEffect`/`LoseLifeEffect`, both single-
+    player deltas): neither player's life total is set *to* a number, each
+    just receives the *other's* current one, in one atomic step so a
+    same-resolution "then" clause reading either player's life sees the
+    post-swap value.
+
+    Not modeled as a gain/loss for either player (no `GAIN_LIFE`/
+    `LOSE_LIFE` event fires) — an exchange is its own RULE 119 category,
+    and every real card of this shape prints no "you gain/lose life"
+    follow-up that would depend on one firing.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="player", count=2)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        chosen = list(targets or [])
+        if len(chosen) != 2:
+            return
+        a, b = chosen
+        a.life, b.life = b.life, a.life
+
+
 #: `LoseLifeEffect`'s mass-selector vocabulary ("each opponent loses N
 #: life"/"each player loses N life", RULE 601.2c) — the same closed,
 #: untargeted-group shape `DealDamageEffect`'s `_DAMAGE_SELECTORS` uses (no
@@ -4032,15 +4090,31 @@ class LoseLifeEffect(GameEffect):
         amount_from_count_selector: Optional[str] = None,
         amount_from_spells_cast_this_turn: bool = False,
         amount_from_half_own_life: bool = False,
+        amount_from_half_target_life: bool = False,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: "Target player draws cards… **and loses** half their life."
+        #: (MEC-43 round 2, Peer into the Abyss) — the same player
+        #: `DrawCardEffect`'s own target requirement already picked
+        #: (`GameContext.previous_targets`, the "It fights…"/"Tap target
+        #: land. It doesn't untap…" pronoun idiom `FightEffect`/
+        #: `GrantUntilEffect` already use), not a second RULE 115 target of
+        #: this effect's own — the real card only ever targets once.
+        self.previous_subject = previous_subject
         #: "You lose half your life, rounded up." (MEC-37, Doomsday) —
         #: reads this effect's own controller's *current* life total at
         #: resolution (RULE 107.3 rounds up), independently of the
         #: selector/target resolution below since the real card never
         #: prints one — always the caster themself.
         self.amount_from_half_own_life = amount_from_half_own_life
+        #: "Target player… loses half their life. Round up." (MEC-43
+        #: round 2, Peer into the Abyss) — the *targeted* sibling of
+        #: ``amount_from_half_own_life`` above: reads whichever player the
+        #: ordinary target/``player``/controller resolution below picks,
+        #: not always the caster.
+        self.amount_from_half_target_life = amount_from_half_target_life
         #: "…each opponent loses life equal to the number of tapped
         #: creatures you control." (Throne of the God-Pharaoh) — a live
         #: `continuous.count_selector` read, scoped to this effect's own
@@ -4118,6 +4192,21 @@ class LoseLifeEffect(GameEffect):
             controller = _controller_of(self.source, context)
             life = getattr(controller, "life", 0)
             amount = -(-life // 2)  # ceiling division (RULE 107.3 rounds up)
+        if self.amount_from_half_target_life:
+            # Resolved the same way the ordinary (no-amount-selector) path
+            # below picks its player — this just needs to know *before*
+            # `context.lose_life` which player's life to read.
+            target_player = self.player
+            if target_player is None and self.player_id is not None:
+                target_player = context.state.player_by_id(self.player_id)
+            if target_player is None and self.previous_subject and context.previous_targets:
+                target_player = context.previous_targets[0]
+            if target_player is None and self.target_spec is not None and targets:
+                target_player = targets[0]
+            if target_player is None:
+                target_player = _controller_of(self.source, context)
+            life = getattr(target_player, "life", 0)
+            amount = -(-life // 2)  # ceiling division (RULE 107.3 rounds up)
         if amount <= 0:
             return
         if self.selector in _LOSE_LIFE_SELECTORS:
@@ -4130,6 +4219,8 @@ class LoseLifeEffect(GameEffect):
         player = self.player
         if player is None and self.player_id is not None:
             player = context.state.player_by_id(self.player_id)
+        if player is None and self.previous_subject and context.previous_targets:
+            player = context.previous_targets[0]
         if player is None and self.target_spec is not None:
             player = targets[0] if targets else None
         if player is None and self.selector == "defending_player":
@@ -5867,11 +5958,26 @@ class ExileGainLifeToControllerEffect(GameEffect):
 
 class ExileAllGraveyardsEffect(GameEffect):
     """"Exile all graveyards." (RULE 406 mass exile, Farewell-shaped) —
-    every card in every player's graveyard, untargeted."""
+    every card in every player's graveyard, untargeted.
+
+    ``colors`` (MEC-43 round 2, Sanctifier en-Vec — "exile all cards that
+    are **black or red** from all graveyards") narrows this to a colour
+    subset, OR semantics (matching "black or red", not "black and red");
+    reads `GameObject.colors` the same way every other colour filter in
+    this file does.
+    """
+
+    def __init__(
+        self, source: Optional["GameObject"] = None, colors: Optional[list[str]] = None,
+    ) -> None:
+        super().__init__(source)
+        self.colors = {str(c).upper() for c in colors} if colors else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         for player in context.players:
             for obj in list(player.graveyard):
+                if self.colors and not ((obj.colors or set()) & self.colors):
+                    continue
                 context.exile(obj)
 
 
@@ -6962,12 +7068,21 @@ class TriggerDoublerEffect(GameEffect):
     artifact** entering or leaving…" — a closed word list
     ("legendary"/"artifact"), union semantics, checked against the causing
     object named by the event's own ``instance_id``.
+
+    ``min_power``/``max_power`` (MEC-43 round 2, Delney, Streetwise
+    Lookout — "a triggered ability of a creature you control **with power
+    2 or less** triggers") is a third, independent scoping axis alongside
+    ``chosen_type``/``cause_filter``: a live board-state gate on the
+    doubled permanent's own current power instead of its type or the
+    firing event's shape (`continuous.trigger_doubler_bonus`).
     """
 
     def __init__(
         self,
         cause_filter: Optional[Union[str, list[str]]] = None,
         cause_type_filter: Optional[list[str]] = None,
+        min_power: Optional[int] = None,
+        max_power: Optional[int] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -6978,6 +7093,8 @@ class TriggerDoublerEffect(GameEffect):
         self.cause_type_filter = (
             [str(w).lower() for w in cause_type_filter] if cause_type_filter else None
         )
+        self.min_power = min_power
+        self.max_power = max_power
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None
@@ -7574,6 +7691,8 @@ class ReturnFromGraveyardEffect(GameEffect):
         subtype: Optional[str] = None,
         haste: bool = False,
         max_mana_value: Optional[int] = None,
+        tapped: bool = False,
+        trigger_subject_key: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -7583,6 +7702,22 @@ class ReturnFromGraveyardEffect(GameEffect):
         #: a temp keyword grant on the returned permanent, same idiom
         #: `CopyPermanentEffect.haste` uses.
         self.haste = haste
+        #: "…return it to the battlefield **tapped** under its owner's
+        #: control." (MEC-43 round 2, Tenacious Dead) — Persist/Undying-
+        #: shaped, but through the graveyard-recursion effect rather than
+        #: an in-place return, since this card's own trigger targets no
+        #: pre-existing "persist" mechanic.
+        self.tapped = tapped
+        #: "When ~ dies, you may pay `<cost>`. If you do, return **it** to
+        #: the battlefield…" (Tenacious Dead) — the object to return isn't
+        #: a fresh RULE 115 target at all, it's whatever fired this
+        #: ability's own trigger (mirrors `AddCountersEffect.
+        #: trigger_subject_key`'s ``"remembered"`` idiom exactly: reads
+        #: `GameObject.remembered_instance_id`, stamped by an outer
+        #: `PayCostThenEffect(remember_trigger_subject=True)` since
+        #: `context.trigger_event` is no longer live once the interactive
+        #: "if you do" choice resolves).
+        self.trigger_subject_key = trigger_subject_key
         # RULE 701.3 rider: "You lose life equal to that creature's mana
         # value." (Reanimate) — read off the returned card, paid by the
         # effect's own controller, after the return resolves.
@@ -7611,7 +7746,7 @@ class ReturnFromGraveyardEffect(GameEffect):
                 kind=target_kind, optional=optional, count=count, subtype=subtype,
                 max_mana_value=max_mana_value,
             )
-            if not self._self_enchant_mode else None
+            if not self._self_enchant_mode and not self.trigger_subject_key else None
         )
 
     def _apply_one(self, context: GameContext, target: Any) -> None:
@@ -7625,7 +7760,10 @@ class ReturnFromGraveyardEffect(GameEffect):
             # illegal target, but this is a static prevention, not that).
             from . import continuous  # local: continuous imports this module under TYPE_CHECKING
 
-            if continuous.graveyard_library_entry_prohibited(context.state, target.card):
+            target_zone = getattr(target, "zone", None)
+            if continuous.graveyard_library_entry_prohibited(
+                context.state, target.card, zone=getattr(target_zone, "value", None)
+            ):
                 return
         controller_id = None
         if self.under_your_control and self.destination == "battlefield":
@@ -7644,6 +7782,8 @@ class ReturnFromGraveyardEffect(GameEffect):
             context.created_objects.append(target)
             if self.haste:
                 target.temp_keywords.add("haste")
+            if self.tapped:
+                target.tapped = True
         if self.shuffle_after and owner_id is not None:
             owner = context.state.player_by_id(owner_id)
             context.shuffle_library(owner)
@@ -7656,6 +7796,17 @@ class ReturnFromGraveyardEffect(GameEffect):
         if self._self_enchant_mode:
             target_id = getattr(self.source, "reanimate_target_id", None)
             target = context.state.find_object(target_id) if target_id is not None else None
+            if target is None:
+                return
+            self._apply_one(context, target)
+            return
+        if self.trigger_subject_key:
+            obj_id = (
+                getattr(self.source, "remembered_instance_id", None)
+                if self.trigger_subject_key == "remembered"
+                else (context.trigger_event or {}).get(self.trigger_subject_key)
+            )
+            target = context.state.find_object(obj_id) if obj_id is not None else None
             if target is None:
                 return
             self._apply_one(context, target)
@@ -14200,6 +14351,7 @@ EffectRegistry.register(
         exclude_land=bool(p.get("exclude_land", False)),
         exclude_creature=bool(p.get("exclude_creature", False)),
         card_types=p.get("card_types"),
+        max_mana_value=p.get("max_mana_value"),
     ),
 )
 EffectRegistry.register(
@@ -14357,6 +14509,10 @@ EffectRegistry.register(
     lambda p: GraveyardRedirectToExileEffect(),
 )
 EffectRegistry.register(
+    "exchange_life_totals",  # "Two target players exchange life totals." (Soul Conduit)
+    lambda p: ExchangeLifeTotalsEffect(),
+)
+EffectRegistry.register(
     "lose_life",
     lambda p: LoseLifeEffect(
         amount=p.get("amount", 0), player=p.get("player"), selector=p.get("selector"),
@@ -14367,6 +14523,8 @@ EffectRegistry.register(
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_from_spells_cast_this_turn=bool(p.get("amount_from_spells_cast_this_turn", False)),
         amount_from_half_own_life=bool(p.get("amount_from_half_own_life", False)),
+        amount_from_half_target_life=bool(p.get("amount_from_half_target_life", False)),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -14661,7 +14819,9 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
     ),
 )
-EffectRegistry.register("exile_all_graveyards", lambda p: ExileAllGraveyardsEffect())
+EffectRegistry.register(
+    "exile_all_graveyards", lambda p: ExileAllGraveyardsEffect(colors=p.get("colors")),
+)
 EffectRegistry.register(
     "exile_graveyard_card_counter_if_permanent",  # Lion Sash
     lambda p: ExileGraveyardCardCounterIfPermanentEffect(
@@ -14803,9 +14963,10 @@ EffectRegistry.register(
     lambda p: SylvanLibraryEffect(life=int(p.get("life", 4)), count=int(p.get("count", 2))),
 )
 EffectRegistry.register(
-    "trigger_doubler",  # Roaming Throne / Elesh Norn, Mother of Machines
+    "trigger_doubler",  # Roaming Throne / Elesh Norn, Mother of Machines / Delney, Streetwise Lookout
     lambda p: TriggerDoublerEffect(
         cause_filter=p.get("cause_filter"), cause_type_filter=p.get("cause_type_filter"),
+        min_power=p.get("min_power"), max_power=p.get("max_power"),
     ),
 )
 EffectRegistry.register(
@@ -15020,6 +15181,8 @@ EffectRegistry.register(
         subtype=p.get("subtype"),
         max_mana_value=p.get("max_mana_value"),
         haste=bool(p.get("haste", False)),
+        tapped=bool(p.get("tapped", False)),
+        trigger_subject_key=p.get("trigger_subject_key"),
     ),
 )
 EffectRegistry.register(
@@ -16476,7 +16639,14 @@ EffectRegistry.register(
     # graveyard_redirect_active`.
     "graveyard_redirect",
     lambda p: StaticAbility(
-        "graveyard_redirect", affects="self", params={"scope": p.get("scope", "opponent")}
+        "graveyard_redirect", affects="self",
+        params={
+            "scope": p.get("scope", "opponent"),
+            # "…**black or red**…" (Sanctifier en-Vec, MEC-43 round 2) — a
+            # colour-scoped redirect instead of/alongside a graveyard-owner
+            # one; see `continuous.graveyard_redirect_active`.
+            **({"colors": [str(c).upper() for c in p["colors"]]} if p.get("colors") else {}),
+        },
     ),
 )
 EffectRegistry.register(
@@ -16916,7 +17086,13 @@ EffectRegistry.register(
     # choke point for Flashback/Escape/Jump-start, a Lurrus-shaped grant,
     # and `game/top_library.py`'s play/cast-from-the-top permission alike).
     "graveyard_library_cast_prohibition",
-    lambda p: StaticAbility("graveyard_library_cast_prohibition", affects="each_player", params={}),
+    lambda p: StaticAbility(
+        "graveyard_library_cast_prohibition", affects="each_player",
+        # MEC-43 round 2 (Kunoros, Hound of Athreos): "Players can't cast
+        # spells from **graveyards**" — no "or libraries" — narrows the
+        # otherwise-unscoped prohibition to just the named zone(s).
+        params={**({"zones": list(p["zones"])} if p.get("zones") else {})},
+    ),
 )
 EffectRegistry.register(
     # "`<type>` cards in graveyards and libraries can't enter the
@@ -16928,7 +17104,12 @@ EffectRegistry.register(
     "graveyard_library_entry_prohibition",
     lambda p: StaticAbility(
         "graveyard_library_entry_prohibition", affects="each_player",
-        params={"card_type": p.get("card_type", "creature")},
+        params={
+            "card_type": p.get("card_type", "creature"),
+            # MEC-43 round 2 (Kunoros): "creature cards in **graveyards**
+            # can't enter the battlefield" — no "and libraries".
+            **({"zones": list(p["zones"])} if p.get("zones") else {}),
+        },
     ),
 )
 EffectRegistry.register(

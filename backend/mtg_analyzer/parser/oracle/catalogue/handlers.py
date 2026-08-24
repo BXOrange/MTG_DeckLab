@@ -902,14 +902,16 @@ def _free_cast_from_hand(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: RULE 119/701.8's "Target opponent/player reveals their hand. You choose
-#: a `<filter>` card from it. That player discards that card." (Duress/
-#: Thoughtseize/Coercion/Distress-shaped — one of the most repeated hand-
+#: a `<filter>` card from it[ with mana value N or less]. That player
+#: discards that card[. You lose N life]." (Duress/Thoughtseize/Coercion/
+#: Distress/Inquisition of Kozilek-shaped — one of the most repeated hand-
 #: disruption templates in the cache). Deliberately just the five real
 #: filter phrasings found so far (bare/nonland/noncreature+nonland/
 #: creature-or-planeswalker/artifact-or-creature) rather than a fully
-#: general card-type grammar — a filter word not in this table (mana-value
-#: thresholds, "or a card from their graveyard", a trailing "you lose N
-#: life") stays unclaimed rather than guessed at.
+#: general card-type grammar, plus the two real trailing riders (MEC-43
+#: round 2: a mana-value cap on the chosen card — Inquisition of Kozilek —
+#: and the caster's own life loss — Thoughtseize) — "or a card from their
+#: graveyard" and any other rider stays unclaimed rather than guessed at.
 _HAND_DISRUPTION_FILTERS: dict[str, dict] = {
     "a card": {},
     "a nonland card": {"exclude_land": True},
@@ -920,7 +922,8 @@ _HAND_DISRUPTION_FILTERS: dict[str, dict] = {
 _HAND_DISRUPTION_RE = _c(
     rf"(?P<target>target opponent|target player) reveals their hand\. "
     rf"you choose (?P<filter>{'|'.join(re.escape(k) for k in _HAND_DISRUPTION_FILTERS)}) "
-    r"from it\. that player discards that card"
+    rf"from it(?: with mana value (?P<mv>\d+) or less)?"
+    r"\. that player discards that card(?:\. you lose (?P<life>\d+) life)?"
 )
 
 
@@ -929,7 +932,12 @@ def _hand_disruption_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind != "player":
         return None
     params: dict = {"target_kind": kind, **_HAND_DISRUPTION_FILTERS[m.group("filter")]}
-    return [EffectSpec("reveal_hand_choose_discard", params)]
+    if m.group("mv"):
+        params["max_mana_value"] = int(m.group("mv"))
+    specs = [EffectSpec("reveal_hand_choose_discard", params)]
+    if m.group("life"):
+        specs.append(EffectSpec("lose_life", {"amount": int(m.group("life"))}))
+    return specs
 
 
 #: RULE 701.28's "defending player reveals the top card of their library.

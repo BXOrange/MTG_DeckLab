@@ -405,18 +405,23 @@ _SKIP_UNTAP_STEPS_RE = re.compile(r"players skip their untap steps", re.IGNORECA
 # "Players can't cast spells from graveyards or libraries." (RULE
 # 601.3a-adjacent, Grafdigger's Cage/Weathered Runestone) — the last open
 # member of MEC-12's "players can't <verb>" family sweep.
+# MEC-43 round 2 (Kunoros, Hound of Athreos): "Players can't cast spells
+# from **graveyards**." — the graveyard-only sibling, no "or libraries" —
+# the trailing zone clause is optional so both phrasings match.
 _GRAVEYARD_LIBRARY_CAST_PROHIBITION_RE = re.compile(
-    r"players can'?t cast spells from graveyards or libraries", re.IGNORECASE
+    r"players can'?t cast spells from graveyards(?P<libraries> or libraries)?", re.IGNORECASE
 )
 # "Creature cards in graveyards and libraries can't enter the battlefield."
 # (Grafdigger's Cage) or "Nonland permanent cards in graveyards and
-# libraries can't enter the battlefield." (Weathered Runestone) — the
-# card-type word feeds `continuous.graveyard_library_entry_prohibited`'s
-# ``card_type`` param verbatim, except "nonland permanent" which is its own
-# sentinel (checked separately from the plain `_CARD_TYPE_ATTRS` words).
+# libraries can't enter the battlefield." (Weathered Runestone), or just
+# "Creature cards in **graveyards** can't enter the battlefield." (MEC-43
+# round 2, Kunoros — no "and libraries") — the card-type word feeds
+# `continuous.graveyard_library_entry_prohibited`'s ``card_type`` param
+# verbatim, except "nonland permanent" which is its own sentinel (checked
+# separately from the plain `_CARD_TYPE_ATTRS` words).
 _GRAVEYARD_LIBRARY_ENTRY_PROHIBITION_RE = re.compile(
     r"(?P<type>creature|artifact|enchantment|planeswalker|nonland permanent) cards "
-    r"in graveyards and libraries can'?t enter the battlefield",
+    r"in graveyards(?P<libraries> and libraries)? can'?t enter the battlefield",
     re.IGNORECASE,
 )
 
@@ -505,20 +510,26 @@ _UNTAP_CAP_RE = re.compile(
 # silences *every* triggered ability (including the entering creature's own)
 # that would otherwise fire off a matching battlefield-entry event, for as
 # long as this static is in play, regardless of whose creature it is.
+# "…or dying…" (MEC-43 round 2, Hushbringer) adds the DIES sibling as a
+# second `EffectSpec` rather than widening this one — the two are
+# independent `EventType`s the layer engine checks separately.
 _TRIGGER_PROHIBITION_RE = re.compile(
-    r"(?P<word>[a-z]+) entering don'?t cause abilities to trigger", re.IGNORECASE
+    r"(?P<word>[a-z]+) entering(?P<dying> or dying)? don'?t cause abilities to trigger", re.IGNORECASE
 )
 
-# "[Nonbasic] <type>[s] [and <type>[s]] your opponents control enter
-# tapped."  (RULE 614.1, board-wide — Manglehorn/Dauntless Dismantler's
-# "artifacts", Archon of Emeria's "nonbasic lands", Blind Obedience's
-# "artifacts and creatures") — distinct from `ability_catalogue.
-# enters_tapped` (a card's own printed tapped-entry clause about *itself*):
-# this is a standing effect from a *different* permanent, scoped to "your
-# opponents" and optionally narrowed to nonbasic. ``words`` may name two
-# card types joined by "and" (Blind Obedience), emitting one spec per type.
+# "[Nonbasic] <type>[s] [and [nonbasic] <type>[s]] your opponents control
+# enter tapped."  (RULE 614.1, board-wide — Manglehorn/Dauntless
+# Dismantler's "artifacts", Archon of Emeria's "nonbasic lands", Blind
+# Obedience's "artifacts and creatures", Thalia, Heretic Cathar's own mixed
+# "creatures and nonbasic lands" — MEC-43 round 2) — distinct from
+# `ability_catalogue.enters_tapped` (a card's own printed tapped-entry
+# clause about *itself*): this is a standing effect from a *different*
+# permanent, scoped to "your opponents". Each ``and``-joined part carries
+# its *own* optional "nonbasic" prefix (Thalia's creatures aren't nonbasic-
+# restricted, only her lands are) rather than one flag for the whole
+# clause; one spec is emitted per part (Blind Obedience/Thalia alike).
 _OPPONENTS_ENTER_TAPPED_RE = re.compile(
-    r"(?:(?P<nonbasic>nonbasic) )?(?P<words>[a-z]+(?: and [a-z]+)?) your opponents control enter tapped",
+    r"(?P<parts>(?:nonbasic )?[a-z]+(?: and (?:nonbasic )?[a-z]+)*) your opponents control enter tapped",
     re.IGNORECASE,
 )
 
@@ -2691,14 +2702,19 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     if _SKIP_UNTAP_STEPS_RE.fullmatch(text):
         return [EffectSpec("skip_untap_step", {})]
 
-    if _GRAVEYARD_LIBRARY_CAST_PROHIBITION_RE.fullmatch(text):
-        return [EffectSpec("graveyard_library_cast_prohibition", {})]
+    m = _GRAVEYARD_LIBRARY_CAST_PROHIBITION_RE.fullmatch(text)
+    if m is not None:
+        params: dict = {} if m.group("libraries") else {"zones": ["graveyard"]}
+        return [EffectSpec("graveyard_library_cast_prohibition", params)]
 
     m = _GRAVEYARD_LIBRARY_ENTRY_PROHIBITION_RE.fullmatch(text)
     if m is not None:
         word = m.group("type").lower()
         card_type = "nonland_permanent" if word == "nonland permanent" else word
-        return [EffectSpec("graveyard_library_entry_prohibition", {"card_type": card_type})]
+        params = {"card_type": card_type}
+        if not m.group("libraries"):
+            params["zones"] = ["graveyard"]
+        return [EffectSpec("graveyard_library_entry_prohibition", params)]
 
     if _RADIATION_LIFE_GAIN_RE.fullmatch(text):
         return [EffectSpec("radiation_life_gain", {})]
@@ -2751,22 +2767,29 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         subject_type = _singularize(m.group("word"))
         if subject_type not in _CARD_TYPE_WORDS:
             return None
-        return [
+        specs = [
             EffectSpec(
                 "trigger_prohibition",
                 {"event": "ENTERS_BATTLEFIELD", "subject_type": subject_type},
             )
         ]
+        if m.group("dying"):
+            specs.append(
+                EffectSpec("trigger_prohibition", {"event": "DIES", "subject_type": subject_type})
+            )
+        return specs
 
     m = _OPPONENTS_ENTER_TAPPED_RE.fullmatch(text)
     if m is not None:
-        card_types = [_singularize(w) for w in m.group("words").split(" and ")]
-        if any(t not in _CARD_TYPE_WORDS for t in card_types):
-            return None
         specs = []
-        for card_type in card_types:
+        for part in m.group("parts").split(" and "):
+            nonbasic = part.startswith("nonbasic ")
+            word = part[len("nonbasic "):] if nonbasic else part
+            card_type = _singularize(word)
+            if card_type not in _CARD_TYPE_WORDS:
+                return None
             params: dict = {"affects": "opponents_permanents", "card_type": card_type}
-            if m.group("nonbasic"):
+            if nonbasic:
                 params["nonbasic"] = True
             specs.append(EffectSpec("enters_tapped_static", params))
         return specs

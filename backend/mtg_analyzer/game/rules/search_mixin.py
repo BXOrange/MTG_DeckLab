@@ -1101,7 +1101,7 @@ class SearchMixin:
             self.shuffle_library(player)
         for obj, dest in zip(chosen, effective_destinations):
             if dest in ("battlefield", "battlefield_tapped") and continuous.graveyard_library_entry_prohibited(
-                self.state, obj.card
+                self.state, obj.card, zone=obj.zone.value
             ):
                 # RULE 601.3a-adjacent: "`<type>` cards in graveyards and
                 # libraries can't enter the battlefield." (Grafdigger's

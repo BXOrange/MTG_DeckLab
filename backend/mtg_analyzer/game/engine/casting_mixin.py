@@ -405,7 +405,7 @@ class CastingMixin:
         # the top-of-library permission); hand/command/exile castability is
         # unaffected.
         if obj.zone in (Zone.GRAVEYARD, Zone.LIBRARY) and continuous.graveyard_library_cast_prohibited(
-            self.state
+            self.state, zone=obj.zone.value
         ):
             return False
         card = self._face_card(obj, face)

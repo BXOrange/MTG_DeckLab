@@ -121,6 +121,13 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "is_monarch",  # "as long as you're the monarch"
         "has_initiative",  # "as long as you have the initiative"
         "has_city_blessing",  # "as long as you have the city's blessing"
+        # -- Combinator (MEC-43 round 2, Conqueror's Flail's "As long as
+        # this Equipment is attached to a creature, your opponents can't
+        # cast spells during your turn." — two independent gates ANDed in
+        # one clause, which no single ``kind`` above can express on its
+        # own). + ``conditions`` — a list of these same condition dicts,
+        # every one of which must hold.
+        "all",
     }
 )
 
@@ -222,6 +229,14 @@ def condition_holds(
     kind = condition.get("kind")
     if kind not in STATIC_CONDITION_KINDS:
         return False  # fail closed — an unmodeled condition never applies
+
+    if kind == "all":
+        # Recurses before touching ``subject`` below — a combinator has no
+        # subject of its own, only the sub-conditions it ANDs together.
+        return all(
+            condition_holds(sub, state, source, controller_id, affected)
+            for sub in (condition.get("conditions") or [])
+        )
 
     # Which object the subject-scoped rows below read: the source itself by
     # default, or an attached host / a floating static's affected permanent.
@@ -452,6 +467,9 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
     if not condition:
         return ""
     kind = str(condition.get("kind", ""))
+    if kind == "all":
+        parts = [describe(sub).removeprefix("solange ") for sub in (condition.get("conditions") or [])]
+        return "solange " + " und ".join(p for p in parts if p) if parts else "bedingt"
     # The subject-scoped rows read "solange <X>"; with ``of`` naming something
     # other than the source, say which permanent is meant.
     of = condition.get("of") or "source"

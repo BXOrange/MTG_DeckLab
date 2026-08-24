@@ -515,13 +515,24 @@ def _build_group_ok(
                 types = sorted(obj.type_words) if obj is not None else None
             if not types:
                 return False
-            if tword.startswith("non"):
-                # "whenever you tap a **nonland** permanent for mana"
-                # (Kinnan) — a negated main type, the only shape the
-                # positive `tword in types` test can't express.
-                if tword[3:] in types:
-                    return False
-            elif tword not in types:
+            # "an ability of a **creature or land**…" (MEC-43 round 2,
+            # Runic Armasaur, hand-authored) — `tword` a list means "any of
+            # these", the OR sibling of the single-string check below;
+            # every parser-emitted condition still passes a bare string.
+            words = tword if isinstance(tword, (list, tuple)) else (tword,)
+            matched = False
+            for word in words:
+                if word.startswith("non"):
+                    # "whenever you tap a **nonland** permanent for mana"
+                    # (Kinnan) — a negated main type, the only shape the
+                    # positive `word in types` test can't express.
+                    if word[3:] not in types:
+                        matched = True
+                        break
+                elif word in types:
+                    matched = True
+                    break
+            if not matched:
                 return False
         if stypes:
             if want_nontoken and event.get("is_token"):

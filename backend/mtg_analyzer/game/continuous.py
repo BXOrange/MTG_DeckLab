@@ -786,6 +786,19 @@ def count_selector(
         if controller_id is None:
             return 0
         return state.nonartifact_spells_cast_this_turn.get(controller_id, 0)
+    if selector == "colors_among_permanents_you_control":
+        # "…gets +1/+1 for each color among permanents you control."
+        # (MEC-43 round 2, Conqueror's Flail/Faeburrow Elder) — the P/T-
+        # anthem sibling of `ManaAbility.color_selector`'s own same-named
+        # entry (ENG-27, Bloom Tender): count, don't enumerate, since a
+        # `count_selector` answers "how many", not "which".
+        if controller_id is None:
+            return 0
+        colors_present: set[str] = set()
+        for permanent in bf:
+            if permanent.controller_id == controller_id:
+                colors_present |= (permanent.colors or set())
+        return len(colors_present)
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
     if selector == "multicolored_permanents_you_control":
@@ -2484,9 +2497,21 @@ def graveyard_redirect_active(state: "GameState", obj: Any) -> bool:
     opponent's graveyard" (``scope="opponent"``, the default) and every
     graveyard (``scope="any"``). Checked from `RulesEngine._move_to_
     graveyard`'s redirect chain, right alongside the void-counter one.
+
+    ``colors`` (MEC-43 round 2, Sanctifier en-Vec — "If a **black or red**
+    permanent, spell, or card not on the battlefield would be put into a
+    graveyard, exile it instead.") is a second, independent scoping axis:
+    whose-graveyard (``scope``) and which-card (``colors``) both gate when
+    both are set, matching how Sanctifier's own clause names no owner —
+    unlike Leyline/Rest in Peace, it's whose-*color*-scoped, not
+    whose-*graveyard*-scoped, so it always passes ``scope="any"``
+    alongside its own ``colors`` list.
     """
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "graveyard_redirect":
+            continue
+        colors = ability.params.get("colors")
+        if colors and not (set(getattr(obj, "colors", None) or ()) & set(colors)):
             continue
         if ability.params.get("scope", "opponent") == "any":
             return True
@@ -2723,7 +2748,7 @@ def activation_prohibited(
     return False
 
 
-def graveyard_library_cast_prohibited(state: "GameState") -> bool:
+def graveyard_library_cast_prohibited(state: "GameState", zone: Optional[str] = None) -> bool:
     """RULE 601.3a: "Players can't cast spells from graveyards or
     libraries." (Grafdigger's Cage/Weathered Runestone) — a flat, unscoped
     prohibition (no card in the cache prints a "you"-only version) over
@@ -2734,14 +2759,25 @@ def graveyard_library_cast_prohibited(state: "GameState") -> bool:
     all of them, checked once ``obj`` is already known to be sitting in a
     graveyard or library rather than duplicated into each permission
     source separately.
+
+    ``zone`` (MEC-43 round 2, Kunoros, Hound of Athreos — "Players can't
+    cast spells from **graveyards**", no "or libraries") is the object's own
+    current zone name ("graveyard"/"library"); a static whose own ``zones``
+    param doesn't include it doesn't apply. Omitted (the historic call
+    shape) means "don't care which zone", matching every prior card, which
+    all print the unscoped "graveyards or libraries" pair.
     """
-    return any(
-        ability.layer == "graveyard_library_cast_prohibition"
-        for ability in _battlefield_static_abilities(state)
-    )
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "graveyard_library_cast_prohibition":
+            continue
+        zones = ability.params.get("zones")
+        if zones and zone is not None and zone not in zones:
+            continue
+        return True
+    return False
 
 
-def graveyard_library_entry_prohibited(state: "GameState", card: Any) -> bool:
+def graveyard_library_entry_prohibited(state: "GameState", card: Any, zone: Optional[str] = None) -> bool:
     """RULE 601.3a-adjacent "`<type>` cards in graveyards and libraries
     can't enter the battlefield." (Grafdigger's Cage's ``"creature"``,
     Weathered Runestone's ``"nonland permanent"``) — checked wherever a
@@ -2757,9 +2793,18 @@ def graveyard_library_entry_prohibited(state: "GameState", card: Any) -> bool:
     per-card route missing this check is a documented simplification, the
     same shape this repo already accepts for other narrow gaps rather than
     reworking a foundational model method's contract for it).
+
+    ``zone`` (MEC-43 round 2, Kunoros, Hound of Athreos — "Creature cards
+    in **graveyards** can't enter the battlefield", no "and libraries")
+    is the card's own current zone name; a static whose own ``zones`` param
+    doesn't include it doesn't apply. Omitted means "don't care", matching
+    every prior (unscoped, "graveyards and libraries") card.
     """
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "graveyard_library_entry_prohibition":
+            continue
+        zones = ability.params.get("zones")
+        if zones and zone is not None and zone not in zones:
             continue
         filt = str(ability.params.get("card_type", "creature"))
         if filt == "nonland_permanent":
@@ -3663,11 +3708,28 @@ def trigger_doubler_bonus(state: "GameState", obj: "GameObject", event: Any = No
         return 0
     bonus = 0
     for doubler in state.battlefield:
-        if doubler is obj or doubler.controller_id != obj.controller_id:
+        if doubler.controller_id != obj.controller_id:
             continue
         for effect in getattr(doubler, "static_effects", None) or []:
             if not isinstance(effect, TriggerDoublerEffect):
                 continue
+            if effect.min_power is not None or effect.max_power is not None:
+                # "…a triggered ability of a creature you control with
+                # power 2 or less triggers…" (MEC-43 round 2, Delney,
+                # Streetwise Lookout) — a board-state gate on ``obj``
+                # itself, unlike ``chosen_type``'s RULE 601.2b choice; the
+                # printed clause names no "another", so (unlike the
+                # ``chosen_type`` branch below) the doubler's own triggers
+                # may double themselves too.
+                power = obj.power or 0
+                if effect.min_power is not None and power < effect.min_power:
+                    continue
+                if effect.max_power is not None and power > effect.max_power:
+                    continue
+                bonus += 1
+                continue
+            if doubler is obj:
+                continue  # "another creature you control" (Roaming Throne/Elesh Norn)
             if effect.cause_filter is not None:
                 if event is None or event.type not in effect.cause_filter:
                     continue

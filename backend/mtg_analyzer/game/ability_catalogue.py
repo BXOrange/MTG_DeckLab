@@ -22017,3 +22017,445 @@ def _jeweled_amulet() -> list[AbilitySpec]:
 
 
 register("Jeweled Amulet", _jeweled_amulet)
+
+
+def _sanctifier_en_vec() -> list[AbilitySpec]:
+    """Protection from black and from red
+    When this creature enters, exile all cards that are black or red from
+    all graveyards.
+    If a black or red permanent, spell, or card not on the battlefield
+    would be put into a graveyard, exile it instead.
+
+    — MEC-43 round 2. Protection comes from the RULE 702 keyword catalogue
+    (unaffected by hand-authoring — read straight off the printed card
+    regardless of registration). The ETB sweep reuses `exile_all_
+    graveyards`' new `colors` filter (round 1's Rest in Peace made the
+    selector itself; this just narrows it). The replacement reuses round
+    1's `graveyard_redirect` static with its new `colors` param instead of
+    `scope` — Sanctifier's clause names no owner at all, so it always
+    passes ``scope="any"`` alongside the colour filter that does the real
+    work.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile_all_graveyards", {"colors": ["B", "R"]})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, exiliere alle schwarzen "
+                     "oder roten Karten aus allen Friedhöfen.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("graveyard_redirect", {"scope": "any", "colors": ["B", "R"]})],
+            raw_text="Falls ein schwarzes oder rotes Permanent, ein solcher Zauberspruch "
+                     "oder eine solche Karte, die sich nicht im Spiel befindet, in einen "
+                     "Friedhof gelegt werden würde, exiliere sie stattdessen.",
+        ),
+    ]
+
+
+register("Sanctifier en-Vec", _sanctifier_en_vec)
+
+
+def _beacon_of_unrest() -> list[AbilitySpec]:
+    """Put target artifact or creature card from a graveyard onto the
+    battlefield under your control. Shuffle Beacon of Unrest into its
+    owner's library.
+
+    — MEC-43 round 2, the reanimation-family batch. ``target_kind=
+    "graveyard_artifact_or_creature"`` is the new combined graveyard-
+    target filter; ``shuffle_self_into_library`` (Green Sun's Zenith) is
+    reused verbatim for the second clause.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("return_from_graveyard", {
+                    "target_kind": "graveyard_artifact_or_creature", "under_your_control": True,
+                }),
+                EffectSpec("shuffle_self_into_library", {}),
+            ],
+            raw_text="Bringe eine Zielkarte eines Artefakts oder einer Kreatur aus einem "
+                     "Friedhof unter deine Kontrolle ins Spiel. Mische ~ in die Bibliothek "
+                     "seines Besitzers.",
+        )
+    ]
+
+
+register("Beacon of Unrest", _beacon_of_unrest)
+
+
+def _rise_from_the_grave() -> list[AbilitySpec]:
+    """Put target creature card from a graveyard onto the battlefield
+    under your control. That creature is a black Zombie in addition to
+    its other colors and types.
+
+    — MEC-43 round 2. The type/colour addition is `grant_until`'s
+    ``previous_subject``/``duration="rest_of_game"`` combination (RULE
+    611.2c — a resolving spell's own effect with no stated duration lasts
+    indefinitely), reading back the just-reanimated creature the same way
+    "It fights…" reads a prior clause's target — RULE 400.7 keeps the
+    object's `instance_id` (and so its place in `previous_targets`) stable
+    across the graveyard-to-battlefield zone change.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("return_from_graveyard", {
+                    "target_kind": "graveyard_creature", "under_your_control": True,
+                }),
+                EffectSpec("grant_until", {
+                    "previous_subject": True, "duration": "rest_of_game",
+                    "static": {"type": "type_change", "params": {"add_subtypes": ["Zombie"]}},
+                }),
+                EffectSpec("grant_until", {
+                    "previous_subject": True, "duration": "rest_of_game",
+                    "static": {"type": "color_change", "params": {"colors": ["B"], "set": False}},
+                }),
+            ],
+            raw_text="Bringe eine Zielkreaturenkarte aus einem Friedhof unter deine "
+                     "Kontrolle ins Spiel. Diese Kreatur ist zusätzlich zu ihren anderen "
+                     "Farben und Typen ein schwarzer Zombie.",
+        )
+    ]
+
+
+register("Rise from the Grave", _rise_from_the_grave)
+
+
+def _tenacious_dead() -> list[AbilitySpec]:
+    """When this creature dies, you may pay {1}{B}. If you do, return it
+    to the battlefield tapped under its owner's control.
+
+    — MEC-43 round 2. ``remember_trigger_subject`` (`PayCostThenEffect`)
+    stamps the dying creature's own `instance_id` onto `GameObject.
+    remembered_instance_id` before the interactive pay-or-decline choice
+    opens (`context.trigger_event` is only live for the first, synchronous
+    `apply()` call — the "if you do" branch runs later); the new
+    `return_from_graveyard` `trigger_subject_key="remembered"` mode reads
+    it back instead of taking a RULE 115 target, and the new ``tapped``
+    param is the printed "return it to the battlefield **tapped**".
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("pay_cost_then", {
+                "cost": "{1}{B}",
+                "remember_trigger_subject": True,
+                "effects": [{
+                    "type": "return_from_graveyard",
+                    "params": {"trigger_subject_key": "remembered", "tapped": True},
+                }],
+            })],
+            trigger={"event": EventType.DIES, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur stirbt, darfst du {1}{B} bezahlen. Falls du dies "
+                     "tust, bringe sie getappt unter die Kontrolle ihres Besitzers ins Spiel.",
+        )
+    ]
+
+
+register("Tenacious Dead", _tenacious_dead)
+
+
+def _chainer_dementia_master() -> list[AbilitySpec]:
+    """All Nightmares get +1/+1.
+    {B}{B}{B}, Pay 3 life: Put target creature card from a graveyard onto
+    the battlefield under your control. That creature is black and is a
+    Nightmare in addition to its other creature types.
+    When Chainer leaves the battlefield, exile all Nightmares.
+
+    — MEC-43 round 2. The anthem is reproduced verbatim (whole-card
+    hand-authoring replaces the parser's own output, which would
+    otherwise have claimed it alone). The reanimation ability reuses
+    `grant_until`'s type/colour addition exactly like Rise from the Grave;
+    "Pay 3 life" is a plain life-payment cost component. The leaves
+    trigger reuses `exile_all_graveyards`'s sibling mass-exile shape via
+    the new ``"exile"`` ``filter={"subtype": ...}`` key — a *battlefield*
+    sweep this time, not a graveyard one.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "all_creatures", "subtype": "nightmare", "power": 1, "toughness": 1})],
+            raw_text="Alle Alpträume erhalten +1/+1.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("return_from_graveyard", {
+                    "target_kind": "graveyard_creature", "under_your_control": True,
+                }),
+                EffectSpec("grant_until", {
+                    "previous_subject": True, "duration": "rest_of_game",
+                    "static": {"type": "type_change", "params": {"add_subtypes": ["Nightmare"]}},
+                }),
+                EffectSpec("grant_until", {
+                    "previous_subject": True, "duration": "rest_of_game",
+                    "static": {"type": "color_change", "params": {"colors": ["B"], "set": False}},
+                }),
+            ],
+            cost={"text": "{B}{B}{B}", "pay_life": 3},
+            raw_text="{B}{B}{B}, Bezahle 3 Lebenspunkte: Bringe eine Zielkreaturenkarte "
+                     "aus einem Friedhof unter deine Kontrolle ins Spiel. Diese Kreatur ist "
+                     "schwarz und zusätzlich zu ihren anderen Kreaturentypen ein Alptraum.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile", {"selector": "all_creatures", "filter": {"subtype": "nightmare"}})],
+            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn Chainer das Spielfeld verlässt, exiliere alle Alpträume.",
+        ),
+    ]
+
+
+register("Chainer, Dementia Master", _chainer_dementia_master)
+
+
+def _kenriths_transformation() -> list[AbilitySpec]:
+    """Enchant creature
+    When this Aura enters, draw a card.
+    Enchanted creature loses all abilities and is a green Elk creature
+    with base power and toughness 3/3.
+
+    — MEC-43 round 2, the "Elk" template (Oko, Thief of Crowns' +1 shares
+    the same clause but needs its own resolve-time `grant_until` wiring
+    plus its other two loyalty abilities — a bigger lift left open).
+    "Enchant creature"/the attach itself comes from the RULE 702 keyword
+    catalogue, unaffected by hand-authoring. **Documented simplification**:
+    only the creature type is *added* (`type_change`'s ``add_types``), the
+    permanent's other printed card types aren't stripped — `Card.
+    is_artifact`/``is_enchantment`` read the printed card directly, not a
+    layer-4-aware property (`GameObject.is_land`'s own docstring already
+    flags this as a gap worth extending, not yet done) — low practical
+    impact, since the Elk has no abilities left to use any type distinction.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Verzauberung ins Spiel kommt, ziehe eine Karte.",
+        ),
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("remove_all_abilities", {"affects": "attached_permanent"}),
+                EffectSpec("type_change", {
+                    "affects": "attached_permanent", "add_types": ["creature"],
+                    "set_subtypes": ["Elk"], "power": 3, "toughness": 3,
+                }),
+                EffectSpec("color_change", {"affects": "attached_permanent", "colors": ["G"], "set": True}),
+            ],
+            raw_text="Verzauberte Kreatur verliert alle Fähigkeiten und ist ein grüner "
+                     "Elch mit den Grundwerten 3/3.",
+        ),
+    ]
+
+
+register("Kenrith's Transformation", _kenriths_transformation)
+
+
+def _conquerors_flail() -> list[AbilitySpec]:
+    """Equipped creature gets +1/+1 for each color among permanents you
+    control.
+    As long as this Equipment is attached to a creature, your opponents
+    can't cast spells during your turn.
+    Equip {2}
+
+    — MEC-43 round 2. The anthem reuses the new `count_selector`
+    ``"colors_among_permanents_you_control"`` (the P/T sibling of ENG-27's
+    same-named mana-ability selector). The cast lockdown needs two
+    independent gates ANDed at once — attached, and only during the
+    Equipment's controller's own turn — which no single `static_
+    conditions` ``kind`` could express before this batch's new ``"all"``
+    combinator. "Equip {2}" is the RULE 702.6 keyword, unaffected by
+    hand-authoring.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {
+                "affects": "attached_permanent", "power": 1, "toughness": 1,
+                "power_count": "colors_among_permanents_you_control",
+                "toughness_count": "colors_among_permanents_you_control",
+            })],
+            raw_text="Bezauberte Kreatur erhält +1/+1 für jede Farbe unter den Permanenten, "
+                     "die du kontrollierst.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("cast_prohibition", {
+                "scope": "opponents",
+                "active_if": {
+                    "kind": "all",
+                    "conditions": [{"kind": "source_attached"}, {"kind": "your_turn"}],
+                },
+            })],
+            raw_text="Solange diese Ausrüstung an eine Kreatur angelegt ist, können deine "
+                     "Gegner während deines Zuges keine Zaubersprüche wirken.",
+        ),
+    ]
+
+
+register("Conqueror's Flail", _conquerors_flail)
+
+
+def _faeburrow_elder() -> list[AbilitySpec]:
+    """Vigilance
+    This creature gets +1/+1 for each color among permanents you control.
+    {T}: For each color among permanents you control, add one mana of
+    that color.
+
+    — MEC-43 round 2. Vigilance and the mana ability both already parse on
+    their own (the latter via `mana_abilities_for`'s own oracle-text read,
+    entirely independent of `bind_from_catalogue`/hand-authoring — see
+    CLAUDE.md's RULE 605 note); only the P/T anthem needs hand-authoring,
+    reusing Conqueror's Flail's own new ``colors_among_permanents_you_
+    control`` selector with ``affects="self"``.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {
+                "affects": "self", "power": 1, "toughness": 1,
+                "power_count": "colors_among_permanents_you_control",
+                "toughness_count": "colors_among_permanents_you_control",
+            })],
+            raw_text="~ erhält +1/+1 für jede Farbe unter den Permanenten, die du "
+                     "kontrollierst.",
+        )
+    ]
+
+
+register("Faeburrow Elder", _faeburrow_elder)
+
+
+def _delney_streetwise_lookout() -> list[AbilitySpec]:
+    """Creatures you control with power 2 or less can't be blocked by
+    creatures with power 3 or greater.
+    If a triggered ability of a creature you control with power 2 or less
+    triggers, that ability triggers an additional time.
+
+    — MEC-43 round 2. The first clause is the already-shipped qualified
+    combat-restriction shape (Challenger Troll/Flopsie's own group
+    ``min_power``/``max_power`` scoping, here on the *restricted* side
+    instead), just with a blocker-power filter instead of a group-scope
+    P/T qualifier. The second reuses `TriggerDoublerEffect`'s new
+    ``max_power`` axis — unscoped by "another" (the printed clause names
+    none, unlike Roaming Throne's), so Delney's own future triggers would
+    double themselves too, though this card prints no other trigger of
+    its own for that to matter today.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("combat_restriction", {
+                "affects": "creatures_you_control", "max_power": 2,
+                "kind": "cant_be_blocked_by", "filter": {"min_power": 3},
+            })],
+            raw_text="Kreaturen, die du kontrollierst und die Stärke 2 oder weniger haben, "
+                     "können nicht von Kreaturen mit Stärke 3 oder mehr geblockt werden.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("trigger_doubler", {"max_power": 2})],
+            raw_text="Falls eine ausgelöste Fähigkeit einer Kreatur, die du kontrollierst "
+                     "und die Stärke 2 oder weniger hat, ausgelöst wird, wird sie ein "
+                     "zusätzliches Mal ausgelöst.",
+        ),
+    ]
+
+
+register("Delney, Streetwise Lookout", _delney_streetwise_lookout)
+
+
+def _runic_armasaur() -> list[AbilitySpec]:
+    """Whenever an opponent activates an ability of a creature or land
+    that isn't a mana ability, you may draw a card.
+
+    — MEC-43 round 2. `EventType.ACTIVATED_ABILITY` already fires for
+    every non-mana activated ability (RULE 605.1a mana abilities never use
+    the stack, so they never reach this event at all — "isn't a mana
+    ability" needs no separate check), with `object_types`/``controller_id``
+    already matching this trigger's own default group-subject keys. The
+    only real gap was the group-subject ``type`` filter's shape: it only
+    ever took one word before this batch, and "creature or land" needs
+    two ORed together (`effect_binder._group_ok`'s new list-``type``
+    support). **Documented simplification**: "may" is read as
+    unconditional, the same accepted convention every other untargeted
+    "you may draw"/"you may `<upside>`" trigger with no real downside to
+    declining already gets in this engine (Selvala, Heart of the Wilds's
+    own docstring names the same precedent).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1})],
+            trigger={
+                "event": EventType.ACTIVATED_ABILITY,
+                "condition": {"subject": "group", "type": ["creature", "land"], "controller": "not_you"},
+            },
+            raw_text="Immer wenn ein Gegner eine Fähigkeit einer Kreatur oder eines Landes "
+                     "aktiviert, die keine Manafähigkeit ist, darfst du eine Karte ziehen.",
+        )
+    ]
+
+
+register("Runic Armasaur", _runic_armasaur)
+
+
+def _peer_into_the_abyss() -> list[AbilitySpec]:
+    """Target player draws cards equal to half the number of cards in
+    their library and loses half their life. Round up each time.
+
+    — MEC-43 round 2. `DrawCardEffect`'s new ``count_selector=
+    "half_target_library_round_up"`` and `LoseLifeEffect`'s new
+    ``amount_from_half_target_life`` are the *targeted* siblings of the
+    existing "half your own life" shapes (MEC-37's Doomsday), both scoped
+    to whichever player the single "target player" resolves to rather
+    than the caster. `LoseLifeEffect.previous_subject` reads that same
+    resolved target back (`GameContext.previous_targets`) instead of
+    declaring a second RULE 115 target of its own — the real card only
+    targets once, for both verbs.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("draw", {
+                    "target_kind": "player", "count_selector": "half_target_library_round_up",
+                }),
+                EffectSpec("lose_life", {
+                    "previous_subject": True, "amount_from_half_target_life": True,
+                }),
+            ],
+            raw_text="Zielspieler zieht so viele Karten, wie die Hälfte der Karten in "
+                     "seiner Bibliothek beträgt, und verliert die Hälfte seines Lebens. "
+                     "Runde jeweils auf.",
+        )
+    ]
+
+
+register("Peer into the Abyss", _peer_into_the_abyss)
+
+
+def _soul_conduit() -> list[AbilitySpec]:
+    """{6}, {T}: Two target players exchange life totals.
+
+    — MEC-43 round 2. The new `ExchangeLifeTotalsEffect` — a genuinely new
+    one-shot, since every other life effect in this engine is a single-
+    player delta.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("exchange_life_totals", {})],
+            cost={"text": "{6}", "taps_self": True},
+            raw_text="{6}, {T}: Zwei Zielspieler tauschen ihre Lebenspunkte.",
+        )
+    ]
+
+
+register("Soul Conduit", _soul_conduit)

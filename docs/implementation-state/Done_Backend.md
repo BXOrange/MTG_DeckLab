@@ -4070,6 +4070,211 @@ return value), `game/costs.py` (`note_spent_color`), `game/ability_
 catalogue.py` (all 22 cards).
 **Tests:** `tests/test_mec43_near_free_reuses.py` (new, 16 tests).
 
+### MEC-43: round 2, 17 more near-free reuses (`cEDH staples 2`/`K'rrik cEDH`)
+
+A fresh 2026-08-24 diagnosis (built on the newly-shipped `scripts/deck_
+coverage.py`, MEC-44 below) found 74 more uncovered names across the two
+decks' now-verified coverage numbers; 17 closed the same day, each again
+a small param-widening rather than a new subsystem. 5 closed purely
+through the *parser*, no hand-authoring:
+
+- **`graveyard_library_cast_prohibition`/`_entry_prohibition` gained a
+  `zones` param** (Kunoros, Hound of Athreos — "Players can't cast spells
+  from **graveyards**"/"Creature cards in **graveyards** can't enter the
+  battlefield", no "or/and libraries" on either clause, unlike every
+  prior card on this static): `continuous.graveyard_library_cast_
+  prohibited`/`_entry_prohibited` both gained an optional `zone` param
+  (the mover's own current zone name), checked against the static's
+  `zones` list when set; the three real call sites (`GameEngine.can_
+  cast`, `SearchLibraryEffect`'s battlefield placement,
+  `ReturnFromGraveyardEffect._apply_one`) now pass the object's actual
+  zone. The parser regexes widened to make the "or/and libraries" tail
+  optional, emitting `zones=["graveyard"]` when it's absent.
+- **`trigger_prohibition` gained a DIES sibling via a second `EffectSpec`**
+  (Hushbringer — "Creatures entering **or dying** don't cause abilities
+  to trigger"): the parser regex's "or dying" tail, when present, emits
+  a second `trigger_prohibition` spec with `event="DIES"` alongside the
+  existing `ENTERS_BATTLEFIELD` one — no engine change at all, since the
+  static already took an arbitrary `event` string.
+- **`enters_tapped_static`'s `nonbasic` flag moved from clause-wide to
+  per-word** (Thalia, Heretic Cathar — "Creatures **and nonbasic lands**
+  your opponents control enter tapped": creatures aren't nonbasic-
+  restricted, only the lands are, a mix the old single-flag grammar
+  couldn't express). The parser regex now captures each `and`-joined part
+  with its own optional "nonbasic " prefix and emits one spec per part —
+  Blind Obedience's older two-type case and every single-type case still
+  parse identically.
+- **`reveal_hand_choose_discard` gained `max_mana_value`** (Inquisition
+  of Kozilek's "…a nonland card from it **with mana value 3 or less**")
+  **and the parser regex gained an optional trailing `lose_life` rider**
+  (Thoughtseize's "…That player discards that card. **You lose 2
+  life.**") — the two riders this effect's own docstring had flagged as
+  deliberately out of scope when it first shipped (MEC-43 round 1).
+
+12 more closed hand-authored, needing a mix of genuinely new and widened
+primitives:
+
+- **The reanimation family's own wrinkles**: `targeting._GRAVEYARD_TYPE_
+  FILTERS` gained `"artifact_or_creature"` (Beacon of Unrest's "artifact
+  or creature card"), closing it together with the already-shipped
+  `shuffle_self_into_library` (Green Sun's Zenith). Rise from the
+  Grave/Chainer, Dementia Master's own "that creature is a black
+  `<type>` in addition to its other colors and types" needed a *standing*
+  type/colour grant on a specific reanimated object — `GrantUntilEffect`'s
+  existing `previous_subject`/`duration` combo turned out to already
+  cover it exactly: `duration="rest_of_game"` (RULE 611.2c's "no stated
+  duration = indefinite", already a real `durations.py` value, just never
+  paired with `previous_subject` before) reading back the just-reanimated
+  creature the same way "It fights…" reads a prior clause's target — RULE
+  400.7 keeps the object's `instance_id` stable across the graveyard-to-
+  battlefield move, so `GameContext.previous_targets` still resolves to
+  it. Tenacious Dead's "when ~ dies, you may pay `<cost>`. If you do,
+  return **it** to the battlefield tapped" needed two small additions to
+  `ReturnFromGraveyardEffect`: a `tapped` param (stamped alongside the
+  existing `haste`), and a `trigger_subject_key="remembered"` mode
+  (mirroring `AddCountersEffect`'s own, reading `GameObject.remembered_
+  instance_id` instead of taking a RULE 115 target) — since `context.
+  trigger_event` is only live for `PayCostThenEffect`'s first, synchronous
+  `apply()` call, `remember_trigger_subject=True` stamps the dying
+  creature's own id before the interactive pay-or-decline choice opens,
+  and the deferred "if you do" branch reads it back once answered.
+  Chainer's own repeatable activated reanimation reuses all of the above
+  plus a plain anthem ("All Nightmares get +1/+1") and its "when Chainer
+  leaves the battlefield, exile all Nightmares" trigger needed one more
+  small addition — `_mass_selector_objects` (the `DestroyEffect`/
+  `ExileEffect`/`ReturnToHandEffect` mass-wipe helper) gained a `subtype`
+  filter key, delegating to `combat.matches_object_filter` rather than a
+  bare type-line read since the Nightmare subtype here is *granted*
+  (Chainer's own reanimation), not printed.
+- **Sanctifier en-Vec**: `ExileAllGraveyardsEffect` (Farewell-shaped mass
+  exile) gained a `colors` filter for its ETB sweep, and `graveyard_
+  redirect` (Leyline of the Void/Rest in Peace's static, round 1) gained
+  its own independent `colors` param alongside `scope` — Sanctifier's
+  "if a black or red permanent/spell/card would be put into a graveyard"
+  is colour-scoped, not owner-scoped, so it always passes `scope="any"`
+  with the colour filter doing the real work.
+  `continuous.graveyard_redirect_active` now checks `colors` (an OR set
+  against `GameObject.colors`) before falling through to the `scope` gate.
+- **Kenrith's Transformation, the "Elk" template**: "loses all abilities
+  and is a green Elk creature with base power and toughness 3/3" is
+  `remove_all_abilities` + `type_change` (`add_types=["creature"]`,
+  `set_subtypes=["Elk"]`, `power`/`toughness`) + `color_change`
+  (`colors=["G"], set=True`), all three composed on `affects="attached_
+  permanent"` — no new primitive at all, just three already-shipped
+  statics on one Aura. **Documented simplification**: only the creature
+  type is *added*, the permanent's other printed card types (artifact,
+  etc.) aren't stripped, since `Card.is_artifact`/`is_enchantment` read
+  the printed card directly rather than a layer-4-`_removed_types`-aware
+  property the way `GameObject.is_land`/`is_creature` already do — low
+  practical impact, since the Elk has no abilities left to use any type
+  distinction. Oko, Thief of Crowns' +1 shares the same clause but needs
+  its own resolve-time `grant_until` wiring plus Oko's other two loyalty
+  abilities — left open (`BACKLOG.md`).
+- **Conqueror's Flail/Faeburrow Elder's shared anthem**: `continuous.
+  count_selector` gained `"colors_among_permanents_you_control"` (the
+  P/T-anthem sibling of ENG-27's same-named `ManaAbility.color_selector`
+  entry, Bloom Tender) — no change needed to the `"anthem"` static itself,
+  which already supported a `power_count`/`toughness_count` selector.
+  Conqueror's Flail's second clause — "As long as this Equipment is
+  attached to a creature, your opponents can't cast spells during your
+  turn" — needed two conditions ANDed at once (`source_attached` +
+  `your_turn`), which no single `static_conditions` `kind` could express;
+  `static_conditions.condition_holds` gained a genuinely new `"all"`
+  combinator kind (`{"kind": "all", "conditions": [...]}`, recursing over
+  each sub-condition) — general, reusable infrastructure for any future
+  "as long as X and Y" clause, not a one-off for this card.
+- **Delney, Streetwise Lookout**: its first clause ("creatures you
+  control with power 2 or less can't be blocked by creatures with power
+  3 or greater") is the already-shipped qualified `combat_restriction`
+  shape (Challenger Troll/Flopsie's own group `min_power`/`max_power`
+  scoping), just on the *restricted* side with a blocker-power `filter`
+  instead of a same-side P/T qualifier — no new primitive. Its second
+  ("if a triggered ability of a creature you control with power 2 or
+  less triggers, it triggers an additional time") needed
+  `TriggerDoublerEffect` widened with `min_power`/`max_power` — a third,
+  independent scoping axis alongside `chosen_type` (Roaming Throne) and
+  `cause_filter` (Elesh Norn, Mother of Machines). Unlike those two,
+  Delney's own clause names no "another", so `continuous.trigger_
+  doubler_bonus`'s new branch doesn't exclude the doubling permanent's
+  own triggers — a separate code path from the existing `chosen_type`/
+  `cause_filter` branches (which still skip self, unchanged) rather than
+  a shared one, to avoid any risk of regressing Roaming Throne/Elesh
+  Norn's own tested behaviour.
+- **Runic Armasaur**: "whenever an opponent activates an ability of a
+  creature or land that isn't a mana ability" turned out to need no new
+  engine primitive at all — `EventType.ACTIVATED_ABILITY` already fires
+  for every non-mana activated ability (RULE 605.1a mana abilities never
+  use the stack, so "isn't a mana ability" is automatically true) with
+  `controller_id`/`object_types` already matching `_group_ok`'s default
+  keys for that event. The one real gap: `_group_ok`'s `type` filter only
+  ever took one word before this batch, and "creature or land" needs two
+  ORed together — widened to accept a list (`type=["creature","land"]`),
+  OR semantics, with every existing single-string caller unchanged
+  (iterates a one-element tuple). Hand-authored directly onto the event
+  rather than taught to the parser's own trigger-verb grammar
+  (`segmenter._TRIGGER_VERBS`), since "activates" is a new verb that
+  grammar has never needed and one singleton card doesn't justify adding
+  it there. **Documented simplification**: "you may draw" is read as
+  unconditional, the same accepted convention Selvala, Heart of the
+  Wilds's own entry already established.
+- **Peer into the Abyss**: "target player draws cards equal to half the
+  number of cards in their library and loses half their life" needed two
+  *targeted* siblings of MEC-37's Doomsday "half your own life" shapes:
+  `DrawCardEffect` gained `count_selector="half_target_library_round_up"`
+  (read off the resolved drawing player's own library, not the
+  controller's), and `LoseLifeEffect` gained `amount_from_half_target_
+  life` (same idea for life) plus a `previous_subject` param — the
+  targeted player is chosen once, by the draw clause, and the life-loss
+  clause reads that same choice back via `GameContext.previous_targets`
+  rather than declaring a second RULE 115 target of its own (which would
+  have opened a second, spurious targeting round for what the real card
+  targets only once).
+- **Soul Conduit**: "two target players exchange life totals" is a
+  genuinely new one-shot, `ExchangeLifeTotalsEffect` — every other life
+  effect in this engine is a single-player delta (`GainLifeEffect`/
+  `LoseLifeEffect`), none can express a simultaneous two-player swap.
+  Deliberately not modeled as a gain/loss for either player (no `GAIN_
+  LIFE`/`LOSE_LIFE` event fires) — an exchange is its own RULE 119
+  category, matching the real ruling that it isn't a life-total change
+  for triggered-ability purposes.
+
+One latent-bug-shaped finding: the round-2 diagnosis's own "likely
+entirely free" call on Ojer Axonil, Deepest Might turned out to already
+be shipped (MEC-30, well before this round) — the diagnosis script that
+produced the "still uncovered" list had the same DFC-name-canonicalization
+bug the MEC-44 tool below was built to stop repeating, so it mis-reported
+an already-covered card as open. No engine work was needed; the entry was
+simply removed from the open list once `scripts/deck_coverage.py`
+confirmed it.
+
+**Files:** `game/effects.py` (`ExchangeLifeTotalsEffect`,
+`ExileAllGraveyardsEffect.colors`, `RevealHandChooseDiscardEffect.max_
+mana_value`, `ReturnFromGraveyardEffect.tapped`/`trigger_subject_key`,
+`DrawCardEffect`'s `"half_target_library_round_up"`, `LoseLifeEffect.
+amount_from_half_target_life`/`previous_subject`, `TriggerDoublerEffect.
+min_power`/`max_power`, `_mass_selector_objects`'s `subtype` filter,
+`graveyard_library_cast_prohibition`/`_entry_prohibition`'s `zones`,
+`graveyard_redirect`'s `colors`), `game/continuous.py`
+(`graveyard_library_cast_prohibited`/`_entry_prohibited`'s `zone` param,
+`graveyard_redirect_active`'s `colors`, `count_selector`'s
+`"colors_among_permanents_you_control"`, `trigger_doubler_bonus`'s
+power-filter branch), `game/static_conditions.py` (the `"all"`
+combinator, + its `describe()` label), `game/effect_binder.py`
+(`_group_ok`'s list-`type` support), `game/targeting.py`
+(`"artifact_or_creature"` graveyard filter), `game/engine/casting_mixin.py`
++ `game/rules/search_mixin.py` (the two zone-aware call sites),
+`parser/oracle/catalogue/static_handlers.py` (the four regex widenings),
+`parser/oracle/catalogue/handlers.py` (`_HAND_DISRUPTION_RE`'s two new
+riders), `game/ability_catalogue.py` (all 12 hand-authored cards).
+**Tests:** `tests/test_mec43_round2_near_free_reuses.py` (new, 21 tests).
+**Tooling (MEC-44):** `scripts/deck_coverage.py` (new) — a checked-in,
+reusable replacement for the one-off diagnosis script this ticket kept
+hand-rolling; parses a saved deck's `mainboard_text`/`commander_text`
+the same way `parser/deckliste_parser.py` does, then measures each
+unique card via `is_registered`/`parse_oracle` exactly like
+`coverage_report.py` does cache-wide, keyed off the resolved `Card.
+name`'s canonical form rather than the decklist's own text.
+
 ### MEC-40/41/42/43 coverage note
 
 Every card above closed against its own named deck (`cEDH Rocco` — all 18,
