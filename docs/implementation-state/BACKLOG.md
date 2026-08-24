@@ -85,9 +85,15 @@ Plan-level sequencing lives in
   is folded into the same ticket rather than filed separately — this is a
   *collection* of live, user-editable decks, not a fixed card list, so
   expect it to keep growing. Ordinary open work, not "no-deferral" scope
-  forced to one sitting. Coverage re-measured 2026-08-24 (own script, not
-  yet a checked-in tool — see the MEC-44 proposal below; re-measure again
-  before trusting, per the ticket's own recurring caveat):
+  forced to one sitting. Re-measure with `python scripts/deck_coverage.py
+  ["Deck Name" ...] [--uncovered]` (MEC-44 — parses a saved deck the same
+  way `parser/deckliste_parser.py` does, then runs each unique card
+  through `is_registered`/`parse_oracle`) before trusting any number
+  below — the tool is the source of truth, not this table, and a card-pool
+  refresh can un-stale a "not a real card" name too. Worklog detail for
+  what's shipped — batch by batch, why each piece is built the way it is —
+  is in `Done_Backend.md`'s "seven 'cEDH'-named saved decks"/"MEC-43"
+  entries (name kept for continuity), not here.
 
   | Deck | Coverage | Residual, tracked as |
   | --- | --- | --- |
@@ -100,147 +106,22 @@ Plan-level sequencing lives in
   | `cEDH staples 2` | 573/606 (1 name not a real card) | 32 genuinely uncovered — see below. |
   | `K'rrik cEDH` | 53/71 | 18 uncovered — see below. |
 
-  Re-measured 2026-08-24 with `scripts/deck_coverage.py` (the MEC-44 tool
-  below, now checked in and used for every number on this page). Of the
-  six names an earlier ad hoc diagnosis called "aren't real Scryfall
-  cards," four (Balamb Garden, Jodah, the unifier, Seymour Guado, Zidane
-  Tribal — all Final Fantasy Universes Beyond cards) now resolve as real,
-  cached, genuinely-uncovered cards; only `Thrum of the Vestige` still
-  doesn't resolve at all (and Dol Amroth no longer appears in the
-  decklist text). Don't trust that "not real" framing without
-  re-checking — a card-pool refresh can un-stale it, same as a coverage
-  number can. Worklog detail for what's shipped — batch by batch, why
-  each piece is built the way it is — is in `Done_Backend.md`'s "seven
-  'cEDH'-named saved decks" entries (name kept for continuity), not here.
-
-  **MEC-44, shipped**: `scripts/deck_coverage.py` — parses a saved deck's
-  `mainboard_text`/`commander_text` the same way `parser/deckliste_
-  parser.py` already does, then runs each unique card through
-  `is_registered`/`parse_oracle` exactly like `coverage_report.py` does
-  cache-wide, keyed off the resolved `Card.name`'s canonical
-  `"Front // Back"` form (not the decklist's own front-face-only text —
-  the real bug an earlier one-off version of this script had, and the
-  reason every number on this page needed re-verifying once the tool
-  existed to check them properly). `python scripts/deck_coverage.py
-  ["Deck Name" ...] [--uncovered]`.
-
-  **Near-free reuses — closed 2026-08-21** (all 22 named cards;
-  `Done_Backend.md`'s "MEC-43" entry has the full primitive-by-primitive
-  detail): Aetherflux Reservoir, Altar of Dementia (new `GameObject.
-  sacrificed_cost_power` + `MillEffect.count_selector`), Burnt Offering/
-  Sacrifice/Rain of Filth, Conspicuous Snoop (`grant_borrowed_activated_
-  ability`'s new `source_mode="top_of_library"`), Defense of the Heart,
-  Earthcraft (`tap_others`' existing bare-type match), Hermit Druid
-  (`dig_until`'s new `rest_destination="graveyard"`), Jeweled Amulet (new
-  `ManaPool.last_payment_types` + `ActivationCost.note_spent_color` +
-  `AddManaEffect.color_from_source_noted_color` — closed in a follow-up
-  pass rather than left a third-deferral risk), Kogla the Titan Ape (a new
-  `defending_player_id` field on the `ATTACKS` event), Leyline of the
-  Void/Rest in Peace (the new `graveyard_redirect` static, `scope=
-  "opponent"`/`"any"`), Soulless Jailer (`graveyard_library_entry_
-  prohibition`'s new `card_type="permanent"` + `cast_prohibition`'s new
-  `zones` allowlist), Chain of Smog (new `CopySelfControlledByPrevious
-  TargetEffect`), Destiny Spinner (`GrantCantBeCounteredEffect`'s new
-  two-type `scope` — its land-animation half is the recurring "animate a
-  noncreature permanent" gap below, deliberately left unbound), Llawan
-  Cephalid Empress (`ReturnToHandEffect`'s new `"opponents_creatures"`
-  selector + `cast_prohibition`'s new `color`/`creature_only`), Mana
-  Breach (new `BounceOwnLandFromTriggerEffect`), Selvala Heart of the
-  Wilds (new `DrawIfTriggerObjectGreatestPowerEffect`), Shifting Woodland
-  (`BecomeCopyUntilEndOfTurnEffect` retargeted at the new
-  `"graveyard_permanent"` target kind), Tataru Taru (`not_controllers_
-  turn` trigger predicate + `once_per_turn`), Uba Mask (new
-  `draw_exile_face_up` replacement), Acererak the Archlich
-  (`EachPlayerPayOrEffect`'s new `scope="each_opponent"`/`effect_targets=
-  "controller"` + a new `not_completed_dungeon` trigger predicate).
-  Covered by `tests/test_mec43_near_free_reuses.py` (16 tests).
-
-  **Round 2 near-free reuses — closed 2026-08-24** (17 more cards; 5 via
-  parser-regex widenings, 12 hand-authored; `Done_Backend.md`'s "MEC-43"
-  entry has the full primitive-by-primitive detail): Kunoros, Hound of
-  Athreos (`graveyard_library_cast_prohibition`/`_entry_prohibition`'s new
-  `zones` param, closing it via the parser); Hushbringer
-  (`trigger_prohibition`'s DIES sibling, parser); Thalia, Heretic Cathar
-  (`enters_tapped_static`'s per-word `nonbasic`, parser); Thoughtseize/
-  Inquisition of Kozilek (`reveal_hand_choose_discard`'s new
-  `max_mana_value`/trailing `lose_life` rider, parser); Beacon of Unrest
-  (`targeting`'s new `graveyard_artifact_or_creature` filter +
-  `shuffle_self_into_library`); Rise from the Grave/Chainer, Dementia
-  Master (`GrantUntilEffect`'s `duration="rest_of_game"`/`previous_
-  subject` combo applied to `type_change`/`color_change`, reading back a
-  reanimated creature the same way "It fights…" reads a prior target);
-  Tenacious Dead (`ReturnFromGraveyardEffect`'s new `tapped`/
-  `trigger_subject_key="remembered"`, via `PayCostThenEffect.remember_
-  trigger_subject`); Sanctifier en-Vec (`ExileAllGraveyardsEffect`'s new
-  `colors` filter + `graveyard_redirect`'s new `colors` param); Kenrith's
-  Transformation (the "Elk" template — `remove_all_abilities`/
-  `type_change`/`color_change` composed on `affects="attached_
-  permanent"`); Conqueror's Flail/Faeburrow Elder (`count_selector`'s new
-  `"colors_among_permanents_you_control"`, plus `static_conditions`' new
-  `"all"` AND-combinator for Conqueror's Flail's two-gate cast lockdown);
-  Delney, Streetwise Lookout (the qualified `combat_restriction` +
-  `TriggerDoublerEffect`'s new `min_power`/`max_power` axis); Runic
-  Armasaur (`effect_binder._group_ok`'s list-`type` OR support, hand-
-  authored directly onto `EventType.ACTIVATED_ABILITY` rather than taught
-  to the parser's trigger-verb grammar); Peer into the Abyss
-  (`DrawCardEffect`'s new `"half_target_library_round_up"` selector +
-  `LoseLifeEffect`'s new `amount_from_half_target_life`/`previous_
-  subject`); Soul Conduit (the new `ExchangeLifeTotalsEffect`). Covered by
-  `tests/test_mec43_round2_near_free_reuses.py` (21 tests). Ojer Axonil,
-  Deepest Might turned out to already be covered (MEC-30, before this
-  round's diagnosis) — an earlier diagnosis pass's own coverage-tool bug,
-  not a real gap; no work needed.
-
-  **Round 3, `SearchLibraryEffect` widenings — closed 2026-08-24** (4 more
-  cards; each turned out to need a genuinely new, if small, primitive once
-  actually checked against the effect's real code rather than assumed
-  free from its constructor signature alone — the round-2 diagnosis had
-  called all four "already-general," which held for two of them):
-  Beseech the Queen (`SearchLibraryEffect.mana_value_from`'s new
-  `"count_selector"` source — `continuous.count_selector`'s existing
-  `"lands_you_control"` entry, previously only reachable from
-  `"sacrificed_cost"`); Final Parting (a genuinely free reuse of the
-  existing `destinations` split, Cultivate/Kodama's Reach-shaped — just a
-  parser handler for its own bare-"N cards"/three-sentence phrasing);
-  Search for Glory (`card_query`'s `"or"` combinator was free, but "gain 1
-  life for each {S} spent to cast this spell" needed a wholly new
-  tracking primitive — `ManaPool.snow_pool`, a `pool_by_source`-shaped but
-  orthogonal "was this snow-sourced" subset count, since a lot can be
-  both `source_kind="basic_land"` *and* snow; `GameObject.
-  mana_spent_to_cast_snow`, a `colors_spent_to_cast`-shaped before/after
-  diff at cast time; `continuous.count_selector`'s new
-  `"snow_mana_spent_to_cast"` self-referential entry); Myriad Landscape
-  (`SearchLibraryEffect.share_land_type`/`RulesEngine.request_search`'s
-  new cross-pick constraint — "share a land type" judges a candidate
-  against what's *already been found* this same search, a shape no
-  existing criteria dict could express since `card_query.matches` only
-  ever sees one candidate in isolation). Also found and fixed a real,
-  general bug along the way: `GainLifeEffect.apply()`'s `count_selector`
-  branch never threaded `source=self.source` through to `continuous.
-  count_selector` (unlike `MillEffect`'s own identical call), silently
-  zeroing out any self-referential selector kind used on a life-gain
-  effect — not just the new snow one. Covered by `tests/
-  test_mec43_round3_search_widenings.py` (6 tests). Coverage: `cEDH
-  staples 2` 572→573/606, `K'rrik cEDH` 50→53/71.
-
-  **Round 2 remainder, not yet built** (`cEDH staples 2`'s 32 + `K'rrik
-  cEDH`'s 18 uncovered, re-measured after the closures above — see the
-  coverage table; the clustering below is unchanged from the original
-  2026-08-24 diagnosis and still **not cross-checked against `primitives`/
-  `Done_Backend.md` the way an actual batch must be** for anything past
-  what closed above — treat every "near-free" call as a hypothesis to
-  verify, not a confirmed primitive match):
+  **Remaining, not yet built** (`cEDH staples 2`'s 32 + `K'rrik cEDH`'s 18
+  uncovered — the clustering below is from the 2026-08-24 diagnosis and
+  still **not cross-checked against `primitives`/`Done_Backend.md` the way
+  an actual batch must be** — treat every "near-free" call as a hypothesis
+  to verify, not a confirmed primitive match):
 
   *Near-free reuse candidates, clustered* (a shape already shipped is
   cited by name; confirm with `python $BENCH primitives '<shape>'` before
   building):
   - **The "loses all abilities, becomes a 3/3 green Elk creature" template**
-    — Kenrith's Transformation closed above; Oko, Thief of Crowns' +1
-    shares the same clause but needs `grant_until` resolve-time wiring
-    plus Oko's other two loyalty abilities (its own −5 is a control
-    exchange, RULE 701.10, the same shape already shipped for Gilded
-    Drake/Volatile Stormdrake below) — a bigger lift than "near-free",
-    left open as its own small batch rather than folded into round 2.
+    (already shipped for Kenrith's Transformation, see `Done_Backend.md`)
+    — Oko, Thief of Crowns' +1 shares the same clause but needs
+    `grant_until` resolve-time wiring plus Oko's other two loyalty
+    abilities (its own −5 is a control exchange, RULE 701.10, already
+    shipped for Gilded Drake/Volatile Stormdrake below) — a bigger lift
+    than "near-free", left open as its own small batch.
   - **Small, self-contained**: Vilis, Broker of Blood ("whenever you lose
     life, draw that many cards" — check whether a LOSE_LIFE event already
     carries an amount a trigger can read, the same shape Aetherflux
@@ -249,10 +130,11 @@ Plan-level sequencing lives in
     control exchange, RULE 701.10, already shipped, plus an
     Energy-conditional sacrifice-unless-pay).
 
-  Dance of the Dead is the odd one out in the reanimation family (closed
-  above) — RULE 704.5n Necromancy-shaped, the Aura itself ends up
-  attached to what it just reanimated, a genuinely different shape from a
-  plain spell reanimation; still open, not near-free.
+  Dance of the Dead is the odd one out in the reanimation family (already
+  shipped, see `Done_Backend.md`) — RULE 704.5n Necromancy-shaped, the
+  Aura itself ends up attached to what it just reanimated, a genuinely
+  different shape from a plain spell reanimation; still open, not
+  near-free.
 
   **A recurring primitive gap, not yet built**: "animate a noncreature
   permanent into an X/Y creature with keywords" has no existing shape in
@@ -294,8 +176,7 @@ Plan-level sequencing lives in
   then *reorder the exiled cards back on top* — the reordering step has no
   existing analogue).
 
-  **Narrower, real gaps:** Runic Armasaur closed above.
-  Umezawa's Jitte's modal "choose 1" removal ability (check whether an
+  **Narrower, real gaps:** Umezawa's Jitte's modal "choose 1" removal ability (check whether an
   *activated* ability can already carry `modes`/`modes_choose` the way a
   triggered ability's own RULE 700.2 modes do — if not, that's the actual
   gap, not the card); Swift Reconfiguration (a type-overwrite-to-Vehicle
@@ -310,7 +191,7 @@ Plan-level sequencing lives in
   it; a real, narrow, project-level gap rather than a build-it-now item).
 
   **Not yet clustered** (the remainder of `scripts/deck_coverage.py
-  --uncovered`'s output for both decks after the closures above — Bontu's
+  --uncovered`'s output for both decks — Bontu's
   Monument, Commander's Plate, Crypt Ghast, Dark Petition, Drain Life,
   Final Punishment, Homeward Path, Jin-Gitaxias, Kodama of the East Tree,
   Korvold, Kozilek, Butcher of Truth, Ledger Shredder, Mizzix's Mastery,
