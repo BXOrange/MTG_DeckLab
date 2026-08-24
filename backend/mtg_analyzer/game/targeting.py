@@ -150,6 +150,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target artifact or enchantment" (Archdruid's Charm) — the union of
         # the two single-type kinds, a common printed phrasing.
         "artifact_or_enchantment",
+        "artifact_or_enchantment_defending_player_controls",
         # "target artifact or creature" (Touch the Spirit Realm, MEC-42).
         "artifact_or_creature",
         # "target artifact, creature, or enchantment" (March of
@@ -182,7 +183,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "equipment_you_control",
         # "Target nonbasic land" (Encroaching Wastes) — any player's, unlike
         # the controller-restricted kinds above.
-        "nonbasic_land",
+        "nonbasic_land", "basic_land",
         # "Target legendary permanent" (Minamo, School at Water's Edge,
         # RULE 205.4a) — any player's, supertype-filtered.
         "legendary_permanent",
@@ -1078,6 +1079,26 @@ def legal_targets(
             and o is not source
             and _targetable_by(o, source)
         ]
+    if kind == "artifact_or_enchantment_defending_player_controls":
+        # "…destroy target artifact or enchantment defending player
+        # controls." (Kogla, the Titan Ape, MEC-43) — "defending player" is
+        # the firing `ATTACKS` event's own ``defending_player_id`` (the
+        # already-resolved RULE 508.1a defender), the same trigger-event-
+        # scoped idiom `creature_or_planeswalker_that_player_controls` uses
+        # for a DAMAGE event's recipient; no event in hand means no legal
+        # player to scope to, so this fails closed to an empty list.
+        event = trigger_event or {}
+        defending_player_id = event.get("defending_player_id")
+        if defending_player_id is None:
+            return []
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.card.is_artifact or o.card.is_enchantment)
+            and o.controller_id == defending_player_id
+            and o is not source
+            and _targetable_by(o, source)
+        ]
     if kind == "artifact_or_creature":
         # "Exile target artifact or creature." (Touch the Spirit Realm,
         # MEC-42) — the same union idiom as ``artifact_or_enchantment``
@@ -1203,6 +1224,15 @@ def legal_targets(
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             if o.is_land and "basic" not in o.card.type_line.lower()
+            and o is not source and _targetable_by(o, source)
+        ]
+    if kind == "basic_land":
+        # "Untap target basic land." (Earthcraft, MEC-43) — the inverse
+        # filter of ``nonbasic_land`` just above.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_land and "basic" in o.card.type_line.lower()
             and o is not source and _targetable_by(o, source)
         ]
     if kind == "forest":

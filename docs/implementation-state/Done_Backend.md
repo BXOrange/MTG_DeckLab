@@ -3927,6 +3927,149 @@ is in the rules-engine categories below them.
   tests) — a separate file from the first batch's own `tests/test_mec43_
   family.py`, since that name was already taken.
 
+### MEC-43: `cEDH staples 2` — third batch, 22 "near-free reuses"
+
+Closed the ticket's own "near-free reuses" cluster — all 22 named cards,
+Jeweled Amulet included (closed in an immediate follow-up pass rather
+than risking a third deferral of its own "note the type of mana spent"
+tracker, per this repo's own no-half-implementations rule). Each card
+needed only a small param-widening of an existing primitive, but the
+batch touched a lot of surface area because "small" was spread across
+~20 different primitives rather than one shared one, unlike the first two
+MEC-43 batches. New/widened primitives, grouped by what they closed:
+
+- **Sacrifice-cost magnitude**: `GameObject.sacrificed_cost_power` (the
+  power sibling of `sacrificed_cost_mana_value`, stamped by `GameEngine.
+  _pay_ability_cost` alongside it) plus two new `continuous.count_selector`
+  entries (`"sacrificed_cost_mana_value"`/`"sacrificed_cost_power"`) reading
+  either field generically — `MillEffect` gained a `count_selector` param
+  (Altar of Dementia: "mills cards equal to the sacrificed creature's
+  power") and `AddManaEffect`'s `colors=["ANY"]` branch gained an
+  `amount_selector` fallback (Burnt Offering's "any combination of {B}
+  and/or {R}" reusing the same selector Sacrifice's fixed-colour form
+  already read).
+- **`graveyard_redirect`** (Leyline of the Void/Rest in Peace): the
+  plain-exile sibling of Dauthi Voidwalker's `void_counter_redirect` (no
+  counter/holder tracking), `scope="opponent"`/`"any"`, checked in
+  `RulesEngine._move_to_graveyard` right alongside it.
+- **`cast_prohibition` widened three ways**: `color`+`creature_only`
+  (Llawan's "opponents can't cast blue creature spells" — the first card
+  needing both a colour and a card-type restriction at once) and `zones`
+  (Soulless Jailer's "can't cast … from graveyards or exile", the
+  allowlist sibling of the existing `hand_only` single-zone exemption).
+- **`grant_borrowed_activated_ability`'s new `source_mode="top_of_
+  library"`** (Conspicuous Snoop): a library card is never bound the way
+  every other donor mode's card already is, so this builds a scratch,
+  off-zone `GameObject` purely to read its `.activated_abilities`,
+  rebuilt fresh every recompute pass (an accepted simplification: a
+  borrowed ability's own "once per turn" state doesn't survive a pass
+  where the top card changes). `donor_subtype` narrows the donor filter.
+- **`dig_until`'s new `rest_destination="graveyard"`** (Hermit Druid): a
+  plain library→graveyard move for the dig's non-hit cards, mirroring
+  `mill`'s own direct zone move rather than `_move_to_graveyard`'s full
+  battlefield-leave machinery (these cards are library cards being
+  discarded past, not permanents dying).
+- **A new `defending_player_id` field on `EventType.ATTACKS`** (Kogla,
+  the Titan Ape) plus `targeting.py`'s matching `"artifact_or_enchantment_
+  defending_player_controls"` kind — the already-resolved RULE 508.1a
+  defender, threaded onto the event so a per-attacker trigger's own target
+  can reach it without re-deriving it from `combat_defender`.
+- **`EachPlayerPayOrEffect`/`request_each_player_pay_or` widened with
+  `scope`** (`"each_player"` default, `"each_opponent"` excludes the
+  ability's own controller from the sweep) **and `effect_targets`**
+  (`"decliner"` default, `"controller"` routes the "if they don't pay"
+  effect to the ability's own controller instead) — Acererak the
+  Archlich's "for each opponent, you create a token unless that player
+  sacrifices a creature" needed both knobs at once, the first card to.
+- **A new `not_completed_dungeon` trigger predicate** (`effect_binder.
+  _trigger_condition`, reading `Player.completed_dungeons`) for Acererak's
+  ETB "if you haven't completed Tomb of Annihilation" — RULE 309.7's
+  completion record had never been read by a trigger condition before.
+- **A new `not_controllers_turn` trigger predicate** (already-shipped
+  actually — Tataru Taru's "if it isn't that player's turn" just reused
+  it against the firing `DRAW` event's own actor) plus ordinary
+  `TriggeredAbility.once_per_turn` (via the trigger dict's `"limit"` key,
+  not a top-level `AbilitySpec` kwarg — the one wiring mistake this batch
+  actually hit).
+- **Five one-off `GameEffect` subclasses**, each backing exactly one
+  card's own shape: `BounceOwnLandFromTriggerEffect` (Mana Breach — "that
+  player returns a land they control", the triggering player read off
+  `SPELL_CAST`'s `player_id`, not the ability's controller);
+  `DrawIfTriggerObjectGreatestPowerEffect` (Selvala — a strict "greater
+  than **each** other creature" comparison against the firing
+  `ENTERS_BATTLEFIELD` event's own object); `CopySelfControlledByPrevious
+  TargetEffect` (Chain of Smog — the copier is the preceding discard
+  clause's own target, read off `GameContext.previous_targets`, not the
+  caster); `_draw_exile_face_up_replacement` (Uba Mask — a genuine
+  `ReplacementEffect` on `EventType.DRAW`, the first to ever rewrite what
+  a draw *becomes* rather than just its count; grants `GameState.
+  temp_play_permissions` on the exiled card in the same step, so the
+  card's own second line — "may play … from among cards exiled with ~" —
+  falls out for free); `GrantCantBeCounteredEffect`'s new
+  `"creature_or_enchantment_spells_you_control"` scope (Destiny Spinner —
+  its land-animation half is deliberately left unbound, the recurring
+  "animate a noncreature permanent" gap `BACKLOG.md` tracks separately).
+- **`ReturnToHandEffect` gained `creature_filter`** (Kogla's "target
+  Human you control", reusing `TargetSpec.creature_filter` rather than a
+  new fixed kind — `BlinkEffect`/`CounterUntapGrantKeywordEffect` already
+  threaded it through, `ReturnToHandEffect` just hadn't yet) **and a new
+  `"opponents_creatures"` mass selector** (Llawan's ETB bounce, the
+  opponent-scoped sibling of `"all_creatures"`) **plus a `color` key on
+  `_mass_selector_objects`' own `filt`** (shared by `DestroyEffect`/
+  `ExileEffect`/`ReturnToHandEffect` alike, though only Llawan uses it
+  today). A new `"basic_land"` target kind (Earthcraft) mirrors the
+  existing `"nonbasic_land"`.
+- **`ManaPool.last_payment_types`** (Jeweled Amulet — "note the type of
+  mana spent to pay this activation cost"): `_spend_generic` now returns
+  which type(s) it actually drained instead of `None`, and `pay()` folds
+  that together with any fixed colour pips into a new `last_payment_
+  types` dict any caller can read right after paying, without changing
+  `pay()`'s own return signature (still just `life_spent`) or touching
+  any of its many existing callers. This engine has no interactive
+  "which color pays a generic pip" choice — `_spend_generic`'s own
+  colorless-first `MANA_TYPES` order decides it deterministically, so
+  what gets noted isn't always a genuine player pick, the same
+  simplification tier every other "spend from the pool" caller already
+  accepts. `ActivationCost.note_spent_color` stamps the result onto the
+  new `GameObject.noted_mana_color` (`GameEngine._pay_ability_cost`);
+  `AddManaEffect`'s new `color_from_source_noted_color` reads it back,
+  the exact sibling of the already-shipped `color_from_source_chosen_
+  color` (Utopia Sprawl-shaped RULE 601.2b colour choices). "Activate
+  only if there are no charge counters" is `ActivationCost.activation_
+  condition` reusing the existing `source_counters` `static_conditions`
+  kind (`{"kind": "source_counters", "counter": "charge", "max": 0}`),
+  the same shape Frodo, Sauron's Bane already established.
+
+Two latent-bug-shaped findings along the way, both fixed: `AbilitySpec`
+has no top-level `once_per_turn` kwarg (it lives inside the `trigger`
+dict's `"limit"` key) — caught immediately by `bind_from_catalogue`
+raising on Tataru Taru rather than silently no-opping. And this session's
+own dev venv turned out to be a stray macOS `backend/venv` synced in via
+OneDrive (`pyvenv.cfg` pointing at `/Library/Frameworks/...`); per
+CLAUDE.md's own venv/venv_win convention this project already expects
+`venv_win` on Windows, so `python setup/install.py` was re-run to build
+the correct one rather than fighting the wrong one.
+
+**Files:** `game/effects.py` (all the new/widened effect classes and
+registry factories above), `game/continuous.py` (`graveyard_redirect_
+active`, `cast_prohibited`'s three new knobs, `count_selector`'s two new
+entries, `graveyard_library_entry_prohibited`'s `"permanent"` filter,
+`_apply_borrowed_activated_abilities`'s `"top_of_library"` mode),
+`game/effect_binder.py` (`not_completed_dungeon`, `min_opponent_
+creatures`), `game/rules/misc_mixin.py` (`request_each_player_pay_or`'s
+`scope`/`effect_targets`, `GrantCantBeCounteredEffect`'s new scope check),
+`game/rules/search_mixin.py` (`dig_until`'s `"graveyard"` destination),
+`game/rules/damage_death_mixin.py` (`graveyard_redirect` wired into
+`_move_to_graveyard`), `game/engine/activation_mixin.py`
+(`sacrificed_cost_power` stamp), `game/engine/combat_mixin.py`
+(`ATTACKS`'s new `defending_player_id`), `game/targeting.py`
+(`"basic_land"`, `"artifact_or_enchantment_defending_player_controls"`),
+`models/game_object.py` (`sacrificed_cost_power`, `noted_mana_color`),
+`models/mana_pool.py` (`last_payment_types`, `_spend_generic`'s new
+return value), `game/costs.py` (`note_spent_color`), `game/ability_
+catalogue.py` (all 22 cards).
+**Tests:** `tests/test_mec43_near_free_reuses.py` (new, 16 tests).
+
 ### MEC-40/41/42/43 coverage note
 
 Every card above closed against its own named deck (`cEDH Rocco` — all 18,

@@ -730,6 +730,17 @@ def count_selector(
         # be given (a bare test fixture omitting it gets 0, the same safe
         # fallback every self-referential selector here gets).
         return len(getattr(source, "exiled_with_ids", None) or [])
+    if selector == "sacrificed_cost_mana_value":
+        # "…target player mills cards equal to the sacrificed creature's
+        # mana value." (MEC-43) — reads `GameObject.sacrificed_cost_mana_
+        # value`, stamped fresh by whatever cost payment just sacrificed
+        # something for ``source``; ``0`` (not ``None``) when nothing was
+        # sacrificed, the same safe self-referential fallback every other
+        # entry here gets.
+        return int(getattr(source, "sacrificed_cost_mana_value", None) or 0)
+    if selector == "sacrificed_cost_power":
+        # The power sibling (Altar of Dementia) of the entry just above.
+        return int(getattr(source, "sacrificed_cost_power", None) or 0)
     if selector == "spells_cast_this_turn":
         # "…costs {1} more to cast for each other spell that player has
         # cast this turn." (MEC-36, Damping Sphere) — `_cost_static_amount`
@@ -2091,6 +2102,30 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
             )
             if creature_only:
                 donors = [d for d in donors if d.is_creature]
+        elif source_mode == "top_of_library":
+            # "As long as the top card of your library is a Goblin card, ~
+            # has all activated abilities of that card." (Conspicuous
+            # Snoop, MEC-43) — a library card is never boarded/bound the
+            # way a battlefield/exile/graveyard donor already is, so a
+            # scratch, off-zone `GameObject` is built and bound purely to
+            # read its `.activated_abilities`; never added to any zone or
+            # `state` list, and rebuilt fresh every pass (a fresh
+            # `instance_id` each time, unlike every other donor here) — an
+            # accepted simplification that loses a borrowed ability's own
+            # "once per turn" state across passes, not worth a persistent
+            # cache slot for one card.
+            controller_id = getattr(source, "controller_id", None)
+            player = next((p for p in state.players if p.id == controller_id), None)
+            top_card = player.library[-1].card if player and player.library else None
+            if top_card is not None:
+                from .effect_binder import bind_from_catalogue  # local: avoid an import cycle
+                from ..models.game_object import GameObject as _GameObject
+
+                scratch = _GameObject(top_card, owner_id=controller_id, controller_id=controller_id)
+                bind_from_catalogue(scratch)
+                donor_subtype = ability.params.get("donor_subtype")
+                if not donor_subtype or has_subtype(scratch, str(donor_subtype)):
+                    donors = [scratch]
         elif source_mode == "all_graveyards":
             # "~ has all activated abilities of all creature cards in all
             # graveyards." (Necrotic Ooze-shaped, MEC-12) — every player's
@@ -2439,6 +2474,28 @@ def void_counter_redirect_controller_for(state: "GameState", obj: Any) -> Option
     return None
 
 
+def graveyard_redirect_active(state: "GameState", obj: Any) -> bool:
+    """"If a card would be put into an opponent's graveyard from anywhere,
+    exile it instead." (Leyline of the Void)/"If a card or token would be
+    put into a graveyard from anywhere, exile it instead." (Rest in Peace,
+    MEC-43) — the plain-exile sibling of Dauthi Voidwalker's
+    `void_counter_redirect_controller_for` (no counter, no holder
+    tracking), ``scope``-parameterized so one static covers both "an
+    opponent's graveyard" (``scope="opponent"``, the default) and every
+    graveyard (``scope="any"``). Checked from `RulesEngine._move_to_
+    graveyard`'s redirect chain, right alongside the void-counter one.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "graveyard_redirect":
+            continue
+        if ability.params.get("scope", "opponent") == "any":
+            return True
+        controller_id = getattr(ability.source, "controller_id", None)
+        if controller_id is not None and controller_id != getattr(obj, "owner_id", None):
+            return True
+    return False
+
+
 def mana_type_override_for(
     state: "GameState", source: "GameObject", total_produced: int
 ) -> Optional[str]:
@@ -2715,6 +2772,13 @@ def graveyard_library_entry_prohibited(state: "GameState", card: Any) -> bool:
             ):
                 continue
             return True
+        if filt == "permanent":
+            # "Permanent cards in graveyards can't enter the battlefield."
+            # (Soulless Jailer, MEC-43) — unlike ``"nonland_permanent"``
+            # above, this includes lands too; every card this check is ever
+            # reached for is already headed to the battlefield, so "is a
+            # permanent card" is unconditionally true here.
+            return True
         if _has_card_type(_CardTypeProbe(card), filt):
             return True
     return False
@@ -2843,7 +2907,23 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
             continue
         if ability.params.get("nonartifact") and getattr(card, "is_artifact", False):
             continue
+        if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
+            continue
+        color = ability.params.get("color")
+        if color and color not in (getattr(card, "color_identity", None) or set()):
+            # "Your opponents can't cast blue creature spells." (Llawan,
+            # Cephalid Empress, MEC-43) — combines with ``creature_only``
+            # above rather than duplicating it, the same additive-knob
+            # idiom every other pair of flags here already uses.
+            continue
         if ability.params.get("hand_only") and zone in (None, "hand"):
+            continue
+        zones = ability.params.get("zones")
+        if zones and (zone is None or zone not in zones):
+            # "Players can't cast noncreature spells from graveyards or
+            # exile." (Soulless Jailer, MEC-43) — the zone-*allowlist*
+            # sibling of ``hand_only``'s single-zone exemption, for a
+            # prohibition scoped to specific non-hand zones instead.
             continue
         if ability.params.get("has_x_cost"):
             if "X" not in (getattr(card, "mana_cost_string", "") or ""):

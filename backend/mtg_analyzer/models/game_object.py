@@ -249,6 +249,21 @@ class GameObject:
         #: magnitude is "the sacrificed creature's mana value" needs its own
         #: channel; read by `SearchLibraryEffect`'s ``mana_value_from``.
         self.sacrificed_cost_mana_value: Optional[int] = None
+        #: The *power* sibling of the field above (MEC-43, Altar of
+        #: Dementia: "Sacrifice a creature: target player mills cards equal
+        #: to the sacrificed creature's power.") — stamped alongside it by
+        #: `GameEngine._pay_ability_cost`'s own sacrifice-cost branch, read
+        #: back by `continuous.count_selector`'s ``"sacrificed_cost_power"``
+        #: entry.
+        self.sacrificed_cost_power: Optional[int] = None
+        #: RULE 106.4-adjacent: the WUBRG/C type of mana this permanent's
+        #: own activated ability most recently had spent to pay it (Jeweled
+        #: Amulet, MEC-43: "Note the type of mana spent to pay this
+        #: activation cost.") — stamped from `Player.mana_pool.last_
+        #: payment_types` by `GameEngine._pay_ability_cost` when
+        #: `ActivationCost.note_spent_color` is set. ``None`` until noted at
+        #: least once.
+        self.noted_mana_color: Optional[str] = None
         #: RULE 702.34a: whether this spell was cast from the graveyard via
         #: Flashback — if so, `RulesEngine.resolve_top_of_stack` exiles it
         #: instead of sending it to the graveyard, then clears this flag.
@@ -1013,6 +1028,7 @@ class GameObject:
         self.was_cast = False
         self.cast_outside_sorcery_speed = False
         self.sacrificed_cost_mana_value = None
+        self.sacrificed_cost_power = None
         self.paired_with = None
         self.merged_oracle_text = []
         self.cast_via_mutate = False

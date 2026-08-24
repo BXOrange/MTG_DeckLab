@@ -1118,6 +1118,50 @@ def _trigger_condition(
 
         predicates.append(_level_ok)
 
+    # "…if an opponent controls three or more creatures, …" (Defense of the
+    # Heart, MEC-43) — a RULE 603.4 intervening-if scoped to the board as a
+    # whole (any single opponent meeting the threshold, not a sum across
+    # all of them), checked live at trigger time the same as every other
+    # predicate here.
+    min_opponent_creatures = trigger.get("min_opponent_creatures")
+    if min_opponent_creatures is not None:
+        controller_id = getattr(source, "controller_id", None)
+        threshold = int(min_opponent_creatures)
+
+        def _min_opponent_creatures_ok(event: Any, context: Any, cid=controller_id, n=threshold) -> bool:
+            state = getattr(context, "state", None)
+            if state is None or cid is None:
+                return False
+            for player in state.players:
+                if player.id == cid:
+                    continue
+                count = sum(1 for o in state.permanents_controlled_by(player.id) if o.is_creature)
+                if count >= n:
+                    return True
+            return False
+
+        predicates.append(_min_opponent_creatures_ok)
+
+    # "…if you haven't completed Tomb of Annihilation, …" (Acererak the
+    # Archlich, MEC-43) — a RULE 603.4 intervening-if reading `Player.
+    # completed_dungeons` (RULE 309.7's own record of which named dungeons
+    # this player has finished), scoped to this ability's own controller.
+    not_completed_dungeon = trigger.get("not_completed_dungeon")
+    if not_completed_dungeon:
+        controller_id = getattr(source, "controller_id", None)
+        dungeon_name = str(not_completed_dungeon)
+
+        def _not_completed_dungeon_ok(event: Any, context: Any, cid=controller_id, name=dungeon_name) -> bool:
+            state = getattr(context, "state", None)
+            if state is None or cid is None:
+                return False
+            player = next((p for p in state.players if p.id == cid), None)
+            if player is None:
+                return False
+            return name not in (getattr(player, "completed_dungeons", None) or [])
+
+        predicates.append(_not_completed_dungeon_ok)
+
     # "Brotherhood — ..."/"Enclave — ..." (Struggle for Project Purity's
     # own "as this enters, choose Brotherhood or Enclave" — `ChooseNamedModeReplacement`)
     # — this ability only actually fires once its source's own chosen mode

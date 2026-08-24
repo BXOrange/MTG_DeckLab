@@ -21211,3 +21211,809 @@ def _chandras_incinerator() -> list[AbilitySpec]:
 
 
 register("Chandra's Incinerator", _chandras_incinerator)
+
+
+# ---------------------------------------------------------------------------
+# MEC-43 "near-free reuses" batch (2026-08-21) — cEDH staples 2's remaining
+# gaps that only needed an existing primitive recoloured/param-widened, per
+# BACKLOG.md's own clustering. See Done_Backend.md's "MEC-43" entry for the
+# primitives each of these closed along the way (sacrificed_cost_power,
+# graveyard_redirect, cast_prohibition's color/creature_only/zones knobs,
+# dig_until's graveyard rest destination, grant_borrowed_activated_ability's
+# top_of_library source mode, the each_player_pay_or scope/effect_targets
+# widening, the Uba Mask draw replacement, and several small trigger-
+# condition/target-kind additions).
+# ---------------------------------------------------------------------------
+
+
+def _aetherflux_reservoir() -> list[AbilitySpec]:
+    """Whenever you cast a spell, you gain 1 life for each spell you've
+    cast this turn.
+    Pay 50 life: This artifact deals 50 damage to any target.
+
+    — MEC-43. The life-gain trigger reuses `continuous.count_selector`'s
+    existing ``"spells_cast_this_turn"`` entry — incremented synchronously
+    at cast time, so it already includes the just-cast spell by the time
+    this ability resolves off the stack; the activated ability is a plain
+    RULE 118.4 ``{"pay_life": 50}`` cost into an ordinary any-target damage
+    effect.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("gain_life", {"count_selector": "spells_cast_this_turn"})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "you"},
+            },
+            raw_text="Whenever you cast a spell, you gain 1 life for each "
+                     "spell you've cast this turn.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("damage", {"amount": 50, "target_kind": "any"})],
+            cost={"pay_life": 50},
+            raw_text="Pay 50 life: This artifact deals 50 damage to any target.",
+        ),
+    ]
+
+
+register("Aetherflux Reservoir", _aetherflux_reservoir)
+
+
+def _altar_of_dementia() -> list[AbilitySpec]:
+    """Sacrifice a creature: Target player mills cards equal to the
+    sacrificed creature's power.
+
+    — MEC-43. Needed the power sibling of `GameObject.sacrificed_cost_
+    mana_value` (`sacrificed_cost_power`, now stamped by `GameEngine.
+    _pay_ability_cost` alongside the mana-value one) and a new `MillEffect.
+    count_selector` param reading it back via `continuous.count_selector`'s
+    matching new entry.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("mill", {
+                "target_kind": "player", "count_selector": "sacrificed_cost_power",
+            })],
+            cost={"sacrifice": "creature"},
+            raw_text="Sacrifice a creature: Target player mills cards "
+                     "equal to the sacrificed creature's power.",
+        ),
+    ]
+
+
+register("Altar of Dementia", _altar_of_dementia)
+
+
+def _burnt_offering() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, sacrifice a creature.
+    Add X mana in any combination of {B} and/or {R}, where X is the
+    sacrificed creature's mana value.
+
+    — MEC-43. The same "any combination of `<colors>`" simplification
+    (`AddManaEffect.any_color_choices`) Culling Ritual already established,
+    with the amount now driven by the widened ``amount_selector`` ANY-branch
+    reading `GameObject.sacrificed_cost_mana_value` (stamped by the
+    RULE 601.2b additional-cost payment, the same channel Eldritch
+    Evolution/Neoform already use).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("add_mana", {
+                "colors": ["ANY"], "any_color_choices": ["B", "R"],
+                "amount_selector": "sacrificed_cost_mana_value",
+            })],
+            additional_cost={"sacrifice": "creature"},
+            raw_text="As an additional cost to cast this spell, sacrifice "
+                     "a creature. Add X mana in any combination of {B} "
+                     "and/or {R}, where X is the sacrificed creature's "
+                     "mana value.",
+        ),
+    ]
+
+
+register("Burnt Offering", _burnt_offering)
+
+
+def _sacrifice() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, sacrifice a creature.
+    Add an amount of {B} equal to the sacrificed creature's mana value.
+
+    — MEC-43. Burnt Offering's fixed-colour sibling: `AddManaEffect`'s
+    existing ``color``/``amount_selector`` variable-count form (the same
+    shape Mana Drain already used), reading `sacrificed_cost_mana_value`.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("add_mana", {"color": "B", "amount_selector": "sacrificed_cost_mana_value"})],
+            additional_cost={"sacrifice": "creature"},
+            raw_text="As an additional cost to cast this spell, sacrifice "
+                     "a creature. Add an amount of {B} equal to the "
+                     "sacrificed creature's mana value.",
+        ),
+    ]
+
+
+register("Sacrifice", _sacrifice)
+
+
+def _rain_of_filth() -> list[AbilitySpec]:
+    """Until end of turn, lands you control gain "Sacrifice this land:
+    Add {B}."
+
+    — MEC-43. `GrantUntilEffect` wrapping the existing quoted-mana-ability
+    grant (`grant_mana_ability`, Tyvar Kell's "Elves you control have
+    '{T}: Add {B}.'") with its own ``cost`` upgrade (MEC-25, Goldspan
+    Dragon) set to a self-sacrifice instead of the bare default {T} — an
+    *added* ability on each land, not a replacement of anything printed,
+    since a self-sacrifice cost never matches a land's own {T}-shaped mana
+    ability. Untargeted (``target_kind=None``): the static's own ``affects``
+    already scopes it to "lands you control".
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("grant_until", {
+                "static": {
+                    "type": "grant_mana_ability",
+                    "params": {
+                        "mana": [{"color": "B", "amount": 1}],
+                        "cost": {"sacrifice": "self"},
+                        "affects": "lands_you_control",
+                    },
+                },
+                "duration": "end_of_turn",
+                "target_kind": None,
+            })],
+            raw_text="Until end of turn, lands you control gain "
+                     "\"Sacrifice this land: Add {B}.\"",
+        ),
+    ]
+
+
+register("Rain of Filth", _rain_of_filth)
+
+
+def _conspicuous_snoop() -> list[AbilitySpec]:
+    """Play with the top card of your library revealed.
+    You may cast Goblin spells from the top of your library.
+    As long as the top card of your library is a Goblin card, this
+    creature has all activated abilities of that card.
+
+    — MEC-43. The first two lines are `top_library.py`'s existing standing
+    permission (`TopLibraryPermissionEffect`, ``subtypes=["goblin"]`` —
+    "play with revealed" is this permission's own always-on visibility
+    side effect, per its docstring, so it needs no separate clause here);
+    the third is `grant_borrowed_activated_ability`'s new ``source_mode=
+    "top_of_library"`` — a scratch, off-zone `GameObject` bound purely to
+    read the top card's own activated abilities (a library card is never
+    otherwise boarded), narrowed by the new ``donor_subtype`` filter.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("top_library_permission", {
+                "look": True, "cast_spells": True, "subtypes": ["goblin"],
+            })],
+            raw_text="Play with the top card of your library revealed. "
+                     "You may cast Goblin spells from the top of your "
+                     "library.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_borrowed_activated_ability", {
+                "affects": "self", "source_mode": "top_of_library",
+                "donor_subtype": "goblin", "creature_only": False,
+            })],
+            raw_text="As long as the top card of your library is a "
+                     "Goblin card, ~ has all activated abilities of that "
+                     "card.",
+        ),
+    ]
+
+
+register("Conspicuous Snoop", _conspicuous_snoop)
+
+
+def _defense_of_the_heart() -> list[AbilitySpec]:
+    """At the beginning of your upkeep, if an opponent controls three or
+    more creatures, sacrifice this enchantment, search your library for up
+    to two creature cards, put those cards onto the battlefield, then
+    shuffle.
+
+    — MEC-43. A RULE 500.7 upkeep trigger gated by the new ``min_opponent_
+    creatures`` RULE 603.4 intervening-if (`effect_binder._trigger_
+    condition`), whose effects are a plain `sacrifice_self` followed by
+    `SearchLibraryEffect(count=2, destination="battlefield")` — "up to two"
+    is that effect's own existing ``optional=True`` default.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("sacrifice_self", {}),
+                EffectSpec("search", {
+                    "criteria": {"type": "Creature"}, "count": 2, "destination": "battlefield",
+                }),
+            ],
+            trigger={
+                "event": EventType.STEP_BEGIN,
+                "filter": {"step": "upkeep"},
+                "phase_relation": "you",
+                "min_opponent_creatures": 3,
+            },
+            raw_text="At the beginning of your upkeep, if an opponent "
+                     "controls three or more creatures, sacrifice this "
+                     "enchantment, search your library for up to two "
+                     "creature cards, put those cards onto the "
+                     "battlefield, then shuffle.",
+        ),
+    ]
+
+
+register("Defense of the Heart", _defense_of_the_heart)
+
+
+def _earthcraft() -> list[AbilitySpec]:
+    """Tap an untapped creature you control: Untap target basic land.
+
+    — MEC-43. `ActivationCost.tap_others`'s existing bare-main-type
+    matching (``(1, "creature")`` — RULE 118.9-style "an untapped creature
+    you control" as a cost, already recognized for Dark Triumph's own
+    "cycle" siblings) into `TapEffect`'s ``untap=True`` mode, targeting the
+    new ``"basic_land"`` kind (the inverse filter of the existing
+    ``"nonbasic_land"``).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("tap", {"untap": True, "target_kind": "basic_land"})],
+            cost={"tap_others": [1, "creature"]},
+            raw_text="Tap an untapped creature you control: Untap target "
+                     "basic land.",
+        ),
+    ]
+
+
+register("Earthcraft", _earthcraft)
+
+
+def _hermit_druid() -> list[AbilitySpec]:
+    """{G}, {T}: Reveal cards from the top of your library until you
+    reveal a basic land card. Put that card into your hand and all other
+    cards revealed this way into your graveyard.
+
+    — MEC-43. `dig_until`'s existing dig with the new ``rest_destination=
+    "graveyard"`` value (`RulesEngine._graveyard_remaining`, the graveyard
+    sibling of the existing library-bottom/shuffled destinations) — the
+    hit destination stays the default ``"hand"``.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("dig_until", {
+                "criteria": {"basic": True}, "hit_destination": "hand",
+                "rest_destination": "graveyard",
+            })],
+            cost={"text": "{G}, {T}"},
+            raw_text="{G}, {T}: Reveal cards from the top of your library "
+                     "until you reveal a basic land card. Put that card "
+                     "into your hand and all other cards revealed this "
+                     "way into your graveyard.",
+        ),
+    ]
+
+
+register("Hermit Druid", _hermit_druid)
+
+
+def _kogla_the_titan_ape() -> list[AbilitySpec]:
+    """When Kogla enters, it fights up to one target creature you don't
+    control.
+    Whenever Kogla attacks, destroy target artifact or enchantment
+    defending player controls.
+    {1}{G}: Return target Human you control to its owner's hand. Kogla
+    gains indestructible until end of turn.
+
+    — MEC-43. The ETB fight was already parser-MODELED; the other two are
+    hand-authored here so the whole card is AUTHORED. The attack trigger
+    needed a new ``defending_player_id`` field on the `EventType.ATTACKS`
+    event itself (the already-resolved RULE 508.1a defender, not
+    previously threaded into the event) and a matching `targeting.py`
+    kind reading it, the same trigger-event-scoped idiom `creature_or_
+    planeswalker_that_player_controls` uses for a DAMAGE event's
+    recipient. The activated ability's "target Human you control" reuses
+    `TargetSpec.creature_filter` (now threaded through `ReturnToHandEffect`
+    too) rather than a new fixed target kind.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("fight", {
+                "fighter_kind": None, "other_kind": "creature_you_dont_control",
+                "optional": True,
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When ~ enters, it fights up to one target creature "
+                     "you don't control.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("destroy", {
+                "target_kind": "artifact_or_enchantment_defending_player_controls",
+            })],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Whenever ~ attacks, destroy target artifact or "
+                     "enchantment defending player controls.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("return_to_hand", {
+                    "target_kind": "creature_you_control", "creature_filter": {"subtype": "human"},
+                }),
+                EffectSpec("pump", {"power": 0, "toughness": 0, "keywords": ["indestructible"]}),
+            ],
+            cost={"text": "{1}{G}"},
+            raw_text="{1}{G}: Return target Human you control to its "
+                     "owner's hand. ~ gains indestructible until end of turn.",
+        ),
+    ]
+
+
+register("Kogla, the Titan Ape", _kogla_the_titan_ape)
+
+
+def _leyline_of_the_void() -> list[AbilitySpec]:
+    """If this card is in your opening hand, you may begin the game with
+    it on the battlefield.
+    If a card would be put into an opponent's graveyard from anywhere,
+    exile it instead.
+
+    — MEC-43. The opening-hand permission is read straight off oracle text
+    by `opening_hand_battlefield_permission` independent of catalogue
+    registration (see its own docstring) — nothing to author here. The
+    redirect is the new `graveyard_redirect` static (``scope="opponent"``,
+    the default), the plain-exile sibling of Dauthi Voidwalker's
+    `void_counter_redirect`.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("graveyard_redirect", {"scope": "opponent"})],
+            raw_text="If a card would be put into an opponent's "
+                     "graveyard from anywhere, exile it instead.",
+        ),
+    ]
+
+
+register("Leyline of the Void", _leyline_of_the_void)
+
+
+def _rest_in_peace() -> list[AbilitySpec]:
+    """When this enchantment enters, exile all graveyards.
+    If a card or token would be put into a graveyard from anywhere, exile
+    it instead.
+
+    — MEC-43. The ETB is the already-shipped `ExileAllGraveyardsEffect`
+    (Farewell's own mass-exile mode); the static is `graveyard_redirect`
+    with ``scope="any"`` (unscoped, unlike Leyline of the Void's
+    opponent-only reading).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile_all_graveyards", {})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When ~ enters, exile all graveyards.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("graveyard_redirect", {"scope": "any"})],
+            raw_text="If a card or token would be put into a graveyard "
+                     "from anywhere, exile it instead.",
+        ),
+    ]
+
+
+register("Rest in Peace", _rest_in_peace)
+
+
+def _soulless_jailer() -> list[AbilitySpec]:
+    """Permanent cards in graveyards can't enter the battlefield.
+    Players can't cast noncreature spells from graveyards or exile.
+
+    — MEC-43. The first clause is `graveyard_library_entry_prohibition`'s
+    new ``card_type="permanent"`` value (unconditionally true — everything
+    this check is ever reached for is already a permanent card); the
+    second is `cast_prohibition`'s new ``zones`` allowlist (the sibling of
+    its existing ``hand_only`` single-zone exemption) combined with the
+    already-shipped ``noncreature``/``scope="all"``.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("graveyard_library_entry_prohibition", {"card_type": "permanent"})],
+            raw_text="Permanent cards in graveyards can't enter the battlefield.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("cast_prohibition", {
+                "scope": "all", "noncreature": True, "zones": ["graveyard", "exile"],
+            })],
+            raw_text="Players can't cast noncreature spells from "
+                     "graveyards or exile.",
+        ),
+    ]
+
+
+register("Soulless Jailer", _soulless_jailer)
+
+
+def _chain_of_smog() -> list[AbilitySpec]:
+    """Target player discards two cards. That player may copy this spell
+    and may choose a new target for that copy.
+
+    — MEC-43. The discard is ordinary; the copy is the new
+    `CopySelfControlledByPreviousTargetEffect` — the discard target
+    (`GameContext.previous_targets`) becomes the copy's controller,
+    mirroring `CopySelfIfCastFromGraveyardEffect`'s own "may" simplification
+    (always copies, keeps the same target) rather than opening a fresh
+    interactive retarget.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("discard", {"count": 2, "target_kind": "player"}),
+                EffectSpec("copy_self_controlled_by_previous_target", {}),
+            ],
+            raw_text="Target player discards two cards. That player may "
+                     "copy this spell and may choose a new target for "
+                     "that copy.",
+        ),
+    ]
+
+
+register("Chain of Smog", _chain_of_smog)
+
+
+def _destiny_spinner() -> list[AbilitySpec]:
+    """Creature and enchantment spells you control can't be countered.
+    {3}{G}: Target land you control becomes an X/X Elemental creature with
+    trample and haste until end of turn, where X is the number of
+    enchantments you control. It's still a land.
+
+    — MEC-43. Only the first clause is authored here (`GrantCantBeCountered
+    Effect`'s new ``"creature_or_enchantment_spells_you_control"`` scope,
+    the two-type union sibling of the existing creature-only one); the
+    land-animation activated ability is the recurring "animate a
+    noncreature permanent into an X/Y creature" gap `BACKLOG.md` already
+    tracks as its own open item, deliberately left unbound rather than
+    stubbed here.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_cant_be_countered", {"scope": "creature_or_enchantment_spells_you_control"})],
+            raw_text="Creature and enchantment spells you control can't "
+                     "be countered.",
+        ),
+    ]
+
+
+register("Destiny Spinner", _destiny_spinner)
+
+
+def _llawan_cephalid_empress() -> list[AbilitySpec]:
+    """When Llawan enters, return all blue creatures your opponents
+    control to their owners' hands.
+    Your opponents can't cast blue creature spells.
+
+    — MEC-43. The ETB is `ReturnToHandEffect`'s new ``"opponents_
+    creatures"`` mass selector (the opponent-scoped sibling of the existing
+    ``"all_creatures"``) combined with its also-new ``filter={"color":
+    "U"}``; the static is `cast_prohibition`'s new ``color``/
+    ``creature_only`` combination (MEC-43's first card needing both a
+    card-type and a colour restriction on the same clause).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_to_hand", {
+                "selector": "opponents_creatures", "filter": {"color": "U"},
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When ~ enters, return all blue creatures your "
+                     "opponents control to their owners' hands.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("cast_prohibition", {
+                "scope": "opponents", "creature_only": True, "color": "U",
+            })],
+            raw_text="Your opponents can't cast blue creature spells.",
+        ),
+    ]
+
+
+register("Llawan, Cephalid Empress", _llawan_cephalid_empress)
+
+
+def _mana_breach() -> list[AbilitySpec]:
+    """Whenever a player casts a spell, that player returns a land they
+    control to its owner's hand.
+
+    — MEC-43. A plain "group" subject with no ``controller`` filter (any
+    player's cast, the same idiom Nether Void's own unscoped trigger
+    uses); the new `BounceOwnLandFromTriggerEffect` reads the firing
+    `SPELL_CAST` event's own ``player_id`` as the chooser/owner instead of
+    this ability's own controller.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("bounce_own_land_from_trigger", {})],
+            trigger={"event": EventType.SPELL_CAST, "condition": {"subject": "group"}},
+            raw_text="Whenever a player casts a spell, that player "
+                     "returns a land they control to its owner's hand.",
+        ),
+    ]
+
+
+register("Mana Breach", _mana_breach)
+
+
+def _selvala_heart_of_the_wilds() -> list[AbilitySpec]:
+    """Whenever another creature enters, its controller may draw a card if
+    its power is greater than each other creature's power.
+    {G}, {T}: Add X mana in any combination of colors, where X is the
+    greatest power among creatures you control.
+
+    — MEC-43. The mana ability is a plain RULE 605 ability, parsed by
+    `mana_abilities_for` rather than bound here. The trigger is the new
+    `DrawIfTriggerObjectGreatestPowerEffect` — RULE 603.1's "its" resolves
+    to the firing `ENTERS_BATTLEFIELD` event's own object, compared live
+    against every other creature's derived power.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw_if_trigger_object_greatest_power", {})],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "group", "type": "creature", "other": True},
+            },
+            raw_text="Whenever another creature enters, its controller "
+                     "may draw a card if its power is greater than each "
+                     "other creature's power.",
+        ),
+    ]
+
+
+register("Selvala, Heart of the Wilds", _selvala_heart_of_the_wilds)
+
+
+def _shifting_woodland() -> list[AbilitySpec]:
+    """This land enters tapped unless you control a Forest.
+    {T}: Add {G}.
+    Delirium — {2}{G}{G}: This land becomes a copy of target permanent
+    card in your graveyard until end of turn. Activate only if there are
+    four or more card types among cards in your graveyard.
+
+    — MEC-43. The enters-tapped clause is read straight off oracle text by
+    `land_tap_condition` independent of catalogue registration, and the
+    mana ability is a plain RULE 605 ability — neither needs authoring
+    here. The Delirium-gated copy ability is `BecomeCopyUntilEndOfTurnEffect`
+    retargeted at the new ``"graveyard_permanent"`` kind (the existing
+    graveyard-target family's own ``"permanent"`` filter, own-graveyard
+    scoped), gated by `ActivationCost.activation_condition` reusing RULE
+    702.137 Delirium's existing `static_conditions` kind.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("become_copy_until_eot", {"target_kind": "graveyard_permanent"})],
+            cost={
+                "text": "{2}{G}{G}",
+                "activation_condition": {"kind": "card_types_in_graveyard_at_least", "amount": 4},
+            },
+            raw_text="Delirium — {2}{G}{G}: ~ becomes a copy of target "
+                     "permanent card in your graveyard until end of turn. "
+                     "Activate only if there are four or more card types "
+                     "among cards in your graveyard.",
+        ),
+    ]
+
+
+register("Shifting Woodland", _shifting_woodland)
+
+
+def _tataru_taru() -> list[AbilitySpec]:
+    """When Tataru Taru enters, you draw a card and target opponent may
+    draw a card.
+    Scions' Secretary — Whenever an opponent draws a card, if it isn't
+    that player's turn, create a tapped Treasure token. This ability
+    triggers only once each turn.
+
+    — MEC-43. The ETB is a plain self-draw plus an optional targeted
+    opponent draw. The second ability reuses `effect_binder`'s existing
+    ``not_controllers_turn`` predicate (checked against the firing DRAW
+    event's own actor, exactly "if it isn't **that player's** turn") and
+    `TriggeredAbility.once_per_turn`.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("draw", {"count": 1}),
+                EffectSpec("draw", {"count": 1, "target_kind": "opponent", "optional": True}),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When ~ enters, you draw a card and target opponent "
+                     "may draw a card.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count": 1, "token_name": "Treasure", "subtypes": ["Treasure"],
+                "is_artifact": True, "tapped": True,
+            })],
+            trigger={
+                "event": EventType.DRAW,
+                "condition": {"subject": "group", "controller": "not_you"},
+                "not_controllers_turn": True,
+                "limit": True,
+            },
+            raw_text="Scions' Secretary — Whenever an opponent draws a "
+                     "card, if it isn't that player's turn, create a "
+                     "tapped Treasure token. This ability triggers only "
+                     "once each turn.",
+        ),
+    ]
+
+
+register("Tataru Taru", _tataru_taru)
+
+
+def _uba_mask() -> list[AbilitySpec]:
+    """If a player would draw a card, that player exiles that card face up
+    instead.
+    Each player may play lands and cast spells from among cards they
+    exiled with ~ this turn.
+
+    — MEC-43. One replacement effect (`draw_exile_face_up`) covers both
+    printed lines: it performs the exile itself and stamps `GameState.
+    temp_play_permissions` on the exiled card in the same step, so the
+    second line is a consequence of the first rather than a separate
+    clause — the same "castable/playable from exile this turn" marker
+    every other temp-exile-permission card already reads from `can_cast`/
+    `can_play_land`.
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("draw_exile_face_up", {})],
+            raw_text="If a player would draw a card, that player exiles "
+                     "that card face up instead. Each player may play "
+                     "lands and cast spells from among cards they exiled "
+                     "with ~ this turn.",
+        ),
+    ]
+
+
+register("Uba Mask", _uba_mask)
+
+
+def _acererak_the_archlich() -> list[AbilitySpec]:
+    """When Acererak enters, if you haven't completed Tomb of Annihilation,
+    return Acererak to its owner's hand and venture into the dungeon.
+    Whenever Acererak attacks, for each opponent, you create a 2/2 black
+    Zombie creature token unless that player sacrifices a creature of
+    their choice.
+
+    — MEC-43. The ETB combines the new ``not_completed_dungeon`` RULE
+    603.4 intervening-if (reading `Player.completed_dungeons`, RULE 309.7)
+    with the already-shipped self-bounce + `venture` effects. The attack
+    trigger is `EachPlayerPayOrEffect`'s new ``scope="each_opponent"``/
+    ``effect_targets="controller"`` combination — every opponent
+    independently chooses whether to sacrifice, and only a decliner's
+    absence of payment lets Acererak's own controller make the token,
+    never the decliner themselves.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("return_to_hand", {"target_kind": None}),
+                EffectSpec("venture", {}),
+            ],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "self"},
+                "not_completed_dungeon": "Tomb of Annihilation",
+            },
+            raw_text="When ~ enters, if you haven't completed Tomb of "
+                     "Annihilation, return ~ to its owner's hand and "
+                     "venture into the dungeon.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("each_player_pay_or", {
+                "cost": "Sacrifice a creature",
+                "scope": "each_opponent",
+                "effect_targets": "controller",
+                "effects": [{
+                    "type": "create_token",
+                    "params": {
+                        "count": 1, "power": 2, "toughness": 2, "colors": ["B"],
+                        "subtypes": ["Zombie"], "token_name": "Zombie",
+                    },
+                }],
+            })],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Whenever ~ attacks, for each opponent, you create a "
+                     "2/2 black Zombie creature token unless that player "
+                     "sacrifices a creature of their choice.",
+        ),
+    ]
+
+
+register("Acererak the Archlich", _acererak_the_archlich)
+
+
+def _jeweled_amulet() -> list[AbilitySpec]:
+    """{1}, {T}: Put a charge counter on this artifact. Note the type of
+    mana spent to pay this activation cost. Activate only if there are no
+    charge counters on this artifact.
+    {T}, Remove a charge counter from this artifact: Add one mana of this
+    artifact's last noted type.
+
+    — MEC-43 (the ticket's one deliberately-deferred card, closed in a
+    follow-up pass rather than a third deferral). "Note the type of mana
+    spent" needed a genuinely new primitive: `ManaPool.pay` now stamps
+    `last_payment_types` (which type(s) it actually drained — this card's
+    own {1} cost has no fixed pip of its own to read instead), and
+    `ActivationCost.note_spent_color` copies that onto `GameObject.
+    noted_mana_color` right after payment (`GameEngine._pay_ability_cost`).
+    This engine has no interactive "which color pays a generic pip" choice
+    (`ManaPool._spend_generic`'s own colorless-first order decides it
+    deterministically), so what gets noted isn't always a genuine player
+    pick — an accepted simplification, the same tier every other "spend
+    from the pool" caller already gets. The second ability reads it back
+    via `AddManaEffect`'s new `color_from_source_noted_color`, the exact
+    sibling of the existing `color_from_source_chosen_color` (Utopia
+    Sprawl-shaped RULE 601.2b colour choices already use it the same way).
+    "Activate only if there are no charge counters" is `ActivationCost.
+    activation_condition` reusing the existing `source_counters` kind.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("add_counters", {"kind": "charge", "count": 1}),
+            ],
+            cost={
+                "text": "{1}, {T}",
+                "note_spent_color": True,
+                "activation_condition": {"kind": "source_counters", "counter": "charge", "max": 0},
+            },
+            raw_text="{1}, {T}: Put a charge counter on ~. Note the type "
+                     "of mana spent to pay this activation cost. Activate "
+                     "only if there are no charge counters on ~.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("add_mana", {"color_from_source_noted_color": True})],
+            cost={"taps_self": True, "remove_counters": ["charge", 1]},
+            raw_text="{T}, Remove a charge counter from ~: Add one mana "
+                     "of ~'s last noted type.",
+        ),
+    ]
+
+
+register("Jeweled Amulet", _jeweled_amulet)

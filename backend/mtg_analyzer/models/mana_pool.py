@@ -80,6 +80,16 @@ class ManaPool:
         #: majority) never does, so this is pure bookkeeping overhead for
         #: them, not a behaviour change.
         self.pool_by_source: dict[Optional[str], dict[str, int]] = {}
+        #: Which type(s) `pay()`'s most recent call actually drained
+        #: (colored pips + whichever type(s) covered the generic portion,
+        #: `_spend_generic`'s own colorless-first order) — Jeweled Amulet's
+        #: "note the type of mana spent to pay this activation cost"
+        #: (MEC-43) is the only reader today; every other caller ignores
+        #: it, so this is pure bookkeeping overhead for them. Overwritten
+        #: (not accumulated) on every `pay()` call — stale after a cost
+        #: with no mana component at all, since callers skip `pay()`
+        #: entirely rather than calling it with an empty cost.
+        self.last_payment_types: dict[str, int] = {}
         if amounts:
             for mana_type, amount in amounts.items():
                 self.add(mana_type, amount)
@@ -236,10 +246,14 @@ class ManaPool:
 
         for color in colored_spends:
             self._consume(color, 1, usable, require_source_kind)
-        self._spend_generic(generic_needed, usable, require_source_kind)
+        spent_generic = self._spend_generic(generic_needed, usable, require_source_kind)
         # Lots a payment fully drained are dropped rather than left as
         # empty husks (`add` would otherwise keep merging into them forever).
         self.restricted = [lot for lot in self.restricted if sum(lot["amounts"].values())]
+        types: dict[str, int] = dict(spent_generic)
+        for color in colored_spends:
+            types[color] = types.get(color, 0) + 1
+        self.last_payment_types = types
         return life_spent
 
     def _consume_from_source_pool(
@@ -294,8 +308,20 @@ class ManaPool:
 
     def _spend_generic(
         self, amount: int, usable_lots: list[dict] = (), require_source_kind: Optional[str] = None,
-    ) -> None:
-        """Remove ``amount`` mana of any type, colorless-first (see MANA_TYPES)."""
+    ) -> dict[str, int]:
+        """Remove ``amount`` mana of any type, colorless-first (see MANA_TYPES).
+
+        Returns how much of each type was actually drained — ``pay()``
+        folds this into `last_payment_types` (Jeweled Amulet, MEC-43:
+        "note the type of mana spent to pay this activation cost", a
+        wholly generic cost with no fixed pip of its own to read instead).
+        This engine has no interactive "which color pays the generic
+        portion" choice, so which type ends up noted is this deterministic
+        colorless-first order, not a genuine player pick — the same
+        simplification tier every other "spend from the pool" caller here
+        already accepts.
+        """
+        spent: dict[str, int] = {}
         for mana_type in MANA_TYPES:
             if amount <= 0:
                 break
@@ -309,8 +335,10 @@ class ManaPool:
             if take:
                 self._consume(mana_type, take, usable_lots, require_source_kind)
                 amount -= take
+                spent[mana_type] = spent.get(mana_type, 0) + take
         if amount > 0:  # pragma: no cover - guarded by _find_payment
             raise ValueError("insufficient mana for generic cost")
+        return spent
 
     @staticmethod
     def _find_payment(

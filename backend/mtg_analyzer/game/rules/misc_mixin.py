@@ -358,6 +358,8 @@ class MiscSystemsMixin:
         cost: "ActivationCost",
         effect_specs: list[dict[str, Any]],
         source: Optional[GameObject],
+        scope: str = "each_player",
+        effect_targets: str = "decliner",
     ) -> None:
         """RULE 101.4's APNAP mass "unless" (PAR-13 — "Each player loses N
         life unless they `<pay cost>`.", Bellowing Mauler/Lim-Dûl's Hex/
@@ -368,6 +370,16 @@ class MiscSystemsMixin:
         *them* — not the ability's controller, which is why ``targets``
         (not the effects' own untargeted-controller default) carries each
         player through `request_pay_cost_then`.
+
+        ``scope`` (MEC-43, Acererak the Archlich — "for each opponent,
+        `<effect>` unless that player `<pays>`.") is ``"each_player"``
+        (default, unchanged) or ``"each_opponent"`` — excludes ``source``'s
+        own controller from the sweep entirely. ``effect_targets`` is
+        ``"decliner"`` (default, unchanged) or ``"controller"`` — Acererak's
+        "**you** create a token" lands on the ability's own controller
+        regardless of who declined, so no ``targets`` are threaded through
+        and each inner spec resolves against its own untargeted-controller
+        default instead.
 
         Built as a chain of ordinary single-player `request_pay_cost_then`
         choices rather than a new chooser: each one either opens a real
@@ -381,16 +393,19 @@ class MiscSystemsMixin:
         """
         start = self.state.active_player_index
         n = len(self.state.players)
+        controller_id = getattr(source, "controller_id", None)
         order = [
             self.state.players[(start + i) % n].id
             for i in range(n)
             if not self.state.players[(start + i) % n].has_lost
+            and (scope != "each_opponent" or self.state.players[(start + i) % n].id != controller_id)
         ]
         self._pending_each_player_pay_or = {
             "remaining_ids": order,
             "cost": cost,
             "effect_specs": [dict(d) for d in effect_specs],
             "source": source,
+            "effect_targets": effect_targets,
         }
         self._advance_each_player_pay_or()
     def _advance_each_player_pay_or(self) -> None:
@@ -400,6 +415,7 @@ class MiscSystemsMixin:
         if pending is None:
             return
         remaining: list[str] = pending["remaining_ids"]
+        effect_targets = pending.get("effect_targets", "decliner")
         while remaining:
             player_id = remaining.pop(0)
             try:
@@ -410,7 +426,8 @@ class MiscSystemsMixin:
                 continue
             self.request_pay_cost_then(
                 player, pending["cost"], [], pending["source"],
-                else_effect_specs=pending["effect_specs"], targets=[player],
+                else_effect_specs=pending["effect_specs"],
+                targets=[player] if effect_targets == "decliner" else None,
             )
             if self.state.pending_choice is not None:
                 return  # a real choice opened — resumed via resolve_pay_cost_then_choice
@@ -2508,6 +2525,7 @@ class MiscSystemsMixin:
         if any(isinstance(e, CantBeCounteredEffect) for e in effects):
             return True
         is_creature = "creature" in (getattr(obj, "type_words", None) or set())
+        is_enchantment = "enchantment" in (getattr(obj, "type_words", None) or set())
         for permanent in self.state.battlefield:
             for effect in getattr(permanent, "static_effects", None) or []:
                 if not isinstance(effect, GrantCantBeCounteredEffect):
@@ -2515,6 +2533,14 @@ class MiscSystemsMixin:
                 if permanent.controller_id != obj.controller_id:
                     continue
                 if effect.scope == "creature_spells_you_control" and not is_creature:
+                    continue
+                if (
+                    effect.scope == "creature_or_enchantment_spells_you_control"
+                    and not (is_creature or is_enchantment)
+                ):
+                    # "Creature and enchantment spells you control can't be
+                    # countered." (Destiny Spinner, MEC-43) — the two-type
+                    # union sibling of the creature-only scope just above.
                     continue
                 if effect.scope == "color_spells_you_control":
                     if effect.color not in (getattr(obj, "colors", None) or set()):

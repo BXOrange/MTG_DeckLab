@@ -844,6 +844,7 @@ class ActivationMixin:
         # this same permanent's sacrifice cost must not leak into a later
         # one that didn't sacrifice anything (or sacrificed nothing found).
         source.sacrificed_cost_mana_value = None
+        source.sacrificed_cost_power = None
         if cost.taps_self:
             self.rules.set_tapped(source, True)
         if cost.untaps_self:
@@ -887,6 +888,17 @@ class ActivationMixin:
                 mana, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
             )
             self.rules.lose_life(player, life_spent, cause="cost")
+            if cost.note_spent_color:
+                # "Note the type of mana spent to pay this activation
+                # cost." (Jeweled Amulet, MEC-43) — `ManaPool.pay` just
+                # stamped which type(s) actually left the pool; a single
+                # generic pip (this card's own cost) always resolves to
+                # exactly one type, but fall back to the first key
+                # deterministically if a future caller's cost ever mixes
+                # colored and generic pips.
+                spent = player.mana_pool.last_payment_types
+                if spent:
+                    source.noted_mana_color = next(iter(spent))
         if cost.pay_life:
             self.rules.lose_life(player, cost.pay_life, cause="cost")
         if cost.pay_energy:
@@ -911,6 +923,12 @@ class ActivationMixin:
                 # magnitude" idiom `cost.exile_creature`'s own
                 # `last_cost_exiled_object_mv` just below already uses.
                 source.sacrificed_cost_mana_value = victim.card.converted_mana_cost
+                # MEC-43 (Altar of Dementia): the *power* sibling of the
+                # stamp just above — read `victim.power` (derived, RULE
+                # 613) rather than the card's printed value, since a
+                # sacrificed creature's power may have been modified by the
+                # layer engine before it left the battlefield.
+                source.sacrificed_cost_power = victim.power
         if cost.exile_creature:
             exiled = self._exile_creature_candidate(player, chosen_id=sacrifice_choice)
             if exiled is not None:

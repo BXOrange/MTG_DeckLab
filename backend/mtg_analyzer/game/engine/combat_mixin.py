@@ -597,6 +597,14 @@ class CombatMixin:
                     player_id=player.id,  # RULE 508.1a: the attacker's controller
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # "…destroy target artifact or enchantment defending
+                    # player controls." (Kogla, the Titan Ape, MEC-43) — the
+                    # already-resolved defending player (`_defending_player`
+                    # just above, RULE 508.1a's own legality check reads the
+                    # same value), so a per-attacker trigger's own target
+                    # can be scoped to it without re-deriving it from
+                    # `combat_defender` a second time at resolution.
+                    defending_player_id=getattr(self._defending_player(defender), "id", None),
                 )
             )
             if exert:

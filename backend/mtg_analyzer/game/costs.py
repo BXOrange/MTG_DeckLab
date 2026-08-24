@@ -234,6 +234,12 @@ class ActivationCost:
     #: ``{E}`` pips in the cost text (`_parse_text`); charged by
     #: `GameEngine._pay_activation_cost` via `RulesEngine.add_player_counters`.
     pay_energy: int = 0
+    #: "Note the type of mana spent to pay this activation cost." (Jeweled
+    #: Amulet, MEC-43) — stamps `GameObject.noted_mana_color` off `Player.
+    #: mana_pool.last_payment_types` right after this cost's own mana is
+    #: paid (`GameEngine._pay_ability_cost`). Never set by the text parser
+    #: (a project-level singleton phrasing, hand-authored only).
+    note_spent_color: bool = False
     discard: int = 0
     #: Channel (RULE 702.29)/Cycling (RULE 702.28): the cost is discarding
     #: *this specific card* from hand, not a player's choice of any card —
@@ -633,6 +639,8 @@ def parse_activation_cost(
         parsed.pay_life = PAY_LIFE_X if value == "x" else int(value)
     if "pay_energy" in cost:
         parsed.pay_energy = int(cost["pay_energy"])
+    if "note_spent_color" in cost:
+        parsed.note_spent_color = bool(cost["note_spent_color"])
     if "discard" in cost:
         parsed.discard = int(cost["discard"])
     if "discard_self" in cost:

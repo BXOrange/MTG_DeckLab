@@ -2119,7 +2119,23 @@ class SearchMixin:
             # unknown order either way).
             self._bottom_remaining(player, rest_ids)
             self.shuffle_library(player)
+        elif rest_destination == "graveyard":
+            # "…and all other cards revealed this way into your graveyard."
+            # (Hermit Druid, MEC-43) — a plain library→graveyard move for
+            # cards this dig already exiled, mirroring `mill`'s own direct
+            # zone move rather than `_move_to_graveyard`'s full battlefield-
+            # leave machinery (which is for a permanent *dying*, not a
+            # library card being discarded past by a dig).
+            self._graveyard_remaining(player, rest_ids)
         return matched
+    def _graveyard_remaining(self, player: Player, exiled_ids: list[int]) -> None:
+        """Put every still-exiled card from this effect into the graveyard,
+        in reveal order — the graveyard sibling of `_bottom_remaining`."""
+        remaining = [o for o in list(player.exile) if o.instance_id in set(exiled_ids)]
+        for obj in remaining:
+            player.remove_from_zone(obj, Zone.EXILE)
+            obj.zone = Zone.GRAVEYARD
+            player.graveyard.append(obj)
     def _place_dig_hit(self, player: Player, obj: GameObject, destination: str) -> None:
         """Move a `dig_until` hit out of exile to its destination."""
         if destination == "cast_free":

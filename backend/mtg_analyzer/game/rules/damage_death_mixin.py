@@ -1485,6 +1485,13 @@ class DamageDeathMixin:
             self.exile(obj)
             self.state.void_counter_holder[obj.instance_id] = void_holder_id
             return
+        # "If a card [or token] would be put into [an opponent's/a]
+        # graveyard from anywhere, exile it instead." (Leyline of the
+        # Void/Rest in Peace, MEC-43) — the plain-exile sibling of the
+        # void-counter redirect just above.
+        if continuous.graveyard_redirect_active(self.state, obj):
+            self.exile(obj)
+            return
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
 
