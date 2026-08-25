@@ -583,9 +583,12 @@ class CastingMixin:
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
             wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
             require_source_kind = getattr(obj, "mana_source_kind_restriction", None)
+            # MEC-43: K'rrik, Son of Yawgmoth's standing "pay 2 life instead
+            # of a {B} pip" permission (`continuous.life_for_mana_pip_color`).
+            extra_life_color = continuous.life_for_mana_pip_color(self.state, player)
             if not player.mana_pool.can_pay(
                 cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
-                require_source_kind=require_source_kind,
+                require_source_kind=require_source_kind, extra_life_color=extra_life_color,
             ):
                 return False
             if kicked and kicker_x > 0 and self._kicker_x_distinct_colors(obj):
@@ -596,7 +599,10 @@ class CastingMixin:
                 # paid, not the pool as a whole (the same mana can't cover
                 # both). A clone keeps this a pure read.
                 remaining = player.mana_pool.clone()
-                remaining.pay(cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard)
+                remaining.pay(
+                    cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
+                    extra_life_color=extra_life_color,
+                )
                 if not remaining.can_pay_distinct_colors(kicker_x):
                     return False
         # RULE 601.2b: an "as an additional cost to cast this spell, …"

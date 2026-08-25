@@ -22499,3 +22499,269 @@ def _soul_conduit() -> list[AbilitySpec]:
 
 
 register("Soul Conduit", _soul_conduit)
+
+
+def _krrik_son_of_yawgmoth() -> list[AbilitySpec]:
+    """Lifelink
+    For each {B} in a cost, you may pay 2 life rather than pay that mana.
+    Whenever you cast a black spell, put a +1/+1 counter on K'rrik.
+
+    — MEC-43 round 4F. Lifelink is a plain printed keyword, bound
+    independent of catalogue registration (see Tymna the Weaver's own
+    docstring for the convention). The alternative-payment clause is a
+    genuinely new primitive — broader than every existing wildcard-color
+    mechanism (RULE 605.1a's `grant_any_color_for_activation`/
+    `GameState.mana_wildcard_permission`, both of which only ever relax
+    *which* mana pays a pip): `grant_life_for_mana_pip` is a standing
+    permission (`continuous.life_for_mana_pip_color`) consulted at the two
+    real cost-payment sites — casting (`game/engine/casting_mixin.py`'s
+    `can_cast`, `game/rules/casting_mixin.py`'s actual payment) and
+    activating (`game/engine/activation_mixin.py`'s `_can_pay_activation_
+    cost`/`_pay_activation_cost`/`_max_x_for_mana`) — threaded into
+    `ManaPool.can_pay`/`pay`'s new `extra_life_color` param, which gives a
+    plain {B} pip the same life-payment option a printed Phyrexian pip
+    already has (`mana_pool.KRRIK_LIFE_PER_BLACK_PIP` — 2 life, same price
+    RULE 702.85a already charges). The counter trigger reuses the existing
+    `cast_of_color` trigger-condition key (Runaway Steam-Kin's own
+    template) with no intervening-if.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_life_for_mana_pip", {"color": "B"})],
+            raw_text="Für jedes {B} in den Kosten darfst du 2 Lebenspunkte "
+                     "bezahlen, anstatt dieses Mana zu bezahlen.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"kind": "+1/+1", "amount": 1, "target_kind": None})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "you"},
+                "cast_of_color": "B",
+            },
+            raw_text="Immer wenn du einen schwarzen Zauberspruch wirkst, "
+                     "lege eine +1/+1-Marke auf K'rrik.",
+        ),
+    ]
+
+
+register("K'rrik, Son of Yawgmoth", _krrik_son_of_yawgmoth)
+
+
+def _maralen_of_the_mornsong() -> list[AbilitySpec]:
+    """Players can't draw cards.
+    At the beginning of each player's draw step, that player loses 3 life,
+    searches their library for a card, puts it into their hand, then
+    shuffles.
+
+    — MEC-43 round 4F. Both clauses were nearly free once diagnosed
+    against Omen Machine (MEC-33), which already built the identical
+    "Players can't draw cards. At the beginning of each player's draw
+    step, …" template. (1) The flat `draw_limit` static at
+    `max_per_turn=0` needs no new code at all — same as Omen Machine's own
+    first clause. (2) The replacement action reuses Omen Machine's own
+    unscoped `STEP_BEGIN`/"draw" trigger (only the active player ever has
+    a draw step, so leaving it unnarrowed by `phase_relation` already
+    fires it once per turn, for whoever that is — RULE 500.7). Its body
+    needed exactly one new selector: `LoseLifeEffect.selector` gained
+    `"active_player"` (mirroring `DealDamageEffect`'s own sentinel of the
+    same name); `SearchLibraryEffect` needed nothing new at all — its
+    untargeted `player` resolution (`apply`'s ``player = self.player or
+    context.active_player``) already defaults to the active player
+    whenever no explicit ``player`` is given, exactly what an unscoped
+    "that player searches…" clause needs.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("draw_limit", {"max_per_turn": 0})],
+            raw_text="Players can't draw cards.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("lose_life", {"amount": 3, "selector": "active_player"}),
+                EffectSpec("search", {"criteria": "", "destination": "hand", "optional": False}),
+            ],
+            trigger={"event": "STEP_BEGIN", "filter": {"step": "draw"}},
+            raw_text="Zu Beginn des Ziehschritts jedes Spielers verliert dieser "
+                     "Spieler 3 Lebenspunkte, durchsucht seine Bibliothek nach "
+                     "einer Karte, nimmt sie auf die Hand und mischt danach "
+                     "seine Bibliothek.",
+        ),
+    ]
+
+
+register("Maralen of the Mornsong", _maralen_of_the_mornsong)
+
+
+def _keen_duelist() -> list[AbilitySpec]:
+    """At the beginning of your upkeep, you and target opponent each
+    reveal the top card of your library. You each lose life equal to the
+    mana value of the card revealed by the other player. You each put the
+    card you revealed into your hand.
+
+    — MEC-43 round 4F. A genuinely new simultaneous, two-player
+    reveal-and-compare — no existing shape combines "each of two players
+    reveals a card" with "each player's own life loss reads the *other*
+    player's reveal" (the single-player `RevealTopThenTakeAndLoseLifeEffect`
+    (MEC-12, Dark Confidant) only ever reads a player's own revealed
+    card). Built as one atomic `MutualRevealCompareManaValueEffect`
+    (`mutual_reveal_compare_mana_value`) rather than two effects sharing a
+    resolve-time referent, since both reveals must happen before either
+    life total changes. Fully deterministic (no player choice beyond RULE
+    115's own opponent target), so no interactive `pending_choice`.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("mutual_reveal_compare_mana_value", {"target_kind": "opponent"})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
+            raw_text="Zu Beginn deines Aufwärmschritts deckt jeder Spieler, "
+                     "du und ein Gegner deiner Wahl, die oberste Karte "
+                     "seiner Bibliothek auf. Jeder Spieler verliert so "
+                     "viele Lebenspunkte, wie der Manawert der vom anderen "
+                     "Spieler aufgedeckten Karte beträgt. Jeder Spieler "
+                     "nimmt die von ihm aufgedeckte Karte auf die Hand.",
+        ),
+    ]
+
+
+register("Keen Duelist", _keen_duelist)
+
+
+def _scroll_rack() -> list[AbilitySpec]:
+    """{1}, {T}: Exile any number of cards from your hand face down. Put
+    that many cards from the top of your library into your hand. Then
+    look at the exiled cards and put them on top of your library in any
+    order.
+
+    — MEC-43 round 4F. RULE 701.20a-adjacent: reuses `GameObject.
+    face_down_in_exile` (Beseech the Mirror's own face-down exile),
+    `RulesEngine.request_choose_objects`'s ``track_exiled_with`` (MEC-21)
+    for the "any number" pick, and the scry/surveil two-phase "order the
+    rest back on top" machinery (`RulesEngine._LOOK_TOP_KINDS`) for the
+    final ordering step — the only genuinely new piece is putting cards
+    that started in *exile* back onto the library instead of reordering
+    cards already there (`_finish_look_top`'s new ``"scroll_rack"``
+    branch, `RulesEngine.open_scroll_rack_order_choice`). Built as two
+    chained effects (`scroll_rack_exile`/`scroll_rack_finish`,
+    `ScrollRackEffect`/`ScrollRackFinishEffect`) rather than one, since
+    "how many cards to draw and which need reordering" is only known once
+    the exile-any-number choice actually resolves (``then_specs``).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("scroll_rack_exile", {})],
+            cost={"text": "{1}", "taps_self": True},
+            raw_text="{1}, {T}: Verbanne eine beliebige Anzahl Karten "
+                     "verdeckt aus deiner Hand. Nimm so viele Karten vom "
+                     "oberen Ende deiner Bibliothek auf die Hand. Sieh dir "
+                     "danach die verbannten Karten an und lege sie in "
+                     "beliebiger Reihenfolge oben auf deine Bibliothek.",
+        ),
+    ]
+
+
+register("Scroll Rack", _scroll_rack)
+
+
+def _dance_of_the_dead() -> list[AbilitySpec]:
+    """Enchant creature card in a graveyard
+    When this Aura enters, if it's on the battlefield, it loses "enchant
+    creature card in a graveyard" and gains "enchant creature put onto
+    the battlefield with this Aura." Put enchanted creature card onto the
+    battlefield tapped under your control and attach this Aura to it.
+    When this Aura leaves the battlefield, that creature's controller
+    sacrifices it.
+    Enchanted creature gets +1/+1 and doesn't untap during its
+    controller's untap step.
+    At the beginning of the upkeep of enchanted creature's controller,
+    that player may pay {1}{B}. If the player does, untap that creature.
+
+    — MEC-43 round 4F, RULE 704.5n Necromancy-shaped. Reuses Animate
+    Dead's own reanimate-Aura core wholesale (`ReturnFromGraveyardEffect
+    (target_kind="self_enchant_target")`/`AttachEffect(target_kind=
+    "created")`/`SacrificeAttachedPermanentEffect` — see that entry's own
+    docstring for the three primitives the whole family rides on:
+    `GameObject.reanimate_target_id`, the graveyard-wide `targeting.
+    legal_targets` branch, and `RulesEngine._resolve_permanent_spell`'s
+    "leave unattached instead of failing" special-case for a graveyard-zone
+    attach target). The one difference from Animate Dead's reanimate
+    clause is "tapped" instead of a P/T rider — already a plain param
+    (`tapped=True`, MEC-43 round 2's Tenacious Dead). The +1/+1 anthem and
+    "doesn't untap" are both free, already-``affects="attached_permanent"``
+    reuses (`anthem`/`no_untap` — Paralyzing Grasp already prints the
+    latter on an enchanted host). The pay-or-untap upkeep clause needed two
+    small, genuinely general additions rather than a one-off: RULE 500.7's
+    ``phase_relation`` gained a third value, ``"attached_permanent"``
+    (`effect_binder._trigger_condition`, read live off `source.
+    attached_to`'s *current* controller rather than the ability's own
+    source's controller — so the trigger stays correctly silent during the
+    brief window before the ETB trigger has attached this Aura to
+    anything), and `PayCostThenEffect.payer` (RULE 118.3) gained the same
+    sentinel, so "that player may pay" asks the *enchanted creature's*
+    controller, not the Aura's own. The untap itself is `TapEffect
+    (target_kind="attached_permanent", untap=True)`, already built for
+    Freed from the Real/Pemmin's Aura.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("return_from_graveyard", {
+                    "target_kind": "self_enchant_target",
+                    "under_your_control": True,
+                    "tapped": True,
+                }),
+                EffectSpec("attach", {"target_kind": "created"}),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When this Aura enters, if it's on the battlefield, "
+                     "it loses \"enchant creature card in a graveyard\" "
+                     "and gains \"enchant creature put onto the "
+                     "battlefield with this Aura.\" Put enchanted "
+                     "creature card onto the battlefield tapped under "
+                     "your control and attach this Aura to it.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("sacrifice_attached_permanent", {})],
+            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When this Aura leaves the battlefield, that "
+                     "creature's controller sacrifices it.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 1, "toughness": 1})],
+            raw_text="Enchanted creature gets +1/+1.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("no_untap", {"affects": "attached_permanent"})],
+            raw_text="Enchanted creature doesn't untap during its "
+                     "controller's untap step.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("pay_cost_then", {
+                "cost": "{1}{B}",
+                "payer": "attached_permanent",
+                "effects": [
+                    {"type": "tap", "params": {"target_kind": "attached_permanent", "untap": True}},
+                ],
+            })],
+            trigger={
+                "event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"},
+                "phase_relation": "attached_permanent",
+            },
+            raw_text="At the beginning of the upkeep of enchanted "
+                     "creature's controller, that player may pay {1}{B}. "
+                     "If the player does, untap that creature.",
+        ),
+    ]
+
+
+register("Dance of the Dead", _dance_of_the_dead)

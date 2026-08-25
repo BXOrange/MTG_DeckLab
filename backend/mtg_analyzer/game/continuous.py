@@ -3337,6 +3337,37 @@ def has_radiation_life_gain(state: "GameState", player: "Player") -> bool:
     return False
 
 
+def life_for_mana_pip_color(state: "GameState", player: "Player") -> Optional[str]:
+    """The single WUBRG letter ``player`` may pay `mana_pool.
+    KRRIK_LIFE_PER_BLACK_PIP` life for instead of a plain colored pip of
+    that color, in *any* cost they pay right now (MEC-43 — K'rrik, Son of
+    Yawgmoth: "For each {B} in a cost, you may pay 2 life rather than pay
+    that mana."), or ``None`` if no such grant applies.
+
+    Broader than every existing wildcard-color mechanism
+    (`any_color_for_activation`/RULE 605.1a's own mana_wildcard_permission,
+    both of which only ever relax *which* mana pays a pip) — this instead
+    adds a way to skip paying mana for the pip at all, mirroring a printed
+    Phyrexian pip's own life option (`models/mana_cost.ManaSymbol.
+    payment_options`) but conferred by a standing permission rather than
+    printed on the symbol. Consulted by both the casting and activation
+    cost-payment sites (`game/engine/casting_mixin.py`'s `can_cast`, `game/
+    rules/casting_mixin.py`'s actual payment, `game/engine/
+    activation_mixin.py`'s `_can_pay_activation_cost`/`_pay_activation_cost`)
+    and passed straight on to `ManaPool.can_pay`/`pay`'s ``extra_life_color``
+    param — same "permission static outside the layer engine proper"
+    treatment as `any_color_for_activation`. Same "you"-scoped ``affects``
+    convention as `has_radiation_life_gain`; unlike that helper, only one
+    grant can ever matter for a given color (there's nothing to "stack").
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "life_for_mana_pip":
+            continue
+        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
+            return ability.params.get("color", "B")
+    return None
+
+
 def active_untap_caps(state: "GameState") -> list[dict[str, Any]]:
     """Every currently-active "players can't untap more than N `<type>`
     during their untap steps" restriction (RULE 502.3-adjacent — Winter

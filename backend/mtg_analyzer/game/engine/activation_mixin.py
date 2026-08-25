@@ -278,10 +278,13 @@ class ActivationMixin:
         bound = player.mana_pool.total()
         allows_restriction = restriction_predicate_for_activation(source, has_x=True)
         wildcard = continuous.any_color_for_activation(self.state, player, source)
+        # MEC-43: K'rrik, Son of Yawgmoth's standing "pay 2 life instead of
+        # a {B} pip" permission (`continuous.life_for_mana_pip_color`).
+        extra_life_color = continuous.life_for_mana_pip_color(self.state, player)
         for x in range(bound, -1, -1):
             if player.mana_pool.can_pay(
                 mana.with_x(x), life_available=player.life, allows_restriction=allows_restriction,
-                wildcard=wildcard,
+                wildcard=wildcard, extra_life_color=extra_life_color,
             ):
                 return x
         return 0
@@ -398,8 +401,12 @@ class ActivationMixin:
         elif mana.symbols and not assume_mana_available:
             allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
             wildcard = continuous.any_color_for_activation(self.state, player, source)
+            # MEC-43: K'rrik, Son of Yawgmoth's standing "pay 2 life instead
+            # of a {B} pip" permission (`continuous.life_for_mana_pip_color`).
+            extra_life_color = continuous.life_for_mana_pip_color(self.state, player)
             if not player.mana_pool.can_pay(
-                mana, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
+                mana, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
+                extra_life_color=extra_life_color,
             ):
                 return False
         # Yasharn, Implacable Earth (MEC-40): "Players can't pay life or
@@ -884,8 +891,12 @@ class ActivationMixin:
         elif mana.symbols:
             allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
             wildcard = continuous.any_color_for_activation(self.state, player, source)
+            # MEC-43: K'rrik, Son of Yawgmoth's standing "pay 2 life instead
+            # of a {B} pip" permission (`continuous.life_for_mana_pip_color`).
+            extra_life_color = continuous.life_for_mana_pip_color(self.state, player)
             life_spent = player.mana_pool.pay(
-                mana, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
+                mana, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
+                extra_life_color=extra_life_color,
             )
             self.rules.lose_life(player, life_spent, cause="cost")
             if cost.note_spent_color:
