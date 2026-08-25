@@ -22499,3 +22499,340 @@ def _soul_conduit() -> list[AbilitySpec]:
 
 
 register("Soul Conduit", _soul_conduit)
+
+
+# ---------------------------------------------------------------------------
+# MEC-43 round 4D — control / zone changes / entry-choice statics
+# ---------------------------------------------------------------------------
+
+
+def _homeward_path() -> list[AbilitySpec]:
+    """Land
+    {T}: Add {C}.
+    {T}: Each player gains control of all creatures they own.
+
+    — MEC-43 round 4D. The mana ability needs no catalogue entry (a plain
+    "{T}: Add {C}." is recognized generically by `mana_abilities_for`).
+    The second ability is the new `RegainControlOfOwnedCreaturesEffect`
+    (RULE 108.4/110.2) — a straight `GameObject.controller_id` write back
+    to each creature's own owner, the untargeted "every player at once"
+    sibling of `ExchangeControlEffect`'s single-pair swap.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("regain_control_of_owned_creatures", {})],
+            cost={"text": "{T}"},
+            raw_text="{t}: Jeder Spieler übernimmt die Kontrolle über alle "
+                     "Kreaturen, die ihm gehören.",
+        ),
+    ]
+
+
+register("Homeward Path", _homeward_path)
+
+
+def _heliod_sun_crowned() -> list[AbilitySpec]:
+    """Indestructible
+    As long as your devotion to white is less than five, Heliod isn't a
+    creature.
+    Whenever you gain life, put a +1/+1 counter on target creature or
+    enchantment you control.
+    {1}{W}: Another target creature gains lifelink until end of turn.
+
+    — MEC-43 round 4D. The devotion-gated "isn't a creature" static is
+    already fully `MODELED` by the oracle-text parser (`author_card.py`'s
+    own "reuse" output, pasted verbatim below) — the two remaining
+    clauses need hand-authoring since registering this card overrides the
+    parser fallback entirely rather than merging with it. The life-gain
+    trigger reuses `EventType.LIFE_GAINED`'s existing ``{"subject": "you"}``
+    condition (Prize Pig/Angel of Vitality-shaped) plus a new
+    `targeting.py` kind, ``"creature_or_enchantment_you_control"`` (the
+    two-type-union sibling of `creature_you_control`). The lifelink grant
+    is `PumpEffect`'s already-general 0/0-pump-plus-keyword shape
+    (``target_kind="creature"`` already excludes the ability's own source
+    by construction, matching the printed "**another** target creature" —
+    no new target kind needed).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("type_change", {
+                "remove_types": ["creature"],
+                "active_if": {"kind": "control_count", "selector": "devotion_to_white", "max": 4},
+            })],
+            raw_text="Solange deine Hingabe zu Weiß weniger als fünf beträgt, "
+                     "ist Heliod keine Kreatur.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {
+                "kind": "+1/+1", "amount": 1,
+                "target_kind": "creature_or_enchantment_you_control",
+            })],
+            trigger={"event": EventType.LIFE_GAINED, "condition": {"subject": "you"}},
+            raw_text="Immer wenn du Leben gewinnst, lege eine +1/+1-Marke auf "
+                     "eine Zielkreatur oder Zielverzauberung, die du kontrollierst.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("pump", {"keywords": ["lifelink"], "target_kind": "creature"})],
+            cost={"text": "{1}{W}"},
+            raw_text="{1}{W}: Eine andere Zielkreatur erhält Lebensverknüpfung "
+                     "bis zum Ende des Zuges.",
+        ),
+    ]
+
+
+register("Heliod, Sun-Crowned", _heliod_sun_crowned)
+
+
+def _containment_priest() -> list[AbilitySpec]:
+    """Flash
+    If a nontoken creature would enter and it wasn't cast, exile it instead.
+
+    — MEC-43 round 4D. Flash is a plain flag keyword (Scryfall-recognized,
+    no catalogue entry needed). The replacement effect is the new
+    `"uncast_creature_entry_exile"` static (`continuous.
+    uncast_creature_entry_exiled`), checked at the same two graveyard/
+    library-to-battlefield choke points `graveyard_library_entry_
+    prohibited` (Grafdigger's Cage) already uses — reanimation
+    (`ReturnFromGraveyardEffect._apply_one`) and a tutor whose destination
+    is the battlefield (`RulesEngine._finish_search`) — redirecting to
+    exile instead of the plain no-op that prohibition static gives. Same
+    documented "not a universal `add_to_battlefield` hook" scope as its
+    sibling: a rarer uncast-entry route (cheating a commander out of the
+    command zone, a bespoke delayed "return to the battlefield" trigger)
+    is left uncovered rather than reworking a foundational engine method.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("uncast_creature_entry_exile", {})],
+            raw_text="Falls eine namenlose Kreatur ins Spiel kommen würde und sie "
+                     "nicht gewirkt wurde, exiliere sie stattdessen.",
+        ),
+    ]
+
+
+register("Containment Priest", _containment_priest)
+
+
+def _archon_of_valors_reach() -> list[AbilitySpec]:
+    """Flying, vigilance, trample
+    As this creature enters, choose artifact, enchantment, instant,
+    sorcery, or planeswalker.
+    Players can't cast spells of the chosen type.
+
+    — MEC-43 round 4D. All three keywords are plain flag keywords
+    (Scryfall-recognized, no catalogue entries needed). The "choose a
+    card type" pick reuses `ChooseNamedModeReplacement` (RULE 601.2b's
+    "as ~ enters, choose <Label1> or <Label2>" family, Struggle for
+    Project Purity-shaped) rather than a new replacement class: its five
+    printed options slug to exactly the ``is_artifact``/``is_enchantment``/
+    ``is_instant``/``is_sorcery``/``is_planeswalker`` attribute names a
+    `Card` already carries, so `GameObject.chosen_mode` doubles as the
+    chosen card type with no new field. `cast_prohibition` gained a
+    matching ``type_from_source_mode`` gate reading it back
+    (`continuous.cast_prohibited`), unscoped by ``scope`` (the printed
+    "**Players** can't…" already binds this card's own controller too,
+    the default whenever ``scope`` isn't narrowed to "opponents").
+    """
+    return [
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("choose_named_mode", {
+                "options": ["Artifact", "Enchantment", "Instant", "Sorcery", "Planeswalker"],
+            })],
+            raw_text="Wenn diese Kreatur ins Spiel kommt, wähle Artefakt, "
+                     "Verzauberung, Spontanzauber, Hexerei oder Planeswalker.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("cast_prohibition", {"scope": "all", "type_from_source_mode": True})],
+            raw_text="Spieler können keine Zaubersprüche des gewählten Typs wirken.",
+        ),
+    ]
+
+
+register("Archon of Valor's Reach", _archon_of_valors_reach)
+
+
+def _command_beacon() -> list[AbilitySpec]:
+    """Land
+    {T}: Add {C}.
+    {T}, Sacrifice this land: Put your commander into your hand from the
+    command zone.
+
+    — MEC-43 round 4D. The mana ability needs no catalogue entry. The
+    second is the new `PutCommanderIntoHandEffect` (RULE 903.7) — the
+    reverse direction of the far more common "return to the command
+    zone" replacement family, a plain zone move for every commander
+    currently sitting in this ability's own controller's command zone.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("put_commander_into_hand", {})],
+            cost={"text": "{T}, Sacrifice this land"},
+            raw_text="{t}, Opfere dieses Land: Nimm deinen Commander aus dem "
+                     "Befehlsbereich auf deine Hand.",
+        ),
+    ]
+
+
+register("Command Beacon", _command_beacon)
+
+
+def _worldgorger_dragon() -> list[AbilitySpec]:
+    """Flying, trample
+    When this creature enters, exile all other permanents you control.
+    When this creature leaves the battlefield, return the exiled cards to
+    the battlefield under their owners' control.
+
+    — MEC-43 round 4D. Both keywords are plain flag keywords. The ETB
+    half is `ExileEffect` with the new mandatory ``"other_permanents_you_
+    control"`` mass selector (`_MASS_DESTROY_SELECTORS`/
+    `_mass_selector_objects`'s newest member — unlike `ExileAnyNumber
+    YouControlEffect`'s "any number" *choice*, this is unconditional, so
+    it belongs with the plain board-wipe-shaped selectors instead) plus
+    ``track_exiled_with=True`` (MEC-21's accumulating `GameObject.
+    exiled_with_ids` tracker, newly wired into the selector branch
+    alongside its pre-existing targeted-branch support). The
+    leaves-battlefield half reuses `ReturnAllExiledWithEffect`
+    (``"return_all_exiled_with"``) completely unchanged — built for
+    Parallax Wave, and exactly the same shape here: several permanents,
+    each returning to *their own* owner, which for Worldgorger Dragon is
+    always its own controller since it only ever exiles its own stuff.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile", {
+                "selector": "other_permanents_you_control", "track_exiled_with": True,
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, exiliere alle anderen "
+                     "Permanenten, die du kontrollierst.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_all_exiled_with", {})],
+            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur das Schlachtfeld verlässt, bringt jeder "
+                     "Besitzer die auf diese Weise exilierten Karten unter seiner "
+                     "Kontrolle auf das Schlachtfeld zurück.",
+        ),
+    ]
+
+
+register("Worldgorger Dragon", _worldgorger_dragon)
+
+
+def _jodah_the_unifier() -> list[AbilitySpec]:
+    """Legendary creatures you control get +X/+X, where X is the number of
+    legendary creatures you control.
+    Whenever you cast a legendary spell from your hand, exile cards from
+    the top of your library until you exile a legendary nonland card with
+    lesser mana value. You may cast that card without paying its mana
+    cost. Put the rest on the bottom of your library in a random order.
+
+    — MEC-43 round 4D. The anthem needs no new primitive at all:
+    `"anthem"`'s existing ``power_count``/``toughness_count`` params
+    (Blackblade Reforged/Nettlecyst-shaped per-unit multipliers) already
+    fall through to the ordinary controller-scoped `count_selector`
+    vocabulary, which already has a ``"legendary_creatures_you_control"``
+    entry (built for Eiganjo, Seat of the Empire's Channel discount) — so
+    both the anthem's scope and its own magnitude read the same live
+    count, correctly counting Jodah himself. The cast trigger is the new
+    `LegendarySpellFreeDigEffect`, riding `RulesEngine.dig_until` (the
+    cascade/Possibility Storm-shaped generalized dig) with a criteria
+    dict built fresh each firing from the *casting* `SPELL_CAST` event's
+    own ``mana_value`` — mirrors Sram, Senior Edificer's own "whenever
+    you cast a `<X>` spell" trigger shape (`spell_card_types`, `condition:
+    {"controller": "you"}`) plus the `Possibility Storm`-established
+    ``filter: {"from_hand": True}`` for "from your hand".
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {
+                "affects": "legendary_creatures_you_control",
+                # ``power``/``toughness`` are the *per-unit* amount when a
+                # ``_count`` selector is also set (`continuous.
+                # _apply_layer_7_pt`'s own ``pt_mod`` sublayer: "power ...
+                # multiplied by that count instead of added as a flat
+                # delta") -- 1 per legendary creature, matching the printed
+                # "+X/+X, where X is the number of...".
+                "power": 1, "toughness": 1,
+                "power_count": "legendary_creatures_you_control",
+                "toughness_count": "legendary_creatures_you_control",
+            })],
+            raw_text="Legendäre Kreaturen, die du kontrollierst, erhalten +X/+X, "
+                     "wobei X der Anzahl legendärer Kreaturen entspricht, die du "
+                     "kontrollierst.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("legendary_spell_free_dig", {})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "you"},
+                "spell_card_types": ["legendary"],
+                "filter": {"from_hand": True},
+            },
+            raw_text="Immer wenn du einen legendären Zauberspruch von deiner Hand "
+                     "wirkst, exiliere Karten von oben deiner Bibliothek, bis du "
+                     "eine legendäre Nichtlandkarte mit geringerem Manawert "
+                     "exilierst. Du kannst jene Karte wirken, ohne ihre "
+                     "Manakosten zu bezahlen. Lege den Rest in zufälliger "
+                     "Reihenfolge unter deine Bibliothek.",
+        ),
+    ]
+
+
+register("Jodah, the Unifier", _jodah_the_unifier)
+
+
+def _kodama_of_the_east_tree() -> list[AbilitySpec]:
+    """Reach
+    Whenever another permanent you control enters, if it wasn't put onto
+    the battlefield with this ability, you may put a permanent card with
+    equal or lesser mana value from your hand onto the battlefield.
+    Partner (You can have two commanders if both have partner.)
+
+    — MEC-43 round 4D. Reach and Partner are plain flag keywords. The
+    trigger's own body is the new `PutEqualOrLesserManaValueFromHandEffect`
+    — the dynamic-mana-value-cap sibling of `PutFromHandOntoBattlefield
+    Effect` (Tooth and Nail), reading the just-entered permanent's own
+    mana value fresh off `GameContext.trigger_event` each firing rather
+    than a literal the catalogue could bake in. It places its pick via
+    the new `"hand_to_battlefield"` `request_choose_objects` action
+    (`RulesEngine._apply_chosen_object`) specifically so the new
+    permanent gets `GameObject.entered_via_ability_id` stamped — read
+    back by the trigger's own new ``not_entered_via_self`` condition
+    (`effect_binder._build_group_ok`) to satisfy the printed "if it
+    wasn't put onto the battlefield with this ability" guard (a
+    Panharmonicon-shaped self-recursion block: a permanent Kodama itself
+    just placed must not re-trigger Kodama).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("put_equal_or_lesser_mv_from_hand", {})],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {
+                    "subject": "group", "type": "permanent", "controller": "you",
+                    "other": True, "not_entered_via_self": True,
+                },
+            },
+            raw_text="Immer wenn eine andere Permanente, die du kontrollierst, ins "
+                     "Spiel kommt, kannst du, falls sie nicht mit dieser Fähigkeit "
+                     "ins Spiel gelegt wurde, eine Permanentenkarte mit gleichem "
+                     "oder geringerem Manawert von deiner Hand ins Spiel legen.",
+        ),
+    ]
+
+
+register("Kodama of the East Tree", _kodama_of_the_east_tree)
