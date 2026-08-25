@@ -165,8 +165,14 @@ class GameContext:
     def discard(self, player: "Player", count: int = 1) -> None:
         self.engine.discard(player, count)
 
-    def discard_choice(self, player: "Player", count: int = 1) -> None:
-        self.engine.discard_choice(player, count)
+    def discard_choice(
+        self,
+        player: "Player",
+        count: int = 1,
+        source: Optional["GameObject"] = None,
+        then_specs: Optional[list[dict]] = None,
+    ) -> None:
+        self.engine.discard_choice(player, count, source=source, then_specs=then_specs)
 
     def put_hand_cards_on_top(self, player: "Player", count: int = 1) -> None:
         self.engine.put_hand_cards_on_top(player, count)
@@ -2146,6 +2152,23 @@ class ConditionalEffect(GameEffect):
             # searched/reanimated/token entry.
             if bool(getattr(self.source, "was_cast", False)) != bool(source_was_cast):
                 return False
+        source_was_foretold = self.condition.get("source_was_foretold")
+        if source_was_foretold is not None:
+            # "If this spell was foretold, `<effect>`." (RULE 702.143d,
+            # Poison the Cup, MEC-43 round 4C) — `GameObject.foretold`
+            # (`_condition_holds`'s own safe `getattr(..., False)` default,
+            # like every other flag here) mirrors `source_was_cast`'s own
+            # "read a flag stamped earlier onto this same object" shape.
+            # **Documented simplification**: RULE 702.143's own special
+            # action — "during your turn, pay {2} and exile this card from
+            # your hand face down; cast it on a later turn for its foretell
+            # cost" — isn't built yet (a genuinely new special-action +
+            # alt-cast-from-exile subsystem, out of scope for this single
+            # card's own gate), so nothing ever actually sets `foretold`
+            # today; this condition is wired and ready for whenever that
+            # subsystem lands, and safely never fires until then.
+            if bool(getattr(self.source, "foretold", False)) != bool(source_was_foretold):
+                return False
         cast_outside_sorcery_speed = self.condition.get("cast_outside_sorcery_speed")
         if cast_outside_sorcery_speed is not None:
             # "If you cast it any time a sorcery couldn't have been cast,
@@ -2169,6 +2192,28 @@ class ConditionalEffect(GameEffect):
             player = _controller_of(self.source, context)
             count = len(getattr(player, "graveyard", []) or [])
             if count < cards_in_graveyard_at_least:
+                return False
+        instant_sorcery_cards_in_graveyard_at_least = self.condition.get(
+            "instant_sorcery_cards_in_graveyard_at_least"
+        )
+        if instant_sorcery_cards_in_graveyard_at_least is not None:
+            # RULE 702.71 Spell mastery's own gate ("Spell mastery — Add
+            # {B}{B}{B} if there are two or more instant and/or sorcery
+            # cards in your graveyard." — Dark Petition, MEC-43 round 4C) —
+            # `cards_in_graveyard_at_least`'s type-filtered sibling, reusing
+            # `continuous.count_selector`'s already-shipped
+            # ``"instant_sorcery_or_adventure_cards_in_your_graveyard"``
+            # entry (built for a characteristic-defining P/T, never before
+            # wired into a resolve-time `EffectSpec.condition`) instead of
+            # re-deriving the same type filter here.
+            from . import continuous  # function-scoped: avoid an import cycle
+
+            player = _controller_of(self.source, context)
+            count = continuous.count_selector(
+                context.state, getattr(player, "id", None),
+                "instant_sorcery_or_adventure_cards_in_your_graveyard",
+            )
+            if count < instant_sorcery_cards_in_graveyard_at_least:
                 return False
         entering_object_unique_name = self.condition.get("entering_object_unique_name")
         if entering_object_unique_name:
@@ -3043,6 +3088,22 @@ class DiscardEffect(GameEffect):
     targets present would belong to a different effect on the same
     ability. ``scope`` ("each_player"/"each_opponent") is the untargeted
     mass form (RULE 601.2c), which hits everyone rather than one pick.
+
+    ``draw_per_discard`` (MEC-43 round 4C, Syphon Mind — "Each other player
+    discards a card. You draw a card for each card discarded this way.")
+    queues a ``draw`` `EffectSpec` as `discard_choice`'s own ``then_specs``
+    for every player asked to discard, so this effect's own controller
+    draws ``count`` cards *per player who actually discarded* — not a flat
+    amount, and not double-counted for a player whose hand was already
+    empty (`request_choose_objects` only ever runs its "if you do" tail
+    when at least one card was actually picked). Deliberately built on the
+    discard's own resolution rather than a `GameContext` same-resolution
+    accumulator (`life_lost_this_way`'s idiom): unlike a destroy/life-loss,
+    a non-forced discard is *interactive* (RULE 701.8 — the discarding
+    player picks which card), so the true count isn't known until each
+    `pending_choice` actually resolves, possibly turns of real time later
+    in a multiplayer game; threading it through as a follow-up effect
+    keeps the draw honest no matter how long that takes.
     """
 
     def __init__(
@@ -3052,15 +3113,22 @@ class DiscardEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         scope: Optional[str] = None,
+        draw_per_discard: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.scope = scope
+        self.draw_per_discard = draw_per_discard
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
+
+    def _then_specs(self) -> Optional[list[dict]]:
+        if not self.draw_per_discard:
+            return None
+        return [{"type": "draw", "params": {"count": self.count}}]
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.scope:
@@ -3068,14 +3136,18 @@ class DiscardEffect(GameEffect):
             for other in context.state.living_players():
                 if self.scope == "each_opponent" and other is controller:
                     continue
-                context.discard_choice(other, self.count)
+                context.discard_choice(
+                    other, self.count, source=self.source, then_specs=self._then_specs()
+                )
             return
         player = self.player
         if player is None and self.target_spec is not None and targets:
             player = targets[0]
         if player is None:
             player = _controller_of(self.source, context)
-        context.discard_choice(player, self.count)
+        context.discard_choice(
+            player, self.count, source=self.source, then_specs=self._then_specs()
+        )
 
 
 class RevealHandChooseDiscardEffect(GameEffect):
@@ -5474,6 +5546,7 @@ class ExileEffect(GameEffect):
         grant_owner_play_permission: bool = False,
         owner_play_permission_tax: Optional[int] = None,
         trigger_event_key: Optional[str] = None,
+        grant_free_cast_window: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -5481,6 +5554,17 @@ class ExileEffect(GameEffect):
         self.filter = filter
         self.remember = remember
         self.track_exiled_with = track_exiled_with
+        #: "…copy it, and you may cast the copy without paying its mana
+        #: cost." (MEC-43 round 4C, Mizzix's Mastery) — `grant_owner_play_
+        #: permission`'s free-cast sibling: once the target is exiled,
+        #: opens `RulesEngine.grant_free_cast_window_from_exile` on it
+        #: directly (the same primitive `ExileTopFromEachPlayerCastFree
+        #: Effect`/`ReboundFreeCastWindowEffect` already use), rather than
+        #: literally instantiating a second "copy" object — nothing this
+        #: engine tracks distinguishes an uncast copy from the real exiled
+        #: card, and RULE 706.10a means an uncast copy simply ceases to
+        #: exist either way, so the two are behaviourally identical.
+        self.grant_free_cast_window = grant_free_cast_window
         self._trigger_subject_mode = target_kind == "trigger_subject"
         self.trigger_event_key = trigger_event_key or "instance_id"
         #: "For as long as that card remains exiled, its owner may play
@@ -5525,7 +5609,15 @@ class ExileEffect(GameEffect):
                 context.exile(target)
             return
         if self.target_spec is None:
-            target = (targets[0] if targets else None) or self.target or self.source
+            # Self mode ("Exile ~."/"Exile this spell/card.") — like
+            # `DrawCardEffect`'s own documented gotcha, this must *not*
+            # fall back to a stray `targets[0]` left over from a different
+            # targeting effect earlier in the same resolution: Mizzix's
+            # Mastery's "Exile target card... . [...] Exile Mizzix's
+            # Mastery." (MEC-43 round 4C) is exactly that shape — the
+            # first clause's own real RULE 115 target must not get handed
+            # to this second, untargeted self-exile as if it were one.
+            target = self.target or self.source
             if target is not None:
                 context.exile(target)
             return
@@ -5536,6 +5628,8 @@ class ExileEffect(GameEffect):
             if self.track_exiled_with and self.source is not None:
                 self.source.exiled_with_ids.append(target.instance_id)
             context.exile(target)
+            if self.grant_free_cast_window:
+                context.engine.grant_free_cast_window_from_exile(target)
             if self.grant_owner_play_permission:
                 context.state.exile_cast_condition[target.instance_id] = (target.owner_id, {})
                 if self.owner_play_permission_tax:
@@ -5577,35 +5671,66 @@ class ExileTopOfLibraryEffect(GameEffect):
     step, every turn" are the same set of firings), the same "no subject
     of its own, read live off `GameState.active_player`" idiom
     `DealDamageEffect`'s own ``"active_player"`` selector already
-    established (Roiling Vortex-shaped).
+    established (Roiling Vortex-shaped). ``player_selector="each_player"``
+    (MEC-43 round 4C, Doomsday Excruciator — "**each player** exiles all
+    but the bottom six cards of their library…") is the mass sibling of
+    both: every living player does this to their own library, independently.
+
+    ``keep_bottom`` (Doomsday Excruciator's own "all **but the bottom
+    six**") makes ``count`` dynamic instead of fixed — the player's own
+    current library size minus this many, clamped at 0 — so a library that
+    already has ``keep_bottom`` cards or fewer exiles nothing. Overrides
+    ``count`` when set. Deterministic either way (no chooser): the bottom
+    of the library is whatever `Player.library`'s own front already is,
+    library order never having been a real chosen thing this engine
+    exposes a distinction for.
     """
 
     def __init__(
         self, face_down: bool = False, player_selector: str = "controller",
+        count: int = 1, keep_bottom: Optional[int] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.face_down = face_down
         self.player_selector = player_selector
+        #: "Exile the top **thirteen** cards of your library, …" (MEC-43
+        #: round 4C, Demonic Bargain) — the flat-count sibling of the
+        #: original top-**one**-card-only shape; each exiled card is still
+        #: appended to `GameContext.created_objects` in library order, so a
+        #: following clause reading the whole batch (not just the last one)
+        #: remains possible for a future card.
+        self.count = count
+        self.keep_bottom = keep_bottom
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.player_selector == "active_player":
-            player = context.state.active_player
+            players = [context.state.active_player]
+        elif self.player_selector == "each_player":
+            players = list(context.state.living_players())
         else:
-            player = _controller_of(self.source, context)
-        if player is None or not player.library:
-            return
-        top = player.library[-1]
-        context.exile(top)
-        if self.face_down:
-            # Set *after* the move: `RulesEngine._remove_from_current_zone`
-            # (which `exile()` calls to pull the card out of its old zone)
-            # unconditionally clears this flag as its own RULE 400.7 "a
-            # card leaving exile turns face up" behavior — harmless for
-            # that case, but it would silently undo this card *entering*
-            # exile face down if set beforehand.
-            top.face_down_in_exile = True
-        context.created_objects.append(top)
+            players = [_controller_of(self.source, context)]
+        for player in players:
+            if player is None:
+                continue
+            count = self.count
+            if self.keep_bottom is not None:
+                count = max(0, len(player.library) - self.keep_bottom)
+            for _ in range(count):
+                if not player.library:
+                    break
+                top = player.library[-1]
+                context.exile(top)
+                if self.face_down:
+                    # Set *after* the move: `RulesEngine._remove_from_
+                    # current_zone` (which `exile()` calls to pull the card
+                    # out of its old zone) unconditionally clears this flag
+                    # as its own RULE 400.7 "a card leaving exile turns
+                    # face up" behavior — harmless for that case, but it
+                    # would silently undo this card *entering* exile face
+                    # down if set beforehand.
+                    top.face_down_in_exile = True
+                context.created_objects.append(top)
 
 
 class LandOrFreeCastEffect(GameEffect):
@@ -11262,6 +11387,7 @@ class CreateTokenEffect(GameEffect):
         tapped: bool = False,
         legendary: bool = False,
         pt_from_trigger_event: Optional[str] = None,
+        pt_from_count_selector: Optional[str] = None,
         count_from_trigger_event: Optional[str] = None,
         extra_counters: Optional[dict[str, Any]] = None,
         grant_self_anthem: Optional[dict[str, Any]] = None,
@@ -11310,6 +11436,16 @@ class CreateTokenEffect(GameEffect):
         # rather than a fixed ``power``/``toughness``. Always symmetric X/X
         # in practice, so one field sets both.
         self.pt_from_trigger_event = pt_from_trigger_event
+        #: "…an X/X black Horror creature token, where X is the number of
+        #: creatures that died this turn." (MEC-43 round 4C, Spoils of
+        #: Blood) — the board-count sibling of ``pt_from_trigger_event``:
+        #: reads a `continuous.count_selector` fresh at resolve time instead
+        #: of a firing event's own field, the same "X/X sized off a live
+        #: board count" idiom a characteristic-defining P/T static already
+        #: uses for a permanent (RULE 613.7c), applied here to a token being
+        #: created instead. Always symmetric X/X, same as ``pt_from_trigger_
+        #: event`` above.
+        self.pt_from_count_selector = pt_from_count_selector
         #: "…create **that many** 1/1 green Elf Warrior creature tokens."
         #: (Lathril, Blade of the Elves-shaped "whenever ~ deals combat
         #: damage to a player" payoff — "that many" always refers back to
@@ -11325,6 +11461,14 @@ class CreateTokenEffect(GameEffect):
         if self.pt_from_trigger_event:
             event = context.trigger_event
             x = int((event or {}).get(self.pt_from_trigger_event) or 0)
+            power, toughness = x, x
+        elif self.pt_from_count_selector:
+            from . import continuous  # function-scoped: avoid an import cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            x = continuous.count_selector(
+                context.state, controller_id, self.pt_from_count_selector, source=self.source
+            )
             power, toughness = x, x
         card = None
         # A bare named token (no inline stats) → the curated catalogue, so it
@@ -14429,6 +14573,7 @@ EffectRegistry.register(
     lambda p: DiscardEffect(
         count=p.get("count", 1), player=p.get("player"),
         target_kind=p.get("target_kind"), scope=p.get("scope"),
+        draw_per_discard=bool(p.get("draw_per_discard", False)),
     ),
 )
 EffectRegistry.register(
@@ -14843,6 +14988,7 @@ EffectRegistry.register(
         grant_owner_play_permission=bool(p.get("grant_owner_play_permission", False)),
         owner_play_permission_tax=p.get("owner_play_permission_tax"),
         trigger_event_key=p.get("trigger_event_key"),
+        grant_free_cast_window=bool(p.get("grant_free_cast_window", False)),
     ),
 )
 EffectRegistry.register(
@@ -14852,6 +14998,8 @@ EffectRegistry.register(
     lambda p: ExileTopOfLibraryEffect(
         face_down=bool(p.get("face_down", False)),
         player_selector=p.get("player_selector", "controller"),
+        count=int(p.get("count", 1) or 1),
+        keep_bottom=p.get("keep_bottom"),
     ),
 )
 EffectRegistry.register(
@@ -16017,6 +16165,7 @@ EffectRegistry.register(
         tapped=bool(p.get("tapped", False)),
         legendary=bool(p.get("legendary", False)),
         pt_from_trigger_event=p.get("pt_from_trigger_event"),
+        pt_from_count_selector=p.get("pt_from_count_selector"),
         count_from_trigger_event=p.get("count_from_trigger_event"),
         extra_counters=p.get("extra_counters"),
         grant_self_anthem=p.get("grant_self_anthem"),

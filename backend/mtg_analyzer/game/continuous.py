@@ -1100,6 +1100,16 @@ def count_selector(
         # sums `Player.counters["rad"]` across *every* player regardless of
         # who controls this effect's source.
         return sum(p.counters.get("rad", 0) for p in state.players)
+    if selector == "creatures_died_this_turn":
+        # "…where X is the number of creatures that died this turn." (MEC-43
+        # round 4C, Spoils of Blood) — another cross-player aggregate
+        # (RULE 700.4's "died" has no controller scope in the card's own
+        # wording), summed off `GameState.creatures_died_this_turn`
+        # (`RulesEngine._track_creature_death`'s own per-controller tally,
+        # cleared once per real turn by `turn_loop_mixin`), the same
+        # "sum across every player" shape `total_rad_counters_among_players`
+        # just above uses.
+        return sum(state.creatures_died_this_turn.values())
     return 0
 
 

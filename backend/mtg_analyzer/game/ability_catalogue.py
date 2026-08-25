@@ -22499,3 +22499,321 @@ def _soul_conduit() -> list[AbilitySpec]:
 
 
 register("Soul Conduit", _soul_conduit)
+
+
+# ---------------------------------------------------------------------------
+# MEC-43 round 4, cluster C: library / graveyard / search / tokens
+# ---------------------------------------------------------------------------
+
+
+def _syphon_mind() -> list[AbilitySpec]:
+    """Syphon Mind (Sorcery, {3}{B})
+
+    "Each other player discards a card. You draw a card for each card
+    discarded this way."
+
+    `DiscardEffect`'s new ``draw_per_discard`` param (MEC-43 round 4C)
+    queues a ``draw`` as `discard_choice`'s own ``then_specs`` tail for
+    every opponent asked to discard — see its own docstring in
+    `effects.py` for why this rides that "if you do" tail instead of a
+    same-resolution `GameContext` accumulator (`life_lost_this_way`'s
+    idiom): a non-forced discard is interactive (the discarding player
+    picks their own card), so the true count isn't known synchronously
+    the way a destroy/life-loss effect's own count already is.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("discard", {
+                "count": 1, "scope": "each_opponent", "draw_per_discard": True,
+            })],
+            raw_text="Jede andere Spielerin und jeder andere Spieler wirft eine Karte ab. "
+                     "Du ziehst für jede auf diese Weise abgeworfene Karte eine Karte.",
+        )
+    ]
+
+
+register("Syphon Mind", _syphon_mind)
+
+
+def _spoils_of_blood() -> list[AbilitySpec]:
+    """Spoils of Blood (Instant, {B})
+
+    "Create an X/X black Horror creature token, where X is the number of
+    creatures that died this turn."
+
+    `CreateTokenEffect`'s new ``pt_from_count_selector`` param plus
+    `continuous.count_selector`'s new ``"creatures_died_this_turn"`` entry
+    (both MEC-43 round 4C) — the board-count sibling of the already-
+    shipped ``pt_from_trigger_event`` (an X/X token sized off a firing
+    event's own field instead of a live board count).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("create_token", {
+                "count": 1, "colors": ["B"], "subtypes": ["Horror"],
+                "pt_from_count_selector": "creatures_died_this_turn",
+            })],
+            raw_text="Erschaffe einen X/X schwarzen Schrecken-Kreaturenspielstein, wobei X "
+                     "der Anzahl an Kreaturen entspricht, die in diesem Zug gestorben sind.",
+        )
+    ]
+
+
+register("Spoils of Blood", _spoils_of_blood)
+
+
+def _dark_petition() -> list[AbilitySpec]:
+    """Dark Petition (Sorcery, {3}{B}{B})
+
+    "Search your library for a card, put that card into your hand, then
+    shuffle.
+    Spell mastery — If there are two or more instant and/or sorcery cards
+    in your graveyard, add {B}{B}{B}."
+
+    The search half is already parser-``MODELED`` as-is (`author_card.py
+    reuse`); hand-authored anyway so Spell mastery's own conditional bonus
+    mana rides alongside it in one entry, the same "flat effect + a
+    conditional extra one" shape Cabal Ritual's Threshold already uses.
+    `EffectSpec.condition`'s new ``instant_sorcery_cards_in_graveyard_at_
+    least`` key (MEC-43 round 4C) is `cards_in_graveyard_at_least`'s
+    type-filtered sibling, reusing `continuous.count_selector`'s already-
+    shipped ``"instant_sorcery_or_adventure_cards_in_your_graveyard"``
+    entry instead of re-deriving the type filter.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("search", {"criteria": {}, "destination": "hand"}),
+                EffectSpec(
+                    "add_mana", {"colors": ["B", "B", "B"]},
+                    condition={"instant_sorcery_cards_in_graveyard_at_least": 2},
+                ),
+            ],
+            raw_text="Durchsuche deine Bibliothek nach einer Karte, nimm diese Karte auf "
+                     "deine Hand und mische danach.\nZaubermeisterschaft — Falls sich "
+                     "mindestens zwei Spontanzauber- und/oder Hexereikarten in deinem "
+                     "Friedhof befinden, füge {B}{B}{B} hinzu.",
+        )
+    ]
+
+
+register("Dark Petition", _dark_petition)
+
+
+def _demonic_bargain() -> list[AbilitySpec]:
+    """Demonic Bargain (Sorcery, {2}{B})
+
+    "Exile the top thirteen cards of your library, then search your
+    library for a card. Put that card into your hand, then shuffle."
+
+    `ExileTopOfLibraryEffect`'s ``count`` param (MEC-43 round 4C, widened
+    from its original top-**one**-card-only shape) for the first clause;
+    the search itself is the plain, already-generic `SearchLibraryEffect`
+    — its own "then shuffle" always fires (RULE 701.19e), over whatever
+    thirteen fewer cards remain after the exile.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("exile_top_of_library", {"count": 13}),
+                EffectSpec("search", {"criteria": {}, "destination": "hand"}),
+            ],
+            raw_text="Exiliere die obersten dreizehn Karten deiner Bibliothek, durchsuche "
+                     "danach deine Bibliothek nach einer Karte. Nimm diese Karte auf deine "
+                     "Hand und mische danach.",
+        )
+    ]
+
+
+register("Demonic Bargain", _demonic_bargain)
+
+
+def _doomsday_excruciator() -> list[AbilitySpec]:
+    """Doomsday Excruciator (Creature — Demon, {B}{B}{B}{B}{B}{B}, 6/6)
+
+    "Flying
+    When this creature enters, if it was cast, each player exiles all but
+    the bottom six cards of their library face down.
+    At the beginning of your upkeep, draw a card."
+
+    `ExileTopOfLibraryEffect`'s new ``player_selector="each_player"``/
+    ``keep_bottom`` params (MEC-43 round 4C) close the ETB's mass,
+    deterministic library exile — "all but the bottom six" is just "the
+    top (library size minus six)", no chooser needed since library order
+    isn't a real chosen thing this engine exposes a distinction for.
+    `EffectSpec.condition`'s existing ``source_was_cast`` (Rocco, Cabaretti
+    Caterer) gates it on "if it was cast" (RULE 601.2 — not a reanimated/
+    searched/tutored-onto-battlefield entry).
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "flying"}, raw_text="Flugfähigkeit"),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec(
+                "exile_top_of_library",
+                {"player_selector": "each_player", "keep_bottom": 6, "face_down": True},
+                condition={"source_was_cast": True},
+            )],
+            trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt: Falls sie gewirkt wurde, exiliert "
+                     "jede Spielerin und jeder Spieler alle bis auf die untersten sechs "
+                     "Karten ihrer bzw. seiner Bibliothek mit der Bildseite nach unten.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1})],
+            trigger={"event": "STEP_BEGIN", "filter": {"step": "upkeep"}, "phase_relation": "you"},
+            raw_text="Zu Beginn deines Versorgungssegments ziehst du eine Karte.",
+        ),
+    ]
+
+
+register("Doomsday Excruciator", _doomsday_excruciator)
+
+
+def _mizzixs_mastery() -> list[AbilitySpec]:
+    """Mizzix's Mastery (Sorcery, {3}{R})
+
+    "Exile target card that's an instant or sorcery from your graveyard.
+    For each card exiled this way, copy it, and you may cast the copy
+    without paying its mana cost. Exile Mizzix's Mastery.
+    Overload {5}{R}{R}{R} (You may cast this spell for its overload cost.
+    If you do, change "target" in its text to "each.")"
+
+    Modeled as a direct free-cast window on the exiled card itself
+    (`ExileEffect`'s new ``grant_free_cast_window`` param, MEC-43 round
+    4C, reusing `RulesEngine.grant_free_cast_window_from_exile` exactly
+    as `ExileTopFromEachPlayerCastFreeEffect`/`ReboundFreeCastWindowEffect`
+    already do) rather than literally instantiating a second "copy"
+    object — nothing this engine tracks distinguishes an uncast copy from
+    the real exiled card, and RULE 706.10a means an uncast copy simply
+    ceases to exist either way if it isn't cast, so the two are
+    behaviourally identical. The trailing self-exile is `ExileEffect`'s
+    plain, untargeted self form (``target_kind=None`` — Mnemonic Betrayal-
+    shaped).
+
+    **Documented simplification**: Overload (RULE 702.96) isn't bound to
+    real behaviour yet — the same posture `Selfless Safewright`'s and
+    `City on Fire`'s own catalogue entries already take, which note it
+    "come[s] from the RULE 702 keyword catalogue automatically" with no
+    real "target"→"each" mode swap. Building that (a genuinely different,
+    untargeted effect body reached via an alternative cost) is out of
+    scope for this single card's own coverage gate.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("exile", {
+                    "target_kind": "graveyard_instant_or_sorcery",
+                    "grant_free_cast_window": True,
+                }),
+                EffectSpec("exile", {"target_kind": None}),
+            ],
+            raw_text="Exiliere eine Zielkarte, die ein Spontanzauber oder eine Hexerei ist, "
+                     "aus deinem Friedhof. Kopiere für jede auf diese Weise exilierte Karte "
+                     "diese Karte, und du darfst die Kopie wirken, ohne ihre Manakosten zu "
+                     "bezahlen. Exiliere Mizzix' Meisterschaft.",
+        ),
+        AbilitySpec(
+            "keyword", [], keyword={"name": "overload", "cost": "{5}{R}{R}{R}"},
+            raw_text="Überladung {5}{R}{R}{R}",
+        ),
+    ]
+
+
+register("Mizzix's Mastery", _mizzixs_mastery)
+
+
+def _poison_the_cup() -> list[AbilitySpec]:
+    """Poison the Cup (Instant, {1}{B}{B})
+
+    "Destroy target creature. If this spell was foretold, scry 2.
+    Foretell {1}{B} (During your turn, you may pay {2} and exile this
+    card from your hand face down. Cast it on a later turn for its
+    foretell cost.)"
+
+    `EffectSpec.condition`'s new ``source_was_foretold`` key (MEC-43
+    round 4C, `GameObject.foretold`) gates the scry — see its own
+    docstring in `effects.py` for why nothing ever actually sets that
+    flag yet.
+
+    **Documented simplification**: RULE 702.143's own special action
+    ("during your turn, pay {2} and exile this card from your hand face
+    down; cast it on a later turn for its foretell cost") is a genuinely
+    new subsystem — a hand-zone special action plus an alt-cast-from-
+    exile path distinct from every alt-cost this engine already has —
+    out of scope for this single card's own coverage gate, the same
+    posture as Mizzix's Mastery's Overload just above. The Destroy clause
+    is real and unconditional either way; the scry is simply never
+    reachable until that subsystem lands.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("destroy", {"target_kind": "creature"}),
+                EffectSpec("scry", {"count": 2}, condition={"source_was_foretold": True}),
+            ],
+            raw_text="Zerstöre eine Zielkreatur. Falls dieser Zauberspruch vorausgesagt "
+                     "wurde, blicke die obersten 2 Karten deiner Bibliothek durch.",
+        ),
+        AbilitySpec(
+            "keyword", [], keyword={"name": "foretell", "cost": "{1}{B}"},
+            raw_text="Vorhersage {1}{B}",
+        ),
+    ]
+
+
+register("Poison the Cup", _poison_the_cup)
+
+
+def _hoarding_broodlord() -> list[AbilitySpec]:
+    """Hoarding Broodlord (Creature — Dragon, {5}{B}{B}{B}, 7/6)
+
+    "Convoke
+    Flying
+    When this creature enters, search your library for a card, exile it
+    face down, then shuffle. For as long as that card remains exiled, you
+    may play it.
+    Spells you cast from exile have convoke."
+
+    The ETB is `SearchLibraryEffect`'s already-shipped
+    ``destination="exile_face_down_standing_cast"`` (Praetor's Grasp,
+    MEC-42) verbatim — face down, standing (never turn-swept) play
+    permission granted to the searcher, ordinary mana cost still applies:
+    an exact match for "for as long as that card remains exiled, you may
+    play it."
+
+    **Documented simplification**: Convoke (RULE 702.51) isn't bound to
+    real creature-tapping cost-payment behaviour yet — the same posture
+    `Selfless Safewright`'s/`City on Fire`'s own catalogue entries already
+    take, which note it "come[s] from the RULE 702 keyword catalogue
+    automatically." The trailing "spells you cast from exile have
+    convoke" static grant is left unmodeled for the same reason (nothing
+    real to grant until Convoke itself is bound) — both are out of scope
+    for this single card's own coverage gate; a real RULE 702.51 build is
+    general enough to be worth its own ticket (119 cached cards print
+    Convoke).
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "convoke"}, raw_text="Anwerben"),
+        AbilitySpec("keyword", [], keyword={"name": "flying"}, raw_text="Flugfähigkeit"),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {
+                "criteria": {}, "destination": "exile_face_down_standing_cast",
+            })],
+            trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, durchsuche deine Bibliothek nach "
+                     "einer Karte, exiliere sie mit der Bildseite nach unten und mische "
+                     "danach. Du darfst diese Karte spielen, solange sie exiliert bleibt.",
+        ),
+    ]
+
+
+register("Hoarding Broodlord", _hoarding_broodlord)

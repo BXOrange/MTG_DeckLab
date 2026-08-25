@@ -88,6 +88,11 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "source_is_renowned", "shares_type_with_linked_exile", "source_was_cast",
         "source_entered_untapped", "cast_outside_sorcery_speed",
         "cards_in_graveyard_at_least", "entering_object_unique_name",
+        # MEC-43 round 4C: Dark Petition's Spell mastery (a graveyard-count
+        # gate narrowed to instant/sorcery cards) and Poison the Cup's
+        # Foretell-gated scry (wired but unreachable — see `effects.py`'s
+        # `_condition_holds` for why nothing sets `GameObject.foretold` yet).
+        "instant_sorcery_cards_in_graveyard_at_least", "source_was_foretold",
     }
 )
 
