@@ -1165,6 +1165,17 @@ class SearchMixin:
                 # re-add rather than a real "return" move.
                 player.add_to_zone(obj, obj.zone)
                 continue
+            if dest in ("battlefield", "battlefield_tapped") and continuous.uncast_creature_entry_exiled(
+                self.state, obj.card
+            ):
+                # "If a nontoken creature would enter and it wasn't cast,
+                # exile it instead." (MEC-43 round 4D, Containment Priest)
+                # — the same choke point as the prohibition above, just a
+                # redirect instead of a plain no-op: the card was already
+                # pulled out of its zone's list, so this sends it to exile
+                # rather than putting it back.
+                self.exile(obj)
+                continue
             self._put_searched_card(player, obj, dest, chooser_id=chooser_id)
             if redirect_controller_id is not None:
                 # RULE 605.1a/601.3a-adjacent: "you may play those cards for

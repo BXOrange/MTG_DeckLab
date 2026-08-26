@@ -120,6 +120,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # RULE 109.5's "*another* target creature you control" (Giver of
         # Runes) — `creature_you_control` minus the ability's own source.
         "other_creature_you_control",
+        # "target creature or enchantment you control" (MEC-43 round 4D,
+        # Heliod, Sun-Crowned) — the two-type-union sibling of
+        # `creature_you_control`, same "you control" scoping.
+        "creature_or_enchantment_you_control",
         # "target creature you **don't** control" (Archdruid's Charm's second
         # mode) — the mirror image of `creature_you_control`.
         "creature_you_dont_control",
@@ -447,6 +451,7 @@ class TargetSpec:
             "spell_or_ability": "Zauberspruch oder Fähigkeit",
             "creature_you_control": "Kreatur unter deiner Kontrolle",
             "other_creature_you_control": "andere Kreatur unter deiner Kontrolle",
+            "creature_or_enchantment_you_control": "Kreatur oder Verzauberung unter deiner Kontrolle",
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
             "creature_you_dont_control": "Kreatur, die du nicht kontrollierst",
             "artifact_you_dont_control": "Artefakt, das du nicht kontrollierst",
@@ -1029,6 +1034,18 @@ def legal_targets(
             and not (exclude_source and o is source)
             and _targetable_by(o, source)
             and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
+        ]
+    if kind == "creature_or_enchantment_you_control":
+        # "put a +1/+1 counter on target creature or enchantment you
+        # control." (MEC-43 round 4D, Heliod, Sun-Crowned) — the two-type
+        # union sibling of `creature_you_control`/`artifact_or_enchantment`,
+        # same "you control" scoping, source included (no printed "another").
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.is_creature or o.card.is_enchantment)
+            and o.controller_id == controller_id
+            and _targetable_by(o, source)
         ]
     if kind == "non_human_creature_you_own":
         # RULE 702.140a: mutate's own target. Keyed to *ownership* (RULE

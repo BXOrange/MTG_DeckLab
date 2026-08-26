@@ -644,6 +644,18 @@ class GameObject:
         #: chosen, same RULE 400.7 reset-on-new-object treatment as the
         #: other ``chosen_*`` fields.
         self.chosen_number: Optional[int] = None
+        #: RULE 603.1 Panharmonicon-shaped self-recursion marker: which
+        #: permanent's own "put a card onto the battlefield" ability placed
+        #: this object here (MEC-43 round 4D, Kodama of the East Tree's "if
+        #: it wasn't put onto the battlefield with this ability" guard) —
+        #: `RulesEngine._apply_chosen_object`'s ``"hand_to_battlefield"``
+        #: action stamps the granting permanent's own `instance_id`;
+        #: `effect_binder._build_group_ok`'s ``not_entered_via_self``
+        #: condition reads it back to skip re-triggering off the ability's
+        #: own puts. ``None`` for an ordinary cast/search/reanimate arrival,
+        #: and (RULE 400.7) for a brand-new object regardless of how its
+        #: predecessor got here.
+        self.entered_via_ability_id: Optional[int] = None
         #: RULE 303.4f (MEC-34, Animate Dead-shaped): "Enchant creature card
         #: in a graveyard" — the graveyard card this Aura was targeting at
         #: cast time, stashed here because it isn't a permanent and so can't
@@ -1102,6 +1114,7 @@ class GameObject:
         self.chosen_permanent_id = None
         self.chosen_card_name = None
         self.chosen_number = None
+        self.entered_via_ability_id = None
         self.reanimate_target_id = None
         self.temp_power = 0
         self.temp_toughness = 0

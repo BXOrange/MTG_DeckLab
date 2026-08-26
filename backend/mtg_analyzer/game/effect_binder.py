@@ -484,6 +484,17 @@ def _build_group_ok(
     # (after the printed em dash), so it needs its own live board check
     # rather than either existing filter above.
     want_nonbasic = bool(condition.get("nonbasic"))
+    # RULE 603.1 Panharmonicon-shaped self-recursion guard (MEC-43 round
+    # 4D, Kodama of the East Tree — "if it wasn't put onto the
+    # battlefield with this ability"): the acting object's own live
+    # `GameObject.entered_via_ability_id` (stamped by `RulesEngine.
+    # _apply_chosen_object`'s ``"hand_to_battlefield"`` action) must not
+    # equal this ability's own source — the same "read the board, keyed
+    # on this ability's own source" idiom `crewed_by_self` uses above.
+    # Fails *open* (doesn't reject) when the guard can't be confirmed —
+    # the printed default is "wasn't put here", so an inconclusive lookup
+    # shouldn't silently suppress an otherwise-legal trigger.
+    want_not_entered_via_self = bool(condition.get("not_entered_via_self"))
 
     def _group_ok(
         event: Any,
@@ -503,6 +514,7 @@ def _build_group_ok(
         want_recipient_you=wants_recipient_you,
         want_crewed_by_self=want_crewed_by_self,
         want_nonbasic=want_nonbasic,
+        want_not_entered_via_self=want_not_entered_via_self,
     ) -> bool:
         event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
@@ -563,6 +575,11 @@ def _build_group_ok(
             state = getattr(context, "state", None)
             obj = state.find_object(event_instance) if state is not None else None
             if obj is None or iid not in (getattr(obj, "crewed_by_ids", None) or []):
+                return False
+        if want_not_entered_via_self and iid is not None and event_instance is not None:
+            state = getattr(context, "state", None)
+            obj = state.find_object(event_instance) if state is not None else None
+            if obj is not None and getattr(obj, "entered_via_ability_id", None) == iid:
                 return False
         if want_goaded or want_in_combat:
             snapshot_goaded = event.get("goaded")

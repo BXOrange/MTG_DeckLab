@@ -3385,6 +3385,13 @@ _MASS_DESTROY_SELECTORS: frozenset[str] = frozenset(
         # scope, since no other card here needs "opponents' creatures"
         # alone yet.
         "opponents_creatures",
+        # "exile all other permanents you control." (MEC-43 round 4D,
+        # Worldgorger Dragon) — mandatory and unqualified by type, unlike
+        # `ExileAnyNumberYouControlEffect`'s own "any number" *choice* among
+        # the controller's other permanents (Abdel Adrian, Gorion's Ward):
+        # there's no decision here at all, so it belongs with the plain
+        # `_MASS_DESTROY_SELECTORS` board-wipe family instead.
+        "other_permanents_you_control",
     }
 )
 
@@ -3425,6 +3432,16 @@ def _mass_selector_objects(
         result = [
             o for o in battlefield
             if o.is_creature and controller_id is not None and o.controller_id != controller_id
+        ]
+    elif selector == "other_permanents_you_control":
+        # "exile all other permanents you control." (MEC-43 round 4D,
+        # Worldgorger Dragon) — every battlefield permanent this source's
+        # own controller has, minus the source itself (the printed
+        # "other").
+        controller_id = getattr(source, "controller_id", None)
+        result = [
+            o for o in battlefield
+            if o is not source and controller_id is not None and o.controller_id == controller_id
         ]
     else:
         result = []
@@ -5740,6 +5757,15 @@ class ExileEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
             for obj in _mass_selector_objects(context, self.selector, self.filter, source=self.source):
+                if self.track_exiled_with and self.source is not None:
+                    # "…exile all other permanents you control. When ~
+                    # leaves the battlefield, return the exiled cards…"
+                    # (MEC-43 round 4D, Worldgorger Dragon) — the mass
+                    # selector's own sibling of the targeted branch's
+                    # ``track_exiled_with`` handling just below, so an
+                    # untargeted board-wipe-shaped exile can still feed
+                    # `ReturnAllExiledWithEffect` later.
+                    self.source.exiled_with_ids.append(obj.instance_id)
                 context.exile(obj)
             return
         if self._trigger_subject_mode:
@@ -8045,6 +8071,14 @@ class ReturnFromGraveyardEffect(GameEffect):
             if continuous.graveyard_library_entry_prohibited(
                 context.state, target.card, zone=getattr(target_zone, "value", None)
             ):
+                return
+            # "If a nontoken creature would enter and it wasn't cast, exile
+            # it instead." (MEC-43 round 4D, Containment Priest) — checked
+            # right alongside the prohibition above, the same choke point;
+            # unlike a prohibition this redirects the move rather than
+            # cancelling it outright.
+            if continuous.uncast_creature_entry_exiled(context.state, target.card):
+                context.exile(target)
                 return
         controller_id = None
         if self.under_your_control and self.destination == "battlefield":
@@ -13788,6 +13822,83 @@ class ScrambleSpellEffect(GameEffect):
         )
 
 
+class LegendarySpellFreeDigEffect(GameEffect):
+    """"Whenever you cast a legendary spell from your hand, exile cards from
+    the top of your library until you exile a legendary nonland card with
+    lesser mana value. You may cast that card without paying its mana
+    cost. Put the rest on the bottom of your library in a random order."
+    (MEC-43 round 4D, Jodah, the Unifier) — the free-cast dig family's
+    "legendary"-qualified member: `RulesEngine.dig_until` (the cascade/
+    Possibility Storm-shaped generalized dig, criteria + both destinations
+    parameterized) with a criteria dict built fresh from *this firing's
+    own* `GameContext.trigger_event` (RULE 603.1 — the just-cast spell's
+    own mana value, read off `EventType.SPELL_CAST`'s existing
+    ``mana_value`` key) rather than a literal/selector amount the way
+    every other `dig_until` caller supplies one. Unlike `ScrambleSpellEffect`
+    (Possibility Storm/Tibalt's Trickery) the triggering spell is never
+    answered — it resolves completely normally; only the dig for a
+    *replacement* card is new behaviour here, so this needs no
+    `target_spec` at all.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        event = context.trigger_event or {}
+        mana_value = event.get("mana_value")
+        if player is None or mana_value is None:
+            return
+        criteria = {
+            "type": ["Legendary"],
+            "without_type": ["Land"],
+            "max_mana_value": mana_value - 1,
+        }
+        context.engine.dig_until(
+            player, criteria,
+            hit_destination="cast_free_window",
+            rest_destination="library_bottom_random",
+        )
+
+
+class PutEqualOrLesserManaValueFromHandEffect(GameEffect):
+    """"Whenever another permanent you control enters, if it wasn't put
+    onto the battlefield with this ability, you may put a permanent card
+    with equal or lesser mana value from your hand onto the battlefield."
+    (MEC-43 round 4D, Kodama of the East Tree) — the dynamic-cap sibling
+    of `PutFromHandOntoBattlefieldEffect` (Tooth and Nail): the ceiling
+    isn't a literal baked into the spec, it's *this firing's own*
+    entering permanent's mana value (RULE 603.1, read off `GameContext.
+    trigger_event`'s ``instance_id``) rather than something the catalogue
+    could supply ahead of time. Uses `RulesEngine.request_choose_objects`'s
+    new ``"hand_to_battlefield"`` action (rather than
+    `PutFromHandOntoBattlefieldEffect`'s `request_search`) specifically so
+    the new pick gets `GameObject.entered_via_ability_id` stamped — the
+    printed "if it wasn't put onto the battlefield with this ability"
+    guard on Kodama's own trigger (`effect_binder`'s
+    ``not_entered_via_self`` condition) reads it back to avoid
+    re-triggering off this ability's own puts.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        event = context.trigger_event or {}
+        entering = context.state.find_object(event.get("instance_id"))
+        if player is None or entering is None or self.source is None:
+            return
+        max_mv = entering.card.converted_mana_cost
+        candidates = [
+            obj for obj in player.hand
+            if card_query.matches(obj.card, {
+                "type": ["Creature", "Artifact", "Enchantment", "Planeswalker", "Battle", "Land"],
+                "max_mana_value": max_mv,
+            })
+        ]
+        context.engine.request_choose_objects(
+            player, candidates, "hand_to_battlefield", count=1, optional=True,
+            prompt="Permanentenkarte auf das Schlachtfeld legen",
+            source=self.source,
+        )
+
+
 # ---------------------------------------------------------------------------
 # cEDH staples cube — Fading, Soulbond, Mutate (RULE 702.32/702.94/702.140)
 # ---------------------------------------------------------------------------
@@ -14642,6 +14753,46 @@ class GainControlOfAllCommandersEffect(GameEffect):
                     )
                 )
         context.recompute()
+
+
+class RegainControlOfOwnedCreaturesEffect(GameEffect):
+    """"Each player gains control of all creatures they own." (MEC-43
+    round 4D, Homeward Path) — RULE 108.4/110.2's plain one-shot control
+    change (`ExchangeControlEffect`'s own docstring: a straight
+    `GameObject.controller_id` write, not a duration-bounded layer-2
+    grant), just applied to *every* player's own stolen creatures at once
+    instead of a single chosen pair — untargeted (RULE 601.2c), unscoped
+    by whose ability activated it (this hands a creature back to whoever
+    already **owns** it, regardless of who currently controls Homeward
+    Path).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for obj in list(context.state.permanents()):
+            if obj.is_creature and obj.controller_id != obj.owner_id:
+                obj.controller_id = obj.owner_id
+                # RULE 302.6: newly under its owner's command again.
+                obj.summoning_sick = True
+        context.recompute()
+
+
+class PutCommanderIntoHandEffect(GameEffect):
+    """"Put your commander into your hand from the command zone." (MEC-43
+    round 4D, Command Beacon) — RULE 903.7's reverse direction from the
+    far more common "return to the command zone" replacement family: a
+    plain zone move for every commander currently sitting in the
+    ability's own controller's command zone (RULE 903.3 lets a deck have
+    more than one, Partner-shaped), a no-op if there's none there right
+    now (already on the battlefield, or already moved elsewhere).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        for obj in [o for o in player.command if o.is_commander]:
+            player.remove_from_zone(obj, Zone.COMMAND)
+            player.add_to_zone(obj, Zone.HAND)
 
 
 class MultiplyDamageFromTargetEffect(GameEffect):
@@ -15883,6 +16034,18 @@ EffectRegistry.register(
     lambda p: GainControlOfAllCommandersEffect(),
 )
 EffectRegistry.register(
+    # RULE 108.4/110.2 (MEC-43 round 4D, Homeward Path): "each player
+    # gains control of all creatures they own."
+    "regain_control_of_owned_creatures",
+    lambda p: RegainControlOfOwnedCreaturesEffect(),
+)
+EffectRegistry.register(
+    # RULE 903.7 (MEC-43 round 4D, Command Beacon): "put your commander
+    # into your hand from the command zone."
+    "put_commander_into_hand",
+    lambda p: PutCommanderIntoHandEffect(),
+)
+EffectRegistry.register(
     # RULE 616.1, scoped to one source / combat only / your opponents, and
     # duration-bounded (Jeska, Thrice Reborn's 0).
     "multiply_damage_from_target",
@@ -15968,6 +16131,22 @@ EffectRegistry.register(
         mill_random_max=int(p.get("mill_random_max", 0) or 0),
         card_types=p.get("card_types"),
     ),
+)
+EffectRegistry.register(
+    # RULE 603.1 (MEC-43 round 4D, Jodah, the Unifier): "whenever you cast
+    # a legendary spell from your hand, exile cards from the top of your
+    # library until you exile a legendary nonland card with lesser mana
+    # value. You may cast that card without paying its mana cost. Put the
+    # rest on the bottom of your library in a random order."
+    "legendary_spell_free_dig",
+    lambda p: LegendarySpellFreeDigEffect(),
+)
+EffectRegistry.register(
+    # RULE 603.1 (MEC-43 round 4D, Kodama of the East Tree): "you may put
+    # a permanent card with equal or lesser mana value from your hand
+    # onto the battlefield."
+    "put_equal_or_lesser_mv_from_hand",
+    lambda p: PutEqualOrLesserManaValueFromHandEffect(),
 )
 EffectRegistry.register(
     # "As many times as you choose, you may pay 1 life…" (Lim-Dûl's Vault)
@@ -17415,6 +17594,11 @@ EffectRegistry.register(
             # "…spells from graveyards or exile." (Soulless Jailer, MEC-43)
             # — a zone allowlist, the sibling of ``hand_only`` above.
             **({"zones": list(p["zones"])} if p.get("zones") else {}),
+            # "Players can't cast spells of the chosen type." (MEC-43 round
+            # 4D, Archon of Valor's Reach) — RULE 601.2b's own answer, read
+            # live off `GameObject.chosen_mode` (`continuous.
+            # cast_prohibited`'s own ``type_from_source_mode`` gate).
+            "type_from_source_mode": bool(p.get("type_from_source_mode", False)),
             **_selectors(p),
         },
     ),
@@ -17628,6 +17812,15 @@ EffectRegistry.register(
             **({"zones": list(p["zones"])} if p.get("zones") else {}),
         },
     ),
+)
+EffectRegistry.register(
+    # "If a nontoken creature would enter and it wasn't cast, exile it
+    # instead." (MEC-43 round 4D, Containment Priest) — the exile-redirect
+    # sibling of `graveyard_library_entry_prohibition` just above, checked
+    # at the same two choke points (`continuous.uncast_creature_entry_
+    # exiled`) rather than a plain no-op.
+    "uncast_creature_entry_exile",
+    lambda p: StaticAbility("uncast_creature_entry_exile", affects="each_player", params={}),
 )
 EffectRegistry.register(
     # "Creatures entering don't cause abilities to trigger." (RULE 603,

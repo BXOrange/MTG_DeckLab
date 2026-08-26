@@ -1699,6 +1699,17 @@ class MiscSystemsMixin:
             # top card, you may put it onto the battlefield" template to
             # reuse rather than a one-off.
             "library_to_battlefield",
+            # MEC-43 round 4D (Kodama of the East Tree — "you may put a
+            # permanent card with equal or lesser mana value from your
+            # hand onto the battlefield"): a hand-zone pick placed
+            # straight onto the battlefield, the hand-zone sibling of
+            # ``"library_to_battlefield"`` just above. Stamps
+            # `GameObject.entered_via_ability_id` so a Panharmonicon-
+            # shaped "if it wasn't put onto the battlefield with this
+            # ability" trigger guard (`effect_binder`'s
+            # ``not_entered_via_self`` condition) can tell a card THIS
+            # ability just placed apart from any other entering permanent.
+            "hand_to_battlefield",
         }
     )
     def request_choose_objects(
@@ -2094,6 +2105,28 @@ class MiscSystemsMixin:
             # does the same library-pop-then-move split.
             if obj in player.library:
                 player.remove_from_zone(obj, Zone.LIBRARY)
+            self._put_searched_card(player, obj, "battlefield")
+        elif action == "hand_to_battlefield":
+            # MEC-43 round 4D (Kodama of the East Tree): the hand-zone
+            # sibling of "library_to_battlefield" just above — the object
+            # is still sitting in the controller's hand at this point.
+            # Stamps `GameObject.entered_via_ability_id` with ``source``'s
+            # own instance_id (Kodama itself) so its own trigger's "if it
+            # wasn't put onto the battlefield with this ability" guard
+            # (`effect_binder`'s ``not_entered_via_self`` condition) can
+            # tell this arrival apart from any other entering permanent.
+            if obj in player.hand:
+                player.remove_from_zone(obj, Zone.HAND)
+            # Stamped *before* the placement below, not after: `_put_
+            # searched_card` fires `EventType.ENTERS_BATTLEFIELD`
+            # synchronously (`GameState.fire_event` notifies every
+            # subscriber, including trigger collection, before returning),
+            # so the guard this field feeds (`not_entered_via_self`) must
+            # already be true by the time that event goes out or Kodama's
+            # own trigger would see an unstamped object and re-fire on its
+            # own put.
+            if source is not None:
+                obj.entered_via_ability_id = source.instance_id
             self._put_searched_card(player, obj, "battlefield")
         elif action == "choose_permanent" and source is not None:
             # MEC-26: Scheming Fence's own ETB pick — nothing happens to

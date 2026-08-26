@@ -2903,6 +2903,33 @@ class _CardTypeProbe:
         self.card = card
 
 
+def uncast_creature_entry_exiled(state: "GameState", card: Any) -> bool:
+    """RULE 616.1-adjacent "If a nontoken creature would enter and it
+    wasn't cast, exile it instead." (MEC-43 round 4D, Containment Priest)
+    — checked at the same two graveyard/library-to-battlefield choke
+    points `graveyard_library_entry_prohibited` just above already uses
+    (reanimation, a tutor whose destination is the battlefield): both
+    routes are definitionally "wasn't cast" (RULE 601's whole cast
+    procedure never runs for either), so the only extra condition to check
+    here is "nontoken creature card" — trivially true at both sites, since
+    a graveyard/library *card* (as opposed to a `GameObject` already on the
+    battlefield) is never a token in the first place (RULE 111.7: a token
+    that leaves the battlefield ceases to exist, so it can never be
+    sitting in a graveyard or library to search/reanimate).
+
+    Same "not a universal `add_to_battlefield` hook" scope as its sibling
+    above — a rarer uncast-entry route (a commander cheated out of the
+    command zone, a bespoke "return this to the battlefield" delayed
+    trigger) is a documented simplification, not a bug to chase down.
+    """
+    if not getattr(card, "is_creature", False):
+        return False
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer == "uncast_creature_entry_exile":
+            return True
+    return False
+
+
 def max_spells_per_turn(state: "GameState") -> Optional[int]:
     """The most restrictive "Each player can't cast more than N spells each
     turn." cap in play (RULE 601-area — Eidolon of Rhetoric/Rule of Law/
@@ -3025,6 +3052,19 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
             continue
         if ability.params.get("hand_only") and zone in (None, "hand"):
             continue
+        if ability.params.get("type_from_source_mode"):
+            # "Players can't cast spells of the chosen type." (MEC-43 round
+            # 4D, Archon of Valor's Reach) — RULE 601.2b's own answer, read
+            # live off `GameObject.chosen_mode` (`ChooseNamedModeReplacement`
+            # slugs its printed option labels to lowercase, so "Artifact"
+            # becomes "artifact" — exactly the ``is_<word>`` attribute name
+            # a `Card` carries for each of the five real templates this
+            # ever prints: artifact/enchantment/instant/sorcery/
+            # planeswalker). No prohibition at all if the choice was never
+            # made (a puzzle board that skipped battlefield entry).
+            wanted = getattr(ability.source, "chosen_mode", None)
+            if wanted is None or not getattr(card, f"is_{wanted}", False):
+                continue
         zones = ability.params.get("zones")
         if zones and (zone is None or zone not in zones):
             # "Players can't cast noncreature spells from graveyards or
@@ -3628,6 +3668,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "extra_land_drop", "no_max_hand_size", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
+     "uncast_creature_entry_exile",
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
      "cost_restriction"}
 )
