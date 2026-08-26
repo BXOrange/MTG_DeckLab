@@ -36,6 +36,21 @@ class EventType:
     #: ruling for e.g. Kambal-style triggers, and Dionus, Elvish Archdruid's
     #: "whenever this creature becomes tapped").
     TAPPED = "TAPPED"
+    #: The mirror image of `TAPPED`: a permanent transitions tapped →
+    #: untapped (RULE 701.22), fired once per genuine transition by
+    #: `RulesEngine.set_tapped` — every real untap route (the untap step's
+    #: own per-permanent loop, an ability's own ``{Q}``/"Untap ~" cost or
+    #: effect, `TapEffect`'s ``untap=True`` mode) funnels through that one
+    #: choke point, same as `TAPPED` does for the other direction. Not
+    #: fired for a permanent merely *entering* untapped (RULE 400.7 — a new
+    #: object was never "tapped" to begin with) or for a zone-change reset
+    #: (`GameObject.reset_as_new_object`/a fresh battlefield arrival simply
+    #: setting `tapped = False` directly, outside `set_tapped`). Carries
+    #: ``instance_id``/``controller_id`` exactly like `TAPPED`, closing the
+    #: one deliberate gap `parser/oracle/segmenter.py`'s `_TRIGGER_VERBS`
+    #: used to document under "becomes untapped" (MEC-43 round 4E,
+    #: Mesmeric Orb — RULE 603.2's "whenever a permanent becomes untapped").
+    UNTAPPED = "UNTAPPED"
     #: A permanent was tapped *to produce mana* (RULE 605.1) — fired by
     #: `GameEngine.tap_for_mana` after the mana lands in the pool, in addition
     #: to (and distinct from) the plain `TAPPED` transition. Carries

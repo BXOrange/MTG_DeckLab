@@ -362,6 +362,12 @@ class GameContext:
     def prevent_life_gain_this_turn(self, players: list["Player"]) -> None:
         self.engine.prevent_life_gain_this_turn(players)
 
+    def grant_cant_lose_this_turn(self, player: "Player") -> None:
+        self.engine.grant_cant_lose_this_turn(player)
+
+    def cap_damage_life_floor(self, player: "Player", floor: int = 1) -> None:
+        self.engine.cap_damage_life_floor(player, floor)
+
     def prevent_damage_to_target(self, target: Any, amount: Union[int, str] = "all") -> None:
         self.engine.prevent_damage_to_target(target, amount)
 
@@ -967,6 +973,16 @@ class StaticAbility(GameEffect):
         self.affects = affects
         self.params = params or {}
         self.description = description
+        #: RULE 613.7b's own ordering key for a *resolving effect's*
+        #: continuous grant (`GrantUntilEffect`, MEC-43 round 4E) -- a
+        #: bind-time printed static leaves this None and `game/
+        #: continuous.py`'s `_in_layer` falls back to `self.source`'s own
+        #: `GameObject.timestamp` (RULE 613.7b's ordinary case: the
+        #: permanent's own entry time), but a resolve-time grant's real
+        #: "when did this continuous effect start existing" is whenever it
+        #: was created, which can be long after -- and can't be inferred
+        #: from -- whatever permanent it happens to affect.
+        self.timestamp = None
         #: RULE 611: how long this continuous effect lasts, for one created by
         #: a *resolving* spell/ability and parked in `GameState.
         #: floating_statics` ("until your next turn, …"). ``None`` — the
@@ -3634,6 +3650,42 @@ class PreventDamageEffect(GameEffect):
                 context.prevent_damage_to_target(target, share)
 
 
+class GrantCantLoseThisTurnEffect(GameEffect):
+    """"You can't lose the game this turn." (RULE 104.3a — Angel's Grace,
+    MEC-43 round 4E) — installs the existing `WinConditionEffect`/
+    `_loss_prevented` machinery directly onto this effect's own
+    controller's `Player.player_effects`, turn-scoped instead of standing.
+    See `RulesEngine.grant_cant_lose_this_turn`.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.grant_cant_lose_this_turn(player)
+
+
+class DamageLifeFloorEffect(GameEffect):
+    """"Until end of turn, damage that would reduce your life total to
+    less than `floor` reduces it to `floor` instead." (RULE 104.3a-
+    adjacent, Angel's Grace, MEC-43 round 4E) — see `RulesEngine.
+    cap_damage_life_floor`.
+    """
+
+    def __init__(self, floor: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.floor = int(floor)
+        self.target_spec = None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.cap_damage_life_floor(player, self.floor)
+
+
 class PreventLifeGainEffect(GameEffect):
     """RULE 119.3/616.1: "Your opponents can't gain life this turn."
     (Roiling Vortex's activated-ability rider). ``recipient`` picks who
@@ -5369,6 +5421,17 @@ class MillEffect(GameEffect):
     "the sacrificed creature's power" is a fact about what *this ability's
     controller* just paid, unrelated to who gets milled), overriding the
     fixed ``count`` when set.
+
+    ``selector="event_controller"`` (Mesmeric Orb, MEC-43 round 4E —
+    "whenever a permanent becomes untapped, **that permanent's
+    controller** mills a card.") mills whoever the firing `EventType.
+    UNTAPPED` event names as ``controller_id`` — neither this ability's
+    own controller (no target at all here, unlike "target player mills…")
+    nor a RULE 115 target (nothing to choose: the group condition already
+    picked which permanent untapped), the same "read the firing event's
+    own payload" idiom `LoseLifeEffect.selector="event_player"`/
+    `DealDamageEffect.selector` already use for an analogous "that player"
+    subject.
     """
 
     def __init__(
@@ -5376,11 +5439,13 @@ class MillEffect(GameEffect):
         count: int = 1,
         target_kind: Optional[str] = None,
         count_selector: Optional[str] = None,
+        selector: Optional[str] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.count_selector = count_selector
+        self.selector = selector
         if target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind)
 
@@ -5388,7 +5453,9 @@ class MillEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.target_spec is not None:
+        if self.selector == "event_controller":
+            player = _event_player(context)
+        elif self.target_spec is not None:
             player = targets[0] if targets else None
         else:
             player = context.active_player
@@ -8354,12 +8421,29 @@ class PayCostThenEffect(GameEffect):
         payer: str = "controller",
         source: Optional["GameObject"] = None,
         remember_trigger_subject: bool = False,
+        target_kind: Optional[str] = None,
+        sacrifice_or_discard: bool = False,
+        prompt: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.cost_text = str(cost)
         self.inner_specs = list(effects or [])
         self.else_specs = list(else_effects or [])
         self.payer = payer
+        #: "…unless they sacrifice a nonland permanent of their choice or
+        #: discard a card." (Tergrid's Lantern, MEC-43 round 4E) — ORed
+        #: onto the parsed ``cost_text`` at resolve time (`ActivationCost.
+        #: sacrifice_or_discard`) rather than folded into ``cost_text``
+        #: itself, since the plain regex cost parser has no grammar for
+        #: this compound "sacrifice X **or** discard a card" shape (every
+        #: other field on `ActivationCost` is AND-combined).
+        self.sacrifice_or_discard = sacrifice_or_discard
+        #: A custom prompt (Tergrid, God of Fright, MEC-43 round 4E — "you
+        #: may put that card... onto the battlefield") — the default
+        #: ``f"{cost_label} bezahlen?"`` reads oddly for a genuinely free
+        #: ``cost=""`` "you may `<do something>`" framing, since there's
+        #: nothing to name as the cost.
+        self.prompt = prompt
         #: "Whenever another creature you control enters, you may pay
         #: `<cost>`. If you do, `<effect>` **it**." (Emiel the Blessed) —
         #: ``context.trigger_event`` is only live for this, the *first*,
@@ -8370,6 +8454,13 @@ class PayCostThenEffect(GameEffect):
         #: effects (`AddCountersEffect`'s ``trigger_subject_key="remembered"``)
         #: read it back.
         self.remember_trigger_subject = remember_trigger_subject
+        #: "{T}: **Target player** loses 3 life unless they sacrifice a
+        #: nonland permanent of their choice or discard a card."
+        #: (Tergrid's Lantern, MEC-43 round 4E) — a genuine RULE 115
+        #: target, unlike every other ``payer`` mode below (each derived
+        #: from a firing event or this ability's own controller);
+        #: meaningful only together with ``payer="target"``.
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .costs import parse_activation_cost  # function-scoped: import cycle
@@ -8377,7 +8468,11 @@ class PayCostThenEffect(GameEffect):
         if self.remember_trigger_subject and self.source is not None:
             event = context.trigger_event
             self.source.remembered_instance_id = (event or {}).get("instance_id")
-        if self.payer == "event_controller":
+        if self.payer == "target":
+            # See ``target_kind`` above — the payer is whoever this
+            # ability's own RULE 115 target resolved to.
+            player = targets[0] if targets else None
+        elif self.payer == "event_controller":
             player = _event_player(context)
         elif self.payer == "event_player":
             player = _event_player(context, key="player_id")
@@ -8398,9 +8493,12 @@ class PayCostThenEffect(GameEffect):
             player = _controller_of(self.source, context)
         if player is None:
             return
+        cost = parse_activation_cost(self.cost_text)
+        if self.sacrifice_or_discard:
+            cost.sacrifice_or_discard = True
         context.engine.request_pay_cost_then(
             player,
-            parse_activation_cost(self.cost_text),
+            cost,
             self.inner_specs,
             self.source,
             else_effect_specs=self.else_specs,
@@ -8409,6 +8507,7 @@ class PayCostThenEffect(GameEffect):
             # fresh when the choice is answered rather than sitting on the
             # stack item where the usual target dispatch would find them.
             targets=list(targets or []),
+            prompt=self.prompt,
         )
 
 
@@ -10306,6 +10405,16 @@ class GrantUntilEffect(GameEffect):
             return
         controller_id = getattr(self.source, "controller_id", None)
         ability.source = self.source
+        # RULE 613.7b (MEC-43 round 4E): this continuous effect's own
+        # ordering key is *when it was created*, not whatever timestamp
+        # `self.source` (the affected permanent, in a self-targeted grant
+        # like Crew's "becomes a creature") happens to carry from its own
+        # battlefield entry -- see `game/continuous.py`'s `_in_layer` and
+        # `GameState.next_timestamp`'s own docstring for why that distinction
+        # matters (Swift Reconfiguration's granted Crew ability, activated
+        # long after the Aura already attached, must apply *after* the
+        # Aura's own "loses all other card types" layer-4 static).
+        ability.timestamp = context.state.next_timestamp()
         ability.duration = durations.normalize_duration(self.duration)
         ability.duration_data = {"player_id": controller_id}
         if self.condition is not None:
@@ -12756,17 +12865,42 @@ class ExchangeControlEffect(GameEffect):
         target_kind: str = "creature",
         sacrifice_self_if_no_exchange: bool = False,
         source: Optional["GameObject"] = None,
+        first_target_kind: Optional[str] = None,
+        second_creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind=target_kind, optional=True)
+        # "Exchange control of target artifact or creature you control and
+        # target creature an opponent controls with power 3 or less." (Oko,
+        # Thief of Crowns' -5, MEC-43 round 4E) — unlike Gilded Drake's own
+        # "this creature and up to one target creature" (one side is
+        # always this effect's own source), both sides here are
+        # independently-chosen RULE 115 targets; ``first_target_kind`` set
+        # switches into this two-target mode via `GameEffect.extra_target_
+        # specs` (see its own docstring — Brass Squire/Halvar's identical
+        # "two independently-chosen targets of different kinds" shape),
+        # rather than ``self`` + one target. Neither is ``optional`` here
+        # (Oko's own text prints no "up to"/failure clause), unlike the
+        # single-target mode below.
+        self._two_target_mode = first_target_kind is not None
+        if self._two_target_mode:
+            self.target_spec = TargetSpec(kind=first_target_kind)
+            self.extra_target_specs = (
+                TargetSpec(kind=target_kind, creature_filter=second_creature_filter),
+            )
+        else:
+            self.target_spec = TargetSpec(kind=target_kind, optional=True)
         self.sacrifice_self_if_no_exchange = sacrifice_self_if_no_exchange
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        mine = self.source
-        theirs = targets[0] if targets else None
+        if self._two_target_mode:
+            mine = targets[0] if targets and len(targets) > 0 else None
+            theirs = targets[1] if targets and len(targets) > 1 else None
+        else:
+            mine = self.source
+            theirs = targets[0] if targets else None
         battlefield = context.state.permanents()
         exchangeable = (
             mine is not None
@@ -13620,6 +13754,45 @@ class TapPermanentsPerCounterEffect(GameEffect):
         context.choose_objects(
             player, candidates, "tap", count=remaining,
             prompt=f"{obj.name}: Wähle ein bleibendes Objekt zum Tappen",
+            source=obj,
+        )
+
+
+class SacrificePermanentsPerCounterEffect(GameEffect):
+    """"At the beginning of each player's upkeep, that player sacrifices a
+    permanent of their choice for each soot counter on this artifact."
+    (Smokestack, MEC-43 round 4E) — the sacrifice-costed sibling of
+    `TapPermanentsPerCounterEffect` (Tangle Wire): same "read the count
+    live off the source's own counters, offer N picks via the general
+    chooser, one at a time" shape, just every permanent (no type or
+    untapped-only filter, unlike Tangle Wire's own artifact/creature/land
+    restriction) and ``action="sacrifice"`` instead of ``"tap"``.
+    """
+
+    def __init__(
+        self,
+        kind: str = "soot",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.kind = kind
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        obj = self.source
+        event = context.trigger_event
+        if obj is None or event is None:
+            return
+        # "each player's upkeep" — the taxed player is whoever's turn it
+        # is, since `STEP_BEGIN` carries no player of its own (see
+        # `TapPermanentsPerCounterEffect`'s identical comment).
+        player = context.state.active_player
+        remaining = obj.counters.get(self.kind, 0)
+        if remaining <= 0:
+            return
+        candidates = list(context.state.permanents_controlled_by(player.id))
+        context.choose_objects(
+            player, candidates, "sacrifice", count=remaining,
+            prompt=f"{obj.name}: Wähle eine bleibende Karte zum Opfern",
             source=obj,
         )
 
@@ -14528,6 +14701,17 @@ EffectRegistry.register(
     lambda p: PreventLifeGainEffect(recipient=p.get("recipient", "opponents")),
 )
 EffectRegistry.register(
+    # RULE 104.3a: "You can't lose the game this turn." (Angel's Grace,
+    # MEC-43 round 4E)
+    "grant_cant_lose_this_turn",
+    lambda p: GrantCantLoseThisTurnEffect(),
+)
+EffectRegistry.register(
+    # RULE 104.3a's damage-floor half of Angel's Grace, MEC-43 round 4E.
+    "damage_life_floor",
+    lambda p: DamageLifeFloorEffect(floor=int(p.get("floor", 1))),
+)
+EffectRegistry.register(
     "disable_damage_prevention",
     # RULE 615 "Damage can't be prevented this turn." (MEC-30 — Insult //
     # Injury/Isengard Unleashed) — see `DisableDamagePreventionEffect`.
@@ -14789,7 +14973,7 @@ EffectRegistry.register(
 EffectRegistry.register(
     "mill", lambda p: MillEffect(
         count=p.get("count", 1), target_kind=p.get("target_kind"),
-        count_selector=p.get("count_selector"),
+        count_selector=p.get("count_selector"), selector=p.get("selector"),
     )
 )
 EffectRegistry.register(
@@ -15354,6 +15538,11 @@ EffectRegistry.register(
         else_effects=list(p.get("else_effects", [])),
         payer=p.get("payer", "controller"),
         remember_trigger_subject=bool(p.get("remember_trigger_subject", False)),
+        # "Target player loses 3 life unless they sacrifice..." (Tergrid's
+        # Lantern, MEC-43 round 4E) — see PayCostThenEffect.target_spec.
+        target_kind=p.get("target_kind"),
+        sacrifice_or_discard=bool(p.get("sacrifice_or_discard", False)),
+        prompt=p.get("prompt"),
     ),
 )
 EffectRegistry.register(
@@ -15540,6 +15729,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "That player sacrifices a permanent of their choice for each soot
+    # counter on this artifact." (Smokestack, MEC-43 round 4E)
+    "sacrifice_permanents_per_counter",
+    lambda p: SacrificePermanentsPerCounterEffect(kind=p.get("kind", "soot")),
+)
+EffectRegistry.register(
     "mutate",  # RULE 702.140b merge (Lore Drakkis)
     lambda p: MutateEffect(
         target_kind=p.get("target_kind", "non_human_creature_you_own"),
@@ -15614,6 +15809,10 @@ EffectRegistry.register(
     lambda p: ExchangeControlEffect(
         target_kind=p.get("target_kind", "creature"),
         sacrifice_self_if_no_exchange=bool(p.get("sacrifice_self_if_no_exchange", False)),
+        # Oko, Thief of Crowns' -5 (MEC-43 round 4E) — see
+        # ExchangeControlEffect's own two-target-mode docstring.
+        first_target_kind=p.get("first_target_kind"),
+        second_creature_filter=p.get("second_creature_filter"),
     ),
 )
 EffectRegistry.register(

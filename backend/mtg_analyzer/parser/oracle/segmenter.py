@@ -44,11 +44,18 @@ from .spec import AbilitySpec, EffectSpec, ParserProvenance
 #: Each entry earns its place by pointing at an event the engine fires with
 #: an ``instance_id`` naming the object the condition is about, which is what
 #: `effect_binder._subject_condition` scopes on; a verb with no such event
-#: stays out and its cards stay `UNMODELED` (fail-closed). Deliberately
-#: absent for exactly that reason: "becomes untapped" (`EventType.UNTAP` is
-#: fired once per untap *step*, keyed by player, never per permanent),
-#: "becomes monstrous"/"specializes" (mechanics with no engine primitive at
-#: all — see the `MEC` tickets in `BACKLOG.md`).
+#: stays out and its cards stay `UNMODELED` (fail-closed). "Becomes
+#: untapped" used to be the canonical example of this — `EventType.UNTAP`
+#: was fired once per untap *step*, keyed by player, never per permanent —
+#: until MEC-43 round 4E (Mesmeric Orb) widened `RulesEngine.set_tapped`
+#: (the untap direction's own choke point, mirroring the already-per-
+#: permanent `TAPPED`) into every real untap route and gave it its own
+#: `EventType.UNTAPPED`, so the row now belongs below like any other.
+#: Still deliberately absent: "specializes" (a mechanic with no engine
+#: primitive at all — see the `MEC` tickets in `BACKLOG.md`). ("Becomes
+#: monstrous" is *not* absent — RULE 701.37a's own `BECAME_MONSTROUS` row
+#: sits below with the rest of this table; an earlier version of this
+#: comment listed it here by mistake.)
 _TRIGGER_VERBS: tuple[tuple[str, str], ...] = (
     # RULE 506.5's "attacks **alone**" comes first: the bare "attacks" row
     # would otherwise claim it and silently drop the "alone" qualifier (a
@@ -68,6 +75,12 @@ _TRIGGER_VERBS: tuple[tuple[str, str], ...] = (
     ("becomes blocked", "BECOMES_BLOCKED"),
     # RULE 701.21b: "whenever ~ becomes tapped".
     ("becomes tapped", "TAPPED"),
+    # RULE 701.22/603.2: "whenever ~ becomes untapped" (Mesmeric Orb,
+    # MEC-43 round 4E) — matched before the bare "becomes tapped" row
+    # can't be an issue (different adjective — "un"tapped vs "tapped" are
+    # different words entirely, not a prefix relationship), listed right
+    # after it for readability.
+    ("becomes untapped", "UNTAPPED"),
     # RULE 702.140c: "whenever this creature mutates".
     ("mutates", "MUTATES"),
     # RULE 701.37a: "when ~ becomes monstrous" — the trigger half of the

@@ -104,6 +104,13 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         return obj.card.is_planeswalker
     if what == "battle":
         return obj.card.is_battle
+    if what == "nonland":
+        # "…sacrifice a nonland permanent of their choice or discard a
+        # card." (Tergrid's Lantern, MEC-43 round 4E) — the negated-type
+        # sibling of the plain type words above; every permanent that
+        # isn't a land qualifies, tokens included (unlike `nontoken_
+        # creature` below).
+        return not obj.is_land
     if what == "nontoken_creature":
         # RULE 111.8/701.17: "each player sacrifices a nontoken creature of
         # their choice" (Accursed Marauder/Liliana, Dreadhorde General's own
@@ -946,6 +953,60 @@ class DamageDeathMixin:
                 return None  # "all" — every point prevented, shield persists
             new_amount = dealt - prevented
             return event.copy_with(amount=new_amount) if new_amount > 0 else None
+
+        effect.replacement_fn = _replace
+        player.player_effects.append(effect)
+
+    def grant_cant_lose_this_turn(self, player: Player) -> None:
+        """RULE 104.3a: "You can't lose the game this turn." (Angel's
+        Grace, MEC-43 round 4E) — reuses the existing `WinConditionEffect`/
+        `_loss_prevented` machinery (built for a *permanent's* standing
+        "you can't lose" static, e.g. Platinum Angel) by installing one
+        directly onto ``player``'s own `player_effects`, turn-scoped
+        instead of standing (swept at the next cleanup by
+        `GameEngine._step_cleanup`'s ``win_condition_grant`` marker check,
+        the same "this turn" idiom `prevent_damage_to_player`'s own
+        ``damage_prevention_shield`` marker above already uses).
+        """
+        effect = WinConditionEffect(condition_type="prevent_loss")
+        effect.win_condition_grant = True
+        player.player_effects.append(effect)
+
+    def cap_damage_life_floor(self, player: Player, floor: int = 1) -> None:
+        """RULE 104.3a's damage-floor half of Angel's Grace: "Until end of
+        turn, damage that would reduce your life total to less than
+        `floor` reduces it to `floor` instead." A turn-scoped `Player.
+        player_effects` replacement, `prevent_damage_to_player` (RULE 615)
+        -shaped — same player-scoped condition and cleanup-marker idiom —
+        but rewriting the amount to land exactly on ``floor`` rather than
+        subtracting a prevented chunk.
+
+        **Documented simplification**: doesn't chase the rare corner case
+        of a life total already below ``floor`` from a *non-damage* cause
+        (paying life as a cost, say) when the next damage event fires this
+        turn — real Magic lets Angel's Grace raise your life back up to 1
+        in that case, but `deal_damage`'s shared ``_finish`` closure drops
+        any non-positive replaced amount before this replacement's own
+        caller ever sees it, and no card in this project's cache needs
+        that corner case reachable without deliberately contriving it.
+        """
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: e,
+            condition=lambda e, c: bool(e.get("is_player")) and e.get("target_id") == player.id,
+            description=f"{player.name}: Lebenspunkte-Untergrenze {floor}",
+        )
+        effect.damage_life_floor_grant = True
+
+        def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
+            dealt = int(event.get("amount", 0) or 0)
+            if dealt <= 0:
+                return event
+            would_be = player.life - dealt
+            if would_be >= floor:
+                return event
+            capped = player.life - floor
+            return event.copy_with(amount=capped) if capped > 0 else None
 
         effect.replacement_fn = _replace
         player.player_effects.append(effect)

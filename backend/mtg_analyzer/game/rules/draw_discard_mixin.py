@@ -106,6 +106,20 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     return True  # unknown type word → any permanent, so the cost is payable
 
 
+def _main_type_words(card: Card) -> list[str]:
+    """A card's printed main (pre-em-dash) type words, lowercase — unlike
+    `GameObject.type_words` (which always adds "permanent", correctly for
+    a *battlefield* object, RULE 110.1) this is meaningful for a card in
+    any zone, including a hand card mid-discard that may not be a
+    permanent card at all (an instant/sorcery). Used to stamp `EventType.
+    DISCARD_CARD`'s own ``object_types`` so a "discards a **permanent**
+    card" RULE 603.1 group condition (Tergrid, God of Fright, MEC-43
+    round 4E) can tell the two apart.
+    """
+    main = card.type_line.partition("—")[0]
+    return sorted(w for w in main.strip().lower().split() if w)
+
+
 def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
     """The creature-type choices to offer for a RULE 601.2b "as ~ enters,
     choose a creature type" pick.
@@ -276,7 +290,17 @@ class DrawDiscardMixin:
             self._flag_commander_zone_choice(obj)  # RULE 903.9a
             discarded += 1
             self.state.fire_event(
-                GameEvent(EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id)
+                GameEvent(
+                    EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
+                    # "…discards a permanent card." (Tergrid, God of
+                    # Fright's own front face, MEC-43 round 4E) — the main
+                    # printed type words *without* `GameObject.type_words`'
+                    # always-on "permanent" (that property assumes a
+                    # battlefield object; a hand card obviously isn't one),
+                    # so a "permanent card" RULE 603.1 group condition can
+                    # tell an instant/sorcery discard apart from the rest.
+                    object_types=_main_type_words(obj.card),
+                )
             )
         if discarded:
             self.state.fire_event(
@@ -350,7 +374,10 @@ class DrawDiscardMixin:
         player.add_to_zone(obj, Zone.GRAVEYARD)
         self._flag_commander_zone_choice(obj)  # RULE 903.9a
         self.state.fire_event(
-            GameEvent(EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id)
+            GameEvent(
+                EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
+                object_types=_main_type_words(obj.card),  # see `discard`'s own comment
+            )
         )
         self.state.fire_event(
             GameEvent(EventType.DISCARD, player_id=player.id, count=1)

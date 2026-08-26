@@ -53,6 +53,7 @@ def _spec_trigger(text):
         ("this creature leaves the battlefield", "LEAVES_BATTLEFIELD"),
         ("this creature becomes blocked", "BECOMES_BLOCKED"),
         ("this creature becomes tapped", "TAPPED"),
+        ("this creature becomes untapped", "UNTAPPED"),
         ("this creature mutates", "MUTATES"),
     ],
 )
@@ -79,9 +80,14 @@ def test_new_verbs_compose_in_the_compound_shape():
 
 
 def test_a_verb_with_no_engine_event_stays_unclaimed():
-    """Fail-closed: "becomes untapped" has no per-permanent event to fire
-    off (`EventType.UNTAP` is once per untap step, keyed by player)."""
-    result = parse_oracle(creature(text="Whenever this creature becomes untapped, draw a card."))
+    """Fail-closed: "specializes" names no engine event at all (RULE
+    701's specialize mechanic has no primitive built — see BACKLOG.md's
+    `MEC` tickets), so it can't earn a `_TRIGGER_VERBS` row and the whole
+    clause stays unrecognized. ("Becomes untapped" used to be this test's
+    own example — MEC-43 round 4E gave it a real per-permanent
+    `EventType.UNTAPPED`, see `test_new_self_subject_verbs_bind_to_their_
+    event` above instead.)"""
+    result = parse_oracle(creature(text="Whenever this creature specializes, draw a card."))
     assert result.coverage == "UNMODELED"
 
 

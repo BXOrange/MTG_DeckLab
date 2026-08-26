@@ -848,7 +848,11 @@ class ActivationMixin:
         if cost.taps_self:
             self.rules.set_tapped(source, True)
         if cost.untaps_self:
-            source.untap()
+            # `self.rules.set_tapped` (MEC-43 round 4E, Mesmeric Orb), not
+            # the plain model-level `source.untap()` — a paid ``{Q}``
+            # untap is still a genuine RULE 603.2 "becomes untapped"
+            # transition, same as any other untap route.
+            self.rules.set_tapped(source, False)
         if cost.tap_others:
             count, subtype = cost.tap_others
             for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices) or []:

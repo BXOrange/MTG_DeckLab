@@ -310,6 +310,16 @@ class ManaCountersMixin:
         by a permanent entering the battlefield already tapped (RULE 614.1) —
         that never transitions from untapped, so it correctly never fires
         this event either.
+
+        The untap direction mirrors this exactly (`EventType.UNTAPPED`, MEC-
+        43 round 4E, Mesmeric Orb): every genuine untap route — the untap
+        step's own per-permanent loop, an ability's own ``{Q}``/"Untap ~"
+        cost or effect, `TapEffect`'s ``untap=True`` mode — was widened to
+        call this method instead of setting `GameObject.tapped` directly,
+        precisely so this is the one place both transitions are observable.
+        A zone-change reset (a fresh battlefield arrival, `reset_as_new_
+        object`) still sets `tapped` directly and correctly fires neither
+        event — RULE 400.7's new object was never tapped/untapped "before".
         """
         was_tapped = obj.tapped
         obj.tapped = tapped
@@ -317,6 +327,15 @@ class ManaCountersMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.TAPPED,
+                    object=obj.name,
+                    controller_id=obj.controller_id,
+                    instance_id=obj.instance_id,
+                )
+            )
+        elif not tapped and was_tapped:
+            self.state.fire_event(
+                GameEvent(
+                    EventType.UNTAPPED,
                     object=obj.name,
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
