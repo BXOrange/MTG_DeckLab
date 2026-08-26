@@ -66,6 +66,10 @@ export function createGoldfishView() {
   // selected id, and that deck's legality — only legal decks may start.
   let savedDecks = null; // null = not loaded yet
   let decksLoading = false;
+  // VIS-1: distinct from "loaded, zero decks" — otherwise a network failure
+  // silently rendered as "— keine gespeicherten Decks —" with no indication
+  // anything went wrong.
+  let decksLoadError = false;
   let selectedDeckId = '';
   let selectedValidation = null; // {isLegal, errors, ...} | null
   let validating = false;
@@ -135,6 +139,7 @@ export function createGoldfishView() {
       playerName ? listFavoriteDecks(playerName) : Promise.resolve([]),
     ]);
     decksLoading = false;
+    decksLoadError = decks === null;
     savedDecks = decks || [];
     favoriteDeckIds = new Set(favorites || []);
     // Keep a valid selection; validate it if still present.
@@ -521,6 +526,7 @@ export function createGoldfishView() {
 
   function deckOptionsHtml() {
     if (decksLoading && savedDecks === null) return '<option>Lädt …</option>';
+    if (decksLoadError) return '<option value="">— Server nicht erreichbar (⟳ erneut versuchen) —</option>';
     if (!savedDecks || !savedDecks.length) {
       return '<option value="">— keine gespeicherten Decks —</option>';
     }

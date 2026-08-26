@@ -107,8 +107,6 @@ Plan-level sequencing lives in
 
 ## VIS — Visuals
 
-- **VIS-1 · Error/loading states** for network calls (spinner, retry,
-  offline message). docs/04 C4.
 - **VIS-4 · Chat / emotes at the table.**
 - **VIS-8 · Keyboard shortcuts.** docs/05 PART 9.
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
@@ -122,11 +120,6 @@ Plan-level sequencing lives in
 > instead of reading code and replaying API calls by hand.
 
 ## DB — Database
-
-- **DB-3 · Commander legality gaps.** No Background / "Friends forever"
-  pairing, and no check that a commander is actually legendary.
-  `check_commander_legality` covers color identity, the ban list, and plain
-  Partner/"Partner with X" only.
 
 > **Gotcha:** adding a field to `Card` changes the schema hash, and
 > `CardDatabase` wipes the whole app cache on mismatch. Recover offline with

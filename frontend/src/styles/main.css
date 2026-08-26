@@ -626,6 +626,29 @@ textarea {
   font-style: italic;
 }
 
+/* VIS-1: a small inline spinner for "still loading" placeholders (network
+   fetches only — per-card lazy images use the browser's own loading="lazy",
+   not this). */
+.spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 0.45em;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-dim);
+  border-radius: 50%;
+  vertical-align: -0.15em;
+  animation: spinner-spin 0.7s linear infinite;
+}
+
+@keyframes spinner-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 1.8s; }
+}
+
 /* --- Board --- */
 
 .board {

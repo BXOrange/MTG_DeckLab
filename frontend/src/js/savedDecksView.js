@@ -110,7 +110,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
         ${filterGroupHtml('Art', 'deckType', DECK_TYPE_FILTER_OPTIONS)}
         <button type="button" id="saved-decks-filter-reset">Filter zurücksetzen</button>
       </div>
-      <div id="saved-decks-result"><p class="empty-state">Lade gespeicherte Decks …</p></div>
+      <div id="saved-decks-result"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lade gespeicherte Decks …</p></div>
     </div>
   `;
 
@@ -149,7 +149,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
 
   async function load() {
     const requestId = ++latestRequestId;
-    resultEl.innerHTML = '<p class="empty-state">Lade gespeicherte Decks …</p>';
+    resultEl.innerHTML = '<p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lade gespeicherte Decks …</p>';
     countEl.textContent = '';
 
     const [decks] = await Promise.all([listSavedDecks(), ensureArchetypeLabels()]);

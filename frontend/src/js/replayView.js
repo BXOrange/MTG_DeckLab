@@ -318,7 +318,10 @@ export function createReplayView() {
   async function ensureCardPool() {
     if (cardPool != null) return;
     const cards = await listCachedCards();
-    cardPool = cards || [];
+    // VIS-1: keep `cardPool` null on a network failure (rather than
+    // collapsing it to `[]`) so the next modal open retries instead of
+    // silently reading as "Kartenpool geladen, 0 Treffer" forever.
+    cardPool = cards;
     if (modal?.kind === 'card') {
       updateLiveResults();
       render();

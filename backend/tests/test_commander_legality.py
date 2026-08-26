@@ -7,18 +7,27 @@ from mtg_analyzer.models.card import Card
 from mtg_analyzer.services.commander_legality import check_commander_legality
 
 
-def make_card(name, color_identity=(), has_partner=False, partner_with=None, is_legendary=True):
+def make_card(
+    name,
+    color_identity=(),
+    has_partner=False,
+    partner_with=None,
+    is_legendary=True,
+    type_line="Legendary Creature — Test",
+    oracle_text="",
+):
     return Card(
         id=name.lower().replace(" ", "-").replace(",", ""),
         name=name,
-        type_line="Legendary Creature — Test",
+        type_line=type_line,
         color_identity=set(color_identity),
-        is_creature=True,
-        power=1,
-        toughness=1,
+        is_creature="Creature" in type_line,
+        power=1 if "Creature" in type_line else None,
+        toughness=1 if "Creature" in type_line else None,
         is_legendary=is_legendary,
         has_partner=has_partner,
         partner_with=partner_with,
+        oracle_text=oracle_text,
     )
 
 
@@ -145,6 +154,113 @@ class TestPartnerRules:
         assert len(result.errors) == 1
 
     def test_single_commander_never_needs_partner(self):
+        commander = make_card("Krenko, Mob Boss", color_identity={"R"})
+
+        result = check_commander_legality([commander], [commander])
+
+        assert result.errors == []
+
+
+class TestFriendsForeverRules:
+    def test_both_friends_forever_is_legal(self):
+        first = make_card(
+            "Bruse Tarl, Boorish Herder",
+            color_identity={"R", "W"},
+            oracle_text="Friends forever (You can have two commanders if the other one has friends forever.)",
+        )
+        second = make_card(
+            "Ravos, Soultender",
+            color_identity={"G", "W"},
+            oracle_text="Friends forever (You can have two commanders if the other one has friends forever.)",
+        )
+
+        result = check_commander_legality([first, second], [first, second])
+
+        assert result.errors == []
+
+    def test_friends_forever_cannot_pair_with_plain_partner(self):
+        friend = make_card(
+            "Bruse Tarl, Boorish Herder",
+            color_identity={"R", "W"},
+            oracle_text="Friends forever (You can have two commanders if the other one has friends forever.)",
+        )
+        partner = make_card("Thrasios, Triton Hero", color_identity={"G", "U"}, has_partner=True)
+
+        result = check_commander_legality([friend, partner], [friend, partner])
+
+        assert len(result.errors) == 1
+
+
+class TestBackgroundRules:
+    def test_choose_a_background_pairs_with_background(self):
+        creature = make_card(
+            "Faldorn, Dread Wolf Herder",
+            color_identity={"G"},
+            oracle_text="Choose a Background (You can choose a Background as one of your two commanders.)",
+        )
+        background = make_card(
+            "Slime Against Humanity",
+            color_identity={"B", "G"},
+            type_line="Enchantment — Background",
+            is_legendary=False,
+        )
+
+        result = check_commander_legality([creature, background], [creature, background])
+
+        assert result.errors == []
+
+    def test_background_cannot_pair_with_plain_partner(self):
+        partner = make_card("Thrasios, Triton Hero", color_identity={"G", "U"}, has_partner=True)
+        background = make_card(
+            "Slime Against Humanity",
+            color_identity={"B", "G"},
+            type_line="Enchantment — Background",
+            is_legendary=False,
+        )
+
+        result = check_commander_legality([partner, background], [partner, background])
+
+        assert any("gemeinsam Commander" in error for error in result.errors)
+
+    def test_lone_background_is_not_legendary(self):
+        background = make_card(
+            "Slime Against Humanity",
+            color_identity={"B", "G"},
+            type_line="Enchantment — Background",
+            is_legendary=False,
+        )
+
+        result = check_commander_legality([background], [background])
+
+        assert any("nicht legendär" in error for error in result.errors)
+
+
+class TestLegendaryRule:
+    def test_non_legendary_commander_is_illegal(self):
+        commander = make_card(
+            "Cultivate",
+            color_identity={"G"},
+            is_legendary=False,
+            type_line="Sorcery",
+        )
+
+        result = check_commander_legality([commander], [commander])
+
+        assert any("nicht legendär" in error for error in result.errors)
+
+    def test_can_be_your_commander_text_makes_non_legendary_card_legal(self):
+        commander = make_card(
+            "Grand Master of Flowers",
+            color_identity={"W"},
+            is_legendary=False,
+            oracle_text="Grand Master of Flowers can be your commander.",
+        )
+
+        result = check_commander_legality([commander], [commander])
+
+        assert result.errors == []
+
+    def test_legendary_commander_is_legal(self):
         commander = make_card("Krenko, Mob Boss", color_identity={"R"})
 
         result = check_commander_legality([commander], [commander])

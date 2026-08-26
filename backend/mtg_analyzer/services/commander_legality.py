@@ -13,9 +13,23 @@ Reference: docs/implementation-state/Done_Backend.md "Validator".
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from mtg_analyzer.models.card import Card
+
+#: RULE 903.3: a card whose own oracle text grants commander eligibility
+#: without being legendary (older planeswalkers printed before the
+#: Legendary Planeswalker supertype existed, and a handful of un-set/
+#: Signature Spellbook-style cards).
+_CAN_BE_COMMANDER_RE = re.compile(r"can be your commander", re.IGNORECASE)
+#: RULE 903.3d — printed on the creature half of a "Choose a Background"
+#: pair, e.g. "Choose a Background (You can choose a Background as one
+#: of your two commanders.)".
+_CHOOSE_BACKGROUND_RE = re.compile(r"^Choose a Background\b", re.MULTILINE)
+#: RULE 702.123i-adjacent "Friends forever" — pairs with any other
+#: Friends-forever card, same shape as plain Partner.
+_FRIENDS_FOREVER_RE = re.compile(r"^Friends forever\b", re.MULTILINE)
 
 #: Commander-format banned list. A frozen snapshot of Scryfall's
 #: `legalities.commander` field (that field isn't part of the app-facing
@@ -132,7 +146,8 @@ class CommanderLegalityResult:
 def check_commander_legality(
     commanders: list[Card], deck_cards: list[Card]
 ) -> CommanderLegalityResult:
-    """Check the ban list, color identity, and Partner rules.
+    """Check the ban list, color identity, legendary status, and the
+    Partner/Friends-forever/Background pairing rules.
 
     `commanders` must be the deck's complete, fully-resolved commander
     set. Callers should skip calling this entirely (rather than passing
@@ -147,8 +162,9 @@ def check_commander_legality(
 
     _check_banned(deck_cards, result)
     _check_color_identity(commanders, deck_cards, result)
+    _check_legendary(commanders, result)
     if len(commanders) == 2:
-        _check_partner(commanders, result)
+        _check_pairing(commanders, result)
 
     return result
 
@@ -181,7 +197,28 @@ def _check_color_identity(
             result.color_identity_violation_names.append(card.name)
 
 
-def _check_partner(commanders: list[Card], result: CommanderLegalityResult) -> None:
+def _check_legendary(commanders: list[Card], result: CommanderLegalityResult) -> None:
+    """RULE 903.3: each commander must be legendary, a card whose text
+    says it can be your commander, or — the one legal non-legendary
+    case — a Background enchantment correctly paired with a "Choose a
+    Background" creature (a lone or wrongly-paired Background is still
+    flagged, since its commander eligibility only exists as half of that
+    pair).
+    """
+    background_pair_ok = len(commanders) == 2 and _can_pair_background(*commanders)
+    for card in commanders:
+        if _is_legendary(card):
+            continue
+        if _CAN_BE_COMMANDER_RE.search(card.oracle_text or ""):
+            continue
+        if _is_background(card) and background_pair_ok:
+            continue
+        result.errors.append(
+            f'"{card.name}" ist nicht legendär und kann daher nicht Commander sein.'
+        )
+
+
+def _check_pairing(commanders: list[Card], result: CommanderLegalityResult) -> None:
     first, second = commanders
     if not _can_pair(first, second):
         result.errors.append(
@@ -191,9 +228,19 @@ def _check_partner(commanders: list[Card], result: CommanderLegalityResult) -> N
 
 
 def _can_pair(first: Card, second: Card) -> bool:
-    """Whether two cards may legally be paired as co-commanders.
+    """Whether two cards may legally be paired as co-commanders: plain
+    Partner, "Partner with X", Friends forever, or a "Choose a
+    Background" creature with an actual Background enchantment.
+    """
+    return (
+        _can_pair_partner(first, second)
+        or (_has_friends_forever(first) and _has_friends_forever(second))
+        or _can_pair_background(first, second)
+    )
 
-    "Partner with X" is a distinct, more restrictive ability from plain
+
+def _can_pair_partner(first: Card, second: Card) -> bool:
+    """"Partner with X" is a distinct, more restrictive ability from plain
     "Partner": it only pairs with the specifically named card (and that
     card must name it back), not with any other Partner card. Plain
     Partner pairs with any other plain-Partner card. Both `has_partner`
@@ -209,3 +256,40 @@ def _can_pair(first: Card, second: Card) -> bool:
             and second.partner_with.strip().lower() == first.name.strip().lower()
         )
     return first.has_partner and second.has_partner
+
+
+def _can_pair_background(first: Card, second: Card) -> bool:
+    """RULE 903.3d: a "Choose a Background" creature pairs only with an
+    actual Background enchantment, never with another Partner/Friends-
+    forever card. Background is a card subtype rather than a keyword
+    ability, so the Background half is recognized by its type line
+    instead of by oracle text.
+    """
+    return (_has_choose_background(first) and _is_background(second)) or (
+        _has_choose_background(second) and _is_background(first)
+    )
+
+
+def _has_choose_background(card: Card) -> bool:
+    return bool(_CHOOSE_BACKGROUND_RE.search(card.oracle_text or ""))
+
+
+def _has_friends_forever(card: Card) -> bool:
+    return bool(_FRIENDS_FOREVER_RE.search(card.oracle_text or ""))
+
+
+def _is_background(card: Card) -> bool:
+    return "background" in card.type_line.lower()
+
+
+def _is_legendary(card: Card) -> bool:
+    """Read off the type line rather than `Card.is_legendary` directly:
+    every real production source (`scryfall_client`, `token_database`)
+    keeps that stored flag in sync with the printed "Legendary"
+    supertype, but this project's own hand-built `Card(...)` test
+    fixtures frequently don't bother setting it even when their
+    `type_line` says "Legendary" — matching `is_planeswalker`/
+    `is_artifact`'s type-line-derived pattern instead avoids that whole
+    class of false negative.
+    """
+    return card.is_legendary or "legendary" in card.type_line.lower()

@@ -103,6 +103,10 @@ export function createMultiplayerView(hooks = {}) {
   /** The latest session view for this seat — already redacted server-side. */
   let view = null;
   let savedDecks = null;
+  // VIS-1: distinct from "loaded, zero decks" — otherwise a network failure
+  // silently rendered as "— keine gespeicherten Decks —" with no indication
+  // anything went wrong.
+  let decksLoadError = false;
   //: This player's starred deck ids (Profil tab) — deckOptionsHtml() lists
   //: them first, same convention as goldfishView.js's picker.
   let favoriteDeckIds = new Set();
@@ -295,7 +299,7 @@ export function createMultiplayerView(hooks = {}) {
     // the lobby as far as presence goes (the server derives "im Spiel" from
     // actually holding a seat, so this can't overwrite it).
     socket?.setPresence('available');
-    if (savedDecks === null) loadDecks();
+    if (savedDecks === null || decksLoadError) loadDecks();
     if (botKinds === null) loadBotKinds();
     if (gameFormats === null) loadFormats();
     // At a running table with nothing to draw — the pushes for it went to a
@@ -421,6 +425,7 @@ export function createMultiplayerView(hooks = {}) {
       listSavedDecks(),
       name ? listFavoriteDecks(name) : Promise.resolve([]),
     ]);
+    decksLoadError = decks === null;
     savedDecks = decks || [];
     favoriteDeckIds = new Set(favorites || []);
     renderSetup();
@@ -1048,6 +1053,7 @@ export function createMultiplayerView(hooks = {}) {
 
   function deckOptionsHtml(selectedId) {
     if (savedDecks === null) return '<option>Lädt …</option>';
+    if (decksLoadError) return '<option value="">— Server nicht erreichbar —</option>';
     if (!savedDecks.length) return '<option value="">— keine gespeicherten Decks —</option>';
     // Favorites (Profil tab) first, stable otherwise — same convention as
     // goldfishView.js's picker.

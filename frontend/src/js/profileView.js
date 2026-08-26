@@ -90,7 +90,7 @@ export function renderProfileView(container) {
         <p class="hint">
           Erscheinen im Goldfisch-Modus und in der Mehrspieler-Lobby zuerst in der Deck-Auswahl.
         </p>
-        <div id="profile-favorite-decks"><p class="empty-state">Lädt …</p></div>
+        <div id="profile-favorite-decks"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt …</p></div>
       </div>
     </div>
   `;
@@ -161,7 +161,7 @@ export function renderProfileView(container) {
       favoritesEl.innerHTML = '<p class="empty-state">Erst oben einen Spielernamen speichern.</p>';
       return;
     }
-    favoritesEl.innerHTML = '<p class="empty-state">Lädt …</p>';
+    favoritesEl.innerHTML = '<p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt …</p>';
     const [decks, favoriteIds] = await Promise.all([listSavedDecks(), listFavoriteDecks(playerName)]);
     if (decks === null || favoriteIds === null) {
       favoritesEl.innerHTML = '<p class="server-status warning">Server nicht erreichbar.</p>';

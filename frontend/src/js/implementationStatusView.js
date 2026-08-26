@@ -596,24 +596,35 @@ export function renderImplementationStatusView(container) {
           Oracle-Parser-/Engine-Abdeckung je Set, aus dem lokalen Karten-Cache
           berechnet (ohne Set-Symbole/Bildchen — reine Zahlen).
         </p>
-        <div id="coverage-by-set-result"><p class="empty-state">Lade Abdeckung je Set …</p></div>
+        <div id="coverage-by-set-result"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lade Abdeckung je Set …</p></div>
       </div>
     </div>`;
 
   const resultEl = container.querySelector('#coverage-by-set-result');
 
   // Only load the first time this tab is shown, not eagerly at startup —
-  // matches cachedCardsView.js's own view-shown idiom.
+  // matches cachedCardsView.js's own view-shown idiom. `loaded` only latches
+  // on success: a failed fetch left it stuck forever (view-shown fires again
+  // on every tab switch, but the guard silently ate every retry), so the
+  // error state also gets its own inline retry button rather than relying on
+  // "switch tabs away and back" as an undocumented workaround.
   let loaded = false;
-  container.addEventListener('view-shown', () => {
-    if (loaded) return;
-    loaded = true;
+  function loadCoverageBySet() {
+    resultEl.innerHTML = '<p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lade Abdeckung je Set …</p>';
     listCoverageBySet().then((rows) => {
       if (rows === null) {
-        resultEl.innerHTML = '<p class="server-status warning">Server nicht erreichbar.</p>';
+        resultEl.innerHTML =
+          '<p class="server-status warning">Server nicht erreichbar.</p>' +
+          '<button type="button" id="coverage-by-set-retry">Erneut versuchen</button>';
+        resultEl.querySelector('#coverage-by-set-retry').addEventListener('click', loadCoverageBySet);
         return;
       }
+      loaded = true;
       resultEl.innerHTML = coverageBySetTableHtml(rows);
     });
+  }
+  container.addEventListener('view-shown', () => {
+    if (loaded) return;
+    loadCoverageBySet();
   });
 }

@@ -54,6 +54,10 @@ export function renderAnalyzeView(container) {
   // reachable via "Decks verwalten"'s "Deck analysieren" button.
   let savedDecks = null; // null = not loaded yet
   let decksLoading = false;
+  // VIS-1: distinct from "loaded, zero decks" — without this a network
+  // failure silently rendered as "— keine gespeicherten Decks —" with no
+  // indication anything went wrong (and no retry short of leaving the tab).
+  let decksLoadError = false;
   let favoriteDeckIds = new Set();
   let currentDeckId = ''; // id of the deck currently shown/loading, '' if none
 
@@ -69,13 +73,14 @@ export function renderAnalyzeView(container) {
       playerName ? listFavoriteDecks(playerName) : Promise.resolve([]),
     ]);
     decksLoading = false;
+    decksLoadError = decks === null;
     savedDecks = decks || [];
     favoriteDeckIds = new Set(favorites || []);
     updatePickerUI();
   }
 
   function onShown() {
-    if (savedDecks === null) loadDecks();
+    if (savedDecks === null || decksLoadError) loadDecks();
   }
 
   // Favorites (Profil tab) first, alphabetical order preserved within each
@@ -89,6 +94,7 @@ export function renderAnalyzeView(container) {
 
   function deckPickerOptionsHtml() {
     if (decksLoading && savedDecks === null) return '<option>Lädt …</option>';
+    if (decksLoadError) return '<option value="">— Server nicht erreichbar (⟳ erneut versuchen) —</option>';
     if (!savedDecks || !savedDecks.length) {
       return '<option value="">— keine gespeicherten Decks —</option>';
     }
@@ -191,7 +197,7 @@ export function renderAnalyzeView(container) {
   }
 
   function loadArchetypeSuggestions(root, deckSource, myRequestId) {
-    root.innerHTML = '<p class="empty-state">Lädt …</p>';
+    root.innerHTML = '<p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt …</p>';
     analyzeArchetypes(deckSource).then((res) => {
       if (myRequestId !== requestId || !document.body.contains(root)) return;
       if (!res.ok || !res.data) {
@@ -223,7 +229,7 @@ export function renderAnalyzeView(container) {
         <h2>Deck analysieren</h2>
         ${deckPickerHtml()}
         <p class="analyze-deck-name">${escapeHtml(deckName?.trim() || 'Unbenanntes Deck')}</p>
-        <p class="empty-state">Lädt Kartendaten …</p>
+        <p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt Kartendaten …</p>
       </div>
     `;
   }

@@ -113,7 +113,7 @@ export function renderCachedCardsView(container) {
         </fieldset>
         <button type="button" id="cache-filter-reset">Filter zurücksetzen</button>
       </div>
-      <div id="cache-result"><p class="empty-state">Lade Karten-Cache …</p></div>
+      <div id="cache-result"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lade Karten-Cache …</p></div>
     </div>
   `;
 
@@ -150,7 +150,7 @@ export function renderCachedCardsView(container) {
   async function load() {
     const requestId = ++latestRequestId;
     const scope = currentScope();
-    resultEl.innerHTML = '<p class="empty-state">Lade Karten-Cache …</p>';
+    resultEl.innerHTML = '<p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lade Karten-Cache …</p>';
     countEl.textContent = '';
 
     const cards = await listCachedCards(scope);

@@ -46,6 +46,46 @@ repointed there.
 - **What:** Player-name + server-address fields with "Speichern"/"Verbindung testen"; settings persist device-locally in cookies (`mtg_server_url`, `mtg_player_name`, 1-year expiry).
 - **Files:** `connectionSettingsView.js`, `cookies.js`, `settings.js`
 
+### VIS-1: error/loading states for network calls
+
+- **What:** Closed the ticket, which read as a broad gap but turned out to
+  already be mostly covered — every tab-level fetch already had a loading
+  placeholder and a `server-status warning` "Server nicht erreichbar."
+  message (`savedDecksView.js`/`cachedCardsView.js`/`connectionSettingsView.js`/
+  `implementationStatusView.js`), on top of the header's own global
+  connected/disconnected indicator (`connectionStatus.js`, above). What was
+  actually missing: a real **spinner** (every "Lädt …" placeholder was bare
+  italic text, `main.css`'s `.spinner` — a small CSS ring, `prefers-reduced-
+  motion`-aware — is now prefixed onto each one); and, closer to a genuine
+  bug than a missing nicety, three call sites where a failed fetch was
+  silently indistinguishable from a legitimate empty result, so there was
+  nothing *to* retry because the UI never admitted anything had failed.
+  `implementationStatusView.js`'s coverage-by-set table set its `loaded`
+  latch **before** knowing the fetch had succeeded, so a single failure
+  disabled every future `view-shown` retry for the rest of the page's life
+  — fixed to latch only on success, plus its own inline "Erneut versuchen"
+  button rather than relying on "switch tabs away and back" as an
+  undocumented workaround. `analyzeView.js`/`goldfishView.js`/
+  `multiplayerView.js`'s saved-deck pickers all did `savedDecks = decks ||
+  []` on `listSavedDecks()` returning `null` (network failure) — collapsing
+  "couldn't check" into "checked, zero decks" and (via a `savedDecks ===
+  null` re-fetch guard that a `[]` no longer satisfies) permanently
+  suppressing every future retry too; a `decksLoadError` flag now keeps the
+  two states apart, the picker shows "— Server nicht erreichbar —" instead
+  of "— keine gespeicherten Decks —", and the retry guards check the flag
+  alongside `=== null`. `replayView.js`'s "add card" search modal had the
+  same shape (`cardPool = cards || []`, so a failed load read as "0 Treffer"
+  on every future search instead of retrying) — kept `cardPool` `null` on
+  failure instead.
+- **Files:** `main.css` (`.spinner`), `implementationStatusView.js`,
+  `analyzeView.js`, `goldfishView.js`, `multiplayerView.js`, `replayView.js`,
+  `savedDecksView.js`, `cachedCardsView.js`, `connectionSettingsView.js`,
+  `profileView.js`
+- **Why:** The three-deck-picker bug is the same shape three times because
+  all three copy the same "load once, guard re-fetch on `=== null`" idiom
+  from each other rather than sharing it — worth knowing before "fixing"
+  any one of them again in isolation.
+
 ## Saved Decks Management
 
 ### Saved-deck save split: update vs. new

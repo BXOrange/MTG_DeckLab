@@ -112,7 +112,7 @@ export function renderConnectionSettingsView(container) {
           gespeichert unter deinem Spielernamen auf dem Server, damit sie auch ein Gegner im
           Mehrspieler-Modus sieht.
         </p>
-        <div id="token-images-list" class="player-asset-grid"><p class="empty-state">Lädt …</p></div>
+        <div id="token-images-list" class="player-asset-grid"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt …</p></div>
         <form id="token-image-form" class="player-asset-form">
           <select id="token-image-name" required><option value="">Token-Art lädt …</option></select>
           <input type="text" id="token-image-custom-name" placeholder="Token-Name (z. B. Soldier 1/1)" style="display: none" />
@@ -126,7 +126,7 @@ export function renderConnectionSettingsView(container) {
         <p class="hint">
           Eigene Kartenrückseiten — im Tab "Gespeicherte Decks" einem Deck zuweisbar.
         </p>
-        <div id="sleeves-list" class="player-asset-grid"><p class="empty-state">Lädt …</p></div>
+        <div id="sleeves-list" class="player-asset-grid"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt …</p></div>
         <form id="sleeve-form" class="player-asset-form">
           <input type="text" id="sleeve-label" placeholder="Name (z. B. Blauer Drache)" required />
           <input type="file" id="sleeve-file" accept="image/png,image/jpeg,image/webp,image/gif" required />
