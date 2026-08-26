@@ -422,6 +422,10 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # ``instance_id`` above, excluding one specific object (always the
         # filtering ability's own source) rather than requiring one.
         "without_instance_id",
+        # "Equip commander {N}" (RULE 702.6e, Commander's Plate, MEC-43) —
+        # RULE 903.4's designation, not a subtype/colour word, so it needs
+        # its own key rather than reusing ``subtype``.
+        "is_commander",
     }
 )
 
@@ -483,6 +487,10 @@ def matches_object_filter(
     # composing with the subtype/"you control" filters above rather than
     # a bespoke target kind.
     if filt.get("attacking") and not getattr(obj, "attacking", False):
+        return False
+    # "Equip commander {N}" (RULE 702.6e, Commander's Plate, MEC-43) — the
+    # target of this Equip cost must be a commander (RULE 903.4).
+    if filt.get("is_commander") and not getattr(obj, "is_commander", False):
         return False
     # "sacrifice a **nontoken** blue creature" (Flare of Denial's own RULE
     # 118.9 alternative cost) — RULE 111.9's token/nontoken distinction,

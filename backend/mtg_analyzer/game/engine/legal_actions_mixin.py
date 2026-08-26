@@ -115,11 +115,18 @@ class LegalActionsMixin:
             )
         return defenders
     def _activate_action(
-        self, player: Player, source: GameObject, index: int, ability: ActivatedAbility
+        self, player: Player, source: GameObject, index: int, ability: ActivatedAbility,
+        mode: Optional[int] = None,
     ) -> dict[str, Any]:
         """A ``activate_ability`` legal-action entry (RULE 602), mirroring the
         cast entry: cost label, ``{X}`` prompt, and per-requirement targets
-        (marked ``locked`` when a required target has no legal option)."""
+        (marked ``locked`` when a required target has no legal option).
+
+        ``mode`` (RULE 700.2, MEC-43 — Umezawa's Jitte) tags the entry with
+        that mode and computes ``targets``/``locked`` under that mode's own
+        effects only, mirroring `_cast_action`'s own ``mode`` param;
+        `_activate_actions_for` calls this once per mode instead of once
+        per ability when ``ability.modes`` is set."""
         action: dict[str, Any] = {
             "type": "activate_ability",
             "instance_id": source.instance_id,
@@ -128,6 +135,9 @@ class LegalActionsMixin:
             "cost_label": ability.cost.label(),
             "description": ability.description or "",
         }
+        if mode is not None:
+            action["mode"] = mode
+            action["mode_description"] = ability.modes[mode].get("description", "")
         if getattr(ability, "attach_kind", None):
             # RULE 301.5c/702.6a/702.151b: which attachment keyword this
             # ability is (equip/fortify/reconfigure) — see `ActivatedAbility.
@@ -140,7 +150,7 @@ class LegalActionsMixin:
         if mana.has_variable or remove_counters_x:
             action["has_x"] = True
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
-        requirements = self._ability_target_requirements(player, ability, source)
+        requirements = self._ability_target_requirements(player, ability, source, mode=mode)
         if requirements:
             action["requires_target"] = True
             action["targets"] = requirements
@@ -160,6 +170,21 @@ class LegalActionsMixin:
             # instead of the engine auto-picking (see `_sacrifice_candidate`).
             action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost)
         return action
+    def _activate_actions_for(
+        self, player: Player, source: GameObject, index: int, ability: ActivatedAbility
+    ) -> list[dict[str, Any]]:
+        """One `activate_ability` action per legal mode (RULE 700.2, MEC-43's
+        Umezawa's Jitte) — the `_modal_cast_actions` counterpart for an
+        activated ability, or just the ordinary single offer when
+        ``ability.modes`` isn't set. Scoped to the plain "choose one" shape
+        only (`effect_binder.bind_ability` never builds anything wider for
+        an activated ability yet)."""
+        if not ability.modes:
+            return [self._activate_action(player, source, index, ability)]
+        return [
+            self._activate_action(player, source, index, ability, mode=i)
+            for i in range(len(ability.modes))
+        ]
     def _land_action(
         self, obj: GameObject, face: Optional[str] = None
     ) -> dict[str, Any]:
@@ -838,7 +863,7 @@ class LegalActionsMixin:
         for source in self.state.permanents_controlled_by(player.id):
             for index, ability in enumerate(source.activated_abilities + source.granted_activated_abilities):
                 if self._activatable_now_or_via_potential(player, source, ability):
-                    actions.append(self._activate_action(player, source, index, ability))
+                    actions.extend(self._activate_actions_for(player, source, index, ability))
 
         # RULE 602.2b: an ability "any player may activate" (Mercenaries)
         # must be offered to non-controllers too, not just discoverable by a
@@ -851,7 +876,7 @@ class LegalActionsMixin:
                 if not getattr(ability.cost, "any_player_may_activate", False):
                     continue
                 if self._activatable_now_or_via_potential(player, source, ability):
-                    actions.append(self._activate_action(player, source, index, ability))
+                    actions.extend(self._activate_actions_for(player, source, index, ability))
 
         # RULE 114.4: an emblem's own activated ability (MEC-8) — offered off
         # `player.emblems` the same way the battlefield loop above offers a
@@ -860,7 +885,7 @@ class LegalActionsMixin:
         for emblem in player.emblems:
             for index, ability in enumerate(emblem.activated_abilities):
                 if self._activatable_now_or_via_potential(player, emblem, ability):
-                    actions.append(self._activate_action(player, emblem, index, ability))
+                    actions.extend(self._activate_actions_for(player, emblem, index, ability))
 
         # Channel (RULE 702.29)/Cycling (RULE 702.28): a hand-zone card's own
         # "Discard this card: <effect>" activated ability — unlike the
@@ -876,7 +901,7 @@ class LegalActionsMixin:
                 if (
                     ability.cost.discard_self or ability.cost.hand_zone
                 ) and self.can_activate(player, source, ability):
-                    actions.append(self._activate_action(player, source, index, ability))
+                    actions.extend(self._activate_actions_for(player, source, index, ability))
 
         # PAR-10: "Return this card from your graveyard to the
         # battlefield[, tapped]." — a graveyard-zone card's own ability,
@@ -886,7 +911,7 @@ class LegalActionsMixin:
             combined = source.activated_abilities + source.granted_activated_abilities
             for index, ability in enumerate(combined):
                 if ability.cost.graveyard_zone and self.can_activate(player, source, ability):
-                    actions.append(self._activate_action(player, source, index, ability))
+                    actions.extend(self._activate_actions_for(player, source, index, ability))
 
         # RULE 116.2a (MEC-35, Leonin Arbiter's own "any player may pay
         # {2}…" exemption) — a special action, not tied to any object in a

@@ -79,8 +79,11 @@ _GRAVEYARD_TARGET_KINDS: frozenset[str] = frozenset(
 )
 
 #: The target categories the engine can resolve to concrete board objects.
-#: "any" is Magic's "any target" (RULE 115.4): any creature or player (we
-#: don't model planeswalkers/battles yet). Extend as new restrictions land.
+#: "any" is Magic's "any target" (RULE 115.4): a creature, player,
+#: planeswalker, or battle (MEC-43 widened `legal_targets`'s own "any"
+#: branch to the last two — previously creature/player only, a stale
+#: simplification from before either card type was modeled). Extend as new
+#: restrictions land.
 #: ``creature_you_control``/``land_you_control`` narrow a battlefield pick to
 #: the controller's own permanents (RULE 115/603.3c, or a non-"target"
 #: resolve-time choice among one's own permanents modeled the same way, e.g.
@@ -812,14 +815,29 @@ def legal_targets(
             if p.id in hit
         ]
     if kind == "any":
+        # RULE 115.4: "any target" is a creature, player, planeswalker, or
+        # battle — not just creature/player (MEC-43, Drain Life's own
+        # "or the planeswalker's loyalty" rider text has no legal
+        # planeswalker target to actually apply to without this). Battles
+        # and planeswalkers carry no printed colour identity worth gating
+        # on the same ``_color_ok`` a coloured-source restriction checks
+        # for creatures (no real card restricts "any target" by colour
+        # *and* wants a planeswalker/battle to still qualify), so they skip
+        # that filter rather than being excluded by it.
         objs = [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             if o.is_creature and o is not source and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
         ]
+        other_permanents = [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.is_planeswalker or o.is_battle) and not o.is_creature
+            and o is not source and _targetable_by(o, source)
+        ]
         players = [{"player_id": p.id, "name": p.name} for p in state.living_players()]
-        return objs + (players if not (spec.color or spec.colors) else [])
+        return objs + other_permanents + (players if not (spec.color or spec.colors) else [])
     if kind in ("creature", "permanent"):
         return [
             # ``controller_id`` is only ever consumed client-side when
@@ -1464,17 +1482,29 @@ def collapse_groups(groups: list[list[Any]], spans: list[int]) -> list[list[Any]
     return out
 
 
+def effects_target_specs(effects: Any) -> list[TargetSpec]:
+    """Every RULE 115.1 requirement a raw effects list announces, in printed
+    order — the shared body `ability_target_specs` wraps. Takes a bare
+    effects list (not an ability) so a **modal** activated ability's own
+    *chosen mode* (RULE 700.2, `ActivatedAbility.modes` — MEC-43's Umezawa's
+    Jitte) can compute its own target requirements the same way
+    `RulesEngine._trigger_target_specs` already lets a modal *triggered*
+    ability's chosen mode do, without needing a throwaway ability-like
+    wrapper object."""
+    specs: list[TargetSpec] = []
+    for effect in effects or []:
+        polarity = effect.target_polarity()
+        specs.extend(_with_polarity(spec, polarity) for spec in (getattr(effect, "target_specs", None) or []))
+    return specs
+
+
 def ability_target_specs(ability: Any) -> list[TargetSpec]:
     """Every RULE 115.1 requirement an activated/triggered ability announces,
     in printed order — the ability-side sibling of `spell_target_specs`, and
     the same `GameEffect.target_specs` read `RulesEngine._trigger_target_specs`
     does (so a *single* effect wanting two differently-typed targets announces
     both)."""
-    specs: list[TargetSpec] = []
-    for effect in getattr(ability, "effects", None) or []:
-        polarity = effect.target_polarity()
-        specs.extend(_with_polarity(spec, polarity) for spec in (getattr(effect, "target_specs", None) or []))
-    return specs
+    return effects_target_specs(getattr(ability, "effects", None) or [])
 
 
 def requirements_with_targets(

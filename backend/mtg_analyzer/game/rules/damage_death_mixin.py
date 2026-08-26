@@ -265,6 +265,11 @@ class DamageDeathMixin:
             if final_is_player and infect:
                 self.add_player_counters(final_target, final, "poison", source=source)
                 self.state.record_stat(final_target.id, "damage_taken", amount=final)
+                # RULE 120.3 (Final Punishment, MEC-43): damage is still
+                # "dealt" here even though 702.90b redirects its life-loss
+                # consequence into poison counters instead.
+                counts = self.state.damage_dealt_to_players_this_turn
+                counts[final_target.id] = counts.get(final_target.id, 0) + final
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
                     if combat and source.is_commander:
@@ -282,6 +287,14 @@ class DamageDeathMixin:
                 # cause.
                 self.lose_life(final_target, final, cause="damage")
                 self.state.record_stat(final_target.id, "damage_taken", amount=final)
+                # RULE 120.3 (Final Punishment, MEC-43): the running total
+                # a later "damage already dealt to that player this turn"
+                # effect reads — incremented here (the ordinary branch) and
+                # in the ``infect`` branch just above, since RULE 702.90b
+                # redirects infect's life-loss consequence into poison
+                # counters without the damage itself stopping being "dealt".
+                counts = self.state.damage_dealt_to_players_this_turn
+                counts[final_target.id] = counts.get(final_target.id, 0) + final
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
                     # RULE 903.10a: combat damage from a commander is tallied

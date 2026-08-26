@@ -229,7 +229,12 @@ def test_ability_spec_modes_supported_on_triggered_too():
     spec.validate()  # does not raise
 
 
-def test_ability_spec_modes_rejected_on_activated():
+def test_ability_spec_modes_supported_on_activated_too():
+    # MEC-43 (Umezawa's Jitte): RULE 700.2 modal choice widened from
+    # spell/triggered to activated abilities too -- see
+    # `effect_binder.bind_ability`'s own NotImplementedError guard for the
+    # (still-unsupported) "choose N"/"or both" activated-modal shapes;
+    # structural validation here only cares about the ability_kind.
     spec = AbilitySpec(
         "activated", effects=[],
         cost={"text": "{2}"},
@@ -241,8 +246,30 @@ def test_ability_spec_modes_rejected_on_activated():
             ],
         },
     )
-    with pytest.raises(SpecValidationError):
-        spec.validate()
+    spec.validate()  # does not raise
+
+
+def test_activated_modal_wider_than_choose_one_fails_at_bind_time():
+    # The binder-level guard `test_ability_spec_modes_supported_on_
+    # activated_too` references: spec-level validation accepts a "choose
+    # 2" activated modal (it's a structurally valid RULE 700.2 block), but
+    # `effect_binder.bind_ability` refuses to bind it -- no activated
+    # ability in this cache needs more than plain "choose one" yet.
+    from mtg_analyzer.game.effect_binder import bind_ability
+
+    spec = AbilitySpec(
+        "activated", effects=[],
+        cost={"text": "{2}"},
+        modes={
+            "choose": 2,
+            "options": [
+                [EffectSpec("draw", {"count": 1})],
+                [EffectSpec("draw", {"count": 2})],
+            ],
+        },
+    )
+    with pytest.raises(NotImplementedError):
+        bind_ability(spec, source=None)
 
 
 # -- Binder (effect_binder.py) ------------------------------------------------

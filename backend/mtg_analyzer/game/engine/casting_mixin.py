@@ -374,6 +374,12 @@ class CastingMixin:
         # The top of the library may be castable too (Oracle of Mul Daya/
         # Glarb, Calamity's Augur-shaped) — see `_castable_from_library`;
         # only the top card itself ever qualifies, never anything deeper.
+        # RULE 702.61b (Legolas's Quick Reflexes, MEC-43): a split second
+        # spell on the stack blocks casting anything else at all (mana
+        # abilities never reach `can_cast` — see `continuous.split_second_
+        # active`'s own docstring for why that needs no exemption here).
+        if continuous.split_second_active(self.state):
+            return False
         in_castable_zone = (
             obj in player.hand
             or obj in player.command
@@ -787,7 +793,12 @@ class CastingMixin:
         else:
             cost = self.rules.mana_cost_of(card)
         if cost.has_variable:
-            cost = cost.with_x(x)
+            # "Spend only <color> mana on X." (Drain Life, MEC-43) —
+            # RULE 605.3a scoped to just the {X} portion of the printed
+            # cost, not the whole thing (unlike `mana_source_kind_
+            # restriction` above/`ActivationCost.spend_only_chosen_color`).
+            x_color = getattr(obj, "x_spend_color_restriction", None)
+            cost = cost.with_x_colored(x, x_color) if x_color else cost.with_x(x)
         cost = self._adjust_cost(cost, player, obj)
         tax = self.commander_tax(player, obj)
         if tax:

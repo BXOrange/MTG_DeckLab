@@ -249,6 +249,42 @@ class ManaCost:
         ]
         return ManaCost(resolved, raw=self.raw)
 
+    def with_x_colored(self, x: int, color: str) -> "ManaCost":
+        """A copy with every ``{X}`` symbol resolved to ``x`` pips of
+        ``color`` specifically, instead of ``x`` generic (RULE 605.3a
+        "Spend only `<color>` mana on X." — Drain Life, MEC-43).
+
+        Unlike `with_x` (which keeps the resolved symbol ``VARIABLE``-kind,
+        so `mana_pool.ManaPool._find_payment` still pools it with ordinary
+        generic mana — any color pays it), this replaces the symbol with
+        ``x`` separate `COLOR`-kind pips. Those are ``constrained`` symbols
+        to that same solver, so the existing colored-pip backtracking
+        machinery enforces the restriction for free — no `ManaPool` changes
+        needed. The printed cost's own non-``{X}`` pips (Drain Life's
+        ``{1}{B}``) are untouched, so only the *X* portion is actually
+        colour-locked, not the whole cost (unlike `costs.ActivationCost.
+        spend_only_chosen_color`, which locks an activated ability's entire
+        cost — a spell-level, X-only sibling of that shape).
+
+        Simplification: the result reports `has_variable` as ``False``
+        (no `VARIABLE`-kind symbol survives), so a *mana source* restricted
+        to "spend only on a spell with `{X}` in its cost" (the
+        ``contains_x`` `mana_abilities` restriction kind) would no longer
+        recognize this cost as containing one. No cached card combines that
+        source-side restriction with a spell printing this clause, so this
+        is accepted rather than threading a second "was there ever an X"
+        marker through `ManaCost` for a case nothing exercises.
+        """
+        if x < 0:
+            raise ValueError("X must be >= 0")
+        resolved = []
+        for s in self.symbols:
+            if s.kind == VARIABLE:
+                resolved.extend(ManaSymbol(COLOR, color, 1) for _ in range(x))
+            else:
+                resolved.append(s)
+        return ManaCost(resolved, raw=self.raw)
+
     def reduce_generic(self, amount: int) -> "ManaCost":
         """A copy with generic mana lowered by ``amount`` (floored at 0).
 

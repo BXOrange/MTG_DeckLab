@@ -85,6 +85,8 @@ def _slug(name: str) -> str:
 # --- The irregular QUALITY keywords: one hand-written extractor each --------
 # Their parameter is a word/phrase, not a number or a cost, so each needs its
 # own small anchored regex (the shared cost/number builders don't apply).
+# ``"equip"`` below is the one COST-shape exception, kept here rather than
+# in `_auto_regex` since it's a single-keyword override, not a shape-wide rule.
 
 _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # RULE 702.16 — "protection from <quality>" up to the clause end. The
@@ -124,6 +126,21 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     "champion": re.compile(r"champion an? (?P<quality>[a-z][a-z ]*?)(?=[.\n(]|$)", re.I),
     # RULE 702.174 — "Gift a/an <something>".
     "gift": re.compile(r"gift an? (?P<quality>[a-z][a-z ]*?)(?=[.\n(]|$)", re.I),
+    # RULE 702.6e (MEC-43): "Equip commander {N}" is a genuinely *separate*
+    # ability that coexists with the plain "Equip {M}" line (not a
+    # qualifier-restricted Equip variant the way "Equip Bird {2}" is one
+    # single ability) — Commander's Plate prints both, and `_auto_regex`'s
+    # plain COST pattern's non-greedy gap (built for exactly the "Equip
+    # Bird {2}" shape) would otherwise swallow "commander" as if it were
+    # such a qualifier and capture the wrong ({3}, not {5}) cost for the
+    # ordinary Equip ability every registered card reads off Scryfall's
+    # single "Equip" keyword slug. The negative lookahead skips straight
+    # past an "Equip commander {N}" line to find the real plain-Equip cost
+    # instead. "Equip commander" itself isn't separately recognized here —
+    # only 2 cards cache-wide print it, and Commander's Plate's own is
+    # hand-authored (`game/ability_catalogue.py`) rather than built as a
+    # second keyword shape for that small a yield.
+    "equip": re.compile(rf"\bEquip\b(?!\s+commander\b){_GAP}(?P<cost>{_COST_RUN})", re.I),
 }
 
 #: Ward's cost line may be a non-mana clause ("Ward—Discard a card.",

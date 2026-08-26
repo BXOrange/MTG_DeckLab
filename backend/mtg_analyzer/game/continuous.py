@@ -1146,7 +1146,38 @@ def _pt_mod_count(state: "GameState", ability: StaticAbility, obj: "GameObject",
     return _count_selector(state, ability, selector)
 
 
-def _protection_qualities(ability: StaticAbility) -> set[str]:
+def commander_color_identity(state: "GameState", controller_id: str) -> frozenset[str]:
+    """RULE 903.4's fixed colour identity of ``controller_id``'s commander(s)
+    — the union of every ``is_commander`` object's printed
+    ``Card.color_identity`` this player owns, searched across every personal
+    zone plus the battlefield (not just the command zone: a commander
+    spends most of a real game on the battlefield, and RULE 903.4 doesn't
+    change once the game starts regardless of which zone it's currently
+    in). Commander's Plate's dynamic protection grant (MEC-43,
+    `_protection_qualities`'s ``protection_from_colors_not_in_commanders_
+    identity``) is the one live consumer so far — no prior card needed a
+    live read of "your commander's color identity" during a game.
+    """
+    try:
+        player = state.player_by_id(controller_id)
+    except (KeyError, ValueError):
+        return frozenset()
+    identity: set[str] = set()
+    for zone_objects in player.zones.values():
+        for obj in zone_objects:
+            if getattr(obj, "is_commander", False) and obj.card is not None:
+                identity |= set(obj.card.color_identity)
+    for obj in state.battlefield:
+        if (
+            obj.owner_id == controller_id
+            and getattr(obj, "is_commander", False)
+            and obj.card is not None
+        ):
+            identity |= set(obj.card.color_identity)
+    return frozenset(identity)
+
+
+def _protection_qualities(ability: StaticAbility, state: "GameState") -> set[str]:
     """A layer-6 `grant_protection` ability's RULE 702.16 qualities, as
     `combat.protections_of_text` tokens.
 
@@ -1163,8 +1194,15 @@ def _protection_qualities(ability: StaticAbility) -> set[str]:
     Gavony) — `GameObject.chosen_type` is already a bare subtype word
     (`_quality_matches_type` matches it against a card's subtypes verbatim,
     no colour-style normalization needed).
+    ``protection_from_colors_not_in_commanders_identity`` (Commander's
+    Plate, MEC-43) is the complement of `commander_color_identity` for this
+    ability's own *controller* (RULE 301.5c — "your" on an Equipment's own
+    static ability means the Equipment's controller, not necessarily the
+    equipped creature's) — read fresh every pass, same live-reread idiom as
+    the two ``chosen_*`` branches above.
     """
     from . import combat  # function-scoped: combat imports this module
+    from ..models.card import VALID_COLORS
 
     words = ability.params.get("protections") or []
     quals: set[str] = set()
@@ -1182,6 +1220,11 @@ def _protection_qualities(ability: StaticAbility) -> set[str]:
         chosen_type = getattr(ability.source, "chosen_type", None)
         if chosen_type:
             quals.add(str(chosen_type).lower())
+    if ability.params.get("protection_from_colors_not_in_commanders_identity"):
+        controller_id = getattr(ability.source, "controller_id", None)
+        if controller_id is not None:
+            identity = commander_color_identity(state, controller_id)
+            quals |= (VALID_COLORS - identity)
     return quals
 
 
@@ -1674,7 +1717,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
         # `game/` imports), so the raw printed words are folded through
         # `combat.protections_of_text`'s own vocabulary here, once per
         # ability rather than once per affected object.
-        protections = _protection_qualities(ability)
+        protections = _protection_qualities(ability, state)
         #: RULE 702.21b's quoted grant sibling of `protections` above —
         #: "Other creatures you control have 'Ward—Pay 2 life.'" (Hexing
         #: Squelcher) — since Ward carries a cost `_flag_keywords` can't
@@ -3050,6 +3093,28 @@ def cost_restricted(state: "GameState", kind: str) -> bool:
         if kind in (ability.params.get("kinds") or ()):
             return True
     return False
+
+
+def split_second_active(state: "GameState") -> bool:
+    """RULE 702.61a: whether a spell with split second is currently on the
+    stack — while true, RULE 702.61b says players can't cast spells or
+    activate abilities that aren't mana abilities (Legolas's Quick
+    Reflexes, MEC-43). Mana abilities never reach this check at all: RULE
+    605.3b keeps them off the stack entirely, so `GameEngine.tap_for_mana`/
+    `activate_hand_mana_ability` never call `can_cast`/`can_activate` in
+    the first place — no exemption needed here. Checked once at the top of
+    both gates, the same standing-prohibition choke-point idiom
+    `cost_restricted` above uses for Yasharn's own "can't pay life or
+    sacrifice" restriction.
+    """
+    from . import combat  # function-scoped: combat imports this module
+
+    return any(
+        getattr(item, "kind", None) == "spell"
+        and getattr(item, "obj", None) is not None
+        and combat.has(item.obj, "split_second")
+        for item in state.stack
+    )
 
 
 def granted_escape_for(state: "GameState", obj: "GameObject") -> Optional[dict[str, Any]]:

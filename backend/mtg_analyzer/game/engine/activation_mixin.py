@@ -34,6 +34,7 @@ from ..costs import (
     PAY_LIFE_X,
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_X,
+    SACRIFICE_COUNT_X,
     ActivationCost,
     parse_activation_cost,
 )
@@ -52,6 +53,7 @@ from ..targeting import (
     TargetSpec,
     ability_target_specs,
     all_requirements_satisfiable,
+    effects_target_specs,
     legal_targets,
     partition_targets,
     requirements_with_targets,
@@ -116,6 +118,12 @@ class ActivationMixin:
         still enforced normally. A read-only probe, never used by
         `activate_ability`'s own real legality gate.
         """
+        # RULE 702.61b (Legolas's Quick Reflexes, MEC-43): a split second
+        # spell on the stack blocks activating anything but a mana ability —
+        # which never reaches `can_activate` at all (see `continuous.
+        # split_second_active`'s own docstring), so no exemption is needed.
+        if continuous.split_second_active(self.state):
+            return False
         if ability.cost.discard_self:
             if source not in player.hand or source.owner_id != player.id:
                 return False
@@ -226,7 +234,8 @@ class ActivationMixin:
         level — levels can't be skipped or repeated."""
         return source.counters.get("class_level", 0) == target_level - 1
     def _ability_target_requirements(
-        self, player: Player, ability: ActivatedAbility, source: GameObject
+        self, player: Player, ability: ActivatedAbility, source: GameObject,
+        mode: Optional[int] = None,
     ) -> list[dict[str, Any]]:
         """Target requirements of an activated ability, with legal options —
         the same shape `_cast_action` uses for spells (RULE 602.2b / 115).
@@ -236,9 +245,19 @@ class ActivationMixin:
         fights another target creature", Ulvenwald Tracker — offers both,
         and carries the same ``count``/cross-target keys
         `targeting.requirements_with_targets` gives the cast path, so the
-        board's targeting rounds behave identically for an ability."""
+        board's targeting rounds behave identically for an ability.
+
+        ``mode`` (RULE 700.2, MEC-43): for a modal ability, ``ability.
+        effects`` is empty — the real requirements live on the chosen
+        mode's own effects instead (`_modal_activate_actions` always
+        passes this; a non-modal ability ignores it)."""
+        specs = (
+            effects_target_specs(ability.modes[mode]["effects"])
+            if ability.modes and mode is not None
+            else ability_target_specs(ability)
+        )
         out: list[dict[str, Any]] = []
-        for spec in ability_target_specs(ability):
+        for spec in specs:
             entry = {
                 "kind": spec.kind,
                 "optional": spec.optional,
@@ -465,6 +484,14 @@ class ActivationMixin:
             # so one "which N did the player pick" parameter suffices
             # rather than growing this already-long signature further.
             count, subtype = cost.sacrifice_count
+            if count == SACRIFICE_COUNT_X:
+                # RULE 601.2b analogue (Grim Hireling, MEC-43): the amount
+                # is the ability's own announced ``x``, mirroring
+                # `remove_counters`'s `REMOVE_COUNTERS_X` just above — a
+                # negative announced X is never legal to pay.
+                if x < 0:
+                    return False
+                count = x
             if self._resolve_sacrifice_count(player, count, subtype, tap_choices) is None:
                 return False
         if cost.exile_top_of_library and len(player.library) < cost.exile_top_of_library:
@@ -871,6 +898,8 @@ class ActivationMixin:
                 self.rules.set_tapped(obj, True)
         if cost.sacrifice_count:
             count, subtype = cost.sacrifice_count
+            if count == SACRIFICE_COUNT_X:
+                count = x  # see `_can_pay_activation_cost`'s matching branch
             for obj in self._resolve_sacrifice_count(player, count, subtype, tap_choices) or []:
                 self.rules.put_into_graveyard(obj)
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
@@ -1039,6 +1068,26 @@ class ActivationMixin:
             self.auto_tap_for(player, cost=mana)
         except ValueError:
             pass
+    def _resolve_activation_mode(
+        self, ability: ActivatedAbility, mode: Optional[int]
+    ) -> list[Any]:
+        """The effects this activation actually resolves with (RULE 700.2,
+        `ActivatedAbility.modes` — MEC-43, Umezawa's Jitte's "Remove a
+        charge counter: Choose one — …") — ``ability.effects`` unchanged for
+        an ordinary (non-modal) ability, or the chosen mode's own effects
+        for a modal one. Deliberately scoped to plain "choose one"
+        (``ability.modes`` only ever holds that shape — see
+        `effect_binder.bind_ability`'s own guard): no activated ability in
+        this cache needs "choose N"/"or both" yet.
+        """
+        if not ability.modes:
+            return ability.effects
+        if mode is None or not 0 <= mode < len(ability.modes):
+            raise ValueError(
+                f"{ability.description or 'ability'}: must choose a mode in "
+                f"0..{len(ability.modes) - 1}"
+            )
+        return list(ability.modes[mode]["effects"])
     def activate_ability(
         self,
         player: Player,
@@ -1051,6 +1100,7 @@ class ActivationMixin:
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         hand_card_choices: Optional[list[int]] = None,
+        mode: Optional[int] = None,
     ) -> None:
         """Pay an activated ability's cost and put it on the stack (RULE 602.2).
 
@@ -1073,17 +1123,26 @@ class ActivationMixin:
         effect (`StackItem.target_groups`) — needed only when the ability
         carries 2+ *different* targeting effects; omitted (``None``), every
         effect reads ``targets`` directly, unchanged from before this existed.
+
+        ``mode`` (RULE 700.2, MEC-43) picks which of a *modal* ability's
+        printed modes resolves — required whenever ``ability.modes`` is set
+        (`_resolve_activation_mode`), ignored otherwise. The mode is chosen
+        before targets are gathered, same ordering RULE 601.2b gives a modal
+        spell's own mode-then-target choice: the chosen mode's own effects,
+        not ``ability.effects`` (empty for a modal ability), decide what
+        target requirements this activation actually has.
         """
         abilities = source.activated_abilities + source.granted_activated_abilities
         if not 0 <= ability_index < len(abilities):
             raise ValueError(f"{source.name} has no activated ability #{ability_index}")
         ability = abilities[ability_index]
+        resolved_effects = self._resolve_activation_mode(ability, mode)
         if target_groups is None:
             # RULE 115.1, same derivation the cast path makes: an ability
             # announcing 2+ requirements needs its flat picks split per
             # targeting effect (Ulvenwald Tracker's "target creature you
             # control fights another target creature").
-            target_groups = partition_targets(ability_target_specs(ability), targets)
+            target_groups = partition_targets(effects_target_specs(resolved_effects), targets)
         if target_groups is not None and targets is None:
             # Same derivation `RulesEngine.cast_spell` does: every flat-
             # ``targets`` consumer (ward, the stack display) still needs to
@@ -1120,11 +1179,19 @@ class ActivationMixin:
         if ability.once_per_turn:
             ability._last_activated_turn = self.state.turn_number
 
+        # RULE 700.2: a modal ability's `StackItem` carries the chosen
+        # mode's own flat effects list directly, not the `ActivatedAbility`
+        # wrapper — its own `effects` field is empty, so `apply()` would
+        # have nothing to resolve (`_place_trigger`'s `effects_override`
+        # is the exact triggered-ability precedent for this).
+        item_description = ability.description or f"{source.name} ability"
+        if ability.modes:
+            item_description = ability.modes[mode].get("description") or item_description
         item = StackItem(
             kind="ability",
             controller_id=player.id,
-            effects=[ability],
-            description=ability.description or f"{source.name} ability",
+            effects=resolved_effects if ability.modes else [ability],
+            description=item_description,
             targets=targets,
             target_groups=target_groups,
             x=x,

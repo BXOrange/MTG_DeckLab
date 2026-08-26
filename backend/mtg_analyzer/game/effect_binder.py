@@ -1488,12 +1488,29 @@ def bind_ability(
         # Gates of Madara-shaped) — same inference, `hand_zone`'s own
         # branch of `can_activate`.
         cost.hand_zone = True
+    activated_modes = None
+    if spec.modes:
+        # RULE 700.2 on an *activated* ability (MEC-43, Umezawa's Jitte's
+        # "Remove a charge counter: Choose one — …") — the same
+        # `_build_mode_entries` a modal spell/triggered ability already
+        # uses. Deliberately scoped to the plain "choose one" shape only:
+        # `GameEngine._resolve_activation_mode` (the only consumer of
+        # `ActivatedAbility.modes`) has no "or both"/"choose N or more"
+        # branch, since no activated ability in this cache needs one yet —
+        # fail loudly here rather than silently mis-binding a shape the
+        # engine side can't actually resolve.
+        if spec.modes.get("choose", 1) != 1 or spec.modes.get("or_both") or spec.modes.get("at_least"):
+            raise NotImplementedError(
+                "modal activated abilities only support plain 'choose one' so far"
+            )
+        activated_modes = _build_mode_entries(spec.modes, source)
     return ActivatedAbility(
         effects=effects,
         cost=cost,
         source=source,
         description=spec.raw_text,
         once_per_turn=once_per_turn,
+        modes=activated_modes,
     )
 
 
@@ -2121,6 +2138,13 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             # dynamic-attribute convention as `alt_cast_cost`.
             spec.validate()
             obj.mana_source_kind_restriction = spec.cast_mana_source_restriction
+        if spec.cast_x_color_restriction:
+            # "Spend only <color> mana on X." (Drain Life, MEC-43) — the
+            # X-only sibling of `cast_mana_source_restriction` just above,
+            # same dynamic-attribute convention, read by `GameEngine.
+            # effective_cast_cost`'s `{X}`-resolution branch.
+            spec.validate()
+            obj.x_spend_color_restriction = spec.cast_x_color_restriction
         if spec.strive_cost:
             spec.validate()
             obj.strive_cost = ManaCost.parse(spec.strive_cost)

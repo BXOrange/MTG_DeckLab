@@ -410,6 +410,16 @@ class AbilitySpec:
     #: already use), consulted by `RulesEngine.cast_spell`/`GameEngine.
     #: can_cast`'s ordinary mana-payment branch.
     cast_mana_source_restriction: Optional[str] = None
+    #: "Spend only `<color>` mana on X." (Drain Life, MEC-43) — a WUBRG
+    #: letter naming which color the spell's own printed ``{X}`` (not its
+    #: other pips) must be paid with; ``None`` for an ordinary spell.
+    #: Distinct from `cast_mana_source_restriction` above (that one scopes
+    #: the whole cost by mana *source*, this one scopes only the ``{X}``
+    #: portion by *color*) — no real card needs both. Bound the same
+    #: "dynamic, getattr-read" way (`GameObject.x_spend_color_restriction`),
+    #: consulted by `GameEngine.effective_cast_cost`'s ``{X}``-resolution
+    #: branch (`models.mana_cost.ManaCost.with_x_colored`).
+    cast_x_color_restriction: Optional[str] = None
     #: "Strive — This spell costs `<cost>` more to cast for each target
     #: beyond the first." (MEC-4) — not a RULE 702 keyword at all (no CR
     #: entry defines it; Scryfall's `keywords` array is the only place it's
@@ -562,6 +572,7 @@ class AbilitySpec:
             and not self.conditional_flash
             and not self.strive_cost
             and not self.cast_mana_source_restriction
+            and not self.cast_x_color_restriction
         ):
             raise SpecValidationError(
                 f"{self.ability_kind!r} ability must carry at least one effect"
@@ -587,6 +598,13 @@ class AbilitySpec:
                 raise SpecValidationError(
                     f"'cast_mana_source_restriction' must be one of {sorted(MANA_SOURCE_KINDS)}, "
                     f"got {self.cast_mana_source_restriction!r}"
+                )
+
+        if self.cast_x_color_restriction is not None:
+            if self.cast_x_color_restriction not in ("W", "U", "B", "R", "G"):
+                raise SpecValidationError(
+                    f"'cast_x_color_restriction' must be a WUBRG letter, "
+                    f"got {self.cast_x_color_restriction!r}"
                 )
 
         if self.strive_cost is not None:
@@ -625,10 +643,20 @@ class AbilitySpec:
         return self
 
     def _validate_modes(self) -> None:
-        """Structural check for a modal ``modes`` block (RULE 700.2)."""
-        if self.ability_kind not in ("spell_effect", "triggered"):
+        """Structural check for a modal ``modes`` block (RULE 700.2).
+
+        ``"activated"`` (MEC-43, Umezawa's Jitte's "Remove a charge
+        counter: Choose one — …") is the activated-ability sibling of the
+        already-supported spell/triggered kinds — `effect_binder.
+        bind_ability`'s activated branch only wires the plain "choose one"
+        shape (``modes_choose == 1``, no "or both"/"choose N or more"), but
+        the *structural* validation here doesn't need to know that; an
+        activated `AbilitySpec` asking for a wider shape than the binder
+        supports fails loudly there instead of silently here.
+        """
+        if self.ability_kind not in ("spell_effect", "triggered", "activated"):
             raise SpecValidationError(
-                "'modes' is only supported on spell_effect/triggered abilities"
+                "'modes' is only supported on spell_effect/triggered/activated abilities"
             )
         if not isinstance(self.modes, dict):
             raise SpecValidationError("'modes' must be a dict")

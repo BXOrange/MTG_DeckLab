@@ -1211,6 +1211,18 @@ class ActivatedAbility(GameEffect):
     `activate_ability` check/stamp `_last_activated_turn` against the
     current turn number, the same "stamped on the *ability instance* itself,
     not a GameObject field reset every turn" shape.
+
+    ``modes`` (RULE 700.2, MEC-43 — Umezawa's Jitte's "Remove a charge
+    counter: Choose one — …") is the activated-ability sibling of
+    `TriggeredAbility.modes`: a list of ``{"effects": [GameEffect, ...],
+    "description": str}`` entries, one per printed mode, chosen by
+    `GameEngine.activate_ability`'s own ``mode`` param *before* the ability
+    goes on the stack (mirroring a modal spell's mode-before-cast/target
+    ordering) — never resolved through this ability's own (empty)
+    ``effects``. Unlike `TriggeredAbility`, there's no ``modes_or_both``/
+    ``modes_choose``/``modes_at_least`` here: `effect_binder.bind_ability`
+    only ever builds this field for the plain "choose one" shape, since no
+    activated ability in this cache needs more yet.
     """
 
     def __init__(
@@ -1223,6 +1235,7 @@ class ActivatedAbility(GameEffect):
         description: str = "",
         once_per_turn: bool = False,
         attach_kind: Optional[str] = None,
+        modes: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.effects = effects
@@ -1235,6 +1248,7 @@ class ActivatedAbility(GameEffect):
         self.description = description
         self.once_per_turn = once_per_turn
         self._last_activated_turn: Optional[int] = None
+        self.modes = modes
         #: Which RULE 301/303/704 attachment keyword generated this ability
         #: — ``"equip"``/``"fortify"``/``"reconfigure"`` (`effect_binder.
         #: _keyword_activated_ability`), or ``None`` for an ordinary
@@ -2814,6 +2828,56 @@ def _attached_auras_and_equipment_count(context: GameContext, source: Optional["
     )
 
 
+class DamageAndDrainCappedEffect(GameEffect):
+    """"~ deals X damage to any target. You gain life equal to the damage
+    dealt, but not more life than the player's life total before the
+    damage was dealt, the planeswalker's loyalty before the damage was
+    dealt, or the creature's toughness." (Drain Life, MEC-43) — one atomic
+    effect, since the life-gain cap depends on the target's own
+    characteristic *before* the damage (which the damage itself can zero
+    out, or which a battlefield-only permanent loses entirely if it dies),
+    the same "read the target's own characteristic first, then act" shape
+    `DestroyLoseLifeEqualManaValueEffect`/`ExileGainLifeToControllerEffect`
+    already use elsewhere. Player/planeswalker/creature are told apart by
+    duck-typing (``hasattr(target, "life")`` for a `Player`, else
+    `GameObject.is_planeswalker`, else the creature/toughness fallback —
+    RULE 115.4's fourth "any target" case, a battle, is a documented
+    non-issue: the printed card predates battles and names no cap for one,
+    so a battle target here simply gains no life, matching the card's own
+    silence on that case rather than guessing a rule for it).
+    """
+
+    def __init__(
+        self, amount: int = 0, target_kind: str = "any", source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = targets[0] if targets else None
+        amount = self.amount
+        if target is None or amount <= 0:
+            return
+        if hasattr(target, "life"):
+            cap = target.life
+        elif getattr(target, "is_planeswalker", False):
+            cap = target.counters.get("loyalty", 0)
+        elif getattr(target, "is_creature", False):
+            cap = target.toughness or 0
+        else:
+            cap = 0  # RULE 115.4's battle case — the printed card names no cap
+        context.deal_damage(target, amount, self.source, single_target_hint=True)
+        gain = min(amount, max(cap, 0))
+        if gain > 0:
+            controller = _controller_of(self.source, context)
+            if controller is not None:
+                context.gain_life(controller, gain)
+
+
 class DrawIfTriggerObjectGreatestPowerEffect(GameEffect):
     """"…its controller may draw a card if its power is greater than each
     other creature's power." (Selvala, Heart of the Wilds, MEC-43) — "its"
@@ -3052,12 +3116,22 @@ class DiscardEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         scope: Optional[str] = None,
+        player_from_trigger_event: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.scope = scope
+        #: "Whenever equipped creature deals combat damage to a player,
+        #: **that player** discards a card…" (Sword of Feast and Famine,
+        #: MEC-43) — "that player" is the DAMAGE event's own recipient
+        #: (``target_id``, ``is_player``), not a chosen target at all — the
+        #: `GainLifeEffect.amount_from_trigger_source_toughness` idiom
+        #: applied to *who* rather than *how much*, mirroring the bespoke
+        #: `LoseGameTriggerDamagedPlayerEffect`'s own read of the same
+        #: event field but as a reusable param instead of a one-card class.
+        self.player_from_trigger_event = player_from_trigger_event
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
@@ -3071,6 +3145,13 @@ class DiscardEffect(GameEffect):
                 context.discard_choice(other, self.count)
             return
         player = self.player
+        if player is None and self.player_from_trigger_event:
+            event = context.trigger_event or {}
+            if event.get("is_player"):
+                try:
+                    player = context.state.player_by_id(event.get("target_id"))
+                except (KeyError, ValueError):
+                    player = None
         if player is None and self.target_spec is not None and targets:
             player = targets[0]
         if player is None:
@@ -3462,12 +3543,26 @@ class GainLifeEffect(GameEffect):
         count_selector: Optional[str] = None,
         amount_from_target_power: bool = False,
         recipient: Optional[str] = None,
+        amount_from_trigger_source_toughness: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.count_selector = count_selector
+        #: "Whenever a creature you control deals combat damage to a
+        #: player, you gain life equal to that creature's toughness." (Ikra
+        #: Shidiqi, the Usurper, MEC-43) — "that creature" is the *source*
+        #: of the very DAMAGE event that fired this group-subject trigger
+        #: (Bident of Thassa's own trigger shape), not a chosen target at
+        #: all, so it's read off `GameContext.trigger_event`'s
+        #: ``source_id`` (`DestroyEffect.target_from_trigger_event`'s same
+        #: "read this firing's own payload" idiom, applied to a magnitude
+        #: rather than a destroy target) and the creature's *current* live
+        #: toughness (layer-engine derived, matching RULE 613's "as the
+        #: event is processed" reading every other toughness-scaled effect
+        #: uses), not the damage amount itself.
+        self.amount_from_trigger_source_toughness = amount_from_trigger_source_toughness
         #: "You gain life equal to target creature's power." (Dazzling
         #: Reflection, MEC-30) — reads a *shared* target this effect never
         #: declares itself (no `target_spec` of its own here; a sibling
@@ -3509,6 +3604,10 @@ class GainLifeEffect(GameEffect):
         amount = self.amount
         if self.amount_from_target_power:
             amount = int(subject.power or 0) if subject is not None else 0
+        elif self.amount_from_trigger_source_toughness:
+            event = context.trigger_event or {}
+            source_obj = context.state.find_object(event.get("source_id"))
+            amount = int(source_obj.toughness or 0) if source_obj is not None else 0
         elif self.count_selector == "life_lost_this_way":
             # "You gain life equal to the life lost this way." (Gray
             # Merchant of Asphodel-shaped RULE 119 drain) — a per-resolution
@@ -4106,10 +4205,18 @@ class LoseLifeEffect(GameEffect):
         amount_from_spells_cast_this_turn: bool = False,
         amount_from_half_own_life: bool = False,
         amount_from_half_target_life: bool = False,
+        amount_from_damage_dealt_this_turn: bool = False,
         previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: "Target player loses life equal to the damage already dealt to
+        #: that player this turn." (Final Punishment, MEC-43) — reads
+        #: `GameState.damage_dealt_to_players_this_turn` for whichever
+        #: player this effect resolves against, the exact same "resolve
+        #: the target first, then read state off it" shape
+        #: ``amount_from_half_target_life`` uses just below.
+        self.amount_from_damage_dealt_this_turn = amount_from_damage_dealt_this_turn
         #: "Target player draws cards… **and loses** half their life."
         #: (MEC-43 round 2, Peer into the Abyss) — the same player
         #: `DrawCardEffect`'s own target requirement already picked
@@ -4222,6 +4329,21 @@ class LoseLifeEffect(GameEffect):
                 target_player = _controller_of(self.source, context)
             life = getattr(target_player, "life", 0)
             amount = -(-life // 2)  # ceiling division (RULE 107.3 rounds up)
+        if self.amount_from_damage_dealt_this_turn:
+            # Same "resolve the target first" shape as
+            # ``amount_from_half_target_life`` just above.
+            target_player = self.player
+            if target_player is None and self.player_id is not None:
+                target_player = context.state.player_by_id(self.player_id)
+            if target_player is None and self.previous_subject and context.previous_targets:
+                target_player = context.previous_targets[0]
+            if target_player is None and self.target_spec is not None and targets:
+                target_player = targets[0]
+            if target_player is None:
+                target_player = _controller_of(self.source, context)
+            amount = context.state.damage_dealt_to_players_this_turn.get(
+                getattr(target_player, "id", None), 0
+            )
         if amount <= 0:
             return
         if self.selector in _LOSE_LIFE_SELECTORS:
@@ -9085,6 +9207,11 @@ _TAP_SELECTORS: frozenset[str] = frozenset(
         # `"attacking_creatures"` branch an anthem's own `affects` already
         # reuses (Motivated Pony's "Attacking creatures get +1/+1").
         "attacking_creatures",
+        # "…you untap all lands you control." (Sword of Feast and Famine,
+        # MEC-43) — `continuous.group_selector_objects` already has a
+        # "lands_you_control" branch (used elsewhere for extra-land-play
+        # bookkeeping); this just widens the tap/untap whitelist to admit it.
+        "lands_you_control",
     }
 )
 
@@ -9460,12 +9587,19 @@ class AttachEffect(GameEffect):
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: str = "permanent",
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self._created_mode = target_kind == "created"
         if not self._created_mode:
-            self.target_spec = TargetSpec(kind=target_kind)
+            # "Equip commander {N}" (RULE 702.6e, Commander's Plate,
+            # MEC-43) — a *second*, cheaper Equip ability restricted to
+            # only ever attach to a commander (`creature_filter={
+            # "is_commander": True}`), alongside the ordinary unrestricted
+            # Equip cost every Equipment already gets from the keyword
+            # catalogue. No prior card needed a *filtered* Equip target.
+            self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self._created_mode:
@@ -11010,7 +11144,21 @@ class PumpEffect(GameEffect):
             )
 
     def target_polarity(self) -> Optional[str]:
-        return "harmful" if (self.power < 0 or self.toughness < 0) else "beneficial"
+        # RULE 115.1c-adjacent (MEC-43, Grim Hireling): targets are gathered
+        # *before* an activated ability's own {X} is announced/resolved
+        # (`GameEngine.activate_ability`'s `effects_target_specs` call
+        # happens ahead of `RulesEngine._substitute_x`, which only runs at
+        # resolution), so an X-scaled "-x"/"x" `power`/`toughness` sentinel
+        # can still be a bare string here — comparing it against ``0``
+        # would raise. A "-"-prefixed sentinel reads as a debuff (harmful),
+        # any other (a bare "x", or an int) as beneficial/neutral, matching
+        # what the resolved value would report either way.
+        def _is_negative(value: Any) -> bool:
+            if isinstance(value, str):
+                return value.startswith("-")
+            return value < 0
+
+        return "harmful" if (_is_negative(self.power) or _is_negative(self.toughness)) else "beneficial"
 
     def _pump_one(self, obj: "GameObject") -> None:
         obj.temp_power += self.power
@@ -14429,6 +14577,7 @@ EffectRegistry.register(
     lambda p: DiscardEffect(
         count=p.get("count", 1), player=p.get("player"),
         target_kind=p.get("target_kind"), scope=p.get("scope"),
+        player_from_trigger_event=bool(p.get("player_from_trigger_event", False)),
     ),
 )
 EffectRegistry.register(
@@ -14490,6 +14639,9 @@ EffectRegistry.register(
         count_selector=p.get("count_selector"),
         amount_from_target_power=bool(p.get("amount_from_target_power", False)),
         recipient=p.get("recipient"),
+        amount_from_trigger_source_toughness=bool(
+            p.get("amount_from_trigger_source_toughness", False)
+        ),
     ),
 )
 EffectRegistry.register(
@@ -14620,6 +14772,7 @@ EffectRegistry.register(
         amount_from_spells_cast_this_turn=bool(p.get("amount_from_spells_cast_this_turn", False)),
         amount_from_half_own_life=bool(p.get("amount_from_half_own_life", False)),
         amount_from_half_target_life=bool(p.get("amount_from_half_target_life", False)),
+        amount_from_damage_dealt_this_turn=bool(p.get("amount_from_damage_dealt_this_turn", False)),
         previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
@@ -15418,6 +15571,16 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "~ deals X damage to any target. You gain life equal to the damage
+    # dealt, but not more life than the player's life total before the
+    # damage was dealt, the planeswalker's loyalty before the damage was
+    # dealt, or the creature's toughness." (Drain Life, MEC-43)
+    "damage_and_drain_capped",
+    lambda p: DamageAndDrainCappedEffect(
+        amount=p.get("amount", 0), target_kind=p.get("target_kind", "any"),
+    ),
+)
+EffectRegistry.register(
     # "~ deals damage equal to the number of +1/+1 counters on it to any
     # other target." (Red Hulk) — `damage_equal_to_power`'s counter-count
     # sibling.
@@ -15782,6 +15945,7 @@ EffectRegistry.register(
     lambda p: AttachEffect(
         target=p.get("target"),
         target_kind=p.get("target_kind", "permanent"),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(
@@ -16407,6 +16571,13 @@ EffectRegistry.register(
             ),
             "protection_from_chosen_type": bool(
                 p.get("protection_from_chosen_type", False)
+            ),
+            # "…protection from each color that's not in your commander's
+            # color identity." (Commander's Plate, MEC-43) — the complement
+            # of `continuous.commander_color_identity`, read fresh every
+            # pass the same way the two ``chosen_*`` branches above are.
+            "protection_from_colors_not_in_commanders_identity": bool(
+                p.get("protection_from_colors_not_in_commanders_identity", False)
             ),
             # RULE 702.16n/p: "This effect doesn't remove this Aura." —
             # exempts the *granting* object's own attachment from RULE

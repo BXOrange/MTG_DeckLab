@@ -189,6 +189,13 @@ PAY_LIFE_X = -1
 REMOVE_COUNTERS_X = -1
 REMOVE_COUNTERS_ANY = -2
 
+#: MEC-43 round 4 (Grim Hireling): the `ActivationCost.sacrifice_count`
+#: sibling of `REMOVE_COUNTERS_X` — "Sacrifice X Treasures" isn't a printed
+#: count either, it's RULE 601.2b's announce-X template applied to a
+#: sacrifice cost component instead of a mana `{X}`/counter-removal one.
+#: Threaded through the same `x` param `activate_ability` already carries.
+SACRIFICE_COUNT_X = -1
+
 
 def _word_to_int(word: str) -> int:
     word = word.strip().lower()
@@ -285,7 +292,11 @@ class ActivationCost:
     #: for a sacrifice cost that names a *count* rather than the single
     #: ``sacrifice`` field's implicit one. Subtype-matched via `continuous.
     #: has_subtype` (Food/Clue/Treasure/a creature type), not
-    #: `_matches_sacrifice_type`'s broad main-type words.
+    #: `_matches_sacrifice_type`'s broad main-type words. ``count`` may also
+    #: be `SACRIFICE_COUNT_X` (Grim Hireling's "Sacrifice X Treasures",
+    #: MEC-43) — the announced-X sibling of `REMOVE_COUNTERS_X`, resolved
+    #: against the activation's own ``x`` in `GameEngine._can_pay_
+    #: activation_cost`/`_pay_activation_cost`.
     sacrifice_count: Optional[tuple[int, str]] = None
     #: "Put a <kind> counter on this creature" as a *cost* (Devoted Druid's
     #: untap ability) — ``(kind, count)``; always payable (no minimum to

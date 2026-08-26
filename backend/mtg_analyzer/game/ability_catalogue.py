@@ -36,6 +36,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from ..models.events import EventType
+from .costs import SACRIFICE_COUNT_X
 from ..parser.oracle.catalogue.counters import entry_counters as _entry_counters
 from ..parser.oracle.catalogue.keywords import parse_keywords
 from ..parser.oracle.catalogue.kicker_mana import kicker_x_mana_restriction as _kicker_x_mana_restriction
@@ -22499,3 +22500,416 @@ def _soul_conduit() -> list[AbilitySpec]:
 
 
 register("Soul Conduit", _soul_conduit)
+
+
+def _grim_hireling() -> list[AbilitySpec]:
+    """Whenever one or more creatures you control deal combat damage to a
+    player, create two Treasure tokens.
+    {B}, Sacrifice X Treasures: Target creature gets -X/-X until end of
+    turn. Activate only as a sorcery.
+
+    — MEC-43 round 4A. The trigger is already fully `MODELED` by the
+    oracle-text parser (MEC-29's aggregate
+    ``EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER``) — reused as-is,
+    not re-derived. Only the activated ability needs hand-authoring:
+    "Sacrifice X Treasures" is `costs.ActivationCost.sacrifice_count`'s
+    ``(count, subtype)`` shape, widened by this same ticket with a new
+    `costs.SACRIFICE_COUNT_X` sentinel — the `REMOVE_COUNTERS_X` sibling
+    for a sacrifice-cost component whose count is RULE 601.2b's announced
+    ``x`` rather than a printed number. The stack item's own ``x``
+    (`GameEngine.activate_ability`'s ``x`` param, stamped onto
+    ``source.x_paid``) then reaches "gets -X/-X" through the existing
+    ``"-x"`` sentinel `RulesEngine._substitute_x` already rewrites on
+    `PumpEffect.power`/``toughness`` for any spell/ability — no new
+    effect-side code.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 2, "token_name": "Treasure"})],
+            trigger={
+                "event": EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
+                "condition": {"subject": "you"},
+            },
+            raw_text="Whenever one or more creatures you control deal combat "
+                     "damage to a player, create two Treasure tokens.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("pump", {
+                "power": "-x", "toughness": "-x", "target_kind": "creature",
+            })],
+            cost={"text": "{B}", "sacrifice_count": (SACRIFICE_COUNT_X, "treasure"),
+                  "sorcery_speed_only": True},
+            raw_text="{B}, Sacrifice X Treasures: Target creature gets -X/-X "
+                     "until end of turn. Activate only as a sorcery.",
+        ),
+    ]
+
+
+register("Grim Hireling", _grim_hireling)
+
+
+def _ikra_shidiqi_the_usurper() -> list[AbilitySpec]:
+    """Menace
+    Whenever a creature you control deals combat damage to a player, you
+    gain life equal to that creature's toughness.
+    Partner (You can have two commanders if both have partner.)
+
+    — MEC-43 round 4A. Menace and Partner are both RULE 702 keywords,
+    folded in automatically by the keyword catalogue regardless of
+    registration — only the triggered life-gain needs hand-authoring here.
+    The trigger itself is the exact group-subject "a creature you control
+    deals combat damage to a player" shape the oracle parser already fully
+    models for Bident of Thassa/Deepfathom Skulker (confirmed by parsing
+    that trigger's own text in isolation — reused verbatim, not re-derived);
+    what blocks the *whole card* from `MODELED` is the effect body, "gain
+    life equal to **that creature's** toughness" — a new
+    `GainLifeEffect.amount_from_trigger_source_toughness`, which reads the
+    firing DAMAGE event's own ``source_id`` (`GameContext.trigger_event`,
+    the same "read this firing's own payload" idiom
+    `DestroyEffect.target_from_trigger_event` already uses for Mikaeus, the
+    Unhallowed) and that creature's current live toughness.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("gain_life", {"amount_from_trigger_source_toughness": True})],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {"subject": "group", "type": "creature", "other": False, "controller": "you"},
+                "filter": {"is_player": True, "combat": True},
+            },
+            raw_text="Whenever a creature you control deals combat damage "
+                     "to a player, you gain life equal to that creature's "
+                     "toughness.",
+        ),
+    ]
+
+
+register("Ikra Shidiqi, the Usurper", _ikra_shidiqi_the_usurper)
+
+
+def _sword_of_feast_and_famine() -> list[AbilitySpec]:
+    """Equipped creature gets +2/+2 and has protection from black and from
+    green.
+    Whenever equipped creature deals combat damage to a player, that
+    player discards a card and you untap all lands you control.
+    Equip {2}
+
+    — MEC-43 round 4A. The static half is already fully `MODELED` by the
+    oracle-text parser (the anthem + `grant_protection_static` pair every
+    other Sword already uses) — reused as-is. Only the trigger needs
+    hand-authoring: the "whenever equipped creature deals combat damage to
+    a player" shape itself is the parser's own already-shipped
+    ``condition={"subject": "attached_permanent"}`` (confirmed by parsing
+    that clause alone against a simpler effect), but this card's own effect
+    body has two new pieces — `DiscardEffect.player_from_trigger_event`
+    ("that player" is the DAMAGE event's own recipient, not a target) and
+    `TapEffect`'s ``selector`` whitelist widened with ``"lands_you_control"``
+    (`continuous.group_selector_objects` already supports it; only the
+    `TapEffect`-side gate was missing it).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("anthem", {"power": 2, "toughness": 2, "affects": "attached_permanent"}),
+                EffectSpec("grant_protection_static", {
+                    "affects": "attached_permanent", "protections": ["black", "green"],
+                }),
+            ],
+            raw_text="Equipped creature gets +2/+2 and has protection from "
+                     "black and from green.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("discard", {"count": 1, "player_from_trigger_event": True}),
+                EffectSpec("tap", {"untap": True, "selector": "lands_you_control"}),
+            ],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {"subject": "attached_permanent"},
+                "filter": {"is_player": True, "combat": True},
+            },
+            raw_text="Whenever equipped creature deals combat damage to a "
+                     "player, that player discards a card and you untap "
+                     "all lands you control.",
+        ),
+    ]
+
+
+register("Sword of Feast and Famine", _sword_of_feast_and_famine)
+
+
+def _umezawas_jitte() -> list[AbilitySpec]:
+    """Whenever equipped creature deals combat damage, put two charge
+    counters on Umezawa's Jitte.
+    Remove a charge counter from Umezawa's Jitte: Choose one —
+    • Equipped creature gets +2/+2 until end of turn.
+    • Target creature gets -1/-1 until end of turn.
+    • You gain 2 life.
+    Equip {2}
+
+    — MEC-43 round 4A. The trigger is the same "attached_permanent" DAMAGE
+    subject every other Sword uses, minus the "is_player" filter (this one
+    fires on **any** combat damage, not just to a player); "put two charge
+    counters on ~" is a plain untargeted `AddCountersEffect` (no
+    ``target_kind``, so it acts on its own source). The activated ability
+    is this round's real primitive gap: RULE 700.2 modal choice
+    (``AbilitySpec.modes``) had never been wired for an *activated*
+    ability before, only spell/triggered ones — `AbilitySpec._validate_
+    modes` now permits ``"activated"``, `effect_binder.bind_ability` builds
+    `ActivatedAbility.modes` off the same `_build_mode_entries` helper a
+    modal spell/triggered ability already shares, and `GameEngine.
+    activate_ability` gained a ``mode`` param (`_resolve_activation_mode`)
+    that picks the chosen mode's own effects *before* targets are
+    gathered — mirroring a modal spell's own mode-before-target ordering,
+    and `_place_trigger`'s existing `effects_override` idiom for a modal
+    trigger's chosen mode. `legal_actions`'s activate-ability offer
+    (`_activate_actions_for`) now emits one action per mode the same way
+    `_modal_cast_actions` already does for spells. Deliberately scoped to
+    the plain "choose one" shape only — no printed activated ability needs
+    "choose N"/"or both" yet.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"amount": 2, "kind": "charge"})],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {"subject": "attached_permanent"},
+                "filter": {"combat": True},
+            },
+            raw_text="Whenever equipped creature deals combat damage, put "
+                     "two charge counters on Umezawa's Jitte.",
+        ),
+        AbilitySpec(
+            "activated",
+            [],
+            cost={"remove_counters": ("charge", 1)},
+            modes={
+                "choose": 1,
+                "options": [
+                    [EffectSpec("pump", {
+                        "power": 2, "toughness": 2, "target_kind": "attached_permanent",
+                    })],
+                    [EffectSpec("pump", {
+                        "power": -1, "toughness": -1, "target_kind": "creature",
+                    })],
+                    [EffectSpec("gain_life", {"amount": 2})],
+                ],
+                "descriptions": [
+                    "Equipped creature gets +2/+2 until end of turn.",
+                    "Target creature gets -1/-1 until end of turn.",
+                    "You gain 2 life.",
+                ],
+            },
+            raw_text="Remove a charge counter from Umezawa's Jitte: Choose "
+                     "one — Equipped creature gets +2/+2 until end of "
+                     "turn. Target creature gets -1/-1 until end of turn. "
+                     "You gain 2 life.",
+        ),
+    ]
+
+
+register("Umezawa's Jitte", _umezawas_jitte)
+
+
+def _commanders_plate() -> list[AbilitySpec]:
+    """Equipped creature gets +3/+3 and has protection from each color
+    that's not in your commander's color identity.
+    Equip commander {3}
+    Equip {5}
+
+    — MEC-43 round 4A. The static anthem+protection half needed one new
+    `continuous.commander_color_identity` selector (the union of every
+    ``is_commander`` object's printed `Card.color_identity` this player
+    owns, searched live across every zone) plus a matching
+    ``protection_from_colors_not_in_commanders_identity`` param on
+    `grant_protection_static`'s existing layer-6 machinery — no card had
+    ever needed a live read of "your commander's color identity" during a
+    game before. The ordinary "Equip {5}" is the automatic keyword-catalogue
+    ability every Equipment gets; "Equip commander {3}" (RULE 702.6e) is a
+    genuinely *second*, coexisting Equip ability restricted to only ever
+    attach to a commander, hand-authored here via `AttachEffect`'s new
+    ``creature_filter`` param (a new ``"is_commander"``
+    `combat.matches_object_filter` key). Along the way, fixed a real
+    pre-existing parser bug this card's own text exposed: the "equip"
+    keyword's plain COST-shape regex was greedy enough to swallow "Equip
+    commander {3}" and report **that** as the ordinary Equip cost instead of
+    the real {5} (`parser/oracle/catalogue/keywords.py`'s new
+    ``_SPECIAL_REGEX["equip"]`` override, negative-lookahead-excluding
+    "commander" as a qualifier word) — silently mispricing the plain Equip
+    ability for both cache cards that print this template.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("anthem", {"power": 3, "toughness": 3, "affects": "attached_permanent"}),
+                EffectSpec("grant_protection_static", {
+                    "affects": "attached_permanent",
+                    "protection_from_colors_not_in_commanders_identity": True,
+                }),
+            ],
+            raw_text="Equipped creature gets +3/+3 and has protection from "
+                     "each color that's not in your commander's color "
+                     "identity.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("attach", {
+                "target_kind": "creature", "creature_filter": {"is_commander": True},
+            })],
+            cost={"text": "{3}"},
+            raw_text="Equip commander {3}",
+        ),
+    ]
+
+
+register("Commander's Plate", _commanders_plate)
+
+
+def _legolass_quick_reflexes() -> list[AbilitySpec]:
+    """Split second (As long as this spell is on the stack, players can't
+    cast spells or activate abilities that aren't mana abilities.)
+    Untap target creature. Until end of turn, it gains hexproof, reach,
+    and "Whenever this creature becomes tapped, it deals damage equal to
+    its power to up to one target creature."
+
+    — MEC-43 round 4A. Split Second was already parser-recognized (RULE
+    702.61, a flag keyword) but genuinely inert — no card had ever needed
+    its actual restriction enforced before. Built as
+    `continuous.split_second_active` (any spell with the keyword on
+    `GameState.stack`), checked at the very top of both `GameEngine.
+    can_cast`/`can_activate` — mana abilities never call either (RULE
+    605.3b keeps them off the stack), so neither gate needs an exemption.
+    The untap+grant clause chains three effects off one real target
+    (`TapEffect.untap`) via `PumpEffect`/`GrantUntilEffect`'s existing
+    ``previous_subject`` pronoun mode (`GameContext.previous_targets`):
+    the temporary keywords ride the ordinary "until end of turn" `temp_*`
+    path, and the granted triggered ability is `grant_triggered_ability`'s
+    already-general layer-6 machinery (Dionus, Elvish Archdruid's own
+    shape) wrapped in `GrantUntilEffect` for its "until end of turn"
+    lifespan — `damage_equal_to_power`'s ``dealer_kind=None`` reads
+    whichever creature the grant actually landed on (late-bound
+    `effect.source`, `_apply_effects_partitioned`'s existing mechanism),
+    not the spell itself.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("tap", {"untap": True, "target_kind": "creature"}),
+                EffectSpec("pump", {"keywords": ["hexproof", "reach"], "previous_subject": True}),
+                EffectSpec("grant_until", {
+                    "target_kind": None, "previous_subject": True, "duration": "end_of_turn",
+                    "static": {
+                        "type": "grant_triggered_ability",
+                        "params": {
+                            "trigger_event": "TAPPED",
+                            "grant_effects": [
+                                {"type": "damage_equal_to_power", "params": {
+                                    "target_kind": "creature", "optional": True,
+                                }},
+                            ],
+                        },
+                    },
+                }),
+            ],
+            raw_text="Untap target creature. Until end of turn, it gains "
+                     "hexproof, reach, and \"Whenever this creature "
+                     "becomes tapped, it deals damage equal to its power "
+                     "to up to one target creature.\"",
+        ),
+    ]
+
+
+register("Legolas's Quick Reflexes", _legolass_quick_reflexes)
+
+
+def _final_punishment() -> list[AbilitySpec]:
+    """Target player loses life equal to the damage already dealt to that
+    player this turn.
+
+    — MEC-43 round 4A. RULE 120.3's plain "damage dealt to a player" had no
+    per-turn *amount* tracker at all — `GameState.combat_damage_to_players_
+    this_turn` is a combat-only per-source hit-*set* ("was this player
+    hit", never "how much") and `noncombat_damage_to_opponents_this_turn`
+    is keyed by the *dealing* player and scoped to opponents only. New
+    `GameState.damage_dealt_to_players_this_turn` (``{player_id: summed
+    amount}``, combat and noncombat alike, from any source) closes that —
+    incremented at both of `RulesEngine.deal_damage`'s player-damage sites
+    (the ordinary branch and the infect-diverted one, since 702.90b
+    redirects the life-loss consequence but the damage is still "dealt"),
+    reset in `GameEngine.begin_turn`. `LoseLifeEffect`'s new
+    ``amount_from_damage_dealt_this_turn`` reads it for whichever player
+    this effect resolves against, the same "resolve the target first"
+    shape ``amount_from_half_target_life`` (Peer into the Abyss, MEC-43
+    round 2) already uses.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("lose_life", {
+                "target_kind": "player", "amount_from_damage_dealt_this_turn": True,
+            })],
+            raw_text="Target player loses life equal to the damage already "
+                     "dealt to that player this turn.",
+        ),
+    ]
+
+
+register("Final Punishment", _final_punishment)
+
+
+def _drain_life() -> list[AbilitySpec]:
+    """Spend only black mana on X.
+    Drain Life deals X damage to any target. You gain life equal to the
+    damage dealt, but not more life than the player's life total before
+    the damage was dealt, the planeswalker's loyalty before the damage
+    was dealt, or the creature's toughness.
+
+    — MEC-43 round 4A. Two new primitives, plus a real pre-existing engine
+    bug the card's own "or the planeswalker's loyalty" clause exposed.
+    "Spend only `<color>` mana on X" is a genuinely different RULE 605.3a
+    shape from every existing spend restriction (`costs.ActivationCost.
+    spend_only_chosen_color` locks an *activated ability's whole* cost;
+    `mana_source_kind_restriction` locks a *spell's whole* cost by mana
+    *source*): the new `AbilitySpec.cast_x_color_restriction` (bound onto
+    `GameObject.x_spend_color_restriction`, read by `GameEngine.
+    effective_cast_cost`'s ``{X}``-resolution branch) locks only the
+    ``{X}`` portion by *color*, via `ManaCost.with_x_colored` — resolving
+    ``{X}`` into ``x`` real `COLOR`-kind pips instead of one generic
+    `VARIABLE` pip reuses `ManaPool`'s existing colored-pip backtracking
+    solver for free, no pool changes needed. The damage+drain clause is one
+    new atomic `DamageAndDrainCappedEffect` (the life-gain cap needs the
+    target's own life/loyalty/toughness read *before* the damage, the same
+    "read first, then act" shape `DestroyLoseLifeEqualManaValueEffect`
+    already uses). Along the way: `targeting.legal_targets`'s own "any
+    target" (RULE 115.4) turned out to only ever offer creatures and
+    players — planeswalkers and battles were never added, a stale gap from
+    before either card type was modeled (its own comment said so
+    explicitly) — now widened to the real four-way definition, which is
+    what makes this card's own planeswalker case reachable at all, and
+    should also unlock a stray planeswalker/battle target on every other
+    "any target" card already in the cache.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage_and_drain_capped", {"amount": "x", "target_kind": "any"})],
+            cast_x_color_restriction="B",
+            raw_text="Spend only black mana on X.\n"
+                     "Drain Life deals X damage to any target. You gain "
+                     "life equal to the damage dealt, but not more life "
+                     "than the player's life total before the damage was "
+                     "dealt, the planeswalker's loyalty before the damage "
+                     "was dealt, or the creature's toughness.",
+        ),
+    ]
+
+
+register("Drain Life", _drain_life)

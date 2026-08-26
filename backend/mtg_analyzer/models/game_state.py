@@ -796,6 +796,19 @@ class GameState:
         #: much"). Incremented by `RulesEngine.deal_damage`, reset
         #: game-wide in `GameEngine.begin_turn`.
         self.noncombat_damage_to_opponents_this_turn: dict[str, int] = {}
+        #: Total damage (combat *and* noncombat, from *any* source) dealt
+        #: to each player *this turn* — ``{player_id: summed amount}``
+        #: (Final Punishment, MEC-43: "loses life equal to the damage
+        #: already dealt to that player this turn"). Unlike
+        #: `noncombat_damage_to_opponents_this_turn` (keyed by the
+        #: *dealing* player, noncombat only, opponents only) and
+        #: `combat_damage_to_players_this_turn` (a per-source hit-*set*,
+        #: combat only), this is the plain RULE 120.3 total a *victim*
+        #: took, from anyone, by any means — the simplest of the three, but
+        #: no prior card needed exactly this reading. Incremented by
+        #: `RulesEngine.deal_damage`, reset game-wide in `GameEngine.
+        #: begin_turn`.
+        self.damage_dealt_to_players_this_turn: dict[str, int] = {}
         #: How many creatures have died under each player's control *this
         #: turn* (RULE 700.4) — ``{player_id: count}``, incremented off the
         #: `DIES` event by `RulesEngine._track_creature_death` and cleared

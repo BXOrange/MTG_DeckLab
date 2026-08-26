@@ -247,6 +247,9 @@ class TurnLoopMixin:
         # Chandra's Incinerator's own running per-turn amount total, same
         # game-wide reset scope as the row above.
         self.state.noncombat_damage_to_opponents_this_turn.clear()
+        # Final Punishment's own running per-turn amount total (MEC-43) —
+        # same game-wide reset scope as the two rows above.
+        self.state.damage_dealt_to_players_this_turn.clear()
         # RULE 700.4 history ("unless a creature died under your control this
         # turn", Bontu the Glorified) — game-wide for the same reason.
         self.state.creatures_died_this_turn.clear()
