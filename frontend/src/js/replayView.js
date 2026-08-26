@@ -434,6 +434,8 @@ export function createReplayView() {
         <div class="replay-start-actions">
           <button type="button" class="primary" data-start="1">Neues Puzzle (1&nbsp;Spieler)</button>
           <button type="button" data-start="2">Mit Gegner (2&nbsp;Spieler)</button>
+          <button type="button" data-start="3">Mit 2 Gegnern (3&nbsp;Spieler)</button>
+          <button type="button" data-start="4">Mit 3 Gegnern (4&nbsp;Spieler)</button>
           <label class="replay-import-label">Importieren…
             <input type="file" accept="application/json,.json" id="replay-import" hidden />
           </label>
@@ -448,13 +450,24 @@ export function createReplayView() {
     );
   }
 
+  // 1 player stacks single-column; 2 goes side-by-side (`.two`); 3-4 tile
+  // into the same clockwise 2x2 pod grid Multiplayer's board uses
+  // (`gameBoardView.js`'s `.gf-pod-grid` — see the mirrored `.pod` CSS rules
+  // next to `.replay-players` in main.css) so a 3-4 player puzzle lays out
+  // the same way a real table of that size does.
+  function replayPlayersClass(count) {
+    if (count >= 3) return ' pod';
+    if (count > 1) return ' two';
+    return '';
+  }
+
   function renderEditor() {
     const s = view.state;
     root.innerHTML = `
       <div class="replay-editor">
         ${renderToolbar(s)}
         ${statusLine()}
-        <div class="replay-players${s.players.length > 1 ? ' two' : ''}">
+        <div class="replay-players${replayPlayersClass(s.players.length)}">
           ${s.players.map((p) => renderPlayer(p, s)).join('')}
         </div>
       </div>`;

@@ -186,7 +186,7 @@ frontend's UI language (see CLAUDE.md "Frontend").
 | `create_token` | `count`, `token_name`, `power`, `toughness`, `colors`, `subtypes`, `keywords` | RULE 111; the token gets the RULE 704.5d lifecycle automatically |
 | `copy_permanent` | `count`, `target_kind` (default `"creature"`) | RULE 707 — creates a *new token* copy of the target |
 | `become_copy` | `target_kind` (default `"permanent"`), `add_types`, `add_subtypes` | RULE 706/707.2 — the ability's *own source* becomes a copy of the target (Clone/Phantasmal Image/Copy Artifact-style), instead of creating a token. `add_types`/`add_subtypes` cover a card's own "except it's a(n) X in addition to its other types" clause (`Card.as_copy` — types before the type line's em dash, subtypes after) |
-| `search` | `criteria` (or `type` shorthand), `destination` (`"hand"`/`"battlefield_tapped"`/…), `count`, `optional` (default `True`) | see the Evolving Wilds entry already in the file |
+| `search` | `criteria` (or `type` shorthand), `destination` (`"hand"`/`"battlefield_tapped"`/…), `count`, `optional` (default `True`), `zones` (list, default `["library"]`; add `"graveyard"` for "library and/or graveyard" search), `destinations` (list, per-found-card override, positional against the picks — Cultivate/Kodama's Reach split destination), `exile_rest` (bool, default `False` — exile every remaining match in `zones` and skip the shuffle, Doomsday-shaped) | see the Evolving Wilds entry already in the file |
 | `shuffle` | *(none)* | |
 | `cascade` | `mana_value` | |
 | `discover` | `mana_value` (or `amount`) | |
@@ -219,6 +219,7 @@ A `"static"` `AbilitySpec`'s effects use one of these types (all become a
 | `grant_keyword` | 6 (`ability`) | `keywords` (list) | "Creatures you control have flying" |
 | `grant_mana_ability` | 6 (`ability`) | `mana` — list of `mana_options`-shaped production dicts, e.g. `[{"B": 1}]` | "Elves you control have '{T}: Add {B}.'" (Tyvar Kell) |
 | `grant_triggered_ability` | 6 (`ability`) | `trigger_event`, `grant_effects` (list of `{"type", "params"}` one-shot-effect specs, same whitelist as everywhere else), `once_per_turn` (bool), `optional` (bool), `controllers_turn_only` (bool) | "Elves you control have '\<triggered ability\>'" (Dionus, Elvish Archdruid) |
+| `grant_activated_ability` | 6 (`ability`) | `cost` (an `AbilitySpec.cost`-shaped dict, e.g. `{"text": "{3}, {Q}"}` — fed to `costs.parse_activation_cost` at grant time), `grant_effects` (same shape as `grant_triggered_ability`'s), `once_per_turn` (bool), `sorcery_speed_only` (bool) | "Equipped creature has '{3}, {Q}: This creature gets +2/+2 until end of turn.'" (Umbral Mantle) |
 | `type_change` | 4 (`type`) | `add_types`, `power`, `toughness` | "Lands you control are 0/0 creatures" (animation P/T only takes effect together with `add_types: ["creature"]`) |
 | `color_change` | 5 (`color`) | `colors` (list), `set` (bool, default `True`) | "Enchanted creature is black" |
 | `control_change` | 2 (`control`) | `controller` (a player id; omit to default to the ability's own source's controller) | "You control enchanted creature" (Mind Control) |
@@ -531,7 +532,7 @@ Follow the pattern in `backend/tests/test_ability_catalogue.py` and
 
 - Register every name a functionally-identical printing uses (see
   `Evolving Wilds` / `Terramorphic Expanse`).
-- `backend/ToDo_Backend.md` / `Done_Backend.md` track what's open/shipped at
+- `docs/implementation-state/BACKLOG.md` / `Done_Backend.md` track what's open/shipped at
   the feature level; if your card motivated a new `EffectSpec` type or
   closed a backlog item, update those (and CLAUDE.md's "Implementation
   state" summary if it changes engine-wide coverage, not just one card).

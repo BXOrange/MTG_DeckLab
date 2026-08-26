@@ -27,9 +27,13 @@ from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
-pytestmark = pytest.mark.skipif(
-    not DEFAULT_DB_PATH.exists(), reason="card cache not present in this environment"
-)
+pytestmark = [
+    # Depends on the real, fully-populated card cache — opt-in (see tests/conftest.py).
+    pytest.mark.full_cache,
+    pytest.mark.skipif(
+        not DEFAULT_DB_PATH.exists(), reason="card cache not present in this environment"
+    ),
+]
 
 
 def _card(name: str) -> Card:

@@ -1,7 +1,7 @@
-"""SQLite-backed storage for a player's custom art uploads.
+"""SQLite-backed storage for a player's custom art uploads and preferences.
 
-Two kinds of image a player can upload in Settings (frontend
-connectionSettingsView.js):
+Three things a player sets in Profil/Einstellungen (frontend
+profileView.js/connectionSettingsView.js) live here:
 
 * **Token images** — art for a token that has no real Scryfall art
   (a synthesized "create a 1/1 white Soldier" token, see
@@ -11,13 +11,19 @@ connectionSettingsView.js):
   `services/deck_database.py`) and used as the game board's fallback
   "back of card" art (`frontend/src/js/gameBoardView.js` `resolveImageUrl`)
   for a face-down/transformed object with no real art of its own.
+* **Favorite decks** — a set of `Deck.id`s a player has starred (Profil
+  tab), read by `savedDecksView.js`'s siblings (`goldfishView.js`,
+  `multiplayerView.js`) to list favorites first in the deck picker.
+  Deliberately per-*player-name* rather than a flag on the `Deck` itself
+  (`models/deck.py`): decks aren't owned (no accounts, one shared
+  `DeckDatabase`), so two players favoriting different decks out of the
+  same shared list would collide on a single `Deck.is_favorite` bit.
 
-Both are keyed by `player_name` (the free-text profile name from
+All three are keyed by `player_name` (the free-text profile name from
 Settings — this app has no auth) rather than a session or connection,
 so a shared backend can serve them to *any* client asking for that
 name — the mechanism that lets an opponent in a multiplayer match see
-them too, once that mode is wired up (`api/game.py` `/multiplayer` is
-still a 501 stub).
+the art too.
 
 Image bytes are stored directly as a BLOB column (unlike
 `services/image_cache.py`, which caches Scryfall art on disk) — these
@@ -60,6 +66,12 @@ CREATE TABLE IF NOT EXISTS sleeves (
     data BLOB NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (player_name, sleeve_id)
+);
+CREATE TABLE IF NOT EXISTS favorite_decks (
+    player_name TEXT NOT NULL,
+    deck_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (player_name, deck_id)
 );
 """
 
@@ -170,6 +182,57 @@ class PlayerAssetStore:
             )
             self._connection.commit()
         return cursor.rowcount > 0
+
+    # -- Favorite decks --------------------------------------------------
+
+    def list_favorite_decks(self, player_name: str) -> list[str]:
+        """This player's starred `Deck.id`s, most recently starred first."""
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT deck_id FROM favorite_decks WHERE player_name = ? ORDER BY updated_at DESC",
+                (player_name,),
+            ).fetchall()
+        return [row[0] for row in rows]
+
+    def add_favorite_deck(self, player_name: str, deck_id: str) -> None:
+        with self._lock:
+            self._connection.execute(
+                "INSERT INTO favorite_decks (player_name, deck_id, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(player_name, deck_id) DO UPDATE SET updated_at = excluded.updated_at",
+                (player_name, deck_id, _now()),
+            )
+            self._connection.commit()
+
+    def remove_favorite_deck(self, player_name: str, deck_id: str) -> bool:
+        with self._lock:
+            cursor = self._connection.execute(
+                "DELETE FROM favorite_decks WHERE player_name = ? AND deck_id = ?",
+                (player_name, deck_id),
+            )
+            self._connection.commit()
+        return cursor.rowcount > 0
+
+    # -- Bulk removal (PLR-4) ------------------------------------------------
+
+    def delete_all_for_player(self, player_name: str) -> int:
+        """Drop every row (token images, sleeves, favorites) under this name.
+
+        The counterpart to a `services/lobby.py` `client_token` expiring
+        (`api/multiplayer_ws.sweep_once`): once nobody is left recognized
+        under this display name (`Lobby.name_in_use_by_other`), its uploads
+        and preferences are abandoned data with nothing to serve them to,
+        the same "player-data is deleted" half of PLR-4 as the lobby entry
+        itself. Returns the total row count removed, for the caller's log.
+        """
+        with self._lock:
+            removed = 0
+            for table in ("token_images", "sleeves", "favorite_decks"):
+                cursor = self._connection.execute(
+                    f"DELETE FROM {table} WHERE player_name = ?", (player_name,)
+                )
+                removed += cursor.rowcount
+            self._connection.commit()
+        return removed
 
 
 def _now() -> str:

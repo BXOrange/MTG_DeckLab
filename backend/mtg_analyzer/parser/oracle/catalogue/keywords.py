@@ -85,11 +85,27 @@ def _slug(name: str) -> str:
 # --- The irregular QUALITY keywords: one hand-written extractor each --------
 # Their parameter is a word/phrase, not a number or a cost, so each needs its
 # own small anchored regex (the shared cost/number builders don't apply).
+# ``"equip"`` below is the one COST-shape exception, kept here rather than
+# in `_auto_regex` since it's a single-keyword override, not a shape-wide rule.
 
 _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
-    # RULE 702.16 — "protection from <quality>" up to the clause end.
+    # RULE 702.16 — "protection from <quality>" up to the clause end. The
+    # trailing lookahead also stops before a reminder-text parenthetical that
+    # follows a space rather than punctuation ("Protection from black (This
+    # creature can't be...)") — without ``\s\(`` there, the non-greedy quality
+    # group swallows past the intended word looking for a stop char that
+    # never comes on the same line, and the match fails outright.
     "protection": re.compile(
-        r"protection from (?P<quality>[a-z][a-z ]*?)(?=[.,;\n)]|$| and )", re.I
+        r"protection from (?P<quality>[a-z][a-z ]*?)(?=[.,;\n)]|$| and |\s\()", re.I
+    ),
+    # RULE 702.11b — "hexproof from <quality>" (Knight of Grace's "hexproof
+    # from black", Niv-Mizzet, Guildpact's "hexproof from multicolored").
+    # Same reminder-text lookahead as protection, above. Bare "Hexproof" has
+    # no "from" clause to match, so the quality is simply omitted for it
+    # (docs/09 fail-safe — see `_extract_param`), same as any other QUALITY
+    # keyword printed without its parameter.
+    "hexproof": re.compile(
+        r"hexproof from (?P<quality>[a-z][a-z ]*?)(?=[.,;\n)]|$| and |\s\()", re.I
     ),
     # RULE 702.5 — "Enchant <what it can be attached to>". Stops before a
     # trailing controller clause ("... you control" / "... an opponent
@@ -110,6 +126,21 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     "champion": re.compile(r"champion an? (?P<quality>[a-z][a-z ]*?)(?=[.\n(]|$)", re.I),
     # RULE 702.174 — "Gift a/an <something>".
     "gift": re.compile(r"gift an? (?P<quality>[a-z][a-z ]*?)(?=[.\n(]|$)", re.I),
+    # RULE 702.6e (MEC-43): "Equip commander {N}" is a genuinely *separate*
+    # ability that coexists with the plain "Equip {M}" line (not a
+    # qualifier-restricted Equip variant the way "Equip Bird {2}" is one
+    # single ability) — Commander's Plate prints both, and `_auto_regex`'s
+    # plain COST pattern's non-greedy gap (built for exactly the "Equip
+    # Bird {2}" shape) would otherwise swallow "commander" as if it were
+    # such a qualifier and capture the wrong ({3}, not {5}) cost for the
+    # ordinary Equip ability every registered card reads off Scryfall's
+    # single "Equip" keyword slug. The negative lookahead skips straight
+    # past an "Equip commander {N}" line to find the real plain-Equip cost
+    # instead. "Equip commander" itself isn't separately recognized here —
+    # only 2 cards cache-wide print it, and Commander's Plate's own is
+    # hand-authored (`game/ability_catalogue.py`) rather than built as a
+    # second keyword shape for that small a yield.
+    "equip": re.compile(rf"\bEquip\b(?!\s+commander\b){_GAP}(?P<cost>{_COST_RUN})", re.I),
 }
 
 #: Ward's cost line may be a non-mana clause ("Ward—Discard a card.",
@@ -192,7 +223,7 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     ("Flash", _F, "702.8"),
     ("Flying", _F, "702.9"),
     ("Haste", _F, "702.10"),
-    ("Hexproof", _F, "702.11"),
+    ("Hexproof", _Q, "702.11"),
     ("Indestructible", _F, "702.12"),
     ("Intimidate", _F, "702.13"),
     ("Landwalk", _Q, "702.14"),
@@ -306,6 +337,16 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     ("Crew", _N, "702.122"),
     ("Fabricate", _N, "702.123"),
     ("Partner", _F, "702.124"),
+    # "Choose a Background" (Commander Legends: Battle for Baldur's Gate) —
+    # the same RULE 702.124 keyword-ability family as Partner, and just as
+    # inert in-game: it only ever matters at deckbuilding time (pairing a
+    # commander with a Background enchantment, RULE 903.7g), which is
+    # `services/commander_legality.py`'s job, not the game engine's — see
+    # BACKLOG.md's DB-3 ("No Background / 'Friends forever' pairing").
+    # Recognizing it here just lets a
+    # card whose only ability is this reach `MODELED` instead of parking on
+    # an otherwise-fully-modeled card forever, exactly like bare `Partner`.
+    ("Choose a Background", _F, "702.124"),
     ("Undaunted", _F, "702.125"),
     ("Improvise", _F, "702.126"),
     ("Aftermath", _F, "702.127"),
@@ -408,6 +449,16 @@ _ALIASES: dict[str, str] = {
     "friends_forever": "partner",
 }
 
+#: The alias slugs' own display spellings (lowercase, matching how they
+#: appear in real oracle text — ``"multikicker"`` -> ``"multikicker"``,
+#: ``"partner_with"`` -> ``"partner with"``), longest first. Consumed by
+#: `segmenter.is_keyword_line` for the coverage gate's keyword-line
+#: recognition, which needs every spelling a keyword can appear under, not
+#: just the canonical `_TABLE` row names `KEYWORDS` is built from.
+ALIAS_DISPLAYS: tuple[str, ...] = tuple(
+    sorted((alias.replace("_", " ") for alias in _ALIASES), key=len, reverse=True)
+)
+
 
 def keyword_slug(name: str) -> str:
     """A Scryfall/display keyword name → its canonical catalogue slug.
@@ -420,18 +471,38 @@ def keyword_slug(name: str) -> str:
 
 
 def _resolve(slug: str) -> Optional[KeywordDef]:
-    """Look a slug up in the catalogue, honouring the ``<type>walk`` family.
+    """Look a slug up in the catalogue, honouring the ``<type>walk`` and
+    ``<type>cycling`` families.
 
     Scryfall names landwalk by its specific variant (``"Islandwalk"``), so a
     slug ending in ``walk`` that isn't a catalogue row resolves to the generic
-    ``landwalk`` row (the land-type prefix becomes its ``quality``).
+    ``landwalk`` row (the land-type prefix becomes its ``quality``). Cycling's
+    type-restricted variants are named the same way (``"Plainscycling"``,
+    ``"Basic landcycling"``, ``"Wizardcycling"``, ``"Slivercycling"``, …) —
+    Scryfall mints one keyword name per land/creature type rather than a
+    single generic entry, so any such suffix resolves onto the base
+    ``Cycling`` row the same way, rather than hand-listing every type.
     """
     kdef = KEYWORDS.get(slug)
     if kdef is not None:
         return kdef
     if slug.endswith("walk") and len(slug) > 4:
         return KEYWORDS["landwalk"]
+    if slug.endswith("cycling") and slug != "cycling":
+        return KEYWORDS["cycling"]
     return None
+
+
+def resolve_keyword(slug: str) -> Optional[KeywordDef]:
+    """Public wrapper over `_resolve` for callers outside this module that
+    need the generalized ``<type>walk``/``<type>cycling`` family lookup, not
+    just an exact catalogue row — `keyword_slug` only normalizes spelling
+    (aliases), not that family generalization. Used by
+    `catalogue.static_handlers._flag_keywords` to recognise a granted
+    landwalk variant ("all creatures have forestwalk") — the grant only ever
+    needs the raw variant slug (RULE 702.14's land type lives in the slug
+    itself), not a separately-carried quality param."""
+    return _resolve(slug)
 
 
 def _clause_for(text: str, display: str) -> str:

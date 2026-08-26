@@ -1,6 +1,6 @@
 """Server-side proxy for fetching a public decklist from Archidekt.
 
-Reference: backend/ToDo_Backend.md "Import — follow-up from the frontend".
+Reference: docs/implementation-state/Done_Backend.md "Import — follow-up from the frontend".
 Unlike Moxfield (tried client- and server-side, reverted both times —
 genuinely Cloudflare-blocked, see that ToDo entry), Archidekt's API sits
 behind no such protection: a plain, unauthenticated request gets a real

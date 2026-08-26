@@ -1,7 +1,7 @@
 """GET /api/import/archidekt/{deck_id}: server-side proxy for importing a
 public decklist from Archidekt.
 
-Reference: backend/ToDo_Backend.md "Import — follow-up from the frontend",
+Reference: docs/implementation-state/Done_Backend.md "Import — follow-up from the frontend",
 services/archidekt_client.py (the actual fetch). Moxfield's equivalent
 (tried client- and server-side) was reverted — genuinely Cloudflare-
 blocked — so this router only carries Archidekt for now.

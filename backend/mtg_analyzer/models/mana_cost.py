@@ -216,6 +216,21 @@ class ManaCost:
         """Whether this cost contains an unset ``{X}`` (RULE 107.3c)."""
         return any(s.kind == VARIABLE for s in self.symbols)
 
+    @property
+    def resolved_value(self) -> int:
+        """This cost's real mana value once any ``{X}`` is resolved (RULE
+        202.3b: on the stack/battlefield, X *is* the chosen value — unlike
+        `converted_mana_cost`, which deliberately keeps reporting 0 for an
+        unresolved ``{X}`` per the printed-cost model `ManaSymbol.cmc` uses).
+        Equal to `converted_mana_cost` for a cost with no ``{X}``, or one
+        that hasn't been through `with_x` yet. "How much mana was actually
+        spent" trackers (`GameObject.mana_spent_to_cast`) want this, not
+        the static `converted_mana_cost`.
+        """
+        return self.converted_mana_cost + sum(
+            s.amount for s in self.symbols if s.kind == VARIABLE
+        )
+
     def with_x(self, x: int) -> "ManaCost":
         """A copy with every ``{X}`` symbol resolved to the announced value.
 
@@ -232,6 +247,42 @@ class ManaCost:
             ManaSymbol(s.kind, s.color, x) if s.kind == VARIABLE else s
             for s in self.symbols
         ]
+        return ManaCost(resolved, raw=self.raw)
+
+    def with_x_colored(self, x: int, color: str) -> "ManaCost":
+        """A copy with every ``{X}`` symbol resolved to ``x`` pips of
+        ``color`` specifically, instead of ``x`` generic (RULE 605.3a
+        "Spend only `<color>` mana on X." — Drain Life, MEC-43).
+
+        Unlike `with_x` (which keeps the resolved symbol ``VARIABLE``-kind,
+        so `mana_pool.ManaPool._find_payment` still pools it with ordinary
+        generic mana — any color pays it), this replaces the symbol with
+        ``x`` separate `COLOR`-kind pips. Those are ``constrained`` symbols
+        to that same solver, so the existing colored-pip backtracking
+        machinery enforces the restriction for free — no `ManaPool` changes
+        needed. The printed cost's own non-``{X}`` pips (Drain Life's
+        ``{1}{B}``) are untouched, so only the *X* portion is actually
+        colour-locked, not the whole cost (unlike `costs.ActivationCost.
+        spend_only_chosen_color`, which locks an activated ability's entire
+        cost — a spell-level, X-only sibling of that shape).
+
+        Simplification: the result reports `has_variable` as ``False``
+        (no `VARIABLE`-kind symbol survives), so a *mana source* restricted
+        to "spend only on a spell with `{X}` in its cost" (the
+        ``contains_x`` `mana_abilities` restriction kind) would no longer
+        recognize this cost as containing one. No cached card combines that
+        source-side restriction with a spell printing this clause, so this
+        is accepted rather than threading a second "was there ever an X"
+        marker through `ManaCost` for a case nothing exercises.
+        """
+        if x < 0:
+            raise ValueError("X must be >= 0")
+        resolved = []
+        for s in self.symbols:
+            if s.kind == VARIABLE:
+                resolved.extend(ManaSymbol(COLOR, color, 1) for _ in range(x))
+            else:
+                resolved.append(s)
         return ManaCost(resolved, raw=self.raw)
 
     def reduce_generic(self, amount: int) -> "ManaCost":
@@ -251,6 +302,37 @@ class ManaCost:
                 remaining -= take
                 if symbol.amount - take > 0:
                     reduced.append(ManaSymbol(GENERIC, amount=symbol.amount - take))
+            else:
+                reduced.append(symbol)
+        return ManaCost(reduced, raw=ManaCost(reduced).render())
+
+    def reduce_generic_and_x(self, amount: int) -> "ManaCost":
+        """`reduce_generic`'s own sibling for a cost carrying ``{X}``
+        (March of Swirling Mist, MEC-42): reduces any printed generic pips
+        first, then spills the remainder onto the ``VARIABLE`` symbol's own
+        amount, floored at 0 — safe to call either before or after
+        `with_x` (that call keeps the symbol's `kind` as ``VARIABLE``, only
+        ever changing its ``amount``). RULE 601.2f cost reductions do apply
+        to the generic mana ``{X}`` resolves into once announced (RULE
+        107.3f) — unlike `reduce_generic` alone, which only ever matches a
+        printed `GENERIC` symbol and leaves a bare `VARIABLE` one
+        untouched, silently doing nothing for a cost with no *other*
+        generic component.
+        """
+        if amount <= 0:
+            return ManaCost(list(self.symbols), raw=self.raw)
+        remaining = amount
+        reduced: list[ManaSymbol] = []
+        for symbol in self.symbols:
+            if remaining > 0 and symbol.kind == GENERIC:
+                take = min(remaining, symbol.amount)
+                remaining -= take
+                if symbol.amount - take > 0:
+                    reduced.append(ManaSymbol(GENERIC, amount=symbol.amount - take))
+            elif remaining > 0 and symbol.kind == VARIABLE:
+                take = min(remaining, symbol.amount)
+                remaining -= take
+                reduced.append(ManaSymbol(VARIABLE, amount=symbol.amount - take))
             else:
                 reduced.append(symbol)
         return ManaCost(reduced, raw=ManaCost(reduced).render())

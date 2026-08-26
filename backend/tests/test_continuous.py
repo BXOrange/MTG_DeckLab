@@ -426,6 +426,23 @@ def test_text_change_absent_leaves_effective_text_as_printed():
     assert src.effective_oracle_text == "Protection from red."
 
 
+def test_text_change_flips_landwalk_too():
+    # ENG-8: layer 3 isn't scoped to `protections_of_text` alone — the
+    # same word-substitution over `effective_oracle_text` also reaches
+    # `combat._landwalk_slugs`/`landwalk_subtypes`. "Islandwalk" is one
+    # printed token (RULE 702.14's official templating has no space), so
+    # the substitution has to rewrite that whole word, same as
+    # `_landwalk_slugs`'s own `<type>walk` regex expects.
+    eng = make_engine()
+    src = put(eng.state, creature("Wall", oracle_text="Islandwalk"))
+    assert combat.landwalk_subtypes(src) == frozenset({"island"})
+
+    static("text", "self", {"replace": {"islandwalk": "swampwalk"}}, src)
+    continuous.recompute(eng.state)
+    assert src.effective_oracle_text == "swampwalk"
+    assert combat.landwalk_subtypes(src) == frozenset({"swamp"})
+
+
 # -- "attached_permanent": Aura/Equipment/Fortify/Reconfigure buffs ----------
 
 
@@ -530,6 +547,40 @@ def test_static_trace_records_each_layer():
     assert (bear.power, bear.toughness) == (5, 3)
 
 
+def test_static_trace_tags_duration_and_source():
+    """The per-card effect summary (board info popover) needs every trace
+    entry tagged with its source and how long it lasts."""
+    eng = make_engine()
+    bear = put(eng.state, creature("Bear", power=2, toughness=2))
+    bear.add_counters("+1/+1", 2)
+    # A resolved "until end of turn" pump (Monstrous Rage-shaped): records the
+    # aggregate ints *and* a per-source breakdown, exactly like PumpEffect.
+    bear.temp_power += 3
+    bear.temp_toughness += 1
+    bear.temp_keywords.add("trample")
+    bear.temp_effects.append(
+        {"source": "Monstrous Rage", "power": 3, "toughness": 1, "keywords": ["trample"]}
+    )
+    continuous.recompute(eng.state)
+    # 2/2 + two +1/+1 counters + Monstrous Rage's +3/+1 = 7/5.
+    assert (bear.power, bear.toughness) == (7, 5)
+    by_duration = {(e["source"], e["duration"]) for e in bear.static_trace}
+    assert ("+1/+1-Marken", "permanent") in by_duration
+    assert ("Monstrous Rage", "end_of_turn") in by_duration
+    # Its keyword grant is attributed to the same source and duration.
+    kw = next(e for e in bear.static_trace if e["layer"] == 6)
+    assert kw["source"] == "Monstrous Rage" and kw["duration"] == "end_of_turn"
+
+
+def test_temp_effects_cleared_at_cleanup():
+    eng = make_engine()
+    bear = put(eng.state, creature("Bear"))
+    bear.temp_power += 2
+    bear.temp_effects.append({"source": "Giant Growth", "power": 2, "toughness": 2, "keywords": []})
+    eng._step_cleanup()
+    assert bear.temp_effects == [] and bear.temp_power == 0
+
+
 # -- Cost reduction (RULE 601.2f) --------------------------------------------
 
 
@@ -557,6 +608,60 @@ def test_cost_increase_raises_generic():
     obj = GameObject(spell, owner_id="p1", zone=Zone.HAND)
     p1.hand.append(obj)
     assert eng.effective_cast_cost(p1, obj).converted_mana_cost == 3  # {1}{R} → {2}{R}
+
+
+# -- Self cost reduction (Delve/Affinity-shaped, printed on the spell itself) -
+
+
+def test_self_cost_reduction_scales_with_a_graveyard_count_selector():
+    # Delve-shaped: "This spell costs {1} less to cast for each card in
+    # your graveyard." — printed on the card itself, so it must apply while
+    # the card is still in hand, not off a battlefield scan.
+    eng = make_engine()
+    p1 = eng.state.active_player
+    for i in range(3):
+        p1.graveyard.append(Card(id=f"G{i}", name=f"G{i}", type_line="Instant", is_instant=True))
+    spell = Card(id="Cruise", name="Treasure Cruise", type_line="Sorcery",
+                 mana_cost_string="{7}{U}", converted_mana_cost=8, is_sorcery=True)
+    obj = GameObject(spell, owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(obj)
+    static("cost", "self", {"generic": 1, "per": "cards_in_your_graveyard"}, obj)
+    cost = eng.effective_cast_cost(p1, obj)
+    assert cost.converted_mana_cost == 5  # {7}{U} - {3} → {4}{U}
+    assert cost.color_identity == {"U"}
+
+
+def test_self_cost_reduction_scales_with_an_artifact_count_selector():
+    # Affinity-shaped: "This spell costs {1} less to cast for each artifact
+    # you control."
+    eng = make_engine()
+    p1 = eng.state.active_player
+    for i in range(4):
+        put(eng.state, Card(id=f"Art{i}", name=f"Art{i}", type_line="Artifact"))
+    spell = Card(id="Myr", name="Myr Enforcer", type_line="Artifact Creature — Myr",
+                 mana_cost_string="{7}", converted_mana_cost=7, is_creature=True)
+    obj = GameObject(spell, owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(obj)
+    static("cost", "self", {"generic": 1, "per": "artifacts_you_control"}, obj)
+    cost = eng.effective_cast_cost(p1, obj)
+    assert cost.converted_mana_cost == 3  # {7} - {4} → {3}
+
+
+def test_self_cost_reduction_does_not_apply_to_other_players_spells():
+    eng = make_engine()
+    p1 = eng.state.active_player
+    p2 = next(p for p in eng.state.players if p is not p1)
+    for i in range(3):
+        p2.graveyard.append(Card(id=f"G{i}", name=f"G{i}", type_line="Instant", is_instant=True))
+    spell = Card(id="Cruise", name="Treasure Cruise", type_line="Sorcery",
+                 mana_cost_string="{7}{U}", converted_mana_cost=8, is_sorcery=True)
+    obj = GameObject(spell, owner_id="p2", zone=Zone.HAND)
+    p2.hand.append(obj)
+    static("cost", "self", {"generic": 1, "per": "cards_in_your_graveyard"}, obj)
+    # p1's own (empty) graveyard is irrelevant — the reduction is scoped to
+    # the spell's own controller (p2), read straight off the object.
+    cost = eng.effective_cast_cost(p2, obj)
+    assert cost.converted_mana_cost == 5  # {7}{U} - {3} → {4}{U}
 
 
 # -- Binding a static ability from a spec ------------------------------------

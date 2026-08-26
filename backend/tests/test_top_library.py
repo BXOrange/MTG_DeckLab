@@ -11,9 +11,11 @@ from mtg_analyzer.game.effects import TopLibraryPermissionEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.top_library import (
     active_top_library_grants,
+    may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
     may_look_at_top_of_library,
     may_play_land_from_top_of_library,
+    top_library_life_payment_required,
 )
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -35,6 +37,11 @@ def _spell(name="Shock", mv=1, mana="{R}"):
 def _sorcery(name="Big Spell", mv=4, mana="{3}{R}"):
     return Card(id=name, name=name, type_line="Sorcery", is_sorcery=True,
                 mana_cost_string=mana, converted_mana_cost=mv)
+
+
+def _creature_spell(name="Bear", mv=2, mana="{1}{G}"):
+    return Card(id=name, name=name, type_line="Creature — Bear", is_creature=True,
+                power=2, toughness=2, mana_cost_string=mana, converted_mana_cost=mv)
 
 
 def _permanent_with_grant(state, controller="p1", **grant_kwargs):
@@ -92,6 +99,38 @@ def test_multiple_grants_or_together_on_the_loosest_filter():
     # The second, unconditional grant alone should allow a cheap spell —
     # multiple grants OR together, never narrow to the strictest filter.
     assert may_cast_spell_from_top_of_library(p1, state, _spell(mv=1))
+
+
+def test_noncreature_only_gate_blocks_a_creature_spell():
+    state = GameState(players=[Player(id="p1")])
+    p1 = state.players[0]
+    _permanent_with_grant(state, look=True, cast_spells=True, noncreature_only=True)
+    assert not may_cast_spell_from_top_of_library(p1, state, _creature_spell())
+    assert may_cast_spell_from_top_of_library(p1, state, _spell())
+
+
+def test_grants_flash_only_applies_to_a_grant_that_actually_permits_the_cast():
+    state = GameState(players=[Player(id="p1")])
+    p1 = state.players[0]
+    _permanent_with_grant(
+        state, look=True, cast_spells=True, min_mana_value=4, grants_flash=True
+    )
+    assert not may_cast_flash_from_top_of_library(p1, state, _spell(mv=1))
+    assert may_cast_flash_from_top_of_library(p1, state, _sorcery(mv=4))
+
+
+def test_life_payment_required_only_for_a_grant_that_actually_permits_the_cast():
+    state = GameState(players=[Player(id="p1")])
+    p1 = state.players[0]
+    _permanent_with_grant(state, look=True, cast_spells=True, life_payment=True)
+    assert top_library_life_payment_required(p1, state, _spell())
+
+
+def test_life_payment_not_required_when_no_grant_carries_it():
+    state = GameState(players=[Player(id="p1")])
+    p1 = state.players[0]
+    _permanent_with_grant(state, look=True, cast_spells=True)
+    assert not top_library_life_payment_required(p1, state, _spell())
 
 
 def test_requires_attached_gate():
@@ -166,6 +205,68 @@ def test_cast_permission_mana_value_gate_blocks_a_cheap_spell():
     eng.begin_turn()
     eng.state.current_step = "main1"
     p1.mana_pool.add_many({"R": 1})
+    top = p1.library[-1]
+    assert not eng.can_cast(p1, top)
+
+
+def test_grants_flash_lets_a_sorcery_speed_spell_be_cast_at_instant_speed():
+    eng = _engine_with_library(top_cards=[_sorcery("Big Spell", mv=4, mana="{3}{R}")])
+    p1 = eng.state.players[0]
+    _permanent_with_grant(eng.state, look=True, cast_spells=True, grants_flash=True)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1.mana_pool.add_many({"R": 1, "C": 3})
+    top = p1.library[-1]
+    # Outside the caster's own main phase, a sorcery-speed cast would
+    # ordinarily be illegal — `grants_flash` is what makes this legal here.
+    eng.state.current_step = "end_step"
+    assert eng.can_cast(p1, top)
+
+
+def test_without_grants_flash_the_same_spell_is_sorcery_speed_only():
+    eng = _engine_with_library(top_cards=[_sorcery("Big Spell", mv=4, mana="{3}{R}")])
+    p1 = eng.state.players[0]
+    _permanent_with_grant(eng.state, look=True, cast_spells=True)
+    eng.begin_turn()
+    eng.state.current_step = "end_step"
+    p1.mana_pool.add_many({"R": 1, "C": 3})
+    top = p1.library[-1]
+    assert not eng.can_cast(p1, top)
+
+
+def test_noncreature_only_blocks_a_creature_spell_at_the_engine_level():
+    eng = _engine_with_library(top_cards=[_creature_spell("Bear", mv=2, mana="{1}{G}")])
+    p1 = eng.state.players[0]
+    _permanent_with_grant(eng.state, look=True, cast_spells=True, noncreature_only=True)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1.mana_pool.add_many({"G": 2})
+    top = p1.library[-1]
+    assert not eng.can_cast(p1, top)
+
+
+def test_life_payment_casts_without_spending_mana_and_pays_life_instead():
+    eng = _engine_with_library(top_cards=[_sorcery("Big Spell", mv=4, mana="{3}{R}")])
+    p1 = eng.state.players[0]
+    _permanent_with_grant(eng.state, look=True, cast_spells=True, life_payment=True)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    top = p1.library[-1]
+    assert p1.mana_pool.total() == 0
+    assert eng.can_cast(p1, top)
+    eng.cast_spell(p1, top, targets=[])
+    assert top.zone == Zone.STACK
+    assert p1.mana_pool.total() == 0
+    assert p1.life == 16  # 20 - mv(4)
+
+
+def test_life_payment_is_illegal_without_enough_life():
+    eng = _engine_with_library(top_cards=[_sorcery("Big Spell", mv=4, mana="{3}{R}")])
+    p1 = eng.state.players[0]
+    p1.life = 3
+    _permanent_with_grant(eng.state, look=True, cast_spells=True, life_payment=True)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
     top = p1.library[-1]
     assert not eng.can_cast(p1, top)
 
@@ -309,3 +410,16 @@ def test_session_view_flags_top_library_hidden_without_permission():
     session = GameSession(eng)
     view = session.view()
     assert view["top_library_visible"] == {"p1": False, "p2": False}
+
+
+def test_session_view_flags_top_library_visible_for_look_only_grant():
+    # Sphinx of Jwar Isle-shaped: a standalone `look=True` grant with no
+    # play_lands/cast_spells at all still flips the view flag — the
+    # frontend's `libraryTopHtml` already renders the top card with no
+    # buttons whenever no matching legal_action exists, so a look-only
+    # permission needs nothing beyond this flag to be fully visible.
+    eng = _engine_with_library(top_cards=[_land("Island")])
+    _permanent_with_grant(eng.state, look=True)
+    session = GameSession(eng)
+    view = session.view()
+    assert view["top_library_visible"] == {"p1": True, "p2": False}

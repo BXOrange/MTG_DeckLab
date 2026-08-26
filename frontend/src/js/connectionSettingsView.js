@@ -61,6 +61,49 @@ export function renderConnectionSettingsView(container) {
         nicht serverseitig, ein anderer Browser/Rechner sieht sie nicht.
       </p>
 
+      <div class="deck-section">
+        <h3>Multiplayer: Auto-Pass</h3>
+        <p class="hint">
+          Im Mehrspieler-Modus wird die Priorität (Regel 117) wirklich reihum
+          weitergegeben. Damit ein Spiel, in dem niemand reagieren will, nicht
+          zäh wird, kann automatisch gepasst werden. Der Countdown läuft nur,
+          solange du nichts anfasst — jede Aktion auf dem Spielfeld stoppt ihn.
+          Auch während einer Partie direkt am Spielfeld änderbar.
+        </p>
+        <label class="mp-inline-option">
+          <input type="checkbox" id="auto-pass-toggle" />
+          Automatisch passen
+        </label>
+        <div class="mp-option-row">
+          <label for="auto-pass-seconds">Bedenkzeit</label>
+          <input id="auto-pass-seconds" type="number" min="1" max="60" /> Sekunden
+        </div>
+        <div class="mp-option-row">
+          <label for="auto-pass-scope">Gilt für</label>
+          <select id="auto-pass-scope">
+            <option value="opponent">nur gegnerische Züge (empfohlen)</option>
+            <option value="always">alle Züge, auch meine eigenen</option>
+          </select>
+        </div>
+        <label class="mp-inline-option" title="Anders als Automatisch passen: kein Countdown, und es greift nur, wenn dir wirklich nichts anderes als 'Passen' offensteht (z. B. im gegnerischen Zug ohne Instant in der Hand). Sobald eine echte Aktion angeboten wird, bist du sofort wieder am Zug.">
+          <input type="checkbox" id="auto-skip-empty" />
+          Sofort passen, wenn nichts zu tun ist
+        </label>
+      </div>
+
+      <div class="deck-section">
+        <h3>Multiplayer: Spielfeld</h3>
+        <p class="hint">
+          Die Handkarten deines Gegners verlassen den Server nie (Regel 400.2) —
+          die Frage ist nur, ob das Spielfeld die Anzahl als verdeckte Karten
+          zeichnet oder bloß als Zahl. Auch direkt am Spielfeld umschaltbar.
+        </p>
+        <label class="mp-inline-option">
+          <input type="checkbox" id="show-opponent-hand" />
+          Gegnerische Hand als verdeckte Karten zeigen
+        </label>
+      </div>
+
       <div class="deck-section player-assets-section">
         <h3>Eigene Token-Bilder</h3>
         <p class="hint">
@@ -102,8 +145,40 @@ export function renderConnectionSettingsView(container) {
   const sleevesList = container.querySelector('#sleeves-list');
   const sleeveForm = container.querySelector('#sleeve-form');
 
+  const autoPassToggle = container.querySelector('#auto-pass-toggle');
+  const autoPassSeconds = container.querySelector('#auto-pass-seconds');
+  const autoPassScope = container.querySelector('#auto-pass-scope');
+  const autoSkipEmpty = container.querySelector('#auto-skip-empty');
+  const showOpponentHand = container.querySelector('#show-opponent-hand');
+
   const settings = getSettings();
   urlInput.value = settings.serverUrl;
+  autoPassToggle.checked = settings.autoPass;
+  autoPassSeconds.value = settings.autoPassSeconds;
+  autoPassSeconds.disabled = !settings.autoPass;
+  autoPassScope.value = settings.autoPassScope;
+  autoSkipEmpty.checked = settings.autoSkipEmpty;
+  showOpponentHand.checked = settings.showOpponentHand;
+
+  // Saved on change rather than behind the "Speichern" button: these only
+  // affect this browser's own play, and a setting you toggled but didn't
+  // save is exactly the kind of thing that bites mid-game.
+  autoPassToggle.addEventListener('change', () => {
+    const saved = saveSettings({ autoPass: autoPassToggle.checked });
+    autoPassSeconds.disabled = !saved.autoPass;
+  });
+  autoPassSeconds.addEventListener('change', () => {
+    autoPassSeconds.value = saveSettings({ autoPassSeconds: autoPassSeconds.value }).autoPassSeconds;
+  });
+  autoSkipEmpty.addEventListener('change', () => {
+    saveSettings({ autoSkipEmpty: autoSkipEmpty.checked });
+  });
+  showOpponentHand.addEventListener('change', () => {
+    saveSettings({ showOpponentHand: showOpponentHand.checked });
+  });
+  autoPassScope.addEventListener('change', () => {
+    saveSettings({ autoPassScope: autoPassScope.value });
+  });
 
   function renderStatus() {
     const status = getConnectionStatus();

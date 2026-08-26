@@ -1,184 +1,468 @@
-// "Status" tab: a readable overview of what the rules engine actually
-// implements — combat/evasion keywords, the static-ability layer system
-// (RULE 613), activated & triggered abilities, one-shot effects and the
-// remaining gaps. Static content (no server call); kept in sync by hand with
-// the backend (mtg_analyzer/game/) — see CLAUDE.md "Implementation state".
+// "Status" tab: a compact overview of what's implemented, structured two
+// levels deep — top-level by software feature/use-case (docs/requirements/
+// 02_MVP_USECASES_REVISED.md's UC1–UC5), then within the engine-heavy
+// Goldfisch-Modus feature by the *official Comprehensive Rules chapter*
+// (1 Game Concepts, 3 Card Types, 4 Zones, 5 Turn Structure, 6 Spells/
+// Abilities/Effects, 7 Additional Rules, 9 Casual Variants) rather than an
+// ad hoc topic grouping — mirrors docs/Reference/rules_wiki/'s own rule#
+// index. Static content (no server call); kept in sync by hand with the
+// backend — see CLAUDE.md "Implementation state". Deliberately heading-
+// level only (no per-item prose) — see docs/implementation-state/
+// Done_Backend.md / docs/implementation-state/BACKLOG.md for the full narrative.
 
 const LEGEND = [
-  ['full', '✅', 'Vollständig', 'Von der Engine umgesetzt und getestet.'],
-  ['partial', '◐', 'Teilweise', 'Grundfall funktioniert, mit dokumentierten Grenzen.'],
-  ['planned', '✖', 'Geplant', 'Modelliert/vorgesehen, aber noch nicht umgesetzt.'],
+  ['full', '✅', 'Vollständig'],
+  ['partial', '◐', 'Teilweise'],
+  ['planned', '✖', 'Geplant'],
 ];
 
-// section = { title, rule, intro?, items: [ [status, label, note] ] }
-const SECTIONS = [
+// section = { title?, rule?, items: [ [status, label] ] } — title/rule
+// omitted when a chapter/group has only one, self-explanatory section.
+// chapter = { title, rule, sections: [section, …] } — one CR chapter.
+// group = { title, uc?, sections: [section, …] } XOR { title, uc?, chapters: [chapter, …] }
+const GROUPS = [
   {
-    title: 'Spielablauf & Zugstruktur',
-    rule: 'RULE 500–514',
-    intro:
-      'Der Goldfisch-Modus spielt gegen die echte Backend-Regel-Engine: Schritt für ' +
-      'Schritt durch den Zug, mit Stack, Prioritätsfenstern und Zustandsbasierten ' +
-      'Aktionen (SBA). Jeder Zug wird server-seitig validiert; Zurücknehmen/Neustart jederzeit.',
-    items: [
-      ['full', 'Phasen & Schritte', 'Untap, Upkeep, Draw, Main I, Kampf (5 Schritte), Main II, End, Cleanup.'],
-      ['full', 'Stack & Priorität', 'LIFO-Auflösung (RULE 608), Instants als Antwort, Priorität abgeben.'],
-      ['full', 'Zustandsbasierte Aktionen', 'Leben ≤ 0, leere Bibliothek, 0 Widerstandskraft, tödlicher Schaden, Legenden-Regel.'],
-      ['full', 'Mulligan', 'London-Mulligan mit Karten-auf-den-Boden-Legen; „on the play/draw".'],
-      ['full', 'Rückgängig / Neustart / Rewind', 'Snapshot-Historie pro Aktion.'],
-      ['partial', 'Interaktive Priorität (Basis)', '`pass_priority(player)` reicht Priorität nach APNAP weiter und löst den Stack erst auf, wenn alle Spieler nacheinander passen (RULE 117.3-4); eine Aktion holt die Priorität zurück. Engine-Primitive vorhanden; noch nicht in die Multiplayer-Session/WS eingehängt.'],
-      ['partial', 'Passiver Gegner ("Goldfisch")', 'Gültiges Angriffsziel; spielt selbst keine Karten. Interaktiver Blocker-Modus über `declare_blockers` vorhanden, aber solo ungenutzt.'],
+    title: 'Deck-Import & -Verwaltung',
+    uc: 'UC1',
+    sections: [
+      {
+        items: [
+          ['full', 'Deckliste laden (Archidekt-Import, manuelle Liste)'],
+          ['full', 'Commander-Validierung (100 Karten, Singleton, Farbidentität, Bannliste)'],
+          ['full', 'Cube-Modus (Validierung übersprungen)'],
+          ['full', 'Karten-Cache (Scryfall, cache-primär/lazy)'],
+          ['full', 'Gespeicherte Decks (Filter, Autor, Sleeve)'],
+          ['full', 'Player-Assets (Token-Art, Card-Back-Sleeves)'],
+          ['full', 'Moxfield-Import (Export-Text einfügen, Commander/Sideboard auto-erkannt)'],
+        ],
+      },
+    ],
+  },
+  {
+    title: 'Deck-Analyse',
+    uc: 'UC2',
+    sections: [
+      {
+        items: [
+          ['full', 'Statische Analyse (Mana-Kurve, Kartentypen, Pips vs. Quellen, Hand-Odds)'],
+          ['full', 'Dynamische Analyse (Monte-Carlo-Simulation: Bot spielt N Testpartien, Mana-Potenzial-Kurve ± Streuung, Kartenvorteil & Bibliothekssuchen pro Zug)'],
+          ['full', 'Bracket-Analyse (Commander-Brackets-Heuristik)'],
+          ['full', 'Auswertung (Post-Game-Statistik)'],
+          ['planned', 'Narrative KI-Analyse (LLM: Archetyp/Synergien/Kohärenz, ANA-1/2) — eigenständig neben der Dynamischen Analyse oben'],
+        ],
+      },
+    ],
+  },
+  {
+    title: 'Goldfisch-Modus',
+    uc: 'UC3',
+    chapters: [
+      {
+        title: 'Kapitel 1 — Spielkonzepte',
+        rule: 'RULE 100–122',
+        sections: [
+          {
+            items: [
+              ['full', 'Mana-Modell (106)'],
+              ['full', 'Mana-Potenzial (offen/genutzt) + Auto-Tap beim Zaubern/Aktivieren — tappt nie Opfer-/Exil-Manaquellen (Treasures, Spirit Guides)'],
+              ['full', 'Manafähigkeit „ein Mana jeder Farbe unter den eigenen Permanenten" (Bloom Tender) und zielgerichtetes „X Mana einer Farbe, wobei X Inseln eines Ziels" mit Einmal-pro-Zug-Sperre (Carpet of Flowers)'],
+              ['full', 'Zielwahl / Targeting (115)'],
+              ['partial', 'Echte Mehrfachziele (115.1a, N≥2 fest bei destroy/exile/damage; „eine beliebige Anzahl" bei neun Effekt-Familien; echte Zielspanne „N oder M Ziele" seit ENG-30 bei tap/return_to_hand/return_from_graveyard/add_counters/damage/pump) — weitere Effekt-Familien bleiben N=1'],
+              ['full', 'Zwei verschiedene Ziele in einem Zauber/einer Fähigkeit (115.1) — jede Klausel trifft ihr eigenes Ziel'],
+              ['full', '„ein *anderes* Ziel" gegenüber dem zweiten Ziel derselben Klausel (109.5)'],
+              ['full', 'Ziel-Zauberspruch **oder** -Fähigkeit auf dem Stack (115/608.2b) — annullieren (Stifle/Trickbind) oder Ziel ändern (Misdirection/Deflecting Swat)'],
+              ['full', 'Priorität & Stack (117)'],
+              ['full', 'Interaktive Priorität reihum (117.3–4) — im Multiplayer'],
+              ['full', 'Mulligan — London / Vancouver / Next 7 / kein Mulligan (103)'],
+              ['full', 'Erster Zug: Startspieler zieht nur zu zweit nicht (103.8a/103.8c)'],
+              ['full', 'Tokens & Marken (111/121)'],
+              ['full', 'Embleme (114)'],
+            ],
+          },
+        ],
+      },
+      {
+        title: 'Kapitel 3 — Kartentypen',
+        rule: 'RULE 300–316',
+        sections: [
+          {
+            items: [
+              ['full', 'Anhänge: Auren / Ausrüstung / Reconfigure (301/303)'],
+              ['full', 'Schlachten (310) — siehe Kapitel 7'],
+              ['full', 'Dungeons (309): Raumgraph, Erkundungsmarke, Abschluss'],
+            ],
+          },
+        ],
+      },
+      {
+        title: 'Kapitel 4 — Zonen',
+        rule: 'RULE 400–411',
+        sections: [
+          {
+            items: [['full', 'Zonenwechsel-Neuidentität, „Blink" (400.7)']],
+          },
+        ],
+      },
+      {
+        title: 'Kapitel 5 — Zugstruktur',
+        rule: 'RULE 500–514',
+        sections: [
+          {
+            items: [['full', 'Phasen & Schritte']],
+          },
+          {
+            title: 'Kampf-Beschränkungen',
+            rule: '508/509',
+            items: [
+              ['full', '„~ kann nicht angreifen/blocken/geblockt werden"'],
+              ['full', 'Gefilterte Blocker („nicht geblockt werden von Kreaturen mit Stärke 2 oder weniger", „…außer von Mauern")'],
+              ['full', 'Blocker-Anzahl („von höchstens einer Kreatur", „außer von zwei oder mehr Kreaturen")'],
+              ['full', '„kann nur Kreaturen mit Flugfähigkeit blocken"'],
+              ['full', 'Bedingt („kann nicht angreifen, es sei denn, der verteidigende Spieler kontrolliert eine Insel")'],
+              ['full', '„…alleine" — Beschränkung und Trigger („immer wenn ~ alleine angreift")'],
+              ['full', '„Zielkreatur kann in diesem Zug nicht blocken" (auch Massen-Variante)'],
+              ['full', 'Kampf-Anforderungen („~ muss geblockt werden, wenn möglich", „Alle Kreaturen, die ~ blocken können, tun dies")'],
+              ['full', 'Zielgerichtete Anforderungen dieser Zug („Zielkreatur blockt/kann ~ in diesem Zug nicht blocken", „Zielkreatur greift in diesem Zug an, wenn möglich")'],
+              ['full', 'Mehrfach-Blocken („kann eine zusätzliche Kreatur blocken", „kann eine beliebige Anzahl Kreaturen blocken")'],
+              ['full', 'Dynamischer Schwellenwert („Kreaturen mit Stärke weniger als der Anzahl der von dir kontrollierten Inseln können ~ nicht blocken")'],
+              ['full', 'Qualifizierter Gruppenbereich („Jede Kreatur, die du kontrollierst, mit Stärke 4 oder größer, kann nicht von mehr als einer Kreatur geblockt werden")'],
+            ],
+          },
+        ],
+      },
+      {
+        title: 'Kapitel 6 — Sprüche, Fähigkeiten & Effekte',
+        rule: 'RULE 601–616',
+        sections: [
+          {
+            title: 'Zaubersprüche wirken',
+            rule: '601',
+            items: [
+              ['full', 'Zusatzkosten beim Wirken (601.2b/601.2h)'],
+              ['full', 'Modale Zaubersprüche (601.2b/700.2)'],
+              ['full', '„Add one mana of any color" — interaktive Farbwahl bei Auflösung, auch mit variabler Menge (601.2b)'],
+              ['full', 'Alternative Kosten „anstatt der Manakosten" (118.9) — Force of Will/Negation/Vigor/Daze; eigenständiges Angebot neben dem regulären Manakosten-Wirken'],
+              ['full', '„Während deines Zuges können Gegner keine Zauber wirken/Fähigkeiten aktivieren" (601.3a/RULE 613.6-Bedingung) — Grand Abolisher/Linvala/Myrel'],
+            ],
+          },
+          {
+            title: 'Aktivierte Fähigkeiten',
+            rule: '602',
+            items: [
+              ['full', '{T} / {Q} — Tappen / Enttappen'],
+              ['full', 'Opfern'],
+              ['full', 'Leben zahlen / Karten abwerfen'],
+              ['full', 'Marken entfernen'],
+              ['full', 'Als Button im Goldfisch'],
+              ['full', 'Fetch-Länder'],
+            ],
+          },
+          {
+            title: 'Ausgelöste Fähigkeiten',
+            rule: '603',
+            items: [
+              ['full', 'Ereignis-Trigger'],
+              ['full', 'Subjekt-Scoping (self/another/…)'],
+              ['full', 'Gruppen-Subjekt bei Kampfschaden („eine Kreatur, die du kontrollierst")'],
+              ['full', '„Immer wenn ~ Schaden zugefügt bekommt" (Empfänger-Seite, Aufreizung/Enrage) — self/angelegt/Gruppen-Subjekt'],
+              ['full', 'Spieler-Subjekt („immer wenn du Hellsicht/Überwachen anwendest")'],
+              ['full', '„Diese Fähigkeit wird nur einmal pro Zug ausgelöst" (603.2, auch „…zum ersten Mal in diesem Zug")'],
+              ['full', 'Verliehene Upkeep-/Phasen-Trigger (in Zitat-Fähigkeiten)'],
+              ['full', '„Opfere ~, es sei denn, du bezahlst <Kosten>" (interaktiv)'],
+              ['full', '„Du darfst <Opfern/Ablegen/Bezahlen>. Wenn du dies tust, <Effekt>" (603.5, interaktiv)'],
+              ['full', '„Wird ~ Ziel eines Zaubers/einer Fähigkeit [die/der ein Gegner kontrolliert]" (115/601.2c)'],
+              ['full', 'Zielwahl für ausgelöste Fähigkeiten'],
+              ['full', 'Modale ausgelöste Fähigkeiten'],
+              ['full', '„Du darfst"-Trigger'],
+              ['full', 'Reihenfolge-Wahl (Trigger)'],
+            ],
+          },
+          {
+            title: 'Loyalitäts-Fähigkeiten',
+            rule: '606',
+            items: [
+              ['full', '[+N] / [−N] / [0]-Kosten (606.5c)'],
+              ['full', '[−X]-Loyalitätskosten (606.5c)'],
+            ],
+          },
+          {
+            title: 'Auflösen & Einmal-Effekte',
+            rule: '608–610',
+            items: [
+              ['full', 'damage / destroy / regenerate / counter'],
+              ['full', 'draw / discard / gain_life'],
+              ['full', 'mill / exile / tap'],
+              ['full', 'add_counters (+1/+1 / −1/−1)'],
+              ['full', 'pump (+N/+N bis Zugende)'],
+              ['full', 'scry (701.18, interaktiv: unterlegen + Reihenfolge)'],
+              ['full', 'surveil (701.31, interaktiv: Friedhof + Reihenfolge)'],
+              ['full', 'Kampf/fight (701.14) — zwei Ziele, „~/es kämpft", verzauberte Kreatur, Rückbezug auf die vorher gewählte Kreatur, „jene Kreaturen kämpfen gegeneinander"'],
+              ['full', 'Einseitiger Kampf: „fügt Schaden gleich ihrer Stärke zu" (Rabid Bite)'],
+              ['full', 'create_token'],
+              ['full', 'search / shuffle (Tutor)'],
+              ['full', 'return_to_hand / -from_graveyard / exile / lose_life'],
+              ['full', 'cascade / discover'],
+              ['full', 'copy_permanent / become_copy (706/707)'],
+              ['full', 'anthem / pt_set / grant_keyword / type_change / cost_reduction'],
+              ['full', 'Skalierung mit gewirktem {X}'],
+              ['full', '„Sieh dir oberste N an, nimm eine passende"'],
+              ['full', '„Exiliere, du darfst bis Zugende spielen"'],
+              ['full', 'Phasing — einzeln & für alle eigenen bleibenden Karten (702.26)'],
+              ['full', 'Kontroll-Tausch (701.10, Gilded Drake)'],
+              ['full', 'Kartennamen nennen + Graben bis Treffer'],
+              ['full', 'Schleifen: „wiederhole, bis …" & „so oft du möchtest"'],
+              ['full', 'Zwei unabhängige Ziele in einer Klausel'],
+              ['full', 'grant_mana_ability / grant_triggered_ability'],
+              ['full', '„Bringe ~ auf die Hand zurück" (Rancor/Flickering Ward)'],
+              ['full', '„Kontere es, es sei denn, der Spieler bezahlt <Kosten>" (nicht als Ward gedrucktes 702.21a-Ergebnis)'],
+            ],
+          },
+          {
+            title: 'Kontinuierliche Effekte — Layer-System',
+            rule: '611–613',
+            items: [
+              ['full', 'Layer 1 — Kopie-Effekte (kontinuierlich)'],
+              ['full', 'Layer 2 — Kontrollwechsel'],
+              ['full', 'Ausgelöste Mana-Fähigkeit (605.1b/605.4 — ohne Stapel)'],
+              ['full', 'Layer 3 — Textänderung (eingegrenzt) & Abhängigkeits-Ordnung'],
+              ['full', 'Layer 4 — Typänderung'],
+              ['full', 'Layer 4 — gewählter Typ auch außerhalb des Schlachtfelds (613.4a)'],
+              ['full', 'Layer 4 — Grundlandtyp setzen entfernt Fähigkeiten (305.7, Blood Moon)'],
+              ['full', 'Layer 5 — Farbwechsel'],
+              ['full', 'Layer 6 — Fähigkeiten verleihen'],
+              ['full', 'Layer 6 — dauerhaft verliehener Schutz (702.16)'],
+              ['full', 'Layer 7 — Stärke/Widerstandskraft (a–e)'],
+              ['full', 'Zeitstempel-Ordnung'],
+              ['full', 'Kostenanpassung (kein Layer)'],
+            ],
+          },
+          {
+            title: 'Ersetzungs-/Verhinderungs-Effekte',
+            rule: '614–616',
+            items: [
+              ['full', 'Ersetzungs-Effekte (prevent_damage/double_damage/double_counters/double_tokens)'],
+              ['full', 'Reihenfolge-Wahl bei 2+ gleichzeitigen Ersetzungs-Effekten'],
+              ['full', 'Enters tapped (fest & bedingt)'],
+              ['full', 'Tritt mit N Marken ins Spiel'],
+              ['planned', 'Kicked „instead"-Override-Konditional'],
+            ],
+          },
+        ],
+      },
+      {
+        title: 'Kapitel 7 — Weitere Regeln',
+        rule: 'RULE 700–731',
+        sections: [
+          {
+            title: 'Schlüsselwörter (Aktionen & Fähigkeiten)',
+            rule: '701/702',
+            items: [
+              ['full', 'Flying / Reach'],
+              ['full', 'First Strike / Double Strike'],
+              ['full', 'Deathtouch'],
+              ['full', 'Trample'],
+              ['full', 'Vigilance'],
+              ['full', 'Lifelink'],
+              ['full', 'Menace'],
+              ['full', 'Defender / Haste'],
+              ['full', 'Indestructible'],
+              ['full', 'Landwalk'],
+              ['full', 'Protection from …'],
+              ['full', 'Hexproof'],
+              ['full', 'Annihilator / Afflict / Bushido / Rampage'],
+              ['full', 'Dethrone (702.107)'],
+              ['full', 'Kicker / Multikicker (702.33)'],
+              ['full', 'Buyback (702.27)'],
+              ['full', 'Flashback / Escape (702.34/702.138)'],
+              ['full', 'Channel / Cycling (702.29/702.28)'],
+              ['full', 'Crew (702.122) — Fahrzeuge werden echte artefakte Kreaturen mit ihren eigenen Werten'],
+              ['full', 'Bedingte Sofort-Geschwindigkeit (702.8b/606.3)'],
+              ['full', 'Split Second (702.61) — während die Zauberei/Fähigkeit auf dem Stack liegt, keine Zauberei-/Fähigkeitsaktivierung möglich'],
+              ['full', 'Ward (702.21)'],
+              ['full', 'Fading / Vanishing (702.32/702.61)'],
+              ['full', 'Kumulative Vorstandszahlung — Cumulative Upkeep (702.24), skaliert mit Zeitmarken'],
+              ['full', 'Prägung — Imprint (702.45-nahe): Karte aus der Hand exilieren und merken (Chrome Mox)'],
+              ['full', 'Soulbond — echte Paarung (702.94)'],
+              ['full', 'Mutate — darüber oder darunter, Nicht-Mensch-Ziel (702.140)'],
+              ['full', 'Verflechten — bezahlbare Modus-Aufwertung (702.42)'],
+              ['full', 'Bargain (optionale Zusatzkosten)'],
+              ['full', 'Verliehenes Entfliehen (702.138, Underworld Breach)'],
+              ['full', 'Verliehenes Flashback für eine Zielkarte im Friedhof (702.34, Snapcaster Mage)'],
+              ['full', 'Geliehene aktivierte Fähigkeiten — exiliert (Agatha\'s Soul Cauldron), einzelnes Ziel bis Zugende (Quicksilver Elemental), Gruppe „Kreaturen, die Gegner kontrollieren" (Drana and Linvala) oder gewähltes Permanent (Scheming Fence), jeweils inkl. passender Aktivierungssperre'],
+              ['full', 'Bedingte Statics „solange …" (613.6) — Zustand, Eigenschaften, Zug, Brettzähler (auch gegnerisch), benanntes Permanent, gezogene Karten'],
+              ['full', 'Bezugsobjekt einer Bedingung — die Quelle, das verzauberte/ausgerüstete Objekt (303.4a) oder das betroffene Permanent'],
+              ['full', 'Wirkungsdauern (611) — „bis zu deinem nächsten Zug", „bis zum Ende des Kampfes", „solange …"'],
+              ['full', 'Bedingung und Dauer werden auf dem Spielfeld angezeigt (Panel „Statische Effekte")'],
+              ['full', 'Kampf-Effekt (fight, 701.14)'],
+              ['full', 'Monstrosität (701.37) — inkl. „solange ~ monströs ist"'],
+              ['full', 'Anpassen / adapt (701.46)'],
+              ['full', 'Aufstacheln / goad (701.15) — beide Kampfauflagen, „für den Rest der Partie", dynamische Zielanzahl („für jeden Gegner …")'],
+              ['full', 'Strive (606) + „eine beliebige Anzahl Zielkreaturen" — Kostenmechanik und Zielwahl modelliert (Blinding Flare als erste vollständig modellierte Strive-Karte)'],
+              ['full', 'Morph / Megamorph / Verkleidung (702.37/702.168)'],
+            ],
+          },
+          {
+            title: 'Zustandsbasierte Aktionen',
+            rule: '704',
+            items: [
+              ['full', 'Leben ≤ 0, leere Bibliothek, 0 Widerstandskraft, tödlicher Schaden, Legenden-Regel'],
+            ],
+          },
+          {
+            title: 'Sonderkartentypen',
+            rule: '708–722',
+            items: [
+              ['full', 'DFC-Transform (712.8) & Tag/Nacht (731)'],
+              ['full', 'Sagas (714)'],
+              ['full', 'Class (716) & Leveler (711)'],
+              ['full', 'MDFC / Adventure / Split-Fuse / Prepared (709/710/712.10/715/722)'],
+            ],
+          },
+          {
+            title: 'Schlachten',
+            rule: '310',
+            items: [
+              ['full', 'Verteidigungsmarken: Eintritt, Schaden entfernt Marken, 0 → Friedhof (310.4/310.6/310.7)'],
+              ['full', 'Schlachten angreifen — auch die eigene Belagerung (310.5/310.8b)'],
+              ['full', 'Beschützer: Wahl beim Eintritt, verteidigender Spieler, Blocken (310.8/310.10/310.11a)'],
+              ['full', 'Belagerung besiegt → ins Exil, transformiert kostenlos zauberbar (310.11b)'],
+              ['partial', 'Kartentexte der Schlachten: 12 von 39 vollständig modelliert (die übrigen scheitern an allgemeinen Effekt-Grammatiken, nicht am Kartentyp)'],
+            ],
+          },
+          {
+            title: 'Monarch / Initiative / Rad-Marken',
+            rule: '725/726/728',
+            items: [
+              ['full', 'Thron, Initiative, Rad-Marken'],
+              ['full', 'Der Ring verlockt dich — Ringträger & vier Stufen (701.51/701.52)'],
+              ['full', 'Initiative: alle drei Auslöser inkl. „Erkunde Undercity" (726.2)'],
+              ['full', 'Vererbung beim Verlassen der Partie (725.4/726.4) — geht an den aktiven Spieler über'],
+              ['full', 'Bedingte Statics „solange du Thron/Initiative hast" (613.6)'],
+              ['planned', 'Bedingte Statics für Belohnungen/Kostenänderungen ("wenn du Thron bist, kannst du nicht angegriffen werden")'],
+            ],
+          },
+          {
+            title: 'Segen der Stadt (Ascend)',
+            rule: '702.131',
+            items: [
+              ['full', 'Ascend auf bleibenden Karten: Prüfung „10+ Permanente" bei jedem Zustandsbasierten-Aktionen-Durchlauf'],
+              ['full', 'Ascend auf Sofortzauber/Hexerei: einmalige Prüfung bei der Auflösung'],
+              ['full', 'Bedingte Statics „solange du den Segen der Stadt hast" (613.6), z. B. Dusk Charger'],
+              ['planned', 'Nicht-Kreaturen-Gruppenbereiche ("andere Artefaktkreaturen, die du kontrollierst") — vorbestehende Lücke, nicht Ascend-spezifisch'],
+            ],
+          },
+          {
+            title: 'Verdeckte Zauber & bleibende Karten',
+            rule: '708 / 701.40 / 701.58',
+            items: [
+              ['full', 'Verdeckt zaubern für {3}, 2/2 ohne Namen und Text (708.2/702.37)'],
+              ['full', 'Aufdecken als Spezialhandlung, Megamorph-Marke (702.37b/702.37e)'],
+              ['full', 'Verkleidung/Verhüllen: Schutzschild {2} im verdeckten Zustand (702.168/701.58)'],
+              ['full', 'Manifestieren, „Manifest dread" (701.40)'],
+              ['full', 'Zonenwechsel deckt automatisch auf (708.9)'],
+            ],
+          },
+          {
+            title: 'Dungeons & Erkunden',
+            rule: '309 / 701.49',
+            items: [
+              ['full', 'Vier echte Dungeons mit Raumgraph aus dem Kartentext'],
+              ['full', 'Erkunden: Dungeon wählen, Raum wählen, Raumfähigkeit auslösen (701.49)'],
+              ['full', 'Abschluss beim letzten Raum, danach neuer Dungeon (309.6/309.7)'],
+              ['partial', 'Raumtexte: 29 von 30 Räumen modelliert (letzte Lücke „Throne of the Dead Three" — eigene, bislang einzigartige Effekt-Grammatik)'],
+            ],
+          },
+        ],
+      },
+      {
+        title: 'Kapitel 8/9 — Formate & Gelegenheitsvarianten',
+        rule: 'RULE 8 / 901–904',
+        sections: [
+          {
+            items: [
+              ['full', 'Commander (903): 21 Commander-Schaden, Command-Zone-Rückkehr, Steuer +{2}'],
+              ['full', 'Formatauswahl: Startleben, Starthand, Varianten (models/game_format.py)'],
+              ['full', 'Planechase (901): Planarstapel, Planarwürfel, Chaos, Planarwanderung, Phänomene'],
+              ['full', 'Erzfeind (904): Machenschaftsstapel, „in Gang setzen", andauernde Machenschaften'],
+              ['full', 'Vanguard (902): Avatar in der Kommandozone, Hand-/Lebensmodifikatoren'],
+              ['planned', 'Teamvarianten (810 Zweiköpfiger Riese, 809 Kaiser, 811 Grand Melee) — geteilte Züge/Lebenspunkte'],
+            ],
+          },
+        ],
+      },
+      {
+        title: 'Engine-Verhalten (nicht regelspezifisch)',
+        rule: '',
+        sections: [
+          {
+            items: [
+              ['full', 'Rückgängig / Neustart / Rewind'],
+              ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (34,0 % · 11.823 / 34.811, PARSER_VERSION 91)'],
+              ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
+              ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
+            ],
+          },
+        ],
+      },
     ],
   },
   {
     title: 'Replay / Puzzle-Modus',
-    rule: 'UC3-Schwester',
-    intro:
-      'Neben dem Goldfisch: einen beliebigen Spielzustand bauen (1 Spieler = Puzzle, ' +
-      'oder mit 1 Gegner) und daraus spielen — dieselbe Regel-Engine, aber frei ' +
-      'editierbar. Als JSON-Datei speicherbar/ladbar; ein Goldfisch-Zustand lässt ' +
-      'sich per „Als Replay speichern" exportieren und hier wieder öffnen.',
-    items: [
-      ['full', 'Karten/Token in jede Zone', 'Hinzufügen/Entfernen/Verschieben in Schlachtfeld, Hand, Friedhof, Bibliothek, Exil, Kommandozone.'],
-      ['full', 'Objekt-Zustand', 'Tappen, Umwandeln (DFC), beliebige Marken setzen (+1/+1, Loyalität, …).'],
-      ['full', 'Spieler-Werte', 'Leben, Giftmarken (10 = Verlust, SBA), Energie/Erfahrung & freie Marken, Commander-Schaden.'],
-      ['full', 'Zug/Phase setzen', 'Zugnummer, Schritt und aktiven Spieler direkt setzen, um mitten im Zug zu starten.'],
-      ['full', 'Speichern/Laden (JSON)', 'Re-auflösbares Replay-Format (Karten aus dem Cache rekonstruiert); Export/Import per Datei.'],
-      ['partial', 'Spielerzahl', 'Aktuell 1 (Puzzle) oder 2 (mit Gegner); mehr Spieler noch nicht.'],
+    uc: 'UC3-Schwester',
+    sections: [
+      {
+        items: [
+          ['full', 'Karten/Token in jede Zone'],
+          ['full', 'Objekt-Zustand (Tap, DFC, Marken)'],
+          ['full', 'Spieler-Werte (Leben, Gift, Commander-Schaden)'],
+          ['full', 'Zug/Phase setzen'],
+          ['full', 'Speichern/Laden (JSON)'],
+          ['full', 'Spielerzahl (1–4, Pod-Layout wie im Multiplayer)'],
+        ],
+      },
     ],
   },
   {
-    title: 'Kampf- & Evasion-Keywords',
-    rule: 'RULE 702',
-    intro:
-      'Erkannt aus der Scryfall-`keywords`-Liste und dem Oracle-Text (klausel-genau, ' +
-      'game/combat.py) und vollständig in der Kampf-Engine umgesetzt. Auf dem Board als ' +
-      'Badges sichtbar (FLY, TR, DT …).',
-    items: [
-      ['full', 'Flying / Reach', 'Flieger nur von Flying/Reach blockbar (RULE 509.1b).'],
-      ['full', 'First Strike / Double Strike', 'Zwei Schadens-Schritte (RULE 510); Erstschlag tötet vor Rückschlag.'],
-      ['full', 'Deathtouch', 'Jeder Schaden ist tödlich (RULE 702.2b), auch bei Trample.'],
-      ['full', 'Trample', 'Überschuss über Letalschaden trifft den Verteidiger.'],
-      ['full', 'Vigilance', 'Angreifen tappt nicht.'],
-      ['full', 'Lifelink', 'Beherrscher gewinnt Leben in Höhe des Schadens.'],
-      ['full', 'Menace', 'Muss von ≥ 2 Kreaturen geblockt werden.'],
-      ['full', 'Defender / Haste', 'Kann nicht angreifen / ignoriert Einsatzkrankheit.'],
-      ['full', 'Indestructible', 'Übersteht tödlichen Schaden und Deathtouch.'],
-      ['full', 'Landwalk', '„Islandwalk"/„Forestwalk" … — nicht blockbar, solange der Verteidiger ein Land des Typs kontrolliert (RULE 702.14); gebunden aus dem Keyword-Katalog + Layer-6-Grants.'],
-      ['full', 'Protection from …', '„DEBT" komplett (RULE 702.16): verhindert Schaden von jeder Quelle (nicht nur im Kampf), Blocken, Anvisieren durch Zaubersprüche/Fähigkeiten sowie Verzaubern/Ausrüsten/Fortifizieren durch eine Quelle der genannten Eigenschaft — Farbe (inkl. Layer-5-Farbwechsel), „creatures", Kartentyp („artifacts" …), Kreaturentyp („Dragons" …), „all colors" und „everything"; mehrere Eigenschaften über „and from" (Sword-of-X-and-Y-Zyklus).'],
-      ['full', 'Hexproof', 'RULE 702.11b: verhindert Anvisieren durch eine Quelle eines Gegners (der eigene Beherrscher darf weiterhin anvisieren) — greift wie Protection direkt ins Targeting-System ein.'],
-      ['full', 'Annihilator / Afflict / Bushido / Rampage', 'Kampf-Mathematik-Keywords (RULE 702.86/702.130/702.45/702.23) mit echtem Verhalten statt nur geführtem Parameter: Annihilator lässt den verteidigenden Spieler beim Blocken Bleibende opfern, Afflict lässt ihn beim Geblockt-Werden Leben verlieren, Bushido pumpt Angreifer/Blocker beim Blocken, Rampage pumpt je Blocker über den ersten hinaus — mit einer pro Feuerung neu berechneten Stärke (die spezifische Blocker-Anzahl des jeweiligen Blocks). Alle laufen als echte ausgelöste Fähigkeiten über den normalen Stack-/Prioritäts-Ablauf, nicht als Spezialfall in der Kampf-Engine.'],
+    title: 'Multiplayer-Modus',
+    uc: 'UC4',
+    sections: [
+      {
+        items: [
+          ['done', 'Lobby: Präsenz (Online/Verfügbar/Im Spiel), Spiele erstellen & beitreten'],
+          ['done', 'Spielvorbereitung: Deckwahl je Platz, Mulligan-Regel, Zusage aller Spieler'],
+          ['done', 'WebSocket-Session-Anbindung (/ws/lobby: Lobby- und Board-Push je Platz)'],
+          ['done', 'Verdeckte Zonen serverseitig (Regel 400.2: fremde Hand & Bibliothek)'],
+          ['done', 'Gemeinsames Spielfeld, Blocker-Deklaration (Regel 509.1a)'],
+          ['done', 'Aufgeben (Regel 104.3a) + Partie-Auswertung'],
+          ['done', 'Beobachter-Modus (öffentliches Spielfeld, keine Handkarten)'],
+          ['done', 'Interaktive Prioritäts-Schleife (Regel 117.3–4, APNAP-Reihenfolge)'],
+          ['done', 'Auto-Pass mit Countdown (Standard 3 s, in den Einstellungen & im Spiel änderbar)'],
+          ['done', 'Platz-Wiedereinstieg über den Spielernamen nach Reload/Verbindungsabbruch'],
+          ['done', 'Server-Watchdog: Inaktivitäts-Trennung + Karenzzeit (env-konfigurierbar)'],
+          ['done', 'Take-backs je Spieler (im Setup konfigurierbar, pro Sitz begrenzt)'],
+          ['done', 'Tische mit 2 bis 4 Plätzen (Pod), Gegnerfelder einklappbar'],
+          ['done', 'Ab 3 Spielern 2×2-Anordnung der Spielfelder, Zonen-Spalten innen/außen'],
+          ['done', 'Zugreihenfolge-Leiste (500.1); Spielfelder reihum im Uhrzeigersinn sortiert'],
+          ['done', 'Sitzordnung und Startspieler auslosbar (103.1/103.2)'],
+        ],
+      },
     ],
   },
   {
-    title: 'Statische Fähigkeiten — Layer-System',
-    rule: 'RULE 613',
-    intro:
-      'game/continuous.py leitet die Eigenschaften jeder bleibenden Karte in Layer-' +
-      'Reihenfolge neu her (bei jeder SBA-Prüfung und vor jeder Ansicht), inklusive einer ' +
-      'Layer-für-Layer-Herleitung pro Objekt (im Goldfisch über „🔍 Statische Effekte" sichtbar).',
-    items: [
-      ['full', 'Layer 2 — Kontrollwechsel', 'Statischer „Du kontrollierst …"-Effekt weist die Kontrolle neu zu (RULE 613.2), idempotent über Recompute.'],
-      ['full', 'Layer 4 — Typänderung', 'z. B. Land wird 0/0-Kreatur (add_types + P/T).'],
-      ['full', 'Layer 5 — Farbwechsel', '„… ist schwarz" setzt/ergänzt die Farbe (RULE 613.4b); fließt in Protection.'],
-      ['full', 'Layer 6 — Fähigkeiten verleihen', 'Keyword-Grants (z. B. „… haben Flying") fließen in den Kampf. Auch Mana-Fähigkeiten („Elfen … haben {T}: Erzeuge {B}", Tyvar Kell) und volle ausgelöste Fähigkeiten (Dionus: „… haben Wenn-diese-Kreatur-tappt-…") lassen sich verleihen — trotz CR 612.1 kein Layer 3, siehe unten.'],
-      ['full', 'Layer 7 — Stärke/Widerstandskraft', '7a CDA (P/T = Anzahl X) → 7b Setzen → 7c Marken → 7d Ändern (Anthems) → 7e P/T-Tausch.'],
-      ['full', 'Zeitstempel-Ordnung', 'Innerhalb eines Layers nach Objekt-Zeitstempel (RULE 613.7b) — der jüngste Effekt zuletzt.'],
-      ['full', 'Kostenanpassung (kein Layer)', '„Zaubersprüche kosten {N} weniger/mehr" (RULE 601.2f), generisch, beim Zaubern.'],
-      ['full', 'Layer 1 — Kopie-Effekte (kontinuierlich)', '„Solange [Bedingung], ist ~ eine Kopie von [Ziel]" (Vesuvan Shapeshifter): `continuous._apply_copy_layer` wendet `game/copy_mechanics.become_copy` nur bei einem Wechsel an (Bedingung/Ziel geändert) — nie bei jedem Recompute, sonst ginge z. B. „einmal pro Zug"-Buchführung einer verliehenen ausgelösten Fähigkeit verloren. Kopiert es eine Kreatur ohne gleichwertige Fähigkeit, „rastet" die Kopie dauerhaft ein (RULE 706.2/707-Ruling) statt automatisch zurückzuwechseln. Der einmalige „tritt als Kopie ins Spiel"-Effekt (Clever Impersonator u. a.) und die „bis Zugende"-Kopie (Cursed Mirror) bleiben separate, diskrete Mutationen — siehe „become_copy" unten.'],
-      ['full', 'Layer 3 (Textänderung) & Abhängigkeits-Ordnung', 'Textänderung (Layer 3, RULE 612) ist bewusst eingegrenzt: eine Wortersetzung über `GameObject.effective_oracle_text`, aktuell nur von `combat.protections_of_text` gelesen (der klassische Artificial-Evolution-Fall „Schutz vor Rot" → „Schutz vor Blau") — kein voller Oracle-Text-Reparse, gebundene Fähigkeiten/Keywords bleiben unberührt. Die RULE-613.8-Abhängigkeits-Ordnung ist auf Layer 2 begrenzt (`_order_control_effects`): ein `pt_cda` kann nachweislich nur Objekte zählen, nie die Stärke/Widerstandskraft eines anderen Objekts lesen, daher ist Layer 7a unmöglich für eine Abhängigkeit; bei Kontrollwechsel-Effekten (Layer 2) kann ein kontrollbezogener Filter „Kreaturen, die du kontrollierst" dagegen tatsächlich vom Ergebnis eines anderen Kontrollwechsel-Effekts abhängen (das Lehrbuchbeispiel aus CR 613.8), daher wenden direkt-adressierte Effekte (self/attached_permanent) sich immer zuerst an, unabhängig vom Zeitstempel. Beide Mechanismen sind über direkt konstruierte `StaticAbility`-Testfälle abgesichert, noch ohne treibende Katalog-Karte.'],
-    ],
-  },
-  {
-    title: 'Aktivierte Fähigkeiten & Kosten',
-    rule: 'RULE 602',
-    intro:
-      'Kosten werden per Regex aus dem „Kosten: Effekt"-Text erkannt (game/costs.py) und ' +
-      'beim Aktivieren bezahlt; die Fähigkeit landet auf dem Stack.',
-    items: [
-      ['full', 'Mana-Kosten', 'Inkl. {X}, Hybrid, Phyrexianisch (aus dem Mana-Modell).'],
-      ['full', '{T} / {Q} — Tappen / Enttappen', '{T} respektiert Einsatzkrankheit (RULE 302.6).'],
-      ['full', 'Opfern', '„Opfere ~" (selbst) oder „Opfere eine Kreatur/…" (Typ).'],
-      ['full', 'Leben zahlen / Karten abwerfen', '„Pay N life", „Discard a card / N cards / your hand".'],
-      ['full', 'Marken entfernen', '„Remove N +1/+1 / loyalty counters".'],
-      ['full', 'Loyalitäts-Kosten', '[+N]/[−N]/[0] als Kosten (RULE 606.5c) — nur zu Hexerei-Zeit, einmal pro Zug je Planeswalker.'],
-      ['full', 'Als Button im Goldfisch', 'Aktivierbare Fähigkeiten erscheinen als Aktion unter der Karte (mit Ziel-/{X}-Auswahl).'],
-      ['full', 'Fetch-Länder', 'z. B. Evolving Wilds: „{T}, Opfern: Standardland getappt ins Spiel" — gebunden & spielbar.'],
-      ['full', 'Kicker / Multikicker', 'RULE 702.33: optionale Zusatzkosten beim Wirken (bei Multikicker beliebig oft bezahlbar); Legalitätsprüfung, Bezahlung und Anzeige als eigene Wirken-Option sind fertig. Ein „falls dieser Zauberspruch gekickt wurde, …"-Auflösungseffekt braucht noch eine neue Oracle-Parser-Bedingungsgrammatik (separates, offenes Feature).'],
-      ['full', 'Buyback', 'RULE 702.27: optionale Zusatzkosten — der Zauberspruch kehrt beim Auflösen auf die Hand zurück statt ins Grab.'],
-      ['full', 'Flashback / Escape', 'RULE 702.34/702.138: aus dem Friedhof wirkbar mit eigenen Alternativkosten (Escape zusätzlich „Exile N other cards from your graveyard"); ein per Flashback gewirkter Zauberspruch wird nach der Auflösung exiliert statt ins Grab zurückzukehren.'],
-    ],
-  },
-  {
-    title: 'Ausgelöste Fähigkeiten',
-    rule: 'RULE 603',
-    intro:
-      'Ereignisbasierte Trigger (TriggeredAbility) reagieren auf den Ereignis-Bus der ' +
-      'Engine und werden nach APNAP auf den Stack gelegt.',
-    items: [
-      ['full', 'Ereignis-Trigger', 'ENTERS_BATTLEFIELD, DIES, DRAW, DAMAGE, ATTACKS, SPELL_CAST, LIFE_GAINED, TAPPED („wird getappt", RULE 701.21b — nicht bei getappt ins Spiel kommenden Karten) u. a.'],
-      ['full', 'Trigger-Bedingungen mit Subjekt-Scoping', 'Geparste Trigger tragen jetzt eine Bedingung (RULE 603.1): „When ~ enters/dies/attacks/blocks" feuert nur noch für die eigene Quelle (instance_id auf dem Ereignis), Gruppen-Formen wie „Whenever another creature enters the battlefield under your control" filtern nach Typ/Kontrolleur/„another" (Soul-Warden-Muster). Vorher feuerte ein geparster ETB-Trigger fälschlich bei jedem Eintreten.'],
-      ['full', 'Zielwahl für ausgelöste Fähigkeiten', 'Braucht die erste zielsuchende Wirkung eines Triggers ein Ziel, öffnet sich vor dem Auflösen eine Wahl (RULE 115) — ein Knopf je legalem Ziel, dieselbe generische Wahl-UI wie bei Tutor/Kaskade/Discover/Trigger-Reihenfolge. Ohne legales Pflichtziel landet der Trigger gar nicht erst auf dem Stack (RULE 603.3c).'],
-      ['full', 'Modale ausgelöste Fähigkeiten („Wähle eines —")', 'RULE 700.2 in einem Trigger-Wrapper („When ~ enters, choose one — …", RULE 603): der Modus wird interaktiv gewählt, sobald die Fähigkeit auf den Stack gelegt wird (eigene trigger_mode-Wahl) — noch bevor eine eigene Ziel-/„du darfst"-Wahl des gewählten Modus greift, beide Wahlen komponieren korrekt. „Beides" (RULE 700.2e) bündelt beider Modi Effekte in einer Platzierung.'],
-      ['full', '„Du darfst"-Trigger', 'Optionale Trigger (RULE 603.5) fragen echt nach: mit Ziel bietet die Zielwahl „Nichts wählen" an; ohne Ziel („du darfst eine Karte ziehen") öffnet sich ein Ausführen/Nichts-tun-Entscheid.'],
-      ['full', 'Ersetzungs-Effekte', 'ReplacementEffect wird bei DAMAGE/DRAW/COUNTER/CREATE_TOKENS angewandt; `prevent_damage`, `double_damage`/`additional_damage` (Schadensverdopplung bzw. -addition, z. B. Furnace of Rath, Gratuitous Violence, Torbran) und `double_counters`/`double_tokens` (Marker-/Token-Verdopplung, z. B. Doubling Season, Parallel Lives) binden aus einer `replacement`-Spec (ReplacementRegistry).'],
-      ['full', 'Reihenfolge-Wahl (Trigger)', 'Bei mehreren gleichzeitigen Triggern des aktiven Spielers wählt er die Reihenfolge (RULE 603.3b, `interactive_ordering`); sonst APNAP-Standard. Kombiniert mit einer Ziel-Wahl für einen der georderten Trigger nicht abgedeckt (Randfall).'],
-      ['full', 'Reihenfolge-Wahl (Ersetzungs-Effekte)', 'Sind bei einem Ereignis 2+ Ersetzungs-Effekte gleichzeitig anwendbar (z. B. Doubling Season + Parallel Lives, oder Furnace of Rath + Torbran, wo die Reihenfolge das Ergebnis tatsächlich ändert), wählt der betroffene Spieler die Reihenfolge (RULE 616.1e/f) über ein eigenes Drag-&-Drop-Popup — anders als bei Triggern ist das nicht optional/abschaltbar, da Kollisionen selten und dann immer bedeutsam sind.'],
-      ['full', 'Ward', 'RULE 702.21: löst aus, sobald ein Bleibendes zum Ziel eines gegnerischen Zauberspruchs/einer gegnerischen Fähigkeit wird, und landet als echtes Stack-Objekt — beide Spieler bekommen eine normale Prioritätsrunde, bevor Ward auflöst, exakt wie bei jedem anderen Trigger (RULE 603.3). Kosten (Mana, Leben zahlen, Karte abwerfen, Opfern) werden über dieselbe Kostenvokabular wie bei aktivierten Fähigkeiten erkannt und bezahlt; nicht bezahlt → der auslösende Zauberspruch/die Fähigkeit wird neutralisiert.'],
-    ],
-  },
-  {
-    title: 'Einmal-Effekte (Effect-Registry)',
-    rule: 'RULE 608',
-    intro:
-      'Whitelist benannter Effekte (game/effects.py), die Spell-/aktivierte/ausgelöste ' +
-      'Fähigkeiten beim Auflösen ausführen. Ziele laufen über das Targeting-System (RULE 115).',
-    items: [
-      ['full', 'damage / destroy / regenerate / counter', 'Schaden an beliebiges Ziel (auch Massen-Schaden „an jede Kreatur / jeden Spieler / jeden Gegner", geschlossene Selektor-Liste), Zerstören, Regenerieren (RULE 701.16: legt einen Regenerationsschild an, der die nächste Zerstörung in diesem Zug stattdessen ersetzt — Tappen, allen Schaden entfernen, aus dem Kampf entfernen; Opfern und 0 Widerstandskraft bleiben davon unberührt, RULE 701.16c), Spruch neutralisieren — inkl. Ziel-Filter („target noncreature spell", „instant or sorcery", Manabetrag N), „unless its controller pays {…}" (öffnet eine Zahlen-oder-neutralisiert-Wahl; unbezahlbar → automatisch neutralisiert) und „Dieser Zauberspruch kann nicht neutralisiert werden" (Marker, den counter_spell respektiert).'],
-      ['full', 'draw / discard / gain_life', 'Karten ziehen/abwerfen, Leben gewinnen.'],
-      ['full', 'mill / exile / tap', 'Mühlen, Exilieren, Tappen/Enttappen von Zielen.'],
-      ['full', 'add_counters (+1/+1 / −1/−1)', '+1/+1- oder −1/−1-Marken auf ein Ziel (RULE 122); −1/−1 annihilieren als SBA.'],
-      ['full', 'pump („+N/+N bis Zugende")', 'Temporärer P/T-Bonus und/oder Keyword-Grant bis Zugende (Riesenwuchs; Layer 7d/6, RULE 613.4d); im Cleanup entfernt (514.2). Auch −N/−N.'],
-      ['full', 'scry', 'Hellsehen N (RULE 701.18): legale Ausführung (behält oben), feuert ein SCRY-Ereignis.'],
-      ['full', 'surveil', 'Surveil N (RULE 701.31): legale Ausführung (behält oben, nichts auf den Friedhof — anders als Hellsehen ohne Bibliotheksboden-Option), feuert ein SURVEIL-Ereignis.'],
-      ['full', 'create_token', 'Inline- und benannte Tokens (RULE 111.5 / 701.6).'],
-      ['full', 'search / shuffle', 'Bibliothek durchsuchen (Tutor) mit Kriterien/Ziel/Zahl — auch aus dem Oracle-Text erkannt („search your library for a card, put that card into your hand" / Standardland getappt ins Spiel).'],
-      ['full', 'return_to_hand / return_from_graveyard / exile / lose_life', 'Zurück auf die Hand (Bounce, feuert LEAVES_BATTLEFIELD; Token verschwinden per RULE 704.5d), Karte aus einem Friedhof auf Hand/Schlachtfeld (Reanimation über den normalen Eintritts-Pfad — ETB-Trigger/Einsatzverzögerung korrekt) und Spontanzauber-Mana wie Dark Ritual („Add {B}{B}{B}", RULE 106). Friedhofs-Zielwahl ist generisch nach Kartentyp (beliebig/Kreatur/Land/Artefakt/Verzauberung/Spontanzauber-oder-Hexerei/bleibende Karte) × Umfang (eigener Friedhof/ein beliebiger Friedhof/Friedhof eines Gegners) — deckt Regrowth/Reanimate/Karmic-Guide-Muster ebenso ab wie „unter deiner Kontrolle" gestohlene Reanimation (Owner/Controller getrennt) und Exil aus einem Friedhof (Deathrite Shaman, Scavenging Ooze). „X verliert N Leben" (einfach oder „jeder Gegner/jeder Spieler") ist ebenfalls verdrahtet.'],
-      ['full', 'cascade / discover', 'Kaskade & Discover mit Spieler-Entscheidung.'],
-      ['full', 'copy_permanent', 'Token-Kopie einer Ziel-bleibenden Karte (RULE 707).'],
-      ['full', 'become_copy', 'Das Objekt selbst wird eine Kopie von Zielobjekt (RULE 706/707.2, statt eines neuen Tokens) — inkl. „außer dass …"-Typzusätzen (Clever Impersonator, Phantasmal Image, Copy Artifact). Jetzt als echter „tritt als … ins Spiel"-Ersetzungseffekt (RULE 614.1c/614.12): die Wahl öffnet sich, bevor das Objekt überhaupt das Schlachtfeld betritt/ETB feuert, statt (wie zuvor) über einen gewöhnlichen ETB-Trigger einen Wimpernschlag zu spät. Zusätzlich: eine kontinuierliche Variante (Vesuvan Shapeshifter, siehe Layer 1 oben) und eine „bis Zugende"-Variante (Cursed Mirror, verfällt im Cleanup wie ein Pump-Effekt).'],
-      ['full', 'anthem / pt_set / grant_keyword / type_change / cost_reduction', 'Die statischen Effekte oben.'],
-      ['full', 'grant_mana_ability / grant_triggered_ability', 'Verleiht eine Mana- bzw. eine volle ausgelöste Fähigkeit statt eines bloßen Keywords (Tyvar Kell / Dionus, Elvish Archdruid) — Layer 6, siehe oben. Jedes betroffene Objekt bekommt eine eigene, über Recompute-Durchläufe hinweg zwischengespeicherte Instanz, damit z. B. „nur einmal pro Zug" (RULE 603.2) korrekt verfolgt wird und mit dem Verschwinden der verleihenden Fähigkeit automatisch endet.'],
-    ],
-  },
-  {
-    title: 'Weitere Mechaniken',
-    rule: '',
-    items: [
-      ['full', 'Mana-Modell', 'Generisch, farbig, farblos, Hybrid, Mono-Hybrid, Phyrexianisch, {X}; Dual-Land-Farbwahl; ein Zauberspruch/eine Fähigkeit mit „Add one mana of any color." öffnet beim Auflösen eine echte Farbwahl (statt der vorab erklärten Tap-Wahl bei Ländern). Mana-Zweckbindungen („Spend this mana only to cast a creature spell.", RULE 605.3a) werden als eigens markierte Mana im Pool geführt und nur für passende Kosten akzeptiert (Kreatur-/legendäre/Spontan-oder-Hexerei-Zauber, ein benannter Kreaturentyp, der eigene Kommandant, oder Kosten mit {X}) — Castle Garenbrig/Gnarlroot Trapper/Jeweled Lotus u. a.; Länder mit „vom gewählten Typ/dieser Farbe" (Cavern of Souls u. ä.) sind noch offen. „Add N mana in any combination of colors" (Flamebraider/Gwenna/Smokebraider/Selvala) wird serverseitig als frei aufteilbare Mana-Menge erkannt, aber das Board bietet dafür noch keine Split-Auswahl an — nur die vorhandenen Einzelfarb-Buttons. Mana-Fähigkeiten, die stattdessen die Karte aus der Hand exilieren („Exile this card from your hand: Add …", Elvish/Simian Spirit Guide) funktionieren serverseitig, haben aber noch keinen Auslöser im Board.'],
-      ['full', 'Bind-on-load (Karten-Katalog + Oracle-Parser)', 'Fähigkeiten werden beim Spielaufbau an die Karten gebunden — aus einem Namens-Katalog (game/ability_catalogue.py) und, für nicht katalogisierte Karten, aus dem Oracle-Parser (docs/09).'],
-      ['full', 'Enters tapped', 'Reine Tap-Länder kommen getappt (RULE 614.1, aus dem Oracle-Text). Bedingte Tap-Länder (Shock/Check/Fast/Slow) siehe unten.'],
-      ['full', 'Bedingte Tap-Länder', 'Shock-Länder („you may pay 2 life") öffnen beim Spielen eine echte Wahl (Leben zahlen ↔ getappt, `RulesEngine.enter_land_tapped`/`resolve_land_tapped_choice`); Check-Länder („unless you control a/an …"), Fast-/Slow-Länder („… two or fewer/more other lands"), Battlebond-Länder („unless you have two or more opponents"), Standardland-Zählung („… two or more basic lands") und die „Turbulent"-Zyklus-Variante („unless your opponents control eight or more lands", zählt die Länder der Gegner statt der eigenen) werden deterministisch anhand des Boards zum Zeitpunkt des Spielens ausgewertet — keine Wahl, aber kein pauschales „ungetappt" mehr. Die Erkennung lebt jetzt im Oracle-Parser (parser/oracle/catalogue/lands.py) und zählt dort als abgedeckte Zeile für das Coverage-Gate.'],
-      ['full', 'Tritt mit N Marken ins Spiel', '„~ enters with N/X counters on it." (fester Wert oder das gewirkte X, RULE 107.3c) setzt beim Eintreten die passende Anzahl Marken jeder Art (+1/+1, −1/−1 oder ein beliebiges Wort wie „ice"/„charge") — analog zum Tap-Land-Ersetzungseffekt oben, nur kartenübergreifend statt auf Länder beschränkt (parser/oracle/catalogue/counters.py, `RulesEngine._apply_entry_counters`).'],
-      ['full', 'Modale Zaubersprüche („Wähle eines —")', 'RULE 700.2: „Choose one —"/„Choose one or both —" mit •-Modi wird geparst (AbilitySpec.modes); beim Wirken wird je Modus eine eigene Aktion angeboten (wie bei MDFC-Seiten), inkl. „beide" bei „or both" — der gewählte Modus bestimmt Ziele und Auflösung.'],
-      ['full', 'Zusatzkosten beim Wirken', 'RULE 601.2b/601.2h: „As an additional cost to cast this spell, sacrifice a creature / discard a card / pay N|X life" wird geparst, macht das Wirken nur legal, wenn zahlbar, und wird beim Wirken bezahlt (bleibt auch bei Neutralisierung bezahlt).'],
-      ['full', 'Zielwahl (Targeting)', 'Legale Ziele pro Anforderung, gesperrte Sprüche ohne Ziel (RULE 601.2c).'],
-      ['full', 'Tokens & Marken', '+1/+1 / −1/−1 (annihilieren als SBA), Loyalitäts-/Lore-/Ladungsmarken.'],
-      ['full', 'Loyalitäts-Fähigkeiten (Planeswalker)', '[+N]/[−N]/[0] aktivierbar (RULE 606): Start-Loyalität beim Eintreten, Hexerei-Timing + einmal pro Zug, 0-Loyalität-SBA (704.5i), Kampfschaden entfernt Marken.'],
-      ['full', 'Commander-Regeln + Steuer', '21 Commander-Schaden, Rückkehr in die Kommandozone, Commander-Steuer +{2} je vorheriges Wirken aus der Kommandozone (RULE 903.8).'],
-      ['full', 'Kartenstrukturen (Basis)', 'Doppelseitige Karten transformieren auf dem Board (RULE 712.8, `GameObject.transform`), Token-Kopien (707) und Sagas (714: Lore-Marken pro Zug, Kapitel-Fähigkeiten lösen aus, Opfern beim letzten Kapitel).'],
-      ['full', 'Class (716) & Leveler (711)', 'Class-Verzauberungen leveln sequenziell hoch („Kosten: Level N", nur Hexerei-Timing, nur vom jeweils vorherigen Level aus) und behalten jede freigeschaltete Fähigkeit dauerhaft (kumulativ). Leveler-Kreaturen („Level up {Kosten}", beliebig oft, nur Hexerei-Timing) wechseln zwischen sich gegenseitig ausschließenden LEVEL-Stufen (eigene Werte/Keywords/Fähigkeiten, inkl. einer an die jeweilige Stufe gebundenen eigenen Mana-Fähigkeit — Joraga Treespeaker). Beide nutzen einen neuen „so lange"-Bedingungsmechanismus im Layer-System (RULE 613.6, `min_level`/`max_level`), auf Mana-Fähigkeiten gespiegelt in `game/mana_abilities.py`.'],
-      ['full', 'Transformieren als echter Effekt + Tag/Nacht', 'Ein „transform"-Effekt (aus Trigger-/Aktivier-/Hexerei-Text, z. B. „[0]: Verwandle ~.") ruft `RulesEngine.transform_permanent` auf, das wie `switch_to_face` die Fähigkeiten/Keywords der neuen Seite neu bindet — vorher blieben nach dem Wenden die Keywords der alten Seite hängen. Dazu Tag/Nacht (RULE 731) und Daybound/Nightbound (RULE 702.145): Zauber-Zählung pro Zug + Wechsel im Enttapp-Schritt (731.2), sofortiges Wenden bei nicht mehr passender Tag/Nacht-Lage.'],
-      ['full', 'Anhänge (Auren/Ausrüstung/Reconfigure)', 'Auren verzaubern beim Auflösen ihr Ziel (RULE 303.4f); Equip/Fortify/Reconfigure sind aktivierbare Hexerei-Fähigkeiten mit passender Zielwahl (nur Kreaturen bzw. die Enchant-Qualität). Verlässt der Wirt das Spiel: Aura ins Grab (704.5m), Equipment/Fortification/Reconfigure werden nur unverbunden und bleiben liegen (704.5n); ein angehängtes Reconfigure-Objekt verliert/bekommt dabei seinen Kreaturtyp zurück (702.151b). Der Bonus/Keyword-Grant der Aura/Ausrüstung fließt jetzt selbst über das Layer-System („attached_permanent").'],
-      ['full', 'Auswertung', 'Statistiken nach dem Spiel (gezogen/gespielt, Mana-Kurve, Schaden).'],
-    ],
-  },
-  {
-    title: 'Noch nicht implementiert',
-    rule: '',
-    items: [
-      ['partial', 'Karten-Abdeckung (Specs)', 'Oracle-Parser aktiv (21,4 % des 2 869-Karten-Caches vollständig MODELED, Stand 2026-07-16 — der Cache wächst laufend, `coverage_over_cards()` vor jeder neuen Priorisierung neu laufen lassen): Instants/Hexereien, Trigger (mit Subjekt-Scoping, siehe oben), „Kosten: Effekt"-Aktivierfähigkeiten, modale Sprüche und modale ausgelöste Fähigkeiten, Zusatzkosten beim Wirken, Enters-tapped- und Enters-mit-N-Marken-Klauseln, Friedhofs-Rückholung/-Exil (siehe unten) und statische Anthem-/Lord-/Ausrüstungs-Effekte werden ohne Katalog-Eintrag erkannt (parser/oracle → normalize/segmenter/handlers/gate). Effekt-Familien: Schaden (auch „an jede Kreatur/jeden Spieler")/Ziehen/Abwerfen/Zerstören/Regenerieren/Lebensgewinn/Neutralisieren (mit Filtern & „unless … pays")/Mühlen/Exil/Tappen/±1/±1-Marken (auch „auf jede Kreatur unter deiner Kontrolle")/Pump/Hellsehen/Surveil/Token-Erzeugung/Bounce/Friedhofs-Rückholung/Tutor/Spontanzauber-Mana. „Bis zu einem Ziel" (RULE 115.1a, N=1) wird bei jedem zielbasierten Effekt erkannt — ein echtes Mehrfachziel (N≥2) noch nicht. „Falls diese Karte gekickt wurde, …" wird als zusätzlicher, an Kicker gebundener Effekt erkannt (nicht die „stattdessen"-Variante). Drei der fünf bereits engine-seitig unterstützten Ersetzungseffekt-Familien (Token-/Marken-Verdopplung, „plus N Schaden" bei einfarbigem Filter) werden aus stehendem Kartentext erkannt. Anthems inkl. Stammes-Lords, Token-Anthems, farb-basierte und globale Anthems sowie „equipped/enchanted creature gets +N/+N and has …" (attached_permanent). Token folgen den Regeln zum Aufhören-zu-existieren (RULE 704.5d). Fail-closed: nur vollständig abgedeckte Karten (MODELED) binden Effekte. Noch offen (der lange Schwanz der Processing-Liste): echte Mehrfachziele (N≥2), „Regenerate another target Elf"-artige Untertyp-gefilterte Ziele, „Add one mana of any color" (Farbwahl), „choose 2/more —" (größere Modal-Grammatik), Verbots-Statics („players can\'t draw cards"), Kosten-Statics („noncreature spells cost {1} more"), Embleme, „for each"-skalierte Effekte u. a. (docs/09).'],
-      ['partial', 'Multiplayer-Session','Interaktive Prioritäts-Primitive vorhanden (RULE 117); noch nicht an die WebSocket-/Multiplayer-Session angeschlossen (create_multiplayer weiterhin gestubbt).'],
-      ['partial', 'Kartentyp-Strukturen (erweitert)', 'MDFC-Rückseite aus der Hand spielen/wirken (712.10) ist fertig: Vorder- und Rückseite werden als zwei unabhängige Aktionen angeboten, `RulesEngine.switch_to_face` bindet die Fähigkeiten der gewählten Seite neu (wie bei „wird zur Kopie"), ein abgelehntes Wirken der Rückseite macht den Seitenwechsel rückgängig. Adventure-Karten (715) nutzen dieselbe Mechanik: die Abenteuer-Zauberspruchhälfte ist wie eine MDFC-Rückseite wirkbar, wandert nach der Auflösung aber ins Exil statt auf den Friedhof und bleibt von dort als Kreatur wirkbar (715.3d). Split-Karten (709) bieten beide Hälften unabhängig als eigene Aktionen an; Fuse-Karten (709.4) zusätzlich eine dritte Aktion, die beide Hälften als einen Zauberspruch für die kombinierten Kosten wirkt (`Card.fuse_face`, eine synthetische zusammengeführte Karte statt neuer Dual-Bindungs-Logik). „Vorbereitet"-Karten (722, Preparation Cards) sind ein eigenständiger Mechanismus trotz des ähnlichen zweigeteilten Kartenrahmens: der eingerückte „Prepare Spell" ist niemals direkt aus der Hand wirkbar — erst wenn eine andere Fähigkeit die Karte auf dem Battlefield „vorbereitet" macht (`RulesEngine.make_prepared`, 722.3a), entsteht eine Token-Kopie nur des Prepare Spell im Exil, die wirkbar bleibt, solange die Quelle vorbereitet und im Spiel bleibt (722.3c) — verfällt sie, entfernt die reguläre Token-Aufräum-Regel (704.5d) die Kopie automatisch. Saga-Kapitel-Fähigkeiten, Transformieren/Tag-Nacht und Class/Leveler sind ebenfalls fertig (siehe oben). Noch offen: Battles/Dungeons, sowie bedingte Transform-Trigger („Sieh dir die oberste Karte an, falls Hexerei/Spontanzauber, verwandle …" — Delver of Secrets), das alte Werwolf-Vorlagen-Muster vor RULE 731 („falls letzten Zug keine Zaubersprüche gewirkt wurden …") und die vom Oracle-Parser erkannten Auslöse-Bedingungen (nur „enters/dies/attacks/blocks" — eine „Vorbereitet"-Karte mit anderer Bedingung wie „immer wenn du einen Kreaturenzauber wirkst" bleibt bis dahin ungemodelt).'],
+    title: 'Bot-KI',
+    uc: 'UC5',
+    sections: [
+      {
+        items: [
+          ['done', 'Bot als vollwertiger Platz im Multiplayer (vom Host gesetzt, mit eigenem Deck)'],
+          ['done', 'Goldfisch-Bot: spielt nur Länder, passt sonst immer'],
+          ['done', 'Gieriger Bot: spielt sofort alles, greift immer an, blockt immer'],
+          ['done', 'Bots spielen über dieselbe Schnittstelle wie ein Browser (redigierte Sicht + legale Züge)'],
+          ['done', 'Bots ziehen auch ohne menschlichen Zug weiter (Server-Watchdog)'],
+          ['planned', 'Gewichtete Bot-Strategie (Zuglinien bewerten statt erstbeste Option)'],
+        ],
+      },
     ],
   },
 ];
@@ -187,44 +471,71 @@ function statusMeta(status) {
   return LEGEND.find((l) => l[0] === status) || LEGEND[0];
 }
 
-function itemHtml([status, label, note]) {
-  const [, icon, , ] = statusMeta(status);
+function itemHtml([status, label]) {
+  const [, icon, name] = statusMeta(status);
   return `
     <li class="impl-item impl-${status}">
-      <span class="impl-badge" title="${statusMeta(status)[2]}">${icon}</span>
-      <span class="impl-text"><strong>${label}</strong>${note ? ` — ${note}` : ''}</span>
+      <span class="impl-badge" title="${name}">${icon}</span>
+      <span class="impl-text"><strong>${label}</strong></span>
     </li>`;
 }
 
 function sectionHtml(section) {
   return `
     <section class="impl-section">
-      <div class="impl-section-head">
-        <h3>${section.title}</h3>
-        ${section.rule ? `<span class="impl-rule">${section.rule}</span>` : ''}
-      </div>
-      ${section.intro ? `<p class="impl-intro">${section.intro}</p>` : ''}
+      ${
+        section.title
+          ? `<div class="impl-section-head">
+               <h3>${section.title}</h3>
+               ${section.rule ? `<span class="impl-rule">${section.rule}</span>` : ''}
+             </div>`
+          : ''
+      }
       <ul class="impl-list">${section.items.map(itemHtml).join('')}</ul>
     </section>`;
 }
 
+function chapterHtml(chapter) {
+  return `
+    <div class="impl-chapter">
+      <div class="impl-chapter-head">
+        <h4>${chapter.title}</h4>
+        ${chapter.rule ? `<span class="impl-rule">${chapter.rule}</span>` : ''}
+      </div>
+      <div class="impl-grid">${chapter.sections.map(sectionHtml).join('')}</div>
+    </div>`;
+}
+
+function groupHtml(group) {
+  const inner = group.chapters
+    ? group.chapters.map(chapterHtml).join('')
+    : `<div class="impl-grid">${group.sections.map(sectionHtml).join('')}</div>`;
+  return `
+    <div class="impl-group">
+      <div class="impl-group-head">
+        <h3>${group.title}</h3>
+        ${group.uc ? `<span class="impl-uc">${group.uc}</span>` : ''}
+      </div>
+      ${inner}
+    </div>`;
+}
+
 export function renderImplementationStatusView(container) {
   const legend = LEGEND.map(
-    ([status, icon, name, desc]) =>
-      `<span class="impl-legend-item impl-${status}"><span class="impl-badge">${icon}</span> <strong>${name}</strong> — ${desc}</span>`
+    ([status, icon, name]) =>
+      `<span class="impl-legend-item impl-${status}"><span class="impl-badge">${icon}</span> ${name}</span>`
   ).join('');
 
   container.innerHTML = `
     <div class="impl-status">
-      <h2>Implementierungs-Stand der Regel-Engine</h2>
+      <h2>Implementierungs-Stand</h2>
       <p class="hint">
-        Was die Backend-Engine (<code>mtg_analyzer/game/</code>) heute tatsächlich kann.
-        Referenz sind die offiziellen Comprehensive Rules (RULE-Nummern). Details für die
-        Weiterentwicklung: <code>CLAUDE.md</code> und <code>docs/</code>.
+        Nach Software-Feature (UC1–UC5); der Goldfisch-Motor zusätzlich nach
+        offiziellem Regelwerk-Kapitel (Comprehensive Rules). Details in
+        <code>docs/implementation-state/Done_Backend.md</code> und
+        <code>docs/implementation-state/BACKLOG.md</code>.
       </p>
       <div class="impl-legend">${legend}</div>
-      <div class="impl-grid">
-        ${SECTIONS.map(sectionHtml).join('')}
-      </div>
+      ${GROUPS.map(groupHtml).join('')}
     </div>`;
 }

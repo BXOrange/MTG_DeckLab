@@ -181,16 +181,23 @@ def test_reordered_on_top_of_your_library_phrasing():
 # ---------------------------------------------------------------------------
 
 
-def test_fails_closed_on_a_mana_value_qualifier():
-    assert parse_effect_body(
+def test_mana_value_qualifier_caps_the_search_criteria():
+    # MEC-12 (fifth pass): "with mana value N or less/greater" is now
+    # recognized (Green Sun's Zenith/Chord of Calling/Finale of
+    # Devastation's own qualifier, generalized to a literal digit too) --
+    # this card previously documented the gap as fail-closed.
+    spec = parse_effect_body(
         "search your library for a card with mana value 2 or less, put that "
         "card into your hand, then shuffle"
-    ) is None
+    )[0]
+    assert spec.params == {"criteria": {"max_mana_value": 2}, "destination": "hand"}
 
 
-def test_fails_closed_on_library_and_graveyard_combined_search():
-    # Doomsday/Finale of Devastation-shaped — request_search only reads
-    # player.library, a real (documented) engine gap, not just unparsed.
+def test_fails_closed_on_a_bare_and_combined_search():
+    # Only the "and/or" phrasing the real ~50-card family actually uses
+    # (`_SEARCH_ZONE_PUT_RE`) is recognized; a bare "library and graveyard"
+    # combined search with the ordinary put-then-shuffle tail is a
+    # different, unattempted shape.
     assert parse_effect_body(
         "search your library and graveyard for a card, put it into your "
         "hand, then shuffle"
@@ -204,6 +211,114 @@ def test_fails_closed_on_an_interposed_extra_clause():
         "search your library for a card, put that card into your hand, "
         "discard a card at random, then shuffle"
     ) is None
+
+
+# ---------------------------------------------------------------------------
+# Zone axis: "library and/or graveyard" combined search (`_search_zone_put`)
+# ---------------------------------------------------------------------------
+
+
+def test_zone_search_named_criteria_to_hand():
+    # Tower Winder/Elspeth's Devotee-shaped: "a card named <Name>" reveal +
+    # hand destination.
+    spec = parse_effect_body(
+        "search your library and/or graveyard for a card named command "
+        "tower, reveal it, and put it into your hand. if you search your "
+        "library this way, shuffle"
+    )[0]
+    assert spec.params == {
+        "criteria": {"name": "command tower"},
+        "destination": "hand",
+        "zones": ["library", "graveyard"],
+    }
+
+
+def test_zone_search_named_criteria_no_reveal_to_battlefield():
+    # Elspeth, Undaunted Hero-shaped: no reveal clause, straight to the
+    # battlefield.
+    spec = parse_effect_body(
+        "search your library and/or graveyard for a card named sunlit "
+        "hoplite and put it onto the battlefield. if you search your "
+        "library this way, shuffle"
+    )[0]
+    assert spec.params == {
+        "criteria": {"name": "sunlit hoplite"},
+        "destination": "battlefield",
+        "zones": ["library", "graveyard"],
+    }
+
+
+def test_zone_search_type_criteria():
+    spec = parse_effect_body(
+        "search your library and/or graveyard for an artifact card, reveal "
+        "it, and put it into your hand. if you searched your library this "
+        "way, shuffle"
+    )[0]
+    assert spec.params == {
+        "criteria": {"type": "artifact"},
+        "destination": "hand",
+        "zones": ["library", "graveyard"],
+    }
+
+
+def test_fails_closed_on_a_comma_bearing_name():
+    # Grasping Current-shaped: "a card named Jace, Ingenious Mind-Mage" — the
+    # name's own internal comma is indistinguishable from the put-clause's
+    # comma without a name dictionary, so this stays unclaimed.
+    assert parse_effect_body(
+        "search your library and/or graveyard for a card named jace, "
+        "ingenious mind-mage, reveal it, and put it into your hand. if you "
+        "search your library this way, shuffle"
+    ) is None
+
+
+# ---------------------------------------------------------------------------
+# Split-destination axis: "put one X and the other Y" (`_search_split_
+# destination`, Cultivate/Kodama's Reach-shaped)
+# ---------------------------------------------------------------------------
+
+
+def test_split_destination_battlefield_tapped_and_hand():
+    spec = parse_effect_body(
+        "search your library for up to 2 basic land cards, reveal those "
+        "cards, put 1 onto the battlefield tapped and the other into your "
+        "hand, then shuffle"
+    )[0]
+    assert spec.params == {
+        "criteria": {"basic": True},
+        "destination": "battlefield_tapped",
+        "destinations": ["battlefield_tapped", "hand"],
+        "count": 2,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Exile-rest axis: "search for N cards and exile the rest" (`_search_exile_
+# rest`, Doomsday-shaped)
+# ---------------------------------------------------------------------------
+
+
+def test_exile_rest_library_and_graveyard():
+    spec = parse_effect_body(
+        "search your library and graveyard for 5 cards and exile the rest. "
+        "put the chosen cards on top of your library in any order"
+    )[0]
+    assert spec.params == {
+        "criteria": {},
+        "destination": "library_top",
+        "count": 5,
+        "exile_rest": True,
+        "zones": ["library", "graveyard"],
+    }
+
+
+def test_exile_rest_library_only():
+    spec = parse_effect_body(
+        "search your library for 3 cards and exile the rest. put the "
+        "chosen cards on top of your library in any order"
+    )[0]
+    assert spec.params["zones"] == ["library"]
+    assert spec.params["count"] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -257,3 +372,118 @@ def test_real_ramp_card_binds_and_resolves_end_to_end():
     assert forest_obj in eng.state.battlefield
     assert forest_obj.tapped is False  # Nature's Lore's untapped destination
     assert any(e.type == EventType.SHUFFLE for e in eng.state.event_log)
+
+
+def test_real_zone_search_card_finds_a_graveyard_hit():
+    # Tower Winder: an ETB trigger searching both library and graveyard for
+    # a card named Command Tower — proves a graveyard-only hit is found,
+    # removed from the graveyard (not the library), and the library still
+    # shuffles (RULE 701.19e, since "library" is among the searched zones).
+    command_tower = Card(
+        id="Command Tower", name="Command Tower", type_line="Land", is_land=True,
+    )
+    other_land = Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)
+    creature_card = Card(
+        id="Tower Winder", name="Tower Winder", type_line="Creature — Snake",
+        is_creature=True, power=1, toughness=1,
+        oracle_text="Reach, deathtouch\nWhen this creature enters, search your library "
+                    "and/or graveyard for a card named Command Tower, reveal it, and put "
+                    "it into your hand. If you search your library this way, shuffle.",
+    )
+
+    eng = GameEngine.new_game([("p1", "Alice", [other_land])], starting_hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+
+    tower_obj = GameObject(command_tower, owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.add_to_zone(tower_obj, Zone.GRAVEYARD)
+
+    creature_obj = GameObject(creature_card, owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(creature_obj)
+    p1.add_to_zone(creature_obj, Zone.HAND)
+    eng.cast_spell(p1, creature_obj)
+    eng.resolve_until_stable()
+
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "search"
+    assert {e["name"] for e in choice["eligible"]} == {"Command Tower"}
+
+    eng.rules.resolve_search_choice(tower_obj.instance_id)
+    assert eng.state.pending_choice is None
+    assert tower_obj in p1.hand
+    assert tower_obj not in p1.graveyard
+    assert any(e.type == EventType.SHUFFLE for e in eng.state.event_log)
+
+
+def test_real_split_destination_card_binds_and_resolves_end_to_end():
+    # Cultivate: full parse -> bind -> cast -> resolve, proving both real
+    # picks land on their own distinct destination from one search.
+    forest = Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)
+    mountain = Card(id="Mountain", name="Mountain", type_line="Basic Land — Mountain", is_land=True)
+    spell_card = Card(
+        id="Cultivate", name="Cultivate", type_line="Sorcery", is_sorcery=True,
+        oracle_text="Search your library for up to two basic land cards, reveal those "
+                    "cards, put one onto the battlefield tapped and the other into your "
+                    "hand, then shuffle.",
+    )
+
+    eng = GameEngine.new_game([("p1", "Alice", [forest, mountain])], starting_hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+
+    obj = GameObject(spell_card, owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(obj)
+    p1.add_to_zone(obj, Zone.HAND)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+
+    first = eng.state.pending_choice["eligible"][0]["instance_id"]
+    eng.rules.resolve_search_choice(first)
+    second = eng.state.pending_choice["eligible"][0]["instance_id"]
+    eng.rules.resolve_search_choice(second)
+
+    assert eng.state.pending_choice is None
+    first_obj = eng.state.find_object(first)
+    assert first_obj in eng.state.battlefield and first_obj.tapped
+    assert any(o.instance_id == second for o in p1.hand)
+
+
+def test_exile_rest_engine_moves_leftover_matches_to_exile_and_skips_shuffle():
+    # Doomsday-shaped: the engine primitive directly (the parser recognition
+    # is proven above; oracle-parsing Doomsday's own life-loss clause is a
+    # separate, unrelated gap — this proves `RulesEngine`'s exile_rest/zones
+    # behaviour against a real 5-card library, library+graveyard combined).
+    cards = [Card(id=f"Card {i}", name=f"Card {i}", type_line="Instant", is_instant=True)
+             for i in range(5)]
+    eng = GameEngine.new_game([("p1", "Alice", cards)], starting_hand=0)
+    p1 = eng.state.active_player
+    # Move one card into the graveyard so both zones are actually searched.
+    gy_obj = p1.library[0]
+    p1.remove_from_zone(gy_obj, gy_obj.zone)
+    p1.add_to_zone(gy_obj, Zone.GRAVEYARD)
+
+    eng.rules.request_search(
+        p1, "", "library_top", count=5, zones=["library", "graveyard"], exile_rest=True,
+    )
+    picked = []
+    while eng.state.pending_choice is not None:
+        cid = eng.state.pending_choice["eligible"][0]["instance_id"]
+        picked.append(cid)
+        eng.rules.resolve_search_choice(cid)
+
+    assert len(picked) == 5  # every card in the 5-card library+graveyard
+    # MEC-37: every one of the 5 cards was itself *chosen* (destination
+    # "library_top"), so there is nothing left over for exile_rest to
+    # exile — it must not re-catch the very cards this search just placed
+    # back into one of its own searched zones (a real, latent bug this
+    # test had been unknowingly encoding as "expected" until Doomsday's
+    # own hand-authoring surfaced it: exile_rest's sweep used to re-scan
+    # `zones` without excluding the freshly-chosen cards, so a
+    # library_top/library_bottom destination combined with a "library"
+    # search zone silently ate every pick).
+    assert {o.instance_id for o in p1.library} == set(picked)
+    assert p1.graveyard == []
+    assert p1.exile == []
+    assert not any(e.type == EventType.SHUFFLE for e in eng.state.event_log)

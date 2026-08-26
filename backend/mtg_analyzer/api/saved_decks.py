@@ -9,17 +9,37 @@ endpoints), docs/implementation-state/Done_Backend.md "Deck persistence".
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 
+from mtg_analyzer.api.cards import coverage_for
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import SaveDeckRequest
 from mtg_analyzer.models.deck import Deck
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
+from mtg_analyzer.services.archetype_database import default_archetype_database
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.deck_validation import compute_deck_identity, validate_deck_sections
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 
 router = APIRouter(prefix="/api/decks", tags=["decks"])
+
+#: A deck may describe itself with at most this many archetypes — the
+#: deck-edit UI offers exactly two `<select>`s, so this is a defensive
+#: server-side cap rather than a load-bearing check (see CLAUDE.md "No
+#: magic numbers").
+MAX_DECK_ARCHETYPES = 2
+
+
+def _clean_archetypes(archetypes: Optional[list[str]]) -> Optional[list[str]]:
+    """Drop any id not in the archetype catalogue and cap at
+    `MAX_DECK_ARCHETYPES`, preserving the caller's order."""
+    if archetypes is None:
+        return None
+    db = default_archetype_database()
+    known = [a for a in archetypes if db.get(a) is not None]
+    return known[:MAX_DECK_ARCHETYPES]
 
 
 def _ensure_identity(deck: Deck, database: DeckDatabase, loader: LazyCardLoader) -> Deck:
@@ -73,6 +93,18 @@ def save_deck(
         # the cached values otherwise (e.g. a sleeve-only re-save).
         color_identity=None if text_changed else existing.color_identity,
         commanders=None if text_changed else existing.commanders,
+        # Same preserve-on-omission treatment as sleeve_id/author above.
+        is_cube=request.is_cube if request.is_cube is not None else (existing.is_cube if existing else False),
+        # Same preserve-on-omission treatment, plus catalogue validation/cap
+        # (see `_clean_archetypes`) — applied on every save, not just when
+        # the caller sends a fresh value, so a stale/renamed catalogue id
+        # from an old save can't linger forever.
+        archetypes=_clean_archetypes(
+            request.archetypes if request.archetypes is not None else (existing.archetypes if existing else None)
+        ),
+        favorite_cards=(
+            request.favorite_cards if request.favorite_cards is not None else (existing.favorite_cards if existing else None)
+        ),
     )
     database.save_deck(deck)
     return deck.to_dict()
@@ -116,9 +148,41 @@ def get_deck_validation(
     if deck is None:
         raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
     parsed = validate_deck_sections(
-        deck.commander_text, deck.mainboard_text, deck.sideboard_text, loader
+        deck.commander_text, deck.mainboard_text, deck.sideboard_text, loader, deck.is_cube
     )
     return parsed.validation.to_dict()
+
+
+@router.get("/{deck_id}/coverage")
+def get_deck_coverage(
+    deck_id: str,
+    database: DeckDatabase = Depends(get_deck_database),
+    loader: LazyCardLoader = Depends(get_lazy_card_loader),
+) -> dict[str, object]:
+    """How many of this deck's cards the rules engine doesn't model yet.
+
+    A goldfishing readiness note, not a legality gate — an UNMODELED card is
+    still a perfectly legal include, it just won't behave server-side yet.
+    Counted over `parsed.all_cards` (commanders + mainboard, quantity-
+    weighted) for both a normal deck and a `is_cube` pool alike; a card that
+    failed to resolve is left out rather than counted as unmodeled, same as
+    `_coverage_for`'s callers elsewhere.
+    """
+    deck = database.get_deck(deck_id)
+    if deck is None:
+        raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
+    parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube)
+    resolved = loader.load_cards([e.name for e in parsed.all_cards])
+    unmodeled_count = 0
+    unmodeled_card_names: list[str] = []
+    for entry in parsed.all_cards:
+        card = resolved.cards.get(entry.name)
+        if card is None:
+            continue
+        if not coverage_for(card)["modeled"]:
+            unmodeled_count += entry.qty
+            unmodeled_card_names.append(entry.name)
+    return {"unmodeledCount": unmodeled_count, "unmodeledCardNames": sorted(unmodeled_card_names)}
 
 
 @router.delete("/{deck_id}")

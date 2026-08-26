@@ -4,12 +4,18 @@ via the new `EffectSpec.condition` field (parallel to `AbilitySpec.modes`)
 and `game.effects.ConditionalEffect` (`game/effect_binder.py`'s
 `build_effects` wraps any effect whose spec carries a `condition`).
 
-Only the "additional effect when kicked" shape is modeled (Vastwood
-Surge-shaped: a base effect, then a second sentence gated on kicked) — "if
+The additive "if kicked, <effect>." shape is modeled here (Vastwood
+Surge-shaped: a base effect, then a second sentence gated on kicked) via
+`EffectSpec.condition`/`ConditionalEffect`. The *override* shape — "if
 kicked, it deals N damage *instead*" (overriding an *existing* effect's own
-amount — Burst Lightning/Rite of Replication-shaped) is a different,
-unmodeled grammar; see `parser/oracle/segmenter.py`'s `_KICKED_CONDITION_RE`
-docstring.
+amount/count rather than adding a second effect — Burst Lightning/Rite of
+Replication-shaped) is a separate mechanism: a per-effect ``*_if_kicked``
+param (`DealDamageEffect.amount_if_kicked`, `CopyPermanentEffect.
+count_if_kicked`, mirroring the pre-existing `PreventDamageEffect.
+amount_if_kicked`) read off `obj.kicker_count` at resolve time, recognized
+by its own dedicated handler row (`catalogue/handlers.py`'s
+`_damage_kicked_override`/`_copy_permanent_kicked_override`) rather than
+`EffectSpec.condition` — see the END TO END section below.
 """
 
 import pytest
@@ -211,6 +217,13 @@ def _bear(name="Bear"):
                 power=2, toughness=2)
 
 
+def _wall(name="Wall"):
+    # High-toughness so a damage-dealing test can check `damage_marked`
+    # without the creature dying and an SBA graveyard move clearing it.
+    return Card(id=name, name=name, type_line="Creature — Wall", is_creature=True,
+                power=0, toughness=10)
+
+
 def test_unkicked_vastwood_surge_skips_the_counters():
     eng = _make_engine()
     eng.begin_turn()
@@ -257,3 +270,122 @@ def test_kicked_vastwood_surge_adds_the_counters():
     eng.resolve_until_stable()
 
     assert bear.counters.get("+1/+1", 0) == 2
+
+
+# ---------------------------------------------------------------------------
+# END TO END: the OVERRIDE shape (Burst Lightning/Rite of Replication)
+# ---------------------------------------------------------------------------
+
+
+_BURST_LIGHTNING_TEXT = (
+    "Kicker {4} (You may pay an additional {4} as you cast this spell.)\n"
+    "Burst Lightning deals 2 damage to any target. If this spell was kicked, "
+    "it deals 4 damage instead."
+)
+
+
+def _burst_lightning_card():
+    card = instant("Burst Lightning", cost="{R}", oracle_text=_BURST_LIGHTNING_TEXT)
+    card.keywords = ["Kicker"]
+    return card
+
+
+def test_burst_lightning_shaped_card_is_fully_modeled():
+    r = parse_oracle(_burst_lightning_card())
+    assert r.modeled
+    (spell_effect,) = [s for s in r.specs if s.ability_kind == "spell_effect"]
+    (effect,) = spell_effect.effects
+    assert effect.type == "damage"
+    assert effect.params["amount"] == 2
+    assert effect.params["amount_if_kicked"] == 4
+    assert effect.condition is None  # an override, not an additive gate
+
+
+def test_unkicked_burst_lightning_deals_the_base_amount():
+    eng = _make_engine()
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1})
+    bear = GameObject(_wall(), owner_id="p2", zone=Zone.BATTLEFIELD)
+    bear.summoning_sick = False
+    eng.state.add_to_battlefield(bear)
+
+    card = _burst_lightning_card()
+    result = parse_oracle(card)
+    obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    attach_to_object(obj, result.specs)
+    p1.hand.append(obj)
+
+    eng.cast_spell(p1, obj, targets=[bear], kicked=0)
+    eng.resolve_until_stable()
+
+    assert bear.damage_marked == 2
+
+
+def test_kicked_burst_lightning_deals_the_overridden_amount():
+    eng = _make_engine()
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 5})
+    bear = GameObject(_wall(), owner_id="p2", zone=Zone.BATTLEFIELD)
+    bear.summoning_sick = False
+    eng.state.add_to_battlefield(bear)
+
+    card = _burst_lightning_card()
+    result = parse_oracle(card)
+    obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    attach_to_object(obj, result.specs)
+    p1.hand.append(obj)
+
+    eng.cast_spell(p1, obj, targets=[bear], kicked=1)
+    eng.resolve_until_stable()
+
+    assert bear.damage_marked == 4
+
+
+_RITE_OF_REPLICATION_TEXT = (
+    "Kicker {5} (You may pay an additional {5} as you cast this spell.)\n"
+    "Create a token that's a copy of target creature. If this spell was "
+    "kicked, create five of those tokens instead."
+)
+
+
+def _rite_of_replication_card():
+    card = sorcery("Rite of Replication", cost="{4}{U}{U}", oracle_text=_RITE_OF_REPLICATION_TEXT)
+    card.keywords = ["Kicker"]
+    return card
+
+
+def test_rite_of_replication_shaped_card_is_fully_modeled():
+    r = parse_oracle(_rite_of_replication_card())
+    assert r.modeled
+    (spell_effect,) = [s for s in r.specs if s.ability_kind == "spell_effect"]
+    (effect,) = spell_effect.effects
+    assert effect.type == "copy_permanent"
+    assert effect.params["target_kind"] == "creature"
+    assert effect.params["count_if_kicked"] == 5
+
+
+def test_kicked_rite_of_replication_creates_five_copies():
+    eng = _make_engine()
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"U": 2, "C": 9})
+    bear = GameObject(_wall(), owner_id="p2", zone=Zone.BATTLEFIELD)
+    bear.summoning_sick = False
+    eng.state.add_to_battlefield(bear)
+    before = len(eng.state.battlefield)
+
+    card = _rite_of_replication_card()
+    result = parse_oracle(card)
+    obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    attach_to_object(obj, result.specs)
+    p1.hand.append(obj)
+
+    eng.cast_spell(p1, obj, targets=[bear], kicked=1)
+    eng.resolve_until_stable()
+
+    assert len(eng.state.battlefield) == before + 5

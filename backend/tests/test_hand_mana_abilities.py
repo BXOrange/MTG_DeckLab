@@ -5,7 +5,7 @@ parser split (`parse_mana_abilities` excludes these lines,
 `hand_mana_abilities`/`hand_mana_abilities_for` pick them up instead) and
 the engine payment path (`GameEngine.activate_hand_mana_ability`).
 
-Reference: backend/ToDo_Backend.md, docs/implementation-state/Done_Backend.md.
+Reference: docs/implementation-state/BACKLOG.md, docs/implementation-state/Done_Backend.md.
 """
 
 import pytest

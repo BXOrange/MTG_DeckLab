@@ -10,17 +10,19 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from mtg_analyzer.api.dependencies import get_card_database, get_lazy_card_loader
+from mtg_analyzer.api.dependencies import get_card_database, get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import CardResolveRequest
 from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
+from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 
 router = APIRouter(prefix="/api/cards", tags=["cards"])
 
 
-def _coverage_for(card: Any) -> dict[str, object]:
+def coverage_for(card: Any) -> dict[str, object]:
     """A card's engine-coverage verdict (docs/09 "coverage is the roadmap").
 
     A hand-authored `ability_catalogue` entry is trusted wholesale, same as
@@ -35,13 +37,50 @@ def _coverage_for(card: Any) -> dict[str, object]:
     return {"modeled": result.modeled, "source": "oracle", "unclaimed": result.unclaimed}
 
 
-@router.get("")
-def list_cards(database: CardDatabase = Depends(get_card_database)) -> list[dict[str, object]]:
-    """Every card currently in the local cache — for a "browse the cache" view."""
+def _cards_referenced_by_decks(database: CardDatabase, decks: DeckDatabase) -> list[Any]:
+    """Cached cards referenced by at least one saved deck (any section).
+
+    Only matches what's already cached — like `CardDatabase.list_cards`,
+    this never triggers a Scryfall fetch for a deck's uncached cards; it's a
+    "browse the cache" view, not a resolver (`GET /api/decks` already keeps
+    a deck's cards resolved via `_ensure_identity`/`LazyCardLoader`).
+    """
+    names: set[str] = set()
+    for deck in decks.list_decks():
+        parsed = parse_deck_sections(
+            deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube
+        )
+        names.update(entry.name for entry in (*parsed.all_cards, *parsed.sideboard))
+
+    seen_ids: set[str] = set()
     cards = []
-    for card in database.list_cards():
+    for name in names:
+        card = database.get_card(name)
+        if card is not None and card.id not in seen_ids:
+            seen_ids.add(card.id)
+            cards.append(card)
+    cards.sort(key=lambda c: c.name)
+    return cards
+
+
+@router.get("")
+def list_cards(
+    scope: str = Query("all", pattern="^(all|decks)$"),
+    database: CardDatabase = Depends(get_card_database),
+    decks: DeckDatabase = Depends(get_deck_database),
+) -> list[dict[str, object]]:
+    """Cards in the local cache — for a "browse the cache" view.
+
+    `scope=all` (default) is every cached card, including the full bulk
+    Oracle import (docs/09). `scope=decks` narrows that down to cards
+    actually referenced by a saved deck, for a much smaller/more relevant
+    list once the bulk cache is loaded.
+    """
+    source = _cards_referenced_by_decks(database, decks) if scope == "decks" else database.list_cards()
+    cards = []
+    for card in source:
         card_dict = card.to_dict()
-        card_dict["coverage"] = _coverage_for(card)
+        card_dict["coverage"] = coverage_for(card)
         cards.append(card_dict)
     return cards
 

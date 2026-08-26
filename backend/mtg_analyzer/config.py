@@ -1,6 +1,6 @@
 """Central configuration: on-disk paths and small runtime constants.
 
-Reference: backend/ToDo_Backend.md "Configuration".
+Reference: docs/implementation-state/Done_Backend.md "Configuration".
 
 Before this module existed, `CACHE_ROOT`/`DEFAULT_DB_PATH`
 (`card_database.py`), `DATA_ROOT`/`DEFAULT_DECKS_DB_PATH`
@@ -23,6 +23,12 @@ Env vars (all optional; defaults reproduce the pre-config-module paths):
     policy from cache-primary (default) to scryfall-primary; see
     SCRYFALL_PRIMARY below. Also settable via `setup/start.py
     --scryfall-primary`.
+  MTG_MULTIPLAYER_IDLE_TIMEOUT — seconds a multiplayer player may hold
+    priority without acting before the server drops their connection
+  MTG_MULTIPLAYER_DISCONNECT_GRACE — seconds a disconnected player's seat
+    is held open for them to reconnect into
+  MTG_DYNAMIC_ANALYSIS_WORKERS — size of the dynamic-analysis job worker
+    pool (services/dynamic_analysis.py)
 """
 
 from __future__ import annotations
@@ -86,3 +92,66 @@ SCRYFALL_MIN_REQUEST_INTERVAL_SECONDS = float(
 #: ("scryfall-primary"): today's original behavior — a stale row is always
 #: refetched to prefer Scryfall's current data.
 SCRYFALL_PRIMARY = os.environ.get("MTG_SCRYFALL_PRIMARY", "").strip().lower() in ("1", "true", "yes")
+
+
+def _env_seconds(name: str, default: float) -> float:
+    """A non-negative duration from the environment; 0 disables the timer."""
+    try:
+        value = float(os.environ.get(name, default))
+    except ValueError:
+        return float(default)
+    return max(0.0, value)
+
+
+#: How long a multiplayer player may **hold priority without acting** before
+#: the server closes their connection (`api/multiplayer_ws.py`'s sweeper).
+#: The point isn't to police slow play — it's that a browser tab that went
+#: away without a clean close still holds priority, and the game would
+#: otherwise wait on it forever. Their seat is *not* lost immediately: they
+#: become "disconnected", the server auto-passes for them so the table keeps
+#: moving, and MULTIPLAYER_DISCONNECT_GRACE below decides how long they have
+#: to come back. 0 disables the check entirely (useful for a table that
+#: takes long breaks, and for tests).
+MULTIPLAYER_IDLE_TIMEOUT_SECONDS = _env_seconds("MTG_MULTIPLAYER_IDLE_TIMEOUT", 120)
+
+#: How long a disconnected player's seat is held open. Reconnecting within
+#: this window (same player name — see `services/lobby.py`) puts them back in
+#: the same seat with the game as they left it; letting it lapse concedes
+#: for them (RULE 104.3a), because a seat nobody is sitting in can't be
+#: waited on forever. 0 disables the sweep, holding the seat indefinitely.
+MULTIPLAYER_DISCONNECT_GRACE_SECONDS = _env_seconds("MTG_MULTIPLAYER_DISCONNECT_GRACE", 90)
+
+#: PLR-4: how long a browser's identity token (`services/lobby.py`'s
+#: `LobbyPlayer.client_token`, minted client-side by profileView.js's
+#: "Speichern" button into the `mtg_client_token` cookie) stays valid without
+#: being used again. Sliding, not fixed — every reconnect that presents the
+#: token renews it, mirroring the cookie's own sliding `Max-Age` — so a
+#: browser in active use never expires and one that was abandoned (or had its
+#: cookies cleared) quietly does, 90 days after it was last seen. This is
+#: what lets the token disambiguate two browsers sharing a display name (the
+#: thing PLR-4 is actually about) without ever needing real accounts.
+CLIENT_TOKEN_VALIDITY_SECONDS = _env_seconds("MTG_CLIENT_TOKEN_VALIDITY", 90 * 24 * 3600)
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    """A worker/pool-size style count from the environment; always >= 1."""
+    try:
+        value = int(os.environ.get(name, default))
+    except ValueError:
+        return default
+    return max(1, value)
+
+
+#: Size of the `services/dynamic_analysis.py` job worker pool — how many
+#: `DynamicAnalysisJob`s (headless goldfish-match batches, each CPU-bound
+#: synchronous Python) may run at once. Each match is plain Python bytecode,
+#: so the GIL serializes the actual work regardless of thread count — this
+#: knob isn't about running jobs faster, it's about capping how many
+#: concurrent analysis *requests* the server takes on at once so a burst of
+#: them can't pile up unboundedly many OS threads fighting the GIL (and the
+#: rest of the process, including ordinary request handling) into the
+#: ground. Extra jobs past this count simply wait their turn in the pool's
+#: queue rather than starting immediately. Default of 4 is a conservative
+#: number for this single-process, local-dev-scale app; raise it on beefier
+#: hardware/deployments via the env var.
+DYNAMIC_ANALYSIS_WORKERS = _env_positive_int("MTG_DYNAMIC_ANALYSIS_WORKERS", 4)

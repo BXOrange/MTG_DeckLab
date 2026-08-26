@@ -2,15 +2,30 @@
 // POST /api/decks/save (mtg_analyzer DeckDatabase). Lazy by design, same
 // as cachedCardsView.js: nothing is fetched until the tab is opened.
 //
-// The deck's author is edited only in the "Deck editieren" tab
-// (deckImportView.js) — this view only displays it, matching the
-// read-only treatment of colorIdentity/commanders here (both computed
+// The deck's author and sleeve are edited only in the "Deck editieren"
+// tab (deckImportView.js) — this view only displays the author, matching
+// the read-only treatment of colorIdentity/commanders here (both computed
 // elsewhere too). Filtering (color/legality) is client-side over the
 // already-fetched list, same pattern as cachedCardsView.js's filters.
 
-import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, listSleeves, saveDeck } from './api.js';
-import { getPlayerName } from './settings.js';
+import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, getDeckCoverage, saveDeck, listArchetypes } from './api.js';
 import { escapeHtml } from './cardTile.js';
+
+// Archetype id -> label lookup (mtg_analyzer/data/archetypes.json via GET
+// /api/archetypes), fetched once and cached module-wide — the same static,
+// player-independent catalogue deckImportView.js's edit-mode picker uses.
+// `null` means "not fetched yet"; a badge just renders the raw id in that
+// narrow window rather than blocking the deck list on it.
+let archetypeLabels = null;
+async function ensureArchetypeLabels() {
+  if (archetypeLabels) return archetypeLabels;
+  const res = await listArchetypes();
+  archetypeLabels = {};
+  for (const entry of res.ok ? res.data || [] : []) {
+    archetypeLabels[entry.id] = entry.label;
+  }
+  return archetypeLabels;
+}
 
 const COLOR_FILTER_OPTIONS = [
   { key: 'W', label: '⚪ Weiß' },
@@ -25,6 +40,14 @@ const LEGALITY_FILTER_OPTIONS = [
   { key: 'legal', label: '✅ Legal' },
   { key: 'illegal', label: '🛑 Nicht legal' },
   { key: 'unknown', label: '❔ Unbekannt / wird geprüft' },
+];
+
+//: `isCube` (models/deck.py) marks a saved decklist as a card pool (e.g. a
+//: curated "staples" reference list) rather than a real Commander deck —
+//: no legality check runs for it (see the skipped fetch below).
+const DECK_TYPE_FILTER_OPTIONS = [
+  { key: 'deck', label: '📋 Deck' },
+  { key: 'cube', label: '🧊 Collection' },
 ];
 
 function filterGroupHtml(legend, filterName, options) {
@@ -48,6 +71,7 @@ function readFilterState(filtersEl) {
   return {
     colors: checkedValues(filtersEl, 'color'),
     legality: checkedValues(filtersEl, 'legality'),
+    deckType: checkedValues(filtersEl, 'deckType'),
   };
 }
 
@@ -60,6 +84,10 @@ function deckMatchesColorFilter(colorIdentity, colors) {
 function deckMatchesLegalityFilter(validation, legality) {
   if (validation === undefined || validation === null) return legality.includes('unknown');
   return legality.includes(validation.isLegal ? 'legal' : 'illegal');
+}
+
+function deckMatchesTypeFilter(isCube, deckType) {
+  return deckType.includes(isCube ? 'cube' : 'deck');
 }
 
 /**
@@ -79,6 +107,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
       <div class="cache-filters" id="saved-decks-filters">
         ${filterGroupHtml('Farbe', 'color', COLOR_FILTER_OPTIONS)}
         ${filterGroupHtml('Legalität', 'legality', LEGALITY_FILTER_OPTIONS)}
+        ${filterGroupHtml('Art', 'deckType', DECK_TYPE_FILTER_OPTIONS)}
         <button type="button" id="saved-decks-filter-reset">Filter zurücksetzen</button>
       </div>
       <div id="saved-decks-result"><p class="empty-state">Lade gespeicherte Decks …</p></div>
@@ -105,7 +134,8 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
       const deck = currentDecks.find((d) => d.id === row.dataset.deckId);
       const visible =
         deckMatchesColorFilter(deck?.colorIdentity, filters.colors) &&
-        deckMatchesLegalityFilter(validationById.get(row.dataset.deckId), filters.legality);
+        deckMatchesLegalityFilter(validationById.get(row.dataset.deckId), filters.legality) &&
+        deckMatchesTypeFilter(deck?.isCube, filters.deckType);
       row.classList.toggle('saved-deck-row--hidden', !visible);
       if (visible) visibleCount += 1;
     });
@@ -122,11 +152,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     resultEl.innerHTML = '<p class="empty-state">Lade gespeicherte Decks …</p>';
     countEl.textContent = '';
 
-    const playerName = getPlayerName();
-    const [decks, sleeves] = await Promise.all([
-      listSavedDecks(),
-      playerName ? listSleeves(playerName) : Promise.resolve([]),
-    ]);
+    const [decks] = await Promise.all([listSavedDecks(), ensureArchetypeLabels()]);
     if (requestId !== latestRequestId) return; // superseded by a later refresh click
 
     if (decks === null) {
@@ -144,28 +170,30 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
       return;
     }
 
-    resultEl.innerHTML = decks.map((deck) => renderDeckRow(deck, sleeves || [])).join('');
+    resultEl.innerHTML = decks.map((deck) => renderDeckRow(deck)).join('');
     applyFilters();
-
-    resultEl.querySelectorAll('.saved-deck-sleeve-select').forEach((select) => {
-      select.addEventListener('change', async () => {
-        const deck = decks.find((d) => d.id === select.dataset.deckId);
-        if (!deck) return;
-        select.disabled = true;
-        await saveDeck({ ...deck, sleeveId: select.value || null });
-        select.disabled = false;
-      });
-    });
 
     // Legality is computed server-side (resolves cards), so fetch it per
     // deck and fill each row's badge as answers arrive. Illegal decks get
-    // a 🛑 + the reasons; legal ones a subtle ✅.
+    // a 🛑 + the reasons; legal ones a subtle ✅. Skipped for cube decks —
+    // no Commander legality applies to a card pool (renderDeckRow shows a
+    // 🧊 badge instead), so there's nothing meaningful to fetch/display.
     for (const deck of decks) {
+      if (deck.isCube) continue;
       getDeckValidation(deck.id).then((validation) => {
         if (requestId !== latestRequestId) return; // list refreshed meanwhile
         validationById.set(deck.id, validation);
         updateLegalityBadge(deck.id, validation);
         applyFilters();
+      });
+    }
+
+    // Engine-coverage note ("N Karten nicht modelliert") — a goldfishing
+    // readiness hint, not a legality check, so it's fetched for cubes too.
+    for (const deck of decks) {
+      getDeckCoverage(deck.id).then((coverage) => {
+        if (requestId !== latestRequestId) return; // list refreshed meanwhile
+        updateCoverageBadge(deck.id, coverage);
       });
     }
 
@@ -192,6 +220,46 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
           return;
         }
         onAnalyzeDeck?.(deck);
+      });
+    });
+
+    // VIS-2: rename in place (same id, new name) and duplicate-as-new
+    // (no id — the server generates a fresh one, same as a brand-new
+    // save). Both go through the same `saveDeck` endpoint used for
+    // saving edits; no dedicated backend route needed.
+    resultEl.querySelectorAll('.rename-deck-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const deck = decks.find((d) => d.id === btn.dataset.deckId);
+        if (!deck) return;
+        const currentName = btn.dataset.deckName || '';
+        const newName = window.prompt('Neuer Name:', currentName);
+        if (newName === null) return; // cancelled
+        const trimmed = newName.trim();
+        if (!trimmed || trimmed === currentName) return;
+        btn.disabled = true;
+        const saved = await saveDeck({ ...deck, name: trimmed });
+        if (!saved) {
+          btn.disabled = false;
+          window.alert('Umbenennen fehlgeschlagen – Server nicht erreichbar.');
+          return;
+        }
+        load();
+      });
+    });
+
+    resultEl.querySelectorAll('.duplicate-deck-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const deck = decks.find((d) => d.id === btn.dataset.deckId);
+        if (!deck) return;
+        btn.disabled = true;
+        const baseName = deck.name?.trim() || 'Unbenanntes Deck';
+        const saved = await saveDeck({ ...deck, id: null, name: `${baseName} (Kopie)` });
+        if (!saved) {
+          btn.disabled = false;
+          window.alert('Duplizieren fehlgeschlagen – Server nicht erreichbar.');
+          return;
+        }
+        load();
       });
     });
 
@@ -232,6 +300,15 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     el.title = reasons;
   }
 
+  // Only rendered when there's something to report — a fully-modeled deck
+  // (or a still-loading/unreachable coverage check) shows nothing here.
+  function updateCoverageBadge(deckId, coverage) {
+    const el = resultEl.querySelector(`.saved-deck-coverage[data-deck-id="${cssEscape(deckId)}"]`);
+    if (!el || !coverage || !coverage.unmodeledCount) return;
+    el.textContent = `⚠️ ${coverage.unmodeledCount} Karte(n) nicht modelliert`;
+    el.title = (coverage.unmodeledCardNames || []).join('\n');
+  }
+
   refreshBtn.addEventListener('click', load);
   filtersEl.addEventListener('change', applyFilters);
   resetBtn.addEventListener('click', () => {
@@ -248,7 +325,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
   });
 }
 
-function renderDeckRow(deck, sleeves) {
+function renderDeckRow(deck) {
   const created = formatTimestamp(deck.createdAt);
   const name = deck.name?.trim() || 'Unbenanntes Deck';
 
@@ -256,18 +333,26 @@ function renderDeckRow(deck, sleeves) {
     <div class="saved-deck-row" data-deck-id="${escapeHtml(deck.id)}">
       <div class="saved-deck-info">
         <strong>${escapeHtml(name)}</strong>
+        ${cubeHtml(deck.isCube)}
         ${commanderHtml(deck.commanders)}
         ${authorHtml(deck.author)}
+        ${archetypeHtml(deck.archetypes)}
         <span class="saved-deck-meta">Gespeichert: ${escapeHtml(created)}${colorIdentityHtml(deck.colorIdentity)}</span>
-        <span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>
+        ${deck.isCube
+          ? '<span class="saved-deck-legality cube">🧊 Collection – keine Legalitätsprüfung</span>'
+          : `<span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>`}
+        <span class="saved-deck-coverage" data-deck-id="${escapeHtml(deck.id)}"></span>
       </div>
       <div class="saved-deck-actions">
-        <select class="saved-deck-sleeve-select" data-deck-id="${escapeHtml(deck.id)}" title="Karten-Sleeve für dieses Deck">
-          ${sleeveOptionsHtml(sleeves, deck.sleeveId)}
-        </select>
-        <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">Deck editieren</button>
-        <button type="button" class="analyze-deck-btn" data-deck-id="${deck.id}">Deck analysieren</button>
-        <button type="button" class="delete-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Löschen</button>
+        <div class="saved-deck-actions-row">
+          <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">Deck editieren</button>
+          <button type="button" class="analyze-deck-btn" data-deck-id="${deck.id}">Deck analysieren</button>
+        </div>
+        <div class="saved-deck-actions-row">
+          <button type="button" class="rename-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Umbenennen</button>
+          <button type="button" class="duplicate-deck-btn" data-deck-id="${deck.id}">Duplizieren</button>
+          <button type="button" class="delete-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Löschen</button>
+        </div>
       </div>
     </div>
   `;
@@ -291,11 +376,27 @@ function commanderHtml(commanders) {
   return `<span class="saved-deck-commander">👑 ${escapeHtml(commanders.join(' & '))}</span>`;
 }
 
+// Cube badge, shown read-only here — editable only in "Deck editieren"
+// (deckImportView.js), same treatment as author/sleeve.
+function cubeHtml(isCube) {
+  if (!isCube) return '';
+  return '<span class="saved-deck-cube-badge" title="Kartensammlung: keine 100-Karten-/Singleton-Regel, keine Commander-Legalität">🧊 Collection</span>';
+}
+
 // The author, shown read-only here — editable only in "Deck editieren"
 // (deckImportView.js). Renders nothing when unset (may be empty/None).
 function authorHtml(author) {
   if (!author) return '';
   return `<span class="saved-deck-author">✍️ ${escapeHtml(author)}</span>`;
+}
+
+// The deck's archetype tags, shown read-only here — editable only in
+// "Deck editieren". Falls back to the raw id if the label lookup hasn't
+// resolved yet (see `ensureArchetypeLabels`) rather than rendering nothing.
+function archetypeHtml(archetypes) {
+  if (!archetypes || !archetypes.length) return '';
+  const labels = archetypes.map((id) => (archetypeLabels && archetypeLabels[id]) || id);
+  return `<span class="saved-deck-archetypes">🎭 ${escapeHtml(labels.join(' · '))}</span>`;
 }
 
 // Color-identity pips (WUBRG order), or a colorless "C" pip for an empty
@@ -310,15 +411,6 @@ function colorIdentityHtml(colorIdentity) {
     .map((p) => `<span class="color-pip color-pip--${p.className}" title="${p.label}">${p.code}</span>`)
     .join('');
   return ` · <span class="color-identity">${pips}</span>`;
-}
-
-function sleeveOptionsHtml(sleeves, selectedSleeveId) {
-  const options = ['<option value="">Kein Sleeve</option>'];
-  for (const s of sleeves) {
-    const selected = s.sleeve_id === selectedSleeveId ? ' selected' : '';
-    options.push(`<option value="${escapeHtml(s.sleeve_id)}"${selected}>${escapeHtml(s.label)}</option>`);
-  }
-  return options.join('');
 }
 
 // Deck ids are server-generated UUIDs (no quotes/backslashes), so a

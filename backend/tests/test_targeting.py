@@ -205,3 +205,98 @@ def test_casting_is_allowed_once_a_target_exists():
     assert eng.has_legal_targets(p1, obj)
     item = eng.cast_spell(p1, obj, targets=[bear])
     assert item.obj is obj  # made it onto the stack
+
+
+# --- PLR-7: a `TargetSpec`'s best-effort good/bad hint ----------------------
+#
+# `GameEffect.target_polarity()` (game/effects.py) feeds `TargetSpec.
+# polarity` here, which `requirements_with_targets` then threads onto the
+# `cast_spell` action's own requirement dict — the wire contract
+# `services/bots.py`'s `GreedyBot` reads to point a removal spell at an
+# opponent's permanent and a pump spell at its own.
+
+
+def test_a_removal_spells_requirement_is_harmful():
+    eng, p1, p2 = two_player_engine()
+    bear = GameObject(creature("Bear"), owner_id="p2", zone=Zone.BATTLEFIELD)
+    eng.state.add_to_battlefield(bear)
+    obj = give_spell(eng, p1, instant("Murder"), [DestroyEffect()])
+    action = cast_action_for(eng, p1, obj)
+    assert action["targets"][0]["polarity"] == "harmful"
+
+
+def test_a_pump_spells_requirement_is_beneficial():
+    from mtg_analyzer.game.effects import PumpEffect
+
+    eng, p1, p2 = two_player_engine()
+    obj = give_spell(
+        eng, p1, instant("Giant Growth"),
+        [PumpEffect(power=3, toughness=3, target_kind="creature")],
+    )
+    action = cast_action_for(eng, p1, obj)
+    assert action["targets"][0]["polarity"] == "beneficial"
+
+
+def test_a_debuff_pump_spells_requirement_is_harmful():
+    from mtg_analyzer.game.effects import PumpEffect
+
+    eng, p1, p2 = two_player_engine()
+    obj = give_spell(
+        eng, p1, instant("Frost Breath"),
+        [PumpEffect(power=-2, toughness=-2, target_kind="creature")],
+    )
+    action = cast_action_for(eng, p1, obj)
+    assert action["targets"][0]["polarity"] == "harmful"
+
+
+def test_an_untargeted_effects_requirement_has_no_polarity_opinion():
+    """Not every targeting effect is classified — an unlisted shape stays
+    ``None`` rather than guessing (`GameEffect.target_polarity`'s default)."""
+    from mtg_analyzer.game.effects import RemoveCountersEffect
+
+    eng, p1, p2 = two_player_engine()
+    bear = GameObject(creature("Bear"), owner_id="p2", zone=Zone.BATTLEFIELD)
+    eng.state.add_to_battlefield(bear)
+    obj = give_spell(eng, p1, instant("Unbound"), [RemoveCountersEffect(target_kind="permanent")])
+    action = cast_action_for(eng, p1, obj)
+    assert action["targets"][0]["polarity"] is None
+
+
+def test_an_aura_with_no_pt_static_has_no_polarity_opinion():
+    """A curse Aura's synthesized "enchant" requirement (`targeting.
+    _aura_enchant_polarity`) can only read a layer-7 P/T static — a
+    keyword-only curse like Pacifism carries none, so this stays ``None``
+    (which leaves `GreedyBot`'s "prefer an opponent's permanent" default in
+    place — the right call for exactly this shape)."""
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+
+    eng, p1, _ = two_player_engine()
+    aura = GameObject(
+        Card(
+            id="Pacifism", name="Pacifism", type_line="Enchantment — Aura",
+            oracle_text="Enchant creature\n~ can't attack or block.",
+        ),
+        owner_id=p1.id, zone=Zone.HAND,
+    )
+    bind_from_catalogue(aura)
+    specs = targeting.spell_target_specs(aura)
+    assert specs and specs[0].polarity is None
+
+
+def test_an_aura_that_pumps_its_host_is_beneficial():
+    """Rancor-shaped: a real layer-7 P/T static on ``attached_permanent``
+    is a legible enough signal to flip the default (`targeting.
+    _aura_enchant_polarity`)."""
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+
+    eng, p1, _ = two_player_engine()
+    aura = GameObject(
+        Card(
+            id="Rancor", name="Rancor", type_line="Enchantment — Aura",
+            oracle_text="Enchant creature\nEnchanted creature gets +2/+0 and has trample.",
+        ),
+        owner_id=p1.id, zone=Zone.HAND,
+    )
+    bind_from_catalogue(aura)
+    specs = targeting.spell_target_specs(aura)
+    assert specs and specs[0].polarity == "beneficial"

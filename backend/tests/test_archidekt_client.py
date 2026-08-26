@@ -1,7 +1,7 @@
 """Tests for ArchidektClient (services/archidekt_client.py) and
 GET /api/import/archidekt/{deck_id}.
 
-Reference: backend/ToDo_Backend.md "Import — follow-up from the frontend".
+Reference: docs/implementation-state/Done_Backend.md "Import — follow-up from the frontend".
 """
 
 import httpx2 as httpx

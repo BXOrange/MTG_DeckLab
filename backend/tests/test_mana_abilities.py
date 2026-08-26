@@ -66,7 +66,7 @@ def _elf(name, oracle, **kw):
 class TestPerLineCostAndVariableAmounts:
     """RULE 605.1a / 602.1: a mana ability's own cost (not just {T}) and, for
     the "for each"/"equal to ... power" family, its variable amount —
-    verified against real Elf cards (see backend/ToDo_Backend.md)."""
+    verified against real Elf cards (see docs/implementation-state/BACKLOG.md)."""
 
     def test_birchlore_rangers_taps_other_elves_not_itself(self):
         card = _elf("Birchlore Rangers", "Tap two untapped Elves you control: Add one mana of any color.")
@@ -194,7 +194,7 @@ class TestLevelerGatedManaAbilities:
     is in that tier's range — mirrors `game/continuous.py`'s identical gate
     for a Leveler's *static* tiers (min_level/max_level), just applied to a
     mana ability instead. Verified against the real Joraga Treespeaker
-    (backend/ToDo_Backend.md's original example of this gap)."""
+    (docs/implementation-state/BACKLOG.md's original example of this gap)."""
 
     def _joraga(self):
         return Card(

@@ -51,6 +51,11 @@ class Card:
         is_land: Whether the card is a land.
         power: Creature power, or None if the card is not a creature.
         toughness: Creature toughness, or None if the card is not a creature.
+        vehicle_power/vehicle_toughness: RULE 208.1's printed P/T for a
+            noncreature permanent that only matters once it becomes a
+            creature by another effect (Vehicles, RULE 702.122a Crew) — None
+            for the overwhelming majority of cards, which print none while
+            noncreature. Independent of power/toughness above.
         oracle_text: The card's rules text.
         keywords: Machine-readable keyword abilities parsed out of the
             oracle text (e.g. ["Flying", "Trample"]), as reported by
@@ -113,6 +118,9 @@ class Card:
         power: Optional[int] = None,
         toughness: Optional[int] = None,
         loyalty: Optional[int] = None,
+        defense: Optional[int] = None,
+        vehicle_power: Optional[int] = None,
+        vehicle_toughness: Optional[int] = None,
         oracle_text: str = "",
         keywords: Optional[list[str]] = None,
         image_uri_small: str = "",
@@ -176,6 +184,28 @@ class Card:
         #: Printed starting loyalty for a planeswalker (RULE 606.5b), or None.
         #: A planeswalker enters with this many loyalty counters.
         self.loyalty = loyalty
+        #: Printed defense for a battle (RULE 310.4a), or None. A battle
+        #: enters with this many defense counters (310.4b) and its *current*
+        #: defense is that counter count (310.4c) — the exact shape
+        #: `loyalty` has for a planeswalker, which is why the two seed
+        #: through the same `RulesEngine._apply_entry_counters` path.
+        self.defense = defense
+        #: RULE 208.1: some noncreature permanents — Vehicles chief among
+        #: them — have power/toughness printed on the card even though
+        #: `is_creature` is False; those values matter only once something
+        #: else (Crew, RULE 702.122a) makes the permanent a creature. Kept
+        #: fully separate from `power`/`toughness` above (which stay
+        #: creature-only, per this class's own invariant) rather than
+        #: relaxing that invariant — every existing reader that treats
+        #: "power is not None" as a creature check stays correct. ``None``
+        #: for the overwhelming majority of cards, which print no P/T at
+        #: all while noncreature. MEC-29's own real trigger: without this,
+        #: `effect_binder._crew_activated_ability`'s "becomes an artifact
+        #: creature" grant had nothing to set power/toughness from, so a
+        #: freshly crewed Vehicle came in 0/0 and died to RULE 704.5f the
+        #: instant a state-based action check ran.
+        self.vehicle_power = vehicle_power
+        self.vehicle_toughness = vehicle_toughness
         self.oracle_text = oracle_text
         self.keywords = list(keywords) if keywords is not None else []
         self.image_uri_small = image_uri_small
@@ -218,6 +248,29 @@ class Card:
     def is_artifact(self) -> bool:
         """Whether the card is an artifact (derived from the type line)."""
         return "artifact" in self.type_line.lower()
+
+    @property
+    def is_battle(self) -> bool:
+        """Whether the card is a battle (RULE 310, a card type).
+
+        Read off the type line like `is_planeswalker`/`is_artifact` above —
+        Scryfall gives no boolean for it either. "Battle" is a card type,
+        never a subtype, so a bare substring test can't false-positive off
+        another card's subtype line the way it could for e.g. "Saga".
+        """
+        return "battle" in self.type_line.lower()
+
+    @property
+    def is_siege(self) -> bool:
+        """Whether the card is a Siege (RULE 310.11, the only battle subtype
+        that currently exists on a real card).
+
+        Sieges are the subtype that gets a protector chosen on entry
+        (310.11a) and that exiles-and-casts-itself-transformed when defeated
+        (310.11b); a battle of any *other* subtype does neither, so the
+        engine branches on this rather than on `is_battle`.
+        """
+        return self.is_battle and "siege" in self.type_line.lower()
 
     @property
     def is_saga(self) -> bool:
@@ -360,7 +413,14 @@ class Card:
         return "enchantment" in self.type_line.lower()
 
     def as_copy(
-        self, add_types: Optional[list[str]] = None, add_subtypes: Optional[list[str]] = None
+        self,
+        add_types: Optional[list[str]] = None,
+        add_subtypes: Optional[list[str]] = None,
+        not_legendary: bool = False,
+        only_types: Optional[list[str]] = None,
+        add_keywords: Optional[list[str]] = None,
+        set_power: Optional[int] = None,
+        set_toughness: Optional[int] = None,
     ) -> "Card":
         """This card's *copiable values* (RULE 706.2), as a fresh `Card`.
 
@@ -375,9 +435,34 @@ class Card:
         ``add_types``/``add_subtypes`` model a card's own "except it's a(n)
         X in addition to its other types" clause (Copy Artifact's
         "enchantment", Phantasmal Image's "Illusion") — types are inserted
-        before the type line's em dash, subtypes after it.
+        before the type line's em dash, subtypes after it. ``not_legendary``
+        (RULE 205.4a, the "except it isn't legendary" family — Multiversal
+        Recruitment/Hall of Mirrors-shaped) strips the Legendary supertype
+        from both `is_legendary` and the printed type line, since some
+        board/legality surfaces read the word directly rather than the flag.
+        ``only_types`` is the "…except it loses all other card types" sibling
+        of ``add_types`` (Imposter Mech-shaped) — replaces the type line's
+        whole main-type portion (and drops the copied creature's own
+        subtypes along with it, same "other card types" clause) instead of
+        appending; ``add_subtypes`` still applies on top, for a card that
+        both strips the original types *and* adds its own (Vehicle).
+        ``set_power``/``set_toughness`` (The Jolly Balloon Man, MEC-40 —
+        "…except it's a 1/1 red Balloon creature…") override the copied
+        creature's own printed P/T outright, applied last so they win over
+        whatever the copied card printed.
+        ``add_keywords`` appends raw keyword strings onto the copy (Flesh
+        Duplicate's conditional Vanishing, Imposter Mech's Crew) — RULE
+        707.2 replaces the original's printed text with the copied object's,
+        so a keyword the "except" clause grants has to be re-added here
+        rather than assumed to survive.
         """
         type_line = self.type_line
+        if only_types is not None:
+            _, dash, sub = type_line.partition("—")
+            type_line = " ".join(only_types).strip()
+            if add_subtypes:
+                type_line = f"{type_line} — {' '.join(add_subtypes)}".strip()
+            add_subtypes = None  # already folded in above
         if add_types:
             main, dash, sub = type_line.partition("—")
             type_line = f"{main.strip()} {' '.join(add_types)}".strip()
@@ -387,6 +472,54 @@ class Card:
             main, dash, sub = type_line.partition("—")
             sub = f"{sub.strip()} {' '.join(add_subtypes)}".strip()
             type_line = f"{main.strip()} — {sub}" if dash or sub else main.strip()
+        is_legendary = self.is_legendary
+        if not_legendary:
+            is_legendary = False
+            main, dash, sub = type_line.partition("—")
+            main = re.sub(r"\bLegendary\b\s*", "", main).strip()
+            type_line = f"{main} — {sub.strip()}" if dash else main
+        is_creature = self.is_creature
+        power, toughness = self.power, self.toughness
+        vehicle_power, vehicle_toughness = self.vehicle_power, self.vehicle_toughness
+        if only_types is not None:
+            is_creature = "creature" in {t.lower() for t in only_types} | {
+                t.lower() for t in (add_types or [])
+            }
+            if not is_creature and self.is_creature:
+                # RULE 208.1: a noncreature can't carry `power`/`toughness`
+                # (`Card.__init__`'s own invariant) — the copied creature's
+                # P/T is still copiable (RULE 706.2), it just moves to the
+                # vehicle-style slot a Vehicle's printed P/T lives in, same
+                # as `_crew_activated_ability`'s own read of this field.
+                vehicle_power, vehicle_toughness = self.power, self.toughness
+                power, toughness = None, None
+        if set_power is not None:
+            power = set_power
+        if set_toughness is not None:
+            toughness = set_toughness
+        keywords = list(self.keywords)
+        oracle_text = self.oracle_text
+        if add_keywords:
+            # `keywords_of` (combat.py) reads the bare-name list above for
+            # the evasion-type subset — Scryfall's own ``keywords`` array
+            # never carries a parametric keyword's number (`Aven
+            # Riftwatcher`'s is ``['Flying', 'Vanishing']``, not
+            # ``'Vanishing 3'``), and `parse_keywords` (`catalogue/
+            # keywords.py`) slug-matches each entry verbatim — a number
+            # baked into the string fails that match entirely. So the list
+            # gets each entry's bare name (first word); the full string
+            # (with its number) goes into `oracle_text` instead, where a
+            # keyword needing its own bound ability (Vanishing's upkeep
+            # trigger, Crew's activation) is actually read from — only
+            # reachable by re-parsing text (`effect_binder.bind_from_
+            # catalogue`, called right after this by `become_copy`), so the
+            # grant has to show up there too, as a plain new keyword line,
+            # exactly like a printed card's own.
+            bare_names = [k.split()[0] for k in add_keywords]
+            keywords.extend(n for n in bare_names if n not in keywords)
+            new_lines = [k for k in add_keywords if k.lower() not in (oracle_text or "").lower()]
+            if new_lines:
+                oracle_text = f"{oracle_text}\n" + "\n".join(new_lines) if oracle_text else "\n".join(new_lines)
         return Card(
             id=self.id,
             name=self.name,
@@ -395,22 +528,25 @@ class Card:
             mana_cost_string=self.mana_cost_string,
             converted_mana_cost=self.converted_mana_cost,
             color_identity=set(self.color_identity),
-            is_creature=self.is_creature,
+            is_creature=is_creature,
             is_instant=self.is_instant,
             is_sorcery=self.is_sorcery,
             is_land=self.is_land,
-            power=self.power,
-            toughness=self.toughness,
+            power=power,
+            toughness=toughness,
             loyalty=self.loyalty,
-            oracle_text=self.oracle_text,
-            keywords=list(self.keywords),
+            defense=self.defense,
+            vehicle_power=vehicle_power,
+            vehicle_toughness=vehicle_toughness,
+            oracle_text=oracle_text,
+            keywords=keywords,
             image_uri_small=self.image_uri_small,
             image_uri_normal=self.image_uri_normal,
             image_uri_large=self.image_uri_large,
             image_uri_png=self.image_uri_png,
             set_code=self.set_code,
             rarity=self.rarity,
-            is_legendary=self.is_legendary,
+            is_legendary=is_legendary,
             layout=self.layout,
             back_name=self.back_name,
             back_type_line=self.back_type_line,
@@ -540,6 +676,9 @@ class Card:
             "power": self.power,
             "toughness": self.toughness,
             "loyalty": self.loyalty,
+            "defense": self.defense,
+            "vehicle_power": self.vehicle_power,
+            "vehicle_toughness": self.vehicle_toughness,
             "oracle_text": self.oracle_text,
             "keywords": list(self.keywords),
             "image_uri_small": self.image_uri_small,
@@ -585,6 +724,9 @@ class Card:
             power=data.get("power"),
             toughness=data.get("toughness"),
             loyalty=data.get("loyalty"),
+            defense=data.get("defense"),
+            vehicle_power=data.get("vehicle_power"),
+            vehicle_toughness=data.get("vehicle_toughness"),
             oracle_text=data.get("oracle_text", ""),
             keywords=data.get("keywords"),
             image_uri_small=data.get("image_uri_small", ""),

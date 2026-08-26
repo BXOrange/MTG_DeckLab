@@ -270,6 +270,45 @@ class TestSubmitDeck:
         assert body["validation"]["bannedCardNames"] == ["Black Lotus"]
         assert body["validation"]["colorIdentityViolationNames"] == []
 
+    def test_is_cube_skips_structural_and_legality_checks(self):
+        black_lotus = {
+            "id": "99999999-9999-9999-9999-999999999999",
+            "name": "Black Lotus",
+            "mana_cost": "{0}",
+            "cmc": 0.0,
+            "type_line": "Artifact",
+            "oracle_text": "",
+            "colors": [],
+            "color_identity": [],
+            "keywords": [],
+            "set": "lea",
+            "rarity": "rare",
+            "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [KRENKO, CULTIVATE, black_lotus], "not_found": []})
+
+        _override_loader(handler)
+        response = client.post(
+            "/api/decks",
+            json={
+                "commanderText": "1 Krenko, Mob Boss",
+                # Wrong count, a duplicate, a color-identity violator, and a
+                # banned card — none of it should matter for a cube.
+                "mainboardText": "2 Cultivate\n1 Black Lotus\n",
+                "isCube": True,
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["totalCount"] == 4
+        assert body["validation"]["isLegal"] is True
+        assert body["validation"]["errors"] == []
+        assert body["validation"]["bannedCardNames"] == []
+        assert body["validation"]["colorIdentityViolationNames"] == []
+
     def test_mdfc_back_face_color_outside_identity_is_reported(self):
         # Valki (front face) is mono-black, matching the commander — but
         # the card's true color identity also includes Tibalt's red

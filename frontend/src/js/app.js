@@ -2,7 +2,7 @@ import { renderDeckImportView } from './deckImportView.js';
 import { renderImportDeckView } from './importDeckView.js';
 import { createGoldfishView } from './goldfishView.js';
 import { createReplayView } from './replayView.js';
-import { renderMultiplayerView } from './multiplayerView.js';
+import { createMultiplayerView } from './multiplayerView.js';
 import { renderCachedCardsView } from './cachedCardsView.js';
 import { renderSavedDecksView } from './savedDecksView.js';
 import { renderAnalyzeView } from './analyzeView.js';
@@ -31,7 +31,8 @@ const views = {
   analyze: document.getElementById('view-analyze'),
   goldfish: document.getElementById('view-goldfish'),
   replay: document.getElementById('view-replay'),
-  multiplayer: document.getElementById('view-multiplayer'),
+  mpSetup: document.getElementById('view-mp-setup'),
+  mpBoard: document.getElementById('view-mp-board'),
   cache: document.getElementById('view-cache'),
   connection: document.getElementById('view-connection'),
   profile: document.getElementById('view-profile'),
@@ -54,10 +55,21 @@ function showTab(tabName) {
     if (hasActive) group.classList.add('expanded');
     group.querySelector('.nav-group-toggle').classList.toggle('has-active', hasActive);
   }
+  // Multiplayer presence: being in one of its tabs is "verfügbar", anywhere
+  // else is "online" (see services/lobby.py). Only the multiplayer
+  // controller cares, and only once it exists — this runs on the initial
+  // showTab() call below too, before it's created.
+  if (tabName !== 'mpSetup' && tabName !== 'mpBoard') multiplayerRef?.onHidden();
 }
 
+//: Set once the controller below is built; `showTab` runs before that.
+let multiplayerRef = null;
+
 tabButtons.forEach((btn) => {
-  btn.addEventListener('click', () => showTab(btn.dataset.tab));
+  btn.addEventListener('click', () => {
+    if (btn.disabled) return;
+    showTab(btn.dataset.tab);
+  });
 });
 
 navGroups.forEach((group) => {
@@ -84,10 +96,31 @@ views.goldfish.addEventListener('view-shown', () => goldfish.onShown());
 const replay = createReplayView();
 replay.mount(views.replay);
 views.replay.addEventListener('view-shown', () => replay.onShown());
-renderMultiplayerView(views.multiplayer);
+// Multiplayer is one controller behind two tabs: "Setup" (the lobby and
+// game configuration) and "Board" (the shared game). The Board tab starts
+// disabled — there is nothing to render without a game — and the controller
+// enables it via `onBoardAvailable` once this client is at a table. Like the
+// goldfish/replay controllers it persists across tab switches, since the
+// lobby WebSocket it holds *is* this client's presence.
+const mpBoardTab = document.querySelector('.tab-button[data-tab="mpBoard"]');
+const multiplayer = createMultiplayerView({
+  onBoardAvailable: (available) => {
+    mpBoardTab.disabled = !available;
+    mpBoardTab.title = available ? '' : 'Erst verfügbar, wenn du in einem Spiel bist';
+    // Don't strand the user on a tab that just went away.
+    if (!available && mpBoardTab.classList.contains('active')) showTab('mpSetup');
+  },
+  onEnterBoard: () => showTab('mpBoard'),
+});
+multiplayerRef = multiplayer;
+multiplayer.mountSetup(views.mpSetup);
+multiplayer.mountBoard(views.mpBoard);
+views.mpSetup.addEventListener('view-shown', () => multiplayer.onShown('setup'));
+views.mpBoard.addEventListener('view-shown', () => multiplayer.onShown('board'));
 
 renderCachedCardsView(views.cache);
 const analyzeView = renderAnalyzeView(views.analyze);
+views.analyze.addEventListener('view-shown', () => analyzeView.onShown());
 renderSavedDecksView(views.savedDecks, {
   onLoadDeck: (deck) => {
     importView.loadDeck(deck);
@@ -102,4 +135,4 @@ renderConnectionSettingsView(views.connection);
 renderProfileView(views.profile);
 renderImplementationStatusView(views.status);
 
-showTab('import');
+showTab('savedDecks');

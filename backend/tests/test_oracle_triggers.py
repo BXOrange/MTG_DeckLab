@@ -22,7 +22,7 @@ from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.effects import DrawCardEffect, TriggeredAbility
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.parser.oracle import UNMODELED, parse_oracle
+from mtg_analyzer.parser.oracle import MODELED, UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import _trigger_condition
 
 
@@ -115,10 +115,16 @@ def test_unrecognized_subject_stays_unclaimed():
     assert _trigger_condition("you cast a spell") is None
 
 
-def test_whenever_you_cast_a_spell_stays_unmodeled():
+def test_whenever_you_cast_a_spell_is_modeled():
+    # MEC-12 fourth pass (2026-08-10): `_CAST_SPELL_TRIGGER_PLAIN_RE` closed
+    # this gap with its own whole-line recognizer (bypassing
+    # `_trigger_condition` the same way the typed cast-spell trigger already
+    # does), so the untyped "whenever you cast a spell" is claimed now —
+    # `_trigger_condition`'s own object-subject grammar above still
+    # (correctly) doesn't recognize it as a bare subject phrase.
     r = parse_oracle(perm("Caster", "Whenever you cast a spell, draw a card."))
-    assert r.coverage == UNMODELED
-    assert not any(s.ability_kind == "triggered" for s in r.specs)
+    assert r.coverage == MODELED
+    assert any(s.ability_kind == "triggered" for s in r.specs)
 
 
 # ---------------------------------------------------------------------------

@@ -60,11 +60,18 @@ def test_regenerate_self_forms_are_recognized():
         assert spec.type == "regenerate" and spec.params == {"target_kind": None}
 
 
-def test_regenerate_subtype_filtered_target_stays_unclaimed():
-    # Ezuri, Renegade Leader's "Regenerate another target Elf" needs a
-    # subtype-filtered target the shared TARGET grammar doesn't have —
-    # fails closed rather than dropping the "Elf"/"another" restriction.
-    assert parse_effect_body("regenerate another target elf") is None
+def test_regenerate_subtype_filtered_target_is_recognized():
+    # Ezuri, Renegade Leader's "Regenerate another target Elf" — a
+    # subtype-filtered target, `_regenerate_another_target`'s own row
+    # rather than the shared TARGET grammar (which has no subtype slot).
+    # "another" needs no explicit exclusion: the plain "creature" target
+    # kind already excludes the ability's own source unconditionally.
+    (spec,) = parse_effect_body("regenerate another target elf")
+    assert spec.type == "regenerate"
+    assert spec.params == {
+        "target_kind": "creature",
+        "creature_filter": {"subtype": "Elf"},
+    }
 
 
 # ---------------------------------------------------------------------------

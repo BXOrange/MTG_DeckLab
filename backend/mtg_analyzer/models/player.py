@@ -17,6 +17,7 @@ from __future__ import annotations
 import random
 from typing import Any, Optional
 
+from .emblem import Emblem
 from .game_object import GameObject, Zone
 from .mana_pool import ManaPool
 
@@ -65,6 +66,31 @@ class Player:
         #: Per-turn flags, reset by the engine at the start of each turn.
         self.lands_played_this_turn = 0
         self.max_lands_per_turn = 1
+        #: RULE 305.2: a one-turn "you may play an additional land this
+        #: turn" grant (`ExtraLandPlayEffect`, Explore/Escape to the Wilds-
+        #: shaped) — reset to 0 each turn (`GameEngine.begin_turn`) alongside
+        #: `lands_played_this_turn`; `GameEngine.can_play_land` adds it to
+        #: the per-turn cap on top of the standing `"extra_land_drop"` static
+        #: grant (`game/continuous.py`'s `extra_land_plays_for`).
+        self.extra_land_plays_this_turn = 0
+
+        #: "Until end of turn, you may play lands and cast spells from
+        #: your graveyard." (Yawgmoth's Will-shaped, MEC-12) — the turn
+        #: number this permission was granted for; a stamped value
+        #: naturally "expires" the moment `GameState.turn_number` moves on,
+        #: so nothing needs to reset it back to ``None``. Read by
+        #: `game/graveyard_cast.py`'s `has_temporary_graveyard_play_
+        #: permission`.
+        self.graveyard_play_permission_until_turn: Optional[int] = None
+        #: "If a card would be put into your graveyard from anywhere this
+        #: turn, exile that card instead." (Yawgmoth's Will's own second
+        #: clause) — the player-scoped, turn-limited sibling of
+        #: `GameObject.cast_via_graveyard_cast_permission_until_turn`
+        #: (which only ever catches the one spell cast via its own
+        #: permission); checked directly in `RulesEngine._move_to_graveyard`
+        #: against whichever player *owns* the card, since a card only ever
+        #: enters its own owner's graveyard (RULE 404.4/700.4).
+        self.graveyard_redirect_to_exile_until_turn: Optional[int] = None
 
         #: Whether this player has lost (RULE 104.3). Kept distinct from
         #: removal from the game so history/UI can show the reason.
@@ -89,6 +115,69 @@ class Player:
         #: e.g. "skip your next untap step", "you can't lose the game".
         #: The rules engine reads these; see game/effects.py.
         self.player_effects: list[Any] = []
+
+        #: Emblems this player owns and controls (RULE 114.2), created by
+        #: `RulesEngine.create_emblem`. See `models/emblem.py`.
+        self.emblems: list[Emblem] = []
+
+        #: RULE 904.5: this player's face-down scheme deck, when they are the
+        #: archenemy of an Archenemy game (empty for everyone else). Top of
+        #: the deck is the **end** of the list, the same convention `library`
+        #: uses.
+        self.scheme_deck: list[GameObject] = []
+        #: RULE 904.9: schemes that have been set in motion and stay face up
+        #: — an *ongoing* scheme's abilities keep functioning until it's
+        #: abandoned (904.11). A non-ongoing scheme never lands here: its one
+        #: ability fires and the card goes straight back under the deck
+        #: (904.10).
+        self.ongoing_schemes: list[GameObject] = []
+        #: RULE 902.2: this player's Vanguard avatar, face up in the command
+        #: zone for the whole game with its abilities functioning from there
+        #: (902.4). ``None`` outside a Vanguard game.
+        self.vanguard: Optional[GameObject] = None
+        #: RULE 902.3: the avatar's own maximum-hand-size modifier, applied
+        #: once as the game starts and kept here so the cleanup step's
+        #: discard-to-hand-size check can read it.
+        self.hand_size_modifier: int = 0
+
+        #: RULE 309.2b/309.3: the one dungeon card this player owns in the
+        #: command zone, with their venture marker on it — ``None`` while
+        #: they're not in a dungeon. A player can own only one at a time
+        #: (309.3), which is why this is a single slot rather than a list;
+        #: it's put here by `RulesEngine.venture_into_the_dungeon` and
+        #: removed as the dungeon is completed (309.6/309.7).
+        self.dungeon: Optional[Any] = None
+        #: RULE 309.7: the names of the dungeons this player has completed
+        #: this game, in order. Kept because "if you've completed a dungeon"
+        #: / "whenever you complete a dungeon" are real card conditions, and
+        #: because a completed dungeon leaves the game (309.6) so nothing
+        #: else would remember it.
+        self.completed_dungeons: list[str] = []
+
+        #: RULE 701.51a "The Ring tempts you": how many times this player has
+        #: been tempted, 0–4. The Ring emblem gains its four abilities one at
+        #: a time in printed order, cumulatively, so the level *is* the
+        #: emblem — no `Emblem` object is created for it, because unlike a
+        #: RULE 114 emblem its abilities are fixed by the rules rather than
+        #: quoted on a card, and they all read live state
+        #: (`ring_bearer_id`). Applied by `RulesEngine.the_ring_tempts_you`,
+        #: read by `RulesEngine._collect_inherent_triggers` (levels 2–4) and
+        #: `game/continuous.py` (level 1).
+        self.ring_level: int = 0
+        #: RULE 701.52a: the `GameObject.instance_id` of this player's
+        #: Ring-bearer, or ``None`` while they control no creature to be
+        #: one. Re-chosen every time the Ring tempts them; cleared by the
+        #: SBA sweep when that creature stops being a creature they control.
+        self.ring_bearer_id: Optional[int] = None
+
+        #: RULE 702.131c: "the city's blessing" — a onetime designation
+        #: granted by Ascend (702.131a/b), unlike Monarch/Initiative not a
+        #: single shared holder (`GameState.monarch_id`/`initiative_id`) but
+        #: a plain per-player flag: "any number of players may have the
+        #: city's blessing at the same time", and once granted it's kept
+        #: "for the rest of the game" (never cleared). Set by
+        #: `RulesEngine.get_city_blessing`.
+        self.has_city_blessing: bool = False
 
     # -- Zone accessors --------------------------------------------------
 
@@ -156,6 +245,22 @@ class Player:
         entry = self.commander_damage.setdefault(commander_id, {"name": name, "amount": 0})
         entry["amount"] += amount
 
+    def add_counters(self, kind: str, amount: int = 1) -> None:
+        """Mutate this player's counters (RULE 122): ``kind="poison"`` maps
+        onto the dedicated `poison` attribute (RULE 704.5c's loss condition
+        reads it directly); any other kind (energy/experience/…) is a
+        generic `counters` entry — the player-level mirror of
+        `GameObject.add_counters`'s "+1/+1" special-case.
+        """
+        if kind == "poison":
+            self.poison = max(0, self.poison + amount)
+            return
+        total = self.counters.get(kind, 0) + amount
+        if total > 0:
+            self.counters[kind] = total
+        else:
+            self.counters.pop(kind, None)
+
     def lose_life(self, amount: int) -> None:
         self.life -= amount
 
@@ -174,6 +279,24 @@ class Player:
             "has_lost": self.has_lost,
             "loss_reason": self.loss_reason,
             "commander_damage": {str(k): v for k, v in self.commander_damage.items()},
+            "emblems": [e.to_dict() for e in self.emblems],
+            # RULE 309: the dungeon card in this player's command zone (with
+            # their venture marker's current room), and every dungeon they
+            # have completed this game (309.7).
+            "dungeon": self.dungeon.to_dict() if self.dungeon is not None else None,
+            "completed_dungeons": list(self.completed_dungeons),
+            # RULE 902/904: the Vanguard avatar and the Archenemy scheme
+            # state. The scheme deck ships as a count only — its cards are
+            # face down (RULE 904.5), so their identity must not leave the
+            # process any more than a library's does.
+            "vanguard": self.vanguard.to_dict() if self.vanguard is not None else None,
+            "scheme_deck_count": len(self.scheme_deck),
+            "ongoing_schemes": [obj.to_dict() for obj in self.ongoing_schemes],
+            # RULE 701.51/701.52: the Ring's level (0–4) and who carries it.
+            "ring_level": self.ring_level,
+            "ring_bearer_id": self.ring_bearer_id,
+            # RULE 702.131c: the city's blessing designation (Ascend).
+            "has_city_blessing": self.has_city_blessing,
             "library_count": len(self.library),
             "hand_count": len(self.hand),
             "hand": [obj.to_dict() for obj in self.hand],

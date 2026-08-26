@@ -107,6 +107,9 @@ class TestSerialization:
             "author",
             "colorIdentity",
             "commanders",
+            "isCube",
+            "archetypes",
+            "favoriteCards",
         }
 
     def test_from_dict_missing_optional_fields_uses_defaults(self):

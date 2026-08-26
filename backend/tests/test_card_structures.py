@@ -5,6 +5,7 @@ import pytest
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.game_state import StackItem
 from mtg_analyzer.game import combat
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
@@ -58,6 +59,64 @@ def test_copy_effect_end_to_end_via_registry():
     assert len(clones) == 1
 
 
+# -- Copy of a copy (RULE 707.2, ENG-6/ENG-10) -------------------------------
+# A copy effect that applies to an object whose copiable values were already
+# changed by a *previous* copy effect must see the current values, not the
+# pristine printed card underneath — regardless of which of this engine's
+# three copy mechanisms (one-shot ETB, conditional/continuous, "until end of
+# turn") produced that previous change.
+
+
+def test_copy_permanent_of_an_already_copied_object_sees_its_current_form():
+    eng = make_engine()
+    original = _put(eng, creature("Grave Titan", power=6, toughness=6, keywords=["Deathtouch"]))
+    shifted = _put(eng, creature("Vesuvan Shapeshifter", power=3, toughness=3))
+
+    from mtg_analyzer.game import copy_mechanics
+
+    copy_mechanics.become_copy(shifted, original)
+    assert shifted.card.name == "Grave Titan"
+
+    clones = eng.rules.copy_permanent("p1", shifted)
+    clone = clones[0]
+    assert clone.name == "Grave Titan"
+    assert (clone.power, clone.toughness) == (6, 6)
+
+
+def test_become_copy_chains_through_a_previous_copy():
+    eng = make_engine()
+    from mtg_analyzer.game import copy_mechanics
+
+    original = _put(eng, creature("Grave Titan", power=6, toughness=6))
+    middle = _put(eng, creature("Vesuvan Shapeshifter", power=3, toughness=3))
+    third = _put(eng, creature("Clever Impersonator", power=3, toughness=3))
+
+    copy_mechanics.become_copy(middle, original)
+    copy_mechanics.become_copy(third, middle)  # a copy of a copy
+
+    assert third.card.name == "Grave Titan"
+    assert (third.power, third.toughness) == (6, 6)
+
+
+def test_restoring_a_reverted_conditional_copy_also_restores_front_card_tracking():
+    # Reverting a conditional/continuous copy (`continuous._apply_copy_layer`)
+    # must undo the `_front_card` bookkeeping `become_copy` now keeps in sync
+    # too, or the object would misreport its copiable values afterward.
+    eng = make_engine()
+    from mtg_analyzer.game import copy_mechanics
+
+    original = _put(eng, creature("Grave Titan", power=6, toughness=6))
+    src = _put(eng, creature("Vesuvan Shapeshifter", power=3, toughness=3))
+
+    snapshot = copy_mechanics.snapshot_face(src)
+    copy_mechanics.become_copy(src, original)
+    assert src.card.name == "Grave Titan"
+
+    copy_mechanics.restore_face(src, snapshot)
+    assert src.card.name == "Vesuvan Shapeshifter"
+    assert src._front_card.name == "Vesuvan Shapeshifter"
+
+
 # -- DFC transform (RULE 712) ------------------------------------------------
 
 
@@ -90,6 +149,23 @@ def test_transform_swaps_faces_and_is_reversible():
     assert obj.transform() is True
     assert not obj.transformed
     assert obj.name == "Delver of Secrets"
+
+
+def test_has_back_face_stays_true_in_the_wire_view_across_a_transform():
+    # The frontend's "🔄 peek other face" toggle (gameBoardView.js) needs
+    # this to decide whether to offer the button at all — it must stay
+    # true once transformed too, not just on the untransformed front.
+    eng = make_engine()
+    obj = _put(eng, _werewolf())
+    assert obj.to_dict()["has_back_face"] is True
+    obj.transform()
+    assert obj.to_dict()["has_back_face"] is True
+
+
+def test_has_back_face_is_false_for_an_ordinary_creature():
+    eng = make_engine()
+    obj = _put(eng, creature("Bear"))
+    assert obj.to_dict()["has_back_face"] is False
 
 
 def test_transform_is_noop_without_a_back_face():
@@ -144,6 +220,45 @@ def test_saga_not_sacrificed_before_final_chapter():
     assert saga in eng.state.battlefield
 
 
+def test_saga_sacrifice_is_not_blocked_by_an_unrelated_stack_item():
+    """RULE 714.4: the sacrifice check must key off *this Saga's own*
+    chapter trigger, not "is the stack empty at all" — an opponent's
+    unrelated spell/ability sitting on the stack must not delay it."""
+    eng = make_engine()
+    saga = _put(eng, _saga())
+    saga.counters["lore"] = 3  # already at its final chapter, no trigger pending
+    eng.state.stack.append(StackItem(kind="spell", controller_id="p2", description="Lightning Bolt"))
+    eng.rules.check_state_based_actions()
+    assert saga not in eng.state.battlefield
+    assert saga in eng.state.player_by_id("p1").graveyard
+
+
+def test_saga_sacrifice_is_still_blocked_by_its_own_pending_chapter():
+    eng = make_engine()
+    eng.begin_turn()
+    saga = _saga_in_play(eng, _saga())
+    saga.counters["lore"] = 3  # final chapter reached...
+    assert eng.rules.put_triggers_on_stack() == 1  # ...but chapter I's own trigger is still on the stack
+    eng.rules.check_state_based_actions()
+    assert saga in eng.state.battlefield
+    eng.rules.resolve_top_of_stack()
+    eng.rules.check_state_based_actions()
+    assert saga not in eng.state.battlefield
+
+
+def test_advance_sagas_runs_at_precombat_main_not_the_draw_step():
+    """RULE 714.3c: the lore counter is a turn-based action as the
+    controller's precombat main phase begins — not off the draw step."""
+    eng = make_engine()
+    eng.begin_turn()
+    saga = _put(eng, _saga())
+    assert saga.lore == 1
+    eng._step_draw()
+    assert saga.lore == 1  # unchanged — the draw step no longer advances it
+    eng._step_main1()
+    assert saga.lore == 2
+
+
 def _saga_in_play(eng, card, controller="p1"):
     """Like `_put`, but binds the card's chapter abilities first (RULE 714.2d)
     — `add_to_battlefield` fires chapter I's `SAGA_CHAPTER` the moment it's
@@ -190,6 +305,99 @@ def test_saga_chapter_iii_group_pumps_creatures_you_control():
     assert bear.temp_power == 2 and bear.temp_toughness == 1
     for knight in knights:
         assert knight.temp_power == 2 and knight.temp_toughness == 1
+
+
+def _saga_read_ahead(name="Rally to Battle"):
+    # Chapters I and II are distinguishable tokens on purpose (RULE 702.155a:
+    # a skipped chapter never fires at all, so "one token" alone wouldn't
+    # prove *which* chapter produced it).
+    return Card(
+        id=name, name=name, type_line="Enchantment — Saga",
+        keywords=["Read Ahead"],
+        oracle_text=(
+            "Read ahead\n"
+            "I — Create a 1/1 white Soldier creature token.\n"
+            "II — Create a 2/2 white Knight creature token with vigilance.\n"
+            "III — Creatures you control get +2/+1 until end of turn."
+        ),
+    )
+
+
+def test_read_ahead_offers_a_choice_of_starting_chapter():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _saga_read_ahead())
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+
+    pending = eng.state.pending_choice
+    assert pending and pending["kind"] == "read_ahead"
+    assert obj not in eng.state.battlefield  # paused before entering
+    assert [o["id"] for o in pending["options"]] == ["1", "2", "3"]
+
+
+def test_read_ahead_choosing_two_enters_at_chapter_ii_only_skipping_chapter_i():
+    """RULE 702.155a: only the chapter matching the chosen count fires — a
+    skipped lower chapter never triggers, not even delayed."""
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _saga_read_ahead())
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+
+    eng.resolve_pending_choice("2")
+
+    assert obj in eng.state.battlefield
+    assert obj.lore == 2
+    names = sorted(o.name for o in eng.state.battlefield if o.is_token)
+    assert names == ["Knight"]  # chapter II fired; chapter I's Soldier never did
+
+
+def test_read_ahead_choosing_one_behaves_like_an_ordinary_saga():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _saga_read_ahead())
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+
+    eng.resolve_pending_choice("1")
+
+    assert obj.lore == 1
+    names = sorted(o.name for o in eng.state.battlefield if o.is_token)
+    assert names == ["Soldier"]
+
+
+def test_read_ahead_choosing_the_final_chapter_skips_every_other_chapter():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _saga_read_ahead())
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+
+    eng.resolve_pending_choice("3")
+
+    assert obj.lore == 3
+    assert not any(o.is_token for o in eng.state.battlefield)  # neither I nor II fired
+    # Final chapter reached with none of its own triggers left on the stack
+    # (chapter III's own pump already resolved via resolve_until_stable) —
+    # sacrificed by the SBA (RULE 704.5x/714.4).
+    assert obj not in eng.state.battlefield
+    assert obj in eng.state.player_by_id("p1").graveyard
+
+
+def test_saga_without_read_ahead_never_opens_that_choice():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _saga())  # no "Read Ahead" keyword
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+    assert obj in eng.state.battlefield
+    assert obj.lore == 1
 
 
 # -- Leveler (RULE 711) ------------------------------------------------------
@@ -292,6 +500,36 @@ def test_leveler_tier_pt_and_keywords_are_level_gated():
     assert eng.rules.put_triggers_on_stack() == 0
 
 
+def _leveler_with_base_ability(name="Test Anthem Dragon"):
+    """RULE 711.4: a non-keyword ability printed *before* the first LEVEL
+    tier is "treated normally" — unconditional, not gated by the current
+    level at all (unlike a tier's own P/T/keywords/triggers)."""
+    return Card(
+        id=name, name=name, type_line="Creature — Dragon", is_creature=True,
+        power=1, toughness=1, keywords=["Level Up"],
+        oracle_text=(
+            "Level up {1}{R} (Level up only as a sorcery.)\n"
+            "Other creatures you control get +1/+1.\n"
+            "LEVEL 2-6\n2/2\n"
+            "LEVEL 7+\n6/6\nFlying"
+        ),
+    )
+
+
+def test_leveler_base_ability_is_unconditional_at_every_level():
+    eng = make_engine()
+    dragon = _leveler_in_play(eng, _leveler_with_base_ability())
+    bear = _put(eng, creature("Bear"))
+    eng.recompute_continuous_effects()
+    assert dragon.level == 0
+    assert (bear.power, bear.toughness) == (3, 3)  # anthem already active at level 0
+
+    dragon.counters["level"] = 7
+    eng.recompute_continuous_effects()
+    assert (bear.power, bear.toughness) == (3, 3)  # still active well past its own tiers
+    assert combat.has(dragon, "flying")  # and the tier grant still applies alongside it
+
+
 # -- Class (RULE 716) ---------------------------------------------------------
 
 
@@ -350,6 +588,63 @@ def test_class_level_up_must_go_in_order_and_is_sorcery_speed():
     # Cumulative: the level-2 anthem is still active alongside level 3's grant.
     assert (bear.power, bear.toughness) == (3, 3)
     assert combat.has(bear, "trample")
+
+
+def _class_card_with_one_shot_triggers(name="Test Talent"):
+    """RULE 716.4c-adjacent: a level whose body is a one-shot "When this
+    Class becomes level N, <effect>." trigger rather than an ordinary
+    cumulative static/keyword grant — and a preamble "When this Class
+    enters, <effect>." ETB trigger (RULE 716's own version of RULE 603.1's
+    ordinary self-ETB shape, which excludes "this Class"/"this Saga" from
+    the generic ``~``-folding on purpose — see `normalize.py`)."""
+    return Card(
+        id=name, name=name, type_line="Enchantment — Class",
+        oracle_text=(
+            "(Gain the next level as a sorcery to add its ability.)\n"
+            "When this Class enters, create a 2/2 green Wolf creature token.\n"
+            "{1}{G}: Level 2\nWhen this Class becomes level 2, draw two cards."
+        ),
+    )
+
+
+def test_class_enters_trigger_fires_on_etb():
+    # `_class_in_play` places the object directly (like `_saga_in_play`/
+    # `_leveler_in_play`), which skips `ENTERS_BATTLEFIELD` entirely — that
+    # event is only fired by the real cast-resolution path
+    # (`RulesEngine._resolve_permanent_spell`), so this needs an actual cast.
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _class_card_with_one_shot_triggers())
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+    wolves = [o for o in eng.state.battlefield if o is not obj]
+    assert len(wolves) == 1 and wolves[0].is_token and wolves[0].name == "Wolf"
+
+
+def test_class_becomes_level_trigger_is_a_one_shot_not_a_cumulative_grant():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    for i in range(2):
+        p1.library.append(GameObject(creature(f"Filler {i}"), owner_id="p1", zone=Zone.LIBRARY))
+    cls = _in_hand(eng, _class_card_with_one_shot_triggers())
+    bind_from_catalogue(cls)
+    eng.cast_spell(p1, cls)
+    eng.resolve_until_stable()  # drain the ETB Wolf trigger
+
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+    before = len(p1.hand)
+    eng.activate_ability(p1, cls, 0)
+    eng.rules.resolve_top_of_stack()  # resolves the level-up itself
+    assert cls.class_level == 2
+    assert eng.rules.put_triggers_on_stack() == 1  # the "becomes level 2" trigger, exactly once
+    eng.rules.resolve_top_of_stack()
+    assert len(p1.hand) == before + 2
+
+    # A one-shot "becomes level N" trigger must not re-fire just because
+    # `class_level` still reads >= 2 later (unlike an ordinary cumulative
+    # static/keyword grant) — nothing left on the stack, no more cards drawn.
+    assert eng.rules.put_triggers_on_stack() == 0
 
 
 # -- Modal DFC casting (RULE 712.10) -----------------------------------------
@@ -647,6 +942,20 @@ def test_attacking_becomes_prepared_and_creates_a_castable_exiled_copy():
     assert copy.card.mana_cost_string == "{1}{W}"
 
 
+def test_prepared_copy_is_serialized_for_the_board_but_an_ordinary_object_is_not():
+    # The board's "castable from exile" callout (gameBoardView.js) tells a
+    # prepared copy apart from an inert exiled card via this flag.
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    bard = _put(eng, _preparation_creature())
+    bind_from_catalogue(bard)
+    eng.rules.make_prepared(bard)
+    copy = next(o for o in p1.exile if o.prepared_source_id == bard.instance_id)
+
+    assert copy.to_dict()["prepared_copy"] is True
+    assert bard.to_dict()["prepared_copy"] is False
+
+
 def test_the_exiled_copy_is_castable_and_clears_prepared_on_cast():
     eng = make_engine()
     p1 = _ready_main_phase(eng)
@@ -794,3 +1103,61 @@ def test_day_night_is_visible_in_the_wire_view():
     eng = make_engine()
     eng.state.day_night = "night"
     assert eng.state.to_dict()["day_night"] == "night"
+
+
+# -- MDFC commander cast from the command zone (RULE 712.10 + 903.6) --------
+
+
+def _in_command(eng, card, controller="p1"):
+    obj = GameObject(card, owner_id=controller, is_commander=True)
+    eng.state.player_by_id(controller).add_to_zone(obj, Zone.COMMAND)
+    return obj
+
+
+def test_mdfc_commander_offers_a_castable_back_face_from_the_command_zone():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_command(eng, _mdfc_damage_back())
+    p1.mana_pool.add_many({"C": 1, "R": 1})  # affords either face ({1}{R} or {R})
+    actions = eng.legal_actions(p1)
+    front = [a for a in actions if a.get("instance_id") == obj.instance_id and not a.get("face")]
+    back = [a for a in actions if a.get("instance_id") == obj.instance_id and a.get("face") == "back"]
+    assert front and front[0]["type"] == "cast_spell" and front[0]["name"] == "Fiery Discharge"
+    assert back and back[0]["type"] == "cast_spell" and back[0]["name"] == "Molten Rebuke"
+
+
+def test_mdfc_commanders_land_back_face_is_not_offered_from_the_command_zone():
+    """RULE 903.6 only lets a commander be *cast* from the command zone —
+    a land back face isn't a spell, so it stays unreachable there even
+    though the same land is offered as `play_land` once it's in hand
+    (`test_playing_the_back_face_as_a_land`)."""
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_command(eng, _mdfc_land_back())
+    p1.mana_pool.add_many({"G": 1, "C": 2})  # front costs {2}{G}
+    actions = eng.legal_actions(p1)
+    front = [a for a in actions if a.get("instance_id") == obj.instance_id and not a.get("face")]
+    back = [a for a in actions if a.get("instance_id") == obj.instance_id and a.get("face") == "back"]
+    assert front and front[0]["type"] == "cast_spell" and front[0]["name"] == "Bala Ged Recovery"
+    assert back == []
+
+
+def test_casting_an_mdfc_commanders_back_face_still_pays_commander_tax():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    p2 = eng.state.player_by_id("p2")
+    obj = _in_command(eng, _mdfc_damage_back())
+    p1.mana_pool.add_many({"R": 1})
+    assert eng.can_cast(p1, obj, face="back")  # back costs just {R}
+    eng.cast_spell(p1, obj, targets=[p2], face="back")
+    assert obj.name == "Molten Rebuke"
+    assert p1.commander_casts.get(obj.instance_id) == 1
+
+    # RULE 903.9: recast (still the same commander, same tax bucket) —
+    # tax is {2} per previous cast, regardless of which face paid for it,
+    # and applies on top of *either* face's own printed cost.
+    obj2 = _in_command(eng, _mdfc_damage_back())
+    obj2.instance_id = obj.instance_id
+    assert eng.commander_tax(p1, obj2) == 2
+    # {R} (mv 1) + {2} tax = mv 3.
+    assert eng.effective_cast_cost(p1, obj2, face="back").converted_mana_cost == 3

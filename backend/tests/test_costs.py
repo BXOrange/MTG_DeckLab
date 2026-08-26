@@ -78,6 +78,29 @@ class TestParseText:
         assert cost.exile_self_from_hand is True
         assert not cost.is_free
 
+    def test_pay_energy_repeated_pips(self):
+        # RULE 122: Aethersphere Harvester/Guide of Souls-shaped.
+        assert parse_activation_cost("Pay {E}: This Vehicle gains lifelink until end of turn.").pay_energy == 1
+        cost = parse_activation_cost("Pay {E}{E}{E}{E}: Return this creature to its owner's hand.")
+        assert cost.pay_energy == 4
+        assert not cost.is_free
+
+    def test_pay_energy_spelled_out_word_form(self):
+        # Aethersquall Ancient's "Pay eight {E}", Aetherflux Conduit's
+        # outsized "Pay fifty {E}" — a single {E} pip with a count word in
+        # front, unlike the repeated-pip form above.
+        assert parse_activation_cost(
+            "Pay eight {E}: Return all other creatures to their owners' hands."
+        ).pay_energy == 8
+        assert parse_activation_cost("Pay fifty {E}: Draw seven cards.").pay_energy == 50
+
+    def test_pay_energy_combines_with_tap_and_mana(self):
+        # Aether Hub's "{T}, Pay {E}: Add one mana of any color."
+        cost = parse_activation_cost("{T}, Pay {E}: Add one mana of any color.")
+        assert cost.taps_self is True
+        assert cost.pay_energy == 1
+        assert cost.mana.is_free  # the {E} pip must not leak into the mana cost
+
 
 class TestParseDict:
     def test_explicit_fields_win_over_text(self):

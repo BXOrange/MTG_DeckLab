@@ -31,7 +31,16 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from .mana_cost import GENERIC, VARIABLE, ManaCost
+from .mana_cost import COLOR, GENERIC, VARIABLE, ManaCost
+
+#: RULE 118.9-adjacent alternative-payment life cost K'rrik, Son of
+#: Yawgmoth's static grants a *plain* colored pip ("For each {B} in a
+#: cost, you may pay 2 life rather than pay that mana.") — the same 2-life
+#: price RULE 702.85a's Phyrexian mana symbol already prices a pip at
+#: (`models/mana_cost.py`'s `ManaSymbol.payment_options`), just conferred
+#: by a standing permission instead of printed on the symbol itself. See
+#: `extra_life_color` below.
+KRRIK_LIFE_PER_BLACK_PIP = 2
 
 #: A predicate over a restriction dict (``lot["restriction"]``) — whether
 #: that lot's mana may pay the cost currently being checked/paid. Built by
@@ -45,6 +54,11 @@ AllowsRestriction = Callable[[dict], bool]
 #: colored costs, then the five colors.
 MANA_TYPES: tuple[str, ...] = ("C", "W", "U", "B", "R", "G")
 
+#: The five real colors (RULE 105.1) — the substitution set for
+#: ``wildcard="color"`` below; excludes colorless (``"C"``), since RULE
+#: 605.1a's "any color" never means colorless.
+_FIVE_COLORS: tuple[str, ...] = ("W", "U", "B", "R", "G")
+
 
 class ManaPool:
     """Available mana for one player during the current step/phase."""
@@ -57,16 +71,71 @@ class ManaPool:
         #: an identical ``restriction`` dict is merged in-place by `add`
         #: rather than growing the list unboundedly.
         self.restricted: list[dict[str, Any]] = []
+        #: PAR-19: RULE 605.3a's *other* direction — "spend only mana
+        #: produced by Treasures/basic lands/creatures to cast this
+        #: spell." (Security Rhox/Imperiosaur/Myr Superion), the inverse of
+        #: ``restricted`` above: that mechanism *adds* extra usable mana
+        #: opt-in; this one *subtracts* from the ordinary pool, since a
+        #: spell like Imperiosaur must reject perfectly ordinary ``pool``
+        #: mana that didn't come from a basic land. A per-source-kind
+        #: shadow tally that always mirrors ``pool`` exactly (every ``add``
+        #: with ``restriction=None`` — the only case that lands in
+        #: ``pool`` — also lands here, bucketed by ``source_kind``, default
+        #: bucket ``None`` for "no known/relevant origin"); never mutated
+        #: except in lockstep with ``pool`` (`_add_to_source_pool`/
+        #: `_consume_from_source_pool`) so the two never drift. Only
+        #: consulted when a caller passes ``require_source_kind`` to
+        #: `can_pay`/`pay` — every pre-existing call site (the overwhelming
+        #: majority) never does, so this is pure bookkeeping overhead for
+        #: them, not a behaviour change.
+        self.pool_by_source: dict[Optional[str], dict[str, int]] = {}
+        #: Which type(s) `pay()`'s most recent call actually drained
+        #: (colored pips + whichever type(s) covered the generic portion,
+        #: `_spend_generic`'s own colorless-first order) — Jeweled Amulet's
+        #: "note the type of mana spent to pay this activation cost"
+        #: (MEC-43) is the only reader today; every other caller ignores
+        #: it, so this is pure bookkeeping overhead for them. Overwritten
+        #: (not accumulated) on every `pay()` call — stale after a cost
+        #: with no mana component at all, since callers skip `pay()`
+        #: entirely rather than calling it with an empty cost.
+        self.last_payment_types: dict[str, int] = {}
+        #: How much of `pool` (per type) came from a snow-typed source (RULE
+        #: 205.4g — "{S} spent", MEC-43 round 3) — a subset count, always
+        #: ``<= pool[type]``, mirroring `pool_by_source`'s "shadow tally"
+        #: shape but boolean-tagged rather than bucketed by permanent kind
+        #: (a lot can be *both* ``source_kind="basic_land"`` and snow — a
+        #: Snow-Covered Forest — so this can't reuse that single-valued
+        #: field without corrupting PAR-19's own basic-land/treasure/
+        #: creature bucketing). Only ever populated via `add`'s ``is_snow``
+        #: flag; drained in lockstep by `_consume`, snow-first (an arbitrary
+        #: but harmless deterministic order, the same tier of simplification
+        #: `_spend_generic`'s own colorless-first order already is) so a
+        #: payment that *could* have used snow mana is credited with having
+        #: done so rather than silently preferring plain mana instead.
+        self.snow_pool: dict[str, int] = {t: 0 for t in MANA_TYPES}
         if amounts:
             for mana_type, amount in amounts.items():
                 self.add(mana_type, amount)
 
-    def add(self, mana_type: str, amount: int = 1, restriction: Optional[dict] = None) -> None:
+    def _add_to_source_pool(self, mana_type: str, amount: int, source_kind: Optional[str]) -> None:
+        bucket = self.pool_by_source.setdefault(source_kind, {t: 0 for t in MANA_TYPES})
+        bucket[mana_type] = bucket.get(mana_type, 0) + amount
+
+    def add(
+        self, mana_type: str, amount: int = 1, restriction: Optional[dict] = None,
+        source_kind: Optional[str] = None, is_snow: bool = False,
+    ) -> None:
         """Add ``amount`` mana of ``mana_type`` (``W U B R G C``).
 
         ``restriction`` (RULE 605.3a, ``None`` by default) tags this mana
         as spendable only where a caller's ``allows_restriction`` predicate
-        (`can_pay`/`pay`) says so — see the module docstring.
+        (`can_pay`/`pay`) says so — see the module docstring. ``source_kind``
+        (PAR-19, only meaningful alongside ``restriction=None``) tags which
+        kind of permanent produced it (``"treasure"``/``"basic_land"``/
+        ``"creature"``/…) for `pool_by_source`'s own, independent filter —
+        see that field's docstring. ``is_snow`` (MEC-43 round 3) tags it as
+        snow-sourced for `snow_pool`'s own independent, orthogonal count —
+        see that field's docstring for why it can't reuse ``source_kind``.
         """
         if mana_type not in self.pool:
             raise ValueError(f"unknown mana type: {mana_type!r}")
@@ -74,6 +143,9 @@ class ManaPool:
             raise ValueError("amount must be non-negative")
         if restriction is None:
             self.pool[mana_type] += amount
+            self._add_to_source_pool(mana_type, amount, source_kind)
+            if is_snow:
+                self.snow_pool[mana_type] = self.snow_pool.get(mana_type, 0) + amount
             return
         for lot in self.restricted:
             if lot["restriction"] == restriction:
@@ -81,13 +153,20 @@ class ManaPool:
                 return
         self.restricted.append({"restriction": restriction, "amounts": {mana_type: amount}})
 
-    def add_many(self, amounts: dict[str, int], restriction: Optional[dict] = None) -> None:
+    def add_many(
+        self, amounts: dict[str, int], restriction: Optional[dict] = None,
+        source_kind: Optional[str] = None, is_snow: bool = False,
+    ) -> None:
         for mana_type, amount in amounts.items():
-            self.add(mana_type, amount, restriction=restriction)
+            self.add(
+                mana_type, amount, restriction=restriction, source_kind=source_kind, is_snow=is_snow,
+            )
 
     def set_amount(self, mana_type: str, amount: int) -> None:
         """Set ``mana_type`` to an absolute ``amount`` — the Replay editor's
-        mana-pool control; normal play only ever `add`s/`pay`s/`empty`s."""
+        mana-pool control; normal play only ever `add`s/`pay`s/`empty`s.
+        Not source-tracked (`pool_by_source` is left untouched) — a direct
+        editor override has no originating permanent to attribute."""
         if mana_type not in self.pool:
             raise ValueError(f"unknown mana type: {mana_type!r}")
         if amount < 0:
@@ -107,7 +186,9 @@ class ManaPool:
         """
         for mana_type in self.pool:
             self.pool[mana_type] = 0
+            self.snow_pool[mana_type] = 0
         self.restricted.clear()
+        self.pool_by_source.clear()
 
     def _usable_lots(self, allows_restriction: Optional[AllowsRestriction]) -> list[dict]:
         """Restricted lots ``allows_restriction`` says may pay the cost at
@@ -117,7 +198,17 @@ class ManaPool:
             return []
         return [lot for lot in self.restricted if allows_restriction(lot["restriction"])]
 
-    def _merged_available(self, usable_lots: list[dict]) -> dict[str, int]:
+    def _merged_available(
+        self, usable_lots: list[dict], require_source_kind: Optional[str] = None,
+    ) -> dict[str, int]:
+        # PAR-19: ``require_source_kind`` swaps the ordinary "``pool`` plus
+        # whatever opted-in restricted lots" base for *only* the matching
+        # `pool_by_source` bucket — the subtractive direction `usable_lots`
+        # can't express (see `pool_by_source`'s docstring). The two never
+        # combine on any real card, so this ignores ``usable_lots`` entirely
+        # rather than guessing how they'd interact.
+        if require_source_kind is not None:
+            return dict(self.pool_by_source.get(require_source_kind, {}))
         merged = dict(self.pool)
         for lot in usable_lots:
             for mana_type, amount in lot["amounts"].items():
@@ -129,6 +220,9 @@ class ManaPool:
         cost: ManaCost,
         life_available: int = 0,
         allows_restriction: Optional[AllowsRestriction] = None,
+        wildcard: Optional[str] = None,
+        require_source_kind: Optional[str] = None,
+        extra_life_color: Optional[str] = None,
     ) -> bool:
         """Whether this pool (plus ``life_available`` life) can pay ``cost``.
 
@@ -137,38 +231,107 @@ class ManaPool:
         (RULE 119.4 — you can't pay life you don't have). ``allows_restriction``
         (see the module docstring) opts in whichever restricted lots may
         count toward this particular cost — omitted, no restricted mana
-        counts at all.
+        counts at all. ``wildcard`` (RULE 605.1a — "you may spend mana as
+        though it were mana of any color/type", Ragavan Nimble Pilferer/
+        Mnemonic Betrayal-shaped) relaxes every colored/colorless
+        constrained symbol's payment: ``"color"`` lets any of the five
+        colors (never colorless) pay a colored pip, ``"type"`` lets any of
+        the six mana types pay *any* constrained pip, including a ``{C}``
+        one. A single WUBRG letter (MEC-23 — Quicksilver Elemental's "you
+        may spend **blue** mana as though it were mana of any color…")
+        narrows ``"color"`` the other way: only *that* color of mana
+        substitutes for a colored pip it doesn't already match, not all
+        five (real red mana still pays a red pip either way). ``None`` (the
+        default) is the ordinary, unrelaxed solve. ``require_source_kind``
+        (PAR-19 — "spend only mana produced by Treasures/basic lands/
+        creatures to cast this spell", Security Rhox/Imperiosaur/Myr
+        Superion) narrows payment to only `pool_by_source`'s matching
+        bucket instead of the whole pool — see that field's docstring.
+        ``extra_life_color`` (MEC-43 — K'rrik, Son of Yawgmoth's "For each
+        {B} in a cost, you may pay 2 life rather than pay that mana.")
+        grants a *plain* colored pip of that one WUBRG letter the same
+        life-payment option a printed Phyrexian pip already has, at
+        `KRRIK_LIFE_PER_BLACK_PIP` life apiece — unlike ``wildcard``, this
+        doesn't relax *which* mana pays the pip, it adds a way to skip
+        paying mana for it at all. ``None`` (the default) leaves every
+        plain colored pip exactly as unpayable-by-life as it always was.
         """
         usable = self._usable_lots(allows_restriction)
-        return self._find_payment(self._merged_available(usable), cost, life_available) is not None
+        available = self._merged_available(usable, require_source_kind)
+        return self._find_payment(available, cost, life_available, wildcard, extra_life_color) is not None
 
     def pay(
         self,
         cost: ManaCost,
         life_available: int = 0,
         allows_restriction: Optional[AllowsRestriction] = None,
+        wildcard: Optional[str] = None,
+        require_source_kind: Optional[str] = None,
+        extra_life_color: Optional[str] = None,
     ) -> int:
         """Pay ``cost`` from this pool, mutating it. Returns life spent.
+
+        ``wildcard``/``require_source_kind``/``extra_life_color`` — see
+        `can_pay`.
 
         Raises:
             ValueError: If the cost cannot be paid from the current pool
                 (call ``can_pay`` first to avoid this).
         """
         usable = self._usable_lots(allows_restriction)
-        solution = self._find_payment(self._merged_available(usable), cost, life_available)
+        available = self._merged_available(usable, require_source_kind)
+        solution = self._find_payment(available, cost, life_available, wildcard, extra_life_color)
         if solution is None:
             raise ValueError(f"cannot pay {cost!r} from {self.pool!r}")
         colored_spends, generic_needed, life_spent = solution
 
         for color in colored_spends:
-            self._consume(color, 1, usable)
-        self._spend_generic(generic_needed, usable)
+            self._consume(color, 1, usable, require_source_kind)
+        spent_generic = self._spend_generic(generic_needed, usable, require_source_kind)
         # Lots a payment fully drained are dropped rather than left as
         # empty husks (`add` would otherwise keep merging into them forever).
         self.restricted = [lot for lot in self.restricted if sum(lot["amounts"].values())]
+        types: dict[str, int] = dict(spent_generic)
+        for color in colored_spends:
+            types[color] = types.get(color, 0) + 1
+        self.last_payment_types = types
         return life_spent
 
-    def _consume(self, mana_type: str, amount: int, usable_lots: list[dict]) -> None:
+    def _consume_from_source_pool(
+        self, mana_type: str, amount: int, require_source_kind: Optional[str],
+    ) -> None:
+        """Decrement `pool_by_source` in lockstep with a ``pool[mana_type]``
+        drain of ``amount``, keeping the two exactly in sync (see
+        `pool_by_source`'s docstring). When this payment was itself
+        source-filtered (``require_source_kind`` set), the mana necessarily
+        came from that exact bucket. Otherwise, drain the untagged
+        (``None``) bucket first — ordinary mana is spent before touching
+        any source-tagged mana, so a later source-filtered need still finds
+        it — falling back to whichever tagged buckets have any left, in a
+        stable order, purely to keep the totals consistent."""
+        if amount <= 0:
+            return
+        if require_source_kind is not None:
+            bucket = self.pool_by_source.get(require_source_kind)
+            if bucket is not None:
+                bucket[mana_type] = max(0, bucket.get(mana_type, 0) - amount)
+            return
+        remaining = amount
+        buckets = [self.pool_by_source.get(None)] + [
+            b for k, b in self.pool_by_source.items() if k is not None
+        ]
+        for bucket in buckets:
+            if remaining <= 0 or bucket is None:
+                continue
+            take = min(bucket.get(mana_type, 0), remaining)
+            if take:
+                bucket[mana_type] -= take
+                remaining -= take
+
+    def _consume(
+        self, mana_type: str, amount: int, usable_lots: list[dict],
+        require_source_kind: Optional[str] = None,
+    ) -> None:
         """Remove ``amount`` of ``mana_type``, spending usable restricted
         lots before unrestricted mana — restricted mana left unspent is
         simply lost once the pool empties (RULE 500.4), so using it first
@@ -182,32 +345,60 @@ class ManaPool:
                 amount -= take
         if amount > 0:
             self.pool[mana_type] -= amount
+            self._consume_from_source_pool(mana_type, amount, require_source_kind)
+            # Snow-first (see `snow_pool`'s own docstring for why).
+            snow_take = min(amount, self.snow_pool.get(mana_type, 0))
+            if snow_take:
+                self.snow_pool[mana_type] -= snow_take
 
-    def _spend_generic(self, amount: int, usable_lots: list[dict] = ()) -> None:
-        """Remove ``amount`` mana of any type, colorless-first (see MANA_TYPES)."""
+    def _spend_generic(
+        self, amount: int, usable_lots: list[dict] = (), require_source_kind: Optional[str] = None,
+    ) -> dict[str, int]:
+        """Remove ``amount`` mana of any type, colorless-first (see MANA_TYPES).
+
+        Returns how much of each type was actually drained — ``pay()``
+        folds this into `last_payment_types` (Jeweled Amulet, MEC-43:
+        "note the type of mana spent to pay this activation cost", a
+        wholly generic cost with no fixed pip of its own to read instead).
+        This engine has no interactive "which color pays the generic
+        portion" choice, so which type ends up noted is this deterministic
+        colorless-first order, not a genuine player pick — the same
+        simplification tier every other "spend from the pool" caller here
+        already accepts.
+        """
+        spent: dict[str, int] = {}
         for mana_type in MANA_TYPES:
             if amount <= 0:
                 break
-            available = self.pool[mana_type] + sum(
-                lot["amounts"].get(mana_type, 0) for lot in usable_lots
-            )
+            if require_source_kind is not None:
+                available = self.pool_by_source.get(require_source_kind, {}).get(mana_type, 0)
+            else:
+                available = self.pool[mana_type] + sum(
+                    lot["amounts"].get(mana_type, 0) for lot in usable_lots
+                )
             take = min(available, amount)
             if take:
-                self._consume(mana_type, take, usable_lots)
+                self._consume(mana_type, take, usable_lots, require_source_kind)
                 amount -= take
+                spent[mana_type] = spent.get(mana_type, 0) + take
         if amount > 0:  # pragma: no cover - guarded by _find_payment
             raise ValueError("insufficient mana for generic cost")
+        return spent
 
     @staticmethod
     def _find_payment(
-        pool: dict[str, int], cost: ManaCost, life_available: int
+        pool: dict[str, int],
+        cost: ManaCost,
+        life_available: int,
+        wildcard: Optional[str] = None,
+        extra_life_color: Optional[str] = None,
     ) -> Optional[tuple[list[str], int, int]]:
         """Solve payment. Returns (colored spends, generic needed, life) or None.
 
         Constrained symbols (color/colorless/hybrid/mono-hybrid/Phyrexian)
         are assigned by backtracking; generic and {X} pips are summed and
         checked against whatever mana remains, since generic mana accepts
-        any type.
+        any type. ``wildcard``/``extra_life_color`` — see `can_pay`.
         """
         generic_needed = 0
         constrained = []
@@ -218,7 +409,9 @@ class ManaPool:
                 constrained.append(symbol)
 
         spends: list[str] = []
-        result = ManaPool._solve(pool, constrained, 0, generic_needed, life_available, spends)
+        result = ManaPool._solve(
+            pool, constrained, 0, generic_needed, life_available, spends, wildcard, extra_life_color,
+        )
         return result
 
     @staticmethod
@@ -229,26 +422,63 @@ class ManaPool:
         generic_needed: int,
         life_available: int,
         spends: list[str],
+        wildcard: Optional[str] = None,
+        extra_life_color: Optional[str] = None,
     ) -> Optional[tuple[list[str], int, int]]:
         if index == len(constrained):
             if sum(pool.values()) >= generic_needed:
                 return list(spends), generic_needed, 0
             return None
 
-        for color, extra_generic, life_cost in constrained[index].payment_options():
+        symbol = constrained[index]
+        options = symbol.payment_options()
+        if extra_life_color is not None and symbol.kind == COLOR and symbol.color == extra_life_color:
+            # K'rrik's standing permission: this plain colored pip also
+            # accepts a life payment, exactly like a printed Phyrexian pip
+            # (see `KRRIK_LIFE_PER_BLACK_PIP`'s docstring).
+            options = [*options, (None, 0, KRRIK_LIFE_PER_BLACK_PIP)]
+
+        tried: set[str] = set()
+        for color, extra_generic, life_cost in options:
             if color is not None:
-                if pool.get(color, 0) <= 0:
-                    continue
-                pool[color] -= 1
-                spends.append(color)
-                found = ManaPool._solve(
-                    pool, constrained, index + 1,
-                    generic_needed + extra_generic, life_available, spends,
-                )
-                spends.pop()
-                pool[color] += 1
-                if found is not None:
-                    return found
+                # RULE 605.1a "any color"/"any type" (``wildcard``): widen a
+                # single fixed color option into every color/type this pool
+                # actually has, rather than just the pip's own nominal
+                # color — never for a bare colorless {C} requirement under
+                # "any color" (still needs real colorless mana), but "any
+                # type" also relaxes that. ``tried`` dedupes across a
+                # symbol's own payment_options (e.g. hybrid's two color
+                # choices both expanding to the same wildcard set).
+                if wildcard == "type":
+                    candidates = list(MANA_TYPES)
+                elif wildcard == "color" and color != "C":
+                    candidates = list(_FIVE_COLORS)
+                elif wildcard in _FIVE_COLORS and color != "C":
+                    # MEC-23: a single source color counts as a wildcard
+                    # (Quicksilver Elemental's "spend blue mana as though it
+                    # were mana of any color") — only that one color
+                    # substitutes, alongside the pip's own real color;
+                    # unlike the ``"color"`` branch above, mana of a *third*
+                    # color still can't pay this pip.
+                    candidates = [color, wildcard]
+                else:
+                    candidates = [color]
+                for cand in candidates:
+                    if cand in tried:
+                        continue
+                    tried.add(cand)
+                    if pool.get(cand, 0) <= 0:
+                        continue
+                    pool[cand] -= 1
+                    spends.append(cand)
+                    found = ManaPool._solve(
+                        pool, constrained, index + 1,
+                        generic_needed + extra_generic, life_available, spends, wildcard, extra_life_color,
+                    )
+                    spends.pop()
+                    pool[cand] += 1
+                    if found is not None:
+                        return found
             else:
                 # A life payment must leave the payer alive (RULE 119.4).
                 if life_cost and life_available - life_cost <= 0:
@@ -256,7 +486,7 @@ class ManaPool:
                 found = ManaPool._solve(
                     pool, constrained, index + 1,
                     generic_needed + extra_generic,
-                    life_available - life_cost, spends,
+                    life_available - life_cost, spends, wildcard, extra_life_color,
                 )
                 if found is not None:
                     colored, generic, life = found
@@ -264,12 +494,56 @@ class ManaPool:
 
         return None
 
+    def clone(self) -> "ManaPool":
+        """A deep-enough copy for a read-then-mutate multi-step legality
+        check — e.g. verifying a spell's printed cost is payable, then
+        checking whether what's *left* can also cover Kicker's own
+        distinct-color-capped ``{X}`` (`can_pay_distinct_colors` below,
+        PAR-7) without actually spending the real pool first."""
+        copy = ManaPool()
+        copy.pool = dict(self.pool)
+        copy.restricted = [
+            {"restriction": lot["restriction"], "amounts": dict(lot["amounts"])} for lot in self.restricted
+        ]
+        copy.pool_by_source = {k: dict(v) for k, v in self.pool_by_source.items()}
+        copy.snow_pool = dict(self.snow_pool)
+        return copy
+
+    def can_pay_distinct_colors(self, n: int) -> bool:
+        """RULE 605.3a-style cap: "spend only colored mana on X. No more
+        than one mana of each color may be spent this way." (Emblazoned
+        Golem's Kicker ``{X}``, PAR-7) — whether at least ``n`` of the five
+        colors (RULE 105.1; colorless/generic never qualify) each have >=1
+        *unrestricted* mana available. Ignores any restricted lot (RULE
+        605.3a's other shape) — no card combines the two restrictions today.
+        """
+        if n <= 0:
+            return True
+        return sum(1 for c in _FIVE_COLORS if self.pool.get(c, 0) > 0) >= n
+
+    def pay_distinct_colors(self, n: int) -> None:
+        """Pay ``n`` mana of ``n`` distinct colors, one each — see
+        `can_pay_distinct_colors`. Raises if it can't be paid; call that
+        first (mirrors `pay`'s own "call `can_pay` first" contract)."""
+        if n <= 0:
+            return
+        if not self.can_pay_distinct_colors(n):
+            raise ValueError(f"cannot pay {n} distinct colors from {self.pool!r}")
+        paid = 0
+        for color in _FIVE_COLORS:
+            if paid >= n:
+                break
+            if self.pool.get(color, 0) > 0:
+                self.pool[color] -= 1
+                paid += 1
+
     def to_dict(self) -> dict[str, Any]:
         data = dict(self.pool)
         if self.restricted:
             # Additive — existing WUBRGC keys are unchanged, so this is
-            # safe for any caller ignoring the new key (no frontend
-            # display of restricted mana yet, see frontend/ToDo_Frontend.md).
+            # safe for any caller ignoring the new key (rendered by
+            # gameBoardView.js's `restrictedManaHtml` as its own badge per
+            # lot, distinct from the ordinary WUBRGC counts above).
             data["restricted"] = [
                 {"restriction": lot["restriction"], "amounts": dict(lot["amounts"])}
                 for lot in self.restricted

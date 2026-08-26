@@ -1,11 +1,17 @@
-// "Karten-Cache" tab: browse every card the backend has resolved so far
+// "Karten-Cache" tab: browse the cards the backend has resolved so far
 // (mtg_analyzer CardDatabase, see docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md).
-// Lazy by design, matching the backend's own philosophy: nothing is
-// fetched until this tab is actually opened, and re-opening it refreshes
-// the list (new cards accumulate as decks get imported elsewhere).
+// A scope toggle picks between "Deck-Karten" (only cards referenced by a
+// saved deck, GET /api/cards?scope=decks — the default, since it's the
+// relevant subset for most users) and "Alle Karten" (the full cache,
+// including the ~34k-card bulk Oracle import, scope=all).
 //
-// Filtering is entirely client-side over the already-fetched list (at most
-// a couple thousand cards) — no server round trip per filter change.
+// Lazy by design, matching the backend's own philosophy: nothing is
+// fetched until this tab is actually opened, and re-opening it (or
+// switching scope) refreshes the list.
+//
+// Filtering is entirely client-side over the already-fetched list — cheap
+// for "Deck-Karten", but "Alle Karten" can be tens of thousands of cards;
+// no server round trip per filter change either way.
 
 import { listCachedCards } from './api.js';
 import { renderCardTile } from './cardTile.js';
@@ -84,6 +90,10 @@ export function renderCachedCardsView(container) {
     <div class="cache-panel">
       <div class="cache-toolbar">
         <h2>Karten-Cache</h2>
+        <div class="cache-scope-toggle" role="radiogroup" aria-label="Kartenumfang">
+          <label><input type="radio" name="cache-scope" value="decks" checked /> Deck-Karten</label>
+          <label><input type="radio" name="cache-scope" value="all" /> Alle Karten</label>
+        </div>
         <button id="refresh-cache-btn" type="button">Aktualisieren</button>
         <span class="cache-count"></span>
       </div>
@@ -112,8 +122,13 @@ export function renderCachedCardsView(container) {
   const refreshBtn = container.querySelector('#refresh-cache-btn');
   const filtersEl = container.querySelector('#cache-filters');
   const resetBtn = container.querySelector('#cache-filter-reset');
+  const scopeInputs = container.querySelectorAll('input[name="cache-scope"]');
 
   let allCards = [];
+
+  function currentScope() {
+    return container.querySelector('input[name="cache-scope"]:checked').value;
+  }
 
   function renderFiltered() {
     if (!allCards.length) return;
@@ -134,11 +149,12 @@ export function renderCachedCardsView(container) {
 
   async function load() {
     const requestId = ++latestRequestId;
+    const scope = currentScope();
     resultEl.innerHTML = '<p class="empty-state">Lade Karten-Cache …</p>';
     countEl.textContent = '';
 
-    const cards = await listCachedCards();
-    if (requestId !== latestRequestId) return; // superseded by a later refresh click
+    const cards = await listCachedCards(scope);
+    if (requestId !== latestRequestId) return; // superseded by a later refresh/scope change
 
     if (cards === null) {
       resultEl.innerHTML = '<p class="server-status warning">Server nicht erreichbar.</p>';
@@ -149,8 +165,11 @@ export function renderCachedCardsView(container) {
 
     if (!allCards.length) {
       countEl.textContent = '';
-      resultEl.innerHTML =
-        '<p class="empty-state">Noch keine Karten im Cache – importiere eine Deckliste, um welche zu laden.</p>';
+      resultEl.innerHTML = `<p class="empty-state">${
+        scope === 'decks'
+          ? 'Keine im Cache gespeicherten Deck-Karten – importiere oder öffne einen gespeicherten Deck.'
+          : 'Noch keine Karten im Cache – importiere eine Deckliste, um welche zu laden.'
+      }</p>`;
       return;
     }
 
@@ -158,6 +177,7 @@ export function renderCachedCardsView(container) {
   }
 
   refreshBtn.addEventListener('click', load);
+  scopeInputs.forEach((el) => el.addEventListener('change', load));
   filtersEl.addEventListener('change', renderFiltered);
   filtersEl.addEventListener('input', (e) => {
     if (e.target.matches('#cache-cmc-min, #cache-cmc-max')) renderFiltered();

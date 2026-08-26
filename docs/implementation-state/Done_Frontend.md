@@ -1,303 +1,347 @@
 # Frontend — Done
 
-Completed frontend work, split out of
-[`../../frontend/ToDo_Frontend.md`](../../frontend/ToDo_Frontend.md) (which
-now holds only open items). Section headers mirror that file.
+**Catalogue** (organized by app area/feature, not by date): completed
+frontend work and *why it was built that way*. Open work lives in
+[BACKLOG.md](BACKLOG.md), under `VIS` and the other categories.
 
-## Backend integration
+Entry headings are stable — a `Done_Frontend.md "<entry>"` reference from
+the code lands here (Ctrl+F/grep the exact phrase). Entries written before
+2026-07-27 cite a `ToDo_Frontend.md`/`ToDo_Backend.md` that no longer
+exists; both were merged into `BACKLOG.md`, and those mentions have been
+repointed there.
 
-- [x] `parser.js`'s client-side parsing is now the *optimistic local
-      pre-check*, with `POST /api/decks` as the authoritative follow-up:
-      `deckImportView.js`'s `parseCurrentSections` parses locally for
-      instant feedback (a "Wird serverseitig geprüft …" pending badge),
-      then calls `submitDeck` (`api.js`) and **replaces** `state.deck`
-      with the server's response, which becomes what's rendered.
-- [x] Resolve parsed card names against the card database → mana cost,
-      type_line, oracle_text, power/toughness, image URIs (`api.js`'s
-      `resolveCards`/`cardImageUrl`, used by `cardImages.js`).
-- [x] Real Commander legality surfaced from `POST /api/decks`
-      (`validation.errors`/`.warnings`), with the specific offending
-      cards marked individually (❗) via `validation.bannedCardNames`/
-      `.colorIdentityViolationNames` (`cardTile.js`'s `illegalReason`) —
-      distinct from the 🛑 "not found" marker.
-- [x] Deck persistence: save/load decks via API — see "Saved decks".
+## Deck Import & Backend Integration
 
-## Import
+### Optimistic local parse + server-authoritative deck submit
 
-- [x] "Import Deck" — a sidebar tab of its own (`index.html`'s
-      `#view-import-deck`, alongside "Deck editieren" in the
-      Deck-Management nav group), separate from `deckImportView.js`
-      because a failed import should leave the user on the import
-      screen with the error, not dump them into a half-populated editor.
-      `importDeckView.js` takes an Archidekt deck link or bare id
-      (Moxfield was tried and reverted twice — genuinely
-      Cloudflare-blocked, `Done_Backend.md` "Import — follow-up from the
-      frontend"), calls `api.js`'s `importArchidektDeck` (`GET
-      /api/import/archidekt/{deckId}`), and on success hands the
-      `{name, commanderText, mainboardText, sideboardText}` result to an
-      `onImported` callback — `app.js` wires that to
-      `importView.loadDeck(deck)` (the same method `savedDecksView.js`
-      uses to load a saved deck) followed by `showTab('import')`, so a
-      successful import behaves exactly like loading a saved deck: the
-      textareas fill in and "Deck editieren" opens with "Aktualisieren"
-      disabled (no saved-deck id yet, same as loading the sample deck).
-      On failure the German error message stays on the Import Deck tab
-      instead ("Kein Archidekt-Deck mit ID …", HTTP status, or "Server
-      nicht erreichbar").
+- **What:** `parser.js` parses a pasted decklist client-side for instant feedback (a pending badge), then `submitDeck` posts to `POST /api/decks` and the server's response **replaces** `state.deck` — the server is always the source of truth.
+- **Files:** `deckImportView.js`, `api.js`, `parser.js`
 
-## Connection settings
+### Card data resolution & legality display
 
-- [x] Collapsible left sidebar (`#sidebar`/`.sidebar-nav` in
-      `index.html`, burger toggle in `app.js`) replaced the old top-bar
-      tabs. Nav entries: "Deck editieren" (import), "Decks verwalten",
-      "Deck analysieren" (placeholder), "Goldfisch", "Multiplayer",
-      "Einstellungen", "Karten-Cache". `.tab-button`/`data-tab` +
-      `showTab()` wiring in `app.js`.
-- [x] Header connection indicator (`connectionStatus.js`): dot + label,
-      visible on every tab, polling `GET /api/health` every 5s. Shared
-      pub/sub store keeps the header and the "Einstellungen" status line
-      in sync off one poll.
-- [x] "Einstellungen" tab (`connectionSettingsView.js`): player-name +
-      server-address fields (default `http://localhost:8000`), "Speichern"
-      / "Verbindung testen", live status. Saving normalizes the URL and
-      re-checks immediately (no reload — `getServerUrl()` is read fresh
-      per call).
-- [x] Settings persisted in a cookie (`cookies.js`, `settings.js`;
-      `mtg_server_url`, `mtg_player_name`, 1-year expiry) — device-local.
+- **What:** Parsed card names resolve against the card database for mana cost/type/oracle text/P-T/images (`resolveCards`/`cardImageUrl`). Commander legality from `POST /api/decks` marks specific offending cards (❗ banned/color-identity) distinct from 🛑 "not found".
+- **Files:** `api.js`, `cardImages.js`, `cardTile.js`
 
-## Saved decks
+### Archidekt import tab
 
-- [x] "Deck editieren" save: name field + two buttons (`deckImportView.js`)
-      → `POST /api/decks/save`. **"Aktualisieren"** overwrites the
-      loaded/last-saved deck (sends its `id`); **"Als neues speichern"**
-      always creates a fresh deck. Split from a single "Speichern" that
-      silently overwrote the loaded deck (surprising/destructive).
-      "Aktualisieren" is disabled until a deck is loaded/saved.
-- [x] "Decks verwalten" tab (`savedDecksView.js`): lists saved decks via
-      `GET /api/decks` (lazy). "Laden" fetches the full deck and feeds it
-      into the editor's textareas (`loadDeck()`); "Löschen" →
-      `DELETE /api/decks/{id}` after a confirm. Each row shows a
-      **legality badge** from `GET /api/decks/{id}/validation` (per deck,
-      lazily, in parallel): 🛑 + reasons (tooltip) for illegal, ✅ for
-      legal.
+- **What:** A dedicated "Import Deck" sidebar tab (separate from the editor so a failed import doesn't dump the user into a half-populated editor) takes an Archidekt link/id via `GET /api/import/archidekt/{deckId}` and hands the result to the same `loadDeck` path a saved deck uses.
+- **Files:** `importDeckView.js`, `api.js`
+- **Why:** Moxfield fetch was tried and reverted twice (Cloudflare-blocked) — see Moxfield paste-import entry below for the workaround.
 
-## Card display
+### Moxfield paste-import
 
-- [x] Card artwork (`cardImages.js`) via `POST /api/cards/resolve` +
-      `GET /api/cards/{id}/image` (backend cache) rather than the browser
-      calling Scryfall; cached per session client-side, `<img
-      loading="lazy">`.
-- [x] "Karten-Cache" tab (`cachedCardsView.js`): browse every cached card
-      (image, name, type, mana cost emoji, oracle text, keywords,
-      set/rarity), `GET /api/cards` lazily with a manual refresh.
-- [x] Detail-view tiles for the deck-import lists: a "Detailansicht"
-      checkbox switches all three lists to an image/mana-cost/oracle-text
-      tile grid (`cardTile.js`, shared with Karten-Cache), with 🛑
-      "not found" tiles (`renderCardTileNotFound`) and internal scrolling
-      (`.scrollable`).
-- [x] Card detail on hover (`cardHoverDetail.js`): one floating panel via
-      a single delegated listener on `document` (set up in
-      `initCardHoverDetail()`), so any view opts in with
-      `data-hover-card="<name>"`. Reads `cardImages.js`'s resolve cache;
-      shows "Lädt …" then upgrades. Wired into the goldfish board's
-      `.card` tiles (`goldfishView.js`'s `objCard`) and the deck-import
-      plain list.
-- [x] Mana cost emoji now render hybrid/Phyrexian symbols faithfully
-      instead of collapsing them to a plain pip: `cardTile.js`'s
-      `renderManaCost` parses the raw `mana_cost_string` token-by-token
-      (`{W/U}` → "(⚪/🔵)", `{2/W}` → "(2️⃣/⚪)", `{W/P}` → "(⚪/🩸)",
-      `{X}`/`{Y}`/`{Z}` → the letter itself), mirroring the backend's
-      `ManaSymbol` kinds (`models/mana_cost.py`). Falls back to the old
-      flattened-pip approximation only when `mana_cost_string` is empty
-      (cards cached before that field existed — same fallback the
-      backend's `ManaCost.from_card` uses, see backend Done "Mana cost
-      model"), so a genuinely free card (a land) still renders as
-      nothing.
+- **What:** Since a live Moxfield fetch is Cloudflare-blocked, `parser.js`'s `parseMoxfieldExport` instead splits a pasted plain-text Moxfield export on its "SIDEBOARD:" marker. Commander detection is a real oracle-text/type-line check (`isCommanderCandidate`/`canPairAsCommanders`, mirroring the backend's Partner logic), not a text heuristic.
+- **Files:** `parser.js`, `deckImportView.js`
+- **Why:** An earlier textual heuristic (longest sorted suffix) was replaced same-session after a real export showed a second legendary creature right after the true commander that only a real legality check correctly excludes.
 
-## Game engine hookup
+## Connection Settings & Profile
 
-- [x] Goldfisch-Modus wired to the real backend engine
-      (`goldfishView.js`), its own top-level **"Goldfisch"** sidebar tab
-      (`#view-goldfish`). Deck chosen from a **dropdown of saved decks**
-      (`GET /api/decks`); selecting fetches legality
-      (`GET /api/decks/{id}/validation`) and **only a legal deck enables
-      "Start"** (illegal → 🛑 + reasons). Start posts `deckId` to
-      `POST /api/game/goldfish`, then renders the server's authoritative
-      `GameState` and drives it with validated actions (advance step,
-      auto-turn, play land, tap mana, cast, attack — from `legal_actions`),
-      plus **Zurücknehmen** (rewind) and **Neu starten** (restart).
-      `app.js` creates one persistent `createGoldfishView()` so a running
-      session survives tab switches.
-- [x] The old local, rule-less "preview" board and its `boardEngine.js`
-      were removed (the `board` field dropped from `state.js`), and the
-      combined "Spielfläche" tab (`boardView.js`, a Goldfisch/Multiplayer
-      mode switcher) was split into **two separate sidebar tabs**,
-      "Goldfisch" and "Multiplayer" — the multiplayer stub moved into its
-      own `multiplayerView.js`. `boardView.js`/`boardEngine.js` are gone.
-- [x] WebSocket client plumbing (`gameSocket.js`):
-      `connectGameSocket(gameId, handlers)` opens `ws(s)://.../ws/game/{id}`,
-      sends `player_action`, dispatches `game_state_update`/`error`.
-      Solo play goes through the REST session API instead; this is kept
-      for the eventual multiplayer push channel, not yet wired in.
-- [x] Stack display: goldfish shows the stack in LIFO order
-      (`.gf-stack` from `state.stack`), with a "Priorität abgeben (Stack
-      auflösen)" control (pass_priority) that resolves it one object at a
-      time so you can respond.
-- [x] Phase/step/turn indicator: goldfish's `.gf-topbar` shows the turn
-      number and current phase/step (German labels), plus a "☀️ Tag"/
-      "🌙 Nacht" badge (`.gf-daynight`) once `state.day_night` (RULE 731,
-      `backend/ToDo_Backend.md`/`Done_Backend.md` "Card-type & structural
-      coverage") is set — hidden entirely before any daybound/nightbound
-      permanent has established a designation, matching the engine's own
-      "no designation yet" state.
-- [x] Actions shown **directly under the affected cards**
-      (`goldfishView.js`, `.gf-card-slot`/`.gf-card-actions`): a hand card
-      shows "🌳 Land spielen" / "✨ Zaubern"; a land shows a **tap button
-      per mana option** (dual lands get one per colour — the "🟢/🔵" choice
-      matching the backend `tap_for_mana` `option_index`). Attacking stays
-      an aggregate "⚔️ Angreifen (N)" control (swings with every able
-      creature). Built from the session's per-object `legal_actions`.
-- [x] Graveyard **and Exile** zones render their cards (`.gf-graveyard`/
-      `.gf-exile`, from `state.players[0].graveyard`/`exile`).
-- [x] Pending-choice UI: a library search surfaces a "🔎 Suche …" panel
-      (`.gf-choice`) listing eligible cards as pick buttons (+ "Nichts
-      wählen" when optional); the board dims (`.goldfish.choosing`) and
-      other actions are gated until the choice is answered (`choose`/
-      `decline`), matching the backend `state.pending_choice`.
-- [x] Loading screen before a goldfish game renders: `start()` preloads
-      every deck card's artwork (`cardImages.js`'s `preloadCardImages`,
-      real `Image()` fetches, not just resolving the URL) with a progress
-      bar (`goldfish-loading` phase) before calling `POST
-      /api/game/goldfish`, so the board never pops in card art turn by
-      turn. Fixes the "images not always loaded" bug — the goldfish board
-      previously never triggered `resolveCardImages` for a deck unless it
-      had separately been opened in "Deck editieren".
-- [x] Mulligan/setup phase (London mulligan) before the board is
-      playable: a new `goldfish-mulligan` screen shows the opening hand
-      with "Mulligan" (draw a fresh 7) / "Hand behalten" controls, driven
-      by the session's `setup: {complete, mulligan_count}` + `mulligan`/
-      `keep_hand` actions (`game_session.py`). Keeping after N mulligans
-      requires selecting N cards from hand to put on the bottom first
-      (click-to-toggle, `card.selected-bottom`). All other actions are
-      rejected server-side until the hand is kept.
-- [x] X-spell casting (RULE 601.2b): a hand/command-zone card whose cost
-      has `{X}` gets a number input next to its cast button instead of a
-      plain "✨ Zaubern" (`goldfishView.js`'s `cardActionButtons`, keyed
-      off `legal_actions`' new `has_x`/`max_x`, capped at `max_x` by
-      default) — clicking reads the input's current value at click time
-      (`data-cast-x`/`data-x-input`, wired in `wire()`) and sends it as
-      `x` on the `cast_spell` action. `.gf-cast-x` in `main.css`.
-- [x] Stack tiles for triggered/activated abilities now show their
-      *source permanent's* card art instead of a bare text box
-      (`gameBoardView.js`'s `stackItemHtml`, the shared board module
-      `goldfishView.js`'s stack display above was later extracted into):
-      the ability's description renders as a text banner overlaid on that
-      art (`.gf-stack-ability-overlay`), and a small 🔗 `.gf-stack-source-
-      link` icon in the corner exposes the same source via the existing
-      global name-hover preview (`cardHoverDetail.js`) — driven by the new
-      backend `StackItem.source` field (`Done_Backend.md` "Rules Engine").
-      Falls back to the pre-existing plain-text tile when there's no
-      source or no resolvable art. A code audit confirmed every triggered
-      ability (`_collect_triggers`/`put_triggers_on_stack`) and activated
-      ability (`GameEngine.activate_ability`, including Equip/Fortify/
-      Reconfigure and loyalty abilities) goes through one of these two
-      choke points and so is now covered — mana abilities correctly never
-      reach the stack at all (RULE 605.1a) and were never meant to be.
-- [x] RULE 616.1 replacement-effect ordering popup: the `replacement_
-      order` `pending_choice` (`Done_Backend.md` "Rules Engine" —
-      "Replacement ordering") gets a dedicated drag-and-drop list
-      (`gameBoardView.js`'s `replacementOrderHtml`/
-      `confirmReplacementOrder`, `.gf-reorder-list` in `main.css`) instead
-      of the generic one-button-per-option modal every other choice kind
-      shares — the app's first drag-and-drop UI. Dragging only reorders
-      client-side state; confirming replays the chosen order as a
-      sequence of the same single `choose` picks the backend already
-      expects, stopping the auto-play rather than submitting a stale pick
-      if the server's freshly re-offered options ever don't match.
-- [x] Generic cast/activate-ability **targeting UI** (RULE 115/601.2c):
-      `castTargetHtml`/`castTargetModalHtml` (`gameBoardView.js`) turn any
-      `cast_spell`/`activate_ability` legal action with `requires_target`
-      into a "→ Ziel ▾" button opening a `.gf-target-modal` that walks
-      through each target requirement in turn (multi-target support via
-      `reqIndex`), offering `∅ Kein Ziel` when optional, before sending the
-      picked `targets`/`x` with the actual action. This single mechanism
-      covers spell targeting, Aura casting (an Aura's ETB attach target is
-      just its spell target), and Equip/Fortify/Reconfigure (ordinary
-      `activate_ability`s with an `AttachEffect`) — no separate "equip
-      control" was needed. `attached_to` battlefield grouping
-      (`.gf-attach-group`) was already in place from earlier work.
-- [x] `pending_choice` modal coverage extended beyond search/cascade/
-      discover/replacement-order to the remaining kinds that already rode
-      the same generic mechanism server-side but fell back to a plain ❔
-      icon: `land_tapped` (shock-land pay-life, RULE 614.1), `trigger_target`
-      (a triggered ability's own target/"you may"), `order_triggers`,
-      `enter_as_copy`, `counter_unless_pays` all now have a themed
-      `CHOICE_ICONS` entry.
-- [x] Planeswalker loyalty display (RULE 606): `objCard()` renders a
-      dedicated `◆ {loyalty}` badge (`.gf-loyalty-badge`, top-right corner)
-      off `GameObject.loyalty`, excluded from the generic counter badge to
-      avoid double-showing the same number. Loyalty-ability buttons
-      (`[+N]`/`[-N]`/`[0]`, parsed from `cost_label` via
-      `loyaltyModifierClass`) get a color-coded modifier class
-      (`--ok`/`--error`/`--text-dim` for plus/minus/zero) across all three
-      `activate_ability` render paths (plain, X-cost, target-requiring) so
-      they read apart from an ordinary activated-ability button at a
-      glance — the once-per-turn/sorcery-speed/loyalty-affordability gating
-      was already enforced server-side.
-- [x] **"Play/cast from the top of your library" visualization**
-      (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — a new backend
-      capability, `game/top_library.py`/`Done_Backend.md` "Rules Engine
-      (Phase 2)"): the library zone (`gameBoardView.js`'s
-      `libraryTopHtml`) renders the top card's face — with whatever
-      `play_land`/`cast_spell` buttons `legal_actions` offered for it,
-      via the same per-instance `byInstance` mechanism every other zone
-      already uses, so a look-only grant (no matching legal action) shows
-      the card with no buttons while a play/cast-enabling grant works
-      exactly like a hand card — whenever the new `view()` field
-      `top_library_visible[player_id]` is true; hidden otherwise (the
-      ordinary case). No new component needed: the card's own data was
-      already on the wire (`Player.to_dict()`'s `library` array), and
-      `objGrid` already builds a card tile with its actions from any
-      object list.
+### Sidebar navigation + connection status
 
-## Multiplayer
+- **What:** Collapsible left sidebar nav (replacing old top-bar tabs) plus a header connection indicator polling `GET /api/health` every 5s, shared via pub/sub between the header and the Einstellungen status line.
+- **Files:** `index.html`, `app.js`, `connectionStatus.js`
 
-- [~] A dedicated **"Multiplayer"** sidebar tab (`multiplayerView.js`):
-      calls `POST /api/game/multiplayer` and shows the backend's 501
-      "not yet" message. Stubbed on purpose — the interactive priority
-      loop isn't built server-side yet.
+### Einstellungen tab + cookie-persisted settings
 
-## Deck analysis (UC2)
+- **What:** Player-name + server-address fields with "Speichern"/"Verbindung testen"; settings persist device-locally in cookies (`mtg_server_url`, `mtg_player_name`, 1-year expiry).
+- **Files:** `connectionSettingsView.js`, `cookies.js`, `settings.js`
 
-- [x] "Deck analysieren" (`analyzeView.js` + `deckAnalysis.js`) is a full,
-      **local/static** analysis of a saved deck — no backend call, no AI:
-      pure functions over the same resolved `Card` data every other view
-      already fetches (`cardImages.js`'s resolve cache), classifying cards
-      by regexing `oracle_text` as a **display heuristic only** (a wrong
-      guess mislabels a chart; it can never affect actual game behaviour —
-      see `deckAnalysis.js`'s header comment for the boundary vs. the
-      security-relevant `backend/mtg_analyzer/parser/oracle/` pipeline).
-      Three sub-tabs: **Statische Analyse** (mana curve by CMC bucket,
-      card-type distribution, color pip counts vs. mana-source counts,
-      land-archetype breakdown — basics/duals/fetches/shocks/MDFC-lands/…,
-      and a "Command Zone" deckbuilding-template split: Lands/Ramp/Card
-      Advantage/Targeted Disruption/Mass Disruption/Plan Cards);
-      **Dynamische Analyse** (a hypergeometric opening-hand/by-turn land
-      simulation, `expectedLandsOverTime`/`simulateManaCurve`, factoring in
-      recognized accelerants — mana rocks/dorks/land-Auras/land-ramp
-      spells vs. one-shot rituals/Treasure generators, classified
-      separately since only the former are "recurring" for the sim); and
-      **Bracket-Analyse**, a heuristic approximation of WotC's 5-tier
-      "Commander Brackets" beta system (`suggestBracket`): flags Game
-      Changers, Mass Land Denial, and Extra Turn spells (each via a
-      hand-maintained name/pattern list, `isGameChanger`/
-      `isMassLandDenial`/`isExtraTurn`) plus a Tutor count, and suggests a
-      minimum bracket — explicitly labeled unofficial/approximate in the UI
-      copy, since brackets also weigh un-derivable factors (combo speed,
-      "stax" intent) the tool can't see from card text alone. Backed by
-      `Deck.color_identity`/`.commanders` (`backend/Done_Backend.md`
-      "Deck persistence") for the commander-vs-99 split. This is separate
-      from, and doesn't block, the LLM-backed `POST /api/decks/{id}/analyze`
-      analysis still in `backend/ToDo_Backend.md` "LLM Deck Analysis" — that
-      endpoint would add synergy/archetype narrative on top of these
-      numbers, not replace them.
+## Saved Decks Management
+
+### Saved-deck save split: update vs. new
+
+- **What:** "Aktualisieren" (overwrite the loaded deck, sends its id) and "Als neues speichern" (always creates a fresh deck) replace a single ambiguous "Speichern" that silently overwrote the loaded deck.
+- **Files:** `deckImportView.js`
+
+### Saved-decks list with legality badges
+
+- **What:** "Decks verwalten" lists saved decks (`GET /api/decks`), each row lazily fetching a legality badge (`GET /api/decks/{id}/validation`) — 🛑+reasons or ✅.
+- **Files:** `savedDecksView.js`
+
+### Cube flag ("Als Cube behandeln")
+
+- **What:** A checkbox flags a saved deck as a card pool (`isCube`) rather than a real Commander deck, skipping legality checks; the list shows a 🧊 badge and a matching Deck/Cube filter instead of the legality fetch.
+- **Files:** `deckImportView.js`, `savedDecksView.js`
+
+### VIS-2 · Rename / duplicate-as-new
+
+- **What:** "Umbenennen" and "Duplizieren" buttons per saved-deck row, both reusing the existing `POST /api/decks/save` (rename keeps the id; duplicate sends `id: null` and an appended "(Kopie)" name) — no new backend route needed.
+- **Files:** `savedDecksView.js`
+
+## Card Display & Art
+
+### Card art, cache browser, and detail tiles
+
+- **What:** Card art loads via the backend cache (`POST /api/cards/resolve` + `GET /api/cards/{id}/image`), never directly from Scryfall. "Karten-Cache" tab browses every cached card; a "Detailansicht" toggle switches deck-import lists to an image/mana-cost/oracle-text tile grid.
+- **Files:** `cardImages.js`, `cachedCardsView.js`, `cardTile.js`
+
+### Global card hover preview
+
+- **What:** One floating hover panel driven by a single delegated `document` listener; any view opts in via `data-hover-card="<name>"`.
+- **Files:** `cardHoverDetail.js`
+
+### Faithful hybrid/Phyrexian mana-cost rendering
+
+- **What:** `renderManaCost` token-parses the raw `mana_cost_string` to render hybrid/Phyrexian/X pips faithfully instead of collapsing them, mirroring the backend's `ManaSymbol` kinds; falls back to the old flattened approximation only for cards cached before that field existed.
+- **Files:** `cardTile.js`
+
+### Oracle-text mana symbol rendering
+
+- **What:** `renderOracleText` applies the same mana-token renderer to a card's rules text (activation costs, "Add {G}"), not just its cost line, in both the cache tile and the hover tooltip.
+- **Files:** `cardTile.js`, `cardHoverDetail.js`
+- **Bug fixed:** The first cut double-wrapped the mana-token regex in an extra capture group for `.split()`, which inserts every capture group into the result — duplicating each token's bare content next to its emoji (caught live via Playwright against a real card cache, fixed with a dedicated single-group split regex).
+
+### DFC front/back board rendering
+
+- **What:** The battlefield board shows correct art for a transformed permanent's current face, with a "peek other face" preview button (client-only, doesn't touch game state) distinct from the real `transform` action.
+- **Files:** `gameBoardView.js`, `cardImages.js`, `cardHoverDetail.js`
+- **Bug fixed:** `resolveImageUrl` unconditionally returned the front-face art for an already-transformed permanent because the image cache was only ever keyed by the deck's front-face name; fixed by branching on face before trusting the cache hit, and by caching a DFC's entry under both front and back names.
+
+## Goldfish Board Core
+
+### Goldfisch mode wired to the real engine
+
+- **What:** The "Goldfisch" tab picks a saved deck (only a legal one enables Start), posts to `POST /api/game/goldfish`, and renders/drives the server's authoritative `GameState` via validated actions from `legal_actions`, plus Zurücknehmen (rewind) and Neu starten.
+- **Files:** `goldfishView.js`
+- **Why:** The old local rule-less "preview" board (`boardEngine.js`) was removed entirely once a real engine-backed board existed.
+
+### Stack, phase/turn indicator, day/night badge
+
+- **What:** LIFO stack display with a "Priorität abgeben" control resolving one item at a time; a topbar shows turn/phase/step plus a ☀️/🌙 day-night badge (RULE 731) that stays hidden until a designation is established.
+- **Files:** `goldfishView.js`, `gameBoardView.js`
+
+### Per-card action buttons from legal_actions
+
+- **What:** Actions render directly under the affected card (land-play/cast buttons on hand cards, one tap button per mana option on lands, a per-creature attack button) rather than as aggregate global controls.
+- **Files:** `goldfishView.js`, `gameBoardView.js`
+
+### Art preload + London mulligan screen
+
+- **What:** A loading screen preloads every deck card's art before the board first renders (fixing turn-by-turn art pop-in); a mulligan screen (London style) gates all other actions until the opening hand is kept, including the bottom-N-cards selection after N mulligans.
+- **Files:** `goldfishView.js`
+
+## Mana System (frontend)
+
+### Restricted mana / any-combination color split / hand-zone mana abilities
+
+- **What:** The mana pool renders RULE 605.3a restricted-mana lots with a 🔒 badge and a German tooltip; a 5-input WUBRG split builder appears for "any combination of colors" abilities (RULE 605.1a); hand-zone mana abilities ("Exile this card from your hand: Add …") get their own action button.
+- **Files:** `gameBoardView.js`
+
+### "May choose not to untap" toggle
+
+- **What:** A sticky per-permanent toggle button for RULE 502.1's "may choose not to untap" permission.
+- **Files:** `gameBoardView.js`
+- **Why:** Verified against a synthetic single-ability test token in Replay mode, since every real printed card with this clause also pairs it with a second, still-unmodeled effect that keeps the whole card fail-closed at UNMODELED.
+
+## Choice & Targeting UI
+
+### Generic pending_choice modal coverage
+
+- **What:** A themed modal panel answers any `pending_choice` kind server-side offers — library search, cascade/discover, replacement-order, shock-land pay-life, trigger target/"you may", trigger ordering, enter-as-copy, counter-unless-pays — via the shared `CHOICE_ICONS`/generic one-button-per-option mechanism.
+- **Files:** `gameBoardView.js`
+
+### Drag-and-drop replacement-order UI
+
+- **What:** The one RULE 616.1e/f `replacement_order` choice gets a dedicated drag-and-drop reorder list — the app's only drag-and-drop UI — rather than the generic one-button-per-option modal; confirming replays the chosen order as ordinary sequential `choose` picks.
+- **Files:** `gameBoardView.js`
+
+### Generic spell/ability targeting modal
+
+- **What:** `castTargetHtml`/`castTargetModalHtml` turn any `cast_spell`/`activate_ability` with `requires_target` into a modal that walks each target requirement in turn (multi-target support), offering "∅ Kein Ziel" when optional. One mechanism covers spell targeting, Aura-attach targeting, and Equip/Fortify/Reconfigure — no separate "equip control" was built.
+- **Files:** `gameBoardView.js`
+
+### Per-requirement target groups (MEC-10)
+
+- **What:** Each expanded targeting round now remembers which requirement it belongs to, so a cast/activate with 2+ *different* targeting clauses ("pump target creature... it fights target creature you don't control") sends per-requirement `target_groups` instead of one flat list that could conflate them; the server derives the partition itself when unambiguous, but only the client can express a declined "up to one" slot.
+- **Files:** `gameBoardView.js`
+- **Why:** A flat list can't say *which* slot in a multi-round pick was left empty — that's the reason groups are sent client-side rather than re-derived.
+
+## Card-Type & Structural UI
+
+### Planeswalker loyalty display
+
+- **What:** A ◆-badge shows current loyalty; `[+N]`/`[-N]`/`[0]` ability buttons get color-coded modifier classes.
+- **Files:** `gameBoardView.js`
+
+### Play/cast from library-top visualization
+
+- **What:** The library zone renders the top card's face with whatever play/cast buttons `legal_actions` offers for it, whenever the new `top_library_visible` view flag is set (Oracle of Mul Daya/Glarb-shaped).
+- **Files:** `gameBoardView.js`
+
+### Per-card effect summary popover ("Info-Punkt")
+
+- **What:** A Σ-badge on each battlefield card opens a native Popover-API panel listing every effect currently reshaping it (Auras, Equipment, anthems, counters, until-EOT buffs), each with source + duration chip + resulting P/T.
+- **Files:** `gameBoardView.js`
+
+### "Castable from exile" panel
+
+- **What:** A dedicated panel lists every exile-zone card any of the three "you may cast this from exile" mechanisms (impulsive draw, Adventure, Prepared) currently allows, each with the same live cast button Hand/Battlefield use, plus a caption naming source and duration.
+- **Files:** `gameBoardView.js`
+
+### RULE 603.7 delayed-trigger panel
+
+- **What:** A compact "planned" panel lists armed delayed triggers (Ephemerate's Rebound, Marchesa's counter-death return, Sneak Attack's cheat-in-then-sacrifice) with a thumbnail, description, and "⏳ Zu Beginn von …" timing line.
+- **Files:** `gameBoardView.js`
+- **Bug fixed:** Caught and fixed two pre-existing bugs while verifying this panel end-to-end: `RulesEngine.blink` left a phantom duplicate reference in the owner's exile list after returning a blinked object to the battlefield, and `legal_actions`'s exile loop never checked temp-play-permission-exiled cards (Light Up the Stage/Ragavan-shaped), so those could never actually be offered as castable despite the engine fully supporting it.
+
+### Face-down permanents, dungeons, Planechase on the board
+
+- **What:** Face-down permanents render the player's chosen card-back sleeve with a 🎭 badge naming why (Morph/Disguise/Manifest/Cloak) and one "Aufdecken" button per legal turn-up route; the player-counter strip gained dungeon/room, Vanguard avatar, and Archenemy scheme facts; a Planechase strip shows the face-up plane and planar-die action, rendering nothing outside that format.
+- **Files:** `gameBoardView.js`
+
+### Modal spell mode selection (bug fix)
+
+- **What:** Every RULE 700.2 modal spell (choose one/N/N-or-more, Entwine) silently cast only its first listed mode — the board never round-tripped `mode`/`mode_description` through button labels, submitted actions, or `findTargetableAction`'s target-path matching, so clicking any mode button produced the same cast.
+- **Files:** `gameBoardView.js`
+- **Bug fixed:** Fixed by threading `mode`/`entwine` through every cast-button variant and widening action matching to disambiguate on `mode` (compared via `JSON.stringify` since a "choose N" mode is an array). Found via a user report initially misattributed to the unrelated triggered-ability "you may" choice path before being narrowed to modal spell casting specifically.
+
+## Casting & Costs (frontend)
+
+### X-spell and Kicker payment UI
+
+- **What:** A hand/command-zone card with `{X}` in its cost gets a number input (defaults to max) instead of a plain cast button; a kickable spell separately gets a Kicker number input (defaults to 0, since it's an opt-in extra cost) — both compose when a spell is kickable and X-costed.
+- **Files:** `goldfishView.js`, `gameBoardView.js`
+- **Bug fixed:** `legal_actions` had surfaced kicker fields since an earlier batch, but neither the board nor `game_session.py`'s `cast_spell` handler ever read/forwarded a `kicked` field — so kicker payment couldn't have worked end-to-end regardless of UI. Fixed both sides together.
+
+## Multiplayer Lobby
+
+### Setup/Board split + lobby presence
+
+- **What:** "Setup" (lobby: players' presence, tables, seats, ready toggles, host controls) and "Board" (the shared game, disabled until seated) are two tabs under one persistent controller, matching the Goldfisch/Replay pattern.
+- **Files:** `multiplayerView.js`
+
+### Bot seats (UC5)
+
+- **What:** The host fills a free seat with a bot from a server-driven kind picker (`GET /api/multiplayer/bots`); a bot seat renders like any other (🤖 badge, dashed border) with host-only deck-pick and remove controls before the game starts.
+- **Files:** `multiplayerView.js`
+
+### Per-seat take-backs
+
+- **What:** A host-set "Take-backs je Spieler" field in Setup and, in-game, a "↩️ Zug zurücknehmen (N)" button showing the caller's own remaining count.
+- **Files:** `multiplayerView.js`, `gameBoardView.js`
+- **Why:** Its tooltip explains that undoing your own last move also undoes anything an opponent did since — there is only one shared timeline.
+
+### Pod-sized tables (2-4 seats) + 2x2 layout
+
+- **What:** A seat-count selector in Setup; on the board, 3-4 seat games tile in a clockwise 2x2 grid (`.gf-pod-grid`) with fold buttons per opponent section, boards ordered by real turn order (a rotation, not a sort) so your own seat is always last/nearest.
+- **Files:** `multiplayerView.js`, `gameBoardView.js`
+- **Why:** Seats use explicit `grid-area` per position rather than row-major auto-placement, because row-major fill would put the third seat bottom-left and run the turn ring backwards across the bottom row.
+
+### Banner colors per seat
+
+- **What:** A seat picks a subset of WUBRG (or none, for grey) to paint its board title bar; the picker is five toggles rather than 32 named options, since a banner color is literally a set.
+- **Files:** `bannerColors.js`, `gameBoardView.js`, `multiplayerView.js`
+- **Why:** All 32 combinations render through one CSS rule fed two `linear-gradient` custom properties per seat, rather than 32 enumerated classes.
+
+## Multiplayer Board & Shared-Game UX
+
+### Redacted opponent hands + observer mode
+
+- **What:** An opponent's hand renders as a count (or card backs, togglable) since the server never sends its contents (RULE 400.2); "👁️ Zuschauen" opens a no-controls, no-hands observer board.
+- **Files:** `gameBoardView.js`
+
+### Blocker declaration UI (RULE 509.1a)
+
+- **What:** One row per potential blocker with a dropdown of legal attackers; picks accumulate in a local draft and submit as one whole-block action (needed for menace validation across the complete assignment). Shared with Replay's play mode. "Blockt nicht" is a submittable empty-assignments answer, not just an absent one.
+- **Files:** `gameBoardView.js`
+
+### Per-creature attacker selection (VIS-3)
+
+- **What:** Each attack-eligible card has its own attack button (single click with 0-1 legal defenders, a per-defender menu with 2+ — 3+ player pods, battles, planeswalkers) rather than one aggregate "swing with everybody" control.
+- **Files:** `gameBoardView.js`
+
+### Interactive priority UI (RULE 117)
+
+- **What:** In a shared game the toolbar shows "Passen" (not "advance step" — a step ends only when everyone passes) plus a badge for whose priority window it is; everything else is disabled outside your own window.
+- **Files:** `gameBoardView.js`
+
+### Auto-pass with countdown
+
+- **What:** A visible countdown auto-passes priority at zero when this client holds it; any board interaction cancels the window. Default on, 3s, opponent-turns-only; adjustable in Einstellungen and on the board itself.
+- **Files:** `gameBoardView.js`, `settings.js`
+
+### Reconnect keeps your seat
+
+- **What:** The lobby socket reclaims a seat by player name (Profil tab), so a reload/dropped connection lands back in the same game; a badge (⚡ getrennt) and drop-reason text (idle/replaced/timeout) surface connection state, which is lobby data reaching the board via a `seatStatus` hook.
+- **Files:** `lobbySocket.js`, `gameBoardView.js`
+
+### "Nächste Aktion" — skip empty priority windows
+
+- **What:** A persisted toggle auto-passes through windows where `legal_actions` offers literally nothing but `pass_priority`, stopping at the first window that offers anything real — distinct from auto-pass, which is interruptible because there's something you could respond to.
+- **Files:** `gameBoardView.js`
+- **Bug fixed:** Could spam the server with redundant `pass_priority` calls fast enough to break the UI, because the multiplayer transport returns no fresh data from `act()` (it waits for the socket push) so the priority-window key could stay unchanged across renders while a pass was still in flight; fixed with a `skipAttemptedForKey` latch capping it to one attempt per window, verified via a headless JS-engine harness since there's no browser test runner.
+
+### Board polish: sticky topbar, player counters, round vs. turn
+
+- **What:** The turn/phase bar is sticky on scroll; poison/energy/Ring-level/Monarch/Initiative/emblems are now drawn (previously only life and mana pool were, despite already being in the payload); "Zug N" shows the round number (tooltip has the rules-correct per-player turn count).
+- **Files:** `gameBoardView.js`
+
+### Attachment targeting bug fix
+
+- **What:** Equip/Fortify/Reconfigure were legal onto *any* creature/land, including an opponent's, though RULE 702.6a/702.67a/702.151a all say "you control" — a backend-only fix (targeting.py, rules_engine.py) at both offer-time and resolution-time.
+- **Files:** `game/targeting.py`, `game/rules_engine.py`
+- **Bug fixed:** Nothing had ever checked the "you control" qualifier on these three attachment abilities' legal targets.
+
+### Vancouver mulligan + post-mulligan scry
+
+- **What:** The scry after the whole table keeps arrives as an ordinary `pending_choice` on the board (not the mulligan screen, since setup is already over by then); mulligan screens now read the real shrinking hand size and share one `mulligan.js` text module instead of being duplicated per view.
+- **Files:** `gameBoardView.js`, `mulligan.js`
+
+### Move/priority feed (VIS-5)
+
+- **What:** Short-lived toasts announce other seats' moves ("Bob hat X gespielt"), derived from the same move-log delta PLR-6's draft-invalidation logic already computes; silent for your own moves and in solo modes (no perspective).
+- **Files:** `gameBoardView.js`
+
+### Bot move pacing with speed control (VIS-7)
+
+- **What:** A bot's whole turn arrives as one pushed view, so the move feed staggers each toast's reveal via `setTimeout` at a user-selectable pace (Sofort/Normal/Langsam) instead of showing a full bot turn's toasts simultaneously — a client-side replay of already-computed move-log data, not a server-push-per-ply change.
+- **Files:** `gameBoardView.js`, `settings.js`
+
+### A finished game closes deliberately
+
+- **What:** The end-of-game digest no longer irreversibly hijacks the board — "Spielfeld ansehen"/"Auswertung" toggle back and forth, and "Spiel schließen" is a separate explicit action that removes the dead table from every remaining viewer's lobby list.
+- **Files:** `multiplayerView.js`
+
+### Periodic lobby ping (PLR-5)
+
+- **What:** The lobby socket sends a ping every 30s (well under the idle timeout) so a connected-but-quiet client isn't dropped as idle.
+- **Files:** `lobbySocket.js`
+
+### Preload every seat's card art (VIS-6)
+
+- **What:** Once a table's first real view arrives, every seat's deck (not just this client's own) is preloaded so an opponent's first play never pops in unloaded art.
+- **Files:** `multiplayerView.js`
+
+### In-progress selections survive a reconnect (PLR-6)
+
+- **What:** Block/cast-targeting drafts are mirrored to the backend as they're built and best-effort rehydrated on reconnect, instead of being wiped on every fresh view (previously any unrelated seat's socket reconnect would blow away another player's in-progress pick).
+- **Files:** `gameBoardView.js`
+
+### "Save as Replay" from Multiplayer (PLR-10)
+
+- **What:** Ports goldfish's existing "Als Replay speichern" button (already mode-agnostic server-side) onto the Multiplayer board's seat controls, for both in-progress and finished games.
+- **Files:** `multiplayerView.js`
+
+## Replay/Puzzle Mode
+
+### 3-4 player Replay pods
+
+- **What:** Two more start-screen buttons for 3/4-player puzzles; the play board needed no change (it already pods via the shared `gameBoardView.js`), and the from-scratch editor grid gained matching pod CSS.
+- **Files:** `replayView.js`
+
+## Deck Analysis (frontend)
+
+### Static deck analysis (UC2)
+
+- **What:** A fully local/static analysis (no backend call, no AI) over resolved card data: mana curve, type distribution, pip-vs-source counts, land-archetype breakdown, and a deckbuilding-template split (Lands/Ramp/Card Advantage/Disruption/Plan) — card classification is a display-only oracle-text heuristic, never affecting real game behavior.
+- **Files:** `analyzeView.js`, `deckAnalysis.js`
+
+### Dynamic simulation UI (ANA-4)
+
+- **What:** The "Dynamische Analyse" sub-tab starts a background job (`POST /api/analysis/dynamic`) and polls for progress, then renders stat tiles and an SVG chart plotting simulated mana potential (mean ± stddev) against the static tab's already-computed curve, plus per-turn bar charts and an infinite-mana-guard warning count.
+- **Files:** `dynamicAnalysisPanel.js`
+
+### Bracket-Analyse heuristic
+
+- **What:** A heuristic approximation of WotC's 5-tier Commander Brackets, flagging Game Changers/Mass Land Denial/Extra Turn spells via hand-maintained name/pattern lists plus a tutor count, explicitly labeled unofficial since real brackets also weigh un-derivable factors like combo speed.
+- **Files:** `deckAnalysis.js`

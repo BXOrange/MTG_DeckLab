@@ -36,7 +36,7 @@ eine dokumentierte Lücke.
 
 Im Hauptverzeichnis des Repositories:
 
-```
+```code
 ./start.sh
 ```
 

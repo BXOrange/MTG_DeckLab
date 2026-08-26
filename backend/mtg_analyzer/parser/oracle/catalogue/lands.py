@@ -57,6 +57,14 @@ _UNLESS_BASIC_COUNT_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} tapped unless you control (\d+) or (more|fewer) basic lands\.?$",
     re.IGNORECASE,
 )
+#: The "Sanctuary" cycle (Mystic Sanctuary/Hall of Storm Giants &c): counts
+#: only lands of one named *type* ("other Islands") rather than any other
+#: land or every basic — a third `unless_count` sibling alongside the plain
+#: and basic-only forms above.
+_UNLESS_TYPE_COUNT_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped unless you control (\d+) or (more|fewer) other ([a-z]+?)s?\.?$",
+    re.IGNORECASE,
+)
 #: Check lands: "unless you control a/an <Type> [or a/an <Type> …]" —
 #: deterministic on the land *types* the controller already has.
 _UNLESS_TYPES_RE = re.compile(
@@ -68,8 +76,41 @@ _UNLESS_TYPES_RE = re.compile(
 #: `_UNLESS_OPPONENTS_RE`, which counts opponent *players*, not lands) — the
 #: "Turbulent" land cycle: "~ enters tapped unless your opponents control N
 #: or more lands."
+#: MEC-43: "~ enters tapped unless it's your first, second, or third turn
+#: of the game." (Starting Town-shaped) — deterministic on the game's own
+#: turn count, not the board; matched by counting the listed ordinals
+#: (a real card always lists a leading 1..N run, "first[, second[, ...]]").
+_ORDINALS = ("first", "second", "third", "fourth", "fifth")
+_UNLESS_TURN_AT_MOST_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped unless it'?s your ((?:{'|'.join(_ORDINALS)})"
+    rf"(?:,? (?:or )?(?:{'|'.join(_ORDINALS)}))*) turns? of the game\.?$",
+    re.IGNORECASE,
+)
 _UNLESS_OPPONENTS_COUNT_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} tapped unless your opponents control (\d+) or (more|fewer) lands\.?$",
+    re.IGNORECASE,
+)
+#: The mirror image of a shock land (Mariposa Military Base): untapped by
+#: default, with a *bonus* for choosing tapped instead of a cost to avoid
+#: it — "You may have this land enter tapped. If you do, you get two rad
+#: counters." Narrowly scoped to this exact real-card shape (rad counters)
+#: rather than a generic bonus-effect grammar, matching this module's own
+#: "one regex per real templating" style.
+_OPTIONAL_BONUS_RAD_RE = re.compile(
+    rf"^you may have {_SUBJECT} enter tapped\. if you do, you get (\d+|a|an) rad counters?\.?$",
+    re.IGNORECASE,
+)
+#: "Reveal land" cycle (Battle for Zendikar's original cycle, reprinted
+#: verbatim as Duskmourn's "Snarl" lands): "As ~ enters, you may reveal a
+#: Forest or Plains card from your hand. If you don't, ~ enters tapped." —
+#: genuinely optional like a shock land's pay-life choice, *not*
+#: deterministic like `_UNLESS_TYPES_RE`'s check lands: the controller can
+#: hold a matching card and still choose not to reveal it (hidden
+#: information), so this needs its own interactive `pending_choice` rather
+#: than being decided off the board.
+_REVEAL_TYPES_RE = re.compile(
+    rf"^as {_SUBJECT} {_ENTERS}, you may reveal an? (.+?) card from your hand\. "
+    rf"if you don'?t, {_SUBJECT} enters tapped\.?$",
     re.IGNORECASE,
 )
 
@@ -96,6 +137,9 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     - ``{"kind": "always"}`` — a plain tap-land, unconditionally tapped.
     - ``{"kind": "pay_life", "amount": N}`` — a shock land: the controller
       may pay ``N`` life to keep it untapped, a genuine interactive choice.
+    - ``{"kind": "optional_bonus_rad", "amount": N}`` — the mirror image
+      (Mariposa Military Base): untapped by default, with the controller
+      able to choose tapped instead for ``N`` rad counters.
     - ``{"kind": "unless_types", "types": [...]}`` — a check land: untapped
       iff the controller already controls a land of one of these types.
     - ``{"kind": "unless_count", "cmp": "le" | "ge", "count": N}`` — a fast
@@ -105,18 +149,34 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     - ``{"kind": "unless_opponents", "count": N}`` — a Commander
       "Battlebond" land: untapped iff the game has at least ``N`` opponents
       of the controller.
+    - ``{"kind": "unless_turn_at_most", "count": N}`` — MEC-43, Starting
+      Town-shaped: untapped iff it's still (any player's, not just the
+      controller's — see the engine-side simplification note)
+      ``count``-or-earlier turn of the game.
     - ``{"kind": "unless_opponents_count", "cmp": "le" | "ge", "count": N}``
       — the "Turbulent" land cycle: untapped iff the *total* count of lands
       across all opponents compares as stated (unlike ``unless_count``,
       which counts the controller's own other lands).
+    - ``{"kind": "reveal_types", "types": [...]}`` — the "reveal land" cycle:
+      the controller may reveal a card of one of these types from hand to
+      keep it untapped, a genuine interactive choice (like ``pay_life``),
+      not a deterministic board check (like ``unless_types``).
     """
     match = _PAY_LIFE_RE.match(line)
     if match:
         return {"kind": "pay_life", "amount": int(match.group(1))}
+    match = _OPTIONAL_BONUS_RAD_RE.match(line)
+    if match:
+        amount = 1 if match.group(1).lower() in ("a", "an") else int(match.group(1))
+        return {"kind": "optional_bonus_rad", "amount": amount}
     match = _UNLESS_OPPONENTS_COUNT_RE.match(line)
     if match:
         cmp_op = "le" if match.group(2).lower() == "fewer" else "ge"
         return {"kind": "unless_opponents_count", "cmp": cmp_op, "count": int(match.group(1))}
+    match = _UNLESS_TURN_AT_MOST_RE.match(line)
+    if match:
+        listed = re.findall("|".join(_ORDINALS), match.group(1), re.IGNORECASE)
+        return {"kind": "unless_turn_at_most", "count": len(listed) or 1}
     match = _UNLESS_OPPONENTS_RE.match(line)
     if match:
         return {"kind": "unless_opponents", "count": int(match.group(1))}
@@ -133,11 +193,23 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     if match:
         cmp_op = "le" if match.group(2).lower() == "fewer" else "ge"
         return {"kind": "unless_count", "cmp": cmp_op, "count": int(match.group(1))}
+    match = _UNLESS_TYPE_COUNT_RE.match(line)
+    if match:
+        cmp_op = "le" if match.group(2).lower() == "fewer" else "ge"
+        return {
+            "kind": "unless_count", "cmp": cmp_op, "count": int(match.group(1)),
+            "type": match.group(3).lower(),
+        }
     match = _UNLESS_TYPES_RE.match(line)
     if match:
         types = _split_types_clause(match.group(1))
         if types:
             return {"kind": "unless_types", "types": types}
+    match = _REVEAL_TYPES_RE.match(line)
+    if match:
+        types = _split_types_clause(match.group(1))
+        if types:
+            return {"kind": "reveal_types", "types": types}
     if _ALWAYS_RE.match(line):
         return {"kind": "always"}
     return None

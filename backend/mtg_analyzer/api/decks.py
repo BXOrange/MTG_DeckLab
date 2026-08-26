@@ -25,5 +25,6 @@ def submit_deck(
         submission.mainboard_text,
         submission.sideboard_text,
         loader,
+        submission.is_cube,
     )
     return parsed.to_dict()

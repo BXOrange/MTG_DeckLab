@@ -22,11 +22,15 @@ import {
   listTokenImages,
   tokenImageUrl,
   sleeveImageUrl,
+  fetchGameFormats,
+  listFavoriteDecks,
 } from './api.js';
 import { getPlayerName } from './settings.js';
 import { preloadCardImages, cacheResolvedCard } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
 import { createGameBoardView } from './gameBoardView.js';
+import { analysisHtml } from './gameStats.js';
+import { mulliganText } from './mulligan.js';
 
 /**
  * Create a persistent goldfish controller. Its session survives across
@@ -65,6 +69,14 @@ export function createGoldfishView() {
   let selectedDeckId = '';
   let selectedValidation = null; // {isLegal, errors, ...} | null
   let validating = false;
+  //: This player's starred deck ids (Profil tab) — sorts the picker above,
+  //: favorites first. Fetched alongside the deck list; empty when no player
+  //: name is set (there's nothing to key favorites by).
+  let favoriteDeckIds = new Set();
+  //: PLR-13: the RULE 8/9 format this goldfish game starts in (GET
+  //: /api/game/formats), 'commander' until the catalogue has loaded.
+  let gameFormats = null; // null = not loaded yet
+  let selectedFormat = 'commander';
 
   // The shared interactive board (advance/cast/attack/tap/stack/rewind).
   // "Neu starten" isn't one of its built-ins — a goldfish restart can land
@@ -96,6 +108,7 @@ export function createGoldfishView() {
     root = el;
     board.mount(el);
     if (!view && savedDecks === null) loadDecks();
+    if (!view && gameFormats === null) loadFormats();
     render();
   }
 
@@ -103,6 +116,7 @@ export function createGoldfishView() {
   // so newly-saved decks appear, but don't disturb a running game.
   function onShown() {
     if (!view) loadDecks();
+    if (!view && gameFormats === null) loadFormats();
   }
 
   function setStatus(text, kind = '') {
@@ -115,14 +129,28 @@ export function createGoldfishView() {
   async function loadDecks() {
     decksLoading = true;
     render();
-    const decks = await listSavedDecks();
+    const playerName = getPlayerName();
+    const [decks, favorites] = await Promise.all([
+      listSavedDecks(),
+      playerName ? listFavoriteDecks(playerName) : Promise.resolve([]),
+    ]);
     decksLoading = false;
     savedDecks = decks || [];
+    favoriteDeckIds = new Set(favorites || []);
     // Keep a valid selection; validate it if still present.
     if (selectedDeckId && !savedDecks.some((d) => d.id === selectedDeckId)) {
       selectedDeckId = '';
       selectedValidation = null;
     }
+    render();
+  }
+
+  // PLR-13: the format catalogue for the picker (GET /api/game/formats) —
+  // deck-independent, fetched once per mount like `loadDecks`.
+  async function loadFormats() {
+    const res = await fetchGameFormats();
+    gameFormats = res.ok ? res.data?.formats || [] : [];
+    if (res.ok && res.data?.default) selectedFormat = res.data.default;
     render();
   }
 
@@ -177,7 +205,7 @@ export function createGoldfishView() {
     await loadPlayerAssets(deck);
 
     await withBusy('Spiel wird gestartet …', async () => {
-      const res = await startGoldfish({ deckId: selectedDeckId, shuffle: true });
+      const res = await startGoldfish({ deckId: selectedDeckId, shuffle: true, gameFormat: selectedFormat });
       if (res.ok) {
         applyView(res.data);
         const notFound = res.data.notFound || [];
@@ -280,9 +308,9 @@ export function createGoldfishView() {
   async function keepHand() {
     const setup = view?.setup;
     if (!setup) return;
-    if (mulliganBottom.size !== setup.mulligan_count) {
+    if (mulliganBottom.size !== setup.bottom_count) {
       setStatus(
-        `Bitte genau ${setup.mulligan_count} Karte(n) zum Unterlegen auswählen.`,
+        `Bitte genau ${setup.bottom_count} Karte(n) zum Unterlegen auswählen.`,
         'warning'
       );
       render();
@@ -300,7 +328,7 @@ export function createGoldfishView() {
     if (!setup) return;
     if (mulliganBottom.has(instanceId)) {
       mulliganBottom.delete(instanceId);
-    } else if (mulliganBottom.size < setup.mulligan_count) {
+    } else if (mulliganBottom.size < setup.bottom_count) {
       mulliganBottom.add(instanceId);
     }
     render();
@@ -457,6 +485,13 @@ export function createGoldfishView() {
           <button id="gf-refresh-decks" type="button" title="Deckliste neu laden">⟳</button>
         </div>
 
+        <div class="gf-deck-picker">
+          <label for="gf-format-select">Format</label>
+          <select id="gf-format-select" ${gameFormats === null ? 'disabled' : ''}>
+            ${formatOptionsHtml()}
+          </select>
+        </div>
+
         ${deckLegalityHtml()}
 
         <button id="gf-start-btn" type="button" class="primary" ${canStart ? '' : 'disabled'}>
@@ -468,7 +503,20 @@ export function createGoldfishView() {
     const select = root.querySelector('#gf-deck-select');
     select?.addEventListener('change', (e) => selectDeck(e.target.value));
     root.querySelector('#gf-refresh-decks')?.addEventListener('click', loadDecks);
+    root.querySelector('#gf-format-select')?.addEventListener('change', (e) => {
+      selectedFormat = e.target.value;
+    });
     root.querySelector('#gf-start-btn')?.addEventListener('click', start);
+  }
+
+  // Favorites (Profil tab) first, alphabetical order preserved within each
+  // group — `Array.prototype.sort` is stable, so ties keep the server's
+  // original order rather than being re-sorted by name.
+  function decksFavoritesFirst() {
+    if (!savedDecks) return [];
+    return [...savedDecks].sort(
+      (a, b) => (favoriteDeckIds.has(b.id) ? 1 : 0) - (favoriteDeckIds.has(a.id) ? 1 : 0),
+    );
   }
 
   function deckOptionsHtml() {
@@ -477,12 +525,21 @@ export function createGoldfishView() {
       return '<option value="">— keine gespeicherten Decks —</option>';
     }
     const options = ['<option value="">— Deck wählen —</option>'];
-    for (const d of savedDecks) {
+    for (const d of decksFavoritesFirst()) {
       const name = (d.name || '').trim() || 'Unbenanntes Deck';
+      const label = favoriteDeckIds.has(d.id) ? `★ ${name}` : name;
       const selected = d.id === selectedDeckId ? ' selected' : '';
-      options.push(`<option value="${escapeHtml(d.id)}"${selected}>${escapeHtml(name)}</option>`);
+      options.push(`<option value="${escapeHtml(d.id)}"${selected}>${escapeHtml(label)}</option>`);
     }
     return options.join('');
+  }
+
+  function formatOptionsHtml() {
+    if (gameFormats === null) return '<option>Lädt …</option>';
+    if (!gameFormats.length) return '<option value="commander">Commander</option>';
+    return gameFormats
+      .map((f) => `<option value="${escapeHtml(f.name)}"${f.name === selectedFormat ? ' selected' : ''}>${escapeHtml(f.label)}</option>`)
+      .join('');
   }
 
   function deckLegalityHtml() {
@@ -502,18 +559,21 @@ export function createGoldfishView() {
   }
 
   function renderMulligan() {
-    const setup = view.setup || { complete: false, mulligan_count: 0 };
-    const bottomCount = setup.mulligan_count;
+    const setup = view.setup || { complete: false, mulligan_count: 0, bottom_count: 0 };
+    const mulliganCount = setup.mulligan_count;
+    const bottomCount = setup.bottom_count;
     const me = view.state.players[0];
     const canKeep = mulliganBottom.size === bottomCount;
+    const nextHand = setup.next_hand_size ?? 7;
     root.innerHTML = `
       <div class="goldfish-mulligan">
         <h3>Starthand</h3>
         <p class="hint">
           ${
-            bottomCount === 0
-              ? 'Deine Starthand: 7 Karten. Behalten, oder neu mischen (Mulligan)?'
-              : `Mulligan Nr. ${bottomCount}: neue 7 Karten gezogen. Beim Behalten ${bottomCount === 1 ? 'muss 1 Karte' : `müssen ${bottomCount} Karten`} unten in die Bibliothek gelegt werden — wähle sie unten aus.`
+            mulliganCount === 0
+              ? `Deine Starthand: ${me.hand.length} Karten. Behalten, oder neu mischen (Mulligan)?`
+              : mulliganText(setup, mulliganCount, bottomCount, me.hand.length) +
+                (bottomCount > 0 ? ' Wähle sie unten aus.' : '')
           }
         </p>
         ${statusHtml()}
@@ -525,7 +585,7 @@ export function createGoldfishView() {
           In Zug 1 eine Karte ziehen (sonst zieht der Goldfisch — du bist am Zug)
         </label>
         <div class="gf-controls">
-          <button id="gf-mulligan-btn" type="button" ${busy ? 'disabled' : ''}>🔀 Mulligan (neue 7 ziehen)</button>
+          <button id="gf-mulligan-btn" type="button" ${busy ? 'disabled' : ''}>🔀 Mulligan (${nextHand} Karten ziehen)</button>
           <button id="gf-keep-btn" type="button" class="primary" ${busy || !canKeep ? 'disabled' : ''}>
             ${bottomCount === 0 ? 'Hand behalten' : `Behalten (${mulliganBottom.size}/${bottomCount} unten ausgewählt)`}
           </button>
@@ -602,59 +662,6 @@ export function createGoldfishView() {
         : `Verloren – Sieger: ${escapeHtml(winner.name)}.`
       : 'Spiel beendet.';
     return `<p class="server-status ${youWon ? 'ok' : 'warning'}">${banner}</p>`;
-  }
-
-  // End-of-game review: totals + a mana-value curve and mana-per-turn bars
-  // for each player, side by side, built from the server's stats digest.
-  function analysisHtml(analysis) {
-    if (!analysis || !analysis.players) return '';
-    const players = Object.values(analysis.players);
-    const cards = players.map((p) => analysisCardHtml(p)).join('');
-    return `
-      <div class="gf-analysis">
-        <h4>Auswertung nach ${analysis.turns} Zügen</h4>
-        <div class="gf-analysis-grid">${cards}</div>
-      </div>`;
-  }
-
-  function analysisCardHtml(p) {
-    const stat = (label, value) =>
-      `<div class="gf-stat"><span class="gf-stat-v">${value}</span><span class="gf-stat-l">${label}</span></div>`;
-    return `
-      <div class="gf-analysis-card">
-        <h5>${p.is_dummy ? '🐟 ' : ''}${escapeHtml(p.name)}</h5>
-        <div class="gf-stat-row">
-          ${stat('Gezogen', p.cards_drawn)}
-          ${stat('Gespielt', p.cards_played)}
-          ${stat('Zauber', p.spells_cast)}
-          ${stat('Länder', p.lands_played)}
-        </div>
-        <div class="gf-stat-row">
-          ${stat('Mana erzeugt', p.mana_produced)}
-          ${stat('Ø MW', p.avg_cmc)}
-          ${stat('Schaden', p.damage_dealt)}
-          ${stat('erhalten', p.damage_taken)}
-        </div>
-        ${barChartHtml('Mana-Kurve gespielter Zauber (MW)', p.cmc_curve)}
-        ${barChartHtml('Mana pro Zug', p.mana_per_turn)}
-      </div>`;
-  }
-
-  // A minimal CSS bar chart over a {key: value} map (keys sorted numerically),
-  // heights scaled to the largest bar. No external chart lib — inline divs.
-  function barChartHtml(title, map) {
-    const entries = Object.entries(map || {})
-      .map(([k, v]) => [Number(k), v])
-      .sort((a, b) => a[0] - b[0]);
-    if (!entries.length) return `<div class="gf-chart"><span class="gf-chart-title">${title}</span><p class="empty-state">—</p></div>`;
-    const max = Math.max(...entries.map(([, v]) => v));
-    const bars = entries
-      .map(([k, v]) => {
-        const h = max ? Math.round((v / max) * 100) : 0;
-        return `<div class="gf-bar" title="${k}: ${v}"><span class="gf-bar-v">${v}</span><span class="gf-bar-fill" style="height:${h}%"></span><span class="gf-bar-k">${k}</span></div>`;
-      })
-      .join('');
-    return `<div class="gf-chart"><span class="gf-chart-title">${escapeHtml(title)}</span><div class="gf-bars">${bars}</div></div>`;
   }
 
   function statusHtml() {

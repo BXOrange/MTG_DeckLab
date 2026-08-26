@@ -15,7 +15,7 @@ from mtg_analyzer.services.commander_legality import check_commander_legality
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader, LoadCardsResult
 
 
-def apply_legality(parsed: ParsedDeck, resolved: LoadCardsResult) -> ParsedDeck:
+def apply_legality(parsed: ParsedDeck, resolved: LoadCardsResult, is_cube: bool = False) -> ParsedDeck:
     """Fill ``parsed.validation`` with real Commander legality (mutates it).
 
     Uses already-resolved card data so a caller that resolved for another
@@ -23,7 +23,14 @@ def apply_legality(parsed: ParsedDeck, resolved: LoadCardsResult) -> ParsedDeck:
     commander set (a commander name that failed to resolve) would
     understate color identity and produce false violations, so the real
     checks only run once every commander is known.
+
+    `is_cube` (`models/deck.py`) skips the ban-list/color-identity/Partner
+    checks entirely — a card pool isn't subject to Commander legality.
     """
+    if is_cube:
+        parsed.validation.is_legal = not parsed.validation.errors
+        return parsed
+
     commander_names = [entry.name for entry in parsed.commanders]
     all_names = [entry.name for entry in parsed.all_cards]
 
@@ -47,14 +54,18 @@ def apply_legality(parsed: ParsedDeck, resolved: LoadCardsResult) -> ParsedDeck:
 
 
 def validate_deck_sections(
-    commander_text: str, mainboard_text: str, sideboard_text: str, loader: LazyCardLoader
+    commander_text: str,
+    mainboard_text: str,
+    sideboard_text: str,
+    loader: LazyCardLoader,
+    is_cube: bool = False,
 ) -> ParsedDeck:
     """Parse + resolve + validate a decklist in one call."""
-    parsed = parse_deck_sections(commander_text, mainboard_text, sideboard_text)
+    parsed = parse_deck_sections(commander_text, mainboard_text, sideboard_text, is_cube)
     resolved = loader.load_cards(
         [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards]
     )
-    return apply_legality(parsed, resolved)
+    return apply_legality(parsed, resolved, is_cube)
 
 
 def compute_deck_identity(

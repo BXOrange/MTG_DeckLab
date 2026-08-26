@@ -33,9 +33,9 @@
         <div class="nav-group" data-group="deckManagement">
           <button class="nav-group-toggle" type="button">Deck-Management</button>
           <div class="nav-group-items">
-            <button class="tab-button" data-tab="import" type="button">Deck editieren</button>
-            <button class="tab-button" data-tab="importDeck" type="button">Import Deck</button>
             <button class="tab-button" data-tab="savedDecks" type="button">Decks verwalten</button>
+            <button class="tab-button" data-tab="importDeck" type="button">Import Deck</button>
+            <button class="tab-button" data-tab="import" type="button">Deck editieren</button>            
             <button class="tab-button" data-tab="analyze" type="button">Deck analysieren</button>
           </div>
         </div>
@@ -49,7 +49,10 @@
         <div class="nav-group" data-group="multiplayer">
           <button class="nav-group-toggle" type="button">Multiplayer</button>
           <div class="nav-group-items">
-            <button class="tab-button" data-tab="multiplayer" type="button">Multiplayer</button>
+            <button class="tab-button" data-tab="mpSetup" type="button">Setup</button>
+            <!-- Disabled until a game actually exists; multiplayerView.js
+                 enables it via app.js's onBoardAvailable hook. -->
+            <button class="tab-button" data-tab="mpBoard" type="button" disabled title="Erst verfügbar, wenn du in einem Spiel bist">Board</button>
           </div>
         </div>
         <div class="nav-group" data-group="information">
@@ -63,13 +66,14 @@
     </aside>
 
     <main>
+      <section id="view-saved-decks" class="view"></section>
       <section id="view-import" class="view"></section>
       <section id="view-import-deck" class="view"></section>
-      <section id="view-saved-decks" class="view"></section>
       <section id="view-analyze" class="view"></section>
       <section id="view-goldfish" class="view"></section>
       <section id="view-replay" class="view"></section>
-      <section id="view-multiplayer" class="view"></section>
+      <section id="view-mp-setup" class="view"></section>
+      <section id="view-mp-board" class="view"></section>
       <section id="view-cache" class="view"></section>
       <section id="view-connection" class="view"></section>
       <section id="view-profile" class="view"></section>

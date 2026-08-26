@@ -20,20 +20,20 @@ status (milestones, CR-area coverage table) — start there. It reconciles
 sources that it doesn't duplicate, so check those directly for the
 finest-grained/most current detail:
 
-- Granular **open** items: [`../backend/ToDo_Backend.md`](../backend/ToDo_Backend.md),
-  [`../frontend/ToDo_Frontend.md`](../frontend/ToDo_Frontend.md) — these two
-  stay next to the code they track (not under `docs/`) since they're living
-  backlogs edited alongside nearly every change; moving them would make
-  them easy to forget mid-change.
+- Granular **open** items: [`implementation-state/BACKLOG.md`](implementation-state/BACKLOG.md)
+  — one categorized ticket list covering backend *and* frontend (ids
+  `ENG`/`PAR`/`MEC`/`PLR`/`VIS`/`DB`/`ANA`). Open scope only: closing
+  a ticket means deleting it here and filing its narrative into the
+  matching subsystem entry of the matching `Done_*.md` catalogue.
+- **Examples / calibration**: [`implementation-state/PARSER_LONG_TAIL.md`](implementation-state/PARSER_LONG_TAIL.md)
+  — the standing strategy for the indefinite oracle-parser tail, the
+  recurring lessons, and enumerated worked samples. Neither a backlog nor a
+  worklog.
 - **Shipped** work, with the "why": [`implementation-state/Done_Backend.md`](implementation-state/Done_Backend.md),
   [`implementation-state/Done_Frontend.md`](implementation-state/Done_Frontend.md)
-  — these *do* live under `docs/`, since they're append-only history rather
-  than something edited in lockstep with in-progress code.
-- Narrow, deliberately-unhandled **edge cases** of an already-shipped
-  feature (as opposed to a large open feature, which stays in the ToDo files
-  above): [`implementation-state/ToDo_EdgeCases.md`](implementation-state/ToDo_EdgeCases.md)
-  — a cross-cutting index, not a replacement for the ToDo/Done files' own
-  in-situ mentions.
+  — catalogues organized by game-mechanic/app-area rather than
+  chronologically; these *do* live under `docs/` since they're durable
+  reference rather than something edited in lockstep with in-progress code.
 - User-facing engine coverage: the in-app **Engine-Status** tab
   (`../frontend/src/js/implementationStatusView.js`)
 

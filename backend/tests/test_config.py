@@ -1,6 +1,6 @@
 """Tests for the central on-disk-path/config module.
 
-Reference: backend/ToDo_Backend.md "Configuration".
+Reference: docs/implementation-state/Done_Backend.md "Configuration".
 
 `mtg_analyzer.config` reads its values from environment variables at
 import time, so exercising an override means running a fresh

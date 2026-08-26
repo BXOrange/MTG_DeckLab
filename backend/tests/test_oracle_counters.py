@@ -136,5 +136,7 @@ def test_entry_counters_clause_does_not_mask_other_unclaimed_lines():
     )
     result = parse_oracle(card)
     assert result.coverage == UNMODELED
-    assert "regenerate this creature." in result.unclaimed
+    # "this creature" folds to the self-reference "~" in normalisation
+    # (`normalize._fold_self_reference`); the line is still genuinely unclaimed.
+    assert "regenerate ~." in result.unclaimed
     assert not any("enters with" in line for line in result.unclaimed)

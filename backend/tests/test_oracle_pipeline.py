@@ -10,7 +10,7 @@ import pytest
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType
 from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import ability_catalogue, combat, continuous
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.effects import DealDamageEffect, DrawCardEffect
 from mtg_analyzer.game.game_engine import GameEngine
@@ -21,7 +21,7 @@ from mtg_analyzer.parser.oracle.catalogue.subgrammars import (
     count_of,
     resolve_target_kind,
 )
-from mtg_analyzer.parser.oracle.normalize import SELF, normalize
+from mtg_analyzer.parser.oracle.normalize import SELF, _fold_self_name, normalize
 from mtg_analyzer.parser.oracle.segmenter import (
     _TRIGGER_EVENTS,
     is_keyword_line,
@@ -71,6 +71,49 @@ def test_normalize_folds_only_short_number_words():
     assert normalize("draw seven cards") == "draw 7 cards"
     # "a"/"an" are NOT folded (too many non-numeric uses) — handled per-handler.
     assert normalize("draw a card") == "draw a card"
+
+
+def test_normalize_folds_leading_until_end_of_turn_to_trailing_form():
+    # Triumph of the Hordes-shaped: "Until end of turn, X." means the same
+    # thing as the far more common trailing "X until end of turn." every
+    # handler's grammar already expects.
+    out = normalize("Until end of turn, creatures you control get +1/+1 and gain trample and infect.")
+    assert out == "creatures you control get +1/+1 and gain trample and infect until end of turn."
+
+
+def test_normalize_leaves_multi_sentence_leading_until_end_of_turn_alone():
+    # A quoted granted ability can carry its own internal period (Bail
+    # Out-shaped) — folding "up to the first period" would relocate the
+    # duration into the middle of that quote, so the fold only applies to a
+    # genuinely single-sentence line (no embedded period before the last).
+    text = (
+        'until end of turn, target creature you control gains "when ~ dies, '
+        'return it to the battlefield tapped under its owner\'s control. '
+        'It deals 1 damage to each opponent."'
+    )
+    out = normalize(text)
+    assert out.startswith("until end of turn, ")
+
+
+def test_normalize_folds_alchemy_a_prefix_self_reference():
+    # PAR-4: an MTG Arena "Alchemy" rebalance is named with Scryfall's own
+    # "A-" prefix, but its own oracle text keeps self-referring by the
+    # un-prefixed base name (A-Thran Portal's "Thran Portal is the chosen
+    # type...") — both the printed and the un-prefixed form must fold.
+    text = "As A-Thran Portal enters, choose a basic land type.\nThran Portal is the chosen type."
+    out = normalize(text, "A-Thran Portal")
+    assert "thran portal" not in out
+    assert out.count(SELF) == 2
+
+
+def test_fold_self_name_does_not_strip_a_prefix_when_next_char_not_a_letter():
+    # Guard against a name that merely starts with "A-" followed by
+    # something that isn't the Alchemy rebalance convention (a digit) —
+    # no real card does this, but the stripped form should never be
+    # produced from garbage input: "1" alone must stay untouched even
+    # though the full name "A- 1" still folds.
+    out = _fold_self_name("A- 1 is great, unlike 1.", "A- 1")
+    assert out == f"{SELF} is great, unlike 1."
 
 
 # ---------------------------------------------------------------------------
@@ -141,8 +184,9 @@ def test_add_counters_on_self_is_untargeted():
 
 def test_add_counters_targets_any_permanent_not_just_creatures():
     # +1/+1 counters can sit on any permanent (RULE 122.1a) — a land that later
-    # animates uses them. The target phrase, not the counter, sets the kind.
-    assert parse_effect_body("put a +1/+1 counter on target land")[0].params["target_kind"] == "permanent"
+    # animates uses them. The target phrase, not the counter, sets the kind:
+    # "target land" is land-only (RULE 115.1c), "target permanent" is unscoped.
+    assert parse_effect_body("put a +1/+1 counter on target land")[0].params["target_kind"] == "land"
     assert parse_effect_body("put 2 +1/+1 counters on target permanent")[0].params["target_kind"] == "permanent"
 
 
@@ -290,17 +334,168 @@ def test_static_global_keyword_grant():
 
 
 def test_static_noncreature_scope_is_unclaimed():
-    # "Artifacts you control get +1/+1" isn't a creature anthem → fail-closed.
+    # "Artifacts you control get +1/+1" isn't a creature anthem → fail-closed
+    # (PAR-3 deliberately keeps `_ANTHEM_RE` creature-only — a bare "+N/+N"
+    # on a non-creature permanent is never printed on a real card).
     r, statics = _static_specs("Artifacts you control get +1/+1.")
     assert statics == [] and r.coverage == UNMODELED
 
 
-def test_static_granted_landwalk_is_unclaimed():
-    # Landwalk is parametric (a land-type quality), not a flag keyword → the
-    # whole compound clause is left unclaimed rather than dropping the ability.
+# --- PAR-3: non-creature group scopes (keyword-grant/quoted-grant only) ----
+
+
+def test_static_card_type_narrowed_creature_anthem():
+    # "Other artifact creatures you control get +1/+1." (Chief of the
+    # Foundry) — still a *creature* scope (RULE 205.2b), just narrowed by
+    # the printed card type rather than a creature subtype: `card_type`,
+    # not `subtype` ("Artifact" is never a subtype `_has_subtype` would see).
+    _, statics = _static_specs(
+        "Other artifact creatures you control get +1/+1.", tl="Artifact Creature", creature=True,
+    )
+    e = statics[0].effects[0]
+    assert e.type == "anthem"
+    assert e.params["affects"] == "other_creatures_you_control"
+    assert e.params["card_type"] == "artifact"
+    assert "subtype" not in e.params
+
+
+def test_static_bare_artifact_scope_keyword_grant():
+    # "Artifacts you control have hexproof." (Leonin Abunas) — a bare
+    # non-creature scope; `artifacts_you_control` already filters by type on
+    # its own, so no extra `card_type` param is needed.
+    _, statics = _static_specs("Artifacts you control have hexproof.")
+    e = statics[0].effects[0]
+    assert e.type == "grant_keyword" and e.params["keywords"] == ["hexproof"]
+    assert e.params["affects"] == "artifacts_you_control"
+    assert "card_type" not in e.params
+
+
+def test_static_bare_enchantment_scope_needs_card_type_filter():
+    # "enchantments" has no dedicated selector, unlike artifacts/lands — it
+    # rides the broader `permanents_you_control`, narrowed by `card_type`.
+    _, statics = _static_specs("Other enchantments you control have shroud.")
+    e = statics[0].effects[0]
+    assert e.params["affects"] == "permanents_you_control"
+    assert e.params["card_type"] == "enchantment"
+
+
+def test_static_global_noncreature_scope_quoted_grant_excludes_self():
+    # "Other enchantments have '…'" (Aura Flux) — global (no "you control"),
+    # "other" excludes just the source, same treatment `_scope_params` gives
+    # a global "Other creatures …" anthem.
+    _, statics = _static_specs(
+        'Other enchantments have "At the beginning of your upkeep, '
+        'sacrifice this enchantment unless you pay {2}."'
+    )
+    e = statics[0].effects[0]
+    assert e.params["affects"] == "all_permanents"
+    assert e.params["card_type"] == "enchantment"
+    assert e.params["exclude_self"] is True
+
+
+def test_static_bare_land_scope_uses_dedicated_selector():
+    _, statics = _static_specs("Lands you control have \"{T}: Add {C}.\"")
+    e = statics[0].effects[0]
+    assert e.params["affects"] == "lands_you_control"
+    assert "card_type" not in e.params
+
+
+def test_static_compound_noncreature_scope_stays_unclaimed():
+    # "Artifacts and enchantments you control have shroud." (Fountain Watch)
+    # — no engine selector ORs two card types yet, so this deliberately
+    # stays fail-closed rather than guessing (PAR-3 is single-word only).
+    r, statics = _static_specs("Artifacts and enchantments you control have shroud.")
+    assert statics == [] and r.coverage == UNMODELED
+
+
+def test_static_enchanted_creatures_group_scope_stays_unclaimed():
+    # "Enchanted creatures you control get +2/+2." (A Tale for the Ages) —
+    # a characteristic filter, not a subtype; guessing one ("Enchanted")
+    # would silently match no real creature's type line, so this stays
+    # fail-closed instead of half-modeled (PAR-3 spot-check finding).
+    r, statics = _static_specs("Enchanted creatures you control get +2/+2.")
+    assert statics == [] and r.coverage == UNMODELED
+
+
+def test_noncreature_scope_grant_applies_to_real_battlefield_objects():
+    # End-to-end (docs/09's "parse-only has masked runtime bugs" lesson):
+    # a Leonin Abunas-shaped card actually grants hexproof to artifacts on a
+    # real battlefield, and leaves non-artifacts untouched.
+    from mtg_analyzer.models.game_state import GameState
+    from mtg_analyzer.models.player import Player
+
+    lord_card = Card(
+        id="Leonin Abunas Shaped", name="Leonin Abunas Shaped", type_line="Creature — Cat Cleric",
+        is_creature=True, power=1, toughness=2,
+        oracle_text="Artifacts you control have hexproof.",
+    )
+    artifact_card = Card(id="Some Artifact", name="Some Artifact", type_line="Artifact")
+    bear_card = Card(
+        id="Some Bear", name="Some Bear", type_line="Creature — Bear",
+        is_creature=True, power=2, toughness=2,
+    )
+
+    state = GameState(players=[Player(id="p1", life=20), Player(id="p2", life=20)])
+
+    def put(card):
+        obj = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+        obj.summoning_sick = False
+        bind_from_catalogue(obj)
+        state.add_to_battlefield(obj)
+        return obj
+
+    put(lord_card)
+    artifact = put(artifact_card)
+    bear = put(bear_card)
+
+    continuous.recompute(state)
+    assert combat.has_hexproof(artifact)
+    assert not combat.has_hexproof(bear)
+
+
+def test_global_noncreature_scope_grant_excludes_the_source():
+    # An Aura-Flux-shaped card granting to "other enchantments" (global,
+    # no "you control") must not grant to itself.
+    from mtg_analyzer.models.game_state import GameState
+    from mtg_analyzer.models.player import Player
+
+    aura_flux_shaped = Card(
+        id="Aura Flux Shaped", name="Aura Flux Shaped", type_line="Enchantment",
+        oracle_text='Other enchantments have "{T}: Add {C}."',
+    )
+    other_enchantment = Card(id="Other Enchantment", name="Other Enchantment", type_line="Enchantment")
+
+    state = GameState(players=[Player(id="p1", life=20), Player(id="p2", life=20)])
+
+    def put(card, controller="p1"):
+        obj = GameObject(card, owner_id=controller, zone=Zone.BATTLEFIELD)
+        obj.summoning_sick = False
+        bind_from_catalogue(obj)
+        state.add_to_battlefield(obj)
+        return obj
+
+    source = put(aura_flux_shaped)
+    other = put(other_enchantment, controller="p2")
+
+    continuous.recompute(state)
+    from mtg_analyzer.game.mana_abilities import mana_abilities_for
+
+    assert mana_abilities_for(other)
+    assert not mana_abilities_for(source)
+
+
+def test_static_granted_landwalk_is_claimed_via_its_raw_variant_slug():
+    # Card-pool Batch 7: landwalk is parametric (a land-type quality), but the
+    # grant mechanism only ever needs the raw variant slug ("mountainwalk") —
+    # `combat._landwalk_slugs` matches any `granted_keywords` entry ending in
+    # "walk" directly — so this is claimed now, unlike every *other*
+    # parametric keyword grant (e.g. "protection from X"), which still needs
+    # a quality param the grant can't express and stays unclaimed.
     r, statics = _static_specs("Other Goblins you control get +1/+1 and have mountainwalk.",
                                tl="Creature — Goblin", creature=True)
-    assert statics == [] and r.coverage == UNMODELED
+    assert r.coverage != UNMODELED
+    kws = [s for s in statics[0].effects if s.type == "grant_keyword"][0]
+    assert kws.params["keywords"] == ["mountainwalk"]
 
 
 def test_create_token_with_nonflag_ability_is_unclaimed():
@@ -310,8 +505,9 @@ def test_create_token_with_nonflag_ability_is_unclaimed():
 
 
 def test_unhandled_clause_is_unclaimed():
-    # "proliferate" / "fateseal" have no one-shot effect yet — fail-closed.
-    assert parse_effect_body("proliferate") is None
+    # "fateseal" has no one-shot effect yet — fail-closed. ("proliferate" was
+    # this family's other example pre-Batch-5; it's modeled now — see
+    # test_modal_and_creature_filter_family.py.)
     assert parse_effect_body("fateseal 2") is None
     # A half-known chain fails whole (fail-closed), not partially.
     assert parse_effect_body("draw a card and mill your opponent") is None
@@ -401,6 +597,38 @@ def test_transform_handler_matches_self_forms():
         assert e.type == "transform" and e.params == {}
 
 
+def test_draw_recognizes_targeted_and_mass_forms():
+    # Kenrith/Oona's Grace-shaped: "target player/opponent draws a card" is
+    # a real RULE 115 target, not the source's own controller drawing —
+    # mirrors `_discard`'s pre-existing ``who`` treatment.
+    bare = parse_effect_body("draw a card")[0]
+    assert bare.type == "draw" and bare.params == {"count": 1}
+    you = parse_effect_body("you draw a card")[0]
+    assert you.params == {"count": 1}
+    targeted = parse_effect_body("target player draws a card")[0]
+    assert targeted.params == {"count": 1, "target_kind": "player"}
+    opponent = parse_effect_body("target opponent draws 2 cards")[0]
+    assert opponent.params == {"count": 2, "target_kind": "player"}
+    each = parse_effect_body("each opponent draws a card")[0]
+    assert each.params == {"count": 1, "selector": "each_opponent"}
+
+
+def test_kenrith_targeted_draw_ability_is_fully_modeled():
+    card = Card(
+        id="Kenrith, the Returned King", name="Kenrith, the Returned King",
+        type_line="Legendary Creature — Human Noble", is_creature=True,
+        power=4, toughness=4,
+        oracle_text="{R}: All creatures gain trample and haste until end of turn.\n"
+                     "{1}{G}: Put a +1/+1 counter on target creature.\n"
+                     "{2}{W}: Target player gains 5 life.\n"
+                     "{3}{U}: Target player draws a card.\n"
+                     "{4}{B}: Put target creature card from a graveyard onto the "
+                     "battlefield under its owner's control.",
+    )
+    result = parse_oracle(card)
+    assert result.modeled
+
+
 def test_group_pump_handler_creatures_you_control():
     e = parse_effect_body("creatures you control get +2/+1 until end of turn")[0]
     assert e.type == "pump"
@@ -409,6 +637,34 @@ def test_group_pump_handler_creatures_you_control():
     assert other.params["selector"] == "other_creatures_you_control"
     kw = parse_effect_body("creatures you control gain flying until end of turn")[0]
     assert kw.params == {"keywords": ["flying"], "selector": "creatures_you_control"}
+
+
+def test_pump_grant_handles_a_two_keyword_conjunction():
+    # Triumph of the Hordes-shaped: "gain X and Y" (as opposed to a single
+    # granted keyword) — the leading "Until end of turn," is folded to this
+    # trailing form by `normalize` before the segmenter ever sees it.
+    e = parse_effect_body(
+        "creatures you control get +1/+1 and gain trample and infect until end of turn"
+    )[0]
+    assert e.type == "pump"
+    assert e.params == {
+        "power": 1, "toughness": 1,
+        "keywords": ["trample", "infect"],
+        "selector": "creatures_you_control",
+    }
+
+
+def test_triumph_of_the_hordes_is_fully_modeled_end_to_end():
+    card = spell(
+        "Triumph of the Hordes",
+        "Until end of turn, creatures you control get +1/+1 and gain trample and infect. "
+        "(Creatures with infect deal damage to creatures in the form of -1/-1 counters "
+        "and to players in the form of poison counters.)",
+    )
+    result = parse_oracle(card)
+    assert result.coverage == MODELED
+    assert len(result.specs) == 1
+    assert result.specs[0].effects[0].params["keywords"] == ["trample", "infect"]
 
 
 # ---------------------------------------------------------------------------

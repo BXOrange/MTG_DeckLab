@@ -159,22 +159,22 @@ def test_buried_alive_puts_three_creatures_in_graveyard():
 # --- Documented coverage boundary ------------------------------------------
 
 
-def test_known_limitation_cultivate_split_destination():
+def test_cultivate_split_destination_single_search():
     """Cultivate/Kodama's Reach fetch two basics to *different* zones (one to
-    the battlefield tapped, one to hand). The feature moves every found card
-    to a *single* destination, so this split isn't a single search — it must
-    be modeled as two chained searches. This test documents that boundary by
-    showing the two-search decomposition does work.
+    the battlefield tapped, one to hand) as a single search — `destinations`
+    overrides `destination` positionally per pick (`RulesEngine.
+    _finish_search`), so this no longer needs the two-chained-searches
+    workaround a prior version of this test documented.
     """
     eng, p1 = new_engine()
-    # Search 1: a basic onto the battlefield tapped.
-    eng.rules.request_search(p1, {"basic": True}, "battlefield_tapped", count=1)
+    eng.rules.request_search(
+        p1, {"basic": True}, "battlefield_tapped", count=2,
+        destinations=["battlefield_tapped", "hand"],
+    )
     first = eng.state.pending_choice["eligible"][0]["instance_id"]
     eng.rules.resolve_search_choice(first)
-    # Search 2: another basic to hand.
-    eng.rules.request_search(p1, {"basic": True}, "hand", count=1)
-    if eng.state.pending_choice is not None:
-        second = eng.state.pending_choice["eligible"][0]["instance_id"]
-        eng.rules.resolve_search_choice(second)
-        assert any(o.instance_id == second for o in p1.hand)
+    second = eng.state.pending_choice["eligible"][0]["instance_id"]
+    eng.rules.resolve_search_choice(second)
+    assert eng.state.pending_choice is None
     assert eng.state.find_object(first).tapped
+    assert any(o.instance_id == second for o in p1.hand)

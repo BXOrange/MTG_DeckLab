@@ -8,7 +8,10 @@ import { cardImageUrl } from './api.js';
 
 // Colored mana symbols get a matching colored circle; {C} (the specific
 // colorless-mana symbol, distinct from generic cost) gets a neutral one.
-const MANA_SYMBOL_EMOJI = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢', C: '🔘' };
+// Exported so other views (gameBoardView.js's mana pool / mana-potential
+// readout) share this one WUBRGC glyph set instead of keeping their own,
+// possibly-diverging copy.
+export const MANA_SYMBOL_EMOJI = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢', C: '🔘' };
 
 // Keycap digit emojis, indexed by digit — used to spell out generic mana
 // (e.g. 12 -> "1️⃣2️⃣") one character at a time, so any amount works without
@@ -78,6 +81,33 @@ export function renderManaCost(card) {
     if (count > 0) parts.push(MANA_SYMBOL_EMOJI[symbol].repeat(count));
   }
   return parts.join(' ');
+}
+
+/**
+ * Oracle/reminder text with every `{...}` mana symbol (activation costs,
+ * "Add {G}", etc.) swapped for the same emoji `renderManaCost` uses for the
+ * cost line — everything else is escaped exactly like plain `escapeHtml`
+ * would. Splitting on `MANA_TOKEN_RE` with a capture group keeps the
+ * delimiters in the result, so the plain-text segments between symbols are
+ * escaped individually rather than the icons getting escaped along with them.
+ */
+// One capture group only, deliberately not reusing `MANA_TOKEN_RE.source`
+// wrapped in another `(...)` — that regex already has its own inner group
+// (for the trimmed symbol name), and split() inserts *every* captured
+// group's text into the result, so nesting a second group around it left
+// each token's bare content duplicated right after its own emoji (e.g.
+// "{0}" rendering as "0️⃣0").
+const MANA_TOKEN_SPLIT_RE = /(\{[^}]+\})/g;
+const MANA_TOKEN_WHOLE_RE = /^\{([^}]+)\}$/;
+
+export function renderOracleText(text) {
+  return String(text)
+    .split(MANA_TOKEN_SPLIT_RE)
+    .map((part) => {
+      const m = MANA_TOKEN_WHOLE_RE.exec(part);
+      return m ? renderManaToken(m[1]) : escapeHtml(part);
+    })
+    .join('');
 }
 
 /**
@@ -152,14 +182,22 @@ function renderTileFooter(coverageBadge, scryfallHref, scryfallTitle) {
 
 /**
  * @param {object} card A resolved card dict (Card.to_dict() shape).
- * @param {{qty?: number, illegalReason?: 'banned'|'colorIdentity'|null}} [options]
+ * @param {{qty?: number, illegalReason?: 'banned'|'colorIdentity'|null, favorite?: boolean}} [options]
  *   `qty`: optional quantity badge (deck-import context only).
  *   `illegalReason`: set when the deck's commander-legality check
  *   (POST /api/decks) flagged this exact card — banned, or outside the
  *   commander's color identity — so it can still be shown (this is a
  *   real, resolved card) with a "why" marker rather than removed.
+ *   `favorite`: when passed (deck-import context only — omit to render no
+ *   star at all, e.g. `cachedCardsView.js`'s read-only cache browser),
+ *   renders a toggleable favorite star reflecting `Deck.favoriteCards`
+ *   (`models/deck.py`). Toggling only updates this tile's own DOM (see the
+ *   delegated handler at the bottom of this module) and dispatches a
+ *   `card-tile-favorite-toggle` event — the host view listens for that to
+ *   update its own tracked favorite set rather than this module owning any
+ *   state itself.
  */
-export function renderCardTile(card, { qty, illegalReason } = {}) {
+export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
   const manaCost = renderManaCost(card);
   const powerToughness = card.power != null && card.toughness != null ? `${card.power}/${card.toughness}` : '';
   const metaParts = [card.rarity, card.set_code ? card.set_code.toUpperCase() : ''].filter(Boolean);
@@ -176,11 +214,19 @@ export function renderCardTile(card, { qty, illegalReason } = {}) {
          title="Kartenrückseite anzeigen" aria-label="Kartenrückseite anzeigen">🔄</button>`
     : '';
 
+  const favoriteButton =
+    favorite !== undefined
+      ? `<button type="button" class="card-tile-favorite${favorite ? ' is-favorite' : ''}"
+           data-favorite-card="${escapeAttr(card.name)}" aria-pressed="${favorite}"
+           title="Favorit markieren/entfernen" aria-label="Favorit markieren/entfernen">${favorite ? '★' : '☆'}</button>`
+      : '';
+
   return `
     <div class="card-tile${illegalReason ? ' card-tile-illegal' : ''}">
       <div class="card-tile-image">
         ${qtyBadge}
         ${flipButton}
+        ${favoriteButton}
         <img src="${cardImageUrl(card.id, 'normal')}" alt="${escapeHtml(card.name)}" loading="lazy" />
       </div>
       <div class="card-tile-info">
@@ -189,7 +235,7 @@ export function renderCardTile(card, { qty, illegalReason } = {}) {
         <p class="card-tile-type">${escapeHtml(card.type_line)}</p>
         ${manaCost ? `<p class="card-tile-cost">${manaCost}</p>` : ''}
         ${powerToughness ? `<p class="card-tile-pt">${escapeHtml(powerToughness)}</p>` : ''}
-        ${card.oracle_text ? `<p class="card-tile-text">${escapeHtml(card.oracle_text)}</p>` : ''}
+        ${card.oracle_text ? `<p class="card-tile-text">${renderOracleText(card.oracle_text)}</p>` : ''}
         ${card.keywords?.length ? `<p class="card-tile-keywords">${escapeHtml(card.keywords.join(', '))}</p>` : ''}
         ${metaParts.length ? `<p class="card-tile-meta">${escapeHtml(metaParts.join(' · '))}</p>` : ''}
         ${renderTileFooter(renderCoverageBadge(card.coverage), scryfallUrl(card.name), 'Auf Scryfall ansehen')}
@@ -257,5 +303,24 @@ if (typeof document !== 'undefined') {
     if (!img) return;
     const showingBack = button.classList.toggle('is-flipped');
     img.src = showingBack ? button.dataset.backSrc : button.dataset.frontSrc;
+  });
+
+  // Same delegated-listener shape as the flip button above: this only
+  // flips the button's own DOM (class/glyph/aria-pressed) — the favorite
+  // *set* itself is owned by whichever view rendered the tile
+  // (deckImportView.js), which listens for this event to stay in sync
+  // rather than cardTile.js holding any state of its own.
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest?.('.card-tile-favorite');
+    if (!button) return;
+    const isFavorite = button.classList.toggle('is-favorite');
+    button.setAttribute('aria-pressed', String(isFavorite));
+    button.textContent = isFavorite ? '★' : '☆';
+    button.dispatchEvent(
+      new CustomEvent('card-tile-favorite-toggle', {
+        bubbles: true,
+        detail: { name: button.dataset.favoriteCard, favorite: isFavorite },
+      })
+    );
   });
 }

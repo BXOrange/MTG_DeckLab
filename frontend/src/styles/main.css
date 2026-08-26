@@ -417,6 +417,29 @@ textarea {
   border: 1px solid var(--border);
 }
 
+/* Profil tab: the saved-deck checklist that toggles Deck.id favorites. */
+.profile-favorite-deck-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.profile-favorite-deck-list li {
+  padding: 0.2rem 0;
+}
+
+.profile-favorite-deck-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  text-transform: none;
+  cursor: pointer;
+}
+
 .player-asset-tile span {
   overflow-wrap: anywhere;
 }
@@ -452,7 +475,8 @@ textarea {
   gap: 0.5rem;
 }
 
-.save-deck-controls input {
+.save-deck-controls input[type="text"],
+.save-deck-controls select {
   flex: 1 1 140px;
   background: var(--bg);
   color: var(--text);
@@ -460,6 +484,15 @@ textarea {
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
   font-size: 0.85rem;
+}
+
+.deck-cube-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  cursor: pointer;
 }
 
 .deck-summary-header {
@@ -475,6 +508,13 @@ textarea {
   margin: 0;
 }
 
+.deck-summary-header-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
 .detail-toggle {
   display: flex;
   align-items: center;
@@ -482,6 +522,23 @@ textarea {
   font-size: 0.8rem;
   color: var(--text-dim);
   cursor: pointer;
+}
+
+.zoom-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.zoom-toggle select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.8rem;
 }
 
 .status-ok { color: var(--ok); font-weight: 600; }
@@ -522,6 +579,25 @@ textarea {
 .card-list .qty {
   color: var(--accent);
   margin-right: 0.4rem;
+}
+
+.card-list-favorite {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0 0.35rem 0 0;
+  color: var(--text-dim);
+  vertical-align: middle;
+}
+
+.card-list-favorite:hover {
+  color: var(--accent);
+}
+
+.card-list-favorite.is-favorite {
+  color: var(--accent);
 }
 
 .card-list li.card-not-found {
@@ -617,6 +693,30 @@ textarea {
   gap: 0.4rem;
 }
 
+/* RULE 601.3b/715.3d/722.3c: the "castable from exile" callout next to the
+   hand — each entry pairs the ordinary card tile with a caption explaining
+   why it's castable and how long that lasts (an impulsive-draw permission
+   expires; Adventure/Prepared don't). */
+.gf-exile-castable {
+  border-color: var(--accent);
+}
+
+.gf-exile-castable-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  max-width: 130px;
+}
+
+.gf-exile-castable-caption {
+  margin: 0;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--text-dim);
+}
+
 .card {
   background: var(--panel-alt);
   border: 1px solid var(--border);
@@ -633,8 +733,27 @@ textarea {
   cursor: pointer;
 }
 
+.card[data-draggable-card="true"] {
+  cursor: grab;
+}
+
+.card[data-draggable-card="true"]:active {
+  cursor: grabbing;
+}
+
 .card.clickable:hover {
   border-color: var(--accent);
+}
+
+.gf-card-slot.gf-drag-source > .card {
+  box-shadow: 0 0 0 2px rgba(255, 221, 88, 0.85);
+}
+
+.gf-card-slot.gf-drag-target-valid > .card,
+.gf-zone.gf-battlefield.gf-drag-target-valid,
+.gf-player-board.gf-drag-target-valid {
+  box-shadow: 0 0 0 3px rgba(88, 183, 255, 0.8);
+  border-color: rgba(88, 183, 255, 0.8);
 }
 
 .card[data-hover-card]:hover {
@@ -662,6 +781,18 @@ textarea {
 
 .card.has-image.clickable:hover img {
   outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* "Mana-Potenzial": this hand card could be paid for right now by tapping/
+   exiling untapped mana sources (`GameEngine.auto_tap_for`'s own dry run),
+   even if it isn't affordable from the current pool alone yet. */
+.card.castable-highlight {
+  box-shadow: 0 0 0 2px var(--ok);
+}
+
+.card.has-image.castable-highlight img {
+  outline: 2px solid var(--ok);
   outline-offset: -2px;
 }
 
@@ -695,6 +826,19 @@ textarea {
 .cache-count {
   color: var(--text-dim);
   font-size: 0.85rem;
+}
+
+.cache-scope-toggle {
+  display: inline-flex;
+  gap: 0.9rem;
+  font-size: 0.85rem;
+}
+
+.cache-scope-toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
 }
 
 .cache-coverage-legend {
@@ -752,10 +896,25 @@ textarea {
 
 /* --- Shared card tile (Karten-Cache + deck-import detail view) --- */
 
+/* Default (and `.zoom-compact`'s explicit) size — a smaller minimum than
+   the old fixed 220px so a normal-sized deck's "Hauptdeck" grid fits many
+   more tiles per row instead of forcing constant scrolling. `.zoom-medium`/
+   `.zoom-large` (the deck-summary header's "Kartengröße" select,
+   deckImportView.js) size back up for readability when that's preferred. */
 .card-tile-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.85rem;
+}
+
+.card-tile-grid.zoom-medium {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 1.25rem;
+}
+
+.card-tile-grid.zoom-large {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
 }
 
 .card-tile {
@@ -812,6 +971,35 @@ textarea {
 
 .card-tile-flip.is-flipped {
   transform: rotate(180deg);
+}
+
+/* Bottom-right (not top-right, where .card-tile-flip already sits) so a
+   double-faced favorite card doesn't stack two overlay buttons. */
+.card-tile-favorite {
+  position: absolute;
+  bottom: 0.4rem;
+  right: 0.4rem;
+  z-index: 1;
+  width: 1.9rem;
+  height: 1.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  cursor: pointer;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.card-tile-favorite:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.card-tile-favorite.is-favorite {
+  color: var(--accent);
 }
 
 .card-tile-qty {
@@ -1064,6 +1252,34 @@ textarea {
   margin: 0 0 0.3rem;
 }
 
+/* ANA-4: the Simulation sub-tab's "run N matches" form */
+
+.analyze-sim-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0;
+}
+
+.analyze-sim-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.analyze-sim-form input[type="number"],
+.analyze-sim-form select {
+  padding: 0.35rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  min-width: 7rem;
+}
+
 /* Summary stat tiles */
 
 .analyze-stat-grid {
@@ -1281,6 +1497,9 @@ textarea {
 .chart-dot--accent { fill: var(--accent); }
 .chart-dot--info { fill: var(--info); }
 
+/* ANA-4: the ± stddev band behind a simulated-mean line (dynamicAnalysisPanel.js) */
+.chart-band--accent { fill: var(--accent); opacity: 0.15; }
+
 /* Color pips: card requirements vs. mana sources */
 
 .pip-compare-chart {
@@ -1404,6 +1623,11 @@ textarea {
   font-size: 0.82rem;
 }
 
+.saved-deck-archetypes {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
 .saved-deck-row--hidden {
   display: none;
 }
@@ -1444,8 +1668,15 @@ textarea {
 
 .saved-deck-actions {
   display: flex;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.4rem;
   flex-shrink: 0;
+  align-items: flex-end;
+}
+
+.saved-deck-actions-row {
+  display: flex;
+  gap: 0.5rem;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -1508,10 +1739,18 @@ textarea {
   line-height: 1.3;
 }
 
+/* Names the *other* face of a DFC being hovered (see cardHoverDetail.js's
+   `faceForName`) — a quiet footnote, not a call to action, since flipping
+   the actual tooltip preview isn't wired here (use the board's own 🔄
+   button on the permanent's tile for that). */
+.card-hover-tooltip-flip-hint {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 /* --- Goldfisch-Modus --- */
 
-.goldfish-start,
-.mp-stub {
+.goldfish-start {
   max-width: 640px;
 }
 
@@ -1524,6 +1763,10 @@ textarea {
   margin-top: 0.75rem;
 }
 
+/* Sticky so turn/phase stays visible while scrolling a two-board game —
+   `main` (app.css) is the scrolling ancestor, and this sticks to its top
+   padding edge. Below the stack overlay's z-index (30) so a resolving
+   stack still visually covers it rather than poking through underneath. */
 .gf-topbar {
   display: flex;
   align-items: center;
@@ -1534,11 +1777,17 @@ textarea {
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
   margin-bottom: 0.6rem;
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .gf-turninfo {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
 }
 
 .gf-turn {
@@ -1561,6 +1810,46 @@ textarea {
   white-space: nowrap;
 }
 
+/* RULE 605.3a: mana tagged "spend only on X" — visually set apart from the
+   ordinary WUBRGC counts it's never merged with server-side. */
+.gf-mana-restricted {
+  padding: 0 0.25rem;
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+}
+
+/* "Mana-Potenzial": what's still open vs. already produced this turn —
+   a compact two-row readout next to the live mana pool. */
+.gf-mana-potential {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.gf-mana-potential-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.gf-mana-potential-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.gf-mana-potential-open .gf-mana-potential-label {
+  color: var(--ok);
+}
+
+.gf-mana-potential-used .gf-mana-potential-label {
+  color: var(--text-dim);
+}
+
 .gf-life {
   display: flex;
   flex-direction: column;
@@ -1574,14 +1863,57 @@ textarea {
   text-transform: uppercase;
 }
 
-.gf-active-player {
+/* Turn order (RULE 500.1) in the topbar — the seating chart for the boards
+   below, in the same sequence, with the active player marked. Replaced the
+   older single "Aktiv: X" readout, which is why there is no `.gf-active-
+   player` rule here any more. */
+.gf-turnorder {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.3rem;
   font-size: 0.8rem;
   color: var(--text-dim);
 }
 
+.gf-turnorder-arrow {
+  color: var(--border);
+}
+
+/* Your own seat stays legible when it isn't the active one — the point of
+   the strip is finding yourself in it at a glance. Declared *before*
+   `-active` on purpose: both can apply to the same seat and they carry the
+   same specificity, so being the active player has to be the later rule to
+   win the colour. */
+.gf-turnorder-me {
+  color: var(--text);
+}
+
+.gf-turnorder-active {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.gf-turnorder-out {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+/* The seat's banner colour, repeated as a dot in the strip so the legend
+   covers the colours as well as the order (gameBoardView's `turnOrderHtml`;
+   the gradient itself is inline, from `bannerColors.js`). */
+.gf-turnorder-dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.3rem;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  vertical-align: baseline;
+}
+
 .gf-daynight {
   display: inline-block;
-  margin-top: 0.15rem;
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
   font-size: 0.75rem;
@@ -1610,6 +1942,63 @@ textarea {
   margin-bottom: 0;
 }
 
+/* Pod tables (3-4 seats, `services/lobby.py`): the boards tile 2x2 instead
+   of stacking, so nobody is below the fold. Row-major, DOM order unchanged
+   — opponents first, this client's own seat last, i.e. nearest them. The
+   columns are `minmax(0, 1fr)` rather than `1fr` so a wide battlefield
+   wraps its cards instead of stretching the column and pushing its
+   neighbour off-screen.
+
+   There is deliberately **no media query** for the narrow-screen fallback:
+   gameBoardView.js owns that breakpoint (POD_GRID_MIN_WIDTH) and simply
+   doesn't emit this wrapper below it, because dropping to one column also
+   changes what the zone toggle *means* (innen/außen vs. left/right). Split
+   between CSS and JS, the two halves would drift. */
+.gf-pod-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.gf-pod-grid > .gf-player-board {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+/* Seats are placed **clockwise around the table**, not in the reading order
+   auto-placement would give (which puts the third board bottom-*left* and
+   so runs the ring backwards across the bottom row):
+
+       1 ── 2          turn order goes 1 → 2 → 3 → 4 → back to 1,
+       │    │          and 4 sits next to 1 again, closing the ring.
+       4 ── 3
+
+   The board list is already in turn order ending at your own seat
+   (`boardOrder`), so at four seats you are 4 — bottom-left, next to the
+   top-left board that plays after you. `POD_COLUMNS` in gameBoardView.js
+   mirrors this mapping; the two must stay in step. */
+.gf-pod-grid > .gf-player-board:nth-child(1) { grid-area: 1 / 1; }
+.gf-pod-grid > .gf-player-board:nth-child(2) { grid-area: 1 / 2; }
+.gf-pod-grid > .gf-player-board:nth-child(3) { grid-area: 2 / 2; }
+.gf-pod-grid > .gf-player-board:nth-child(4) { grid-area: 2 / 1; }
+
+/* Three seats leaves an odd board out — always the last one drawn, i.e.
+   your own — and that's the one you actually play from, so it takes the
+   whole bottom row rather than half of it. Higher specificity than the
+   placement rules above, so it wins the column back from `2 / 2`. At four
+   seats nothing matches and the ring above stands. */
+.gf-pod-grid > .gf-player-board:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+/* Half the width means the 230px zone column would eat a third of a board;
+   the zones are lists and counts, so they shrink better than the
+   battlefield does. */
+.gf-pod-grid .gf-side {
+  flex: 0 0 170px;
+}
+
 .gf-player-board-head {
   display: flex;
   align-items: center;
@@ -1626,6 +2015,38 @@ textarea {
   margin: 0;
   color: var(--accent);
   font-size: 1rem;
+}
+
+/* A seat that picked a banner colour in the Multiplayer setup
+   (`services/lobby.py`'s `Seat.banner_color`). Both gradients arrive
+   inline as custom properties from `bannerColors.js`, so all 32 colour
+   combinations are *this one rule* rather than 32 classes:
+
+     --banner-bg     the deep gradient the whole title bar is painted in
+     --banner-strip  the bright one, as a hairline along its top edge
+
+   The fallback is the plain felt header, which is what every solo mode
+   (Goldfisch, Replay) keeps — they have no lobby and so no banner. */
+.gf-banner-tinted {
+  position: relative;
+  overflow: hidden;
+  background: var(--banner-bg, var(--felt));
+  border-color: rgba(0, 0, 0, 0.5);
+}
+
+.gf-banner-tinted::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--banner-strip);
+}
+
+/* Gold-on-colour is unreadable on half the palette; near-white with a soft
+   shadow works on all of it. */
+.gf-banner-tinted h3 {
+  color: #f6f3ea;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 .gf-controls {
@@ -1905,6 +2326,41 @@ textarea {
   font-style: italic;
 }
 
+/* A continuous effect's bounds: when it ends (Regel 611) and the "solange"
+   condition gating it (Regel 613.6). Badges rather than prose — they sit at
+   the end of a one-line entry that already carries layer, source and scope. */
+.gf-static-duration,
+.gf-static-condition,
+.gf-static-inactive {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  background: var(--panel-alt);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.gf-static-duration {
+  color: var(--accent);
+}
+
+.gf-static-condition {
+  color: var(--text-dim);
+}
+
+.gf-static-inactive {
+  color: var(--error);
+  font-weight: 700;
+}
+
+/* A gated static whose condition doesn't hold right now — dimmed, not
+   hidden: the ability is genuinely in play and applies again the moment the
+   condition becomes true. */
+.gf-static-off {
+  opacity: 0.55;
+}
+
 .gf-static-traces {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1928,6 +2384,75 @@ textarea {
 
 .gf-static-costs {
   margin-top: 0.4rem;
+}
+
+/* --- Goldfisch: geplante verzögerte Fähigkeiten (Regel 603.7) --- */
+
+.gf-delayed-panel {
+  margin: 0.6rem 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  font-size: 0.78rem;
+}
+
+.gf-delayed-panel h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.gf-delayed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.gf-delayed-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gf-delayed-thumb {
+  flex: 0 0 auto;
+  width: 2.2rem;
+  height: 3.05rem;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+}
+
+.gf-delayed-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gf-delayed-noart {
+  font-size: 1.1rem;
+}
+
+.gf-delayed-body {
+  min-width: 0;
+}
+
+.gf-delayed-desc {
+  margin: 0;
+  line-height: 1.3;
+}
+
+.gf-delayed-when {
+  margin: 0.1rem 0 0;
+  color: var(--text-dim);
+  font-style: italic;
 }
 
 /* --- Goldfisch: Deck-Auswahl aus der Deck-Datenbasis --- */
@@ -1989,6 +2514,28 @@ textarea {
   color: var(--warn);
   cursor: help;
   font-weight: 600;
+}
+
+.saved-deck-legality.cube {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.saved-deck-cube-badge {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.saved-deck-coverage {
+  display: block;
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+  color: var(--warn);
+  cursor: help;
+}
+
+.saved-deck-coverage:empty {
+  display: none;
 }
 
 /* --- Goldfisch: Aktionen direkt unter den Karten --- */
@@ -2157,6 +2704,49 @@ textarea {
   color: var(--text-dim);
 }
 
+/* RULE 502.1 "may choose not to untap" toggle — highlighted while active,
+   since it's a sticky standing choice rather than a one-off action. */
+.gf-card-action--skip-untap-on {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* RULE 605.1a "any combination of colours" split builder (Selvala/Gwenna-
+   shaped): one small number input per real color, plus a confirm button. */
+.gf-mana-split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.3rem;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+
+.gf-split-hint {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  width: 100%;
+}
+
+.gf-split-color {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+
+.gf-split-color input {
+  width: 2.2rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.15rem 0.2rem;
+  font-size: 0.7rem;
+}
+
 /* --- Battlefield: type rows, attachments, combat --- */
 
 .gf-bf-head {
@@ -2253,6 +2843,27 @@ textarea {
   pointer-events: none;
 }
 
+/* RULE 714: a Saga's chapter progress — same shape/position as the loyalty
+   badge above (a Saga is never a planeswalker, so they never co-occur), just
+   a different colour so the two read as distinct concepts at a glance. */
+.gf-saga-badge {
+  background: var(--info);
+  color: #fff;
+}
+
+/* RULE 310.4c: a battle's remaining defense (plus its protector's name,
+   RULE 310.8) — same shape/position as the loyalty and Saga badges above,
+   which it likewise never co-occurs with (a battle is neither). Wider than
+   those two because it carries a player name, so it may wrap off the
+   corner on a narrow tile — hence the max-width + ellipsis. */
+.gf-battle-badge {
+  background: var(--error);
+  color: #fff;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .gf-attacking-badge {
   position: absolute;
   top: -0.4rem;
@@ -2310,6 +2921,86 @@ textarea {
   pointer-events: none;
 }
 
+/* RULE 708.2: badge on a face-down permanent (morph/disguise/manifest/
+   cloak). Bottom-left, the one corner none of the badges above use — a
+   face-down creature can be attacking (top-right), carry counters
+   (bottom-right) and still need to say *why* it's face down, since that
+   decides how it can be turned up. */
+.gf-facedown-badge {
+  position: absolute;
+  bottom: -0.4rem;
+  left: 0.15rem;
+  background: color-mix(in srgb, var(--panel) 70%, #000);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* RULE 901: the Planechase strip above the boards — the face-up plane and
+   the planar-die button. One row, so it reads as part of the turn/phase
+   furniture rather than as a card zone. */
+.gf-planechase {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.4rem 0;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--panel) 85%, var(--accent));
+}
+
+.gf-planechase-plane {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.gf-planechase-label,
+.gf-planechase-count {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* "🔄 peek other face" — a small inset button on a double-faced permanent's
+   own art (mirrors .card-tile-flip's look, scaled down for the battlefield
+   tile), rather than an overflowing badge like its siblings above/below,
+   since it's a click target, not just information. Top-left inset so it
+   doesn't collide with the top-right attacking/loyalty badges or the
+   bottom-right keyword badge. */
+.gf-card-flip {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  z-index: 1;
+  width: 1.3rem;
+  height: 1.3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  cursor: pointer;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  padding: 0;
+  transition: background 0.15s ease;
+}
+
+.gf-card-flip:hover {
+  background: var(--accent);
+  color: #1b1e24;
+}
+
 /* Combat/evasion keyword abbreviations, as a pill along a creature's bottom
    edge (full names on hover via the title attribute). */
 .gf-keyword-badge {
@@ -2330,6 +3021,123 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
+}
+
+/* Per-card effect "info point" (RULE 613): a Σ-badge in the top-left corner
+   that opens a breakdown of every effect on this permanent (Auren,
+   Ausrüstung, Marken, Bis-Zugende-Buffs) with source + duration, plus the
+   resulting P/T & keywords. The panel is a native popover — it renders in the
+   browser's top layer (never clipped by a card's/row's overflow nor painted
+   under a later card) and is positioned at the badge by gameBoardView.js. */
+.gf-effects {
+  position: absolute;
+  top: -0.4rem;
+  left: -0.4rem;
+  z-index: 3;
+}
+
+.gf-effects-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  background: color-mix(in srgb, var(--accent) 30%, var(--panel));
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.gf-effects-badge:hover {
+  background: var(--accent);
+  color: #10151c;
+}
+
+.gf-effects-pop {
+  /* Popover top-layer element: JS sets fixed left/top at the badge. */
+  position: fixed;
+  margin: 0;
+  inset: auto;
+  width: max-content;
+  max-width: 17rem;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  text-align: left;
+  font-size: 0.68rem;
+  color: var(--text);
+  cursor: default;
+}
+
+.gf-eff-result {
+  font-size: 0.7rem;
+  padding-bottom: 0.3rem;
+  margin-bottom: 0.3rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.gf-eff-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.gf-eff-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.35rem;
+  line-height: 1.3;
+}
+
+.gf-eff-src {
+  font-weight: 700;
+}
+
+.gf-eff-desc {
+  color: color-mix(in srgb, var(--text) 82%, transparent);
+}
+
+.gf-eff-pt {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.gf-eff-dur {
+  margin-left: auto;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.02rem 0.32rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.gf-eff-dur--end_of_turn {
+  background: color-mix(in srgb, var(--warn) 24%, var(--panel));
+  border-color: var(--warn);
+}
+
+.gf-eff-dur--permanent {
+  background: color-mix(in srgb, var(--accent) 20%, var(--panel));
+  border-color: var(--accent);
+}
+
+.gf-eff-dur--static {
+  background: color-mix(in srgb, var(--text) 12%, var(--panel));
+  border-color: color-mix(in srgb, var(--text) 35%, transparent);
 }
 
 /* The two-step defender picker that drops in below a creature when several
@@ -2585,6 +3393,56 @@ textarea {
   font-style: italic;
 }
 
+/* scry/surveil (`lookTopChoiceHtml`): each looked-at card as a clickable
+   thumbnail instead of a bare name button, since the whole point is reading
+   the card to decide where it goes. */
+.gf-lt-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.gf-lt-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  width: 110px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.gf-lt-card:hover {
+  border-color: var(--accent);
+}
+
+.gf-lt-card-img {
+  width: 100%;
+  border-radius: 4px;
+  display: block;
+}
+
+.gf-lt-card-label {
+  font-size: 0.72rem;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.gf-lt-decline {
+  justify-content: center;
+  min-height: 60px;
+}
+
+.gf-lt-decline-label {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--text-dim);
+}
+
 /* Dim the board while a choice is pending, to focus on the prompt. */
 .goldfish.choosing .gf-play {
   opacity: 0.55;
@@ -2628,6 +3486,11 @@ textarea {
   margin-bottom: 0.8rem;
 }
 
+.gf-modal-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
 .gf-modal-icon {
   font-size: 1.5rem;
   line-height: 1;
@@ -2642,6 +3505,53 @@ textarea {
   margin: 0.15rem 0 0;
   font-size: 0.75rem;
   color: var(--text-dim);
+}
+
+/* Which permanent/spell caused this decision (`pending.source_name` —
+   e.g. a surveil triggered by Dragon's Rage Channeler), same field
+   `triggerOrderHtml` already shows for RULE 603.3b ordering. */
+.gf-modal-source {
+  margin: 0.1rem 0 0;
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+/* Push-aside toggle, styled like the stack overlay's own `.gf-stack-aside`. */
+.gf-modal-aside {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  padding: 0.2rem 0.5rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gf-modal-aside:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Pushed aside: same trick as `.gf-stack-overlay.aside` — the backdrop
+   stops capturing clicks so the board underneath is reachable, and the
+   panel shrinks to a compact card docked in a corner. */
+.gf-modal-overlay.aside {
+  pointer-events: none;
+  background: transparent;
+  backdrop-filter: none;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 0.4rem;
+}
+
+.gf-modal-overlay.aside .gf-modal {
+  pointer-events: auto;
+  max-width: 260px;
+  max-height: 60vh;
+  transform: scale(0.97);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
 }
 
 /* Target-picker modal: a cancel row under the offered targets. */
@@ -2666,9 +3576,10 @@ textarea {
   border-color: var(--accent);
 }
 
-/* RULE 616.1 replacement-order popup: drag & drop to arrange the order
-   simultaneously-applicable replacement effects (Doubling Season + Parallel
-   Lives, Furnace of Rath + Torbran, …) are applied in. */
+/* RULE 616.1 replacement-order popup (drag & drop to arrange the order
+   simultaneously-applicable replacement effects — Doubling Season + Parallel
+   Lives, Furnace of Rath + Torbran, … — are applied in) and the RULE 603.3b
+   trigger-order popup (same list styling, `triggerOrderHtml`). */
 .gf-reorder-hint {
   margin: 0 0 0.6rem;
   font-size: 0.8rem;
@@ -2720,6 +3631,24 @@ textarea {
 
 .gf-reorder-label {
   font-size: 0.85rem;
+}
+
+/* Trigger-order items (`triggerOrderHtml`) additionally show the source
+   permanent's name above the ability's own oracle text, so two similarly-
+   worded triggers from different sources aren't a guessing game. */
+.gf-reorder-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.gf-reorder-source {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 /* --- Goldfisch: Ladebildschirm (Kartenbilder vorladen) --- */
@@ -2788,6 +3717,56 @@ textarea {
   font-size: 0.85rem;
 }
 
+.impl-group {
+  margin: 1.5rem 0 0;
+}
+
+.impl-group:first-of-type {
+  margin-top: 0;
+}
+
+.impl-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.impl-group-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.impl-uc {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.impl-chapter {
+  margin: 1rem 0 0;
+}
+
+.impl-chapter:first-of-type {
+  margin-top: 0;
+}
+
+.impl-chapter-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.impl-chapter-head h4 {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-dim);
+}
+
 .impl-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -2818,13 +3797,6 @@ textarea {
   font-weight: 700;
   color: var(--accent);
   white-space: nowrap;
-}
-
-.impl-intro {
-  margin: 0.35rem 0 0.5rem;
-  font-size: 0.76rem;
-  color: var(--text-dim);
-  line-height: 1.4;
 }
 
 .impl-list {
@@ -2911,6 +3883,23 @@ textarea {
 
 .replay-players { display: grid; gap: 0.8rem; grid-template-columns: 1fr; }
 @media (min-width: 1100px) { .replay-players.two { grid-template-columns: 1fr 1fr; } }
+
+/* 3-4 player puzzles: the same clockwise 2x2 pod arrangement as
+   Multiplayer's board (`.gf-pod-grid` above — placement rule, odd-seat
+   full-row rule and the `minmax(0, 1fr)` reasoning are all identical,
+   mirrored here rather than shared outright since `.replay-player`'s own
+   box styling has nothing to do with `.gf-player-board`'s). Same
+   narrow-screen fallback as `.two`: below the breakpoint it stays a single
+   column instead of squeezing four editable boards side by side. */
+@media (min-width: 1100px) {
+  .replay-players.pod { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .replay-players.pod > .replay-player:nth-child(1) { grid-area: 1 / 1; }
+  .replay-players.pod > .replay-player:nth-child(2) { grid-area: 1 / 2; }
+  .replay-players.pod > .replay-player:nth-child(3) { grid-area: 2 / 2; }
+  .replay-players.pod > .replay-player:nth-child(4) { grid-area: 2 / 1; }
+  .replay-players.pod > .replay-player:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+
 .replay-player {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -3127,4 +4116,693 @@ textarea {
 }
 .replay-token-preset small {
   color: var(--text-dim);
+}
+
+/* --- Multiplayer (multiplayerView.js, gameBoardView.js's shared-game bits) --- */
+
+/* The Board tab is disabled until this client is actually at a table. */
+.tab-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mp-setup > h3 {
+  margin: 0 0 0.6rem;
+}
+
+.mp-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .mp-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.mp-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+}
+
+.mp-panel h4 {
+  margin: 0 0 0.5rem;
+  color: var(--accent);
+  font-size: 0.95rem;
+}
+
+.mp-my-game {
+  margin-bottom: 0.75rem;
+  border-color: var(--accent);
+}
+
+/* Connected players, one row each, coloured by presence state. */
+.mp-player-list,
+.mp-game-list,
+.mp-seat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mp-player,
+.mp-seat {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap; /* the banner picker unfolds onto a second line */
+  gap: 0.5rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.mp-player-name,
+.mp-seat-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-player-state,
+.mp-seat-ready {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  flex: 0 0 auto;
+}
+
+.mp-state-available .mp-player-state {
+  color: var(--ok);
+}
+
+.mp-state-playing .mp-player-state {
+  color: var(--info);
+}
+
+.mp-you {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.mp-seat-me {
+  border-color: var(--accent);
+}
+
+.mp-seat-index {
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+
+.mp-seat-deck {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  flex: 0 0 auto;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Bot seats: the host manages them from the seat row itself (deck picker +
+   remove), since a bot has no client of its own to do it. */
+.mp-seat-bot {
+  border-style: dashed;
+}
+
+.mp-seat-deck select {
+  font-size: 0.78rem;
+  padding: 0.1rem 0.2rem;
+  max-width: 12rem;
+}
+
+.mp-seat-remove {
+  flex: 0 0 auto;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+/* --- Banner colours (multiplayerView.js + bannerColors.js) ---------------
+   The chip on a seat row is the same gradient the board's title bar gets,
+   at thumbnail size: what you pick here is literally what you'll see there.
+   Everyone sees every seat's chip; only your own (and, as host, a bot's) is
+   a button that unfolds the picker. */
+.mp-seat-banner {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  background: none;
+  border: 0;
+  line-height: 1;
+}
+
+.mp-banner-edit {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.mp-banner-edit:hover .mp-banner-chip,
+.mp-banner-edit[aria-expanded='true'] .mp-banner-chip {
+  border-color: var(--accent);
+}
+
+.mp-banner-chip {
+  display: block;
+  width: 1.5rem;
+  height: 0.95rem;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+}
+
+/* No colour chosen yet — a hatched placeholder rather than an empty hole,
+   so "not set" doesn't read as "grey/colourless" (which is a real choice). */
+.mp-banner-chip-empty {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--panel) 0 3px,
+    var(--border) 3px 6px
+  );
+}
+
+.mp-banner-picker {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed var(--border);
+}
+
+.mp-banner-pips {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+/* One toggle per colour, in WUBRG order. Off they're outlines of their own
+   colour, on they're filled with it — a mana symbol's own logic, and it
+   keeps five buttons legible at 1.4rem. */
+.mp-banner-pip {
+  --pip: var(--text-dim);
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--pip);
+  background: transparent;
+  color: var(--pip);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.mp-banner-pip:hover {
+  opacity: 1;
+}
+
+.mp-banner-pip.is-on {
+  opacity: 1;
+  background: var(--pip);
+  color: #1b1e24;
+}
+
+/* `--pip` carries both states (outline when off, fill when on), so each
+   colour is one declaration. Same hues as the deck colour-identity pips. */
+.mp-banner-pip--w { --pip: #f8f6d8; }
+.mp-banner-pip--u { --pip: #aee0fa; }
+.mp-banner-pip--b { --pip: #b7aca4; }
+.mp-banner-pip--r { --pip: #f9aa8f; }
+.mp-banner-pip--g { --pip: #9bd3ae; }
+
+.mp-banner-name {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.mp-banner-from-deck {
+  font-size: 0.75rem;
+  padding: 0.12rem 0.4rem;
+  line-height: 1.3;
+}
+
+.mp-banner-picker .hint {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.mp-add-bot .hint {
+  flex: 1 1 100%;
+}
+
+.mp-game {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.45rem 0.6rem;
+}
+
+.mp-game-mine {
+  border-color: var(--accent);
+}
+
+.mp-game-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.mp-game-status {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+
+.mp-status-running {
+  color: var(--info);
+  border-color: var(--info);
+}
+
+.mp-status-finished {
+  color: var(--text-dim);
+}
+
+.mp-game-seats {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  margin: 0.2rem 0 0.35rem;
+}
+
+.mp-game-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.mp-new-game {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.mp-new-game .hint {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.mp-option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}
+
+.mp-option-row label {
+  min-width: 8rem;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+/* A label that *wraps* its own checkbox (the RULE 103.1/103.2 "Auslosen"
+   row) rather than naming the control beside it — it must not take the
+   8rem leading column the row's first label does. */
+.mp-option-row .mp-option-check {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text);
+}
+
+.mp-option-row select,
+.mp-new-game input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+/* The seat count sits next to the name field rather than stretching with it. */
+.mp-new-game select {
+  flex: 0 0 8rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.mp-option-row input[type="number"] {
+  flex: 0 0 5rem;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.mp-board-empty {
+  max-width: 640px;
+}
+
+/* --- Shared-board additions used by multiplayer --- */
+
+/* Your own board sits at the bottom (nearest you), the opponent's above it. */
+.gf-own-board > .gf-player-board-head {
+  border-color: var(--accent);
+}
+
+.gf-opponent-board {
+  opacity: 0.96;
+}
+
+/* Folding an opponent away at a table of 3+ (gameBoardView's
+   `collapsedBoards`): the header stays, the play area is hidden, and a
+   one-line count summary takes its place. */
+.gf-board-fold {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
+}
+
+.gf-board-fold:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.gf-board-folded > .gf-player-board-head {
+  margin-bottom: 0.25rem;
+}
+
+.gf-board-fold-summary {
+  margin: 0;
+  padding: 0 0.75rem 0.35rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.gf-board-out {
+  opacity: 0.55;
+}
+
+.gf-seat-badge {
+  margin-left: 0.5rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid currentColor;
+  vertical-align: middle;
+}
+
+.gf-seat-you {
+  color: var(--accent);
+}
+
+.gf-seat-active {
+  color: var(--ok);
+}
+
+.gf-seat-out {
+  color: var(--error);
+}
+
+/* A hidden hand card (RULE 400.2): the player's sleeve, or a plain patterned
+   back. Sized like a real card tile (.card.has-image) — it has no <img> and
+   no text to give it dimensions of its own. */
+.gf-face-down {
+  width: 100px;
+  max-width: none;
+  padding: 0;
+  aspect-ratio: 63 / 88;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--panel-alt),
+    var(--panel-alt) 6px,
+    var(--panel) 6px,
+    var(--panel) 12px
+  );
+  border: 1px solid var(--border);
+}
+
+.gf-observer-note,
+.gf-waiting-choice {
+  margin: 0 0 0.6rem;
+}
+
+/* Blocker declaration (RULE 509.1a) — the defending player's own panel. */
+.gf-block-panel {
+  background: var(--panel);
+  border: 1px solid var(--info);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.gf-block-panel h4 {
+  margin: 0 0 0.3rem;
+  color: var(--info);
+  font-size: 0.95rem;
+}
+
+.gf-block-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.3rem 0;
+}
+
+.gf-block-blocker {
+  font-weight: 600;
+  min-width: 10rem;
+}
+
+.gf-block-arrow {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.gf-block-pick {
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+/* --- Interactive priority + auto-pass (RULE 117, multiplayer) --- */
+
+.gf-priority-controls {
+  align-items: center;
+}
+
+.gf-priority-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.gf-priority-mine {
+  border-color: var(--ok);
+  color: var(--ok);
+  font-weight: 600;
+}
+
+/* The countdown stops as soon as the player touches the board — dim it so
+   it's obvious the clock is no longer running. */
+.gf-priority-badge.gf-autopass-off .gf-autopass-count {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.gf-autopass-count {
+  font-variant-numeric: tabular-nums;
+  min-width: 1.2em;
+  display: inline-block;
+  text-align: right;
+}
+
+.gf-autopass {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.gf-autopass input[type="number"] {
+  width: 3.5rem;
+  padding: 0.2rem 0.3rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* The same priority badge + "Passen" the toolbar carries, repeated on the
+   banner of your own board — with two boards drawn the toolbar is usually
+   scrolled off. `margin-left: auto` pushes it to the far end of the head
+   row, next to the life box. */
+/* Priority badge + "Passen" + "⏭ Nächste Aktion" on your own board's
+   banner. Deliberately *not* pushed right: they sit directly beside the
+   player name, so mana/life/counters keep the right-hand slot and every
+   seat's banner reads the same way (name left, life across from it) —
+   `.gf-banner-stats` below is what takes the free space instead. */
+.gf-banner-priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.gf-banner-pass,
+.gf-banner-skip {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+/* VIS-5: a short-lived "Bob hat X gespielt" feed of the opponent's most
+   recent moves, so the auto-pass response window isn't a silent surprise.
+   Fixed near the top of the viewport so it's visible over whichever part
+   of the board you're looking at when it appears. */
+.gf-move-feed {
+  position: fixed;
+  top: 4.5rem;
+  right: 1rem;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  pointer-events: none;
+  max-width: 20rem;
+}
+
+.gf-move-feed-item {
+  padding: 0.4rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  color: var(--text);
+  font-size: 0.85rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  animation: gf-move-feed-fade 6s ease-out forwards;
+}
+
+@keyframes gf-move-feed-fade {
+  0% { opacity: 0; transform: translateY(-6px); }
+  8% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Mana pool, life and player counters as one right-aligned group. Grouping
+   them is what lets the priority buttons live next to the name: the
+   `margin-left: auto` that pushes to the right edge belongs to *this* box
+   now, not to whichever of the three happens to come first (which is why
+   `.gf-manapool`'s own auto margin is neutralised in here). */
+.gf-banner-stats {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-left: auto;
+}
+
+.gf-banner-stats > .gf-manapool {
+  margin-left: 0;
+}
+
+/* Player-level counters: poison, energy/experience/rad, the Ring, the
+   Monarch/Initiative designations, emblems (RULE 704.5c/122/701.52/725/726/
+   114) — everything about a *player* that isn't life or floating mana. */
+.gf-pcounters {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.gf-pcounter {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.gf-pcounter--lethal {
+  background: var(--warn);
+  color: #1a1a1a;
+}
+
+.gf-pcounter--designation {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* An opponent's hand, collapsed to its count (the default — the cards are
+   never on the wire either way, RULE 400.2). */
+.gf-hand-hidden {
+  margin: 0;
+  padding: 0.4rem 0;
+}
+
+.gf-hand-toggle {
+  margin-left: 0.5rem;
+}
+
+.gf-seat-away {
+  color: var(--warn);
+}
+
+.mp-inline-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.4rem 0;
 }

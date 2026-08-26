@@ -128,6 +128,136 @@ class TestSaveDeck:
 
         assert updated["author"] == ""
 
+    def test_save_with_is_cube_persists_it(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post("/api/decks/save", json={"name": "Staples", "isCube": True}).json()
+
+        assert created["isCube"] is True
+
+    def test_new_deck_defaults_is_cube_to_false(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post("/api/decks/save", json={"name": "Goblins"}).json()
+
+        assert created["isCube"] is False
+
+    def test_update_preserves_is_cube_when_omitted(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post("/api/decks/save", json={"name": "Staples", "isCube": True}).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Staples v2", "mainboardText": "1 Sol Ring\n"},
+        ).json()
+
+        assert updated["isCube"] is True
+
+    def test_save_with_archetypes_persists_them(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "archetypes": ["aristocrats", "tokens"]}
+        ).json()
+
+        assert created["archetypes"] == ["aristocrats", "tokens"]
+
+    def test_save_with_unknown_archetype_id_drops_it(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "archetypes": ["aristocrats", "not-a-real-archetype"]}
+        ).json()
+
+        assert created["archetypes"] == ["aristocrats"]
+
+    def test_save_with_more_than_two_archetypes_is_capped(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save",
+            json={"name": "Sac Deck", "archetypes": ["aristocrats", "tokens", "stax"]},
+        ).json()
+
+        assert created["archetypes"] == ["aristocrats", "tokens"]
+
+    def test_update_preserves_archetypes_when_omitted(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "archetypes": ["aristocrats"]}
+        ).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Sac Deck v2", "mainboardText": "1 Sol Ring\n"},
+        ).json()
+
+        assert updated["archetypes"] == ["aristocrats"]
+
+    def test_update_can_explicitly_clear_archetypes(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "archetypes": ["aristocrats"]}
+        ).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Sac Deck", "archetypes": []},
+        ).json()
+
+        assert updated["archetypes"] == []
+
+    def test_save_with_favorite_cards_persists_them(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "favoriteCards": ["Blood Artist", "Sol Ring"]}
+        ).json()
+
+        assert created["favoriteCards"] == ["Blood Artist", "Sol Ring"]
+
+    def test_update_preserves_favorite_cards_when_omitted(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "favoriteCards": ["Sol Ring"]}
+        ).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Sac Deck v2", "mainboardText": "1 Sol Ring\n"},
+        ).json()
+
+        assert updated["favoriteCards"] == ["Sol Ring"]
+
+    def test_update_can_explicitly_clear_favorite_cards(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "favoriteCards": ["Sol Ring"]}
+        ).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Sac Deck", "favoriteCards": []},
+        ).json()
+
+        assert updated["favoriteCards"] == []
+
 
 class TestListDecks:
     def teardown_method(self):
@@ -305,6 +435,23 @@ class TestDeckValidation:
         assert body["isLegal"] is False
         assert body["errors"]
 
+    def test_cube_deck_skips_validation_and_reports_legal(self):
+        _override_database()
+        _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
+        client = TestClient(app)
+        # Same structurally-illegal shape as test_illegal_deck_reports_not_legal
+        # (40 cards, no commander) — but isCube should make that a non-issue.
+        created = client.post(
+            "/api/decks/save", json={"name": "Staples", "mainboardText": "40 Forest\n", "isCube": True}
+        ).json()
+
+        response = client.get(f"/api/decks/{created['id']}/validation")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["isLegal"] is True
+        assert body["errors"] == []
+
     def test_legal_deck_reports_legal(self):
         _override_database()
         _override_loader(
@@ -332,6 +479,97 @@ class TestDeckValidation:
         _override_loader({})
         client = TestClient(app)
         assert client.get("/api/decks/nope/validation").status_code == 404
+
+
+class TestDeckCoverage:
+    def teardown_method(self):
+        app.dependency_overrides.pop(get_deck_database, None)
+        app.dependency_overrides.pop(get_lazy_card_loader, None)
+
+    def test_fully_modeled_deck_reports_zero_unmodeled(self):
+        _override_database()
+        _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Lands", "mainboardText": "40 Forest\n"}).json()
+
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["unmodeledCount"] == 0
+        assert body["unmodeledCardNames"] == []
+
+    def test_unmodeled_cards_are_counted_by_quantity_and_named(self):
+        _override_database()
+        _override_loader(
+            {
+                "Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True),
+                "Weird Card": Card(
+                    id="Weird",
+                    name="Weird Card",
+                    type_line="Creature — Weird",
+                    is_creature=True,
+                    power=1,
+                    toughness=1,
+                    oracle_text="This is some totally unparseable nonsense clause that the parser will never understand.",
+                ),
+            }
+        )
+        client = TestClient(app)
+        created = client.post(
+            "/api/decks/save",
+            json={"name": "Mixed", "mainboardText": "39 Forest\n1 Weird Card\n"},
+        ).json()
+
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["unmodeledCount"] == 1
+        assert body["unmodeledCardNames"] == ["Weird Card"]
+
+    def test_cube_deck_is_still_checked_for_coverage(self):
+        _override_database()
+        _override_loader(
+            {
+                "Weird Card": Card(
+                    id="Weird",
+                    name="Weird Card",
+                    type_line="Creature — Weird",
+                    is_creature=True,
+                    power=1,
+                    toughness=1,
+                    oracle_text="This is some totally unparseable nonsense clause that the parser will never understand.",
+                ),
+            }
+        )
+        client = TestClient(app)
+        created = client.post(
+            "/api/decks/save",
+            json={"name": "Staples", "mainboardText": "1 Weird Card\n", "isCube": True},
+        ).json()
+
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert response.status_code == 200
+        assert response.json()["unmodeledCount"] == 1
+
+    def test_unresolved_card_is_not_counted_as_unmodeled(self):
+        _override_database()
+        _override_loader({})
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Unknown", "mainboardText": "1 Nonexistent Card\n"}).json()
+
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert response.status_code == 200
+        assert response.json()["unmodeledCount"] == 0
+
+    def test_coverage_of_unknown_deck_is_404(self):
+        _override_database()
+        _override_loader({})
+        client = TestClient(app)
+        assert client.get("/api/decks/nope/coverage").status_code == 404
 
 
 class TestDeleteDeck:

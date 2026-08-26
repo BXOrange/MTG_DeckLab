@@ -17,7 +17,7 @@
 
 import { getResolvedCard, resolveCardImages, isConfirmedNotFound } from './cardImages.js';
 import { cardImageUrl } from './api.js';
-import { renderManaCost, escapeHtml } from './cardTile.js';
+import { renderManaCost, renderOracleText, escapeHtml } from './cardTile.js';
 
 let tooltipEl = null;
 let activeName = null;
@@ -35,6 +35,35 @@ function ensureTooltip() {
   return tooltipEl;
 }
 
+// cardImages.js's cache is indexed under *both* a DFC's front and back
+// name (see its `resolveCardImages`), pointing at the same resolved-card
+// dict either way — so hovering a transformed permanent's tile (whose
+// `data-hover-card` is now its back name, see GameObject.to_dict's `name`)
+// still hits the cache, but with the *front* face's data unless corrected
+// here. Comparing the hovered name against `back_name` recovers which face
+// is actually being looked at.
+function faceForName(card, name) {
+  if (card?.has_back_face && card.back_name && card.back_name.toLowerCase() === (name || '').toLowerCase()) {
+    return 'back';
+  }
+  return 'front';
+}
+
+// A uniform view of whichever face is being shown, so the rest of this
+// module doesn't need `if (face === 'back')` sprinkled through it.
+function faceView(card, face) {
+  if (face !== 'back') return card;
+  return {
+    id: card.id,
+    name: card.back_name || card.name,
+    type_line: card.back_type_line || card.type_line,
+    mana_cost_string: card.back_mana_cost_string || '',
+    oracle_text: card.back_oracle_text || '',
+    power: card.back_power,
+    toughness: card.back_toughness,
+  };
+}
+
 function renderTooltipContent(card, fallbackName) {
   if (!card) {
     return `
@@ -45,19 +74,25 @@ function renderTooltipContent(card, fallbackName) {
     `;
   }
 
-  const manaCost = renderManaCost(card);
-  const powerToughness = card.power != null && card.toughness != null ? `${card.power}/${card.toughness}` : '';
+  const face = faceForName(card, fallbackName);
+  const view = faceView(card, face);
+  const manaCost = renderManaCost(view);
+  const powerToughness = view.power != null && view.toughness != null ? `${view.power}/${view.toughness}` : '';
+  const flipHint = card.has_back_face
+    ? `<p class="card-hover-tooltip-flip-hint">🔄 ${face === 'back' ? 'Vorderseite' : 'Rückseite'}: ${escapeHtml(face === 'back' ? card.name : (card.back_name || ''))}</p>`
+    : '';
 
   return `
     <div class="card-hover-tooltip-inner">
-      <img class="card-hover-tooltip-image" src="${cardImageUrl(card.id, 'small')}" alt="" loading="lazy" />
+      <img class="card-hover-tooltip-image" src="${cardImageUrl(view.id, 'small', face)}" alt="" loading="lazy" />
       <div class="card-hover-tooltip-text-col">
-        <h4>${escapeHtml(card.name)}</h4>
-        <p class="card-tile-type">${escapeHtml(card.type_line || '')}</p>
+        <h4>${escapeHtml(view.name)}</h4>
+        <p class="card-tile-type">${escapeHtml(view.type_line || '')}</p>
         ${manaCost ? `<p class="card-tile-cost">${manaCost}</p>` : ''}
         ${powerToughness ? `<p class="card-tile-pt">${escapeHtml(powerToughness)}</p>` : ''}
-        ${card.oracle_text ? `<p class="card-tile-text">${escapeHtml(card.oracle_text)}</p>` : ''}
+        ${view.oracle_text ? `<p class="card-tile-text">${renderOracleText(view.oracle_text)}</p>` : ''}
         ${card.keywords?.length ? `<p class="card-tile-keywords">${escapeHtml(card.keywords.join(', '))}</p>` : ''}
+        ${flipHint}
       </div>
     </div>
   `;
