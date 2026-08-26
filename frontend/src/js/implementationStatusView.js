@@ -9,6 +9,17 @@
 // backend — see CLAUDE.md "Implementation state". Deliberately heading-
 // level only (no per-item prose) — see docs/implementation-state/
 // Done_Backend.md / docs/implementation-state/BACKLOG.md for the full narrative.
+//
+// The one live, server-fetched piece on this otherwise-static tab is the
+// "Abdeckung nach Set" table at the bottom — a plain data table (no card
+// art/set-symbol miniatures) grouping the same per-card coverage verdict
+// `cachedCardsView.js` shows per card by `Card.set_code` instead
+// (GET /api/cards/coverage-by-set). Lazy-loaded on first view like
+// `cachedCardsView.js`'s own `view-shown` idiom, since the tab may never be
+// opened in a given session.
+
+import { listCoverageBySet } from './api.js';
+import { escapeHtml } from './cardTile.js';
 
 const LEGEND = [
   ['full', '✅', 'Vollständig'],
@@ -520,6 +531,46 @@ function groupHtml(group) {
     </div>`;
 }
 
+// Coverage-fraction thresholds reused from the impl-item status colors
+// above, purely for a quick visual scan — a set isn't "full"/"partial"/
+// "planned" in the same sense a feature row is, but the same three-tier
+// green/amber/dim palette reads the same way here.
+const COVERAGE_HIGH_THRESHOLD = 0.66;
+const COVERAGE_LOW_THRESHOLD = 0.33;
+
+function coverageTier(fraction) {
+  if (fraction >= COVERAGE_HIGH_THRESHOLD) return 'impl-full';
+  if (fraction >= COVERAGE_LOW_THRESHOLD) return 'impl-partial';
+  return 'impl-planned';
+}
+
+function coverageBySetTableHtml(rows) {
+  if (!rows.length) {
+    return '<p class="empty-state">Keine Karten im Cache.</p>';
+  }
+  const body = rows
+    .map((row) => {
+      const pct = row.total ? (row.covered / row.total) * 100 : 0;
+      return `
+        <tr>
+          <td>${escapeHtml(row.setCode.toUpperCase())}</td>
+          <td>${row.total}</td>
+          <td>${row.covered}</td>
+          <td class="${coverageTier(row.fraction)}">${pct.toFixed(1)} %</td>
+        </tr>`;
+    })
+    .join('');
+  return `
+    <div class="coverage-set-table-wrap">
+      <table class="coverage-set-table">
+        <thead>
+          <tr><th>Set</th><th>Karten</th><th>Abgedeckt</th><th>Anteil</th></tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+}
+
 export function renderImplementationStatusView(container) {
   const legend = LEGEND.map(
     ([status, icon, name]) =>
@@ -537,5 +588,32 @@ export function renderImplementationStatusView(container) {
       </p>
       <div class="impl-legend">${legend}</div>
       ${GROUPS.map(groupHtml).join('')}
+      <div class="impl-group">
+        <div class="impl-group-head">
+          <h3>Abdeckung nach Set</h3>
+        </div>
+        <p class="hint">
+          Oracle-Parser-/Engine-Abdeckung je Set, aus dem lokalen Karten-Cache
+          berechnet (ohne Set-Symbole/Bildchen — reine Zahlen).
+        </p>
+        <div id="coverage-by-set-result"><p class="empty-state">Lade Abdeckung je Set …</p></div>
+      </div>
     </div>`;
+
+  const resultEl = container.querySelector('#coverage-by-set-result');
+
+  // Only load the first time this tab is shown, not eagerly at startup —
+  // matches cachedCardsView.js's own view-shown idiom.
+  let loaded = false;
+  container.addEventListener('view-shown', () => {
+    if (loaded) return;
+    loaded = true;
+    listCoverageBySet().then((rows) => {
+      if (rows === null) {
+        resultEl.innerHTML = '<p class="server-status warning">Server nicht erreichbar.</p>';
+        return;
+      }
+      resultEl.innerHTML = coverageBySetTableHtml(rows);
+    });
+  });
 }

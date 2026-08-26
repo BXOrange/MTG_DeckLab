@@ -3837,6 +3837,45 @@ textarea {
   font-size: 0.9em;
 }
 
+.coverage-set-table-wrap {
+  max-width: 420px;
+  max-height: 480px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.coverage-set-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.coverage-set-table th,
+.coverage-set-table td {
+  padding: 0.3rem 0.6rem;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+
+.coverage-set-table th:first-child,
+.coverage-set-table td:first-child {
+  text-align: left;
+  font-weight: 700;
+}
+
+.coverage-set-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.coverage-set-table td:last-child {
+  font-weight: 700;
+}
+
 /* --- Replay / Puzzle mode (replayView.js) ------------------------- */
 .replay-start { max-width: 640px; }
 .replay-start-actions {

@@ -85,6 +85,38 @@ def list_cards(
     return cards
 
 
+@router.get("/coverage-by-set")
+def coverage_by_set(
+    database: CardDatabase = Depends(get_card_database),
+) -> list[dict[str, object]]:
+    """Parser/engine coverage aggregated by set, for the Engine-Status tab's
+    "Abdeckung nach Set" table (`implementationStatusView.js`).
+
+    Same per-card verdict `GET /api/cards` already computes (`coverage_for`,
+    relying on `parse_oracle`'s own per-process memoization to keep repeat
+    calls cheap) — just grouped by `Card.set_code` instead of listed per card.
+    """
+    totals: dict[str, dict[str, int]] = {}
+    for card in database.list_cards():
+        set_code = card.set_code or "?"
+        bucket = totals.setdefault(set_code, {"total": 0, "covered": 0})
+        bucket["total"] += 1
+        if coverage_for(card)["modeled"]:
+            bucket["covered"] += 1
+
+    rows = [
+        {
+            "setCode": set_code,
+            "total": stats["total"],
+            "covered": stats["covered"],
+            "fraction": (stats["covered"] / stats["total"]) if stats["total"] else 0.0,
+        }
+        for set_code, stats in totals.items()
+    ]
+    rows.sort(key=lambda row: row["setCode"])
+    return rows
+
+
 @router.get("/search")
 def search_card(
     name: str = Query(..., min_length=1),

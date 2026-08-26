@@ -158,6 +158,28 @@ export async function listCachedCards(scope = 'all') {
 }
 
 /**
+ * Parser/engine coverage aggregated by set (GET /api/cards/coverage-by-set),
+ * for the Engine-Status tab's "Abdeckung nach Set" table.
+ * @returns {Promise<{setCode: string, total: number, covered: number, fraction: number}[] | null>} null on network/server failure
+ */
+export async function listCoverageBySet() {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/cards/coverage-by-set`);
+  } catch {
+    return null;
+  }
+
+  if (!response.ok) return null;
+
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Save a new deck, or update one already saved (pass its `id` back).
  * @param {{id?: string, name: string, commanderText: string, mainboardText: string, sideboardText: string, sleeveId?: string | null, author?: string | null, isCube?: boolean}} deck
  * @returns {Promise<object | null>} the saved deck (with its id), or null on failure
