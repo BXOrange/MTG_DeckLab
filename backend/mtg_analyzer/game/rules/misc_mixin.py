@@ -1716,6 +1716,7 @@ class MiscSystemsMixin:
         track_exiled_with: bool = False,
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
+        connive: bool = False,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -1779,6 +1780,16 @@ class MiscSystemsMixin:
         is ``prevent_shield``'s redirect sibling: ``{"recipient_id",
         "recipient_is_player", "amount"}``, resolved into a `RulesEngine.
         redirect_damage_from_source` call instead.
+
+        ``connive=True`` (RULE 701.47, MEC-43 — Ledger Shredder's "this
+        creature connives") marks an ``action="discard"`` pick for the
+        conditional half connive's own template needs: "if a **nonland**
+        card was discarded this way, put a +1/+1 counter on it [the
+        conniving permanent]." Unlike ``then_specs_if_commander`` (a plain
+        boolean gate on *whether any pick happened to be one*), this
+        depends on *which* card was picked, so it's threaded straight
+        through to `_apply_chosen_object` rather than tracked as a
+        choice-level flag the way ``commander_taken`` is.
         """
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
@@ -1794,7 +1805,7 @@ class MiscSystemsMixin:
                 self._apply_chosen_object(
                     player, obj, action, source, remember=remember,
                     track_exiled_with=track_exiled_with, prevent_shield=prevent_shield,
-                    redirect_shield=redirect_shield,
+                    redirect_shield=redirect_shield, connive=connive,
                 )
             self._apply_choose_objects_tail(
                 source, then_specs, then_specs_if_commander, commander_taken
@@ -1807,6 +1818,7 @@ class MiscSystemsMixin:
             then_specs_if_commander=then_specs_if_commander, remember=remember,
             track_exiled_with=track_exiled_with,
             prevent_shield=prevent_shield, redirect_shield=redirect_shield,
+            connive=connive,
         )
     def _apply_choose_objects_tail(
         self,
@@ -1835,6 +1847,7 @@ class MiscSystemsMixin:
         track_exiled_with: bool = False,
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
+        connive: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -1880,6 +1893,11 @@ class MiscSystemsMixin:
             # ``source`` (`GameObject.exiled_with_ids`) — see
             # `request_choose_objects`'s own docstring.
             "track_exiled_with": track_exiled_with,
+            # MEC-43 (RULE 701.47, connive): whether an ``action="discard"``
+            # pick should also check the discarded card's own ``is_land``
+            # and place a +1/+1 counter on ``source`` — see
+            # `request_choose_objects`'s own docstring.
+            "connive": connive,
         }
     def resolve_choose_objects_choice(self, instance_id: Optional[int]) -> None:
         """Answer a pending `choose_objects` decision: apply the action to
@@ -1909,6 +1927,7 @@ class MiscSystemsMixin:
                 track_exiled_with=bool(choice.get("track_exiled_with")),
                 prevent_shield=choice.get("prevent_shield"),
                 redirect_shield=choice.get("redirect_shield"),
+                connive=bool(choice.get("connive")),
             )
         remaining_pool = [
             obj
@@ -1935,6 +1954,7 @@ class MiscSystemsMixin:
             track_exiled_with=bool(choice.get("track_exiled_with")),
             prevent_shield=choice.get("prevent_shield"),
             redirect_shield=choice.get("redirect_shield"),
+            connive=bool(choice.get("connive")),
         )
         next_choice["commander_taken"] = commander_taken
         self.state.pending_choice = next_choice
@@ -1971,6 +1991,7 @@ class MiscSystemsMixin:
         track_exiled_with: bool = False,
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
+        connive: bool = False,
     ) -> None:
         """Do the one thing a `choose_objects` action names to one pick."""
         if action == "tap":
@@ -1981,7 +2002,16 @@ class MiscSystemsMixin:
         elif action == "return_to_hand":
             self.return_to_hand(obj)
         elif action == "discard":
+            # RULE 701.47 (connive, MEC-43 — Ledger Shredder): "if a
+            # nonland card was discarded this way, put a +1/+1 counter on
+            # it [the conniving permanent]." Checked *before* the move —
+            # `GameObject.is_land` is a card-type property unaffected by
+            # zone, but reading it off the still-in-hand object is the
+            # more obviously-correct order.
+            is_land = obj.is_land
             self.discard_specific(obj)
+            if connive and not is_land and source is not None:
+                self.add_counters(source, 1, kind="+1/+1", source=source)
         elif action == "remember_source" and prevent_shield is not None:
             # MEC-30 (RULE 615/616.1d "a source of your choice" — Circle of
             # Protection/Rune of Protection): the pick becomes a

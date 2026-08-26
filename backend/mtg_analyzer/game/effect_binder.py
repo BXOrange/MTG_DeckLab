@@ -854,6 +854,31 @@ def _trigger_condition(
 
         predicates.append(_spell_no_mana_ok)
 
+    # "Whenever an opponent casts a spell with mana value, power, or
+    # toughness equal to the chosen number, …" (Talion, the Kindly Lord,
+    # MEC-43) — reads the RULE 601.2b ETB choice this permanent's own
+    # `ChooseNumberReplacement` stamped onto `GameObject.chosen_number`
+    # (Sanctum Prelate's own sibling primitive) against three of
+    # `SPELL_CAST`'s own numeric fields (`mana_value`, and the new
+    # `power`/`toughness` this card needed added to the event — a spell
+    # still on the stack reports its own printed characteristics via
+    # `GameObject.power`/`toughness`'s existing off-battlefield fallback).
+    # Any one of the three matching is enough (RULE 601.2b's own "or"
+    # reading); an unset field on either side fails closed rather than
+    # matching by accident (``None == None``).
+    if trigger.get("spell_characteristic_equals_chosen_number"):
+        def _spell_characteristic_matches_chosen_number(event: Any, context: Any, src=source) -> bool:
+            n = getattr(src, "chosen_number", None)
+            if n is None:
+                return False
+            for key in ("mana_value", "power", "toughness"):
+                value = event.get(key)
+                if value is not None and value == n:
+                    return True
+            return False
+
+        predicates.append(_spell_characteristic_matches_chosen_number)
+
     # "Whenever an instant or sorcery spell you control that targets only a
     # single creature deals damage to that creature, …" (Imodane, the
     # Pyrohammer) — two flags `RulesEngine.deal_damage`/`DealDamageEffect`
@@ -1439,6 +1464,20 @@ def bind_ability(
                 functions_from_graveyard=any(
                     isinstance(e, (ReturnSelfFromGraveyardToBattlefieldEffect, ReturnSelfFromGraveyardToHandEffect))
                     for e in own_effects
+                ),
+                # RULE 601.2i (MEC-43): "When you cast this spell, …" is
+                # the one trigger shape genuinely meant to fire while its
+                # source is still on the **stack** — inferred purely from
+                # the trigger's own shape (a `SPELL_CAST` event scoped to
+                # ``{"subject": "self"}``), never from an ordinary "you"/
+                # "group" condition that would *also* happen to match the
+                # object's own casting (see `TriggeredAbility.
+                # functions_from_stack`'s own docstring for why that
+                # distinction matters).
+                functions_from_stack=(
+                    event == EventType.SPELL_CAST
+                    and isinstance(spec.trigger.get("condition"), dict)
+                    and spec.trigger["condition"].get("subject") == "self"
                 ),
             )
 
