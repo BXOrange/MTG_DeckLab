@@ -106,6 +106,13 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         return obj.card.is_planeswalker
     if what == "battle":
         return obj.card.is_battle
+    if what == "nonland":
+        # "…sacrifice a nonland permanent of their choice or discard a
+        # card." (Tergrid's Lantern, MEC-43 round 4E) — the negated-type
+        # sibling of the plain type words above; every permanent that
+        # isn't a land qualifies, tokens included (unlike `nontoken_
+        # creature` below).
+        return not obj.is_land
     if what == "nontoken_creature":
         # RULE 111.8/701.17: "each player sacrifices a nontoken creature of
         # their choice" (Accursed Marauder/Liliana, Dreadhorde General's own
@@ -3007,7 +3014,21 @@ class MiscSystemsMixin:
         # card printed an energy-costed "unless" clause.
         if cost.pay_energy and player.counters.get("energy", 0) < cost.pay_energy:
             return False
+        # "…sacrifice a nonland permanent of their choice or discard a
+        # card." (Tergrid's Lantern, MEC-43 round 4E) — payable when
+        # *either* half is (the payer's own later choice, `_pay_player_
+        # cost`), not both.
+        if cost.sacrifice_or_discard and not self._can_sacrifice_or_discard(player):
+            return False
         return True
+    def _can_sacrifice_or_discard(self, player: Player) -> bool:
+        """Whether ``player`` could pay a `sacrifice_or_discard` cost right
+        now — a nonland permanent to sacrifice, or a card in hand."""
+        has_nonland = any(
+            _matches_permanent_type(obj, "nonland")
+            for obj in self.state.permanents_controlled_by(player.id)
+        )
+        return has_nonland or bool(player.hand)
     def _pay_player_cost(self, player: Player, cost: ActivationCost) -> None:
         """Charge ``player`` a cost's components — reuses the same per-kind
         payment primitives `GameEngine.activate_ability` charges an activated
@@ -3023,6 +3044,54 @@ class MiscSystemsMixin:
             self.sacrifice(player, cost.sacrifice, 1)
         if cost.pay_energy:
             self.add_player_counters(player, -cost.pay_energy, "energy")
+        if cost.sacrifice_or_discard:
+            self._pay_sacrifice_or_discard(player)
+    def _pay_sacrifice_or_discard(self, player: Player) -> None:
+        """Pay a `sacrifice_or_discard` cost component — the payer's own
+        choice of *which* half (Tergrid's Lantern, MEC-43 round 4E). Forced
+        (no prompt) when only one half is actually available, the same
+        "asking would be theatre" idiom `request_choose_objects` uses; with
+        both available, opens the small dedicated `sacrifice_or_discard`
+        choice below, then `resolve_sacrifice_or_discard_choice` dispatches
+        into the existing interactive `sacrifice`/`discard_choice`
+        machinery (each already its own "which one" chooser)."""
+        can_sacrifice = any(
+            _matches_permanent_type(obj, "nonland")
+            for obj in self.state.permanents_controlled_by(player.id)
+        )
+        can_discard = bool(player.hand)
+        if can_sacrifice and can_discard:
+            self.state.pending_choice = {
+                "kind": "sacrifice_or_discard",
+                "player_id": player.id,
+                "prompt": "Eine bleibende Karte opfern oder eine Karte abwerfen?",
+                "options": [
+                    {"id": "sacrifice", "label": "Bleibende Karte opfern"},
+                    {"id": "discard", "label": "Karte abwerfen"},
+                ],
+            }
+            return
+        if can_sacrifice:
+            self.sacrifice(player, "nonland", 1)
+        elif can_discard:
+            self.discard_choice(player, 1)
+    def resolve_sacrifice_or_discard_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `sacrifice_or_discard` choice — ``"sacrifice"``
+        opens the interactive "which permanent" chooser, ``"discard"`` the
+        interactive "which card" one; anything else re-checks both halves
+        defensively (the board can have changed since the offer was made)
+        rather than silently paying nothing."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "sacrifice_or_discard":
+            raise ValueError("no pending sacrifice-or-discard choice to resolve")
+        self.state.pending_choice = None
+        player = self.state.player_by_id(choice["player_id"])
+        if answer == "discard":
+            self.discard_choice(player, 1)
+        elif answer == "sacrifice":
+            self.sacrifice(player, "nonland", 1)
+        else:
+            self._pay_sacrifice_or_discard(player)
     def resolve_ward_choice(self, answer: Optional[str]) -> None:
         """Answer a pending `ward` choice (RULE 702.21).
 

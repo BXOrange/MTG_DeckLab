@@ -672,15 +672,28 @@ def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
 
 
 def _in_layer(abilities: list[StaticAbility], layer: str) -> list[StaticAbility]:
-    """Abilities in one (sub)layer, ordered by source timestamp (RULE 613.7b).
+    """Abilities in one (sub)layer, ordered by timestamp (RULE 613.7b).
 
     Within a layer, effects apply in timestamp order (newest last); an
     unsourced fixture ability sorts first (timestamp 0). A true dependency
     pass (RULE 613.8) is still a simplification — timestamps cover the
     overwhelmingly common non-dependent case.
+
+    A bind-time printed static's own `StaticAbility.timestamp` is None, so
+    it falls back to its source permanent's own entry timestamp — the
+    ordinary case. A resolve-time grant (`effects.GrantUntilEffect`, MEC-43
+    round 4E — Swift Reconfiguration's granted Crew ability) stamps its
+    *own* timestamp instead, since "when did this continuous effect start
+    existing" is whenever it was created, not whenever whatever permanent
+    it happens to affect entered the battlefield — those can differ by an
+    arbitrary number of other events in between.
     """
     picked = [a for a in abilities if a.layer == layer]
-    return sorted(picked, key=lambda a: getattr(a.source, "timestamp", 0))
+    return sorted(
+        picked,
+        key=lambda a: a.timestamp if getattr(a, "timestamp", None) is not None
+        else getattr(a.source, "timestamp", 0),
+    )
 
 
 #: Colour word → WUBRG letter, for the ``devotion_to_<colour>`` selectors
@@ -1612,10 +1625,24 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                 obj_power = obj_toughness = getattr(obj.card, "converted_mana_cost", 0) or 0
             else:
                 obj_power, obj_toughness = power, toughness
+            # RULE 613.7b: `abilities` is already timestamp-sorted, so a
+            # later effect must be able to *reverse* an earlier one for the
+            # same type word (Swift Reconfiguration's Aura removes
+            # "creature"; its own granted Crew ability, activated well
+            # after, adds "creature" back while crewed — MEC-43 round
+            # 4E). `_added_types`/`_removed_types` are read as plain "is
+            # this word currently added/removed" sets (`GameObject.
+            # is_creature`/`type_words`), so each must hold only the words
+            # whose *most recent* operation was that kind — discarding the
+            # word from the opposite set is what makes a later add/remove
+            # actually override an earlier one instead of the two
+            # silently coexisting forever.
             for type_name in added:
                 obj._added_types.add(type_name)
+                obj._removed_types.discard(type_name)
             for type_name in removed:
                 obj._removed_types.add(type_name)
+                obj._added_types.discard(type_name)
             for subtype_name in add_subtypes:
                 # RULE 613.7: `abilities` is already timestamp-sorted, so an
                 # add that runs *after* an overwrite already stamped on this
@@ -1683,7 +1710,7 @@ def _apply_layer_5_color(state: "GameState", abilities: list) -> None:
             _trace(obj, 5, _source_name(ability), "becomes " + ", ".join(colors))
 
 
-def _build_grant_effect(spec: dict) -> Any:
+def _build_grant_effect(spec: dict, obj: Optional["GameObject"] = None) -> Any:
     """One entry of a `grant_triggered_ability`/`grant_activated_ability`'s
     ``grant_effects`` list → a real `GameEffect`.
 
@@ -1698,11 +1725,27 @@ def _build_grant_effect(spec: dict) -> Any:
     ``ring_tempted_at_most``. Without this, a granted ability could only
     ever be an unconditional list of effects, unlike an ordinary printed
     one.
+
+    ``obj`` (MEC-43 round 4E — Swift Reconfiguration's granted Crew 5,
+    the first ``grant_effects`` entry that actually needs it) is stamped
+    onto the built effect's own ``.source`` — every printed ability's
+    effects get their `.source` from `effect_binder.bind_ability` at bind
+    time, but `EffectRegistry.create` alone never sets one, so a granted
+    effect that resolves *itself* (e.g. `GrantUntilEffect(target_kind=
+    None)`'s "becomes a creature" self-target, or anything reading
+    `_controller_of(self.source, ...)`) silently no-opped instead of
+    acting on the affected permanent. `Deadeye Navigator`/`Samite
+    Blessing`'s own existing ``grant_effects`` (blink/prevent-damage) never
+    hit this, since both take their subject from a real RULE 115 target
+    instead of ``self.source`` — this was a latent, previously-unreachable
+    gap, not a regression.
     """
     effect = EffectRegistry.create(spec["type"], dict(spec.get("params", {})))
+    if obj is not None:
+        effect.source = obj
     condition = spec.get("condition")
     if condition:
-        effect = ConditionalEffect(dict(condition), effect)
+        effect = ConditionalEffect(dict(condition), effect, source=obj)
     return effect
 
 
@@ -1779,7 +1822,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     granted = TriggeredAbility(
                         trigger_event=trigger_event,
                         effects=[
-                            _build_grant_effect(spec)
+                            _build_grant_effect(spec, obj)
                             for spec in ability.params.get("grant_effects", [])
                         ],
                         condition=_granted_trigger_condition(
@@ -1817,7 +1860,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     cost.sorcery_speed_only = bool(ability.params.get("sorcery_speed_only", False))
                     granted_activated = ActivatedAbility(
                         effects=[
-                            _build_grant_effect(spec)
+                            _build_grant_effect(spec, obj)
                             for spec in ability.params.get("grant_effects", [])
                         ],
                         cost=cost,

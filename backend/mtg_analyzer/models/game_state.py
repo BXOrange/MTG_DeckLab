@@ -974,6 +974,26 @@ class GameState:
             if obj.controller_id == player_id and not obj.phased_out
         ]
 
+    def next_timestamp(self) -> int:
+        """A fresh, strictly-increasing RULE 613.7b timestamp.
+
+        `add_to_battlefield` uses this for a permanent's own entry
+        timestamp; `effects.GrantUntilEffect` (MEC-43 round 4E) uses the
+        same counter to stamp a *resolving effect's own* continuous grant
+        the moment it's created — distinct from (and, for a grant that
+        outlives a fast-changing board, often later than) whatever
+        permanent it happens to affect. Without this, `game/continuous.
+        _in_layer`'s ordering fell back to the affected object's own
+        `GameObject.timestamp`, which is wrong whenever a grant is created
+        well after that object entered the battlefield (Swift
+        Reconfiguration's granted Crew ability, activated long after both
+        the enchanted creature and the Aura itself already exist, must
+        still apply *after* the Aura's own "loses all other card types"
+        layer-4 static, not before it).
+        """
+        self._timestamp_counter = getattr(self, "_timestamp_counter", 0) + 1
+        return self._timestamp_counter
+
     def add_to_battlefield(self, obj: GameObject, *, saga_lore_override: Optional[int] = None) -> None:
         """``saga_lore_override``, when given, is RULE 702.155b/714.3b's Read
         Ahead entry count instead of the ordinary single lore counter —
@@ -988,8 +1008,7 @@ class GameState:
         obj.zone = Zone.BATTLEFIELD
         # RULE 613.7b: stamp a timestamp on entry so the layer engine can order
         # multiple effects within the same layer (newest applies last).
-        self._timestamp_counter = getattr(self, "_timestamp_counter", 0) + 1
-        obj.timestamp = self._timestamp_counter
+        obj.timestamp = self.next_timestamp()
         # "As long as ~ entered the battlefield this turn" conditions (The
         # Wandering Emperor-shaped, `game/condition_query.py`).
         obj.turn_entered = self.turn_number

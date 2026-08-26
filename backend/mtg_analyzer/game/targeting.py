@@ -90,6 +90,25 @@ _GRAVEYARD_TARGET_KINDS: frozenset[str] = frozenset(
 #: a bounce-land's "return a land you control…"); the `graveyard_*`/
 #: `any_graveyard_*`/`opponent_graveyard_*` family (see
 #: `_GRAVEYARD_TARGET_KINDS`) is a card of some type in some graveyard.
+#: RULE 702.5's "Enchant `<X>` or `<Y>`" compound quality (Swift
+#: Reconfiguration, MEC-43 round 4E) — one predicate per word an Aura's
+#: printed "Enchant" line can name, unioned by ``" or "`` in
+#: `legal_targets`'s own ``attachment_kind == "enchant"`` branch above.
+#: "vehicle" is a subtype word, not one of `Card`'s own main-type flags
+#: (a Vehicle's *main* type is Artifact, already covered by "artifact"
+#: here), so it's matched off the printed type line directly — the same
+#: idiom `legal_targets`'s ``attached_aura_or_equipment_you_control``
+#: branch already uses for "equipment"/"aura".
+_ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
+    "creature": lambda o: o.is_creature,
+    "artifact": lambda o: bool(o.card.is_artifact),
+    "enchantment": lambda o: bool(o.card.is_enchantment),
+    "land": lambda o: o.is_land,
+    "planeswalker": lambda o: o.is_planeswalker,
+    "vehicle": lambda o: "vehicle" in o.card.type_line.lower(),
+}
+
+
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
         "any", "creature", "permanent", "player", "spell",
@@ -164,6 +183,11 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "artifact_or_enchantment_defending_player_controls",
         # "target artifact or creature" (Touch the Spirit Realm, MEC-42).
         "artifact_or_creature",
+        # "target artifact or creature **you control**" (Oko, Thief of
+        # Crowns' -5, MEC-43 round 4E) — the controller-scoped sibling of
+        # the bare union above, same shape `creature_or_planeswalker_you_
+        # control` already is for its own pair of types.
+        "artifact_or_creature_you_control",
         # "target artifact, creature, or enchantment" (March of
         # Otherworldly Light, MEC-43) — the three-kind union, no
         # planeswalker (unlike `artifact_creature_enchantment_or_
@@ -457,6 +481,7 @@ class TargetSpec:
             "artifact_you_dont_control": "Artefakt, das du nicht kontrollierst",
             "artifact_or_enchantment": "Artefakt oder Verzauberung",
             "artifact_or_creature": "Artefakt oder Kreatur",
+            "artifact_or_creature_you_control": "Artefakt oder Kreatur unter deiner Kontrolle",
             "spell_or_creature": "Zauberspruch oder Kreatur",
             "artifact_creature_or_enchantment": "Artefakt, Kreatur oder Verzauberung",
             "artifact_enchantment_or_nonbasic_land":
@@ -768,6 +793,26 @@ def legal_targets(
                     for o in state.permanents()
                     if o is not source and _targetable_by(o, source)
                 ]
+            if " or " in quality:
+                # "Enchant creature or Vehicle" (Swift Reconfiguration,
+                # MEC-43 round 4E) — RULE 702.5's compound quality: the
+                # union of each word's own predicate. Every real printed
+                # card pairs two simple type/subtype words this way, so a
+                # plain split is safe; an unrecognized word is just
+                # dropped (fails closed toward fewer legal targets, never
+                # a crash) rather than widened to "anything".
+                words = [w.strip() for w in quality.split(" or ") if w.strip()]
+                predicates = [
+                    _ENCHANT_QUALITY_PREDICATES[w] for w in words
+                    if w in _ENCHANT_QUALITY_PREDICATES
+                ]
+                if predicates:
+                    return [
+                        {"instance_id": o.instance_id, "name": o.name}
+                        for o in state.permanents()
+                        if any(p(o) for p in predicates)
+                        and o is not source and _targetable_by(o, source)
+                    ]
             if quality == "creature":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
@@ -975,13 +1020,17 @@ def legal_targets(
     if kind == "creature_you_dont_control":
         # RULE 115: the mirror image of `creature_you_control` — an
         # opponent's creature (or, strictly, any creature this ability's
-        # controller doesn't control).
+        # controller doesn't control). ``creature_filter`` (Oko, Thief of
+        # Crowns' -5, MEC-43 round 4E — "…with power 3 or less") narrows it
+        # the same way the `creature_you_control` family below already
+        # honours; every existing caller that never sets it is unaffected.
         return [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             if o.is_creature
             and o.controller_id != controller_id
             and _targetable_by(o, source)
+            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
         ]
     if kind == "artifact_you_dont_control":
         # RULE 115: the artifact-typed mirror of `creature_you_dont_control`
@@ -1146,6 +1195,18 @@ def legal_targets(
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             if (o.card.is_artifact or o.is_creature)
+            and o is not source
+            and _targetable_by(o, source)
+        ]
+    if kind == "artifact_or_creature_you_control":
+        # "Exchange control of target artifact or creature you control…"
+        # (Oko, Thief of Crowns' -5, MEC-43 round 4E) — the controller-
+        # scoped sibling of the bare union just above.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.card.is_artifact or o.is_creature)
+            and o.controller_id == controller_id
             and o is not source
             and _targetable_by(o, source)
         ]

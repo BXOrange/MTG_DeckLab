@@ -23920,3 +23920,421 @@ def _kodama_of_the_east_tree() -> list[AbilitySpec]:
 
 
 register("Kodama of the East Tree", _kodama_of_the_east_tree)
+
+
+# ---------------------------------------------------------------------------
+# MEC-43 round 4E — Tergrid God of Fright, Swift Reconfiguration, Angel's
+# Grace, Mesmeric Orb, Smokestack, Oko Thief of Crowns
+# ---------------------------------------------------------------------------
+
+
+def _tergrid_god_of_fright() -> list[AbilitySpec]:
+    """Menace
+    Whenever an opponent sacrifices a nontoken permanent or discards a
+    permanent card, you may put that card from a graveyard onto the
+    battlefield under your control.
+
+    — Tergrid, God of Fright's front face (MEC-43 round 4E). Menace comes
+    from the RULE 702 keyword catalogue. The trigger is a compound RULE
+    603.1 subject ("an opponent sacrifices... or discards...") over *two*
+    different event types with the same effect body, so — like Orcish
+    Bowmasters' ETB-and-draw pair — it's two `AbilitySpec`s sharing one
+    effect list rather than one spec naming two events: `EventType.
+    SACRIFICE`'s own ``"nontoken"`` group-subject condition (widened this
+    round to apply on its own, not only alongside a ``subtypes`` filter —
+    see `effect_binder._build_group_ok`) for the first half, `EventType.
+    DISCARD_CARD`'s ``"type"`` condition (an OR-list of every permanent
+    type word) for the second — the latter needed `DISCARD_CARD` widened
+    to actually carry ``object_types`` at all (`draw_discard_mixin.
+    _main_type_words`), since nothing had ever needed to tell a discarded
+    permanent card apart from a discarded instant/sorcery before.
+
+    "You may put that card from a graveyard onto the battlefield under
+    your control" is `ReturnFromGraveyardEffect`'s own ``trigger_subject_
+    key`` mode (RULE 400.7/701.3 reanimation of the *exact* object the
+    firing event named, not a fresh RULE 115 target), wrapped in a
+    ``cost=""`` `PayCostThenEffect` purely for its "you may... if you do"
+    framing (Tenacious Dead's same "remember the trigger subject before
+    the interactive choice, since `context.trigger_event` isn't live once
+    it's answered" idiom) — genuinely free, no cost is actually paid here.
+    """
+    _reanimate_sacrificed_or_discarded = EffectSpec("pay_cost_then", {
+        "cost": "", "remember_trigger_subject": True,
+        "prompt": "Karte unter deine Kontrolle ins Spiel bringen?",
+        "effects": [{
+            "type": "return_from_graveyard",
+            "params": {
+                "trigger_subject_key": "remembered", "destination": "battlefield",
+                "under_your_control": True,
+            },
+        }],
+    })
+    return [
+        AbilitySpec(
+            "triggered",
+            [_reanimate_sacrificed_or_discarded],
+            trigger={
+                "event": EventType.SACRIFICE,
+                "condition": {"subject": "group", "controller": "not_you", "nontoken": True},
+            },
+            raw_text="Immer wenn ein Gegner eine nicht-Token-Karte für bleibende Karten "
+                     "opfert, darfst du jene Karte aus einem Friedhof unter deine "
+                     "Kontrolle ins Spiel bringen.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [_reanimate_sacrificed_or_discarded],
+            trigger={
+                "event": EventType.DISCARD_CARD,
+                "condition": {
+                    "subject": "group", "controller": "not_you",
+                    "type": ["artifact", "creature", "enchantment", "land", "planeswalker", "battle"],
+                },
+            },
+            raw_text="Immer wenn ein Gegner eine Karte für bleibende Karten abwirft, "
+                     "darfst du jene Karte aus einem Friedhof unter deine Kontrolle "
+                     "ins Spiel bringen.",
+        ),
+    ]
+
+
+register("Tergrid, God of Fright", _tergrid_god_of_fright)
+
+
+def _tergrids_lantern() -> list[AbilitySpec]:
+    """{T}: Target player loses 3 life unless they sacrifice a nonland
+    permanent of their choice or discard a card.
+    {3}{B}: Untap Tergrid's Lantern.
+
+    — Tergrid's Lantern, Tergrid's back face (MEC-43 round 4E, registered
+    separately — `GameObject.transform` swaps ``card`` to the printed
+    back face, whose own ``name`` has no "//" for `specs_for`'s front-face
+    fallback to strip, so it needs its own catalogue entry keyed on that
+    back name directly).
+
+    "Unless they sacrifice a nonland permanent of their choice or discard
+    a card" is a new compound-cost primitive, `ActivationCost.sacrifice_
+    or_discard` (confirmed against the cache as a recurring template —
+    Starseer Mentor/Thornplate Intimidator/Torment of Scarabs/Torment of
+    Venom all print the exact same phrase) — the payer's own choice
+    between the two, unlike every other `ActivationCost` field (AND-
+    combined). `PayCostThenEffect`'s new ``payer="target"`` mode (this
+    round's other new primitive) asks *the targeted player*, not this
+    ability's own controller — `request_pay_cost_then`'s existing "pay or
+    decline" choice, "pay" now able to open a further `sacrifice_or_
+    discard` sub-choice when the payer genuinely has both options
+    available (``_pay_sacrifice_or_discard``/`resolve_sacrifice_or_
+    discard_choice`, `game/rules/misc_mixin.py`).
+
+    The untap ability reuses `TapEffect`'s existing ``target_kind=None``
+    self-untap mode (Grinding Station-shaped) — no new primitive.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("pay_cost_then", {
+                "cost": "", "sacrifice_or_discard": True, "payer": "target",
+                "target_kind": "player",
+                "else_effects": [{"type": "lose_life", "params": {"amount": 3, "target_kind": "player"}}],
+            })],
+            cost={"text": "{T}"},
+            raw_text="{T}: Ein Zielspieler verliert 3 Lebenspunkte, es sei denn, er "
+                     "opfert eine nichtländische bleibende Karte eigener Wahl oder "
+                     "wirft eine Karte ab.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("tap", {"target_kind": None, "untap": True})],
+            cost={"text": "{3}{B}"},
+            raw_text="{3}{B}: Enttappe Tergrids Laterne.",
+        ),
+    ]
+
+
+register("Tergrid's Lantern", _tergrids_lantern)
+
+
+def _swift_reconfiguration() -> list[AbilitySpec]:
+    """Flash
+    Enchant creature or Vehicle
+    Enchanted permanent is a Vehicle artifact with crew 5 and it loses all
+    other card types. (It's not a creature unless it's crewed.)
+
+    — MEC-43 round 4E. Flash/"Enchant creature or Vehicle" come from the
+    RULE 702 keyword catalogue — the latter needed `targeting.py`'s
+    "enchant" quality dispatch widened for a genuine RULE 702.5 compound
+    quality (``_ENCHANT_QUALITY_PREDICATES``, unioned by ``" or "`` — every
+    real printed card only ever pairs two simple type/subtype words this
+    way), since "Vehicle" is a subtype word no existing single-quality
+    branch recognized.
+
+    The permanent overwrite is Vraska, Betrayal's Sting's own ``-2``
+    template (`type_change`'s ``remove_types``/``add_types``/
+    ``add_subtypes``, RULE 613.7f) applied as a *standing* Aura static
+    (``affects="attached_permanent"``, Kenrith's Transformation-shaped)
+    instead of a resolve-time ``grant_until`` — this is a permanent
+    attachment effect, not a one-shot cast trigger. Crew 5 is granted via
+    the general `grant_activated_ability` static (its own default
+    ``affects="attached_permanent"``), built to exactly mirror what a
+    *printed* "Crew N" keyword binds to (`effect_binder._crew_activated_
+    ability`): an `ActivationCost.crew_power` cost and a self-targeted
+    ``grant_until``/``type_change`` "becomes a creature until end of turn"
+    effect — `grant_activated_ability` is a *layer-6 grant*, unlike the
+    printed keyword's bind-on-load dispatch, which is exactly what makes
+    this reachable at all (the enchanted permanent's own printed keywords
+    never include Crew).
+
+    **Documented simplification**: the granted Crew ability doesn't pass
+    ``power``/``toughness`` overrides the way `_crew_activated_ability`
+    does for a *printed* Vehicle's own ``vehicle_power``/
+    ``vehicle_toughness`` — for the overwhelmingly common case (enchanting
+    an ordinary creature), this needs no override at all: `Card.power`
+    stays whatever was printed regardless of the current layer-4 type
+    words, so the crewed permanent's base P/T falls out of the same
+    `continuous.recompute` base array every creature already reads. Only
+    the rare case of enchanting an *already-printed* Vehicle (rather than
+    a creature) would fall back to 0/0 when crewed, since that Vehicle's
+    own ``vehicle_power``/``vehicle_toughness`` isn't threaded through a
+    static grant authored once for any target.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("type_change", {
+                    "affects": "attached_permanent",
+                    "add_types": ["artifact"],
+                    "remove_types": ["creature", "enchantment", "land", "planeswalker", "battle"],
+                    "add_subtypes": ["Vehicle"],
+                }),
+                EffectSpec("grant_activated_ability", {
+                    "affects": "attached_permanent",
+                    "cost": {"crew_power": 5},
+                    "grant_effects": [{
+                        "type": "grant_until",
+                        "params": {
+                            "target_kind": None, "duration": "end_of_turn",
+                            "static": {"type": "type_change", "params": {"add_types": ["creature"]}},
+                        },
+                    }],
+                }),
+            ],
+            raw_text="Verzauberte bleibende Karte ist ein Vehikel-Artefakt mit Crew 5 "
+                     "und verliert alle anderen Kartentypen. (Es ist keine Kreatur, "
+                     "außer es ist bemannt.)",
+        ),
+    ]
+
+
+register("Swift Reconfiguration", _swift_reconfiguration)
+
+
+def _angels_grace() -> list[AbilitySpec]:
+    """Split second
+    You can't lose the game this turn and your opponents can't win the
+    game this turn. Until end of turn, damage that would reduce your life
+    total to less than 1 reduces it to 1 instead.
+
+    — MEC-43 round 4E. Split second is a plain printed keyword (RULE
+    702.60, already enforced by the RULE 702 keyword catalogue's cast-
+    timing gate). "You can't lose the game this turn" reuses the existing
+    `WinConditionEffect`/`_loss_prevented` machinery (built for a
+    *permanent's* standing "you can't lose" static, e.g. Platinum Angel)
+    via the new `RulesEngine.grant_cant_lose_this_turn` — installs one
+    directly onto the caster's own `player_effects`, turn-scoped instead
+    of standing. The damage floor is the new `RulesEngine.
+    cap_damage_life_floor` (RULE 104.3a — `Player.player_effects`-scoped
+    exactly like RULE 615's `prevent_damage_to_player`, just rewriting the
+    amount to land on a fixed floor instead of subtracting a prevented
+    chunk).
+
+    **Documented simplification**: "your opponents can't win the game
+    this turn" has no engine consequence today — nothing in this engine
+    ever makes a player win the game outright (no Door to Nothingness/
+    Barren Glory-shaped alternate win condition is modeled; every game
+    ends by every-other-player-losing, which "you can't lose" above
+    already fully covers for the games this card is actually cast in).
+    Tracked nowhere as an open gap since no card needing an explicit win
+    condition exists in this project yet.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("grant_cant_lose_this_turn", {}),
+                EffectSpec("damage_life_floor", {"floor": 1}),
+            ],
+            raw_text="Du kannst diesen Zug nicht verlieren und deine Gegner können "
+                     "diesen Zug nicht gewinnen. Bis zum Ende des Zuges wird Schaden, "
+                     "der deine Lebenspunkte auf weniger als 1 reduzieren würde, "
+                     "stattdessen auf 1 reduziert.",
+        ),
+    ]
+
+
+register("Angel's Grace", _angels_grace)
+
+
+def _mesmeric_orb() -> list[AbilitySpec]:
+    """Whenever a permanent becomes untapped, that permanent's controller
+    mills a card.
+
+    — MEC-43 round 4E, the ticket's own headline engine gap: "becomes
+    untapped" had no per-permanent engine event to trigger off at all
+    (`EventType.UNTAP` fires once per untap *step*, keyed by player, never
+    per permanent). Closed at the root rather than special-cased for this
+    one card — `RulesEngine.set_tapped` (already the untap direction's
+    real choke point, mirroring how it already fires `TAPPED` for the tap
+    direction) now also fires the new `EventType.UNTAPPED`, and every
+    other real untap route that used to bypass it (the untap step's own
+    per-permanent loop, an ability's own ``{Q}``/"Untap ~" cost) was
+    switched to call it too — `TapEffect`'s own ``untap=True`` mode
+    already went through `set_tapped` unconditionally, so it needed no
+    change to pick this up. `parser/oracle/segmenter.py`'s `_TRIGGER_VERBS`
+    then gained the matching "becomes untapped" row, so a future oracle-
+    text card with this same trigger phrase parses for free.
+
+    The card's own effect — "**that permanent's controller** mills a
+    card", not "you" — needed `MillEffect` widened with a new
+    ``selector="event_controller"`` (mirroring `LoseLifeEffect.
+    selector="event_player"`/`DealDamageEffect.selector`'s identical
+    "read the firing event's own payload" idiom via the shared
+    `_event_player` helper), since nothing had ever needed "whoever the
+    firing event names" as *mill's* own subject before. Hand-authored
+    since the front-end has no grammar yet for a group condition's own
+    matched object flowing into its effect's subject.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("mill", {"count": 1, "selector": "event_controller"})],
+            trigger={"event": EventType.UNTAPPED},
+            raw_text="Immer wenn eine bleibende Karte enttappt wird, mischt deren "
+                     "Beherrscher eine Karte seiner Bibliothek in seinen Friedhof.",
+        ),
+    ]
+
+
+register("Mesmeric Orb", _mesmeric_orb)
+
+
+def _smokestack() -> list[AbilitySpec]:
+    """At the beginning of your upkeep, you may put a soot counter on this
+    artifact.
+    At the beginning of each player's upkeep, that player sacrifices a
+    permanent of their choice for each soot counter on this artifact.
+
+    — MEC-43 round 4E. The first ability is a plain optional self-counter
+    add (RULE 122.1), same shape countless other upkeep triggers already
+    use. The second reuses Tangle Wire's own "read the count live off the
+    source's own counters, offer N picks via the general chooser" shape
+    (`TapPermanentsPerCounterEffect`) — its new sibling,
+    `SacrificePermanentsPerCounterEffect`, swaps ``action="tap"`` for
+    ``"sacrifice"`` and drops Tangle Wire's own artifact/creature/land +
+    untapped-only filter (Smokestack taxes *any* permanent).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"kind": "soot", "amount": 1})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
+            optional=True,
+            raw_text="Zu Beginn deines Versorgungssegments darfst du eine Rußmarke "
+                     "auf dieses Artefakt legen.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("sacrifice_permanents_per_counter", {"kind": "soot"})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}},
+            raw_text="Zu Beginn des Versorgungssegments jedes Spielers opfert jener "
+                     "Spieler eine bleibende Karte eigener Wahl für jede Rußmarke auf "
+                     "diesem Artefakt.",
+        ),
+    ]
+
+
+register("Smokestack", _smokestack)
+
+
+def _oko_thief_of_crowns() -> list[AbilitySpec]:
+    """+2: Create a Food token.
+    +1: Target artifact or creature loses all abilities and becomes a
+    green Elk creature with base power and toughness 3/3.
+    -5: Exchange control of target artifact or creature you control and
+    target creature an opponent controls with power 3 or less.
+
+    — MEC-43 round 4E. "+2" is a plain Food token creation, the same
+    ``create_token`` shape every other Food-maker in this cache already
+    uses. "+1" is the already-shipped Elk template (Kenrith's
+    Transformation) reused resolve-time — two chained ``grant_until``
+    effects at ``duration="rest_of_game"`` (Vraska, Betrayal's Sting's own
+    ``-2`` established this exact "permanent characteristic overwrite via
+    a resolve-time grant, not a `temp_*` pump" idiom), the second reusing
+    the first's own target via ``previous_subject`` so only one RULE 115
+    target is asked for both clauses.
+
+    "-5" needed `ExchangeControlEffect` widened into a genuine **two-
+    target** mode (``first_target_kind``/``second_creature_filter``, via
+    `GameEffect.extra_target_specs`): unlike Gilded Drake/Volatile
+    Stormdrake (always "this creature and up to one target creature" —
+    one side is the ability's own source), *both* sides here are
+    independently-chosen targets, neither optional (Oko's own text prints
+    no "up to"/failure clause). The first target's own kind
+    (``artifact_or_creature_you_control``) and the second's own qualifier
+    (``creature_you_dont_control`` + ``creature_filter={"max_power": 3}``)
+    both needed small `targeting.py` additions — a controller-scoped
+    "artifact or creature" union kind (mirroring `creature_or_
+    planeswalker_you_control`'s identical shape for its own pair), and
+    `creature_you_dont_control` honouring `TargetSpec.creature_filter` at
+    all (every existing caller of that kind never set one, so this is
+    purely additive).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("create_token", {"count": 1, "token_name": "Food"})],
+            cost={"loyalty": 2},
+            raw_text="+2: Erschaffe einen Nahrungs-Spielstein.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("grant_until", {
+                    "target_kind": "artifact_or_creature", "duration": "rest_of_game",
+                    "static": {"type": "remove_all_abilities", "params": {}},
+                }),
+                EffectSpec("grant_until", {
+                    "previous_subject": True, "duration": "rest_of_game",
+                    "static": {
+                        "type": "type_change",
+                        "params": {
+                            "add_types": ["creature"], "set_subtypes": ["Elk"],
+                            "power": 3, "toughness": 3,
+                        },
+                    },
+                }),
+                EffectSpec("grant_until", {
+                    "previous_subject": True, "duration": "rest_of_game",
+                    "static": {"type": "color_change", "params": {"colors": ["G"], "set": True}},
+                }),
+            ],
+            cost={"loyalty": 1},
+            raw_text="+1: Ziel-Artefakt oder Ziel-Kreatur verliert alle Fähigkeiten und "
+                     "wird zu einem grünen Elch mit den Grundwerten 3/3.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("exchange_control", {
+                "first_target_kind": "artifact_or_creature_you_control",
+                "target_kind": "creature_you_dont_control",
+                "second_creature_filter": {"max_power": 3},
+            })],
+            cost={"loyalty": -5},
+            raw_text="−5: Tausche die Kontrolle über Ziel-Artefakt oder Ziel-Kreatur "
+                     "unter deiner Kontrolle und Ziel-Kreatur, die ein Gegner "
+                     "kontrolliert, mit Stärke 3 oder weniger.",
+        ),
+    ]
+
+
+register("Oko, Thief of Crowns", _oko_thief_of_crowns)

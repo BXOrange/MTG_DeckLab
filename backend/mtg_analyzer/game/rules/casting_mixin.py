@@ -1414,7 +1414,17 @@ class CastingResolutionMixin:
             player.remove_from_zone(land, Zone.HAND)
             player.add_to_zone(land, Zone.GRAVEYARD)
             self.state.fire_event(
-                GameEvent(EventType.DISCARD_CARD, player_id=player.id, instance_id=land.instance_id)
+                GameEvent(
+                    EventType.DISCARD_CARD, player_id=player.id, instance_id=land.instance_id,
+                    # "…discards a permanent card." (Tergrid, God of
+                    # Fright, MEC-43 round 4E) — see `draw_discard_mixin.
+                    # _main_type_words`'s identical stamp; always a land
+                    # here (RULE 118.9's Pitch cycle), kept for consistency
+                    # rather than assuming callers never widen this route.
+                    object_types=sorted(
+                        w for w in land.card.type_line.partition("—")[0].strip().lower().split() if w
+                    ),
+                )
             )
             self.state.fire_event(GameEvent(EventType.DISCARD, player_id=player.id, count=1))
         if continuation is not None:

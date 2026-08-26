@@ -478,6 +478,21 @@ class ActivationCost:
     #: creature. RULE 702.171d: activate only as a sorcery — see
     #: `sorcery_speed_only`, already general.
     saddle_power: Optional[int] = None
+    #: "…unless they sacrifice a nonland permanent of their choice or
+    #: discard a card." (Tergrid's Lantern, MEC-43 round 4E) — RULE 118.3's
+    #: "unless" idiom applied to a *compound* cost where the payer picks
+    #: which of two payment kinds to use, not both (every other field on
+    #: this dataclass is AND-combined — this is the one deliberate OR).
+    #: Confirmed against the cache as a recurring template (Starseer
+    #: Mentor/Thornplate Intimidator/Torment of Scarabs/Torment of Venom
+    #: all print the same "…sacrifice a nonland permanent of their choice
+    #: or discard a card" phrase), so it's a real cost-shape field rather
+    #: than a Tergrid-only special case, even though only Tergrid's
+    #: Lantern is hand-authored against it yet. `_can_pay_player_cost`
+    #: treats it as payable when *either* half is; `_pay_player_cost`
+    #: auto-picks the only available half, or opens a small dedicated
+    #: `sacrifice_or_discard` choice when the payer genuinely has both.
+    sacrifice_or_discard: bool = False
     raw: str = ""
 
     @property
@@ -511,6 +526,7 @@ class ActivationCost:
             or self.exile_hand_card_color
             or self.crew_power
             or self.saddle_power
+            or self.sacrifice_or_discard
         )
 
     def label(self) -> str:
@@ -580,6 +596,8 @@ class ActivationCost:
             parts.append(f"[{'+' if self.loyalty >= 0 else ''}{self.loyalty}]")
         if self.crew_power:
             parts.append(f"Tap any number of other untapped creatures you control with total power {self.crew_power} or greater")
+        if self.sacrifice_or_discard:
+            parts.append("Sacrifice a nonland permanent or discard a card")
         return ", ".join(parts)
 
     def to_dict(self) -> dict[str, Any]:
@@ -612,6 +630,7 @@ class ActivationCost:
             "loyalty_is_x": self.loyalty_is_x,
             "x_selector": self.x_selector,
             "crew_power": self.crew_power,
+            "sacrifice_or_discard": self.sacrifice_or_discard,
             "label": self.label(),
         }
 
@@ -685,6 +704,8 @@ def parse_activation_cost(
         parsed.x_selector = str(cost["x_selector"])
     if cost.get("crew_power"):
         parsed.crew_power = int(cost["crew_power"])
+    if "sacrifice_or_discard" in cost:
+        parsed.sacrifice_or_discard = bool(cost["sacrifice_or_discard"])
     if "exile_self_from_hand" in cost:
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "spend_only_chosen_color" in cost:

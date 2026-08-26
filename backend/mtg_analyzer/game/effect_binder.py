@@ -525,6 +525,15 @@ def _build_group_ok(
             return False
         if want_recipient_you and not (event.get("is_player") and event.get("target_id") == cid):
             return False
+        # "An opponent sacrifices a nontoken permanent…" (Tergrid, God of
+        # Fright, MEC-43 round 4E) — unlike every prior caller, this is a
+        # bare "nontoken `<any permanent>`" qualifier with *no* accompanying
+        # subtype list, so it must be checked on its own rather than nested
+        # inside the ``if stypes:`` block below (which only ever ran when a
+        # subtype filter was *also* present, e.g. "another nontoken Zombie
+        # or Mutant" — The Ghoul, Gunslinger).
+        if want_nontoken and event.get("is_token"):
+            return False
         if tword and tword != "permanent":
             types = event.get("object_types")
             if types is None and event_instance is not None:
@@ -553,8 +562,6 @@ def _build_group_ok(
             if not matched:
                 return False
         if stypes:
-            if want_nontoken and event.get("is_token"):
-                return False
             event_subtypes = event.get("subtypes")
             if event_subtypes is None and event_instance is not None:
                 state = getattr(context, "state", None)

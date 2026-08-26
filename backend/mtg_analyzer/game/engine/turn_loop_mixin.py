@@ -636,7 +636,13 @@ class TurnLoopMixin:
                 # Vault) — a separate "{N}: Untap this artifact." activated
                 # ability (or Mana Vault's upkeep trigger) is unaffected,
                 # it's a different code path (an ordinary `untap` effect).
-                obj.untap()
+                # `self.rules.set_tapped` (MEC-43 round 4E, Mesmeric Orb),
+                # not the plain model-level `obj.untap()`, so a genuine
+                # untap-step transition fires `EventType.UNTAPPED` exactly
+                # like any other untap route — RULE 603.2's "whenever a
+                # permanent becomes untapped" fires during the untap step
+                # too (confirmed by Mesmeric Orb's own real-card ruling).
+                self.rules.set_tapped(obj, False)
                 for i, cap in enumerate(untap_caps):
                     if continuous.matches_untap_cap_filter(obj, cap):
                         cap_counts[i] += 1
@@ -836,6 +842,21 @@ class TurnLoopMixin:
                 player.player_effects = [
                     e for e in player.player_effects
                     if not getattr(e, "damage_multiplier_grant", False)
+                ]
+            # RULE 104.3a (Angel's Grace, MEC-43 round 4E): a turn-scoped
+            # "you can't lose" grant lapses here too — same "this turn"
+            # window as every other player-effect marker above.
+            if any(getattr(e, "win_condition_grant", False) for e in player.player_effects):
+                player.player_effects = [
+                    e for e in player.player_effects
+                    if not getattr(e, "win_condition_grant", False)
+                ]
+            # RULE 104.3a's damage-floor half (Angel's Grace) — same
+            # "this turn" expiry.
+            if any(getattr(e, "damage_life_floor_grant", False) for e in player.player_effects):
+                player.player_effects = [
+                    e for e in player.player_effects
+                    if not getattr(e, "damage_life_floor_grant", False)
                 ]
         # RULE 615 (MEC-30): "Damage can't be prevented this turn." also
         # lapses here, the same window every other "this turn" flag clears.
@@ -1230,6 +1251,14 @@ class TurnLoopMixin:
             self.rules.resolve_sacrifice_unless_pay_choice(
                 None if declined else str(answer)
             )
+        elif kind == "sacrifice_or_discard":
+            # "…sacrifice a nonland permanent of their choice or discard a
+            # card." (Tergrid's Lantern, MEC-43 round 4E) — mandatory (no
+            # decline offered here; declining the *cost itself* already
+            # happened one level up, in the enclosing pay_cost_then
+            # choice), so a missing/unrecognized answer re-checks both
+            # halves rather than silently paying nothing.
+            self.rules.resolve_sacrifice_or_discard_choice(None if declined else str(answer))
         elif kind == "commander_zone":
             # RULE 903.9a/9b: "command" moves the commander to the command
             # zone instead of wherever it landed/was headed; anything else
