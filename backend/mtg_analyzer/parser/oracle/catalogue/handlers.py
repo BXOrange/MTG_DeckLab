@@ -2093,6 +2093,21 @@ def _sacrifice_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("sacrifice_unless_pay", {"cost": m.group("cost")})]
 
 
+#: "Destroy ~ unless you pay `<cost>`." (RULE 701.16 + an "unless" payment)
+#: — the real-destruction sibling of `_SACRIFICE_UNLESS_PAY_RE` above (The
+#: Tabernacle at Pendrell Vale's mass granted upkeep trigger, "All creatures
+#: have 'At the beginning of your upkeep, destroy this creature unless you
+#: pay {1}.'"). Shares `_UNLESS_COST`'s closed cost vocabulary for the same
+#: reason that handler does — see its own docstring.
+_DESTROY_UNLESS_PAY_RE = _c(
+    rf"destroy {_SELF_SUBJECT} unless you (?P<cost>{_UNLESS_COST})"
+)
+
+
+def _destroy_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("destroy_unless_pay", {"cost": m.group("cost")})]
+
+
 #: "Exile ~."/"Exile this card." (Teferi's Protection/Mnemonic Betrayal's
 #: trailing self-exile) — the self form, `ExileEffect`'s `target_kind=None`.
 def _exile_self(m: re.Match[str]) -> list[EffectSpec]:
@@ -6156,6 +6171,14 @@ HANDLERS: list[EffectHandler] = [
         "sacrifice_unless_pay",
         _SACRIFICE_UNLESS_PAY_RE,
         _sacrifice_unless_pay,
+    ),
+    # "destroy ~ unless you pay <cost>" — the real-destruction sibling
+    # (RULE 701.16) of `sacrifice_unless_pay` above (The Tabernacle at
+    # Pendrell Vale's granted upkeep trigger).
+    EffectHandler(
+        "destroy_unless_pay",
+        _DESTROY_UNLESS_PAY_RE,
+        _destroy_unless_pay,
     ),
     # "sacrifice ~" / "sacrifice this enchantment" — the self form (Dress
     # Down/Underworld Breach's standing end-step self-sac).

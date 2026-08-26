@@ -24604,3 +24604,185 @@ def _dance_of_the_dead() -> list[AbilitySpec]:
 
 
 register("Dance of the Dead", _dance_of_the_dead)
+
+
+def _rings_of_brighthearth() -> list[AbilitySpec]:
+    """Whenever you activate an ability, if it isn't a mana ability, you may
+    pay {2}. If you do, copy that ability. You may choose new targets for
+    the copy.
+
+    — Rings of Brighthearth, MEC-43 round 4G. `EventType.ACTIVATED_ABILITY`
+    already fires for every non-mana activated ability (RULE 605.1a mana
+    abilities never use the stack, so "isn't a mana ability" needs no
+    separate check — the same fact `Flamescroll Celebrant`/`Runic Armasaur`
+    already document), and `pay_cost_then` (RULE 118.3) already handles the
+    optional {2}. The genuinely new part is copying an ability that's
+    already on the stack (RULE 706.10): `CopyAbilityEffect`/`RulesEngine.
+    copy_ability` are the ability-item siblings of the existing spell-copy
+    machinery (`CopySpellEffect`/`copy_spell`), identifying "that ability"
+    by `StackItem.stack_id` (ENG-26) instead of a `GameObject.instance_id`
+    — remembered onto `GameObject.remembered_stack_id` by
+    `remember_trigger_stack_id=True` at the ability's first, still-live
+    `apply()`, since the "if you do" branch only runs once the pay-or-not
+    choice is answered, by which point `context.trigger_event` has closed.
+
+    **Documented simplification**: "you may choose new targets for the
+    copy" keeps the original's targets, the same MVP `CopySpellEffect`
+    already establishes for a spell copy.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("pay_cost_then", {
+                "cost": "{2}",
+                "effects": [{"type": "copy_ability", "params": {}}],
+                "remember_trigger_stack_id": True,
+            })],
+            trigger={
+                "event": EventType.ACTIVATED_ABILITY,
+                "condition": {"subject": "group", "controller": "you"},
+            },
+            raw_text="Immer wenn du eine Fähigkeit aktivierst, darfst du, "
+                     "falls es keine Manafähigkeit ist, {2} bezahlen. Falls "
+                     "du dies tust, kopiere diese Fähigkeit. Du kannst neue "
+                     "Ziele für die Kopie wählen.",
+        )
+    ]
+
+
+register("Rings of Brighthearth", _rings_of_brighthearth)
+
+
+def _isochron_scepter() -> list[AbilitySpec]:
+    """Imprint — When this artifact enters, you may exile an instant card
+    with mana value 2 or less from your hand.
+    {2}, {T}: You may copy the exiled card. If you do, you may cast the
+    copy without paying its mana cost.
+
+    — Isochron Scepter, MEC-43 round 4G. The first line is `ImprintEffect`
+    (MEC-17, Chrome Mox) widened with two new filter params —
+    ``include_card_type="instant"`` (an *inclusion* filter, the opposite
+    direction of Chrome Mox's own exclusion list) and ``max_mana_value=2``.
+    The repeatable activated ability is the genuinely new part —
+    `CopyImprintedCardEffect`: builds a fresh token copy of the imprinted
+    card straight into exile (never touching the battlefield, the same
+    RULE 722.3c idiom `make_prepared` already uses) and opens its
+    `grant_free_cast_window_from_exile` window, the same MEC-20/Beseech
+    the Mirror "reaches the ordinary cast action with full targeting"
+    idiom — repeatable, since the original imprinted card is never itself
+    cast and stays put for the rest of the game.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("imprint", {
+                "include_card_type": "instant",
+                "max_mana_value": 2,
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Imprint — Wenn dieses Artefakt ins Spiel kommt, darfst "
+                     "du eine Spontanzauber-Karte mit Manawert 2 oder "
+                     "weniger aus deiner Hand exilieren.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("copy_imprinted_card", {})],
+            cost={"text": "{2}", "taps_self": True},
+            raw_text="{2}, {T}: Du kannst die exilierte Karte kopieren. "
+                     "Falls du dies tust, kannst du die Kopie wirken, ohne "
+                     "ihre Manakosten zu bezahlen.",
+        ),
+    ]
+
+
+register("Isochron Scepter", _isochron_scepter)
+
+
+def _aluren() -> list[AbilitySpec]:
+    """Any player may cast creature spells with mana value 3 or less
+    without paying their mana costs and as though they had flash.
+
+    — Aluren, MEC-43 round 4G. A standing, board-wide free-cast permission
+    scoped to **any** player, not just this enchantment's own controller —
+    the first free-cast grant in this engine not scoped to one controller.
+    Modeled as a genuine standing permission (`continuous.has_standing_
+    free_cast_permission`/`standing_free_cast_grants_flash`, `EffectSpec(
+    "free_cast_permission", ...)`), consulted live by `GameEngine.can_cast`
+    and offered by `_offer_cast`/`_castable_now_or_via_potential` (the same
+    "second, independent payment method alongside the plain mana-cost one"
+    idiom MEC-15 already built for a per-object `free_cast_condition`) —
+    not an armed per-card flag, since Aluren covers every qualifying
+    creature spell in every hand at the table, not one specific card.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("free_cast_permission", {
+                "creature_only": True,
+                "max_mana_value": 3,
+                "any_player": True,
+                "grants_flash": True,
+            })],
+            raw_text="Jeder Spieler darf Kreaturenzaubersprüche mit "
+                     "Manawert 3 oder weniger wirken, ohne ihre Manakosten "
+                     "zu bezahlen, und so, als hätten sie Blitzschnelligkeit.",
+        )
+    ]
+
+
+register("Aluren", _aluren)
+
+
+def _knowledge_pool() -> list[AbilitySpec]:
+    """Imprint — When this artifact enters, each player exiles the top
+    three cards of their library.
+    Whenever a player casts a spell from their hand, that player exiles
+    it. If the player does, they may cast a spell from among other cards
+    exiled with this artifact without paying its mana cost.
+
+    — Knowledge Pool, MEC-43 round 4G. The first line is `ExileTopOfLibrary
+    Effect` widened with ``player_selector="each_player"``/``count=3``/
+    ``track_exiled_with=True`` — the RULE 601.2c mass "each player" form,
+    each player's own top three seeding the shared imprint pool
+    (`GameObject.exiled_with_ids`, MEC-21). The second line is a genuine
+    cast-substitution mechanism (`ExileCastSpellIntoImprintPoolEffect`):
+    intercepts *any* player's cast from hand (RULE 603.3d reflexive,
+    Possibility Storm-shaped trigger — unscoped "a player", not just this
+    artifact's controller), exiles the just-cast spell straight off the
+    stack into the same shared pool via `RulesEngine.move_spell_off_stack`,
+    then offers that player a `request_choose_objects` pick of exactly one
+    *other* pool member to grant a free-cast window (MEC-20's `"grant_free_
+    cast"` action) — already zone-agnostic, so an exiled candidate reaches
+    `legal_actions` with full targeting exactly like a hand card would.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile_top_of_library", {
+                "player_selector": "each_player",
+                "count": 3,
+                "track_exiled_with": True,
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Imprint — Wenn dieses Artefakt ins Spiel kommt, "
+                     "exiliert jeder Spieler die obersten drei Karten "
+                     "seiner Bibliothek.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile_cast_spell_into_imprint_pool", {})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "filter": {"from_hand": True},
+                "reflexive": True,
+            },
+            raw_text="Immer wenn ein Spieler einen Zauberspruch aus seiner "
+                     "Hand wirkt, exiliert jener Spieler ihn. Falls das "
+                     "geschieht, kann er einen Zauberspruch unter den "
+                     "anderen mit diesem Artefakt exilierten Karten "
+                     "wirken, ohne dessen Manakosten zu bezahlen.",
+        ),
+    ]
+
+
+register("Knowledge Pool", _knowledge_pool)

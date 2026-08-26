@@ -726,6 +726,69 @@ class MiscSystemsMixin:
                 return
         if source is not None and source in self.state.battlefield:
             self.put_into_graveyard(source)
+    def request_destroy_unless_pay(
+        self, player: Player, cost: "ActivationCost", source: Optional[GameObject]
+    ) -> None:
+        """Open the interactive "destroy ``source`` unless you pay ``cost``"
+        choice — RULE 701.16 destruction gated by an "unless" payment, the
+        real-destruction sibling of `request_sacrifice_unless_pay` above
+        (The Tabernacle at Pendrell Vale's granted upkeep trigger, "At the
+        beginning of your upkeep, destroy this creature unless you pay
+        {1}."). Deliberately a separate method rather than a shared "unless
+        pay" verb parameter on the sacrifice one: RULE 701.16c matters here
+        — destruction (unlike sacrifice) goes through `destroy`, so a
+        regeneration shield can still save the permanent, which sacrifice
+        can never be.
+
+        Same pay-or-lose-it machinery as sacrifice/ward
+        (`_can_pay_player_cost`/`_pay_player_cost`); a player who can't pay
+        isn't asked, the permanent is destroyed outright.
+        """
+        if source is None:
+            return
+        if not self._can_pay_player_cost(player, cost):
+            self.destroy(source)
+            return
+        self._pending_destroy_unless_pay = {
+            "player_id": player.id,
+            "cost": cost,
+            "source": source,
+        }
+        cost_label = cost.label()
+        self.state.pending_choice = {
+            "kind": "destroy_unless_pay",
+            "player_id": player.id,
+            "prompt": f"{cost_label} bezahlen, um {source.name} zu behalten?",
+            "options": [
+                {"id": "pay", "label": f"{cost_label} bezahlen"},
+                {"id": "decline", "label": f"{source.name} zerstören lassen"},
+            ],
+        }
+    def resolve_destroy_unless_pay_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `destroy_unless_pay` choice. ``answer == "pay"``
+        charges the cost and keeps the permanent; anything else destroys it
+        (RULE 701.16, regenerable — see `request_destroy_unless_pay`)."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "destroy_unless_pay":
+            raise ValueError("no pending destroy-unless-pay choice to resolve")
+        self.state.pending_choice = None
+        pending = self._pending_destroy_unless_pay
+        self._pending_destroy_unless_pay = None
+        if pending is None:
+            return
+        source = pending["source"]
+        try:
+            player = self.state.player_by_id(pending["player_id"])
+        except KeyError:
+            player = None
+        if answer == "pay" and player is not None:
+            # Re-check: the board can have changed between the offer and the
+            # answer, same guard as `resolve_sacrifice_unless_pay_choice`.
+            if self._can_pay_player_cost(player, pending["cost"]):
+                self._pay_player_cost(player, pending["cost"])
+                return
+        if source is not None and source in self.state.battlefield:
+            self.destroy(source)
     def request_tap_or_untap_choice(self, target: GameObject, source: Optional[GameObject] = None) -> None:
         """"You may tap or untap target permanent." (Derevi, Empyrial
         Tactician — MEC-42) — a genuine two-way choice layered on top of

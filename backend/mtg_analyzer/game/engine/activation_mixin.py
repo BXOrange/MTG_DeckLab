@@ -1221,6 +1221,12 @@ class ActivationMixin:
                 # `source` can be an `Emblem` (RULE 114.4's rare own
                 # activated ability) — no card frame, so no type words.
                 object_types=sorted(getattr(source, "type_words", None) or []),
+                # RULE 706.10 (Rings of Brighthearth): the ability's own
+                # stack identity, so a "copy that ability" trigger can find
+                # the exact `StackItem` just pushed above — an ability item
+                # has no `GameObject` of its own to name by `instance_id`
+                # (ENG-26, `StackItem.stack_id`).
+                stack_id=item.stack_id,
             )
         )
         self.rules.check_ward(item, player)

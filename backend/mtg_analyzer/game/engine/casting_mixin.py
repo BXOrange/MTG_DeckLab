@@ -475,10 +475,22 @@ class CastingMixin:
             and obj is player.library[-1]
             and may_cast_flash_from_top_of_library(player, self.state, card)
         )
+        # Aluren-shaped: "…and as though they had flash." is bundled into
+        # the *same* standing permission as the free cost right below, not
+        # a blanket flash grant on the card itself — it only exempts the
+        # `free=True` cast this permission itself authorizes; paying the
+        # real mana cost at sorcery speed is still an ordinary cast,
+        # unaffected (see `continuous.standing_free_cast_grants_flash`'s
+        # own docstring for why this is gated on ``free`` rather than
+        # joining `has_standing_flash_permission` unconditionally above).
+        has_aluren_free_cast_flash = free and continuous.standing_free_cast_grants_flash(
+            self.state, player, card
+        )
         sorcery_speed = not (
             card.is_instant or combat.has(obj, "flash") or has_conditional_flash or has_temp_flash
             or has_top_library_flash
             or continuous.has_standing_flash_permission(self.state, player, card)
+            or has_aluren_free_cast_flash
         )
         if continuous.forced_sorcery_speed_only(self.state, player):
             # Teferi, Time Raveler (MEC-42): "each opponent can cast spells
@@ -554,10 +566,22 @@ class CastingMixin:
             if len(player.graveyard) - 1 < escape_cost.exile_from_graveyard:
                 return False
         if free:
+            # Two independent sources of a "you may cast this without
+            # paying its mana cost" permission: a per-object condition
+            # bound at bind-on-load (RULE 601.2f, `GameObject.free_cast_
+            # condition` — Deadly Rollick-shaped, "if you control a
+            # commander, …"), or a standing board-wide permission that
+            # covers *any* qualifying card, not just this one specifically
+            # bound (Aluren, `continuous.has_standing_free_cast_
+            # permission`) — legal if either currently holds.
             free_cast_condition = getattr(obj, "free_cast_condition", None)
-            if free_cast_condition is None:
-                return False
-            if not condition_query.free_cast_condition_holds(free_cast_condition, obj, self.state):
+            condition_ok = (
+                free_cast_condition is not None
+                and condition_query.free_cast_condition_holds(free_cast_condition, obj, self.state)
+            )
+            if not condition_ok and not continuous.has_standing_free_cast_permission(
+                self.state, player, card
+            ):
                 return False
         elif alt_cost:
             alt_cast_cost = getattr(obj, "alt_cast_cost", None)

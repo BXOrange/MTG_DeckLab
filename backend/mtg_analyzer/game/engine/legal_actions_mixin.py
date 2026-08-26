@@ -476,9 +476,16 @@ class LegalActionsMixin:
         """
         if self._plain_castable_now_or_via_potential(player, obj, face=face):
             return True
-        if getattr(obj, "free_cast_condition", None) is not None and self.can_cast(
-            player, obj, face=face, free=True
-        ):
+        # Aluren-shaped: a standing board-wide permission (`continuous.
+        # has_standing_free_cast_permission`) is a second source of
+        # "free-cast might be legal here", alongside the per-object
+        # `free_cast_condition` — neither alone would catch every case, so
+        # both gate this cheap pre-check before the real `can_cast` probe.
+        card = self._face_card(obj, face)
+        if (
+            getattr(obj, "free_cast_condition", None) is not None
+            or (card is not None and continuous.has_standing_free_cast_permission(self.state, player, card))
+        ) and self.can_cast(player, obj, face=face, free=True):
             return True
         if getattr(obj, "alt_cast_cost", None) is not None and self.can_cast(
             player, obj, face=face, alt_cost=True
@@ -542,7 +549,14 @@ class LegalActionsMixin:
             return
         if self._plain_castable_now_or_via_potential(player, obj):
             actions.append(self._cast_action(player, obj))
-        if getattr(obj, "free_cast_condition", None) is not None and self.can_cast(player, obj, free=True):
+        # See `_castable_now_or_via_potential`'s matching comment: a
+        # standing permission (Aluren) offers the free-cast action just as
+        # readily as a per-object `free_cast_condition` does.
+        card = self._face_card(obj)
+        if (
+            getattr(obj, "free_cast_condition", None) is not None
+            or (card is not None and continuous.has_standing_free_cast_permission(self.state, player, card))
+        ) and self.can_cast(player, obj, free=True):
             actions.append(self._cast_action(player, obj, free=True))
         if getattr(obj, "alt_cast_cost", None) is not None and self.can_cast(player, obj, alt_cost=True):
             actions.append(self._cast_action(player, obj, alt_cost=True))
@@ -652,6 +666,30 @@ class LegalActionsMixin:
                 or self._has_conditional_exile_permission(obj, player)
             ) and self.can_play_land(player, obj):
                 actions.append(self._land_action(obj))
+
+        # Knowledge Pool (MEC-43 round 4G): the first card whose free-cast
+        # permission can point at a card sitting in *another* player's
+        # exile zone — its shared imprint pool is seeded from every
+        # player's library, and the permission a chooser arms is keyed to
+        # whoever answered the choice (`_has_temp_play_permission`'s own
+        # ``holder_id``), not to whose zone the card physically sits in.
+        # Every prior temp-play-permission grant (Ragavan/Ephemerate/Light
+        # Up the Stage) always exiled into the *same* player who'd go on to
+        # cast it, so the loop above never needed to look past its own
+        # zone — this scans every other player's exile for a permission
+        # actually granted to ``player``. `_castable_from_exile` is
+        # deliberately excluded here: Adventure/prepared-copy castability
+        # is intrinsically owner-scoped, never reaches across players.
+        for other in self.state.players:
+            if other is player:
+                continue
+            for obj in list(other.exile):
+                castable = (
+                    self._has_temp_play_permission(obj, player)
+                    or self._has_conditional_exile_permission(obj, player)
+                )
+                if castable and self._castable_now_or_via_potential(player, obj):
+                    self._offer_cast(actions, player, obj)
 
         for obj in list(player.graveyard):
             # RULE 702.34 / 702.138: Flashback/Escape let a card be cast

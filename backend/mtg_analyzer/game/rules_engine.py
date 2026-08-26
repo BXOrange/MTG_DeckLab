@@ -362,6 +362,12 @@ class RulesEngine(
         #: can be pending at a time (like every other `pending_choice`); a
         #: second upkeep trigger simply waits its turn on the stack.
         self._pending_sacrifice_unless_pay: Optional[dict[str, Any]] = None
+        #: The "destroy ~ unless you pay `<cost>`" choice currently awaiting
+        #: an answer (`request_destroy_unless_pay`/
+        #: `resolve_destroy_unless_pay_choice`) — the RULE 701.16 real-
+        #: destruction sibling of `_pending_sacrifice_unless_pay` above (a
+        #: regeneration shield can still save this one).
+        self._pending_destroy_unless_pay: Optional[dict[str, Any]] = None
         #: RULE 103.6: the opening-hand card awaiting a "begin the game
         #: somewhere else" answer (`offer_opening_hand_battlefield_choice`/
         #: `resolve_opening_hand_battlefield_choice` — battlefield or

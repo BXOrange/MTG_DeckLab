@@ -234,6 +234,43 @@ class CopiesMixin:
             self.state.stack.append(copy_item)
             copies.append(copy_item)
         return copies
+    def copy_ability(
+        self, target: Any, controller_id: str, new_targets: Optional[list[Any]] = None,
+    ) -> Optional[StackItem]:
+        """Put a copy of the activated ability ``target`` onto the stack
+        (RULE 706.10 — Rings of Brighthearth's "copy that ability").
+
+        The ability-item sibling of `copy_spell` above. An ability
+        `StackItem` has no `GameObject` of its own to clone (`.obj` is
+        ``None`` — RULE 706.10/ENG-26's `StackItem.stack_id` identity
+        exists for exactly this), and its `ActivatedAbility` effect object
+        (`.effects[0]`, bound once at bind-on-load to the permanent whose
+        ability this is) is a stateless wrapper around its own ``effects``/
+        ``source`` — nothing about it is per-activation, so the copy safely
+        *reuses* the original's `effects` list rather than needing a fresh
+        rebuild the way a spell copy's freshly-bound `spell_effects` does.
+        Controlled by ``controller_id`` (RULE 706.10, the copier — always
+        this same player for Rings, since it only copies abilities *you*
+        activate). Keeps the original's targets by default (RULE 707.10c,
+        extended to abilities by RULE 706.10); ``new_targets`` overrides
+        that for "you may choose new targets for the copy". Pushed above
+        the original so it resolves first (RULE 608.2 — LIFO).
+        """
+        item = self._stack_item_for(target)
+        if item is None or item.kind != "ability":
+            return None
+        copy_item = StackItem(
+            kind="ability",
+            controller_id=controller_id,
+            effects=list(item.effects),
+            source=item.source,
+            description=f"{item.description} (Kopie)" if item.description else None,
+            targets=list(item.targets) if new_targets is None else list(new_targets),
+            x=item.x,
+            target_groups=item.target_groups if new_targets is None else None,
+        )
+        self.state.stack.append(copy_item)
+        return copy_item
     def copy_self_spell(
         self, obj: GameObject, controller_id: str, targets: Optional[list[Any]] = None,
     ) -> Optional[StackItem]:
