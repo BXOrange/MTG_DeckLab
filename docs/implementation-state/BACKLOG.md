@@ -79,10 +79,7 @@ Plan-level sequencing lives in
 > card — that's ordinary runtime behavior, not scheduled work, and needs no
 > special-casing to stay that way.
 
-(none open — `MEC-43` closed, see `Done_Backend.md`'s "MEC-43: round 4"
-entry. Re-check with `python scripts/deck_coverage.py "<Deck Name>"
---uncovered` before assuming any saved deck is fully playable; it remains
-the source of truth over any table in this file.)
+(none open)
 
 ## PLR — Player management
 
