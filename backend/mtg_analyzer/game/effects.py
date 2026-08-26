@@ -321,6 +321,11 @@ class GameContext:
     def copy_self_spell(self, obj: "GameObject", controller_id: str, targets: Optional[list] = None) -> None:
         self.engine.copy_self_spell(obj, controller_id, targets=targets)
 
+    def copy_ability(
+        self, target: Any, controller_id: str, new_targets: Optional[list] = None,
+    ) -> None:
+        self.engine.copy_ability(target, controller_id, new_targets)
+
     def make_prepared(self, obj: "GameObject") -> None:
         self.engine.make_prepared(obj)
 
@@ -4556,6 +4561,46 @@ class SacrificeUnlessPayEffect(GameEffect):
         context.engine.request_sacrifice_unless_pay(player, cost, subject)
 
 
+class DestroyUnlessPayEffect(GameEffect):
+    """"Destroy ~ unless you pay `<cost>`." (RULE 701.16 + an "unless"
+    payment) — the real-destruction sibling of `SacrificeUnlessPayEffect`
+    above (The Tabernacle at Pendrell Vale's mass granted upkeep trigger,
+    "All creatures have 'At the beginning of your upkeep, destroy this
+    creature unless you pay {1}.'"). Kept a distinct effect/verb rather than
+    a shared "unless pay" flag: RULE 701.16c means destruction (unlike
+    sacrifice) still runs through the replacement-effect pass, so a
+    regeneration shield can save the permanent — `RulesEngine.request_
+    destroy_unless_pay` calls `destroy`, not `put_into_graveyard`.
+
+    ``cost`` is the printed cost text, resolved the same way as
+    `SacrificeUnlessPayEffect`.
+    """
+
+    def __init__(
+        self, cost: str = "", source: Optional["GameObject"] = None,
+        target: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.cost_text = str(cost or "")
+        #: See `SacrificeUnlessPayEffect.target` — falls back to ``source``.
+        self.target = target
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
+
+        subject = self.target or self.source
+        if subject is None:
+            return
+        player = _controller_of(subject, context)
+        if player is None:
+            return
+        cost = parse_activation_cost(self.cost_text)
+        if cost.is_free:
+            # See `SacrificeUnlessPayEffect.apply`'s matching guard.
+            return
+        context.engine.request_destroy_unless_pay(player, cost, subject)
+
+
 class TaxedDrawEffect(GameEffect):
     """"Whenever an opponent casts a spell, you may draw a card unless that
     player pays `<cost>`." (RULE 118.3's "unless" idiom applied to a draw
@@ -4848,6 +4893,43 @@ class CopySpellEffect(GameEffect):
             return
         for target in targets:
             context.copy_spell(target, controller_id, self.count)
+
+
+class CopyAbilityEffect(GameEffect):
+    """Copy an activated ability on the stack (RULE 706.10 — Rings of
+    Brighthearth's "you may pay {2}. If you do, copy that ability. You may
+    choose new targets for the copy.").
+
+    "That ability" is a RULE 603.1 pronoun naming *the ability that fired
+    this trigger*, not a RULE 601.2c target choice — the same untargeted
+    shape `CopySpellEffect.spell_from_trigger_event` already reads off
+    `GameContext.trigger_event`, except an ability `StackItem` has no
+    `GameObject`/``instance_id`` of its own to name it by (ENG-26); it's
+    identified by `StackItem.stack_id` instead, remembered onto
+    `GameObject.remembered_stack_id` by the enclosing `PayCostThenEffect`'s
+    ``remember_trigger_stack_id=True`` (the trigger-event window has closed
+    by the time this "if you do" branch actually runs).
+
+    **Documented simplification**, the same one `CopySpellEffect`'s own
+    docstring already establishes for a spell copy: "you may choose new
+    targets for the copy" keeps the original's targets rather than opening
+    a fresh interactive pick — no real card in scope needs a genuinely
+    different target on the copy.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        stack_id = getattr(self.source, "remembered_stack_id", None)
+        if stack_id is None:
+            return
+        item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
+        if item is None:
+            return
+        controller_id = getattr(self.source, "controller_id", None)
+        if controller_id is None:
+            return
+        context.copy_ability(item, controller_id)
 
 
 class CopySelfControlledByPreviousTargetEffect(GameEffect):
@@ -5577,35 +5659,60 @@ class ExileTopOfLibraryEffect(GameEffect):
     step, every turn" are the same set of firings), the same "no subject
     of its own, read live off `GameState.active_player`" idiom
     `DealDamageEffect`'s own ``"active_player"`` selector already
-    established (Roiling Vortex-shaped).
+    established (Roiling Vortex-shaped). ``player_selector="each_player"``
+    (RULE 601.2c mass form, Knowledge Pool's own imprint ETB — "**each
+    player** exiles the top three cards of their library") is the same
+    ``each_player`` selector `SacrificeEffect`/`LoseLifeEffect` already
+    use, in APNAP order (`GameState.living_players()`).
+
+    ``count`` (Knowledge Pool: 3) exiles that many cards per player instead
+    of just the top one — stopping early if a library runs out mid-way,
+    same as every other "exile/mill N cards" effect in this file.
+    ``track_exiled_with=True`` (MEC-21) is `ExileEffect`'s own accumulating
+    "exiled with ~" tracker, threaded here so Knowledge Pool's imprint pool
+    (`GameObject.exiled_with_ids`) starts seeded with every card this ETB
+    exiles, not just ones a later targeted exile adds.
     """
 
     def __init__(
         self, face_down: bool = False, player_selector: str = "controller",
+        count: int = 1, track_exiled_with: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.face_down = face_down
         self.player_selector = player_selector
+        self.count = int(count)
+        self.track_exiled_with = track_exiled_with
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.player_selector == "active_player":
-            player = context.state.active_player
+            players = [context.state.active_player]
+        elif self.player_selector == "each_player":
+            players = list(context.state.living_players())
         else:
-            player = _controller_of(self.source, context)
-        if player is None or not player.library:
-            return
-        top = player.library[-1]
-        context.exile(top)
-        if self.face_down:
-            # Set *after* the move: `RulesEngine._remove_from_current_zone`
-            # (which `exile()` calls to pull the card out of its old zone)
-            # unconditionally clears this flag as its own RULE 400.7 "a
-            # card leaving exile turns face up" behavior — harmless for
-            # that case, but it would silently undo this card *entering*
-            # exile face down if set beforehand.
-            top.face_down_in_exile = True
-        context.created_objects.append(top)
+            controller = _controller_of(self.source, context)
+            players = [controller] if controller is not None else []
+        for player in players:
+            if player is None:
+                continue
+            for _ in range(self.count):
+                if not player.library:
+                    break
+                top = player.library[-1]
+                context.exile(top)
+                if self.face_down:
+                    # Set *after* the move: `RulesEngine._remove_from_
+                    # current_zone` (which `exile()` calls to pull the card
+                    # out of its old zone) unconditionally clears this flag
+                    # as its own RULE 400.7 "a card leaving exile turns
+                    # face up" behavior — harmless for that case, but it
+                    # would silently undo this card *entering* exile face
+                    # down if set beforehand.
+                    top.face_down_in_exile = True
+                if self.track_exiled_with and self.source is not None:
+                    self.source.exiled_with_ids.append(top.instance_id)
+                context.created_objects.append(top)
 
 
 class LandOrFreeCastEffect(GameEffect):
@@ -5758,18 +5865,27 @@ class ImprintEffect(GameEffect):
 
     ``exclude_card_types`` is Chrome Mox's own "nonartifact, nonland"
     filter — a list of `Card.is_<word>` flag names to exclude, checked
-    against each hand card's printed characteristics.
+    against each hand card's printed characteristics. ``include_card_type``
+    is the opposite-direction sibling (Isochron Scepter's "an **instant**
+    card" — only that single type is eligible, rather than every type but
+    a few); ``max_mana_value`` is Isochron's own "with mana value 2 or
+    less" cap. Both default to unset (every card type, no cap), matching
+    every existing caller.
     """
 
     def __init__(
         self,
         optional: bool = True,
         exclude_card_types: Optional[list[str]] = None,
+        include_card_type: Optional[str] = None,
+        max_mana_value: Optional[int] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.optional = optional
         self.exclude_card_types = [str(t).lower() for t in (exclude_card_types or [])]
+        self.include_card_type = str(include_card_type).lower() if include_card_type else None
+        self.max_mana_value = max_mana_value
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         source = self.source
@@ -5781,12 +5897,65 @@ class ImprintEffect(GameEffect):
         candidates = [
             obj for obj in player.hand
             if not any(getattr(obj.card, f"is_{t}", False) for t in self.exclude_card_types)
+            and (self.include_card_type is None or getattr(obj.card, f"is_{self.include_card_type}", False))
+            and (self.max_mana_value is None or obj.card.converted_mana_cost <= self.max_mana_value)
         ]
         context.engine.request_choose_objects(
             player, candidates, "exile", count=1, optional=self.optional,
             prompt=f"{source.name}: Karte aus der Hand exilieren?",
             source=source, remember=True,
         )
+
+
+class CopyImprintedCardEffect(GameEffect):
+    """"{cost}: You may copy the exiled card. If you do, you may cast the
+    copy without paying its mana cost." (RULE 706.10/601 — Isochron
+    Scepter's repeatable payoff for `ImprintEffect`'s exiled card,
+    `GameObject.linked_exile_id`).
+
+    The *original* imprinted card never itself gets cast — it stays exiled
+    for the rest of the game — so, unlike `CopySpellEffect`/`copy_ability`
+    (which put a copy directly onto the stack, keyed off a `StackItem`
+    that's already there), this has to manufacture a fresh copy from
+    scratch. It builds one as a token placed straight into the
+    controller's own exile (`RulesEngine.create_token(..., zone=Zone.
+    EXILE)` — the same "never really entered the battlefield" idiom RULE
+    722.3c's `make_prepared` already uses for a Class's prepared copy),
+    then opens `RulesEngine.grant_free_cast_window_from_exile` on it so it
+    reaches the ordinary `legal_actions` cast option with full targeting —
+    the same MEC-20/Beseech the Mirror idiom, rather than a bespoke
+    mid-resolution cast that would skip target selection. Repeatable every
+    activation, since the source stays exiled and gets copied fresh each
+    time; a copy nobody casts is swept by `_remove_stranded_tokens`'s own
+    ``free_cast_instance_ids`` exemption once its window closes at cleanup.
+
+    **Documented simplification**: "you may copy" is read as unconditional
+    (no real benefit to declining once {2}, {T} is already paid) — the
+    same accepted "may" convention Runic Armasaur/Selvala's own docstrings
+    establish; the genuine decision is whether to *cast* the resulting
+    copy, which stays real (an offered, not forced, action).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None:
+            return
+        exiled_id = getattr(source, "linked_exile_id", None)
+        if exiled_id is None:
+            return
+        exiled = context.state.find_object(exiled_id)
+        if exiled is None or exiled.zone != Zone.EXILE:
+            return
+        controller_id = getattr(source, "controller_id", None)
+        if controller_id is None:
+            return
+        copiable = getattr(exiled, "_front_card", exiled.card).as_copy()
+        tokens = context.engine.create_token(controller_id, copiable, zone=Zone.EXILE)
+        if not tokens:
+            return
+        copy_obj = tokens[0]
+        copy_obj.is_copy = True
+        context.engine.grant_free_cast_window_from_exile(copy_obj)
 
 
 class ChoosePermanentEffect(GameEffect):
@@ -8354,6 +8523,7 @@ class PayCostThenEffect(GameEffect):
         payer: str = "controller",
         source: Optional["GameObject"] = None,
         remember_trigger_subject: bool = False,
+        remember_trigger_stack_id: bool = False,
     ) -> None:
         super().__init__(source)
         self.cost_text = str(cost)
@@ -8370,6 +8540,13 @@ class PayCostThenEffect(GameEffect):
         #: effects (`AddCountersEffect`'s ``trigger_subject_key="remembered"``)
         #: read it back.
         self.remember_trigger_subject = remember_trigger_subject
+        #: The `StackItem.stack_id` sibling of ``remember_trigger_subject``
+        #: above — "Whenever you activate an ability, ... you may pay {2}.
+        #: If you do, copy **that ability**." (Rings of Brighthearth) names
+        #: an ability item, which has no `instance_id` of its own. Stamps
+        #: `GameObject.remembered_stack_id`; `CopyAbilityEffect` reads it
+        #: back on the deferred side.
+        self.remember_trigger_stack_id = remember_trigger_stack_id
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .costs import parse_activation_cost  # function-scoped: import cycle
@@ -8377,6 +8554,9 @@ class PayCostThenEffect(GameEffect):
         if self.remember_trigger_subject and self.source is not None:
             event = context.trigger_event
             self.source.remembered_instance_id = (event or {}).get("instance_id")
+        if self.remember_trigger_stack_id and self.source is not None:
+            event = context.trigger_event
+            self.source.remembered_stack_id = (event or {}).get("stack_id")
         if self.payer == "event_controller":
             player = _event_player(context)
         elif self.payer == "event_player":
@@ -13430,6 +13610,81 @@ class ScrambleSpellEffect(GameEffect):
         )
 
 
+class ExileCastSpellIntoImprintPoolEffect(GameEffect):
+    """RULE 603.3d reflexive trigger body: "Whenever a player casts a spell
+    from their hand, that player exiles it. If the player does, they may
+    cast a spell from among other cards exiled with this artifact without
+    paying its mana cost." (Knowledge Pool, MEC-43 round 4G).
+
+    The trigger condition/reflexive-target shape is identical to
+    Possibility Storm's own "whenever a player casts a spell from their
+    hand, that player exiles it" (`EventType.SPELL_CAST`, ``filter={
+    "from_hand": True}``, ``reflexive=True`` — no ``condition`` at all,
+    since "**a player**" is deliberately unscoped, matching every player at
+    the table, not just this artifact's controller). It diverges from
+    `ScrambleSpellEffect` right where Possibility Storm digs a *fresh*
+    replacement from the caster's own library: Knowledge Pool's
+    replacement pool is instead the *shared*, ever-growing set of cards
+    already exiled with this permanent (`GameObject.exiled_with_ids`,
+    MEC-21) — seeded by the ETB imprint (`ExileTopOfLibraryEffect`'s own
+    ``track_exiled_with``) and grown by this effect's own exile, never dug
+    fresh from anyone's library.
+
+    "They may cast a spell from **among** other cards exiled with this
+    artifact" is a genuine choice among 0+ candidates (every pool member
+    except the one just added by this same resolution) —
+    `RulesEngine.request_choose_objects`'s ``"grant_free_cast"`` action
+    (MEC-20's Expertise-cycle primitive: arms the *one* chosen card's
+    free-cast window rather than casting it immediately, so the caster
+    still gets full RULE 115 targeting through the ordinary `legal_actions`
+    cast option). That action already works for an exiled card exactly as
+    well as a hand one — `GameEngine.can_cast`'s castable-zone check has an
+    ``obj.zone == Zone.EXILE and self._has_temp_play_permission(...)``
+    branch for exactly this (Rebound/Beseech the Mirror) — so arming only
+    the chosen candidate (not every pool member at once) is what keeps this
+    "cast **a** spell", singular, rather than silently granting a free cast
+    of the *whole* remaining pool every time a spell is cast.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="spell")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        target = targets[0] if targets else None
+        item = context.engine._stack_item_for(target)
+        if item is None or item.obj is None:
+            return
+        spell = item.obj
+        try:
+            caster = context.state.player_by_id(item.controller_id)
+        except (KeyError, ValueError):
+            return
+        context.engine.move_spell_off_stack(item, "exile")
+        # RULE 603.3d "that player exiles **it**" — join the shared pool
+        # this permanent tracks (MEC-21), the same accounting the ETB
+        # imprint already used, so a later cast sees every card ever
+        # exiled this way, not just the newest one.
+        self.source.exiled_with_ids.append(spell.instance_id)
+        candidates = [
+            obj for obj in (
+                context.state.find_object(iid)
+                for iid in self.source.exiled_with_ids
+                if iid != spell.instance_id
+            )
+            if obj is not None and obj.zone == Zone.EXILE
+        ]
+        if not candidates:
+            return
+        context.engine.request_choose_objects(
+            caster, candidates, "grant_free_cast", count=1, optional=True,
+            prompt=f"{self.source.name}: Karte ohne Bezahlen ihrer Manakosten wirken?",
+            source=self.source,
+        )
+
+
 # ---------------------------------------------------------------------------
 # cEDH staples cube — Fading, Soulbond, Mutate (RULE 702.32/702.94/702.140)
 # ---------------------------------------------------------------------------
@@ -14671,6 +14926,13 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Copy that ability." (RULE 706.10 — Rings of Brighthearth) — the
+    # ability-item sibling of ``"copy_spell"``; ``"that ability"`` is read
+    # off `GameObject.remembered_stack_id`, not a target.
+    "copy_ability",
+    lambda p: CopyAbilityEffect(),
+)
+EffectRegistry.register(
     "copy_self_if_cast_from_graveyard",
     lambda p: CopySelfIfCastFromGraveyardEffect(),
 )
@@ -14805,6 +15067,14 @@ EffectRegistry.register(
     lambda p: SacrificeUnlessPayEffect(cost=p.get("cost", "")),
 )
 EffectRegistry.register(
+    # "Destroy ~ unless you pay <cost>." (The Tabernacle at Pendrell Vale's
+    # mass granted upkeep trigger) — RULE 701.16's real-destruction sibling
+    # of "sacrifice_unless_pay" above (regenerable — see
+    # `DestroyUnlessPayEffect`'s docstring).
+    "destroy_unless_pay",
+    lambda p: DestroyUnlessPayEffect(cost=p.get("cost", "")),
+)
+EffectRegistry.register(
     # "Whenever an opponent casts a spell, you may draw a card unless that
     # player pays <cost>." (Rhystic Study/Mystic Remora/Esper Sentinel) —
     # the payer is the *triggering* event's caster, not this ability's
@@ -14852,6 +15122,8 @@ EffectRegistry.register(
     lambda p: ExileTopOfLibraryEffect(
         face_down=bool(p.get("face_down", False)),
         player_selector=p.get("player_selector", "controller"),
+        count=int(p.get("count", 1) or 1),
+        track_exiled_with=bool(p.get("track_exiled_with", False)),
     ),
 )
 EffectRegistry.register(
@@ -14882,7 +15154,16 @@ EffectRegistry.register(
     lambda p: ImprintEffect(
         optional=bool(p.get("optional", True)),
         exclude_card_types=p.get("exclude_card_types"),
+        include_card_type=p.get("include_card_type"),
+        max_mana_value=p.get("max_mana_value"),
     ),
+)
+EffectRegistry.register(
+    # "You may copy the exiled card. If you do, you may cast the copy
+    # without paying its mana cost." (Isochron Scepter) — see
+    # `CopyImprintedCardEffect`.
+    "copy_imprinted_card",
+    lambda p: CopyImprintedCardEffect(),
 )
 EffectRegistry.register(
     # RULE 601.2b-adjacent "as ~ enters, you may choose a nonland
@@ -15354,6 +15635,7 @@ EffectRegistry.register(
         else_effects=list(p.get("else_effects", [])),
         payer=p.get("payer", "controller"),
         remember_trigger_subject=bool(p.get("remember_trigger_subject", False)),
+        remember_trigger_stack_id=bool(p.get("remember_trigger_stack_id", False)),
     ),
 )
 EffectRegistry.register(
@@ -15591,6 +15873,14 @@ EffectRegistry.register(
         mill_random_max=int(p.get("mill_random_max", 0) or 0),
         card_types=p.get("card_types"),
     ),
+)
+EffectRegistry.register(
+    # Knowledge Pool: "Whenever a player casts a spell from their hand,
+    # that player exiles it. If the player does, they may cast a spell
+    # from among other cards exiled with this artifact without paying its
+    # mana cost." — see `ExileCastSpellIntoImprintPoolEffect`.
+    "exile_cast_spell_into_imprint_pool",
+    lambda p: ExileCastSpellIntoImprintPoolEffect(),
 )
 EffectRegistry.register(
     # "As many times as you choose, you may pay 1 life…" (Lim-Dûl's Vault)
@@ -17155,6 +17445,33 @@ EffectRegistry.register(
             # closed word list ("legendary"/"artifact"/"creature"), union
             # semantics: a spell qualifies if it matches *any* word.
             "type_filter": list(p["type_filter"]) if p.get("type_filter") else None,
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
+    # "Any player may cast creature spells with mana value N or less
+    # without paying their mana costs and as though they had flash."
+    # (Aluren, MEC-43 round 4G) — a standing, board-wide free-cast (+
+    # bundled flash) permission, consulted by `continuous.has_standing_
+    # free_cast_permission`/`standing_free_cast_grants_flash`
+    # (`GameEngine.can_cast`'s ``free=True`` branch and its own
+    # ``free``-gated flash exemption). Deliberately its own static kind,
+    # not a widening of ``flash_permission`` above — see `continuous.
+    # _active_free_cast_permission`'s docstring for why.
+    "free_cast_permission",
+    lambda p: StaticAbility(
+        "free_cast_permission",
+        affects="self",
+        params={
+            "creature_only": bool(p.get("creature_only", False)),
+            "max_mana_value": p.get("max_mana_value"),
+            # "**Any player** may cast …" (Aluren) rather than the usual
+            # "you may …" scoping every other permission static in this
+            # family defaults to — skips the granting permanent's own
+            # controller check entirely when set.
+            "any_player": bool(p.get("any_player", False)),
+            "grants_flash": bool(p.get("grants_flash", False)),
             **_selectors(p),
         },
     ),

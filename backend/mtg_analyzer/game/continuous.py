@@ -3247,6 +3247,75 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
     return False
 
 
+def _active_free_cast_permission(
+    state: "GameState", player: "Player", card: Any
+) -> Optional[StaticAbility]:
+    """The first active ``"free_cast_permission"`` static (Aluren-shaped:
+    "Any player may cast creature spells with mana value N or less without
+    paying their mana costs and as though they had flash.") that covers
+    ``player`` casting ``card`` right now, or ``None``.
+
+    Deliberately its own static kind rather than widening the pre-existing
+    `has_standing_flash_permission`'s ``flash_permission`` layer: that one
+    is a *pure* flash grant with no cost component, always scoped to the
+    granting permanent's own controller (High Fae Trickster/Valley
+    Floodcaller/Gandalf the White/Teferi, Time Raveler-shaped) — Aluren
+    bundles a free cost *and* flash into one indivisible permission and,
+    printed "**any** player", is deliberately *not* controller-scoped at
+    all (``any_player=True`` skips that check entirely) — different enough
+    in both dimensions that reusing the same layer would have meant a
+    third param just to turn its own controller check off for everyone
+    else's benefit too.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "free_cast_permission":
+            continue
+        if not ability.params.get("any_player") and (
+            getattr(ability.source, "controller_id", None) != player.id
+        ):
+            continue
+        if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
+            continue
+        max_mv = ability.params.get("max_mana_value")
+        if max_mv is not None and getattr(card, "converted_mana_cost", 0) > max_mv:
+            continue
+        gate = ability.params.get("active_if")
+        controller_id = getattr(ability.source, "controller_id", None)
+        if gate and not static_conditions.condition_holds(gate, state, ability.source, controller_id):
+            continue
+        return ability
+    return None
+
+
+def has_standing_free_cast_permission(state: "GameState", player: "Player", card: Any) -> bool:
+    """Whether ``player`` may cast ``card`` right now without paying its
+    mana cost, via a standing "Any player may cast `<filter>` spells
+    without paying their mana costs …" grant (Aluren) — consulted by
+    `GameEngine.can_cast`'s ``free=True`` branch alongside the existing
+    per-object `GameObject.free_cast_condition` (RULE 601.2f), and by
+    `_offer_cast`/`_castable_now_or_via_potential`'s own offer-time guard,
+    neither of which previously had any board-wide, class-of-spells
+    permission to check — only a condition already bound onto the specific
+    object being cast.
+    """
+    return _active_free_cast_permission(state, player, card) is not None
+
+
+def standing_free_cast_grants_flash(state: "GameState", player: "Player", card: Any) -> bool:
+    """Whether the standing free-cast permission covering ``card`` (if any)
+    also grants flash timing for *that same cast* (Aluren's own trailing
+    "and as though they had flash").
+
+    Deliberately consulted only when the caller is actually resolving a
+    ``free=True`` cast (`GameEngine.can_cast`'s sorcery-speed check) —
+    Aluren's flash exemption is part of *its own* permission, not a
+    blanket "this creature always has flash" grant: paying the card's real
+    mana cost at sorcery speed is still just an ordinary cast, unaffected.
+    """
+    ability = _active_free_cast_permission(state, player, card)
+    return ability is not None and bool(ability.params.get("grants_flash"))
+
+
 def granted_evoke_cost_for(state: "GameState", obj: Any) -> Optional["ManaCost"]:
     """Whether ``obj`` (a card still in hand, being considered for casting)
     has been granted Evoke by a standing battlefield static ("Elemental

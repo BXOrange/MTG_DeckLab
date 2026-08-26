@@ -1222,6 +1222,14 @@ class TurnLoopMixin:
             self.rules.resolve_sacrifice_unless_pay_choice(
                 None if declined else str(answer)
             )
+        elif kind == "destroy_unless_pay":
+            # RULE 701.16 + an "unless" payment (The Tabernacle at Pendrell
+            # Vale's granted upkeep trigger) — "pay" keeps the permanent,
+            # anything else destroys it (regenerable, unlike
+            # sacrifice_unless_pay above).
+            self.rules.resolve_destroy_unless_pay_choice(
+                None if declined else str(answer)
+            )
         elif kind == "commander_zone":
             # RULE 903.9a/9b: "command" moves the commander to the command
             # zone instead of wherever it landed/was headed; anything else

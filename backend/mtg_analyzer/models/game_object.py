@@ -537,6 +537,16 @@ class GameObject:
         #: counter on **it**." referring to a creature that entered, not a
         #: real RULE 115 target). ``None`` when nothing is remembered.
         self.remembered_instance_id: Optional[int] = None
+        #: The `StackItem.stack_id` sibling of `remembered_instance_id`
+        #: above, for the same resolution-gap problem when what needs
+        #: remembering is a stack item rather than a `GameObject` — an
+        #: ability `StackItem` has no `instance_id` of its own to stash
+        #: (`.obj` is `None`, RULE 706.10/ENG-26). `PayCostThenEffect`'s
+        #: ``remember_trigger_stack_id=True`` stamps it here at the first,
+        #: still-live `apply()`; `CopyAbilityEffect` reads it back once the
+        #: "if you do" branch actually runs (Rings of Brighthearth's "you
+        #: may pay `<cost>`. If you do, copy that ability.").
+        self.remembered_stack_id: Optional[int] = None
 
         #: Effects this object contributes while in play, consulted by the
         #: rules engine (mtg_analyzer/game/). Typed loosely to avoid a
@@ -1075,6 +1085,7 @@ class GameObject:
         self.linked_exile_id = None
         self.exiled_with_ids = []
         self.remembered_instance_id = None
+        self.remembered_stack_id = None
         #: RULE 702.112b: a new object hasn't become renowned yet either —
         #: the "never reset" rule on this flag only ever meant "not reset by
         #: an ordinary recompute", not "not reset ever" (no code implemented

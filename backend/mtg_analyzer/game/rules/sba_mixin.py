@@ -484,12 +484,22 @@ class StateBasedActionsMixin:
         return False
     def _remove_stranded_tokens(self) -> bool:
         """Remove any token that has left the battlefield (RULE 704.5d) —
-        except a prepared copy still exempt under RULE 722.3c."""
+        except a prepared copy still exempt under RULE 722.3c, or a token
+        with an open free-cast window (`GameState.free_cast_instance_ids`
+        — Isochron Scepter's own imprinted-card copy, `CopyImprintedCard
+        Effect`: a token placed straight into exile, never on the
+        battlefield at all, that stays there only until it's either cast
+        or its window closes at cleanup, at which point it's no longer in
+        that set and this sweeps it on the very next pass)."""
         for player in self.state.players:
             for zone in Player.PERSONAL_ZONES:  # every non-battlefield zone
                 cards = player.zones[zone]
                 for obj in cards:
-                    if obj.is_token and not self._is_prepared_copy(obj):
+                    if (
+                        obj.is_token
+                        and not self._is_prepared_copy(obj)
+                        and obj.instance_id not in self.state.free_cast_instance_ids
+                    ):
                         cards.remove(obj)
                         return True
         return False
