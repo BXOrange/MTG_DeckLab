@@ -1059,6 +1059,31 @@ def _trigger_condition(
             return is_yours if rel == "you" else not is_yours
 
         predicates.append(_phase_relation_ok)
+    elif phase_relation == "attached_permanent":
+        # "At the beginning of the upkeep of enchanted creature's
+        # controller, …" (MEC-43 round 4F — Dance of the Dead) — unlike
+        # ``"you"``/``"not_you"`` (compared against the ability's own
+        # source's controller), this compares against whoever currently
+        # controls the *host* this Aura/Equipment is attached to — read
+        # live off ``source.attached_to`` each check (not snapshotted at
+        # bind time), since control of the enchanted/equipped permanent
+        # can change independently of the Aura's own controller over its
+        # lifetime.
+        def _phase_relation_attached_ok(event: Any, context: Any, src=source) -> bool:
+            state = getattr(context, "state", None)
+            active = getattr(state, "active_player", None) if state is not None else None
+            if active is None:
+                return False
+            # `GameObject.attached_to` is an instance id, not the object
+            # itself (`TapEffect`'s own ``target_kind="attached_permanent"``
+            # mode resolves it the same way) — ``None`` while this Aura/
+            # Equipment isn't attached to anything yet.
+            host_id = getattr(src, "attached_to", None)
+            host = state.find_object(host_id) if state is not None and host_id is not None else None
+            host_controller_id = getattr(host, "controller_id", None)
+            return host_controller_id is not None and active.id == host_controller_id
+
+        predicates.append(_phase_relation_attached_ok)
 
     # MEC-19: "Whenever ~ becomes the target of a spell or ability **an
     # opponent controls**/**you control**, …" — unlike ``phase_relation``

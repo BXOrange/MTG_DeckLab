@@ -208,6 +208,18 @@ class SearchMixin:
             "away": ("Überwachen: welche Karte kommt auf den Friedhof?", "Rest oben lassen"),
             "order": ("Überwachen: welche Karte kommt zuoberst?", "Reihenfolge behalten"),
         },
+        # MEC-43 round 4F (Scroll Rack): "look at the exiled cards and put
+        # them on top of your library in any order" — the order-only
+        # sibling of scry/surveil's own ordering phase (`open_scroll_rack_
+        # order_choice` opens straight into "order", skipping "away"
+        # entirely — every card here is always headed back to the library,
+        # never elsewhere, so that entry is never used and left as
+        # ``None``).
+        "scroll_rack": {
+            "event": None,
+            "away": None,
+            "order": ("Scroll Rack: welche Karte kommt zuoberst?", "Reihenfolge behalten"),
+        },
     }
     def scry(self, player: Player, count: int, source: Optional["GameObject"] = None) -> None:
         """Scry ``count`` (RULE 701.18): look at the top ``count`` cards, put
@@ -304,6 +316,9 @@ class SearchMixin:
     def resolve_surveil_choice(self, instance_id: Optional[int]) -> None:
         """Answer a pending `surveil` decision (RULE 701.31)."""
         self._resolve_look_top_choice("surveil", instance_id)
+    def resolve_scroll_rack_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending Scroll Rack ordering decision (MEC-43 round 4F)."""
+        self._resolve_look_top_choice("scroll_rack", instance_id)
     def _resolve_look_top_choice(self, kind: str, instance_id: Optional[int]) -> None:
         """Answer one step of a `scry`/`surveil` decision.
 
@@ -351,13 +366,20 @@ class SearchMixin:
         ``top`` goes back on top with its first entry topmost (`Player.
         library` is ordered bottom-first, so the kept pile goes back
         reversed); ``away`` goes under the library (scry) or into the
-        graveyard (surveil, RULE 701.31b).
+        graveyard (surveil, RULE 701.31b). MEC-43 round 4F: Scroll Rack's
+        own ``"scroll_rack"`` kind starts from *exile*, not the library
+        (its cards left the library step earlier, when the ability's own
+        first half exiled them) — ``away`` is always empty for it, and
+        every ``top`` entry gets a real zone change plus its face-down
+        flag cleared, on top of the ordinary reordering every other kind
+        already does in place.
         """
         self.state.pending_choice = None
         objects = {iid: self._object_by_instance_id(iid) for iid in (*away, *top)}
+        source_zone = player.exile if kind == "scroll_rack" else player.library
         for obj in objects.values():
-            if obj is not None and obj in player.library:
-                player.library.remove(obj)
+            if obj is not None and obj in source_zone:
+                source_zone.remove(obj)
         for iid in away:
             obj = objects.get(iid)
             if obj is None:
@@ -371,7 +393,38 @@ class SearchMixin:
         for iid in reversed(top):
             obj = objects.get(iid)
             if obj is not None:
+                if kind == "scroll_rack":
+                    obj.zone = Zone.LIBRARY
+                    obj.face_down_in_exile = False
                 player.library.append(obj)
+
+    def open_scroll_rack_order_choice(
+        self, player: Player, instance_ids: list[int], source: Optional["GameObject"] = None,
+    ) -> None:
+        """RULE 701.20a-adjacent (MEC-43 round 4F — Scroll Rack): "look at
+        the exiled cards and put them on top of your library in any
+        order." ``instance_ids`` are the cards this ability's own first
+        half (`ScrollRackFinishEffect`) already exiled face down — this
+        just opens the ordering decision for them, reusing scry/surveil's
+        own ``"order"`` phase (`_LOOK_TOP_KINDS`/`_look_top_choice`/
+        `_resolve_look_top_choice`) rather than a bespoke chooser, since
+        "N known objects, pick their final order" is exactly that shape;
+        `_finish_look_top`'s ``kind == "scroll_rack"`` branch is what makes
+        the destination a zone change out of exile instead of an in-place
+        library reorder. No "away" phase exists for this kind at all — Scroll
+        Rack never sends a card anywhere but back to the library.
+        """
+        if not instance_ids:
+            return
+        if len(instance_ids) == 1:
+            # One card has only one order — finish immediately, matching
+            # `_resolve_look_top_choice`'s own "1 card left" shortcut.
+            self._finish_look_top(player, "scroll_rack", [], list(instance_ids))
+            return
+        source_name = source.name if source is not None else None
+        self.state.pending_choice = self._look_top_choice(
+            player, "scroll_rack", "order", list(instance_ids), [], [], source_name
+        )
 
     def look_top_select(
         self,

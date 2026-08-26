@@ -571,9 +571,12 @@ class CastingResolutionMixin:
             # "dynamic, getattr-read" convention `alt_cast_cost`/
             # `alt_cast_condition` already use.
             require_source_kind = getattr(obj, "mana_source_kind_restriction", None)
+            # MEC-43: K'rrik, Son of Yawgmoth's standing "pay 2 life instead
+            # of a {B} pip" permission (`continuous.life_for_mana_pip_color`).
+            extra_life_color = continuous.life_for_mana_pip_color(self.state, player)
             if not player.mana_pool.can_pay(
                 cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
-                require_source_kind=require_source_kind,
+                require_source_kind=require_source_kind, extra_life_color=extra_life_color,
             ):
                 raise ValueError(f"{player.id} cannot pay for {obj.name}")
             # RULE 702.108a Converge: which colors actually paid for this
@@ -586,7 +589,7 @@ class CastingResolutionMixin:
             snow_before = sum(player.mana_pool.snow_pool.values())
             life_spent = player.mana_pool.pay(
                 cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
-                require_source_kind=require_source_kind,
+                require_source_kind=require_source_kind, extra_life_color=extra_life_color,
             )
             obj.colors_spent_to_cast = frozenset(
                 color for color in _FIVE_COLORS

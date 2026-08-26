@@ -31,7 +31,16 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from .mana_cost import GENERIC, VARIABLE, ManaCost
+from .mana_cost import COLOR, GENERIC, VARIABLE, ManaCost
+
+#: RULE 118.9-adjacent alternative-payment life cost K'rrik, Son of
+#: Yawgmoth's static grants a *plain* colored pip ("For each {B} in a
+#: cost, you may pay 2 life rather than pay that mana.") — the same 2-life
+#: price RULE 702.85a's Phyrexian mana symbol already prices a pip at
+#: (`models/mana_cost.py`'s `ManaSymbol.payment_options`), just conferred
+#: by a standing permission instead of printed on the symbol itself. See
+#: `extra_life_color` below.
+KRRIK_LIFE_PER_BLACK_PIP = 2
 
 #: A predicate over a restriction dict (``lot["restriction"]``) — whether
 #: that lot's mana may pay the cost currently being checked/paid. Built by
@@ -213,6 +222,7 @@ class ManaPool:
         allows_restriction: Optional[AllowsRestriction] = None,
         wildcard: Optional[str] = None,
         require_source_kind: Optional[str] = None,
+        extra_life_color: Optional[str] = None,
     ) -> bool:
         """Whether this pool (plus ``life_available`` life) can pay ``cost``.
 
@@ -237,10 +247,18 @@ class ManaPool:
         creatures to cast this spell", Security Rhox/Imperiosaur/Myr
         Superion) narrows payment to only `pool_by_source`'s matching
         bucket instead of the whole pool — see that field's docstring.
+        ``extra_life_color`` (MEC-43 — K'rrik, Son of Yawgmoth's "For each
+        {B} in a cost, you may pay 2 life rather than pay that mana.")
+        grants a *plain* colored pip of that one WUBRG letter the same
+        life-payment option a printed Phyrexian pip already has, at
+        `KRRIK_LIFE_PER_BLACK_PIP` life apiece — unlike ``wildcard``, this
+        doesn't relax *which* mana pays the pip, it adds a way to skip
+        paying mana for it at all. ``None`` (the default) leaves every
+        plain colored pip exactly as unpayable-by-life as it always was.
         """
         usable = self._usable_lots(allows_restriction)
         available = self._merged_available(usable, require_source_kind)
-        return self._find_payment(available, cost, life_available, wildcard) is not None
+        return self._find_payment(available, cost, life_available, wildcard, extra_life_color) is not None
 
     def pay(
         self,
@@ -249,10 +267,12 @@ class ManaPool:
         allows_restriction: Optional[AllowsRestriction] = None,
         wildcard: Optional[str] = None,
         require_source_kind: Optional[str] = None,
+        extra_life_color: Optional[str] = None,
     ) -> int:
         """Pay ``cost`` from this pool, mutating it. Returns life spent.
 
-        ``wildcard``/``require_source_kind`` — see `can_pay`.
+        ``wildcard``/``require_source_kind``/``extra_life_color`` — see
+        `can_pay`.
 
         Raises:
             ValueError: If the cost cannot be paid from the current pool
@@ -260,7 +280,7 @@ class ManaPool:
         """
         usable = self._usable_lots(allows_restriction)
         available = self._merged_available(usable, require_source_kind)
-        solution = self._find_payment(available, cost, life_available, wildcard)
+        solution = self._find_payment(available, cost, life_available, wildcard, extra_life_color)
         if solution is None:
             raise ValueError(f"cannot pay {cost!r} from {self.pool!r}")
         colored_spends, generic_needed, life_spent = solution
@@ -367,14 +387,18 @@ class ManaPool:
 
     @staticmethod
     def _find_payment(
-        pool: dict[str, int], cost: ManaCost, life_available: int, wildcard: Optional[str] = None
+        pool: dict[str, int],
+        cost: ManaCost,
+        life_available: int,
+        wildcard: Optional[str] = None,
+        extra_life_color: Optional[str] = None,
     ) -> Optional[tuple[list[str], int, int]]:
         """Solve payment. Returns (colored spends, generic needed, life) or None.
 
         Constrained symbols (color/colorless/hybrid/mono-hybrid/Phyrexian)
         are assigned by backtracking; generic and {X} pips are summed and
         checked against whatever mana remains, since generic mana accepts
-        any type. ``wildcard`` — see `can_pay`.
+        any type. ``wildcard``/``extra_life_color`` — see `can_pay`.
         """
         generic_needed = 0
         constrained = []
@@ -385,7 +409,9 @@ class ManaPool:
                 constrained.append(symbol)
 
         spends: list[str] = []
-        result = ManaPool._solve(pool, constrained, 0, generic_needed, life_available, spends, wildcard)
+        result = ManaPool._solve(
+            pool, constrained, 0, generic_needed, life_available, spends, wildcard, extra_life_color,
+        )
         return result
 
     @staticmethod
@@ -397,14 +423,23 @@ class ManaPool:
         life_available: int,
         spends: list[str],
         wildcard: Optional[str] = None,
+        extra_life_color: Optional[str] = None,
     ) -> Optional[tuple[list[str], int, int]]:
         if index == len(constrained):
             if sum(pool.values()) >= generic_needed:
                 return list(spends), generic_needed, 0
             return None
 
+        symbol = constrained[index]
+        options = symbol.payment_options()
+        if extra_life_color is not None and symbol.kind == COLOR and symbol.color == extra_life_color:
+            # K'rrik's standing permission: this plain colored pip also
+            # accepts a life payment, exactly like a printed Phyrexian pip
+            # (see `KRRIK_LIFE_PER_BLACK_PIP`'s docstring).
+            options = [*options, (None, 0, KRRIK_LIFE_PER_BLACK_PIP)]
+
         tried: set[str] = set()
-        for color, extra_generic, life_cost in constrained[index].payment_options():
+        for color, extra_generic, life_cost in options:
             if color is not None:
                 # RULE 605.1a "any color"/"any type" (``wildcard``): widen a
                 # single fixed color option into every color/type this pool
@@ -438,7 +473,7 @@ class ManaPool:
                     spends.append(cand)
                     found = ManaPool._solve(
                         pool, constrained, index + 1,
-                        generic_needed + extra_generic, life_available, spends, wildcard,
+                        generic_needed + extra_generic, life_available, spends, wildcard, extra_life_color,
                     )
                     spends.pop()
                     pool[cand] += 1
@@ -451,7 +486,7 @@ class ManaPool:
                 found = ManaPool._solve(
                     pool, constrained, index + 1,
                     generic_needed + extra_generic,
-                    life_available - life_cost, spends, wildcard,
+                    life_available - life_cost, spends, wildcard, extra_life_color,
                 )
                 if found is not None:
                     colored, generic, life = found

@@ -4524,6 +4524,16 @@ class LoseLifeEffect(GameEffect):
             player = _defending_player_of(self.source, context)
         if player is None and self.selector == "event_player":
             player = _event_player(context, key="player_id")
+        if player is None and self.selector == "active_player":
+            # "At the beginning of each player's draw step, that player
+            # loses 3 life…" (MEC-43 round 4F — Maralen of the Mornsong) —
+            # the unscoped-trigger idiom `ExileTopOfLibraryEffect`'s own
+            # ``player_selector="active_player"`` already uses (only the
+            # active player ever has a draw step, so an unnarrowed "at the
+            # beginning of the draw step" trigger fires once per turn, for
+            # whoever that is); same sentinel `DealDamageEffect.selector`
+            # already recognizes.
+            player = context.state.active_player
         if player is None:
             player = _controller_of(self.source, context)
         context.lose_life(player, amount)
@@ -8704,9 +8714,14 @@ class PayCostThenEffect(GameEffect):
     parallel payment implementation.
 
     ``payer`` says *who* is asked: ``"controller"`` (Mana Vault's own
-    upkeep untap) or ``"event_controller"``/``"event_player"`` — the player
+    upkeep untap), ``"event_controller"``/``"event_player"`` — the player
     named by the triggering event (Wandering Archaic taxes the **opponent
-    who cast the spell**, not its own controller).
+    who cast the spell**, not its own controller) — or
+    ``"attached_permanent"`` (MEC-43 round 4F, Dance of the Dead's own
+    "enchanted creature's controller may pay…") — whoever currently
+    controls the host this ability's own source (an Aura/Equipment) is
+    attached to, read live rather than the ability's own source's
+    controller.
 
     ``else_effects`` is the "**If you don't**, `<effect>`." branch, which for
     Wandering Archaic is the entire point: the opponent *declining* is what
@@ -8789,6 +8804,19 @@ class PayCostThenEffect(GameEffect):
                 if prev and getattr(prev[0], "controller_id", None)
                 else None
             )
+        elif self.payer == "attached_permanent":
+            # "At the beginning of the upkeep of enchanted creature's
+            # controller, that player may pay …" (MEC-43 round 4F — Dance
+            # of the Dead) — the *current* controller of whatever this
+            # Aura/Equipment is attached to, read live (not this ability's
+            # own source's controller, which can differ after a
+            # control-change effect on the host). `GameObject.attached_to`
+            # is an instance id, not the object itself (`TapEffect`'s own
+            # ``target_kind="attached_permanent"`` mode resolves it the
+            # same way).
+            host_id = getattr(self.source, "attached_to", None)
+            host = context.state.find_object(host_id) if host_id is not None else None
+            player = context.state.player_by_id(host.controller_id) if host is not None else None
         else:
             player = _controller_of(self.source, context)
         if player is None:
@@ -9238,6 +9266,74 @@ class CastExiledFaceDownEffect(GameEffect):
                     description=f"{obj.name}: auf die Hand nehmen, falls nicht gewirkt",
                 )
             )
+
+
+class ScrollRackEffect(GameEffect):
+    """"Exile any number of cards from your hand face down." (MEC-43
+    round 4F — Scroll Rack, RULE 701.20a-adjacent) — the exile-any-number
+    half of the ability. Candidates are the whole hand, unlike
+    `ChooseObjectsEffect` (hard-coded to `permanents_controlled_by` —
+    battlefield only), so this opens `RulesEngine.request_choose_objects`
+    directly rather than going through that registry effect. ``track_
+    exiled_with=True`` (MEC-21) accumulates every pick's instance id onto
+    this ability's own source (`GameObject.exiled_with_ids`), which
+    `ScrollRackFinishEffect` reads once the choice completes — wired as
+    ``then_specs``, since "how many cards to draw and which cards need
+    reordering" is only known *after* the player answers. Zero cards
+    exiled (a legal "any number") correctly does nothing further, since
+    `request_choose_objects` only fires ``then_specs`` once at least one
+    pick was made.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        context.engine.request_choose_objects(
+            player, list(player.hand), "exile", count=len(player.hand), optional=True,
+            prompt="Scroll Rack: Karten verdeckt aus der Hand verbannen",
+            source=self.source, track_exiled_with=True,
+            then_specs=[{"type": "scroll_rack_finish", "params": {}}],
+        )
+
+
+class ScrollRackFinishEffect(GameEffect):
+    """Scroll Rack's own back half (MEC-43 round 4F), run once the
+    exile-any-number choice (`ScrollRackEffect`) completes: stamp every
+    just-exiled card `GameObject.face_down_in_exile` (RULE 701.20a — the
+    same flag Beseech the Mirror's own face-down exile uses, set here
+    rather than at the moment of exile since `RulesEngine.
+    request_choose_objects`'s own ``"exile"`` action has no face-down
+    concept of its own and several *other* cards share that action
+    unchanged); put that many cards from the top of the controller's
+    library into their hand (a plain "put into hand", not a draw — RULE
+    121.4, the same non-draw idiom `RevealTopThenTakeAndLoseLifeEffect`
+    already uses); then open the "look at the exiled cards and put them
+    on top of your library in any order" decision
+    (`RulesEngine.open_scroll_rack_order_choice`).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        ids = list(getattr(self.source, "exiled_with_ids", None) or [])
+        self.source.exiled_with_ids = []
+        if not ids:
+            return
+        for instance_id in ids:
+            obj = context.state.find_object(instance_id)
+            if obj is not None:
+                obj.face_down_in_exile = True
+        for _ in range(len(ids)):
+            if not player.library:
+                break
+            top = player.library.pop()
+            top.zone = Zone.HAND
+            player.hand.append(top)
+        context.engine.open_scroll_rack_order_choice(player, ids, source=self.source)
 
 
 class MarchesaDelayedReturnEffect(GameEffect):
@@ -10881,6 +10977,66 @@ class RevealTopThenTakeAndLoseLifeEffect(GameEffect):
         obj.zone = Zone.HAND
         player.hand.append(obj)
         context.lose_life(player, int(obj.card.converted_mana_cost or 0))
+
+
+class MutualRevealCompareManaValueEffect(GameEffect):
+    """"You and target opponent each reveal the top card of your library.
+    You each lose life equal to the mana value of the card revealed by the
+    other player. You each put the card you revealed into your hand."
+    (MEC-43 round 4F — Keen Duelist) — a genuinely new *simultaneous,
+    two-player* reveal-and-compare, unlike this file's several existing
+    single-player "reveal your own top card, then act on it" effects
+    (`RevealTopThenTakeAndLoseLifeEffect` just above): each player's life
+    loss here reads the *other* player's reveal, so both cards must be
+    known before either life total changes — the whole reason this is one
+    atomic effect rather than two effects trying to share a resolve-time
+    referent (`GameContext.previous_targets` names an *object* a previous
+    clause targeted/created, not "whichever card the other player just
+    revealed", so it doesn't fit this shape). Fully deterministic — the
+    only player choice at all is RULE 115's own opponent target — so no
+    interactive `pending_choice` is needed. If either library is empty,
+    that player simply reveals nothing (RULE 701.20a's "you may reveal a
+    card only if you have one"-adjacent default): the other player's life
+    loss from it is 0, and nothing is added to that player's hand.
+    """
+
+    def __init__(
+        self, target: Any = None, source: Optional["GameObject"] = None, target_kind: str = "opponent",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        opponent = (targets[0] if targets else None) or self.target
+        if opponent is None:
+            return
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+
+        def _reveal(p: Any) -> Optional[Any]:
+            if not p.library:
+                return None
+            obj = p.library.pop()
+            obj.zone = Zone.HAND
+            p.hand.append(obj)
+            return obj
+
+        # Both reveals happen before either life total changes — the
+        # loss amount for one player depends on what the *other* one just
+        # revealed, so neither `lose_life` call can run first.
+        player_card = _reveal(player)
+        opponent_card = _reveal(opponent)
+        player_loss = int(getattr(opponent_card.card, "converted_mana_cost", 0) or 0) if opponent_card else 0
+        opponent_loss = int(getattr(player_card.card, "converted_mana_cost", 0) or 0) if player_card else 0
+        if player_loss:
+            context.lose_life(player, player_loss)
+        if opponent_loss:
+            context.lose_life(opponent, opponent_loss)
 
 
 class ExileThenControllerRevealGreaterManaValueEffect(GameEffect):
@@ -15454,6 +15610,16 @@ EffectRegistry.register(
     lambda p: RevealTopThenTakeAndLoseLifeEffect(),
 )
 EffectRegistry.register(
+    # "You and target opponent each reveal the top card of your library.
+    # You each lose life equal to the mana value of the card revealed by
+    # the other player. You each put the card you revealed into your
+    # hand." (MEC-43 round 4F, Keen Duelist) — the genuinely new
+    # simultaneous two-player sibling of `reveal_top_then_take_and_lose_
+    # life` just above.
+    "mutual_reveal_compare_mana_value",
+    lambda p: MutualRevealCompareManaValueEffect(target_kind=p.get("target_kind", "opponent")),
+)
+EffectRegistry.register(
     # "End the turn." (Day's Undoing/Time Stop-shaped reminder text)
     "end_the_turn",
     lambda p: EndTheTurnEffect(),
@@ -16453,6 +16619,19 @@ EffectRegistry.register(
         max_mana_value=p.get("max_mana_value"),
         require_bargained=p.get("require_bargained", False),
     ),
+)
+EffectRegistry.register(
+    # "Exile any number of cards from your hand face down." (MEC-43 round
+    # 4F — Scroll Rack, first half).
+    "scroll_rack_exile",
+    lambda p: ScrollRackEffect(),
+)
+EffectRegistry.register(
+    # Scroll Rack's own back half — draw-that-many plus the reorder-onto-
+    # top decision (`ScrollRackEffect`'s ``then_specs``, never placed in
+    # an `AbilitySpec` directly).
+    "scroll_rack_finish",
+    lambda p: ScrollRackFinishEffect(),
 )
 EffectRegistry.register(
     "cheat_creature_from_hand",  # Sneak Attack/Meek Attack
@@ -17963,6 +18142,22 @@ EffectRegistry.register(
     # `no_untap_optional`.
     "radiation_life_gain",
     lambda p: StaticAbility("radiation_life_gain", affects=p.get("affects", "you"), params={}),
+)
+EffectRegistry.register(
+    # "For each {B} in a cost, you may pay 2 life rather than pay that
+    # mana." (MEC-43 — K'rrik, Son of Yawgmoth) — a standing alternative-
+    # payment permission over *any* cost, broader than every existing
+    # wildcard-color mechanism (those all substitute *color*, never
+    # *whether mana is needed at all*). ``color`` (default ``"B"``, every
+    # printed card so far) is the one WUBRG letter this grants a life
+    # option for; consulted by `continuous.life_for_mana_pip_color`
+    # (`ManaPool.can_pay`/`pay`'s ``extra_life_color`` param). Named
+    # ``grant_…`` like `grant_any_color_for_activation` just above — same
+    # "mana-payment permission static" family.
+    "grant_life_for_mana_pip",
+    lambda p: StaticAbility(
+        "life_for_mana_pip", affects=p.get("affects", "you"), params={"color": p.get("color", "B")}
+    ),
 )
 EffectRegistry.register(
     # "Players skip their untap steps." (RULE 502.3-adjacent, Stasis) — the
