@@ -277,6 +277,7 @@ const GROUPS = [
               ['full', 'Channel / Cycling (702.29/702.28)'],
               ['full', 'Crew (702.122) — Fahrzeuge werden echte artefakte Kreaturen mit ihren eigenen Werten'],
               ['full', 'Bedingte Sofort-Geschwindigkeit (702.8b/606.3)'],
+              ['full', 'Split Second (702.61) — während die Zauberei/Fähigkeit auf dem Stack liegt, keine Zauberei-/Fähigkeitsaktivierung möglich'],
               ['full', 'Ward (702.21)'],
               ['full', 'Fading / Vanishing (702.32/702.61)'],
               ['full', 'Kumulative Vorstandszahlung — Cumulative Upkeep (702.24), skaliert mit Zeitmarken'],

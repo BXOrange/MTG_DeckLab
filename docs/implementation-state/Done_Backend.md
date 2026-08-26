@@ -4456,6 +4456,219 @@ lose life" row), `parser/oracle/catalogue/handlers.py`
 **Tests:** `tests/test_mec43_round3_small_self_contained.py` (new, 7 tests).
 Coverage: `cEDH staples 2` 573→574/606, `K'rrik cEDH` 53→54/71.
 
+### MEC-43: round 4 — the last two decks closed (`cEDH staples 2`, `K'rrik cEDH`)
+
+Closed every remaining uncovered card in `cEDH staples 2` (574/606 →
+602/602 resolved) and `K'rrik cEDH` (54/71 → 71/71) in one sitting —
+**MEC-43 is closed**: all eight "cEDH"-named saved decks/cubes are now
+fully playable. 48 cards, split across seven independent clusters worked
+in parallel (each its own git worktree off the same base commit, merged
+back afterward — the only cross-cluster conflicts were git's own textual
+diff3 confusion over multiple branches each purely *appending* new
+catalogue entries/registry rows at the same file tail; nothing required
+resolving competing logic except two effects two different clusters both
+happened to widen — `ExileTopOfLibraryEffect` gained both `keep_bottom`
+(Doomsday Excruciator) and `track_exiled_with` (Knowledge Pool) as
+independent params, and `PayCostThenEffect` gained both a `target`/
+`sacrifice_or_discard`/`prompt` trio (Tergrid's Lantern) and
+`remember_trigger_stack_id` (Rings of Brighthearth) the same way).
+
+**Cluster A — combat/equipment/damage** (Grim Hireling, Ikra Shidiqi the
+Usurper, Sword of Feast and Famine, Umezawa's Jitte, Commander's Plate,
+Legolas's Quick Reflexes, Final Punishment, Drain Life): the one real new
+primitive was RULE 700.2 modal choice for an *activated* ability
+(`ActivatedAbility.modes`, widened `AbilitySpec._validate_modes`,
+`GameEngine.activate_ability`'s new `mode` param) — modal spells and
+modal triggered abilities already existed, but nothing let a plain
+`{cost}: Choose one —` activation itself branch, which is what Umezawa's
+Jitte's three-mode removal ability needed. Also: RULE 702.61 Split Second
+went from parser-recognized to real behaviour (`continuous.
+split_second_active`, wired into `can_cast`/`can_activate`) for Legolas's
+Quick Reflexes; `continuous.commander_color_identity` +
+`grant_protection_static`'s new `protection_from_colors_not_in_
+commanders_identity` for Commander's Plate; `GameState.damage_dealt_to_
+players_this_turn` (an amount tracker, distinct from the existing hit-set/
+opponent-scoped trackers) for Final Punishment; `ManaCost.with_x_colored`
+(RULE 605.3a scoped to just `{X}`) for Drain Life. Found and fixed two
+real bugs: the "equip" keyword regex was capturing "Equip commander {3}"
+as the card's plain Equip cost instead of the real `{5}` (Commander's
+Plate prints both), and `targeting.legal_targets`'s "any target" excluded
+planeswalkers/battles (RULE 115.4) — a stale gap that silently
+under-targeted every other "any target" card in the cache, not just Drain
+Life.
+
+**Cluster B — trigger composition** (Bontu's Monument, Korvold Fae-Cursed
+King, Kozilek Butcher of Truth, Jin-Gitaxias Core Augur, Sheoldred
+Whispering One, Ledger Shredder, Talion the Kindly Lord, Crypt Ghast):
+mostly pure composition of already-shipped primitives (cost-reduction's
+`spell_type`+`spell_color` filters together, `EventType.SACRIFICE`,
+`PayCostThenEffect` for Extort). New: `RulesEngine._collect_self_cast_
+triggers` + `TriggeredAbility.functions_from_stack` (RULE 601.2i,
+"when you cast this spell" firing off the stack rather than the
+battlefield); `continuous.hand_size_modifier_for` (the numeric sibling of
+`has_no_maximum_hand_size`) for Jin-Gitaxias; `ConniveEffect` (RULE
+701.47) for Ledger Shredder; `ChooseNumberReplacement` (Sanctum Prelate)
+reused plus a new `spell_characteristic_equals_chosen_number` predicate
+for Talion. Found and fixed a real bug the new self-cast-trigger primitive
+itself introduced before shipping: Crypt Ghast's own Extort static was
+wrongly firing off casting Crypt Ghast itself (while still a spell, not
+yet a permanent) — fixed with `functions_from_stack`, inferred at bind
+time only for a genuine `{"subject": "self"}` SPELL_CAST trigger, and
+locked in with a regression test. Kozilek's trailing "graveyard from
+anywhere" clause is a documented simplification (RULE 400.7's uniform
+graveyard-entry event would need touching 12+ independent call sites this
+engine's graveyard-bound moves go through — genuinely disproportionate for
+one clause), matching Hostility's own prior identical deferral.
+
+**Cluster C — library/graveyard/search/tokens** (Syphon Mind, Spoils of
+Blood, Dark Petition, Demonic Bargain, Doomsday Excruciator, Mizzix's
+Mastery, Poison the Cup, Hoarding Broodlord): almost entirely composition
+of `SearchLibraryEffect`, `ExileTopOfLibraryEffect` (widened with a flat
+`count` for Demonic Bargain's "top thirteen", `each_player`+`keep_bottom`
+for Doomsday Excruciator's "all but the bottom six"), and the existing
+face-down-exile/free-cast machinery (Hoarding Broodlord reuses
+`destination="exile_face_down_standing_cast"` verbatim from Praetor's
+Grasp). New: `DiscardEffect.draw_per_discard` (a follow-up effect fired
+per real discard, not double-counted against an already-empty hand) for
+Syphon Mind; `CreateTokenEffect.pt_from_count_selector` + a new
+`"creatures_died_this_turn"` count-selector key for Spoils of Blood;
+`ExileEffect.grant_free_cast_window` for Mizzix's Mastery. Overload
+(Mizzix's Mastery), Foretell (Poison the Cup), and Convoke-granted-to-
+exile-casts (Hoarding Broodlord) are documented simplifications —
+keyword-recognized but not built to full behaviour, following the same
+precedent already in the catalogue (Selfless Safewright, City on Fire).
+Found and fixed a real bug: `ExileEffect`'s `target_kind=None` self-exile
+branch was reading a stray leftover `targets[0]` from an earlier
+targeting effect in the same resolution instead of always exiling
+`self.source` — latent until Mizzix's Mastery combined a real target with
+a trailing "Exile ~." clause.
+
+**Cluster D — control/zone changes/entry-choice statics** (Homeward Path,
+Heliod Sun-Crowned, Containment Priest, Archon of Valor's Reach, Command
+Beacon, Worldgorger Dragon, Jodah the Unifier, Kodama of the East Tree):
+new `RegainControlOfOwnedCreaturesEffect` (RULE 108.4/110.2) for Homeward
+Path; a new `"uncast_creature_entry_exile"` replacement (`continuous.
+uncast_creature_entry_exiled`) for Containment Priest, checked at the same
+choke points `graveyard_library_entry_prohibited` (Grafdigger's Cage)
+already uses; `ChooseNamedModeReplacement` (RULE 601.2b) reused for
+Archon of Valor's Reach's card-type pick, plus a `type_from_source_mode`
+gate on `cast_prohibition`; `PutCommanderIntoHandEffect` (RULE 903.7's
+reverse direction) for Command Beacon; a mandatory `"other_permanents_
+you_control"` mass-exile selector + `track_exiled_with` for Worldgorger
+Dragon (its return half reuses `ReturnAllExiledWithEffect`, built for
+Parallax Wave, unchanged); `LegendarySpellFreeDigEffect` (riding
+`RulesEngine.dig_until`) for Jodah; `PutEqualOrLesserManaValueFromHand
+Effect` + a new `"hand_to_battlefield"` `request_choose_objects` action +
+`GameObject.entered_via_ability_id`/`not_entered_via_self` (the
+Panharmonicon-shaped self-recursion guard) for Kodama. Found and fixed
+three real bugs: `cast_prohibition`'s `type_from_source_mode` param wasn't
+threaded through its own `EffectRegistry` factory at all; the anthem
+family's `power_count`/`toughness_count` docstring didn't match what the
+code actually required (an explicit `power=1, toughness=1` per-unit
+coefficient); and `_put_searched_card`'s `ENTERS_BATTLEFIELD` event fires
+synchronously, so Kodama's own `entered_via_ability_id` stamp had to move
+*before* that call, not after, or the self-recursion guard would never
+see it.
+
+**Cluster E — harder mechanics** (Tergrid God of Fright, Swift
+Reconfiguration, Angel's Grace, Mesmeric Orb, Smokestack, Oko Thief of
+Crowns): the batch's headline primitive is **Mesmeric Orb's own gap**,
+open since this doc's own "trigger-verb table" note first called out
+"becomes untapped" as deliberately excluded — `RulesEngine.set_tapped`
+now fires a real per-permanent `EventType.UNTAPPED`, every untap route
+(untap step, `{Q}` costs) migrated onto it, and `segmenter._TRIGGER_
+VERBS` finally gained the row, closing the gap cache-wide rather than just
+for this one card. Tergrid's front face needed a new `ActivationCost.
+sacrifice_or_discard` compound cost + `PayCostThenEffect.payer="target"`
+for the back face (Tergrid's Lantern); Swift Reconfiguration is a standing
+Aura static combining the already-shipped Crew (MEC-29) and type-change
+machinery — surfaced and fixed three real, previously-dormant layer-engine
+bugs along the way (a granted-ability effect never got `.source` stamped;
+RULE 613.7b layer ordering used the wrong timestamp for resolve-time
+grants, fixed with a new `GameState.next_timestamp()`; and the layer-4
+type pass let a "removed" type outlive a later "added" of the same word
+regardless of real ordering). Angel's Grace is a turn-scoped RULE 104.3a
+damage floor (`grant_cant_lose_this_turn` + `cap_damage_life_floor`).
+Smokestack extends the RULE 608.2 per-player-sequenced sacrifice idiom
+(`SacrificePermanentsPerCounterEffect`, Tangle Wire's tap-per-counter
+shape swapped to sacrifice). Oko's −5 needed `ExchangeControlEffect`
+widened to a genuine two-independent-targets mode.
+
+**Cluster F — new small subsystems** (K'rrik Son of Yawgmoth, Maralen of
+the Mornsong, Keen Duelist, Scroll Rack, Dance of the Dead): K'rrik's "for
+each {B} in a cost, you may pay 2 life rather than pay that mana" is a
+standing, unscoped alternative-payment permission broader than every
+existing wildcard-*color* mechanism — `ManaPool.can_pay`/`pay` gained
+`extra_life_color`, the same life-payment option a printed Phyrexian pip
+already has, consulted via `continuous.life_for_mana_pip_color` at all
+three real cost-payment sites plus a new `grant_life_for_mana_pip` static.
+Maralen's "players can't draw cards" turned out nearly free —
+`draw_limit` at `max_per_turn=0` (Omen Machine's own template). Keen
+Duelist needed a genuinely new primitive, `MutualRevealCompareManaValue
+Effect` (a simultaneous two-player reveal-and-compare — each player's loss
+reads the *other's* reveal, no existing shape for that). Scroll Rack
+extended the scry/surveil "order the rest back on top" `_LOOK_TOP_KINDS`
+machinery with a new `"scroll_rack"` kind (source zone = exile, not
+library). Dance of the Dead reused Animate Dead's reanimate-Aura core
+wholesale plus a new `phase_relation="attached_permanent"`/
+`PayCostThenEffect.payer="attached_permanent"` pair (both resolving
+`GameObject.attached_to` live) for its "enchanted creature's controller"
+clauses.
+
+**Cluster G — free-cast permissions and ability copying** (The Tabernacle
+at Pendrell Vale, Rings of Brighthearth, Isochron Scepter, Aluren,
+Knowledge Pool): Tabernacle turned out fully parser-**MODELED** with no
+hand-authoring at all — the `all_creatures` group scope for a quoted
+ability grant already existed; the only new piece was a
+`"destroy_unless_pay"` verb (`DestroyUnlessPayEffect`) alongside the
+existing `sacrifice_unless_pay`, since RULE 701.16 destruction (unlike
+sacrifice) must stay regenerable. Rings of Brighthearth needed the
+ability-item sibling of the existing spell-copy machinery —
+`CopyAbilityEffect`/`RulesEngine.copy_ability`, naming "that ability" via
+ENG-26's `StackItem.stack_id` remembered onto a new `GameObject.
+remembered_stack_id` field. Isochron Scepter widened `ImprintEffect` with
+`include_card_type`/`max_mana_value` and added `CopyImprintedCardEffect`
+(found and fixed a real latent bug along the way: `_remove_stranded_
+tokens` would have swept the exiled copy before it could be cast — now
+exempted while `free_cast_instance_ids` covers it). Aluren is the batch's
+hardest primitive: a standing, *not-controller-scoped* `"free_cast_
+permission"` static (`continuous.has_standing_free_cast_permission`/
+`standing_free_cast_grants_flash`), the first free-cast grant not scoped
+to one controller, wired into `can_cast`'s existing `free=True` branch —
+confirmed no measurable `legal_actions` performance regression. Knowledge
+Pool widened `ExileTopOfLibraryEffect` (`each_player`/`count`/
+`track_exiled_with`) and added `ExileCastSpellIntoImprintPoolEffect`,
+reusing `move_spell_off_stack` (Possibility Storm) and `exiled_with_ids`
+(MEC-21) — found and fixed a second real bug: `legal_actions` only ever
+scanned the *acting* player's own exile zone for a temp-play-permission
+grant, which silently failed Knowledge Pool's whole premise (a shared pool
+that can hand a free cast of a card sitting in someone else's exile) —
+widened to scan every player's exile.
+
+**Merge:** all seven clusters were built in isolated git worktrees off the
+same base commit and merged back sequentially; six of seven merges needed
+manual conflict resolution, always in `ability_catalogue.py` (multiple
+branches purely appending new entries at the same tail — resolved by
+concatenating both sides, verified with a duplicate-`register()` scan
+across every card name) and, in the seven-way merge, three further spots
+in `effects.py`/`turn_loop_mixin.py` where two clusters had independently
+widened the same effect/registry factory or `pending_choice` dispatch —
+each resolved by keeping both sides' new params/branches, verified by
+re-parsing every touched file and re-running `deck_coverage.py`.
+
+**Tests:** `test_mec43_round4_a.py` through `test_mec43_round4_g.py` (new,
+~70 tests total across the seven files), plus each cluster's own broad
+targeted regression sweep (thousands of pre-existing tests across the
+files it touched) before merging. **0 new failures** against this
+session's actual pre-existing baseline (`test_cedh_cube_bespoke_tail.py`'s
+two `test_jeskas_zero_*` tests, unrelated to this batch).
+Coverage: `cEDH staples 2` 574/606 → 602/602 resolved (the 5 remaining
+unresolved names — Balamb Garden, Dol Amroth, Seymour Guado, Zidane
+Tribal, Thrum of the Vestige — are crossover/non-real-card import gaps,
+not parser coverage ones, same category as `Ojer cEDH`'s Balin's Tomb
+above); `K'rrik cEDH` 54/71 → **71/71**. **MEC-43 is closed**: all eight
+"cEDH"-named saved decks/cubes are fully playable.
+
 ### MEC-40/41/42/43 coverage note
 
 Every card above closed against its own named deck (`cEDH Rocco` — all 18,

@@ -7796,7 +7796,17 @@ class ReturnTopGraveyardCreatureWithHasteEffect(GameEffect):
                     controller_id=player.id,
                     step=self.delayed_exile_step,
                     scope="any",
-                    effects=[ExileEffect(target_kind=None, source=self.source)],
+                    # ``target=creature`` baked directly onto the effect
+                    # (not just the `DelayedTrigger.targets` list below) —
+                    # `ExileEffect`'s self-mode (``target_kind=None``) reads
+                    # `self.target or self.source` (MEC-43 round 4C fixed
+                    # it to no longer fall back to a stray `targets[0]`),
+                    # so the exiled-on-firing object must be named here,
+                    # the same "capture a resolve-time fact" idiom
+                    # `CreateDelayedTriggerEffect`'s own ``capture=
+                    # "created_objects"`` path already uses for Puppeteer
+                    # Clique's identical shape.
+                    effects=[ExileEffect(target_kind=None, target=creature, source=self.source)],
                     targets=[creature],
                     description=f"{creature.name}: im nächsten Endsegment exilieren",
                 )
