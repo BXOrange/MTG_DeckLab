@@ -22499,3 +22499,355 @@ def _soul_conduit() -> list[AbilitySpec]:
 
 
 register("Soul Conduit", _soul_conduit)
+
+
+# ---------------------------------------------------------------------------
+# MEC-43 round 4B: cEDH staples 2 / K'rrik cEDH trigger-composition cluster
+# (ETB / cast / upkeep triggers) — 7 of 8 cards, new primitives: `RulesEngine.
+# _collect_self_cast_triggers` (RULE 601.2i "when you cast this spell"),
+# `continuous.hand_size_modifier_for`, `ChooseObjectsEffect.player_selector`,
+# `ConniveEffect` (RULE 701.47), and `effect_binder`'s new
+# `spell_characteristic_equals_chosen_number` trigger predicate. Kozilek's
+# own third clause is left a documented gap — see its own docstring.
+# ---------------------------------------------------------------------------
+
+
+def _bontus_monument() -> list[AbilitySpec]:
+    """Black creature spells you cast cost {1} less to cast.
+    Whenever you cast a creature spell, each opponent loses 1 life and you
+    gain 1 life.
+
+    — MEC-43 round 4B. The cast trigger already parses on its own —
+    reproduced verbatim. The cost reduction is `cost_reduction`'s existing
+    `spell_type`/`spell_color` combination — Ruby Medallion's own
+    `spell_color` filter plus the ordinary `spell_type="creature"` one,
+    which already compose via plain AND in `continuous.cost_reduction_for`
+    but had never been exercised together by a real card before this one.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("lose_life", {"amount": 1, "selector": "each_opponent"}),
+                EffectSpec("gain_life", {"amount": 1}),
+            ],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "you"},
+                "spell_card_types": ["creature"],
+            },
+            raw_text="Immer wenn du einen Kreaturenzauberspruch wirkst, verliert "
+                     "jeder Gegner 1 Leben und du gewinnst 1 Leben.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_reduction", {"generic": 1, "spell_type": "creature", "spell_color": "B"})],
+            raw_text="Schwarze Kreaturenzaubersprüche, die du wirkst, kosten {1} "
+                     "weniger.",
+        ),
+    ]
+
+
+register("Bontu's Monument", _bontus_monument)
+
+
+def _korvold_fae_cursed_king() -> list[AbilitySpec]:
+    """Flying
+    Whenever Korvold enters or attacks, sacrifice another permanent.
+    Whenever you sacrifice a permanent, put a +1/+1 counter on Korvold and
+    draw a card.
+
+    — MEC-43 round 4B. Flying folds in via the ordinary keyword catalogue.
+    The first trigger is the shipped "~ enters or attacks" multi-event
+    trigger (The Wise Mothman) paired with `ChooseObjectsEffect`'s
+    mandatory (``optional=False`` default) form — the same "player picks
+    which" shape Vraska, Golgari Queen's own sacrifice already uses, just
+    forced rather than "you may," with ``exclude_self=True`` for
+    "another." The second is Mayhem Devil's `EventType.SACRIFICE` (RULE
+    701.17) scoped to ``{"subject": "you"}`` (Rapacious Guest/Mirkwood
+    Bats's own precedent for "whenever you sacrifice a permanent/token"),
+    pairing `AddCountersEffect`'s default (self, +1/+1, amount 1) with a
+    plain draw.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("choose_objects", {"action": "sacrifice", "what": "permanent", "exclude_self": True})],
+            trigger={
+                "event": [EventType.ENTERS_BATTLEFIELD, EventType.ATTACKS],
+                "condition": {"subject": "self"},
+            },
+            raw_text="Immer wenn Korvold ins Spiel kommt oder angreift, opfere eine "
+                     "andere bleibende Karte.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {}), EffectSpec("draw", {"count": 1})],
+            trigger={"event": EventType.SACRIFICE, "condition": {"subject": "you"}},
+            raw_text="Immer wenn du eine bleibende Karte opferst, lege einen "
+                     "+1/+1-Marker auf Korvold und ziehe eine Karte.",
+        ),
+    ]
+
+
+register("Korvold, Fae-Cursed King", _korvold_fae_cursed_king)
+
+
+def _kozilek_butcher_of_truth() -> list[AbilitySpec]:
+    """When you cast this spell, draw four cards.
+    Annihilator 4 (Whenever this creature attacks, defending player
+    sacrifices four permanents of their choice.)
+    When Kozilek is put into a graveyard from anywhere, its owner shuffles
+    their graveyard into their library.
+
+    — MEC-43 round 4B. Annihilator folds in via the ordinary keyword
+    catalogue (already real behaviour, RULE 702.86 — `SacrificeEffect`'s
+    own ``selector="defending_player"``), unaffected by registering this
+    card. The cast trigger needed a genuinely new primitive: "when you
+    cast this spell, `<effect>`" (RULE 601.2i/603.2) is a triggered
+    ability belonging to the *spell itself*, which only ever exists on the
+    stack, not the battlefield, at the moment `SPELL_CAST` fires for it —
+    `_collect_triggers`'s main loop is battlefield-only
+    (`state.permanents()`), so it could never see this without a
+    dedicated scan (`RulesEngine._collect_self_cast_triggers`, new,
+    mirroring `_collect_cycled_triggers`/`_collect_suspend_triggers`'s own
+    "wrong zone for the main loop" shape).
+
+    **Documented simplification**: the trailing "put into a graveyard
+    from anywhere, its owner shuffles their graveyard into their library"
+    is left unmodeled — the same call Hostility's own catalogue entry
+    already made for the identical primitive gap. RULE 400.7's "from
+    anywhere" needs a graveyard-entry event fired uniformly regardless of
+    the card's *previous* zone, and this engine's graveyard-bound moves
+    reach the graveyard through more than a dozen independent call sites
+    across `draw_discard_mixin.py`/`search_mixin.py`/`casting_mixin.py`/
+    `damage_death_mixin.py`/`misc_mixin.py`/`copies_mixin.py`/
+    `effects.py` (`_move_to_graveyard` is the funnel for only *some* of
+    them — sacrifice, SBA death, and a spell resolving to the graveyard,
+    not discard or mill, which set `zone = Zone.GRAVEYARD` directly) — a
+    genuinely large, cross-cutting primitive disproportionate to build
+    correctly for one clause in this batch, unlike the cast trigger above
+    (a single well-scoped predicate addition). Left as an open gap rather
+    than a half-built event that only fires from some of those sites.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 4})],
+            trigger={"event": EventType.SPELL_CAST, "condition": {"subject": "self"}},
+            raw_text="Wenn du diesen Zauberspruch wirkst, ziehe vier Karten.",
+        ),
+    ]
+
+
+register("Kozilek, Butcher of Truth", _kozilek_butcher_of_truth)
+
+
+def _jin_gitaxias_core_augur() -> list[AbilitySpec]:
+    """Flash
+    At the beginning of your end step, draw seven cards.
+    Each opponent's maximum hand size is reduced by seven.
+
+    — MEC-43 round 4B. Flash folds in via the ordinary keyword catalogue.
+    The end-step trigger already parses on its own — reproduced verbatim
+    (registering this card makes `specs_for` skip the parser wholesale for
+    it, so the parser-claimed half needs reproducing rather than being
+    left to fall through, The Wise Mothman's own precedent). The
+    hand-size clause is `hand_size_modifier` (new — the numeric sibling of
+    the shipped boolean `no_max_hand_size`, `continuous.
+    hand_size_modifier_for`), ``affects="opponents"``. ``amount`` is a
+    non-negative magnitude — `EffectSpec._clamp_params` floors a literal
+    negative int at 0 — with the default (no ``increase`` flag) meaning
+    "reduced by," matching `cost_reduction`'s own magnitude+flag
+    convention.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 7})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "end"}, "phase_relation": "you"},
+            raw_text="Zu Beginn deines Endsegments ziehst du sieben Karten.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("hand_size_modifier", {"amount": 7, "affects": "opponents"})],
+            raw_text="Die maximale Handkartenanzahl jedes Gegners wird um sieben "
+                     "verringert.",
+        ),
+    ]
+
+
+register("Jin-Gitaxias, Core Augur", _jin_gitaxias_core_augur)
+
+
+def _sheoldred_whispering_one() -> list[AbilitySpec]:
+    """Swampwalk
+    At the beginning of your upkeep, return target creature card from your
+    graveyard to the battlefield.
+    At the beginning of each opponent's upkeep, that player sacrifices a
+    creature of their choice.
+
+    — MEC-43 round 4B. Swampwalk folds in via the ordinary keyword
+    catalogue. The first trigger already parses on its own — reproduced
+    verbatim (same registered-card reproduction reason as Jin-Gitaxias
+    above). The second needed `ChooseObjectsEffect`'s new
+    ``player_selector="active_player"`` (the "no subject of its own, read
+    live off `GameState.active_player`" idiom `ExileTopOfLibraryEffect`/
+    `LandOrFreeCastEffect` already established for Omen Machine) paired
+    with a ``phase_relation="not_you"`` upkeep trigger — "each opponent's
+    upkeep" fires exactly when the active player is an opponent, so "that
+    player" is simply whoever is active when this checks.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_from_graveyard", {"target_kind": "graveyard_creature", "destination": "battlefield"})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
+            raw_text="Zu Beginn deines Aufwachsegments bringst du eine Ziel-"
+                     "Kreaturenkarte aus deinem Friedhof ins Spiel zurück.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("choose_objects", {
+                "action": "sacrifice", "what": "creature", "player_selector": "active_player",
+            })],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "not_you"},
+            raw_text="Zu Beginn des Aufwachsegments jedes Gegners opfert dieser "
+                     "Spieler eine Kreatur eigener Wahl.",
+        ),
+    ]
+
+
+register("Sheoldred, Whispering One", _sheoldred_whispering_one)
+
+
+def _ledger_shredder() -> list[AbilitySpec]:
+    """Flying
+    Whenever a player casts their second spell each turn, this creature
+    connives.
+
+    — MEC-43 round 4B. Flying folds in via the ordinary keyword catalogue.
+    The trigger shape (``is_nth_spell_cast_this_turn``) already parses on
+    its own (Hearthborn Battler's own precedent); what blocked the whole
+    card was "connives" itself, RULE 701.47 — draw a card, then discard a
+    card, +1/+1 counter if the discard was nonland — genuinely new
+    (`ConniveEffect`, `RulesEngine.request_choose_objects`'s new
+    ``connive`` flag).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("connive", {})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group"},
+                "is_nth_spell_cast_this_turn": 2,
+            },
+            raw_text="Immer wenn eine Spielerin oder ein Spieler den zweiten "
+                     "Zauberspruch in einem Zug wirkt, erlangt diese Kreatur "
+                     "Arglist.",
+        ),
+    ]
+
+
+register("Ledger Shredder", _ledger_shredder)
+
+
+def _talion_the_kindly_lord() -> list[AbilitySpec]:
+    """Flying
+    As Talion enters, choose a number between 1 and 10.
+    Whenever an opponent casts a spell with mana value, power, or
+    toughness equal to the chosen number, that player loses 2 life and
+    you draw a card.
+
+    — MEC-43 round 4B. Flying folds in via the ordinary keyword catalogue.
+    The ETB choice is the shipped `ChooseNumberReplacement` (Sanctum
+    Prelate's own free-text-numeric RULE 601.2b primitive — no "between 1
+    and 10" range validation, the same accepted UI-level simplification
+    Sanctum Prelate's own unranged pick already carries). The trigger
+    needed one new predicate (``spell_characteristic_equals_chosen_
+    number``, `effect_binder._trigger_condition`) comparing `SPELL_CAST`'s
+    ``mana_value``/``power``/``toughness`` (the latter two newly stamped
+    onto the event by `RulesEngine.cast_spell`/`cast_without_paying`)
+    against `GameObject.chosen_number`; "that player loses 2 life" is
+    `LoseLifeEffect`'s existing ``selector="event_player"`` (Sheoldred,
+    the Apocalypse's own precedent).
+    """
+    return [
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("choose_number_on_enter", {})],
+            raw_text="Wenn Talion ins Spiel kommt, wähle eine Zahl zwischen 1 und "
+                     "10.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("lose_life", {"selector": "event_player", "amount": 2}),
+                EffectSpec("draw", {"count": 1}),
+            ],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "not_you"},
+                "spell_characteristic_equals_chosen_number": True,
+            },
+            raw_text="Immer wenn ein Gegner einen Zauberspruch mit Manawert, Stärke "
+                     "oder Widerstandskraft gleich der gewählten Zahl wirkt, "
+                     "verliert dieser Spieler 2 Leben und du ziehst eine Karte.",
+        ),
+    ]
+
+
+register("Talion, the Kindly Lord", _talion_the_kindly_lord)
+
+
+def _crypt_ghast() -> list[AbilitySpec]:
+    """Extort
+    Whenever you tap a Swamp for mana, add an additional {B}.
+
+    — MEC-43 round 4B. Extort was parser-recognized (the keyword
+    catalogue) but never bound to real behaviour — built here as a
+    composition of two already-shipped primitives, not a new one:
+    `PayCostThenEffect` (RULE 118.3, ``payer="controller"`` default) for
+    the "you may pay {W/B}" optional payment, and `GainLifeEffect`'s
+    existing ``count_selector="life_lost_this_way"`` (`GameContext.
+    life_lost_this_way`, Gray Merchant of Asphodel's own RULE 119 drain
+    accumulator) for "you gain **that much** life" — the total across
+    every opponent, not a flat 1, which matters the moment there are 2+
+    opponents. The mana ability is Wild Growth's own `EventType.
+    TAPPED_FOR_MANA` triggered-mana-ability shape (RULE 605.1b), scoped by
+    the ``subtypes`` filter `effect_binder._build_group_ok` already
+    supports generically for any subtype word, land or creature alike
+    (Burning Earth's own live "nonbasic" board check is the sibling
+    precedent for a filter this event doesn't pre-stamp).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("pay_cost_then", {
+                "cost": "{W/B}",
+                "effects": [
+                    {"type": "lose_life", "params": {"amount": 1, "selector": "each_opponent"}},
+                    {"type": "gain_life", "params": {"count_selector": "life_lost_this_way"}},
+                ],
+            })],
+            trigger={"event": EventType.SPELL_CAST, "condition": {"subject": "you"}},
+            raw_text="Extort (Immer wenn du einen Zauberspruch wirkst, kannst du "
+                     "{W/B} bezahlen. Falls du dies tust, verliert jeder Gegner 1 "
+                     "Leben und du gewinnst so viel Leben dazu.)",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_mana", {"colors": ["B"]})],
+            trigger={
+                "event": EventType.TAPPED_FOR_MANA,
+                "condition": {"subject": "group", "type": "land", "subtypes": ["swamp"], "controller": "you"},
+                "mana_ability": True,
+            },
+            raw_text="Immer wenn du einen Sumpf für Mana tappst, erzeuge "
+                     "zusätzlich {B}.",
+        ),
+    ]
+
+
+register("Crypt Ghast", _crypt_ghast)

@@ -727,9 +727,14 @@ class TurnLoopMixin:
         active = self.state.active_player
         # RULE 514.1: discard down to maximum hand size — unless a standing
         # "no maximum hand size" static (RULE 402.2, `continuous.
-        # has_no_maximum_hand_size`) exempts this player.
+        # has_no_maximum_hand_size`) exempts this player. `hand_size_
+        # modifier_for` (MEC-43, Jin-Gitaxias, Core Augur's own "each
+        # opponent's maximum hand size is reduced by seven") is the numeric
+        # sibling of that boolean exemption, applied to the flat
+        # `MAX_HAND_SIZE` before the excess comparison.
         if not continuous.has_no_maximum_hand_size(self.state, active):
-            excess = len(active.hand) - MAX_HAND_SIZE
+            effective_max = MAX_HAND_SIZE + continuous.hand_size_modifier_for(self.state, active)
+            excess = len(active.hand) - effective_max
             if excess > 0:
                 self.rules.discard(active, excess)
         # RULE 514.2: remove marked damage and end "until end of turn" effects

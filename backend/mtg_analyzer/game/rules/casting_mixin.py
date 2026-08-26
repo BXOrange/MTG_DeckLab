@@ -660,6 +660,14 @@ class CastingResolutionMixin:
                 # already resolved and left the stack by the time a
                 # triggered ability referencing it does.
                 mana_value=obj.card.converted_mana_cost,
+                # "…with mana value, power, or toughness equal to the chosen
+                # number…" (Talion, the Kindly Lord, MEC-43) — the spell's
+                # own printed characteristics, read live off `GameObject.
+                # power`/`toughness`'s existing off-battlefield fallback
+                # (a stack-zoned object reports its printed P/T, `None` for
+                # a noncreature spell, correctly never matching either).
+                power=obj.power,
+                toughness=obj.toughness,
             )
         )
         self.check_ward(item, player)
@@ -721,6 +729,13 @@ class CastingResolutionMixin:
                 free=True,
                 mana_spent=0,
                 from_hand=from_hand,
+                # See the matching comment on `cast_spell`'s own SPELL_CAST
+                # firing — a free cast is still a cast (RULE 601.2f/118.9)
+                # for Talion, the Kindly Lord's own "whenever an opponent
+                # casts a spell with mana value, power, or toughness equal
+                # to the chosen number" purposes.
+                power=obj.power,
+                toughness=obj.toughness,
             )
         )
         self.check_ward(item, player)

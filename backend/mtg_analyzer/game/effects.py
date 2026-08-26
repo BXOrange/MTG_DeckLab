@@ -1056,6 +1056,7 @@ class TriggeredAbility(GameEffect):
         reflexive: bool = False,
         mana_ability: bool = False,
         functions_from_graveyard: bool = False,
+        functions_from_stack: bool = False,
     ) -> None:
         super().__init__(source)
         #: RULE 113.6a (PAR-16): whether this ability fires while its own
@@ -1073,6 +1074,24 @@ class TriggeredAbility(GameEffect):
         #: _collect_triggers`'s graveyard scan, which — unlike the ordinary
         #: `state.permanents()` scan — only fires abilities carrying this flag.
         self.functions_from_graveyard = functions_from_graveyard
+        #: RULE 601.2i/603.2 (MEC-43): whether this ability belongs to the
+        #: *spell itself* and only ever fires while its source sits on the
+        #: **stack**, not the battlefield — "When you cast this spell,
+        #: `<effect>`." (Kozilek, Butcher of Truth's own "draw four cards"),
+        #: distinct from an ordinary battlefield permanent's "whenever you
+        #: cast a spell" static (Bontu's Monument), which must *not* fire
+        #: off its own casting since it isn't a permanent yet. Inferred by
+        #: `effect_binder.bind_ability` purely from the trigger shape
+        #: (``event == SPELL_CAST`` and ``condition == {"subject":
+        #: "self"}``) — the same "inferred, no explicit reminder text to
+        #: key off" idiom `functions_from_graveyard` uses just above.
+        #: Consulted by `RulesEngine._collect_self_cast_triggers`, which —
+        #: unlike the ordinary `state.permanents()` scan — only fires
+        #: abilities carrying this flag, so an ordinary "you"/"group"
+        #: subject condition that happens to also match the object's own
+        #: casting (Crypt Ghast's Extort casting itself) is never
+        #: mistaken for one.
+        self.functions_from_stack = functions_from_stack
         #: RULE 605.1b/605.4: this is a **triggered mana ability** — it
         #: triggers off activating a mana ability and itself only produces
         #: mana. Such an ability never uses the stack: it resolves
@@ -8531,6 +8550,17 @@ class ChooseObjectsEffect(GameEffect):
     be separate effects in the same list, because whether they apply is only
     known *after* the choice — which is exactly what a "you may" clause
     means.
+
+    ``player_selector="active_player"`` (MEC-43, Sheoldred, Whispering
+    One's "At the beginning of **each opponent's** upkeep, **that player**
+    sacrifices a creature of their choice.") reads `GameState.active_player`
+    live at resolution instead of this effect's own source's controller —
+    the same "no subject of its own, read live off `GameState.
+    active_player`" idiom `ExileTopOfLibraryEffect`/`LandOrFreeCastEffect`
+    already established for Omen Machine's "each player's draw step, that
+    player exiles…": a ``STEP_BEGIN`` trigger scoped to "not you" only ever
+    fires during an *opponent's* own upkeep, which is exactly whoever is
+    active at firing time.
     """
 
     def __init__(
@@ -8544,6 +8574,7 @@ class ChooseObjectsEffect(GameEffect):
         then: Optional[list[dict[str, Any]]] = None,
         then_if_commander: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
+        player_selector: str = "controller",
     ) -> None:
         super().__init__(source)
         self.action = action
@@ -8554,11 +8585,15 @@ class ChooseObjectsEffect(GameEffect):
         self.prompt = prompt
         self.then = then
         self.then_if_commander = then_if_commander
+        self.player_selector = player_selector
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .rules_engine import _matches_permanent_type
 
-        player = _controller_of(self.source, context)
+        if self.player_selector == "active_player":
+            player = context.state.active_player
+        else:
+            player = _controller_of(self.source, context)
         if player is None:
             return
         candidates = [
@@ -8571,6 +8606,37 @@ class ChooseObjectsEffect(GameEffect):
             player, candidates, self.action, count=self.count,
             optional=self.optional, prompt=self.prompt, source=self.source,
             then_specs=self.then, then_specs_if_commander=self.then_if_commander,
+        )
+
+
+class ConniveEffect(GameEffect):
+    """"~ connives." (RULE 701.47, MEC-43 — Ledger Shredder): its
+    controller draws a card, then discards a card; if a nonland card was
+    discarded this way, put a +1/+1 counter on ~.
+
+    The draw is plain `context.draw`; the discard is the general
+    interactive hand-card chooser (`RulesEngine.request_choose_objects`,
+    ``action="discard"`` — already `_apply_chosen_object`'s own primitive
+    for a *chosen* discard, called directly here rather than through
+    `ChooseObjectsEffect`, whose own candidate gathering is battlefield-
+    permanents-only and so can't reach hand cards), widened with a new
+    ``connive`` flag so `_apply_chosen_object` can inspect the picked
+    card's own `is_land` after the fact and place the counter — the
+    "if you did X" conditional depends on *what* was picked, not just
+    *whether* something was, which the existing ``then_specs_if_commander``
+    boolean-tracking idiom doesn't cover.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.draw(player, 1)
+        if not player.hand:
+            return
+        context.engine.request_choose_objects(
+            player, list(player.hand), "discard", count=1,
+            source=self.source, connive=True,
         )
 
 
@@ -15679,7 +15745,14 @@ EffectRegistry.register(
         prompt=str(p.get("prompt", "")),
         then=p.get("then"),
         then_if_commander=p.get("then_if_commander"),
+        player_selector=str(p.get("player_selector", "controller")),
     ),
+)
+EffectRegistry.register(
+    # RULE 701.47 (connive, MEC-43 — Ledger Shredder): draw a card, then
+    # discard a card; if a nonland card was discarded this way, put a
+    # +1/+1 counter on the conniving permanent. See `ConniveEffect`.
+    "connive", lambda p: ConniveEffect(),
 )
 EffectRegistry.register(
     "the_ring_tempts_you",  # RULE 701.51a
@@ -17113,6 +17186,24 @@ EffectRegistry.register(
     # variants are a different, resolve-time-granted shape, not modeled here.
     "no_max_hand_size",
     lambda p: StaticAbility("no_max_hand_size", affects=p.get("affects", "you"), params={}),
+)
+EffectRegistry.register(
+    # "Each opponent's maximum hand size is reduced by seven." (RULE 402.2,
+    # Jin-Gitaxias, Core Augur, MEC-43) — the numeric sibling of
+    # `no_max_hand_size` just above; consulted by `continuous.
+    # hand_size_modifier_for` (`GameEngine._step_cleanup`). ``amount`` is
+    # always a non-negative *magnitude* — `EffectSpec._clamp_params` floors
+    # any ``"amount"`` param at 0, so a literal negative int here would
+    # silently become 0 — with a separate ``increase`` flag choosing the
+    # sign, the same "magnitude + direction flag" idiom `cost_reduction`'s
+    # own ``increase`` param already uses for exactly this reason.
+    # ``affects`` defaults to ``"you"`` like every sibling static here, but
+    # this key's real cards always print ``"opponents"``.
+    "hand_size_modifier",
+    lambda p: StaticAbility(
+        "hand_size_modifier", affects=p.get("affects", "you"),
+        params={"amount": int(p.get("amount", 0)), "increase": bool(p.get("increase", False))},
+    ),
 )
 EffectRegistry.register(
     # "The 'legend rule' doesn't apply to permanents you control." (RULE

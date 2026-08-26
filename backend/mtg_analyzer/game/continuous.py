@@ -3189,6 +3189,47 @@ def has_no_maximum_hand_size(state: "GameState", player: "Player") -> bool:
     return False
 
 
+def hand_size_modifier_for(state: "GameState", player: "Player") -> int:
+    """Net RULE 402.2 maximum-hand-size adjustment for ``player`` — the
+    numeric sibling of `has_no_maximum_hand_size`'s boolean exemption
+    ("Each opponent's maximum hand size is reduced by seven." — Jin-
+    Gitaxias, Core Augur, MEC-43). Consulted by `GameEngine._step_cleanup`
+    alongside the boolean check, added to the flat `MAX_HAND_SIZE` before
+    the excess comparison — never floored here, since a negative effective
+    max just means "discard down to 0," which the ordinary excess math
+    already handles correctly.
+
+    ``affects``: ``"you"`` (default) scopes to the static's own controller
+    (a hypothetical "your maximum hand size is increased by N"),
+    ``"opponents"`` to everyone *except* the controller (Jin-Gitaxias'
+    own scope), ``"each_player"`` to everyone — the same three-way
+    vocabulary `cost_reduction_for`'s ``"your_spells"``/``"opponents_
+    spells"`` pair establishes, plus the unscoped case `no_max_hand_size`
+    already has.
+    """
+    modifier = 0
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "hand_size_modifier":
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        affects = ability.affects
+        if affects == "opponents":
+            if controller_id is None or controller_id == player.id:
+                continue
+        elif affects == "each_player":
+            pass
+        else:  # "you" (default) — the static's own controller only
+            if controller_id != player.id:
+                continue
+        # ``amount`` is a non-negative magnitude (`EffectSpec._clamp_
+        # params` floors a literal negative int at 0); ``increase`` picks
+        # the sign, the same "magnitude + direction flag" split
+        # `cost_reduction`'s own `increase` param already uses.
+        amount = int(ability.params.get("amount", 0))
+        modifier += amount if ability.params.get("increase") else -amount
+    return modifier
+
+
 def player_ignores_legend_rule(state: "GameState", player: "Player") -> bool:
     """Whether RULE 704.5j (the legend rule) is switched off for permanents
     ``player`` controls right now ("The 'legend rule' doesn't apply to
@@ -3509,7 +3550,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
-     "extra_land_drop", "no_max_hand_size", "ignore_legend_rule", "radiation_life_gain", "grant_escape",
+     "extra_land_drop", "no_max_hand_size", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
@@ -3667,6 +3708,13 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "no_max_hand_size":
         who = "each player" if ability.affects == "each_player" else "its controller"
         return f"{who} has no maximum hand size"
+    if ability.layer == "hand_size_modifier":
+        who = {"each_player": "each player's", "opponents": "each opponent's"}.get(
+            ability.affects, "its controller's"
+        )
+        amount = int(p.get("amount", 0))
+        verb = "increased" if p.get("increase") else "reduced"
+        return f"{who} maximum hand size is {verb} by {amount}"
     if ability.layer == "ignore_legend_rule":
         clause = "each player controls" if ability.affects == "each_player" else "its controller controls"
         return f"the legend rule doesn't apply to permanents {clause}"

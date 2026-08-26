@@ -221,6 +221,7 @@ class TriggerCollectionMixin:
                 ):
                     self.pending_triggers.append((ability, event))
         self._collect_inherent_triggers(event)
+        self._collect_self_cast_triggers(event)
         self._collect_impulsive_draw_triggers(event)
         self._collect_rad_counter_damage_triggers(event)
         self._collect_attacks_you_rad_counter_triggers(event)
@@ -811,6 +812,55 @@ class TriggerCollectionMixin:
                         continue
                     if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
                         self.pending_triggers.append((ability, event))
+    def _collect_self_cast_triggers(self, event: GameEvent) -> None:
+        """RULE 601.2i/603.2: "When you cast this spell, `<effect>`."
+        (Kozilek, Butcher of Truth's "draw four cards", the Eldrazi titan
+        template) — a triggered ability that belongs to the spell *itself*,
+        which is only ever on the stack, never the battlefield, at the
+        moment `SPELL_CAST` fires for it (`RulesEngine.cast_spell` sets
+        ``obj.zone = Zone.STACK`` before firing the event). `_collect_
+        triggers`'s main loop (`state.permanents()`) is battlefield-only —
+        the same "no permanent to hang an ability off, or in this case the
+        wrong zone to be found in" reason `_collect_cycled_triggers`/
+        `_collect_suspend_triggers` each scan a dedicated zone instead of
+        relying on it.
+
+        Narrowly scoped to the exact object `SPELL_CAST` names (`GameState.
+        find_object` — spans every zone including the stack) rather than
+        widening the main loop to include stack objects generally: a
+        ``{"subject": "self"}`` condition already matches purely by
+        `instance_id` (`effect_binder._subject_condition`), so this only
+        needs to *find* the right object, not re-derive any scoping logic.
+
+        Only abilities carrying `TriggeredAbility.functions_from_stack`
+        are checked here — *not* every `SPELL_CAST`-watching ability the
+        object happens to carry. Without that filter, a permanent with an
+        ordinary "whenever **you** cast a spell" static (Crypt Ghast's own
+        Extort) would wrongly fire off *its own* casting: at the moment
+        `SPELL_CAST` fires, Crypt Ghast is still a spell on the stack, not
+        yet a permanent, so Extort shouldn't function at all (RULE 113.6a
+        — a permanent's ability functions from the battlefield only,
+        absent an explicit "functions from Y" reminder) — but a bare
+        ``{"subject": "you"}`` condition can't tell "this object casting
+        itself" apart from "this object's controller casting anything
+        else," since both compare the same `player_id`/`controller_id`
+        pair. `functions_from_stack` is inferred at bind time purely from
+        the trigger's own shape (`effect_binder.bind_ability`), so only a
+        genuine "self" subject on a `SPELL_CAST` event ever qualifies.
+        """
+        if event.type != EventType.SPELL_CAST:
+            return
+        instance_id = event.get("instance_id")
+        if instance_id is None:
+            return
+        obj = self.state.find_object(instance_id)
+        if obj is None:
+            return
+        for ability in obj.triggered_abilities + obj.granted_triggered_abilities:
+            if not getattr(ability, "functions_from_stack", False):
+                continue
+            if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
+                self.pending_triggers.append((ability, event))
     def _collect_suspend_triggers(self, event: GameEvent) -> None:
         """RULE 702.62a: Suspend's 2nd/3rd abilities "function in the exile
         zone" — a suspended card is never a permanent, so `_collect_
