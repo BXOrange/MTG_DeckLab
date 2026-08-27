@@ -17,6 +17,49 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+#: The canonical vocabulary of nouns that name a permanent type/group,
+#: singular, concrete types first then the two abstract/negated readings
+#: ("permanent" itself, "nonland permanent") — the shared source every
+#: consumer of this word list should build on, rather than each
+#: independently re-declaring its own copy (docs/09 "Factor shared
+#: sub-grammars"). Before this existed, the TARGET rows' own inline N-way
+#: alternation below and `catalogue.handlers`'s `_MASS_DESTROY_NOUNS`/
+#: `_MASS_DESTROY_NOUNS_SINGULAR` each hand-typed the same five-to-seven
+#: words independently. `PERMANENT_TYPE_WORDS[:5]` is just the concrete
+#: subset (no card is "targeted" as a bare "permanent" in an N-way list —
+#: "target artifact, creature, or permanent" isn't real templating).
+#: Deliberately doesn't fold in `_SPELL_TYPE_WORD`'s instant/sorcery pair or
+#: `_GRAVEYARD_TYPE_WORD` in `catalogue.handlers` — both mix in spell-only
+#: words this vocabulary has no opinion on, and migrating them is left for
+#: a future incremental pass rather than attempted here.
+PERMANENT_TYPE_WORDS: tuple[str, ...] = (
+    "artifact", "creature", "enchantment", "land", "planeswalker",
+    "nonland permanent", "permanent",
+)
+#: `PERMANENT_TYPE_WORDS`, alternated (longest/most-specific member first,
+#: this file's usual convention — "nonland permanent" above bare
+#: "permanent"), for embedding inline in a handler's own regex.
+PERMANENT_TYPE_WORD = "|".join(PERMANENT_TYPE_WORDS)
+
+
+def pluralize_permanent_type(word: str) -> str:
+    """A `PERMANENT_TYPE_WORDS` member, singular → its plural noun phrase.
+
+    Every member pluralizes regularly ("+s" on the head noun — "nonland
+    permanent" → "nonland permanents", not an irregular form), so this is a
+    plain suffix rule rather than a lookup table.
+    """
+    return word + "s"
+
+
+def all_permanent_type_selector(word: str) -> str:
+    """A `PERMANENT_TYPE_WORDS` member (singular) → `game/effects.py`'s mass
+    ``all_<type>`` selector name (`DestroyEffect`/`ExileEffect`'s
+    ``selector`` param) — "nonland permanent" → ``"all_nonland_permanents"``.
+    """
+    return "all_" + pluralize_permanent_type(word).replace(" ", "_")
+
+
 #: Ordered (regex-fragment, target_kind) rows. **Longest / most specific
 #: first** — "target creature or player" must win over "target creature".
 #: Each fragment is a self-contained alternative that the TARGET matcher ORs
@@ -80,9 +123,9 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # ``"permanent"`` branch offers every permanent regardless of type, not
     # just the printed subset — the same simplification the 2-way row below
     # already ships).
-    (r"target (?:artifact|creature|enchantment|land|planeswalker)"
-     r"(?:, (?:artifact|creature|enchantment|land|planeswalker))*"
-     r",? or (?:artifact|creature|enchantment|land|planeswalker)", "permanent"),
+    (rf"target (?:{'|'.join(PERMANENT_TYPE_WORDS[:5])})"
+     rf"(?:, (?:{'|'.join(PERMANENT_TYPE_WORDS[:5])}))*"
+     rf",? or (?:{'|'.join(PERMANENT_TYPE_WORDS[:5])})", "permanent"),
     # "target artifact or enchantment" (Archdruid's Charm) — the dedicated
     # union kind `targeting.legal_targets` already implements, rather than
     # the broad ``"permanent"`` the N-way row above deliberately keeps (RULE

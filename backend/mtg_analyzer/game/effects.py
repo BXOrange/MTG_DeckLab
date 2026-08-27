@@ -748,6 +748,88 @@ class GameEffect(ABC):
         """
         return None
 
+    def _resolve_target_or_controller(
+        self,
+        context: GameContext,
+        targets: Optional[list[Any]],
+        explicit: Any = None,
+    ) -> Any:
+        """The "explicit override -> this effect's own chosen target -> its
+        controller" fallback chain several untargeted-by-default effects
+        each printed their own copy of (`BecomeMonarchEffect`/
+        `TakeInitiativeEffect`'s ``player`` resolution, `DrawCardEffect`'s
+        own player fallback, the tail of `GainLifeEffect`'s richer one): a
+        caller-supplied ``explicit`` value wins outright; otherwise, if this
+        effect actually declared a `target_spec` of its own (``target_kind``
+        was set at construction), its first resolved target is used;
+        otherwise this effect's own source's controller (the default
+        recipient for anything that doesn't target at all). Returns
+        ``None`` if none of the three ever resolves to anyone (no source,
+        no controller, an empty ``targets``).
+
+        Deliberately narrow: a class whose own fallback chain reads more
+        than these three sources (a ``player_id``, a "previous target"
+        pronoun, a combat-relative selector — `LoseLifeEffect`'s own final
+        player resolution) doesn't fit this helper and isn't migrated onto
+        it; see that class's own comments.
+        """
+        if explicit is not None:
+            return explicit
+        player = None
+        if self.target_spec is not None:
+            player = targets[0] if targets else None
+        if player is None:
+            player = _controller_of(self.source, context)
+        return player
+
+    def _resolve_amount_override(
+        self,
+        base: Union[int, str],
+        overrides: list[tuple[bool, Callable[[], Union[int, str]]]],
+        *,
+        stop_at_first: bool = False,
+    ) -> Union[int, str]:
+        """Layer ``overrides`` onto ``base`` to compute an effect's live
+        magnitude — the "amount/count override priority chain" several
+        effects (`DealDamageEffect`, `LoseLifeEffect`, `PreventDamageEffect`,
+        `AddCountersEffect`, `GainLifeEffect`, `DrawCardEffect`, …) each
+        printed their own copy of: one "if `<a card's own conditional
+        clause>`, the amount/count is `<something else>` instead" per
+        override, checked in the card's own printed priority.
+
+        Each ``(condition, compute)`` pair is checked **in the order
+        given** — ``compute`` only ever runs (lazily) when its own
+        ``condition`` is already true, so an override that reads e.g.
+        `context.trigger_event` stays safe to list even when its condition
+        is false and nothing about the current resolution supports it.
+
+        ``stop_at_first=False`` (the default) mirrors a class whose own
+        original code checked each condition with a plain, independent
+        ``if`` — nothing ``return``s early, so if two conditions were ever
+        both true the *last* one checked would silently win; passing the
+        overrides in that same original top-to-bottom order reproduces
+        that exactly. ``stop_at_first=True`` mirrors a class that
+        originally checked its conditions as an early-return/``elif``
+        chain instead (`DealDamageEffect.amount`'s own property,
+        `GainLifeEffect`/`DrawCardEffect`'s own amount/count chains) — the
+        first true condition's value is returned immediately, nothing
+        after it is even evaluated, again reproducing the original order
+        exactly.
+
+        Which mode a given class needs is a property of how that class's
+        own original chain was written, not a free choice — get it wrong
+        and a card with 2+ simultaneously-true overrides (never seen on a
+        real card today, per each override's own docstring, but not
+        provably impossible) would silently resolve to the wrong one.
+        """
+        amount = base
+        for condition, compute in overrides:
+            if condition:
+                amount = compute()
+                if stop_at_first:
+                    return amount
+        return amount
+
 
 def _apply_effects_partitioned(
     effects: list["GameEffect"],
@@ -1374,11 +1456,7 @@ class BecomeMonarchEffect(GameEffect):
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player
-        if player is None and self.target_spec is not None:
-            player = targets[0] if targets else None
-        if player is None:
-            player = _controller_of(self.source, context)
+        player = self._resolve_target_or_controller(context, targets, explicit=self.player)
         if player is not None:
             context.become_monarch(player)
 
@@ -1406,11 +1484,7 @@ class TakeInitiativeEffect(GameEffect):
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player
-        if player is None and self.target_spec is not None:
-            player = targets[0] if targets else None
-        if player is None:
-            player = _controller_of(self.source, context)
+        player = self._resolve_target_or_controller(context, targets, explicit=self.player)
         if player is not None:
             context.take_initiative(player)
 
@@ -2663,42 +2737,69 @@ class DealDamageEffect(GameEffect):
 
     @property
     def amount(self) -> Union[int, str]:
-        if self.x_multiplier is not None:
-            x_paid = getattr(self.source, "x_paid", 0) or 0
-            return self.x_multiplier * x_paid
         kicker_count = getattr(self.source, "kicker_count", 0) or 0
-        if self.amount_if_kicked is not None and kicker_count > 0:
-            return self.amount_if_kicked
-        if self.amount_if_cast_from_exile is not None and getattr(self.source, "cast_from_exile", False):
-            return self.amount_if_cast_from_exile
-        if getattr(self.source, "bargained", False):
+        bargained = getattr(self.source, "bargained", False)
+
+        def _bargained_amount() -> Union[int, str]:
             if self.double_if_bargained:
                 base = self._base_amount
                 return base * 2 if isinstance(base, int) else base
-            if self.amount_if_bargained is not None:
-                return self.amount_if_bargained
-        return self._base_amount
+            return self.amount_if_bargained
+
+        return self._resolve_amount_override(
+            self._base_amount,
+            [
+                (
+                    self.x_multiplier is not None,
+                    lambda: self.x_multiplier * (getattr(self.source, "x_paid", 0) or 0),
+                ),
+                (self.amount_if_kicked is not None and kicker_count > 0, lambda: self.amount_if_kicked),
+                (
+                    self.amount_if_cast_from_exile is not None and getattr(self.source, "cast_from_exile", False),
+                    lambda: self.amount_if_cast_from_exile,
+                ),
+                (
+                    bargained and (self.double_if_bargained or self.amount_if_bargained is not None),
+                    _bargained_amount,
+                ),
+            ],
+            stop_at_first=True,
+        )
 
     def _amount_for(self, target: Any, context: Optional["GameContext"] = None) -> Union[int, str]:
-        """``self.amount``, further narrowed by ``amount_if_target_color``
-        for this specific ``target`` (see its docstring)."""
-        amount = self.amount
-        if self.amount_from_trigger_event and context is not None:
-            event = context.trigger_event
-            amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
-        if self.amount_from_count_selector and context is not None:
+        """``self.amount``, further narrowed by ``amount_if_target_event``/
+        ``amount_from_count_selector``/``amount_if_target_color`` for this
+        specific ``target`` (see each field's own docstring)."""
+
+        def _from_count_selector() -> int:
             from . import continuous  # avoid the continuous↔effects import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
-            amount = self.amount_plus_count_selector + continuous.count_selector(
+            return self.amount_plus_count_selector + continuous.count_selector(
                 context.state, controller_id, self.amount_from_count_selector, source=self.source,
             )
+
+        def _from_target_color() -> Union[int, str]:
+            override, _ = self.amount_if_target_color
+            return override
+
+        target_color_match = False
         if self.amount_if_target_color is not None:
-            override, colors = self.amount_if_target_color
+            _, colors = self.amount_if_target_color
             target_colors = {str(c).upper() for c in (getattr(target, "colors", None) or set())}
-            if target_colors & {str(c).upper() for c in colors}:
-                return override
-        return amount
+            target_color_match = bool(target_colors & {str(c).upper() for c in colors})
+
+        return self._resolve_amount_override(
+            self.amount,
+            [
+                (
+                    bool(self.amount_from_trigger_event) and context is not None,
+                    lambda: int((context.trigger_event or {}).get(self.amount_from_trigger_event) or 0),
+                ),
+                (bool(self.amount_from_count_selector) and context is not None, _from_count_selector),
+                (target_color_match, _from_target_color),
+            ],
+        )
 
     @amount.setter
     def amount(self, value: Union[int, str]) -> None:
@@ -3057,37 +3158,52 @@ class DrawCardEffect(GameEffect):
         # card.", or a delayed trigger that inherited its arming
         # resolution's own targets) would silently get handed to
         # `RulesEngine.draw` as if it were a chosen player.
-        player = self.player
-        if player is None and self.target_spec is not None and targets:
-            player = targets[0]
-        if player is None:
-            player = _controller_of(self.source, context)
-        count = self.count
-        if self.count_from_trigger_event:
-            event = context.trigger_event
-            count = int((event or {}).get(self.count_from_trigger_event) or 0)
-        elif self.count_selector == "auras_and_equipment_attached_to_self":
-            count = _attached_auras_and_equipment_count(context, self.source)
-        elif self.count_selector == "opponents_you_have":
-            controller_id = getattr(self.source, "controller_id", None)
-            count = sum(1 for p in context.state.living_players() if p.id != controller_id)
-        elif self.count_selector == "burden_counters_on_self":
-            # "…draw a card for each burden counter on The One Ring." — read
-            # *after* this same activation's own ``add_counters`` effect has
-            # already placed this turn's counter (RULE 608.2b, effects in
-            # printed order), so the count includes it.
-            counters = getattr(self.source, "counters", None) or {}
-            count = int(counters.get("burden", 0))
-        elif self.count_selector == "half_target_library_round_up":
-            library = len(getattr(player, "library", None) or [])
-            count = -(-library // 2)  # ceiling division (RULE 107.3 rounds up)
-        elif self.amount_from_count_selector:
+        player = self._resolve_target_or_controller(context, targets, explicit=self.player)
+
+        def _from_count_selector() -> int:
             from . import continuous  # avoid the continuous↔effects import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
-            count = continuous.count_selector(
+            return continuous.count_selector(
                 context.state, controller_id, self.amount_from_count_selector, source=self.source,
             )
+
+        count = self._resolve_amount_override(
+            self.count,
+            [
+                (
+                    bool(self.count_from_trigger_event),
+                    lambda: int((context.trigger_event or {}).get(self.count_from_trigger_event) or 0),
+                ),
+                (
+                    self.count_selector == "auras_and_equipment_attached_to_self",
+                    lambda: _attached_auras_and_equipment_count(context, self.source),
+                ),
+                (
+                    self.count_selector == "opponents_you_have",
+                    lambda: sum(
+                        1 for p in context.state.living_players()
+                        if p.id != getattr(self.source, "controller_id", None)
+                    ),
+                ),
+                (
+                    # "…draw a card for each burden counter on The One Ring."
+                    # — read *after* this same activation's own
+                    # ``add_counters`` effect has already placed this turn's
+                    # counter (RULE 608.2b, effects in printed order), so
+                    # the count includes it.
+                    self.count_selector == "burden_counters_on_self",
+                    lambda: int((getattr(self.source, "counters", None) or {}).get("burden", 0)),
+                ),
+                (
+                    self.count_selector == "half_target_library_round_up",
+                    # ceiling division (RULE 107.3 rounds up)
+                    lambda: -(-len(getattr(player, "library", None) or []) // 2),
+                ),
+                (bool(self.amount_from_count_selector), _from_count_selector),
+            ],
+            stop_at_first=True,
+        )
         context.draw(player, count)
 
 
@@ -3717,8 +3833,8 @@ class GainLifeEffect(GameEffect):
         return "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player
         subject = targets[0] if targets else None
+        player = self.player
         if player is None and self.recipient == "target_controller" and subject is not None:
             controller_id = getattr(subject, "controller_id", None)
             if controller_id is not None:
@@ -3726,30 +3842,48 @@ class GainLifeEffect(GameEffect):
                     player = context.state.player_by_id(controller_id)
                 except (KeyError, ValueError):
                     player = None
-        if player is None and self.target_spec is not None:
-            player = subject
-        if player is None:
-            player = _controller_of(self.source, context)
-        amount = self.amount
-        if self.amount_from_target_power:
-            amount = int(subject.power or 0) if subject is not None else 0
-        elif self.amount_from_trigger_source_toughness:
+        # Tail of the chain — this effect's own chosen target (if any), else
+        # its controller — is the same "explicit -> target -> controller"
+        # fallback `_resolve_target_or_controller` already implements; the
+        # ``recipient == "target_controller"`` branch above is this class's
+        # own extra step ahead of it (see the field's docstring), so it's
+        # threaded in as ``explicit`` rather than folded into the helper.
+        player = self._resolve_target_or_controller(context, targets, explicit=player)
+
+        def _from_trigger_source_toughness() -> int:
             event = context.trigger_event or {}
             source_obj = context.state.find_object(event.get("source_id"))
-            amount = int(source_obj.toughness or 0) if source_obj is not None else 0
-        elif self.count_selector == "life_lost_this_way":
-            # "You gain life equal to the life lost this way." (Gray
-            # Merchant of Asphodel-shaped RULE 119 drain) — a per-resolution
-            # accumulator (`GameContext.life_lost_this_way`), not a board
-            # count, so it's read directly rather than through
-            # `continuous.count_selector`'s vocabulary.
-            amount = context.life_lost_this_way
-        elif self.count_selector and player is not None:
+            return int(source_obj.toughness or 0) if source_obj is not None else 0
+
+        def _from_count_selector() -> int:
             from . import continuous  # avoid the continuous↔effects import cycle
 
-            amount = continuous.count_selector(
+            return continuous.count_selector(
                 context.state, player.id, self.count_selector, source=self.source
             )
+
+        amount = self._resolve_amount_override(
+            self.amount,
+            [
+                (
+                    self.amount_from_target_power,
+                    lambda: int(subject.power or 0) if subject is not None else 0,
+                ),
+                (self.amount_from_trigger_source_toughness, _from_trigger_source_toughness),
+                (
+                    # "You gain life equal to the life lost this way." (Gray
+                    # Merchant of Asphodel-shaped RULE 119 drain) — a
+                    # per-resolution accumulator (`GameContext.
+                    # life_lost_this_way`), not a board count, so it's read
+                    # directly rather than through `continuous.
+                    # count_selector`'s vocabulary.
+                    self.count_selector == "life_lost_this_way",
+                    lambda: context.life_lost_this_way,
+                ),
+                (bool(self.count_selector) and player is not None, _from_count_selector),
+            ],
+            stop_at_first=True,
+        )
         context.gain_life(player, amount)
 
 
@@ -3830,7 +3964,11 @@ class PreventDamageEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         kicker_count = getattr(self.source, "kicker_count", 0) or 0
-        amount = self.amount_if_kicked if (self.amount_if_kicked is not None and kicker_count > 0) else self.amount
+        amount = self._resolve_amount_override(
+            self.amount,
+            [(self.amount_if_kicked is not None and kicker_count > 0, lambda: self.amount_if_kicked)],
+            stop_at_first=True,
+        )
         if self.self_only:
             if self.source is not None:
                 context.prevent_damage_to_target(self.source, amount)
@@ -4453,62 +4591,91 @@ class LoseLifeEffect(GameEffect):
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        amount = self.amount
-        if self.amount_from_trigger_event:
-            event = context.trigger_event
-            amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
-        if self.amount_from_life_gained_this_turn:
+    def _resolve_pre_selector_player(
+        self, context: GameContext, targets: Optional[list[Any]] = None,
+    ) -> Any:
+        """The ``self.player -> player_id -> previous_subject ->
+        target_spec -> controller`` prefix shared by
+        ``amount_from_half_target_life``/``amount_from_damage_dealt_this_
+        turn`` below (each needs to know *whose* life to read before
+        `context.lose_life` itself is ever called) — identical to, but a
+        strict prefix of, this `apply`'s own final player resolution just
+        below, which layers three more selector-based fallbacks (``"defending_
+        player"``/``"event_player"``/``"active_player"``) onto the same
+        chain before its own controller fallback. Not folded into that
+        richer chain, or into `GameEffect._resolve_target_or_controller`
+        (a plainer 3-step chain neither of this class's own chains matches)
+        — this is `LoseLifeEffect`'s own shape.
+        """
+        player = self.player
+        if player is None and self.player_id is not None:
+            player = context.state.player_by_id(self.player_id)
+        if player is None and self.previous_subject and context.previous_targets:
+            player = context.previous_targets[0]
+        if player is None and self.target_spec is not None and targets:
+            player = targets[0]
+        if player is None:
             player = _controller_of(self.source, context)
-            amount = context.state.life_gained_this_turn.get(getattr(player, "id", None), 0)
-        if self.amount_from_burden_counters_on_self:
-            counters = getattr(self.source, "counters", None) or {}
-            amount = int(counters.get("burden", 0))
-        if self.amount_from_count_selector:
+        return player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        def _from_life_gained_this_turn() -> int:
+            player = _controller_of(self.source, context)
+            return context.state.life_gained_this_turn.get(getattr(player, "id", None), 0)
+
+        def _from_count_selector() -> int:
             from . import continuous  # avoid the continuous↔effects import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
-            amount = continuous.count_selector(
+            return continuous.count_selector(
                 context.state, controller_id, self.amount_from_count_selector, source=self.source,
             )
-        if self.amount_from_spells_cast_this_turn:
+
+        def _from_spells_cast_this_turn() -> int:
             caster = _event_player(context, key="player_id")
             count = context.state.spells_cast_this_turn.get(getattr(caster, "id", None), 0)
-            amount = self.amount * count
-        if self.amount_from_half_own_life:
+            return self.amount * count
+
+        def _from_half_own_life() -> int:
             controller = _controller_of(self.source, context)
             life = getattr(controller, "life", 0)
-            amount = -(-life // 2)  # ceiling division (RULE 107.3 rounds up)
-        if self.amount_from_half_target_life:
+            return -(-life // 2)  # ceiling division (RULE 107.3 rounds up)
+
+        def _from_half_target_life() -> int:
             # Resolved the same way the ordinary (no-amount-selector) path
             # below picks its player — this just needs to know *before*
             # `context.lose_life` which player's life to read.
-            target_player = self.player
-            if target_player is None and self.player_id is not None:
-                target_player = context.state.player_by_id(self.player_id)
-            if target_player is None and self.previous_subject and context.previous_targets:
-                target_player = context.previous_targets[0]
-            if target_player is None and self.target_spec is not None and targets:
-                target_player = targets[0]
-            if target_player is None:
-                target_player = _controller_of(self.source, context)
+            target_player = self._resolve_pre_selector_player(context, targets)
             life = getattr(target_player, "life", 0)
-            amount = -(-life // 2)  # ceiling division (RULE 107.3 rounds up)
-        if self.amount_from_damage_dealt_this_turn:
+            return -(-life // 2)  # ceiling division (RULE 107.3 rounds up)
+
+        def _from_damage_dealt_this_turn() -> int:
             # Same "resolve the target first" shape as
             # ``amount_from_half_target_life`` just above.
-            target_player = self.player
-            if target_player is None and self.player_id is not None:
-                target_player = context.state.player_by_id(self.player_id)
-            if target_player is None and self.previous_subject and context.previous_targets:
-                target_player = context.previous_targets[0]
-            if target_player is None and self.target_spec is not None and targets:
-                target_player = targets[0]
-            if target_player is None:
-                target_player = _controller_of(self.source, context)
-            amount = context.state.damage_dealt_to_players_this_turn.get(
+            target_player = self._resolve_pre_selector_player(context, targets)
+            return context.state.damage_dealt_to_players_this_turn.get(
                 getattr(target_player, "id", None), 0
             )
+
+        amount = self._resolve_amount_override(
+            self.amount,
+            [
+                (
+                    bool(self.amount_from_trigger_event),
+                    lambda: int((context.trigger_event or {}).get(self.amount_from_trigger_event) or 0),
+                ),
+                (self.amount_from_life_gained_this_turn, _from_life_gained_this_turn),
+                (
+                    self.amount_from_burden_counters_on_self,
+                    lambda: int((getattr(self.source, "counters", None) or {}).get("burden", 0)),
+                ),
+                (bool(self.amount_from_count_selector), _from_count_selector),
+                (self.amount_from_spells_cast_this_turn, _from_spells_cast_this_turn),
+                (self.amount_from_half_own_life, _from_half_own_life),
+                (self.amount_from_half_target_life, _from_half_target_life),
+                (self.amount_from_damage_dealt_this_turn, _from_damage_dealt_this_turn),
+            ],
+        )
         if amount <= 0:
             return
         if self.selector in _LOSE_LIFE_SELECTORS:
@@ -10866,26 +11033,39 @@ class AddCountersEffect(GameEffect):
             target = targets[0] if targets else None
         else:
             target = self.source
-        amount = self.amount
-        if self.amount_from_trigger_event:
-            event = context.trigger_event
-            amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
-        if self.amount_from_count_selector:
+
+        def _from_count_selector() -> int:
             from . import continuous  # avoid the continuous↔effects import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
-            amount = continuous.count_selector(
+            return continuous.count_selector(
                 context.state, controller_id, self.amount_from_count_selector, source=self.source,
             )
-        if target is not None and self.amount_if_trigger_subject_subtype and self.amount_if_trigger_subject_subtype_value is not None:
-            # Same override as the `trigger_subject_key` branch above, for a
-            # target reached the ordinary way instead — e.g. `targets`
-            # threaded in from a deferred `pay_cost_then` "if you do" branch
-            # (Emiel the Blessed), where `context.trigger_event`'s window
-            # has already closed by the time this resolves.
+
+        # Same override as the `trigger_subject_key` branch above, for a
+        # target reached the ordinary way instead — e.g. `targets` threaded
+        # in from a deferred `pay_cost_then` "if you do" branch (Emiel the
+        # Blessed), where `context.trigger_event`'s window has already
+        # closed by the time this resolves.
+        subtype_matches = False
+        if (
+            target is not None and self.amount_if_trigger_subject_subtype
+            and self.amount_if_trigger_subject_subtype_value is not None
+        ):
             sub = target.card.type_line.partition("—")[2].strip().lower().split()
-            if any(s in sub for s in self.amount_if_trigger_subject_subtype):
-                amount = self.amount_if_trigger_subject_subtype_value
+            subtype_matches = any(s in sub for s in self.amount_if_trigger_subject_subtype)
+
+        amount = self._resolve_amount_override(
+            self.amount,
+            [
+                (
+                    bool(self.amount_from_trigger_event),
+                    lambda: int((context.trigger_event or {}).get(self.amount_from_trigger_event) or 0),
+                ),
+                (bool(self.amount_from_count_selector), _from_count_selector),
+                (subtype_matches, lambda: self.amount_if_trigger_subject_subtype_value),
+            ],
+        )
         if target is not None and amount > 0:
             context.add_counters(target, amount, self.kind, source=self.source)
 

@@ -34,12 +34,15 @@ from .subgrammars import (
     DEVOTION,
     IF_COLOR_SUFFIX,
     NUMBER,
+    PERMANENT_TYPE_WORDS,
     SPELL_TARGET,
     TARGET,
     UP_TO_ONE,
+    all_permanent_type_selector,
     count_of,
     count_or_x_of,
     devotion_selector,
+    pluralize_permanent_type,
     resolve_color_word,
     resolve_spell_filter,
     resolve_target_kind,
@@ -1710,33 +1713,22 @@ _destroy_multi_target = _multi_target_builder("destroy")
 #: implements are recognized here — "power N or greater" has no mass-form
 #: engine support, so it's deliberately left unmatched (fail-closed) rather
 #: than silently dropped.
+#: Both keyed off the shared `PERMANENT_TYPE_WORDS` vocabulary
+#: (`subgrammars.py`) rather than independently hand-typing the same
+#: five-to-seven words twice, once per number — "destroy all nonland
+#: permanents..."/"Destroy **each** nonland permanent..." (Culling Ritual,
+#: MEC-40) both reach the same "all_nonland_permanents" selector
+#: (`_mass_selector_objects`, built for `_return_all_nonland`'s bounce
+#: sibling) this way for free.
 _MASS_DESTROY_NOUNS: dict[str, str] = {
-    "creatures": "all_creatures",
-    "artifacts": "all_artifacts",
-    "enchantments": "all_enchantments",
-    "planeswalkers": "all_planeswalkers",
-    "permanents": "all_permanents",
-    "lands": "all_lands",
-    # "destroy all nonland permanents..." — `_mass_selector_objects` already
-    # supports this selector (built for `_return_all_nonland`'s bounce
-    # sibling); only the destroy/exile noun table was missing the phrase.
-    "nonland permanents": "all_nonland_permanents",
+    pluralize_permanent_type(w): all_permanent_type_selector(w) for w in PERMANENT_TYPE_WORDS
 }
 #: "Destroy **each** artifact with mana value X or less." (Meltdown) —
 #: the singular-noun/"each" phrasing of the same mass wipe, alongside the
 #: far more common plural-noun/"all" one above; same selector targets, just
 #: matched against a singular noun word.
 _MASS_DESTROY_NOUNS_SINGULAR: dict[str, str] = {
-    "creature": "all_creatures",
-    "artifact": "all_artifacts",
-    "enchantment": "all_enchantments",
-    "planeswalker": "all_planeswalkers",
-    "permanent": "all_permanents",
-    "land": "all_lands",
-    # "Destroy each nonland permanent with mana value 2 or less." (Culling
-    # Ritual, MEC-40) — the singular/"each" sibling of the plural entry
-    # above; same "all_nonland_permanents" selector.
-    "nonland permanent": "all_nonland_permanents",
+    w: all_permanent_type_selector(w) for w in PERMANENT_TYPE_WORDS
 }
 #: The mana-value bound's own magnitude accepts ``x`` (Meltdown's own
 #: "with mana value X or less", X being this spell's announced {X}) as well

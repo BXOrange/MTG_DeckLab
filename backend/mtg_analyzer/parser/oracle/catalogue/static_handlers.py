@@ -276,11 +276,12 @@ _SPELL_COST_TAX_RE = re.compile(
 # sorcery spells you cast …" compound (Baral, Chief of Compliance-shaped)
 # passes both words through as a list — `continuous._spell_type_matches`
 # ORs them. Colour-scoped variants ("White spells you cast cost {1} less…",
-# the Medallion cycle) and creature-subtype-scoped ones ("Equipment spells…",
-# the Banneret cycle) are a genuinely different filter kind
-# (`_spell_type_matches` only reads `Card`'s main-type flags, not colour or
-# subtypes) — deliberately left unclaimed rather than silently ignoring the
-# qualifier.
+# the Medallion cycle) are now claimed too, by `_SPELL_COST_TAX_COLOR_RE`
+# below — not this regex's own ``word1``, since `_spell_type_matches` only
+# reads `Card`'s main-type flags, not colour. Creature-subtype-scoped
+# variants ("Equipment spells…", the Banneret cycle) remain a genuinely
+# different filter kind, still deliberately left unclaimed rather than
+# silently ignoring the qualifier.
 _SPELL_COST_TAX_YOU_CAST_RE = re.compile(
     r"(?:(?P<word1>[a-z]+)(?: and (?P<word2>[a-z]+))? )?spells you cast cost "
     r"\{(?P<n>\d+)\} (?P<dir>more|less) to cast",

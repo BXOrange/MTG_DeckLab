@@ -20,8 +20,10 @@ Pure — **no `game/` imports** (front-end security boundary).
 from __future__ import annotations
 
 import copy
+import hashlib
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 
 from .catalogue.counters import entry_counters_condition
@@ -999,6 +1001,32 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: own mana ability, the battlefield-zone sibling of the existing hand-zone
 #: "exile this card from your hand" cost sniff).
 PARSER_VERSION = "96"
+
+
+def parser_source_hash() -> str:
+    """SHA-1 over every front-end `.py` file's path + bytes, sorted for
+    determinism.
+
+    Exists so a stale-coverage measurement (`PARSER_LONG_TAIL.md`'s own
+    documented failure mode: "measuring twice within one batch... silently
+    reuses the first run's rows" when `PARSER_VERSION` isn't bumped) is
+    structurally detectable rather than a discipline someone has to
+    remember. `test_parser_version_lock.py` pins this hash, for the current
+    `PARSER_VERSION`, in the checked-in `PARSER_VERSION.lock` file — any
+    front-end edit that changes this hash without a matching lock-file
+    update (via `scripts/update_parser_version_lock.py`) fails that test.
+    Deliberately *not* used as `PARSER_VERSION` itself: coverage-ledger rows
+    are keyed on `PARSER_VERSION` (`services/coverage_db.py`), and a version
+    that changes on every edit — including comment-only ones — would
+    invalidate all ~34k rows for edits that never touch parse behavior.
+    """
+    root = Path(__file__).resolve().parent
+    files = sorted(p for p in root.rglob("*.py") if "__pycache__" not in p.parts)
+    digest = hashlib.sha1()
+    for path in files:
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 @dataclass

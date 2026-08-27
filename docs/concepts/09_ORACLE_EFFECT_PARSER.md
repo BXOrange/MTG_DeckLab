@@ -49,10 +49,10 @@ Why the IR is not ceremony:
 1. **It is the security boundary.** Nothing derived from card text ever
    becomes code. The front-end emits only whitelisted `{type, params}`
    data; the binder only instantiates *known* `EffectRegistry` classes.
-2. **It is the cache unit.** Parsing (especially any future LLM tier) is
-   expensive; the IR is cheap JSON to store and re-hydrate.
+2. **It is the cache unit.** Parsing is expensive; the IR is cheap JSON to
+   store and re-hydrate.
 3. **It decouples "English is hard" from "rules are hard."** The parser
-   can evolve regex → grammar → LLM behind the IR with zero `RulesEngine`
+   can evolve regex → grammar behind the IR with zero `RulesEngine`
    changes. The front-end has **no `game/` imports** — pure, parallel,
    independently testable.
 4. **It fails closed.** Unrecognized text never guesses and never crashes;
@@ -97,7 +97,7 @@ AbilitySpec {
                count, restrictions },
   optional:  false,                                            // "you may"
   raw_text:  "deal 3 damage to any target",                    // provenance
-  parser:    { version, source: "rule:<id>" | "llm" | "manual",
+  parser:    { version, source: "rule:<id>" | "manual",
                confidence }
 }
 ```
@@ -107,8 +107,10 @@ exactly, so the binder is near-trivial for effects that already exist.
 `trigger.event` maps to existing `EventType` constants
 (`ENTERS_BATTLEFIELD`, `DIES`, `ATTACKS`, `LIFE_GAINED`, `SPELL_CAST`, …).
 
-The `parser` provenance block is present from day one so the LLM tier and
-human review drop in later without a data migration.
+The `parser` provenance block is present from day one so hand-authored vs.
+rule-matched specs are distinguishable without a data migration. (An
+`"llm"` source was originally reserved for an ingest-time LLM tier — see
+the decision below; that source value is unused.)
 
 ---
 
@@ -319,23 +321,43 @@ card row. This is an optimization, not a source of truth.
 
 # THE PROCESSING LIST + ANALYZER MODULE
 
+> **Decision (2026-08-27): the ingest-time LLM tier described in this
+> section is out of scope and not planned.** An architecture evaluation of
+> this pipeline's efficiency considered it explicitly (an offline,
+> schema-constrained analyzer that proposes `AbilitySpec` rows for human
+> review — the design below) and the project decided against building it,
+> independent of the security-boundary argument for why it *would* have
+> been safe if built. Coverage growth instead relies on shared-grammar
+> factoring, family/cycle templating in the hand-authored catalogue, and
+> (as a separately prototyped, higher-risk option) a shallow clause-grammar
+> tier ahead of the handler regexes — see
+> `docs/implementation-state/PARSER_LONG_TAIL.md`. The rest of this section
+> is kept as a historical record of the original design, not a roadmap.
+
 - **Processing list** — for `UNMODELED` cards, emit their **deduped,
   template-abstracted** unclaimed clauses (literals like numbers/names
   abstracted out) so the backlog is a few hundred unique templates, not
   tens of thousands of cards. It is *derived* (regenerable by scanning the
   volatile cache against the catalogue), so it lives in the **volatile
-  store** as an **input** to the analyzer.
-- **Analyzer module** — turns templates into new handlers. The safe form:
-  it **proposes a catalogue row (data) for human review and commit** — it
-  does **not** synthesize-and-execute code from card text. Its **outputs**
-  (new handler rows) land in the **repo**.
+  store** as an **input** to the analyzer. This part is already real —
+  `parser/oracle/processing_list.py` ships and ranks the backlog today.
+- **Analyzer module (not built, not planned — see decision above)** — the
+  original design's proposal for turning templates into new handlers
+  automatically. The safe form it specified: it **proposes a catalogue row
+  (data) for human review and commit** — it does **not**
+  synthesize-and-execute code from card text. Its **outputs** (new handler
+  rows) would have landed in the **repo**. Today this step is done by hand
+  (a person, optionally LLM-assisted the same way any coding task is,
+  writes and reviews the handler directly against `parser_probe.py`'s
+  cache-wide feedback — see `PARSER_LONG_TAIL.md`), with no automated
+  proposal step.
 
 Inputs volatile, outputs durable — the same split as the three-tier model.
-This is also exactly where the future **LLM tier** drops in: ingest-time /
-offline only, output constrained to the `AbilitySpec` / catalogue-row
-schema, validated identically, low-confidence results quarantined. It is
-never in the request hot path, and prompt injection is inherently contained
-because a model can only ever emit whitelisted specs.
+This was also exactly where the never-built **LLM tier** would have
+dropped in: ingest-time / offline only, output constrained to the
+`AbilitySpec` / catalogue-row schema, validated identically, low-confidence
+results quarantined, never in the request hot path. That design is
+preserved below for reference in case the decision is revisited.
 
 ---
 
@@ -350,7 +372,9 @@ because a model can only ever emit whitelisted specs.
    session.
 3. **ReDoS resistance.** Anchored/linear regexes, a hard size cap on
    `oracle_text`, a tokenizer over catastrophic backtracking.
-4. **LLM tier isolation.** Structured-output only, schema-validated,
+4. **LLM tier isolation (historical — the tier itself is out of scope, see
+   the decision under "THE PROCESSING LIST + ANALYZER MODULE").** As
+   designed, had it been built: structured-output only, schema-validated,
    timeout-bounded, offline. Anything the model can emit, a real card could
    too — the schema is the ceiling.
 5. **Fail-closed.** Any unclaimed span → whole card `UNMODELED`; never a
@@ -364,8 +388,7 @@ because a model can only ever emit whitelisted specs.
 # SCALABILITY
 
 - **Parse once conceptually, recompute cheaply.** Deterministic front-end
-  is microsecond-scale; the expensive LLM tier runs offline on the
-  deduped backlog, never per request.
+  is microsecond-scale — the only tier that exists or is planned to run.
 - **Stateless, no `game/` imports** → the front-end is trivially
   parallelizable and could run as a standalone service.
 - **Template-abstracted backlog** keeps the analyzer's problem bounded to
@@ -387,7 +410,7 @@ parser/oracle/            # FRONT-END — pure, no game/ imports
   spec.py                 # AbilitySpec dataclasses + JSON (de)serialize + validate
   gate.py                 # full-span coverage check → MODELED / UNMODELED
   processing_list.py      # template-abstract + dedupe unclaimed clauses
-  analyzer.py             # (later) propose catalogue rows for review
+  # analyzer.py            # NOT PLANNED — see the 2026-08-27 decision above
 
 game/effect_binder.py     # BACK-END — AbilitySpec[] → GameEffect via EffectRegistry
 services/card_effects.py  # (optional) disposable memo cache keyed by catalogue_version
@@ -408,8 +431,11 @@ services/card_effects.py  # (optional) disposable memo cache keyed by catalogue_
 - **Phase 2 — triggered/activated/static wiring + load-time linking.**
   Trigger-phrase → `EventType` table, cost parsing, attach to `GameObject`
   ability lists; parse-on-load in `LazyCardLoader`; optional memo cache.
-- **Phase 3 — analyzer + LLM fallback.** Template backlog, review pipeline,
-  ingest-time LLM tier into the same schema seam.
+- **Phase 3 — analyzer + LLM fallback. Decided against, not planned** (see
+  the decision under "THE PROCESSING LIST + ANALYZER MODULE"). The
+  template backlog and review pipeline it would have fed
+  (`processing_list.py`) are still real and in use for hand-authoring; the
+  ingest-time LLM tier itself was never built and won't be.
 
 Phase 0 de-risks the entire design by validating the IR boundary against
 the real `RulesEngine` before any NLP is written.
