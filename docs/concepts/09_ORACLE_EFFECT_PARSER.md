@@ -257,6 +257,50 @@ present and future handler benefits, not with a local workaround scoped to
 the one card that exposed it — a local fix is a half-fix that leaves the
 same landmine for the next handler to step on.
 
+### A "clause-tree grammar tier" was prototyped and evaluated — don't rebuild this without new evidence
+
+An efficiency-focused architecture review (2026-08-27) asked whether a
+deeper structural fix — a shallow subject/verb/object clause parser sitting
+between `normalize()` and the handler table, producing a canonical
+clause-tree that a *smaller* set of semantic mappers turn into `EffectSpec`s
+— would cut handler count by absorbing surface-phrasing variation more
+aggressively than per-fragment sharing (the TARGET/NUMBER/DEVOTION/
+`PERMANENT_TYPE_WORDS` pattern above) does. This was investigated concretely
+against `catalogue/handlers.py`'s damage/destroy/exile family (43 of the
+237 handler rows at the time) before writing any grammar-tier code, by
+categorizing what actually drives that count. Finding: **most of it is not
+surface-phrasing redundancy** — `damage_kicked_override`/
+`damage_each_multi_target`/`divided_damage`/`damage_selector_devotion`/
+`destroy_unless_pay`/etc. are genuinely distinct effect shapes that would
+each still need their own semantic mapper under a clause-tree architecture,
+not fewer. Even the one cluster that looked most promising — the seven
+`damage_equal_to_power_*` rows (self/self_selector/pronoun/
+pronoun_selector/attached/previous), which share near-identical regex
+bodies and *already* funnel through two parameterized builder factories
+(`_damage_equal_to_power_implicit(dealer_kind)`/`_damage_equal_to_power_
+selector(dealer_kind)`) — turned out not to be a further-collapsible case:
+the `pronoun` vs `previous` split exists specifically to encode which parse
+*context* is active (`EffectHandler.self_subject_only`/
+`previous_subject_only`, disambiguating what English "it" refers to), and a
+clause-tree layer would still need that same context passed in from the
+caller to resolve the ambiguity — it doesn't eliminate the distinction, just
+relocates it.
+
+The one **real** surface-duplication this investigation did find — the
+literal `(?:(?:~|it|this creature|this land|this permanent) )?` self-subject
+prefix, hand-typed identically at 7 separate call sites — was exactly the
+kind of case the existing "factor shared sub-grammars" rule above already
+covers, and was fixed the ordinary way (`subgrammars.SELF_SUBJECT_PREFIX`),
+not via a new grammar tier. **Conclusion: don't build the clause-tree
+grammar tier on the strength of the damage/destroy/exile family — its
+handler count is driven by genuine semantic and parse-context variety, not
+redundant grammar, so the rewrite's promised handler-count reduction would
+not materialize there.** This doesn't rule the idea out everywhere — a
+different, more surface-homogeneous family might show a different result —
+but re-attempt it only with a fresh, concrete count of *that* family's own
+genuinely-duplicated vs. genuinely-distinct rows, the same way this one was
+evaluated, rather than assuming the earlier optimistic framing still holds.
+
 ---
 
 # THE COVERAGE GATE: FAIL-CLOSED, ALL-OR-NOTHING

@@ -35,6 +35,7 @@ from .subgrammars import (
     IF_COLOR_SUFFIX,
     NUMBER,
     PERMANENT_TYPE_WORDS,
+    SELF_SUBJECT_PREFIX,
     SPELL_TARGET,
     TARGET,
     UP_TO_ONE,
@@ -477,7 +478,7 @@ def _damage_each_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: a new primitive. "targets" (unqualified, RULE 115.4 "any target") vs.
 #: "target creatures" are the only two real phrasings.
 _DIVIDED_DAMAGE_RE = _c(
-    rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+    rf"{SELF_SUBJECT_PREFIX}"
     rf"deals? {COUNT_X} damage divided as you choose among any number of "
     r"(?P<target>targets|target creatures)"
 )
@@ -498,7 +499,7 @@ def _divided_damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: one. Same local ``targets|target creatures`` alternation as that row
 #: (not the shared `_MULTI_TARGET_ALT`, which this family has never used).
 _DIVIDED_DAMAGE_RANGE_RE = _c(
-    rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+    rf"{SELF_SUBJECT_PREFIX}"
     rf"deals? {COUNT_X} damage divided as you choose among "
     r"(?P<range_min>\d+) or (?P<range_max>\d+) (?P<target>targets|target creatures)"
 )
@@ -520,7 +521,7 @@ def _divided_damage_range(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: `_damage_each_multi_target` relates to `_divided_damage` for the "any
 #: number of"/"up to N" shapes), same local bare-``targets`` alternation.
 _DAMAGE_EACH_RANGE_RE = _c(
-    rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+    rf"{SELF_SUBJECT_PREFIX}"
     rf"deals? (?P<amount>\d+) damage to each of "
     r"(?P<range_min>\d+) or (?P<range_max>\d+) (?P<target>targets|target creatures)"
 )
@@ -633,7 +634,7 @@ _SELECTOR_WORD_MAP: dict[str, str] = {
 #: Volley-shaped) — `TargetSpec.colors`' own OR narrowing (`_destroy`'s
 #: single-``color`` sibling; only ever two colours on a real card so far).
 _DAMAGE_TARGET_TWO_COLOR_RE = _c(
-    rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to target "
+    rf"{SELF_SUBJECT_PREFIX}deals? {NUMBER} damage to target "
     rf"(?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) creature"
 )
 
@@ -5618,7 +5619,7 @@ HANDLERS: list[EffectHandler] = [
     # since the source is already bound at bind time regardless of wording).
     EffectHandler(
         "damage",
-        _c(rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to {TARGET}"),
+        _c(rf"{SELF_SUBJECT_PREFIX}deals? {NUMBER} damage to {TARGET}"),
         _damage,
     ),
     # "~ deals 6 damage to each of up to two target creatures and/or
@@ -5627,7 +5628,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "damage_each_multi_target",
         _c(
-            rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+            rf"{SELF_SUBJECT_PREFIX}"
             rf"deals? (?P<amount>\d+) damage to each of {_MULTI_TARGET_QUANTIFIER}"
             rf"(?P<target>{_MULTI_TARGET_ALT})"
         ),
@@ -5704,7 +5705,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "damage_selector",
         _c(
-            rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to "
+            rf"{SELF_SUBJECT_PREFIX}deals? {NUMBER} damage to "
             rf"(?P<selector>each creature|each player|each opponent|that player|them)"
         ),
         _damage_selector,

@@ -167,6 +167,17 @@ _TARGET_ROWS: list[tuple[str, str]] = [
 #: (``each_creature``/``each_player``/``each_opponent``) claims those
 #: phrases on its own, bypassing TARGET entirely.
 
+#: An optional self-subject prefix a resolve-time effect clause may open
+#: with — "~ deals 3 damage…"/"it deals 3 damage…" (a triggered ability's
+#: own elided-source subject, English writing "it" for the permanent whose
+#: ability this is)/"this creature deals…"/"this land deals…"/"this
+#: permanent deals…". Purely cosmetic: the source is already bound at bind
+#: time regardless of which word prints, so every consumer just needs it
+#: stripped the same way. Was hand-typed identically at 7 separate call
+#: sites in `handlers.py`'s damage family before this existed (docs/09
+#: "Factor shared sub-grammars").
+SELF_SUBJECT_PREFIX = r"(?:(?:~|it|this creature|this land|this permanent) )?"
+
 #: An optional "up to one "/"up to 1 " prefix (RULE 115.1a) a TARGET phrase
 #: may carry — "destroy up to one target creature" is the same choice as
 #: "destroy target creature" except zero targets is also legal
