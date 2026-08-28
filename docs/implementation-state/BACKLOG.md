@@ -56,6 +56,57 @@ Plan-level sequencing lives in
   piece — a per-seat avatar picker, and its avatars' card text — is a
   permanent non-goal, not a queued gap; see the MEC callout below.)
 
+- **PAR-14 · RULE 702 keyword catalogue: ~122 of 195 registered keywords
+  are recognized-but-inert.** A 2026-08-27 systematic audit (prompted by
+  finding Station/Toxic both claimed "implemented" by `CLAUDE.md` while
+  actually inert or non-existent — Toxic has since shipped for real, see
+  `Done_Backend.md`) checked every row in `parser/oracle/catalogue/
+  keywords.py` (195 total, not 194) against real `game/` consumers, not
+  just the parser's own `MODELED` verdict — the coverage gate only checks
+  that a keyword *parses*, not that anything downstream reads it, so a
+  bare `[keyword]` spec silently passes as "done" forever. Result: **~70
+  fully working, ~122 recognized-but-inert or unenforced, ~3
+  hand-authored-only**. The set-specific portion of that 122 (one
+  expansion each, e.g. Job Select/Final Fantasy, Web-slinging/Spider-Man)
+  is now tracked in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md)'s
+  set-specific table instead of here. What's open here is the
+  **evergreen** portion — keywords that recur across many sets/years, so
+  a fix pays off repeatedly:
+  - **Combat-evasion, never enforced** (a real rules violation, not just a
+    missing bonus — e.g. a Shroud permanent can currently be freely
+    targeted): Shroud (702.18), Fear (702.36), Intimidate (702.13), Skulk
+    (702.118), Shadow (702.28). `targeting._targetable_by` and
+    `combat.can_block` need a generic hook the same shape `has_hexproof`
+    already has, not five hand-rolled checks.
+  - **Cost-reduction keywords never wired to the existing generic
+    mechanism** (`continuous.self_cost_reduction_for` already handles
+    "costs {N} less for each X"-shaped statics for hand-authored cards —
+    it just isn't driven by these keywords themselves): Affinity
+    (702.41), Delve (702.66), Convoke (702.51), Improvise (702.126).
+  - **Triggered abilities with zero consumer**: Prowess (702.108, ~92
+    cache cards — one of the most-reprinted keywords in modern Magic),
+    Exalted (702.83, ~36 cards incl. cEDH staples Rafiq/Qasali
+    Pridemage/Noble Hierarch), Battle Cry (702.91), Mentor (702.134).
+  - **Death/graveyard-adjacent, zero implementation**: Undying (702.93),
+    Persist (702.79) — even a hand-authored *grant* of "undying"
+    (`ability_catalogue/entries_003.py`) currently does nothing, since no
+    death-replacement code anywhere checks for it; Unearth (702.84),
+    Embalm (702.128), Eternalize (702.129), Dredge (702.52).
+  - **Cast-alternative/timing keywords, zero implementation**: Madness
+    (702.35), Miracle (702.94), Ninjutsu (702.49, a real Ninja-tribal
+    mechanic), Bestow (702.103), Dash (702.109), Backup (702.165 — a
+    counter-placement keyword, confirmed via `parser_probe.py card "Bola
+    Slinger"`: bare `[keyword]`, no counters ever placed).
+  Full table (all 195 rows, categorized, with file:line evidence per
+  bucket) is in the audit's own report — not reproduced here since this
+  file stays open-scope-only; re-derive via the same method
+  (`parser_probe.py card "<name>"` per keyword, cross-referenced against
+  `game/combat.py`'s `COMBAT_KEYWORDS`, `game/effect_binder.py`'s
+  `attach_keyword`/`_KEYWORD_TRIGGERED_BUILDERS`) rather than trusting
+  this list to stay current as more keywords get built. Each bucket above
+  is independently shippable — no shared blocking primitive ties them
+  together, unlike Station's/Amass's own single-mechanism builds.
+
 ## MEC — Game mechanics
 
 > **Permanent non-goals** (never to be built, not gaps): Stickers (RULE

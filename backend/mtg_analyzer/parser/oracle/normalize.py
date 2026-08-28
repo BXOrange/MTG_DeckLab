@@ -55,9 +55,23 @@ SELF = "~"
 #: resolving permanent — which is exactly what ``~`` means. Every real
 #: battle writes its ETB as "when this Siege enters, …", so without this
 #: fold the whole card type is UNMODELED on its first line.
+#:
+#: "this Spacecraft"/"this Planet" (RULE 702.184/721 Station) are the same
+#: shape as battle/Siege above, for the same reason: a Station permanent's
+#: bracket-less lines (RULE 721.4 — "When this Spacecraft enters, …",
+#: "Whenever this Spacecraft attacks, …", "{cost}: This Spacecraft gets
+#: …") are ordinary ETB/attack/pump abilities about the resolving
+#: permanent, and the vast majority of cached Station Spacecraft print at
+#: least one of them this way — without this fold, almost no Station
+#: Spacecraft could ever reach `MODELED` regardless of `catalogue.station`'s
+#: own bracket-splitting grammar. "Planet" (the Station land subtype) is
+#: included too even though no cached card's *body* text needs it yet (only
+#: its own Station reminder clause, already stripped by `normalize`'s
+#: generic parenthetical removal before this ever runs) — same reasoning,
+#: cheap to cover pre-emptively.
 _SELF_REFERENCE_RE = re.compile(
     r"\bthis (?:creature|permanent|artifact|enchantment|land|planeswalker"
-    r"|vehicle|equipment|aura|token|battle|siege)\b"
+    r"|vehicle|equipment|aura|token|battle|siege|spacecraft|planet)\b"
 )
 
 

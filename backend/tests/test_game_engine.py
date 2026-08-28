@@ -2009,6 +2009,49 @@ def test_display_keywords_expands_protection():
     assert "Protection: B" in labels
 
 
+def test_station_bracket_keyword_does_not_leak_unconditionally():
+    # RULE 721.2a: "8+ | Flying, deathtouch" only grants those keywords at
+    # 8+ charge counters (via the layer-6 grant `catalogue.station` feeds
+    # `continuous.recompute`) — `keywords_of` must not also treat the
+    # bracket line as unconditional text, the same leak `is_leveler`
+    # already guards against for "LEVEL 7+" blocks. Regression test for a
+    # real bug found live on Entropic Battlecruiser: "deathtouch" (comma-
+    # anchored right after "8+ | ") matched the oracle-text fallback
+    # unconditionally before `station_base_text` existed.
+    card = creature(
+        type_line="Artifact — Spacecraft",
+        keywords=["Station"],
+        oracle_text=(
+            "Station (Tap another creature you control: Put charge counters "
+            "equal to its power on this Spacecraft. Station only as a "
+            "sorcery. It's an artifact creature at 8+.)\n"
+            "1+ | Whenever an opponent discards a card, they lose 3 life.\n"
+            "8+ | Flying, deathtouch\n"
+            "Whenever this Spacecraft attacks, each opponent discards a card."
+        ),
+    )
+    assert combat.keywords_of(card) == frozenset()
+
+
+def test_station_unconditional_line_after_brackets_still_recognized():
+    # RULE 721.4 allows an ordinary (bracket-less) line *after* the tier
+    # brackets too — unlike Leveler's strict preamble-only shape. A real
+    # unconditional keyword printed there must still be found, so the fix
+    # above must filter bracket lines rather than truncate at the first one.
+    card = creature(
+        type_line="Artifact — Spacecraft",
+        keywords=["Station"],
+        oracle_text=(
+            "Station (Tap another creature you control: Put charge counters "
+            "equal to its power on this Spacecraft. Station only as a "
+            "sorcery.)\n"
+            "1+ | Flying\n"
+            "Vigilance"
+        ),
+    )
+    assert combat.keywords_of(card) == {"vigilance"}
+
+
 def test_recognizes_multiple_protections_joined_by_and_from():
     # Official templating for a multi-quality protection repeats "from" per
     # quality (the Sword-of-X-and-Y equipment cycle: "Protection from red

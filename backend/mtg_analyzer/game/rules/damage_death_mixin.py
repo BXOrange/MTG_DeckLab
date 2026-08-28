@@ -32,7 +32,7 @@ from ...models.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
 from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
-from ..combat import has_infect, has_wither, is_protected_from
+from ..combat import has_infect, has_wither, is_protected_from, toxic_value
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
 from ..effects import (
@@ -353,6 +353,23 @@ class DamageDeathMixin:
                 self.add_counters(final_target, final, "-1/-1", source=source)
             else:
                 final_target.damage_marked += final
+            # RULE 702.164c: combat damage dealt to a *player* by a source
+            # with toxic gives that player poison counters equal to the
+            # source's total toxic value, "in addition to the damage's
+            # other results" — additive, not a substitution like infect
+            # (702.90b) above, so this runs regardless of which branch just
+            # ran and composes with infect if a source somehow has both
+            # (a rare real shape): infect already converted this same hit
+            # into `final` poison counters instead of life loss, and toxic
+            # piles its own N on top of that. Combat-only per 702.164c's own
+            # wording (unlike infect, which recolors *all* damage, not just
+            # combat damage) — read the resolved event's own `combat` flag
+            # rather than the outer closure's, since a replacement effect
+            # could in principle rewrite it same as `target_id`/`is_player`.
+            if final_is_player and bool(resolved.get("combat", combat)) and source is not None:
+                toxic_n = toxic_value(source)
+                if toxic_n:
+                    self.add_player_counters(final_target, toxic_n, "poison", source=source)
             # `copy_with` (not a fresh `GameEvent`) so `source_id`/`combat`/
             # `source_controller_id` survive onto the broadcast event — a
             # "whenever equipped creature deals combat damage to a player"

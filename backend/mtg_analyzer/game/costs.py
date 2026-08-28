@@ -478,6 +478,25 @@ class ActivationCost:
     #: creature. RULE 702.171d: activate only as a sorcery — see
     #: `sorcery_speed_only`, already general.
     saddle_power: Optional[int] = None
+    #: RULE 702.184a/721 Station: "Tap another untapped creature you
+    #: control: Put a number of charge counters on this permanent equal to
+    #: the tapped creature's power. Activate only as a sorcery." — genuinely
+    #: different from ``crew_power``/``saddle_power``'s own "any number from
+    #: a pool, sized by a power threshold" shape: this taps **exactly one**
+    #: other untapped creature the player chooses (`GameEngine.
+    #: _resolve_station_cost`, reusing `_crew_pool`'s own "other untapped
+    #: creatures you control" pool unchanged, with an exact count of one —
+    #: `_resolve_pool_cost`'s shape, not `_resolve_crew_cost`'s threshold
+    #: one), and the chosen creature's own power is what the *resolving
+    #: effect* needs to read afterward, not merely a threshold gate paying
+    #: the cost. Paying it stamps `GameObject.station_tapped_power` (the
+    #: `sacrificed_cost_power` idiom's cost-payment sibling), read back by
+    #: `continuous.count_selector`'s ``"station_tapped_power"`` entry. No
+    #: once-per-turn cap (RULE 721.4 — Station may be activated repeatedly
+    #: regardless of how many charge counters are already on the
+    #: permanent); `sorcery_speed_only` (already general) carries RULE
+    #: 702.184a's own timing restriction.
+    station: bool = False
     #: "…unless they sacrifice a nonland permanent of their choice or
     #: discard a card." (Tergrid's Lantern, MEC-43 round 4E) — RULE 118.3's
     #: "unless" idiom applied to a *compound* cost where the payer picks
@@ -526,6 +545,7 @@ class ActivationCost:
             or self.exile_hand_card_color
             or self.crew_power
             or self.saddle_power
+            or self.station
             or self.sacrifice_or_discard
         )
 
@@ -596,6 +616,8 @@ class ActivationCost:
             parts.append(f"[{'+' if self.loyalty >= 0 else ''}{self.loyalty}]")
         if self.crew_power:
             parts.append(f"Tap any number of other untapped creatures you control with total power {self.crew_power} or greater")
+        if self.station:
+            parts.append("Tap another untapped creature you control")
         if self.sacrifice_or_discard:
             parts.append("Sacrifice a nonland permanent or discard a card")
         return ", ".join(parts)
@@ -630,6 +652,7 @@ class ActivationCost:
             "loyalty_is_x": self.loyalty_is_x,
             "x_selector": self.x_selector,
             "crew_power": self.crew_power,
+            "station": self.station,
             "sacrifice_or_discard": self.sacrifice_or_discard,
             "label": self.label(),
         }

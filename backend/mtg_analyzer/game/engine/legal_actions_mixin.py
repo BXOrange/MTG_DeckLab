@@ -159,6 +159,10 @@ class LegalActionsMixin:
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
         if ability.cost.tap_others:
             action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+        if ability.cost.station:
+            # RULE 702.184a: exact-count-one, same `tap_cost` UI shape as
+            # `tap_others` — see `_station_cost_choice`.
+            action["tap_cost"] = self._station_cost_choice(player, source, ability.cost)
         if ability.cost.crew_power:
             # RULE 702.122a: which (and how many) untapped creatures pay a
             # Crew cost is the player's own choice — the `_crew_cost_choice`

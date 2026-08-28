@@ -2439,6 +2439,21 @@ is in the rules-engine categories below them.
 - **What:** Absorb went from a recognized-but-inert numbered keyword to real behaviour: bound structurally in `effect_binder.attach_to_object`'s keyword branch, straight off `parametric_keywords["absorb"]["n"]` onto the `"prevent_damage"` factory (`to="self"`) — no prior keyword-to-`ReplacementEffect` dispatch table existed. Closes every cached Absorb-N creature (e.g. Lymph Sliver).
 - **Files:** `game/effect_binder.py`.
 
+### RULE 702.164 Toxic — Real Behaviour
+
+- **What:** Toxic N was already parser-recognized as a bare numbered keyword but had zero engine consumer — the poison-counter substitution in `deal_damage` only ever fired for Infect. Added `combat.has_toxic`/`toxic_value` (reading `GameObject.parametric_keywords["toxic"]["n"]`, the same shape `has_infect`/`has_wither` already use) and a new additive branch in `damage_death_mixin.deal_damage`: for combat damage from a Toxic source, the poison counters stack *on top of* ordinary damage/life-loss rather than replacing it — the opposite composition rule from Infect (RULE 702.90b, damage-type conversion), and the two compose correctly if a source somehow has both.
+- **Files:** `game/combat.py`, `game/rules/damage_death_mixin.py`
+- **Why not one shared mechanism with Infect:** RULE 702.164c is explicitly additive ("in addition to the damage's other results"); RULE 702.90b is a substitution. Sharing code would have required a branch anyway, so two small, clearly-named predicates were simpler than one overloaded one.
+- **Tests:** `tests/test_toxic_family.py`
+
+### RULE 702.184a/721 Station (Edge of Eternities)
+
+- **What:** A third "striated text box" card structure alongside Leveler/Class — a Spacecraft (or Planet land) whose text splits into a fixed Station reminder line (the real activated ability, RULE 702.184a: tap another untapped creature, put charge counters on this permanent equal to its power, sorcery-speed only, no once-per-turn cap) plus one or more `"N+ | <ability>"` bracket lines that are **cumulative** (>= comparison), not Leveler's mutually-exclusive tier ranges. `parser/oracle/catalogue/station.py`'s `split_station_blocks` classifies every line by shape in printed order (RULE 721.4 allows an ordinary line both before *and* after the brackets, unlike Leveler's strict preamble-then-blocks shape); `station_creature_threshold` reads the reminder line's own trailing "It's an artifact creature at N+." sentence from **raw**, pre-`normalize` text, since the per-bracket P/T box a real card prints doesn't survive into Scryfall's `oracle_text` at all (confirmed against all 30 cached Station cards). `gate.py` gained a new `is_station` dispatch branch reusing Leveler/Class's own `min_level`/`level_counter` gate mechanism, pointed at `"charge"` counters, for both the cumulative per-bracket grants and the creature-hood static.
+- **Engine side:** the reminder line's activated ability is bound *structurally* off Scryfall's own `keywords: ["Station"]` entry (`effect_binder._station_activated_ability`, mirroring Crew/Saddle's PAR-9/MEC-40-shaped "recognized but inert keyword" fix), not emitted by the parser module. A new `ActivationCost.station` cost (exact-count-one from `_crew_pool`'s existing "other untapped creatures you control" pool, unlike Crew/Saddle's own power-threshold subset) stamps `GameObject.station_tapped_power` (the `sacrificed_cost_power` idiom's cost-payment sibling), read back by `continuous.count_selector`'s `"station_tapped_power"` entry for the charge-counter amount. The creature-hood static reuses `Card.vehicle_power`/`vehicle_toughness` (RULE 208.1's general noncreature-permanent-P/T slot) — which required widening `services/scryfall_client.py`'s Vehicle-only P/T capture to also recognize "Spacecraft" in the type line (the same latent-bug shape MEC-29 fixed once already for Vehicle/Crew, caught before shipping this time).
+- **Bug found and fixed:** `combat.keywords_of`'s oracle-text regex fallback had no concept of "only active at N+ counters" — confirmed live on Entropic Battlecruiser, whose "8+ | Flying, deathtouch" bracket leaked a permanent, unconditional `deathtouch` (comma-anchored right after the "8+ | " prefix) even at 0 charge counters, on a card where no static had even bound yet. The exact same leak `is_leveler`'s `leveler_base_text` restriction already prevents for "LEVEL N+" blocks, just never extended to Station. Fixed with `station.station_base_text` — filters bracket *lines* out rather than truncating at the first one (RULE 721.4's own before-and-after shape means a real trailing unconditional line must still be found), wired into `keywords_of` alongside the existing `is_leveler` branch.
+- **Files:** `parser/oracle/catalogue/station.py` (new), `parser/oracle/gate.py`, `game/effect_binder.py`, `game/engine/activation_mixin.py`, `game/engine/legal_actions_mixin.py`, `game/costs.py`, `game/continuous.py`, `game/combat.py`, `models/card.py` (`is_station`), `models/game_object.py` (`station_tapped_power`), `services/scryfall_client.py`
+- **Tests:** `tests/test_game_engine.py` (the `keywords_of` leak regression, both directions)
+
 ## Designations & Standing Systems
 
 ### Goad (RULE 701.15)
@@ -2972,6 +2987,13 @@ is in the rules-engine categories below them.
 
 - **What:** The shared `_MULTI_TARGET_QUANTIFIER` gained a third alternative for "N or M" ranges, widening `tap`/`return_to_hand`/`return_from_graveyard`/`add_counters`/`pump` for free; `divided_damage` and pump's dedicated "up to two" rows got matching dedicated range rows. New `PumpEffect.previous_subject` mode (mirroring `TapEffect`/`ReturnToHandEffect`'s "They…" idiom) for two-clause "…1 or 2 target creatures…. They get/gain `<X>`." shapes.
 - **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects.py`.
+
+### RULE 701.47/48 Amass — First Parser Handler
+
+- **What:** "Amass `<Type>` N" ("amass Orcs 1"/"amass Zombies 2") had zero parser recognition even though the engine primitive (`AmassEffect`) already existed and was proven end-to-end via the hand-authored Orcish Bowmasters entry (MEC-42). New `_AMASS_RE`/`_AMASS_UNTYPED_RE` handlers reach it from real oracle text for the first time (+33 cache-wide cards) — the printed type word is always a plain "+s" trailing plural in real Oracle text, singularized and capitalized to match `AmassEffect`'s own convention.
+- **Files:** `parser/oracle/catalogue/handlers.py`
+- **Deliberately unclaimed:** a literal `{X}` sentinel ("amass Orcs X", Assault on Osgiliath/Barad-dûr) — `EffectRegistry.register("amass", ...)` forces `int(count)` at bind time, so emitting the sentinel would crash rather than resolve; the third-person "its controller amasses…" form (Azog, Moria's Ruin); and any "amass…, where X is…"-scaled count. Real remaining work, not silently modeled.
+- **Tests:** `tests/test_amass_family.py`
 
 ## Deck/Cube Playability Batches
 
@@ -4704,6 +4726,13 @@ table, re-measured after each batch.
 
 - **What:** Closed as structurally impossible rather than by a code change — `services/schema_version.py`'s `_clear_on_schema_change` wipes the entire card cache on any `models/card.py` hash mismatch, so no row predating the `mana_cost_string` field can survive in today's cache. No code changed.
 - **Files:** `backend/mtg_analyzer/services/schema_version.py`, `models/card.py`.
+
+### Commander-Legal Coverage Measurement
+
+- **What:** Nothing previously scoped `coverage_report.py`'s coverage measurement to just the Commander-legal pool — it always ran over the whole ~35k-card cache, which includes un-set/joke/silver-border cards that can never be Commander-legal and drag the denominator down for no reason relevant to a "complete modelling for Commander" goal. New `coverage_db.commander_legal_names(store)` reads `RawCardStore.iter_raw()`'s own `legalities.commander` field (the same field `scripts/update_ban_lists.py`'s `live_banned_names` already reads, "legal"/"restricted" counting as in-pool) and `coverage_report.py --commander-legal-only` filters the card list through it before measuring, printing a separate "Commander-legal coverage" line alongside the existing whole-cache one.
+- **Files:** `services/coverage_db.py`, `scripts/coverage_report.py`.
+- **Why not reuse `commander_legality.py`:** that module is a deck-level *validator* (ban list + colour identity + Partner pairing), not a queryable card-pool filter, and correctly has no notion of "every card that's ever legal" — this is a different, measurement-only concern, kept in `coverage_db.py` rather than mixed into the legality module.
+- **Tests:** `tests/test_coverage_db.py` (`TestCommanderLegalNames`)
 
 ## Deck Analysis
 

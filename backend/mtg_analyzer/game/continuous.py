@@ -754,6 +754,14 @@ def count_selector(
     if selector == "sacrificed_cost_power":
         # The power sibling (Altar of Dementia) of the entry just above.
         return int(getattr(source, "sacrificed_cost_power", None) or 0)
+    if selector == "station_tapped_power":
+        # RULE 702.184a Station: "Put a number of charge counters on this
+        # permanent equal to the tapped creature's power." — reads
+        # `GameObject.station_tapped_power`, stamped fresh by whatever
+        # `station` cost payment just tapped a creature for ``source``;
+        # ``0`` for the same safe self-referential fallback every other
+        # entry here gets.
+        return int(getattr(source, "station_tapped_power", None) or 0)
     if selector == "snow_mana_spent_to_cast":
         # "You gain 1 life for each {S} spent to cast this spell." (Search
         # for Glory, MEC-43 round 3) — `GameObject.mana_spent_to_cast_snow`,

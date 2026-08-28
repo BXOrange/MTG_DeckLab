@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**33.6% covered — 11,697 / 34,811 — as of 2026-08-12, PARSER_VERSION 87.**
+**34.9% covered — 12,162 / 34,811 — as of 2026-08-27, PARSER_VERSION 98.**
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
@@ -95,15 +95,41 @@ rules, not one:
   | Starting intensity | Duskmourn's Room-adjacent template | Duskmourn: House of Horror | **Not done** (checked 2026-08-05) — 0 cards SOLO-blocked on the phrase alone (always paired with another unclaimed clause); needs its co-blocker identified before estimating real scope |
   | Learn (Lessons) | 701.50 | Dominaria / Strixhaven | **Partially done** (checked 2026-08-05) — bare "Learn." is a 7-card SOLO cluster; the Lesson-sideboard-zone infrastructure itself (RULE 701.50a "look at your sideboard") isn't built, so a full deck with real Lessons stays out of scope regardless |
   | Investigate | 701.19a | Shadows over Innistrad (**reused across many later sets** — belongs on the *basic* track, listed here only as the worked example that motivated this split) | **Done** (2026-08-05) — a `create_token` alias onto the already-shipped Clue token, 87+ cards in one row; this is the case study for "keyword action, but basic not set-specific" — check *reuse breadth* before filing something here |
+  | Station | 702.184a / 721 | Edge of Eternities | **Done** (2026-08-27) — a third "striated text box" grammar alongside Leveler/Class (`catalogue/station.py`), the reminder-line activated ability bound structurally off Scryfall's own `keywords: ["Station"]` entry (`effect_binder._station_activated_ability`); see `Done_Backend.md`'s Station entry |
+  | Horsemanship | 702.31 | Portal (Portal-only, no reprints since) | **Not done** (checked 2026-08-27, RULE 702 keyword audit) — bare keyword, `combat.can_block` never checks it; lowest priority of this whole table, essentially a dead card pool |
+  | Banding | 702.22 | Alpha/old-border era | **Not done** (checked 2026-08-27) — bare keyword, 0 `game/` hits; nostalgia-only, no modern reprints |
+  | For Mirrodin! | 702.90-adjacent | New Phyrexia | **Not done** (checked 2026-08-27) — 0-2 cache hits, keyword recognized, no engine behavior |
+  | Max Speed / Start Your Engines! | ~702.14x | Aetherdrift | **Not done** (checked 2026-08-27) — bare keywords, no vehicle-speed-tier machinery |
+  | Job Select / Tiered / Increment / Paradigm / Power-up / Teamwork / Sneak | various | Final Fantasy | **Not done** (checked 2026-08-27) — all recognized-but-inert; Sneak's name also collides with an unrelated hand-authored effect, worth disambiguating before building |
+  | Space Sculptor | — | Warhammer 40,000 (Commander) | **Not done** (checked 2026-08-27) |
+  | Living Metal / More Than Meets the Eye | — | Transformers (Commander) | **Not done** (checked 2026-08-27) |
+  | Web-slinging | — | Spider-Man | **Not done** (checked 2026-08-27) |
+  | Firebending | — | Avatar: The Last Airbender | **Not done** (checked 2026-08-27) |
+  | Infinity | — | (product TBD at audit time) | **Not done** (checked 2026-08-27) — 0-2 cache hits |
+  | Warp | 702.185-adjacent | Bloomburrow | **Not done** (checked 2026-08-27) — distinct from the unrelated "Warp" collision noted for the Final Fantasy row above; verify regex scoping before building either |
+  | Exhaust, Solved | various | (products TBD at audit time) | **Not done** (checked 2026-08-27) |
+  | Mayhem, Decayed | various | Duskmourn: House of Horror | **Not done** (checked 2026-08-27) — Decayed also has real combat-restriction implications (can't block, 2 damage then sacrifice), not just a cost/cast wrapper |
 
-  Doctor's companion / Time travel (Doctor Who), "Start your engines!"
-  (Aetherdrift), Augment (Aether Revolt), "For Mirrodin!" (Mirrodin block),
-  ki counters (Kamigawa block), and whatever Edge of Eternities/Lorwyn
-  Eclipsed/New Capenna/Bloomburrow turn out to print as their own signature
-  mechanic are all **known-unverified** — real cards are blocked on some of
-  these phrases (see `rank`'s live output), but nobody has yet confirmed
-  scope/primitive-existence for them the way the rows above were. Don't
-  copy a status onto this list without running the check yourself.
+  The rows above come from a 2026-08-27 systematic audit of all 195
+  registered `parser/oracle/catalogue/keywords.py` entries against real
+  `game/` consumers (not just cache LIKE-counts) — see `BACKLOG.md`'s
+  `PAR-14` for the audit's full findings, including the **evergreen**
+  gaps it found alongside these set-specific ones (Prowess, Affinity,
+  Delve, Shroud, and a dozen others — those belong on the *basic* track,
+  not this table, since they recur every set rather than being confined
+  to one product). Several of the rows above are still first-pass
+  cache-count estimates (0-2 hits at audit time, not yet `parser_probe.py
+  blocked`-verified per this section's own rule) — verify before sizing a
+  build, don't just copy the status.
+
+  Doctor's companion / Time travel (Doctor Who), Augment (Aether Revolt),
+  ki counters (Kamigawa block), and whatever Lorwyn Eclipsed/New
+  Capenna/further Bloomburrow-block sets turn out to print as their own
+  signature mechanic are all **known-unverified** — real cards may be
+  blocked on some of these phrases (see `rank`'s live output), but nobody
+  has yet confirmed scope/primitive-existence for them the way the rows
+  above were. Don't copy a status onto this list without running the
+  check yourself.
 
 ## Lessons that keep recurring
 

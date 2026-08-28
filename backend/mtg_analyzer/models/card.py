@@ -293,6 +293,21 @@ class Card:
         return bool(re.search(r"^level up\b", self.oracle_text or "", re.I | re.M))
 
     @property
+    def is_station(self) -> bool:
+        """Whether the card has RULE 702.184/721 Station — a "striated"
+        permanent (a Spacecraft artifact or a Planet land, so far — RULE
+        721 doesn't restrict the card *type*, just requires the tiered
+        "N+ | <ability>" text-box shape) whose text box gates ability
+        brackets on its own charge-counter count.
+
+        Unlike Leveler, "Station" *is* a real, reliably-present Scryfall
+        keyword on every printing checked (confirmed against all 30 cached
+        "Station" cards, both Spacecraft and Planet) — cheaper and more
+        robust than an oracle-text regex, so this reads `keywords` instead.
+        """
+        return any(str(k).strip().lower() == "station" for k in (self.keywords or []))
+
+    @property
     def is_adventure(self) -> bool:
         """Whether the card has an Adventure half (RULE 715, layout)."""
         return self.layout == "adventure"

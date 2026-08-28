@@ -484,6 +484,14 @@ class ActivationMixin:
             # shape to `crew_power` just above, reusing the same resolver.
             if self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices) is None:
                 return False
+        if cost.station:
+            # RULE 702.184a: "Tap another untapped creature you control" —
+            # an exact-count-one choice from `_crew_pool`'s own "other
+            # untapped creatures you control" pool (see `_resolve_station_
+            # cost`), unlike `crew_power`/`saddle_power`'s threshold-sized
+            # subset just above.
+            if self._resolve_station_cost(player, source, tap_choices) is None:
+                return False
         if cost.sacrifice_count:
             # Reuses the `tap_others` cost's own `tap_choices` slot for its
             # chosen instance ids — no printed card needs both a
@@ -640,6 +648,33 @@ class ActivationMixin:
             auto_chosen.append(o)
             total += o.power or 0
         return auto_chosen if total >= power_required else None
+    def _station_cost_choice(self, player: Player, source: GameObject, cost: "ActivationCost") -> dict[str, Any]:
+        """The offer-time UI shape for a `station` cost (RULE 702.184a): an
+        exact count of one, from `_crew_pool`'s own "other untapped
+        creatures you control" pool (reused unchanged — RULE 702.184a's own
+        pool is worded identically to Crew's) — the same ``count``/
+        ``options`` shape `_tap_cost_choice` uses, just sourced from the
+        pool that excludes the source itself."""
+        pool = self._crew_pool(player, source)
+        return {
+            "count": 1,
+            "options": [
+                {"instance_id": o.instance_id, "name": o.name, "power": o.power or 0}
+                for o in pool
+            ],
+        }
+    def _resolve_station_cost(
+        self, player: Player, source: GameObject, chosen_ids: Optional[list[Any]]
+    ) -> Optional[list[GameObject]]:
+        """The single creature to tap for a `station` cost (RULE 702.184a)
+        — `_crew_pool`'s own "other untapped creatures you control" pool
+        (excludes ``source`` itself, unlike `_tap_others_pool`'s "including
+        the ability's own source" convention — RULE 702.184a's "**another**
+        untapped creature" is explicit), resolved with `_resolve_pool_cost`'s
+        exact-count-one choice rather than `_resolve_crew_cost`'s
+        any-subset-meeting-a-threshold one."""
+        pool = self._crew_pool(player, source)
+        return self._resolve_pool_cost(pool, 1, chosen_ids)
     def _sacrifice_count_pool(self, player: Player, subtype: str) -> list[GameObject]:
         """Every permanent of type ``subtype`` ``player`` controls, eligible
         to pay a "Sacrifice N `<type>`s" cost (Samwise Gamgee's "Sacrifice
@@ -879,6 +914,7 @@ class ActivationMixin:
         # one that didn't sacrifice anything (or sacrificed nothing found).
         source.sacrificed_cost_mana_value = None
         source.sacrificed_cost_power = None
+        source.station_tapped_power = None
         if cost.taps_self:
             self.rules.set_tapped(source, True)
         if cost.untaps_self:
@@ -907,6 +943,16 @@ class ActivationMixin:
             # card asks "who saddled it".
             for obj in self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices) or []:
                 self.rules.set_tapped(obj, True)
+        if cost.station:
+            # RULE 702.184a: tap the chosen creature, then remember its
+            # power (`GameObject.station_tapped_power`) for the resolving
+            # `add_counters` effect to read — the cost-payment side of the
+            # `sacrificed_cost_power` idiom.
+            tapped = self._resolve_station_cost(player, source, tap_choices) or []
+            for obj in tapped:
+                self.rules.set_tapped(obj, True)
+            if tapped:
+                source.station_tapped_power = tapped[0].power or 0
         if cost.sacrifice_count:
             count, subtype = cost.sacrifice_count
             if count == SACRIFICE_COUNT_X:

@@ -5561,12 +5561,74 @@ def _attacks_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", {"keywords": ["attacks_if_able"], "target_kind": kind})]
 
 
+#: RULE 701.47/48 Amass "<Type> N" ("amass Orcs 1"/"amass Zombies 2" — this
+#: repo's existing `game/effects.py` `AmassEffect` and its one proven
+#: consumer, Orcish Bowmasters (`ability_catalogue/entries_013.py`), both
+#: cite it as 701.48; the current `docs/Reference/rules_wiki` text has it
+#: renumbered to 701.47 since Learn moved to take 701.48 — same mechanic
+#: either way). The printed type word is always a regular "+s" plural in
+#: real Oracle text (confirmed against every cached Amass card via
+#: `parser_probe.py blocked "amass"` — Orcs/Zombies/Goblins/Birds/Slivers),
+#: so it's singularized (`_singularize_amass_subtype`, the same bare
+#: trailing-"s" strip `subgrammars._singularize` already uses for the
+#: unrelated "N `<type>` you control" count phrase) and capitalized to
+#: match `AmassEffect`'s own singular `subtype` param convention ("Orc",
+#: not "Orcs" — the exact shape Orcish Bowmasters' hand-authored
+#: ``EffectSpec("amass", {"subtype": "Orc", "count": 1})`` uses).
+#:
+#: Deliberately digit-only counts (`NUMBER`, not `COUNT_X`):
+#: `EffectRegistry.register("amass", ...)` forces ``int(p.get("count", 1))``
+#: on bind, so a literal "x" sentinel (RULE 107.3c's announced {X} — "amass
+#: Orcs X", Assault on Osgiliath/Barad-dûr) would raise at bind time rather
+#: than resolve through the ordinary `_substitute_x` machinery every other
+#: count-bearing effect gets for free — `AmassEffect`/its registry factory
+#: were never actually built to accept the sentinel. Left unclaimed rather
+#: than risk that crash; teaching them the "x" sentinel is separate engine
+#: work, out of this parser-only change's scope.
+def _singularize_amass_subtype(word: str) -> str:
+    return word[:-1] if word.endswith("s") and len(word) > 1 else word
+
+
+def _amass(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subtype = _singularize_amass_subtype(m.group("subtype")).capitalize()
+    return [EffectSpec("amass", {"subtype": subtype, "count": int(m.group("n"))})]
+
+
+_AMASS_RE = _c(rf"amass (?P<subtype>[a-z]+) {NUMBER}")
+
+
+#: RULE 701.47d: pre-errata "amass N" with no subtype at all — Oracle text
+#: has since been errata'd to always spell out "amass Zombies N" instead, so
+#: no card in today's cache reaches this row (confirmed: none of the 73
+#: cached Amass-mentioning cards omit a type word) — kept for a
+#: differently-worded future import rather than as a real current unlock.
+#: Defaults to Zombie (matching the errata'd wording and `AmassEffect`'s own
+#: default subtype), spelled out explicitly and singular here rather than
+#: relying on that default, which is itself stored plural ("Zombies") and
+#: would otherwise produce a grammatically-wrong "Army Zombies" token type
+#: line if this row were ever actually hit.
+def _amass_untyped(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("amass", {"subtype": "Zombie", "count": int(m.group("n"))})]
+
+
+_AMASS_UNTYPED_RE = _c(rf"amass {NUMBER}")
+
+
 # --- The table --------------------------------------------------------------
 # Order matters only for reporting; a clause is claimed by the first handler
 # whose full-clause regex matches. Every pattern is anchored to the whole
 # clause by `EffectHandler.match`'s `fullmatch`, so no partial claims.
 
 HANDLERS: list[EffectHandler] = [
+    # RULE 701.47/48 Amass "<Type> N" — "amass Orcs 1"/"amass Zombies 2".
+    # Tried before the untyped row below since a real type word always
+    # parses here first (the untyped row's bare NUMBER can never see it —
+    # a type word isn't a digit — so the ordering is purely cosmetic).
+    EffectHandler("amass", _AMASS_RE, _amass),
+    # RULE 701.47d's pre-errata bare "amass N" (no subtype) — see the
+    # builder's own docstring; not expected to match any card in today's
+    # already-errata'd cache.
+    EffectHandler("amass_untyped", _AMASS_UNTYPED_RE, _amass_untyped),
     # "~ deals 2 damage to any target. If this spell was kicked, it deals 4
     # damage instead." — the two-sentence override form, tried before the
     # single-sentence `_damage` row below since only this one's regex spans

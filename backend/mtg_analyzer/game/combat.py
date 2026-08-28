@@ -32,6 +32,7 @@ import re
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..parser.oracle.catalogue.levels import leveler_base_text
+from ..parser.oracle.catalogue.station import station_base_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a model→game cycle
     from ..models.card import Card
@@ -151,10 +152,28 @@ def keywords_of(card: "Card") -> frozenset[str]:
     `catalogue.keywords.parse_keywords` applies to the intrinsic-keyword bind
     — so a tier-only keyword only shows up via its level-gated
     `granted_keywords` grant (`continuous.recompute`), not unconditionally.
+
+    A Station permanent's (RULE 721) own ``"N+ | <ability>"`` brackets are
+    the same shape — confirmed live on Entropic Battlecruiser, whose "8+ |
+    Flying, deathtouch" bracket leaked a permanent, unconditional
+    `deathtouch` (comma-anchored, so it matched `_ORACLE_PATTERNS` even at 0
+    charge counters) despite Scryfall's own ``keywords`` array for every
+    cached Station card never listing a bracket-only keyword in the first
+    place (so only the oracle-text fallback needs the fix, not the printed-
+    keywords loop below). `station_base_text` filters the bracket lines out
+    rather than truncating (RULE 721.4 allows a real, unconditional
+    bracket-less line *after* the brackets too, unlike Leveler's strict
+    preamble-then-blocks shape).
     """
     is_leveler = bool(getattr(card, "is_leveler", False))
+    is_station = bool(getattr(card, "is_station", False))
     raw_text = getattr(card, "oracle_text", "") or ""
-    scan_text = leveler_base_text(raw_text) if is_leveler else raw_text
+    if is_leveler:
+        scan_text = leveler_base_text(raw_text)
+    elif is_station:
+        scan_text = station_base_text(raw_text)
+    else:
+        scan_text = raw_text
 
     found: set[str] = set()
     for kw in getattr(card, "keywords", None) or []:
@@ -300,6 +319,43 @@ def has_infect(obj: "GameObject") -> bool:
 
 def has_wither(obj: "GameObject") -> bool:
     return "wither" in _obj_keywords(obj)
+
+
+def has_toxic(obj: "GameObject") -> bool:
+    """RULE 702.164a: whether ``obj`` has Toxic N (any N). Toxic is a
+    ``NUMBER``-shaped parametric keyword (`docs/09` — like Annihilator/
+    Afflict/Kicker), so unlike the flag keywords above it never joins
+    `_obj_keywords`; `effect_binder.attach_keyword` docks it onto
+    `GameObject.parametric_keywords["toxic"] = {"n": N}` instead, which
+    `toxic_value` reads back live at damage-application time."""
+    return toxic_value(obj) is not None
+
+
+def toxic_value(obj: "GameObject") -> Optional[int]:
+    """The N in ``obj``'s Toxic N (RULE 702.164a), or ``None`` if it doesn't
+    have the keyword.
+
+    RULE 702.164b's "total toxic value" sums every toxic ability an object
+    has, but `attach_keyword` only ever docks one entry per keyword name —
+    there's no standing "grant Toxic" mechanism yet to stack a second
+    source on top of a printed one — so this is just the single printed N.
+    Consulted by `RulesEngine.deal_damage` (RULE 702.164c), never by this
+    module's own combat predicates: unlike infect/wither, toxic doesn't
+    change how damage is dealt or what it does to a creature, so nothing
+    here needs to branch on it.
+    """
+    if getattr(obj, "loses_all_abilities", False):
+        return None
+    params = getattr(obj, "parametric_keywords", None) or {}
+    toxic = params.get("toxic") or {}
+    n = toxic.get("n")
+    if n is None:
+        return None
+    try:
+        value = int(n)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
 def has_hexproof(obj: "GameObject") -> bool:

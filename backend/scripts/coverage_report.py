@@ -32,6 +32,7 @@ from mtg_analyzer.game.ability_catalogue import is_registered  # noqa: E402
 from mtg_analyzer.parser.oracle import NEVER_SUPPORTED, abstract_clause, parse_oracle  # noqa: E402
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH  # noqa: E402
 from mtg_analyzer.services import coverage_db as cov  # noqa: E402
+from mtg_analyzer.services.raw_card_store import RawCardStore  # noqa: E402
 
 
 def measure(cards, cov_db, use_ledger=True):
@@ -83,11 +84,22 @@ def main() -> None:
     parser.add_argument("--coverage-db", type=Path, default=cov.DEFAULT_COVERAGE_DB_PATH)
     parser.add_argument("--json", type=Path, default=None, help="also write the full report as JSON here")
     parser.add_argument("--no-db", action="store_true", help="don't read/write the engineering ledger")
+    parser.add_argument(
+        "--commander-legal-only", action="store_true",
+        help="also filter the card list down to Commander-legal names "
+             "(legalities.commander == legal/restricted, per the persistent "
+             "RawCardStore) and print a separate 'Commander-legal coverage' line",
+    )
     args = parser.parse_args()
 
     cards = CardDatabase(args.card_db).list_cards()
     if args.limit is not None:
         cards = cards[: args.limit]
+
+    if args.commander_legal_only:
+        with RawCardStore() as raw_store:
+            legal_names = cov.commander_legal_names(raw_store)
+        cards = [card for card in cards if getattr(card, "name", None) in legal_names]
 
     cov_db = None if args.no_db else cov.CoverageDatabase(args.coverage_db)
     total, covered, never_supported, template_cards, reused, parsed = measure(cards, cov_db)
@@ -99,7 +111,8 @@ def main() -> None:
     if cov_db:
         cov_db.record_snapshot(total, covered, ranked[: args.top])
 
-    print(f"\nCoverage: {covered}/{total} = {fraction:.1%} covered "
+    scope = "Commander-legal coverage" if args.commander_legal_only else "Coverage"
+    print(f"\n{scope}: {covered}/{total} = {fraction:.1%} covered "
           f"(reused {reused} from ledger, parsed {parsed}, "
           f"{never_supported} never-supported [Stickers, RULE 123])")
     print(f"PARSER_VERSION={cov.PARSER_VERSION}  card_db={args.card_db}")

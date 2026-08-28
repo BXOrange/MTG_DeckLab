@@ -43,6 +43,7 @@ from .catalogue.opening_hand import (
     opening_hand_battlefield_permission_line,
     opening_hand_graveyard_permission_line,
 )
+from .catalogue.station import split_station_blocks, station_creature_threshold
 from .catalogue.static_handlers import commander_eligibility_line
 from .normalize import normalize
 from .segmenter import (
@@ -1000,7 +1001,36 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "exile a/an <type> you control" as a real activation cost (Food Chain's
 #: own mana ability, the battlefield-zone sibling of the existing hand-zone
 #: "exile this card from your hand" cost sniff).
-PARSER_VERSION = "96"
+#: RULE 701.47/48 Amass: a first parser handler for "amass <Type> N"/"amass
+#: N" (`catalogue/handlers.py`'s new `amass`/`amass_untyped` rows), reaching
+#: the already-shipped `game/effects.py` `AmassEffect` (proven only via the
+#: hand-authored Orcish Bowmasters entry until now) from real oracle text
+#: for the first time. Digit-only counts — `EffectRegistry.register("amass",
+#: ...)` forces `int(...)` at bind time, so a literal "x" sentinel (Assault
+#: on Osgiliath/Barad-dûr) isn't safe to emit yet; the "its controller
+#: amasses..." third-person form (Azog, Moria's Ruin) and every "amass...,
+#: where X is..."-scaled count are left unclaimed too, real remaining work.
+#: +33 real cards (parser_probe.py diff, full cache, 0 regressed).
+#: "98": RULE 702.184a/721 Station — a third "striated text box" card
+#: structure alongside Leveler/Class (`catalogue/station.py`'s
+#: `split_station_blocks`/`station_creature_threshold`, a new `is_station`
+#: dispatch branch here). The reminder line's own real activated ability is
+#: bound off Scryfall's `keywords: ["Station"]` entry directly
+#: (`effect_binder._station_activated_ability`, mirroring Crew/Saddle's
+#: PAR-9/MEC-40-shaped fix), not emitted by this module; this only splits
+#: the "N+ |" bracket structure and reuses Leveler/Class's own
+#: `min_level`/`level_counter` gate mechanism (confirmed generic — pointed
+#: at ``"charge"`` counters) for RULE 721.2a's cumulative per-bracket
+#: grants plus RULE 721.2b's "becomes a creature at N+" static (read from
+#: the reminder line's own trailing sentence in **raw**, pre-normalize
+#: text — the P/T box a real bracket prints turns out not to survive into
+#: Scryfall's `oracle_text` at all). Also fixed a real, previously-dormant
+#: cache-wide bug this surfaced: `services/scryfall_client.py`'s
+#: `vehicle_power`/`vehicle_toughness` capture only ever checked for
+#: "Vehicle" in the type line, so every Station Spacecraft's own printed
+#: P/T (needed the instant it becomes a creature) was silently dropped —
+#: the same shape MEC-29 already fixed once for Vehicle/Crew.
+PARSER_VERSION = "98"
 
 
 def parser_source_hash() -> str:
@@ -1229,6 +1259,7 @@ def _parse_cache_key(card: Any) -> tuple[Any, ...]:
         bool(getattr(card, "is_saga", False)),
         bool(getattr(card, "is_leveler", False)),
         bool(getattr(card, "is_class", False)),
+        bool(getattr(card, "is_station", False)),
     )
 
 
@@ -1287,6 +1318,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     is_saga = bool(getattr(card, "is_saga", False))
     is_leveler = bool(getattr(card, "is_leveler", False))
     is_class = bool(getattr(card, "is_class", False))
+    is_station = bool(getattr(card, "is_station", False))
     effect_specs: list[AbilitySpec] = []
     unclaimed: list[str] = []
     all_claimed = True
@@ -1554,6 +1586,34 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if seg.spec is not None:
             _tag_level_gate(seg.spec, gate, default_affects=None)
 
+    def _process_station_body(line: str, n: int) -> None:
+        nonlocal all_claimed
+        # RULE 721.2a: cumulative (>= comparison, not a mutually-exclusive
+        # tier range the way Leveler's own `min_level`/`max_level` pair is
+        # used) — a Station bracket only ever supplies `min_level`, never
+        # `max_level`, so reaching a higher threshold doesn't remove a lower
+        # one's grant. Reuses the exact same `min_level`/`level_counter`
+        # gate mechanism Leveler/Class already established (`continuous.
+        # group_selector_objects`/`effect_binder._trigger_condition`, both
+        # already generic over which counter kind `level_counter` names —
+        # confirmed by reading both consumers rather than assumed), just
+        # pointed at ``"charge"`` counters instead of ``"level"``/
+        # ``"class_level"``.
+        gate = {"min_level": n, "level_counter": "charge"}
+        seg = segment_line(line, allow_spell_effect=False, provenance=provenance, is_saga=False)
+        if not seg.claimed:
+            all_claimed = False
+            unclaimed.append(seg.raw)
+            return
+        if seg.keyword_line:
+            # A bracket-scoped keyword line ("Flying, deathtouch" under
+            # "8+ |") becomes a charge-counter-gated grant, the same
+            # `_process_leveler_body` shape.
+            effect_specs.append(_grant_keyword_line_spec(line, "self", gate))
+            return
+        if seg.spec is not None:
+            _tag_level_gate(seg.spec, gate, default_affects="self")
+
     if is_leveler:
         preamble, blocks = split_leveler_blocks(normalized)
         for line in preamble:
@@ -1594,6 +1654,54 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             ))
             for line in body_lines:
                 _process_class_body(line, level)
+    elif is_station:
+        # RULE 702.184a/721: the reminder line's own real activated ability
+        # is bound directly off Scryfall's `keywords: ["Station"]` entry by
+        # `effect_binder._station_activated_ability` (mirroring Crew/Saddle,
+        # PAR-9/MEC-40's own "recognized but inert" fix) — not emitted here.
+        # This branch only needs to split the "N+ |" bracket structure
+        # (`split_station_blocks`); the bare "station" word `normalize()`
+        # leaves behind, and every other bracket-less line (RULE 721.4
+        # allows one both before *and* after the brackets — see `catalogue.
+        # station`'s module docstring), flow through the ordinary per-line
+        # dispatch below unchanged.
+        ordinary, blocks = split_station_blocks(normalized)
+        for line in ordinary:
+            _process_line(line)
+        for n, body in blocks:
+            _process_station_body(body, n)
+        # RULE 721.2b: "and is a creature with base power/toughness [P/T]"
+        # — confirmed against all 30 cached Station cards that this never
+        # appears as a per-bracket P/T box in `oracle_text` at all (Scryfall
+        # drops it entirely); the only surviving trace is the reminder
+        # line's own "It's an artifact creature at N+." sentence, read from
+        # **raw** text since `normalize` has already erased it by now (see
+        # `catalogue.station.station_creature_threshold`'s docstring). The
+        # P/T itself comes from `Card.vehicle_power`/`vehicle_toughness`
+        # (RULE 208.1's general "noncreature permanent's own printed P/T"
+        # slot, already populated for Station the same way MEC-29 populated
+        # it for Vehicle/Crew — `services/scryfall_client.py`), the same
+        # `type_change` static shape `effect_binder._crew_activated_ability`
+        # uses for "becomes an artifact creature", just standing (charge-
+        # counter-gated) instead of "until end of turn".
+        creature_n = station_creature_threshold(raw)
+        if creature_n is not None:
+            type_change_params: dict[str, Any] = {
+                "add_types": ["creature"], "affects": "self",
+                "min_level": creature_n, "level_counter": "charge",
+            }
+            vehicle_power = getattr(card, "vehicle_power", None)
+            vehicle_toughness = getattr(card, "vehicle_toughness", None)
+            if vehicle_power is not None:
+                type_change_params["power"] = vehicle_power
+            if vehicle_toughness is not None:
+                type_change_params["toughness"] = vehicle_toughness
+            effect_specs.append(AbilitySpec(
+                "static",
+                effects=[EffectSpec("type_change", type_change_params)],
+                raw_text=f"it's an artifact creature at {creature_n}+",
+                parser=provenance,
+            ))
     else:
         lines = [line for line in normalized.split("\n") if line.strip()]
         i = 0

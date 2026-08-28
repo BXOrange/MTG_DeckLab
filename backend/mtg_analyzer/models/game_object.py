@@ -267,6 +267,15 @@ class GameObject:
         #: back by `continuous.count_selector`'s ``"sacrificed_cost_power"``
         #: entry.
         self.sacrificed_cost_power: Optional[int] = None
+        #: RULE 702.184a/721 Station: the power of the single other creature
+        #: tapped to pay this permanent's own Station cost — the exact-one-
+        #: creature sibling of `sacrificed_cost_power` above, stamped fresh
+        #: by `GameEngine._pay_activation_cost`'s ``station`` branch and read
+        #: back by `continuous.count_selector`'s ``"station_tapped_power"``
+        #: entry (`AddCountersEffect.amount_from_count_selector`, the charge
+        #: counters Station itself puts on this permanent). ``None`` when
+        #: nothing has been tapped to pay it yet.
+        self.station_tapped_power: Optional[int] = None
         #: RULE 106.4-adjacent: the WUBRG/C type of mana this permanent's
         #: own activated ability most recently had spent to pay it (Jeweled
         #: Amulet, MEC-43: "Note the type of mana spent to pay this
@@ -1062,6 +1071,7 @@ class GameObject:
         self.cast_outside_sorcery_speed = False
         self.sacrificed_cost_mana_value = None
         self.sacrificed_cost_power = None
+        self.station_tapped_power = None
         self.paired_with = None
         self.merged_oracle_text = []
         self.cast_via_mutate = False

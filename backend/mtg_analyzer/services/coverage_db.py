@@ -40,6 +40,14 @@ from typing import Optional, Union
 from mtg_analyzer.config import DATA_DIR
 from mtg_analyzer.parser.oracle.gate import PARSER_VERSION, _parse_cache_key
 
+#: Scryfall `legalities.commander` values that count as "in the Commander
+#: card pool" for measurement purposes. "restricted" is included for
+#: completeness (Scryfall's vocabulary allows it for some formats) even
+#: though Commander itself has no restricted list today; "banned"/
+#: "not_legal" are excluded. Same field `scripts/update_ban_lists.py`'s
+#: `live_banned_names` reads off `RawCardStore` raw data.
+COMMANDER_LEGAL_STATUSES = frozenset({"legal", "restricted"})
+
 #: Default on-disk location for the persistent engineering ledger. Under
 #: DATA_DIR (persistent user/engineering data), NOT CACHE_DIR (disposable,
 #: schema-wiped) — see module docstring.
@@ -239,3 +247,22 @@ class CoverageDatabase:
                 "SELECT template, handler FROM handled_templates"
             ).fetchall()
         return {r[0]: r[1] for r in rows}
+
+
+def commander_legal_names(store) -> set[str]:
+    """Every card name whose raw Scryfall data reports it as part of the
+    Commander card pool (`legalities.commander` in `COMMANDER_LEGAL_STATUSES`).
+
+    `store` is a `RawCardStore` (or anything exposing `iter_raw()` yielding
+    raw Scryfall dicts — same duck-typed usage as
+    `scripts/update_ban_lists.py`'s `live_banned_names`, whose exact
+    `legalities` field-reading pattern this mirrors). This is a name-set for
+    ad-hoc measurement/filtering only — not a persistent table, and not the
+    deck-level legality check in `commander_legality.py`, which is a
+    different, structural concern.
+    """
+    return {
+        data["name"]
+        for data in store.iter_raw()
+        if (data.get("legalities") or {}).get("commander") in COMMANDER_LEGAL_STATUSES
+    }

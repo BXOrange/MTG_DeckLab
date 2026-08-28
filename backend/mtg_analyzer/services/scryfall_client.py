@@ -158,9 +158,23 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
     # subtype rather than "any noncreature with printed P/T" so a stray
     # future Scryfall data quirk can't leak a P/T pair onto an unrelated
     # card type this was never meant to cover.
-    is_vehicle = not is_creature and "Vehicle" in type_line
-    vehicle_power = power if is_vehicle else None
-    vehicle_toughness = toughness if is_vehicle else None
+    #
+    # RULE 702.184/721 Station (Edge of Eternities) reprints exactly this
+    # same shape for a Spacecraft artifact: no "Creature" in its own type
+    # line, but a real top-level Scryfall `power`/`toughness` pair for the
+    # P/T it gets once its own "N+ |" bracket makes it "an artifact
+    # creature at N+" — confirmed against the cached data (Entropic
+    # Battlecruiser prints `"power": "3", "toughness": "10"` despite
+    # `type_line: "Artifact — Spacecraft"`). A Station *land* (subtype
+    # Planet) never carries a printed P/T at all (it never becomes a
+    # creature), so widening this check costs nothing there — same latent-
+    # bug shape MEC-29 fixed for Vehicle/Crew, caught before it ever
+    # shipped this time.
+    is_vehicle_or_spacecraft = not is_creature and (
+        "Vehicle" in type_line or "Spacecraft" in type_line
+    )
+    vehicle_power = power if is_vehicle_or_spacecraft else None
+    vehicle_toughness = toughness if is_vehicle_or_spacecraft else None
 
     back = faces[1] if layout in _SECOND_FACE_LAYOUTS and len(faces) >= 2 else {}
     back_image_uris = back.get("image_uris") or {}

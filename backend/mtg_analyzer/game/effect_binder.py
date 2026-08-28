@@ -1654,6 +1654,8 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         return _crew_activated_ability(obj, spec, keyword)
     if name == "saddle":
         return _saddle_activated_ability(obj, spec, keyword)
+    if name == "station":
+        return _station_activated_ability(obj, spec)
     if name not in {"equip", "fortify", "reconfigure"}:
         return None
 
@@ -1808,6 +1810,52 @@ def _saddle_activated_ability(
         cost=cost,
         source=obj,
         description=spec.raw_text or f"Saddle {n}",
+    )
+
+
+def _station_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[ActivatedAbility]:
+    """RULE 702.184a/721 Station: "Tap another untapped creature you
+    control: Put a number of charge counters on this permanent equal to
+    the tapped creature's power. Activate only as a sorcery." "Station" is
+    a bare `FLAG` keyword (no ``n``/``cost`` parameter, unlike Crew/Saddle's
+    own printed threshold) — the whole ability is fixed, so no keyword
+    parameter is read here at all.
+
+    The cost (``ActivationCost.station``) is resolved by `GameEngine.
+    _resolve_station_cost`/`_crew_pool` — an exact-count-one choice from
+    the same "other untapped creatures you control" pool Crew/Saddle
+    already share, unlike their own "any subset meeting a power threshold"
+    shape. RULE 721.4: no once-per-turn cap — repeatable regardless of how
+    many charge counters are already on the permanent, so (unlike Class's
+    own level-up ability) this needs no ``activation_condition`` gate at
+    all beyond the cost itself always being payable again.
+
+    The effect reuses the plain, already-registered ``"add_counters"``
+    type (``kind="charge"``, RULE 702.184a's own counter kind — see
+    `game/ability_catalogue/entries_015.py` for another card that already
+    puts charge counters on itself the same way) with
+    ``amount_from_count_selector="station_tapped_power"`` — the amount is
+    read fresh off `GameObject.station_tapped_power`, stamped by the cost
+    payment itself (`GameEngine._pay_activation_cost`'s own ``station``
+    branch) rather than a fixed number, so no new `GameEffect` subclass is
+    needed for this at all.
+
+    RULE 702.184c's rare "as though its power were equal to a different
+    value" static modifier (a hypothetical "Tapestry Warden"-shaped card in
+    the rule text's own example) is a deliberate, documented simplification
+    — no real printed card checked against the ~35k-card Oracle cache uses
+    it; this reads the tapped creature's own printed/derived power only.
+    """
+    charge_effect = EffectRegistry.create("add_counters", {
+        "kind": "charge", "amount_from_count_selector": "station_tapped_power",
+    })
+    charge_effect.source = obj  # untargeted `AddCountersEffect` defaults its recipient to `self.source`
+    cost = ActivationCost(station=True, sorcery_speed_only=True)
+    return ActivatedAbility(
+        effects=[charge_effect],
+        cost=cost,
+        source=obj,
+        description=spec.raw_text or "Station",
     )
 
 

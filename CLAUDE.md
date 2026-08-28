@@ -492,13 +492,22 @@ each opponent, goad up to one target creature that player controls" and
 "goad up to X target creatures"), and `GameContext.created_objects`, the
 referent for a clause naming what an *earlier clause of the same
 resolution* just created ("**The tokens** are goaded …");
-planeswalkers; commander damage + tax; the full RULE 702
-keyword catalogue (194 keywords, flag keywords bound to combat, RULE 702.8b
+planeswalkers; commander damage + tax; the RULE 702
+keyword catalogue (195 registered rows, `parser/oracle/catalogue/keywords.py`
+— **parser recognition only, not proof of engine behavior**: a 2026-08-27
+audit found ~70 fully working, ~122 recognized-but-inert or unenforced,
+~3 hand-authored-only — see `BACKLOG.md`'s `PAR-14` for the evergreen
+gaps and `PARSER_LONG_TAIL.md`'s set-specific table for the per-product
+ones; don't cite a keyword as "implemented" from this catalogue's mere
+existence), flag keywords bound to combat, RULE 702.8b
 Flash now gating cast timing, and — since 2026-08-05 — RULE 702.90/91
 **Infect**/**Wither** as real damage-conversion behavior in
 `RulesEngine.deal_damage` rather than just parse-level flag recognition:
 an infect source's damage becomes poison counters on a player and
--1/-1 counters on a creature, wither the creature-only half); a trigger-subject family for "whenever
+-1/-1 counters on a creature, wither the creature-only half — since
+2026-08-27, **Toxic** (RULE 702.164) joins them as a real, additive-not-
+replacing poison-counter effect on combat damage (`combat.has_toxic`/
+`toxic_value`, `damage_death_mixin.deal_damage`); a trigger-subject family for "whenever
 equipped/enchanted creature `<verb>`" and "deals combat damage to a player"
 (`effect_binder`'s `"attached_permanent"`/`"self_or_attached_permanent"`
 subjects + a `EventType.DAMAGE` `"filter"` predicate); "play/cast
@@ -617,8 +626,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **34.2%
-covered (11,894 / 34,811) as of 2026-08-17, PARSER_VERSION 92** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **34.9%
+covered (12,162 / 34,811) as of 2026-08-27, PARSER_VERSION 98** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -1347,6 +1356,38 @@ on any replacement, RULE 616.1c redirection, RULE 616.1e's real
 the multi-player aggregate-outcome tax) is general enough for a future,
 unrelated card to reuse without rebuilding it. Full detail, all seven
 passes: `Done_Backend.md`'s "MEC-30" entry.
+
+A **Commander-legal coverage roadmap batch** (2026-08-27) built the
+measurement the completion goal itself needed (`services/coverage_db.
+commander_legal_names`/`scripts/coverage_report.py --commander-legal-only`
+— scopes coverage to Scryfall's own `legalities.commander` field rather
+than the whole ~35k-card cache, which includes un-set/joke cards that can
+never be Commander-legal) and closed the three named mechanic gaps the
+roadmap identified: **Toxic** (above), a first real **Amass** (RULE
+701.47/48) parser handler (`catalogue/handlers.py`'s `amass`/
+`amass_untyped` rows — the engine primitive, `AmassEffect`, already
+existed via the hand-authored Orcish Bowmasters entry; this is what
+reaches it from real oracle text for the first time, +33 cards), and
+**Station** (RULE 702.184a/721, Edge of Eternities) — a third "striated
+text box" grammar alongside Leveler/Class (`catalogue/station.py`'s
+`split_station_blocks`/`station_creature_threshold`), the reminder
+line's activated ability bound structurally off Scryfall's own
+`keywords: ["Station"]` entry, and the "N+ |" brackets reusing Leveler/
+Class's own `min_level`/`level_counter` gate (pointed at `"charge"`
+counters) for cumulative per-threshold grants. Along the way, a
+systematic **audit of the full RULE 702 keyword catalogue** (filed as
+`PAR-14`, see the correction above) found the "N keywords implemented"
+framing this doc used to carry was never a safe inference from the
+parser's own coverage gate, and fixed one real bug the Station build
+itself surfaced: `combat.keywords_of`'s oracle-text fallback scan had no
+concept of "only active at N+ counters" (the same leak `is_leveler`'s own
+`leveler_base_text` restriction already prevents for Leveler cards),
+so a bracket-only keyword like "8+ | Flying, deathtouch" was leaking in
+as unconditionally active — confirmed live on Entropic Battlecruiser
+before `station_base_text` (filters bracket lines rather than
+truncating, since RULE 721.4 allows a real unconditional line *after*
+the brackets too) closed it. Full detail:
+`docs/implementation-state/Done_Backend.md`'s matching entries.
 
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the

@@ -77,3 +77,39 @@ class TestSnapshotsAndTemplates:
         db = cov.CoverageDatabase(":memory:")
         db.mark_template_handled("choose <n> —", handler="modal_choose_n")
         assert db.handled_templates() == {"choose <n> —": "modal_choose_n"}
+
+
+class _StubRawStore:
+    """Duck-typed `RawCardStore` stand-in — `commander_legal_names` only
+    ever calls `iter_raw()`, per its own docstring."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def iter_raw(self):
+        return iter(self._rows)
+
+
+class TestCommanderLegalNames:
+    def test_legal_and_restricted_are_included(self):
+        store = _StubRawStore([
+            {"name": "Sol Ring", "legalities": {"commander": "legal"}},
+            {"name": "Gifts Ungiven", "legalities": {"commander": "restricted"}},
+        ])
+        assert cov.commander_legal_names(store) == {"Sol Ring", "Gifts Ungiven"}
+
+    def test_banned_and_not_legal_are_excluded(self):
+        store = _StubRawStore([
+            {"name": "Mana Crypt", "legalities": {"commander": "legal"}},
+            {"name": "Sway of the Stars", "legalities": {"commander": "banned"}},
+            {"name": "Some Un-set Card", "legalities": {"commander": "not_legal"}},
+        ])
+        assert cov.commander_legal_names(store) == {"Mana Crypt"}
+
+    def test_missing_legalities_data_is_excluded_not_crashed_on(self):
+        store = _StubRawStore([
+            {"name": "Sol Ring", "legalities": {"commander": "legal"}},
+            {"name": "No Legalities Field"},
+            {"name": "Null Legalities", "legalities": None},
+        ])
+        assert cov.commander_legal_names(store) == {"Sol Ring"}
