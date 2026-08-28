@@ -170,6 +170,14 @@ class ActivationMixin:
             return False
         if ability.once_per_turn and ability._last_activated_turn == self.state.turn_number:
             return False
+        if getattr(ability, "once_per_game", False) and (
+            ability.description in getattr(source, "used_once_per_game_abilities", set())
+        ):
+            # PAR-28 / RULE 702.177a: Exhaust & Power-up — "Activate only
+            # once." A per-ability, per-game cap keyed on the ability's own
+            # printed text (a card with two exhaust abilities tracks them
+            # separately); recorded in `activate_ability`, never reset.
+            return False
         if ability.cost.is_loyalty and not self._can_activate_loyalty(player, source):
             return False
         if ability.cost.sorcery_speed_only and not self._sorcery_speed_ok(player):
@@ -376,6 +384,15 @@ class ActivationMixin:
                     player = None
                 if player is not None:
                     reduction += per * player.counters.get(kind, 0)
+        if (
+            cost is not None
+            and getattr(cost, "powerup_cost_reduction", False)
+            and source.turn_entered == self.state.turn_number
+        ):
+            # PAR-28 / Power-up: "Reduce the cost by its mana cost if it
+            # entered this turn." — a generic reduction equal to the
+            # source's own printed mana value (RULE 202.3).
+            reduction += int(getattr(source.card, "converted_mana_cost", 0) or 0)
         if reduction < 0:
             return mana.increase_generic(-reduction)
         if reduction == 0:
@@ -1239,6 +1256,11 @@ class ActivationMixin:
         source.x_paid = x
         if ability.once_per_turn:
             ability._last_activated_turn = self.state.turn_number
+        if getattr(ability, "once_per_game", False) and ability.description:
+            # PAR-28 / RULE 702.177a: mark this Exhaust/Power-up ability used
+            # for the rest of the game (keyed on its printed text so a card
+            # with two of them tracks each separately).
+            source.used_once_per_game_abilities.add(ability.description)
 
         # RULE 700.2: a modal ability's `StackItem` carries the chosen
         # mode's own flat effects list directly, not the `ActivatedAbility`

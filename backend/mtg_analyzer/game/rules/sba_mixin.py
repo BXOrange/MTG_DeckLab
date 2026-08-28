@@ -193,6 +193,11 @@ class StateBasedActionsMixin:
         if self._sba_check_ascend():
             return True
 
+        # PAR-28 / RULE 702.179a: Start Your Engines! is a state-based action
+        # — a permanent's controller with no speed gets speed 1.
+        if self._sba_check_start_your_engines():
+            return True
+
         # RULE 702.94c: a Soulbond pair breaks the moment either creature
         # leaves the battlefield, stops being a creature, or the two stop
         # sharing a controller — swept here so none of those sites has to
@@ -268,6 +273,21 @@ class StateBasedActionsMixin:
             if continuous.count_selector(self.state, controller.id, "permanents_you_control") >= 10:
                 self.get_city_blessing(controller)
                 return True
+        return False
+
+    def _sba_check_start_your_engines(self) -> bool:
+        """PAR-28 / RULE 702.179a: "If a player controls a permanent with
+        start your engines! and that player has no speed, their speed
+        becomes 1. This is a state-based action." Read straight off
+        `combat.has` like `_sba_check_ascend` above — a flag keyword."""
+        for obj in self.state.permanents():
+            if not combat.has(obj, "start_your_engines"):
+                continue
+            controller = self.state.player_by_id(obj.controller_id)
+            if controller is None or int(getattr(controller, "speed", 0) or 0) != 0:
+                continue
+            self.start_engines(controller)
+            return True
         return False
 
     def _sba_check_player_loss(self) -> bool:

@@ -1674,6 +1674,20 @@ class MiscSystemsMixin:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it
         (possibly ``player`` themself) ceases to."""
         self.state.monarch_id = player.id
+
+    def start_engines(self, player: Player) -> None:
+        """RULE 702.179a/c: ``player``'s speed becomes 1 if they currently
+        have no speed. Idempotent — a no-op once they have any speed at all
+        (the SBA that calls this re-checks every pass)."""
+        if int(getattr(player, "speed", 0) or 0) == 0:
+            player.speed = 1
+
+    def increase_speed(self, player: Player, amount: int = 1) -> None:
+        """RULE 702.179c/d: raise ``player``'s speed by ``amount``, capped at
+        the maximum of 4 (RULE 702.179e). A player with no speed who is told
+        to increase it has their speed *become* that amount (702.179c)."""
+        current = int(getattr(player, "speed", 0) or 0)
+        player.speed = min(4, (amount if current == 0 else current + amount))
     def get_city_blessing(self, player: Player) -> None:
         """RULE 702.131a-c: ``player`` gets the city's blessing.
 

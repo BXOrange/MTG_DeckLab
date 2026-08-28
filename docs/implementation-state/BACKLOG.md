@@ -157,34 +157,6 @@ Plan-level sequencing lives in
   `_KEYWORD_TRIGGERED_BUILDERS`, rather than trusting this list to stay
   current as more keywords get built.)
 
-- **PAR-28 · "Keyword — `<activated/triggered ability>`" label family
-  (deferred out of PAR-27's recognition pass).** RULE 702 keywords that
-  print a RULE 207.2c-style em-dash label introducing a *real* ability
-  whose behaviour also carries the keyword's own restriction: **Boast**
-  (702.142, once per turn + only if the creature attacked — Eradicator
-  Valkyrie, Varragoth), **Exhaust** (702.177, once per game — Greasewrench
-  Goblin, Mindspring Merfolk, Winter Cursed Rider, Echoing Cavern,
-  Rebellious Captives, Riverchurn Monument), **Solved** (702.169,
-  conditional on the Case being solved — Case of the Filched Falcon / …
-  Locked Hothouse / … Pilfered Proof), **Max Speed** (~702.178, active
-  only at max speed — Slick Imitator, Far Fortune, The Mystery Raceway),
-  **Power-up** (Marvel — Hercules, Immortus, Molly Hayes, Nick Fury, White
-  Tiger), **Forecast** (702.57, activated from hand during upkeep, once
-  per turn — the Dissension cycle, ~6 cards). PAR-27 deliberately did
-  **not** claim these: stripping the label alone would model a working but
-  *unrestricted* ability (freely re-activatable, no timing gate), a
-  half-model. The real work is to strip the label **and** bind each
-  keyword's restriction (Boast/Exhaust reuse existing once-per-turn /
-  once-per-game machinery; Solved reuses the `is_solved` designation gate;
-  Forecast needs a from-hand activation zone). Only the two Boast cards are
-  SOLO-blocked on the label today (Eradicator Valkyrie, Varragoth); the
-  Exhaust/Solved/Power-up/Max Speed cards are additionally blocked on
-  unrelated set mechanics, so this is a fidelity/no-half-model ticket more
-  than a coverage-number one.
-  Set-specific status rows for Exhaust/Solved/Max Speed are in
-  `PARSER_LONG_TAIL.md`'s table; this ticket is the consolidated engine/
-  parser build across all six.
-
 ## MEC — Game mechanics
 
 > **Permanent non-goals** (never to be built, not gaps): Stickers (RULE

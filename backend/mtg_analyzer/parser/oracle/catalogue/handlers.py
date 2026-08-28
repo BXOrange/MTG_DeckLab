@@ -3850,6 +3850,21 @@ def _only_during_your_turn(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(ONLY_DURING_YOUR_TURN_MARKER, {})]
 
 
+# PAR-28: marker `EffectSpec`s synthesized by `segmenter._segment_keyword_
+# labeled_ability` for the "Keyword — [ability]" families (Boast/Exhaust/
+# Power-up/Forecast — RULE 702.142/702.177/702.57). They carry no oracle
+# text of their own (there is no regex row here — the keyword name *is* the
+# recognition), and `effect_binder.bind_ability`'s "activated" branch strips
+# and folds each into an `ActivatedAbility`/`ActivationCost` flag exactly
+# like `ONCE_PER_TURN_MARKER` above.
+#: RULE 702.177a / Power-up — "Activate only once." (per game, per ability).
+ACTIVATE_ONLY_ONCE_MARKER = "activate_only_once_marker"
+#: Power-up — "Reduce the cost by its mana cost if it entered this turn."
+POWERUP_COST_REDUCTION_MARKER = "powerup_cost_reduction_marker"
+#: RULE 702.57a — a forecast ability is activated from the card's hand.
+FROM_HAND_MARKER = "from_hand_marker"
+
+
 # PAR-10: "Activate only as a sorcery and only if `<condition>`." (Cabal
 # Inquisitor/Dread Wanderer/Hall of Oracles/Jin-Gitaxias // The Great
 # Synthesis) and its bare sibling "Activate only if `<condition>`."

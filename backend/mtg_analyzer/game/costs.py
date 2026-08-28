@@ -459,6 +459,12 @@ class ActivationCost:
     #: hand-authored only (`game/ability_catalogue.py`); no oracle-text
     #: grammar for it yet.
     dynamic_reduction: Optional[dict[str, Any]] = None
+    #: PAR-28 / Power-up: "Reduce the cost by its mana cost if it entered
+    #: this turn." A generic-mana reduction equal to the *source permanent's
+    #: own mana value*, applied only while it entered the battlefield this
+    #: turn (`GameObject.turn_entered`), read live each activation in
+    #: `GameEngine._reduced_activation_mana`.
+    powerup_cost_reduction: bool = False
     #: RULE 702.122a (Crew): "Tap any number of other untapped creatures you
     #: control with total power N or greater: this permanent becomes an
     #: artifact creature until end of turn." — the power *threshold* a

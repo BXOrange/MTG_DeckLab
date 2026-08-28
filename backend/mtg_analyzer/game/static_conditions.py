@@ -69,6 +69,21 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "source_untapped",  # "as long as ~ is untapped"
         "source_monstrous",  # RULE 701.37b
         "source_attacking",  # "as long as ~ is attacking"
+        # PAR-28: RULE 702.142a Boast — "Activate only if this creature
+        # attacked this turn." A per-object flag set in declare-attackers,
+        # reset each untap step (unlike ``source_attacking``, which clears
+        # the instant combat ends, RULE 511.3).
+        "source_attacked_this_turn",
+        # PAR-28: RULE 702.169b/719.3b Solved — "As long as this Case is
+        # solved, …" (and its activate-/trigger-only siblings). A permanent
+        # designation that persists until the Case leaves the battlefield.
+        "source_solved",
+        # PAR-28: RULE 702.178a Max Speed — "As long as your speed is 4, …".
+        # Reads the *controller*'s speed (RULE 702.179), no ``of`` subject.
+        "your_speed_is_max",
+        # PAR-28: RULE 702.57b Forecast — "Activate only during the upkeep
+        # step of the card's owner." Used as an ``activation_condition`` only.
+        "your_upkeep",
         "source_blocking",
         "source_paired",  # RULE 702.94b soulbond
         "source_attached",  # "as long as ~ is attached to a creature"
@@ -252,6 +267,21 @@ def condition_holds(
         return bool(getattr(subject, "is_monstrous", False))
     if kind == "source_attacking":
         return bool(getattr(subject, "attacking", False))
+    if kind == "source_attacked_this_turn":  # PAR-28 RULE 702.142a
+        return bool(getattr(subject, "attacked_this_turn", False))
+    if kind == "source_solved":  # PAR-28 RULE 702.169b / 719.3b
+        return bool(getattr(subject, "is_solved", False))
+    if kind == "your_speed_is_max":  # PAR-28 RULE 702.178a / 702.179e
+        player = _controller(state, controller_id)
+        return player is not None and int(getattr(player, "speed", 0) or 0) >= 4
+    if kind == "your_upkeep":  # PAR-28 RULE 702.57b Forecast
+        active = getattr(state, "active_player", None)
+        return (
+            active is not None
+            and controller_id is not None
+            and active.id == controller_id
+            and getattr(state, "current_step", "") == "upkeep"
+        )
     if kind == "source_blocking":
         return getattr(subject, "blocking", None) is not None or bool(
             getattr(subject, "additional_blocking", None)
@@ -485,7 +515,11 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         "source_attached": "angelegt",
         "source_equipped": "ausgerüstet",
         "source_enchanted": "verzaubert",
+        "source_attacked_this_turn": "hat diesen Zug angegriffen",
+        "source_solved": "solange gelöst",
     }
+    if kind == "your_speed_is_max":
+        return "solange Höchsttempo (Speed 4)"
     if kind in labels:
         return prefix + labels[kind]
     if kind == "your_turn":

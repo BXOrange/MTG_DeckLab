@@ -21,6 +21,11 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .catalogue.handlers import (
+    ACTIVATE_ONLY_ONCE_MARKER,
+    ACTIVATION_CONDITION_MARKER,
+    FROM_HAND_MARKER,
+    ONCE_PER_TURN_MARKER,
+    POWERUP_COST_REDUCTION_MARKER,
     TRIGGER_ONCE_PER_TURN_MARKER,
     _CYCLING_XX_TOKEN_RE,
     _cycling_xx_token,
@@ -1556,7 +1561,11 @@ _KEYWORD_DISPLAYS: list[str] = sorted(
     reverse=True,
 )
 _KEYWORD_TOKEN_RE = re.compile(
-    r"^(?:" + "|".join(re.escape(d) for d in _KEYWORD_DISPLAYS) + r")\b.*$"
+    # `(?![a-z0-9])` rather than `\b`: a display name ending in punctuation
+    # ("Start Your Engines!", "For Mirrodin!") has no `\b` after its final
+    # `!`, so `\b` wrongly rejected those whole keyword lines. The lookahead
+    # still stops "fly" from matching inside "flyer".
+    r"^(?:" + "|".join(re.escape(d) for d in _KEYWORD_DISPLAYS) + r")(?![a-z0-9]).*$"
 )
 #: Cycling's type-restricted variants ("Plainscycling", "Wizardcycling",
 #: "Slivercycling", an unbounded land/creature-type family Scryfall mints one
@@ -2256,6 +2265,168 @@ def is_keyword_line(line: str) -> bool:
     return all(_is_keyword_token(t) for t in tokens)
 
 
+# --- PAR-28: "Keyword — [ability]" labelled abilities -----------------------
+# RULE 702.142 Boast / 702.177 Exhaust / 702.57 Forecast / Power-up (Marvel) /
+# 702.169 Solved / 702.178 Max Speed. Each is a real activated / triggered /
+# static ability behind an em-dash label, with the keyword adding a fixed
+# restriction to it (a timing/legality gate, a once-per-game cap, a
+# solved/speed condition). The label is stripped, the body is parsed by the
+# ordinary `segment_line` machinery, and the restriction is applied to the
+# resulting spec — never claiming the body alone (which would model a
+# working but unrestricted ability).
+_KEYWORD_LABELED_ABILITY_RE = re.compile(
+    r"^(?P<kw>boast|exhaust|power-up|forecast|solved|max speed)\s*[—-]\s*(?P<body>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+#: RULE 702.57b: revealing the card from hand is bookkeeping, not a cost
+#: component — peeled off Forecast's cost text before the colon.
+_FORECAST_REVEAL_RE = re.compile(
+    r",?\s*reveal\s+.+?\s+from your hand\s*:", re.IGNORECASE | re.DOTALL
+)
+
+
+def _apply_keyword_restriction(spec: AbilitySpec, kw: str) -> bool:
+    """Fold ``kw``'s fixed rules-restriction onto an already-parsed ability
+    ``spec`` (RULE 702.142a/702.177a/702.57a/702.169b-d/702.178a). Returns
+    ``False`` if the spec's shape can't carry the restriction (fail-closed)."""
+    if kw == "boast":  # RULE 702.142a
+        if spec.ability_kind != "activated":
+            return False
+        spec.effects.append(
+            EffectSpec(ACTIVATION_CONDITION_MARKER,
+                       {"condition": {"kind": "source_attacked_this_turn"}})
+        )
+        spec.effects.append(EffectSpec(ONCE_PER_TURN_MARKER, {}))
+        return True
+    if kw in ("exhaust", "power-up"):  # RULE 702.177a / Power-up
+        if spec.ability_kind != "activated":
+            return False
+        spec.effects.append(EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {}))
+        if kw == "power-up":
+            spec.effects.append(EffectSpec(POWERUP_COST_REDUCTION_MARKER, {}))
+        return True
+    if kw == "forecast":  # RULE 702.57
+        if spec.ability_kind != "activated":
+            return False
+        spec.effects.append(EffectSpec(FROM_HAND_MARKER, {}))
+        spec.effects.append(
+            EffectSpec(ACTIVATION_CONDITION_MARKER, {"condition": {"kind": "your_upkeep"}})
+        )
+        spec.effects.append(EffectSpec(ONCE_PER_TURN_MARKER, {}))
+        return True
+    # RULE 702.169b-d Solved / 702.178a Max Speed — the same condition on
+    # whichever of the three ability shapes the body turned out to be.
+    cond = {"kind": "source_solved"} if kw == "solved" else {"kind": "your_speed_is_max"}
+    if spec.ability_kind == "static":
+        for eff in spec.effects:
+            eff.params.setdefault("active_if", cond)
+        return True
+    if spec.ability_kind == "triggered":
+        spec.trigger = {**(spec.trigger or {}), "active_if": cond}
+        return True
+    spec.effects.append(EffectSpec(ACTIVATION_CONDITION_MARKER, {"condition": cond}))
+    return True
+
+
+#: RULE 719.3a: "To solve — [Condition]" means "At the beginning of your end
+#: step, if [condition] and this Case is not solved, this Case becomes
+#: solved." Modeled as an ordinary phase-triggered ability with the
+#: condition as an intervening-if. Only the ``[condition]`` phrasings that
+#: map onto the whitelisted `game/static_conditions.py` vocabulary are
+#: claimed (fail-closed for the rest — a Case whose solve condition needs an
+#: unbuilt per-turn tracker stays UNMODELED, exactly like a battle whose
+#: body grammar isn't covered yet).
+_TO_SOLVE_RE = re.compile(r"^to solve\s*[—-]\s*(?P<cond>.+?)\.?$", re.IGNORECASE | re.DOTALL)
+_TO_SOLVE_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
+    (re.compile(r"you have no cards in hand", re.I),
+     lambda m: {"kind": "cards_in_hand_at_most", "amount": 0}),
+    (re.compile(r"you control (?P<n>\d+) or more (?P<what>artifacts|lands|creatures|"
+                r"enchantments|detectives)", re.I),
+     lambda m: {"kind": "control_count",
+                "selector": f"{m.group('what')}_you_control", "min": int(m.group("n"))}),
+    (re.compile(r"there are (?P<n>\d+|fifteen) or more cards in your graveyard", re.I),
+     lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
+                "min": 15 if m.group("n") == "fifteen" else int(m.group("n"))}),
+]
+
+
+def _to_solve_condition_dict(text: str) -> Optional[dict[str, Any]]:
+    stripped = text.strip().rstrip(".").strip()
+    for pattern, build in _TO_SOLVE_CONDITION_RES:
+        m = pattern.fullmatch(stripped)
+        if m is not None:
+            return build(m)
+    return None
+
+
+def _segment_to_solve(raw: str, *, provenance: ParserProvenance) -> Optional["Segment"]:
+    m = _TO_SOLVE_RE.match(raw)
+    if m is None:
+        return None
+    cond = _to_solve_condition_dict(m.group("cond"))
+    if cond is None:
+        return Segment(raw=raw)  # fail-closed: unrecognised solve condition
+    spec = AbilitySpec(
+        "triggered",
+        effects=[EffectSpec("become_solved", {})],
+        trigger={
+            "event": "STEP_BEGIN",
+            "filter": {"step": "end"},
+            "phase_relation": "you",
+            "active_if": cond,
+        },
+        raw_text=raw,
+        parser=provenance,
+    )
+    return Segment(raw=raw, spec=spec, claimed=True)
+
+
+def _segment_keyword_labeled_ability(
+    raw: str, *, allow_spell_effect: bool, provenance: ParserProvenance, is_saga: bool
+) -> Optional["Segment"]:
+    to_solve = _segment_to_solve(raw, provenance=provenance)
+    if to_solve is not None:
+        return to_solve
+    m = _KEYWORD_LABELED_ABILITY_RE.match(raw)
+    if m is None:
+        return None
+    kw = m.group("kw").lower()
+    body = m.group("body").strip()
+    if kw == "forecast":
+        body = _FORECAST_REVEAL_RE.sub(":", body, count=1).strip()
+    inner = segment_line(
+        body, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
+    )
+    if inner.claimed and inner.spec is None:
+        # The body parsed but yields no effect spec — a mana ability
+        # ("Exhaust — {G}, {T}: Add three mana of any one color." — Loot, the
+        # Pathfinder, the very card RULE 702.177b's example is about) or an
+        # informational-only clause. Claimed, but there's no `ActivatedAbility`
+        # to fold the once-per-game cap onto; a keyword *mana* ability's own
+        # "activate only once" is left as a known simplification.
+        return Segment(raw=raw, claimed=True)
+    if not inner.claimed or inner.spec is None or not _apply_keyword_restriction(
+        inner.spec, kw
+    ):
+        # Body didn't fully parse. Fall back to an inert keyword-line claim
+        # *only* where `is_keyword_line` itself would already have made one
+        # pre-PAR-28 (a comma-free `<keyword> — <body>` line, which
+        # `_KEYWORD_TOKEN_RE`'s greedy `.*$` swallowed whole). That keeps the
+        # handler a strict upgrade for those cards and avoids promoting a
+        # card whose whole reason-for-being is an unparseable Boast/Solved/…
+        # body to `MODELED` with that ability inert — a half-model.
+        return (
+            Segment(raw=raw, claimed=True, keyword_line=True)
+            if is_keyword_line(raw)
+            else Segment(raw=raw)
+        )
+    inner.spec.raw_text = raw
+    for extra in inner.extra_specs:
+        _apply_keyword_restriction(extra, kw)
+        extra.raw_text = raw
+    return Segment(raw=raw, spec=inner.spec, extra_specs=inner.extra_specs, claimed=True)
+
+
 def segment_line(
     line: str,
     *,
@@ -2275,6 +2446,16 @@ def segment_line(
     raw = line.strip()
     if not raw:
         return Segment(raw=raw, claimed=True)  # blank lines are trivially covered
+
+    # PAR-28: "Boast/Exhaust/Forecast/Power-up/Solved/Max speed — [ability]".
+    # Checked *before* `is_keyword_line`, since `_KEYWORD_TOKEN_RE`'s greedy
+    # `.*$` would otherwise claim the whole "<keyword> — <cost>: <effect>"
+    # line as a bare keyword line (producing no ability at all).
+    kw_labeled = _segment_keyword_labeled_ability(
+        raw, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
+    )
+    if kw_labeled is not None:
+        return kw_labeled
 
     if is_keyword_line(raw):
         return Segment(raw=raw, claimed=True, keyword_line=True)

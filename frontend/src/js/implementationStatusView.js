@@ -310,6 +310,11 @@ const GROUPS = [
               ['full', 'Aufstacheln / goad (701.15) — beide Kampfauflagen, „für den Rest der Partie", dynamische Zielanzahl („für jeden Gegner …")'],
               ['full', 'Strive (606) + „eine beliebige Anzahl Zielkreaturen" — Kostenmechanik und Zielwahl modelliert (Blinding Flare als erste vollständig modellierte Strive-Karte)'],
               ['full', 'Morph / Megamorph / Verkleidung (702.37/702.168)'],
+              ['full', 'Boast (702.142) — nur nach eigenem Angriff, einmal pro Zug'],
+              ['full', 'Exhaust / Power-up (702.177) — „nur einmal aktivieren" pro Partie'],
+              ['full', 'Forecast (702.57) — aus der Hand, nur im eigenen Versorgungssegment, einmal pro Zug'],
+              ['full', 'Solved (702.169/719) — „To solve —" als Trigger im Endsegment, „Solved —" nur solange gelöst'],
+              ['full', 'Max Speed / Start Your Engines! (702.178/702.179) — Speed 0–4, SBA-Start, +1 bei gegnerischem Lebensverlust im eigenen Zug'],
             ],
           },
           {
@@ -409,7 +414,7 @@ const GROUPS = [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (35,3 % · 12.302 / 34.811, PARSER_VERSION 100)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (35,4 % · 12.328 / 34.811, PARSER_VERSION 101)'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

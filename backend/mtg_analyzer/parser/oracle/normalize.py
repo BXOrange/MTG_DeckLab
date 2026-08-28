@@ -69,9 +69,15 @@ SELF = "~"
 #: its own Station reminder clause, already stripped by `normalize`'s
 #: generic parenthetical removal before this ever runs) — same reasoning,
 #: cheap to cover pre-emptively.
+#: "this Case" (RULE 719, PAR-28) is the same shape as battle/Siege above:
+#: a Case's clauses ("When this Case enters, …", "To solve — …", "Solved —
+#: Sacrifice this Case: …") are ordinary triggers/effects/costs about the
+#: resolving permanent, with no positional structure a dedicated parse
+#: would need — so ``~`` is exactly right, and every real Case writes its
+#: ETB as "When this Case enters, …".
 _SELF_REFERENCE_RE = re.compile(
     r"\bthis (?:creature|permanent|artifact|enchantment|land|planeswalker"
-    r"|vehicle|equipment|aura|token|battle|siege|spacecraft|planet)\b"
+    r"|vehicle|equipment|aura|token|battle|siege|spacecraft|planet|case)\b"
 )
 
 

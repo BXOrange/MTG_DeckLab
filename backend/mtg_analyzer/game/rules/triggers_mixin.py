@@ -55,6 +55,7 @@ from ..effects import (
     GameContext,
     GameEffect,
     ImpulsiveDrawEffect,
+    IncreaseSpeedEffect,
     MarchesaDelayedReturnEffect,
     ProliferateEffect,
     PumpEffect,
@@ -389,6 +390,36 @@ class TriggerCollectionMixin:
                     description=(
                         "Whenever a player takes the initiative, that player "
                         "ventures into Undercity."
+                    ),
+                )
+                self.pending_triggers.append((ability, event))
+
+        # PAR-28 / RULE 702.179d: the sourceless inherent ability every
+        # player with 1+ speed has — "Whenever one or more opponents lose
+        # life during your turn, if your speed is less than 4, your speed
+        # increases by 1. This ability triggers only once each turn."
+        # Controlled by the active player, following whoever's turn it is
+        # (like the rad-counter ability above, not a designation).
+        if event.type == EventType.LIFE_LOST:
+            active = self.state.active_player
+            loser_id = event.get("player_id")
+            if (
+                not active.has_lost
+                and 1 <= int(getattr(active, "speed", 0) or 0) < 4
+                and not active.speed_increased_this_turn
+                and loser_id is not None
+                and loser_id != active.id
+                and self.state.player_by_id(loser_id) is not None
+            ):
+                active.speed_increased_this_turn = True
+                ability = TriggeredAbility(
+                    trigger_event=EventType.LIFE_LOST,
+                    effects=[IncreaseSpeedEffect(player=active, amount=1)],
+                    controller_id=active.id,
+                    description=(
+                        "Whenever one or more opponents lose life during your turn, if "
+                        "your speed is less than 4, your speed increases by 1. This "
+                        "ability triggers only once each turn."
                     ),
                 )
                 self.pending_triggers.append((ability, event))

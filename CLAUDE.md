@@ -499,7 +499,15 @@ audit found ~70 fully working, ~122 recognized-but-inert or unenforced,
 ~3 hand-authored-only — see `BACKLOG.md`'s `PAR-22` through `PAR-26` for
 the evergreen gaps and `PARSER_LONG_TAIL.md`'s set-specific table for the
 per-product ones; don't cite a keyword as "implemented" from this
-catalogue's mere existence), flag keywords bound to combat, RULE 702.8b
+catalogue's mere existence), the **"Keyword — `<ability>`" label family**
+(PAR-28 — Boast RULE 702.142 / Exhaust RULE 702.177 / Power-up / Forecast
+RULE 702.57 / Solved RULE 702.169 / Max Speed RULE 702.178, each parsing
+to a real activated/triggered/static ability with the keyword's fixed
+restriction folded on — `segmenter._segment_keyword_labeled_ability`;
+brought the **Speed** subsystem — `Player.speed`, Start Your Engines! SBA,
+RULE 702.179d life-loss inherent trigger — and the **Case** solve state
+machine — `GameObject.is_solved`, "To solve —" end-step trigger — with
+it), flag keywords bound to combat, RULE 702.8b
 Flash now gating cast timing, and — since 2026-08-05 — RULE 702.90/91
 **Infect**/**Wither** as real damage-conversion behavior in
 `RulesEngine.deal_damage` rather than just parse-level flag recognition:
@@ -626,8 +634,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **35.3%
-covered (12,302 / 34,811) as of 2026-08-28, PARSER_VERSION 100** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **35.4%
+covered (12,328 / 34,811) as of 2026-08-28, PARSER_VERSION 101** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all

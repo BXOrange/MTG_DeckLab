@@ -426,6 +426,25 @@ class GameObject:
         #: rewind. Cleared when the combat phase ends (RULE 511.3).
         self.attacking: bool = False
         self.combat_defender: Optional[dict[str, Any]] = None
+        #: PAR-28 / RULE 702.142a Boast: whether this creature was declared as
+        #: an attacker at any point this turn. Unlike ``attacking`` (cleared
+        #: the instant combat ends, RULE 511.3) this survives into the second
+        #: main phase so a boast ability is still activatable then; reset each
+        #: untap step, like ``activated_loyalty_this_turn``.
+        self.attacked_this_turn: bool = False
+        #: PAR-28 / RULE 719.3b: the "solved" designation a Case permanent can
+        #: have. Once set it stays until the Case leaves the battlefield (not
+        #: reset per turn, not a copiable value).
+        self.is_solved: bool = False
+        #: PAR-28 / RULE 719.3a: the "To solve — [Condition]" whitelisted
+        #: condition dict (`game/static_conditions.py` vocabulary), checked at
+        #: the beginning of the controller's end step. ``None`` for a
+        #: non-Case permanent.
+        self.solve_condition: Optional[dict[str, Any]] = None
+        #: PAR-28 / RULE 702.177a Exhaust & Power-up: the descriptions of this
+        #: permanent's "Activate only once" abilities already activated this
+        #: game. Never reset (per-game, not per-turn).
+        self.used_once_per_game_abilities: set[str] = set()
         #: Whether a loyalty ability of this planeswalker has been activated
         #: this turn (RULE 606.3: only one per turn). Reset each untap step.
         self.activated_loyalty_this_turn: bool = False
@@ -1594,6 +1613,10 @@ class GameObject:
             "chosen_card_name": self.chosen_card_name,
             "chosen_number": self.chosen_number,
             "attacking": self.attacking,
+            "attacked_this_turn": self.attacked_this_turn,
+            # PAR-28 RULE 719.3b: the "solved" designation, for the board to
+            # show a Case's solved badge and enable its Solved ability.
+            "is_solved": self.is_solved,
             "combat_defender": self.combat_defender,
             "blocking": self.blocking,
             "additional_blocking": list(self.additional_blocking),

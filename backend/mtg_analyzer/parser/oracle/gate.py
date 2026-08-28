@@ -1061,7 +1061,20 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: recognition — no new/changed `AbilitySpec`; the specs still come from
 #: `parse_keywords` off Scryfall's `keywords` array. Findings from a
 #: full-cache audit of all 195 registered keywords.
-PARSER_VERSION = "100"
+#: "101": PAR-28 — the "Keyword — [ability]" families (Boast RULE 702.142,
+#: Exhaust RULE 702.177, Power-up, Forecast RULE 702.57, Solved RULE
+#: 702.169/719, Max Speed RULE 702.178) now parse to a real activated /
+#: triggered / static ability with the keyword's fixed restriction folded
+#: on (`segmenter._segment_keyword_labeled_ability`): Boast's attacked-this-
+#: turn + once-per-turn gate, Exhaust/Power-up's once-per-game cap,
+#: Forecast's from-hand + upkeep-only + once-per-turn, and a
+#: `source_solved`/`your_speed_is_max` condition for Solved/Max Speed on
+#: whichever shape the body is. Also: RULE 719.3a "To solve — [Condition]"
+#: as an end-step trigger (only the `static_conditions`-mapped conditions),
+#: "this Case" folded to `~` in `normalize`, and `_KEYWORD_TOKEN_RE`'s `\b`
+#: → `(?![a-z0-9])` so "Start Your Engines!"/"For Mirrodin!" keyword lines
+#: (trailing `!`) are recognised.
+PARSER_VERSION = "101"
 
 
 def parser_source_hash() -> str:

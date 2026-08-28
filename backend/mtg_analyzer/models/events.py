@@ -354,6 +354,12 @@ class EventType:
     #: 701.37a's "if this permanent isn't monstrous" means a second
     #: activation does nothing at all, event included.
     BECAME_MONSTROUS = "BECAME_MONSTROUS"
+    #: PAR-28 / RULE 719.3a: a Case just became **solved** — carries the
+    #: Case's ``instance_id`` and ``controller_id``. Fired only on the
+    #: transition (`BecomeSolvedEffect` guards on ``is_solved``). No card
+    #: yet has a "when a Case is solved" trigger, but the event exists so
+    #: one can be bound the same way as `BECAME_MONSTROUS`.
+    SOLVED = "SOLVED"
     #: RULE 701.15a: a creature was just **goaded** by a player — carries the
     #: goaded creature's ``instance_id`` plus ``goader_id``/``controller_id``
     #: (the goading effect's controller, i.e. the player the creature must

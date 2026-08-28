@@ -664,6 +664,15 @@ class TurnLoopMixin:
             # way — a new turn means no creature has crewed this permanent
             # yet.
             obj.crewed_by_ids = []
+        # PAR-28 / RULE 702.142a (Boast): "attacked this turn" resets for
+        # every permanent, not just the active player's — attacks only ever
+        # happen on the active player's turn (RULE 508), so by any untap step
+        # every creature's flag is stale. Same for RULE 702.179d's
+        # once-per-turn speed-increase limiter, per player.
+        for obj in self.state.permanents():
+            obj.attacked_this_turn = False
+        for pl in self.state.players:
+            pl.speed_increased_this_turn = False
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id))
         # RULE 731.2: "as the second part of the untap step", check whether
         # day/night should flip based on last turn's spell count.

@@ -179,6 +179,18 @@ class Player:
         #: `RulesEngine.get_city_blessing`.
         self.has_city_blessing: bool = False
 
+        #: PAR-28 / RULE 702.179 "Start your engines!": this player's speed.
+        #: ``0`` means "no speed" (RULE 702.179b/f — a player has no speed
+        #: until a rule or effect sets it). Raised to 1 by the Start Your
+        #: Engines! SBA while they control such a permanent, then +1 once per
+        #: turn when an opponent loses life during their turn (RULE 702.179d),
+        #: capped at 4. A player "has max speed" at speed 4 (RULE 702.179e).
+        self.speed: int = 0
+        #: RULE 702.179d: this ability "triggers only once each turn" — set
+        #: when speed is raised by the inherent life-loss trigger, reset each
+        #: turn in the untap step.
+        self.speed_increased_this_turn: bool = False
+
     # -- Zone accessors --------------------------------------------------
 
     @property
@@ -297,6 +309,9 @@ class Player:
             "ring_bearer_id": self.ring_bearer_id,
             # RULE 702.131c: the city's blessing designation (Ascend).
             "has_city_blessing": self.has_city_blessing,
+            # PAR-28 / RULE 702.179: this player's speed (0 = no speed, 4 =
+            # max speed), for the board to show a speedometer badge.
+            "speed": self.speed,
             "library_count": len(self.library),
             "hand_count": len(self.hand),
             "hand": [obj.to_dict() for obj in self.hand],

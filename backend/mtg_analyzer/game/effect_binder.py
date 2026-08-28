@@ -21,9 +21,12 @@ from typing import Any, Callable, Optional, Union
 from ..models.events import EventType
 from ..models.mana_cost import ManaCost
 from ..parser.oracle.catalogue.handlers import (
+    ACTIVATE_ONLY_ONCE_MARKER,
     ACTIVATION_CONDITION_MARKER,
+    FROM_HAND_MARKER,
     ONCE_PER_TURN_MARKER,
     ONLY_DURING_YOUR_TURN_MARKER,
+    POWERUP_COST_REDUCTION_MARKER,
     SORCERY_SPEED_MARKER,
 )
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
@@ -1176,6 +1179,25 @@ def _trigger_condition(
 
         predicates.append(_source_counters_at_least_ok)
 
+    # PAR-28 / RULE 702.169c Solved / 702.178a Max Speed on a *triggered*
+    # ability: "[Ability text]. This ability triggers only if [condition]."
+    # The same whitelisted `static_conditions` dict a static's `active_if`
+    # carries, checked live at trigger time against the ability's own source
+    # and controller (the replacement-effect and static-ability halves of
+    # this vocabulary already gate this way — see `build_replacements`).
+    trigger_active_if = trigger.get("active_if")
+    if isinstance(trigger_active_if, dict):
+        controller_id = getattr(source, "controller_id", None)
+
+        def _trigger_active_if_ok(
+            event: Any, context: Any, cond=trigger_active_if,
+            src=source, cid=controller_id,
+        ) -> bool:
+            state = getattr(context, "state", None)
+            return state is not None and condition_holds(cond, state, src, cid)
+
+        predicates.append(_trigger_active_if_ok)
+
     if trigger.get("not_controllers_turn"):
         controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
 
@@ -1433,6 +1455,9 @@ def bind_ability(
     once_per_turn = False
     sorcery_speed_only = False
     only_during_your_turn = False
+    once_per_game = False  # PAR-28 RULE 702.177a Exhaust / Power-up
+    powerup_cost_reduction = False  # PAR-28 Power-up
+    from_hand = False  # PAR-28 RULE 702.57a Forecast
     activation_condition: Optional[dict[str, Any]] = None
     effect_specs = spec.effects
     if spec.ability_kind == "activated":
@@ -1442,6 +1467,12 @@ def bind_ability(
             sorcery_speed_only = True
         if any(e.type == ONLY_DURING_YOUR_TURN_MARKER for e in effect_specs):
             only_during_your_turn = True
+        if any(e.type == ACTIVATE_ONLY_ONCE_MARKER for e in effect_specs):
+            once_per_game = True
+        if any(e.type == POWERUP_COST_REDUCTION_MARKER for e in effect_specs):
+            powerup_cost_reduction = True
+        if any(e.type == FROM_HAND_MARKER for e in effect_specs):
+            from_hand = True
         # PAR-10: "…and only if `<condition>`." — the same marker-then-strip
         # shape as the two above, folded into `ActivationCost.
         # activation_condition` instead of a flag.
@@ -1458,6 +1489,8 @@ def bind_ability(
             if e.type not in (
                 ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER,
                 ONLY_DURING_YOUR_TURN_MARKER, ACTIVATION_CONDITION_MARKER,
+                ACTIVATE_ONLY_ONCE_MARKER, POWERUP_COST_REDUCTION_MARKER,
+                FROM_HAND_MARKER,
             )
         ]
 
@@ -1576,6 +1609,10 @@ def bind_ability(
         # Gates of Madara-shaped) — same inference, `hand_zone`'s own
         # branch of `can_activate`.
         cost.hand_zone = True
+    if from_hand:
+        # PAR-28 / RULE 702.57a: a forecast ability is activated from the
+        # card's hand — same `hand_zone` branch of `can_activate`.
+        cost.hand_zone = True
     activated_modes = None
     if spec.modes:
         # RULE 700.2 on an *activated* ability (MEC-43, Umezawa's Jitte's
@@ -1592,6 +1629,8 @@ def bind_ability(
                 "modal activated abilities only support plain 'choose one' so far"
             )
         activated_modes = _build_mode_entries(spec.modes, source)
+    if powerup_cost_reduction:
+        cost.powerup_cost_reduction = True
     return ActivatedAbility(
         effects=effects,
         cost=cost,
@@ -1599,6 +1638,7 @@ def bind_ability(
         description=spec.raw_text,
         once_per_turn=once_per_turn,
         modes=activated_modes,
+        once_per_game=once_per_game,
     )
 
 

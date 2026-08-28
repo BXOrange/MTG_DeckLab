@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**35.3% covered — 12,302 / 34,811 — as of 2026-08-28, PARSER_VERSION 100.**
+**35.4% covered — 12,328 / 34,811 — as of 2026-08-28, PARSER_VERSION 101.**
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
@@ -98,16 +98,16 @@ rules, not one:
   | Station | 702.184a / 721 | Edge of Eternities | **Done** (2026-08-27) — a third "striated text box" grammar alongside Leveler/Class (`catalogue/station.py`), the reminder-line activated ability bound structurally off Scryfall's own `keywords: ["Station"]` entry (`effect_binder._station_activated_ability`); see `Done_Backend.md`'s Station entry |
   | Horsemanship | 702.31 | Portal (Portal-only, no reprints since) | **Not done** (checked 2026-08-27, RULE 702 keyword audit) — bare keyword, `combat.can_block` never checks it; lowest priority of this whole table, essentially a dead card pool |
   | Banding | 702.22 | Alpha/old-border era | **Not done** (checked 2026-08-27) — bare keyword, 0 `game/` hits; nostalgia-only, no modern reprints |
-  | For Mirrodin! | 702.90-adjacent | New Phyrexia | **Not done** (checked 2026-08-27) — 0-2 cache hits, keyword recognized, no engine behavior |
-  | Max Speed / Start Your Engines! | ~702.14x | Aetherdrift | **Not done** (checked 2026-08-27) — bare keywords, no vehicle-speed-tier machinery |
-  | Job Select / Tiered / Increment / Paradigm / Power-up / Teamwork / Sneak | various | Final Fantasy | **Not done** (checked 2026-08-27) — all recognized-but-inert; Sneak's name also collides with an unrelated hand-authored effect, worth disambiguating before building |
+  | For Mirrodin! | 702.90-adjacent | New Phyrexia | **Recognition fixed** (PARSER_VERSION 101, PAR-28) — the trailing-`!` keyword line is now claimed (`_KEYWORD_TOKEN_RE`); no engine behaviour (Living Weapon-style germ token) yet |
+  | Max Speed / Start Your Engines! | RULE 702.178 / 702.179 | Aetherdrift | **Done** (PARSER_VERSION 101, PAR-28) — full Speed subsystem: `Player.speed`, the Start-Your-Engines! SBA, the RULE 702.179d life-loss inherent trigger, `your_speed_is_max` static gate. See `Done_Backend.md`'s "Keyword — [ability] families" entry |
+  | Job Select / Tiered / Increment / Paradigm / Teamwork / Sneak | various | Final Fantasy | **Not done** (checked 2026-08-27) — recognized-but-inert; Sneak's name also collides with an unrelated hand-authored effect, worth disambiguating before building. (**Power-up** was in this row — now **done**, PAR-28) |
   | Space Sculptor | — | Warhammer 40,000 (Commander) | **Not done** (checked 2026-08-27) |
   | Living Metal / More Than Meets the Eye | — | Transformers (Commander) | **Not done** (checked 2026-08-27) |
   | Web-slinging | — | Spider-Man | **Not done** (checked 2026-08-27) |
   | Firebending / Mobilize | 702.189 / 702.181 | Avatar: The Last Airbender / Tarkir: Dragonstorm | **Recognition done, behaviour not** (PARSER_VERSION 100, PAR-27) — "Firebending X, where X is …" / "Mobilize X, where X is …" no longer drops the card to `UNMODELED` for a formatting reason (the keyword line is claimed, inert — same as a plain "Firebending 2"); the variable-N token/damage behaviour is still unbuilt |
   | Infinity | — | (product TBD at audit time) | **Not done** (checked 2026-08-27) — 0-2 cache hits |
   | Warp | 702.185-adjacent | Bloomburrow | **Not done** (checked 2026-08-27) — distinct from the unrelated "Warp" collision noted for the Final Fantasy row above; verify regex scoping before building either |
-  | Exhaust, Solved | various | (products TBD at audit time) | **Not done** — the "Exhaust — `<ability>`" / "Solved — `<ability>`" label + restriction is now `BACKLOG.md`'s `PAR-28` (the whole "Keyword — `<ability>`" label family: Boast/Exhaust/Solved/Max Speed/Power-up/Forecast); PAR-27 confirmed 2026-08-28 that stripping the label alone half-models them |
+  | Exhaust, Solved, Boast, Forecast | RULE 702.177 / 702.169 / 702.142 / 702.57 | Edge of Eternities / Murders at Karlov Manor / Kaldheim / Dissension | **Done** (PARSER_VERSION 101, PAR-28) — the whole "Keyword — `<ability>`" label family bound with its real restriction (Exhaust/Power-up once-per-game, Boast attacked-this-turn + once-per-turn, Forecast from-hand + upkeep-only, Solved's Case solve state machine). Per-card oracle coverage of individual Cases is still long-tail (an unbuilt "N …this turn" solve-condition tracker, or an effect-body gap in a `Solved —` clause) — the *mechanism* is done, same standing as the battle pool. See `Done_Backend.md`'s "Keyword — [ability] families" entry |
   | Mayhem, Decayed | various | Duskmourn: House of Horror | **Not done** (checked 2026-08-27) — Decayed also has real combat-restriction implications (can't block, 2 damage then sacrifice), not just a cost/cast wrapper |
   | Double team (+ Conjure / Draft from a spellbook / Boon / perpetual) | — (Alchemy digital keyword, no CR RULE 702 number) | Alchemy Horizons: Baldur's Gate / Dominaria | **Not done** — noted by PAR-27's keyword audit (2026-08-28): "Double team" is absent from `catalogue/keywords.py`'s CR-scoped `_TABLE`, so "Flying, double team" / "Menace, double team" lines fail `is_keyword_line`. ~18 cache cards, all also-blocked on other unmodelled Alchemy mechanics (Conjure/Draft/Boon/perpetual). Recommend deciding the whole Alchemy keyword family as one unit (likely a non-goal like Vanguard — Alchemy cards aren't paper-Commander-legal, so they're outside the `--commander-legal-only` coverage scope anyway) rather than adding "double team" piecemeal |
 

@@ -229,6 +229,10 @@ class GameContext:
         # RULE 702.131a-c.
         self.engine.get_city_blessing(player)
 
+    def increase_speed(self, player: "Player", amount: int = 1) -> None:
+        # PAR-28 / RULE 702.179c-d.
+        self.engine.increase_speed(player, amount)
+
     def create_emblem(self, player: "Player", ability: dict) -> None:
         self.engine.create_emblem(player, ability)
 
@@ -1364,6 +1368,7 @@ class ActivatedAbility(GameEffect):
         once_per_turn: bool = False,
         attach_kind: Optional[str] = None,
         modes: Optional[list[dict[str, Any]]] = None,
+        once_per_game: bool = False,
     ) -> None:
         super().__init__(source)
         self.effects = effects
@@ -1377,6 +1382,11 @@ class ActivatedAbility(GameEffect):
         self.once_per_turn = once_per_turn
         self._last_activated_turn: Optional[int] = None
         self.modes = modes
+        #: PAR-28 / RULE 702.177a: Exhaust & Power-up — "Activate only once".
+        #: A per-game, per-ability cap (never resets): `GameEngine.
+        #: can_activate`/`activate_ability` check/record this ability's
+        #: description in `GameObject.used_once_per_game_abilities`.
+        self.once_per_game = once_per_game
         #: Which RULE 301/303/704 attachment keyword generated this ability
         #: — ``"equip"``/``"fortify"``/``"reconfigure"`` (`effect_binder.
         #: _keyword_activated_ability`), or ``None`` for an ordinary
@@ -1487,6 +1497,51 @@ class TakeInitiativeEffect(GameEffect):
         player = self._resolve_target_or_controller(context, targets, explicit=self.player)
         if player is not None:
             context.take_initiative(player)
+
+
+class IncreaseSpeedEffect(GameEffect):
+    """PAR-28 / RULE 702.179d: the sourceless inherent ability "Whenever one
+    or more opponents lose life during your turn, if your speed is less than
+    4, your speed increases by 1. This ability triggers only once each
+    turn." — resolves by raising ``player``'s speed (capped at 4). Built
+    fresh per firing by `RulesEngine._collect_inherent_triggers`, never bound
+    to a permanent."""
+
+    def __init__(self, player: Any = None, amount: int = 1,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.player = player
+        self.amount = amount
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.player is not None:
+            context.increase_speed(self.player, self.amount)
+
+
+class BecomeSolvedEffect(GameEffect):
+    """PAR-28 / RULE 719.3a/702.169: "this Case becomes solved." The
+    resolution of the "To solve — [Condition]" end-step trigger, whose
+    ``[condition]`` was checked as an intervening-if at trigger time
+    (`effect_binder._trigger_condition`'s ``active_if`` predicate). Sets the
+    persistent ``is_solved`` designation on the trigger's own source (RULE
+    719.3b — kept until the Case leaves the battlefield), which every
+    ``Solved —`` ability's ``source_solved`` gate then reads. The RULE 719.3a
+    "and this Case is not solved" clause is the ``is_solved`` guard here;
+    re-checking ``[condition]`` a second time at resolution (RULE 603.4) is
+    left as a simplification — a Case's solve condition changing between its
+    own end-step trigger and that trigger's resolution needs an empty stack
+    plus another end-step effect, which no cached card sets up."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is not None and not getattr(src, "is_solved", False):
+            src.is_solved = True
+            state = getattr(context, "state", None)
+            if state is not None:
+                state.fire_event(
+                    GameEvent(EventType.SOLVED, instance_id=src.instance_id,
+                              controller_id=getattr(src, "controller_id", None))
+                )
 
 
 class GetCityBlessingEffect(GameEffect):
@@ -18815,6 +18870,12 @@ EffectRegistry.register(
     # blessing" checked once, at resolution, against the board.
     "get_city_blessing",
     lambda p: GetCityBlessingEffect(),
+)
+EffectRegistry.register(
+    # PAR-28 / RULE 719.3a: "this Case becomes solved" — the resolution of
+    # the "To solve — [Condition]" end-step trigger.
+    "become_solved",
+    lambda p: BecomeSolvedEffect(),
 )
 EffectRegistry.register(
     # RULE 611 "…until <duration>" — a continuous effect created on
