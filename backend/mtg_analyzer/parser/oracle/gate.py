@@ -1030,7 +1030,26 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "Vehicle" in the type line, so every Station Spacecraft's own printed
 #: P/T (needed the instant it becomes a creature) was silently dropped —
 #: the same shape MEC-29 already fixed once for Vehicle/Crew.
-PARSER_VERSION = "98"
+#: "99": `normalize._strip_unregistered_keyword_labels` — generalizes
+#: `_ABILITY_WORD_RE`'s fixed 7-word evergreen list to any RULE 207.2c-
+#: shaped "Name — <effect>" label, driven by the card's own raw Scryfall
+#: `keywords` array rather than a hand-maintained whitelist: any listed
+#: string that isn't a registered real RULE 701/702 keyword (checked
+#: against `catalogue.keywords.KEYWORDS`) is stripped wherever it appears
+#: as a line-leading label, since RULE 207.2c guarantees the label itself
+#: never changes what follows. Closes both a real gap in the fixed
+#: evergreen list itself (Threshold/Domain/Raid/Heroic/Metalcraft/
+#: Magecraft/Morbid/Imprint/Converge/Alliance/Corrupted/Ferocious/
+#: Hellbent/Strive/Coven/… — 415 distinct real ability-word/templated-
+#: keyword strings found used this way cache-wide) and, the open-ended
+#: majority of the win, the one-off *flavor* labels Universes Beyond sets
+#: mint per legendary character (Final Fantasy/Marvel/Warhammer 40K/
+#: Doctor Who/Fallout — "10,000 Needles", "Omnislash", "Tunnel Snakes
+#: Rule!", …) that can never be enumerated by a fixed list at all.
+#: +1,449 cards print this shape cache-wide (1,349 previously UNMODELED
+#: solely because of the unstripped label — verified via re-parse, not
+#: the raw count).
+PARSER_VERSION = "99"
 
 
 def parser_source_hash() -> str:
@@ -1310,7 +1329,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # `NEVER_SUPPORTED`'s docstring above).
         return ParseResult(specs=list(keyword_specs), coverage=NEVER_SUPPORTED)
     raw = _expand_ability_word_reminders(raw)
-    normalized = normalize(raw, getattr(card, "name", None))
+    normalized = normalize(raw, getattr(card, "name", None), getattr(card, "keywords", None))
     if not normalized:
         return ParseResult(specs=list(keyword_specs), coverage=MODELED)
 

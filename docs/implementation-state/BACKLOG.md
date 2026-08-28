@@ -40,72 +40,142 @@ Plan-level sequencing lives in
 
 ## PAR — Parser
 
-- **PAR-12 · The indefinite long tail.** Strategy, current coverage, and
-  worked examples: [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md) — split into
-  two tracks there, **basic mechanics** (generic shapes, worked by raw
-  cache-wide yield) and **set-specific mechanics** (one expansion/precon's
-  own signature keyword, worked deck-first against a saved deck's actual
-  commander/product). Not a ticket that can be "closed" — a standing
-  program. Planechase (901)/Archenemy (904) plane/scheme card *bodies* live
-  here too (13/309 measured 2026-08-04) — their trigger conditions are
-  recognized, but the bodies are exotic even by tail standards, so this is
-  ordinary long-tail work with a known card list, not a distinct gap.
-  (Reaching a Planechase/Archenemy/Vanguard table at all is wired up end to
-  end — Setup's format picker, `services/lobby.py`, `api/multiplayer.py`/
-  `api/game.py` — see Done_Backend.md "PLR-13". Vanguard's own remaining
-  piece — a per-seat avatar picker, and its avatars' card text — is a
-  permanent non-goal, not a queued gap; see the MEC callout below.)
+- **PAR-12 · The indefinite long tail (methodology pointer, not a closeable
+  ticket).** Strategy, current coverage, and worked examples all live in
+  [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md) — not duplicated here. Two
+  tracks: **basic mechanics** (generic shapes, worked by raw cache-wide
+  yield) and **set-specific mechanics** (one expansion/precon's own
+  signature keyword, worked deck-first against a saved deck's actual
+  commander/product). `PAR-20` below is 2026-08-28's concrete finding
+  about where the basic-mechanics track currently stands. Planechase
+  (901)/Archenemy (904) plane/scheme card *bodies* (13/309 measured
+  2026-08-04) are ordinary long-tail work with a known card list under
+  this same pointer, not a distinct ticket — their trigger conditions are
+  already recognized, only the bodies are exotic even by tail standards.
+  (Reaching a Planechase/Archenemy/Vanguard table at all is wired up end
+  to end already — see Done_Backend.md "PLR-13"; Vanguard's own avatar
+  picker/text is a permanent non-goal, see the MEC callout below.)
 
-- **PAR-14 · RULE 702 keyword catalogue: ~122 of 195 registered keywords
-  are recognized-but-inert.** A 2026-08-27 systematic audit (prompted by
-  finding Station/Toxic both claimed "implemented" by `CLAUDE.md` while
-  actually inert or non-existent — Toxic has since shipped for real, see
-  `Done_Backend.md`) checked every row in `parser/oracle/catalogue/
-  keywords.py` (195 total, not 194) against real `game/` consumers, not
-  just the parser's own `MODELED` verdict — the coverage gate only checks
-  that a keyword *parses*, not that anything downstream reads it, so a
-  bare `[keyword]` spec silently passes as "done" forever. Result: **~70
-  fully working, ~122 recognized-but-inert or unenforced, ~3
-  hand-authored-only**. The set-specific portion of that 122 (one
-  expansion each, e.g. Job Select/Final Fantasy, Web-slinging/Spider-Man)
-  is now tracked in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md)'s
-  set-specific table instead of here. What's open here is the
-  **evergreen** portion — keywords that recur across many sets/years, so
-  a fix pays off repeatedly:
-  - **Combat-evasion, never enforced** (a real rules violation, not just a
-    missing bonus — e.g. a Shroud permanent can currently be freely
-    targeted): Shroud (702.18), Fear (702.36), Intimidate (702.13), Skulk
-    (702.118), Shadow (702.28). `targeting._targetable_by` and
-    `combat.can_block` need a generic hook the same shape `has_hexproof`
-    already has, not five hand-rolled checks.
-  - **Cost-reduction keywords never wired to the existing generic
-    mechanism** (`continuous.self_cost_reduction_for` already handles
-    "costs {N} less for each X"-shaped statics for hand-authored cards —
-    it just isn't driven by these keywords themselves): Affinity
-    (702.41), Delve (702.66), Convoke (702.51), Improvise (702.126).
-  - **Triggered abilities with zero consumer**: Prowess (702.108, ~92
-    cache cards — one of the most-reprinted keywords in modern Magic),
-    Exalted (702.83, ~36 cards incl. cEDH staples Rafiq/Qasali
-    Pridemage/Noble Hierarch), Battle Cry (702.91), Mentor (702.134).
-  - **Death/graveyard-adjacent, zero implementation**: Undying (702.93),
-    Persist (702.79) — even a hand-authored *grant* of "undying"
-    (`ability_catalogue/entries_003.py`) currently does nothing, since no
-    death-replacement code anywhere checks for it; Unearth (702.84),
-    Embalm (702.128), Eternalize (702.129), Dredge (702.52).
-  - **Cast-alternative/timing keywords, zero implementation**: Madness
-    (702.35), Miracle (702.94), Ninjutsu (702.49, a real Ninja-tribal
-    mechanic), Bestow (702.103), Dash (702.109), Backup (702.165 — a
-    counter-placement keyword, confirmed via `parser_probe.py card "Bola
-    Slinger"`: bare `[keyword]`, no counters ever placed).
-  Full table (all 195 rows, categorized, with file:line evidence per
-  bucket) is in the audit's own report — not reproduced here since this
-  file stays open-scope-only; re-derive via the same method
-  (`parser_probe.py card "<name>"` per keyword, cross-referenced against
-  `game/combat.py`'s `COMBAT_KEYWORDS`, `game/effect_binder.py`'s
-  `attach_keyword`/`_KEYWORD_TRIGGERED_BUILDERS`) rather than trusting
-  this list to stay current as more keywords get built. Each bucket above
-  is independently shippable — no shared blocking primitive ties them
-  together, unlike Station's/Amass's own single-mechanism builds.
+  > **Ticket-id note:** every number from `PAR-1` through `PAR-19` is
+  > already a real, shipped, cross-referenced ticket elsewhere in this
+  > codebase (grep before reusing one — `PAR-14`, for one, is RULE 603.2's
+  > once-per-turn trigger limiter, `Done_Backend.md`, nothing to do with
+  > keywords). The tickets below correctly start at `PAR-20`.
+
+- **PAR-20 · Parsable Grammar: the cache-wide basic-mechanics track has run
+  out of single big wins — verify before sizing, deck-first is now the
+  better track.** `rank`'s raw top-25 (2026-08-28, PARSER_VERSION 99) still
+  *lists* count-40+ templates ("choose N —", "you get an emblem with
+  `<name>`", "this spell costs `<cost>` more to cast for each target beyond
+  the first", O-Ring-shaped "exile target nonland permanent ... until ~
+  leaves the battlefield", "enchanted creature has `<name>`", the
+  2011+-template werewolf transform condition) — but `parser_probe.py
+  blocked` on all six found the clause each one names is **already
+  correctly claimed** by existing grammar; every one of those cards'
+  *real* blocker is a distinct, unique, one-off co-resident clause with no
+  shared pattern (`blocked`'s own "what else blocks those cards" residue
+  comes back essentially all count-1). This is a real, dated finding, not
+  a guess — don't re-verify the same six from scratch, but don't trust a
+  fresh `rank` top-N either without re-running `blocked` on it, since this
+  is exactly the failure mode `PARSER_LONG_TAIL.md`'s own "lessons"
+  section already warns about, now confirmed at unusual scale. Two
+  concrete follow-ups, both session-sized: (1) check whether "`<name>`'s
+  power and toughness are each equal to the number of cards in your hand"
+  and "...the number of lands you control" (two independently-occurring
+  CDA templates in that same residue) already generalize for free via the
+  existing count-selector CDA support (MEC-27's "General Count-Amount
+  Resolver") — if not, a small paired handler; (2) given the cache-wide
+  track's diminishing returns, the better next session is switching
+  primary effort to `PARSER_LONG_TAIL.md`'s own **deck-first** track —
+  audit a real saved deck (a cluster of cards someone actually plays is
+  far more likely to share a real, unfixed pattern than the aggregate
+  cache is at this point) rather than mining `rank`'s cache-wide top-N
+  again.
+
+- **PAR-21 · Missing Keywords: RULE 702 catalogue is numerically complete;
+  RULE 701 keyword actions need their own audit.** Verified 2026-08-28:
+  `parser/oracle/catalogue/keywords.py`'s 195 rows cover all 193 distinct
+  RULE 702.2–702.194 rule numbers with **zero gaps** (cross-checked
+  programmatically against the full numeric range) — "a real RULE 702
+  keyword ability entirely absent from the registry" is not an open
+  problem. What's genuinely unaudited: RULE 701 **keyword actions** (Scry,
+  Mill, Investigate, Explore, Fight, …) are deliberately *not* tracked via
+  this catalogue at all — they're ordinary verbs recognized by
+  `catalogue/handlers.py`'s effect grammar, a structurally different
+  mechanism, and most are believed covered per this doc's own extensive
+  feature list, but that belief has never been exhaustively cross-checked
+  action-by-action. Session-workable: walk the full RULE 701 keyword-action
+  list (`docs/Reference/rules_wiki/`) against `handlers.py`, confirm each
+  has a real handler (not just that some card using it happens to be
+  `MODELED` for an unrelated reason), and report any genuine gap found.
+
+- **PAR-22 · Combat-evasion keywords never enforced (real rules
+  violations, not missing bonuses).** Shroud (702.18) — a Shroud permanent
+  can currently be freely targeted; Fear (702.36), Intimidate (702.13),
+  Skulk (702.118), Shadow (702.28) — `combat.can_block` only ever checks
+  flying/reach/protection. `targeting._targetable_by` and `combat.can_block`
+  need a generic hook the same shape `has_hexproof` already has, not five
+  hand-rolled hard-coded checks. (One of the five buckets split out of the
+  2026-08-27 RULE 702 keyword audit, `Done_Backend.md`'s "MEC-30"-adjacent
+  entries and the audit's own full findings — see `PAR-23`/`PAR-24`/
+  `PAR-25`/`PAR-26` below for the rest.)
+
+- **PAR-23 · Cost-reduction keywords never wired to the existing generic
+  mechanism.** `continuous.self_cost_reduction_for` already handles "costs
+  `{N}` less for each X"-shaped statics for hand-authored cards — it just
+  isn't driven by these keywords themselves yet: Affinity (702.41), Delve
+  (702.66), Convoke (702.51), Improvise (702.126).
+
+- **PAR-24 · Triggered keyword abilities with zero engine consumer.**
+  Prowess (702.108, ~92 cache cards — one of the most-reprinted keywords
+  in modern Magic), Exalted (702.83, ~36 cards incl. cEDH staples
+  Rafiq/Qasali Pridemage/Noble Hierarch), Battle Cry (702.91), Mentor
+  (702.134).
+
+- **PAR-25 · Death/graveyard keyword family, zero implementation.**
+  Undying (702.93), Persist (702.79) — even a hand-authored *grant* of
+  "undying" (`ability_catalogue/entries_003.py`) currently does nothing,
+  since no death-replacement code anywhere checks for it; Unearth
+  (702.84), Embalm (702.128), Eternalize (702.129), Dredge (702.52).
+
+- **PAR-26 · Cast-alternative/timing keyword family, zero implementation.**
+  Madness (702.35), Miracle (702.94), Ninjutsu (702.49, a real Ninja-tribal
+  mechanic), Bestow (702.103), Dash (702.109), Backup (702.165 — a
+  counter-placement keyword, confirmed via `parser_probe.py card "Bola
+  Slinger"`: bare `[keyword]`, no counters ever placed).
+
+  (PAR-22 through PAR-26 are the **evergreen** portion of the 2026-08-27
+  audit's ~122-of-195-inert finding — the set-specific portion, one
+  expansion each, is tracked in `PARSER_LONG_TAIL.md`'s own set-specific
+  table instead. Each ticket is independently shippable — no shared
+  blocking primitive ties them together, unlike Station's/Amass's own
+  single-mechanism builds. The audit's full table — all 195 rows,
+  categorized, with file:line evidence per bucket — isn't reproduced here
+  since this file stays open-scope-only; re-derive via `parser_probe.py
+  card "<name>"` per keyword, cross-referenced against `game/combat.py`'s
+  `COMBAT_KEYWORDS` and `game/effect_binder.py`'s `attach_keyword`/
+  `_KEYWORD_TRIGGERED_BUILDERS`, rather than trusting this list to stay
+  current as more keywords get built.)
+
+- **PAR-27 · Missing keyword recognition: audit the remaining registered
+  keywords for segmenter false-negatives.** The headline instance in this
+  category — RULE 207.2c-shaped "Name — `<effect>`" labels never getting
+  stripped unless hand-whitelisted, which was silently marking 1,349 real
+  cards `UNMODELED` purely because of an un-stripped label (Universes
+  Beyond's one-off "signature ability" names — "10,000 Needles", Jumbo
+  Cactuar — being the biggest single driver, alongside 400+ real RULE
+  207.2c ability words never added to the old 7-word fixed list) — was
+  found and **closed 2026-08-28** (PARSER_VERSION 99, `normalize.
+  _strip_unregistered_keyword_labels`; +117 cards flipped to `MODELED`
+  immediately, more as other gaps close since it's a structural fix, not
+  per-card; see `Done_Backend.md`). No further concrete instance is known
+  right now — what's left is the audit itself: spot-check each of the 195
+  registered keywords against 2–3 real cache cards via `parser_probe.py
+  card "<name>"` to confirm the keyword line is actually being *claimed*
+  (not silently falling into `UNCLAIMED` for a phrasing/pluralization/
+  formatting reason `is_keyword_line`/`parse_keywords` doesn't handle),
+  and report any found — a real, bounded, session-sized check even though
+  it isn't pre-loaded with known targets the way PAR-22..26 are.
 
 ## MEC — Game mechanics
 

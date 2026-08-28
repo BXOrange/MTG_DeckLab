@@ -272,7 +272,7 @@ def cmd_card(args):
     print(f"{card.name}")
     print(f"  coverage={result.coverage} modeled={result.modeled} hand-authored={authored}")
     print(f"\n  raw oracle_text:\n{card.oracle_text}")
-    print(f"\n  normalized:\n{normalize(card.oracle_text or '', card.name)}")
+    print(f"\n  normalized:\n{normalize(card.oracle_text or '', card.name, card.keywords)}")
 
     print("\n  specs:")
     for spec in result.specs:

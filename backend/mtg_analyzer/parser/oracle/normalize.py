@@ -103,6 +103,53 @@ def _strip_ability_words(text: str) -> str:
     return _ABILITY_WORD_RE.sub("", text)
 
 
+#: The RULE 207.2c ability-word template ("Word — <effect>") isn't limited
+#: to the fixed, evergreen vocabulary `_ABILITY_WORD_RE` enumerates — every
+#: new Universes Beyond-flavored set (Final Fantasy, Marvel, Warhammer
+#: 40,000, Doctor Who, Fallout, …) mints one-off, card-specific *flavor*
+#: labels using the exact same "Name — <effect>" shape ("10,000 Needles —
+#: Whenever this creature attacks, it gets +9999/+0 until end of turn.",
+#: Jumbo Cactuar) — Scryfall's own keyword-extraction heuristic dutifully
+#: lists these in the card's ``keywords`` array right alongside real
+#: keywords, even though they carry no rules meaning of their own and will
+#: never recur on a second card. A hand-maintained whitelist the way
+#: `_ABILITY_WORD_RE` works can't scale to an open-ended, one-off
+#: vocabulary — but Scryfall's own per-card ``keywords`` array is exactly
+#: the signal needed to strip these safely and generically: if a string in
+#: it does **not** match any real, registered RULE 701/702 keyword (checked
+#: against `catalogue.keywords.KEYWORDS`, so a genuine flag/parametric
+#: keyword's own line is never touched) and it appears verbatim as a
+#: line-leading "``<label>`` <dash>" prefix, the label is discarded and the
+#: (already fully self-contained) sentence after it is left for ordinary
+#: parsing — the same reasoning `_ABILITY_WORD_RE`'s own docstring gives
+#: for the evergreen list: RULE 207.2c guarantees a label never changes
+#: what follows, so stripping it can only ever help, not hide a real
+#: rules distinction. (A registered *keyword ability* that happens to
+#: print its own full behaviour inline this way too, e.g. Heroic — "Heroic
+#: — Whenever you cast a spell that targets this creature, …" — is safe to
+#: strip the same way: the trailing sentence is already the complete
+#: templated rule, and `keywords.py`'s own separate keyword-line binding
+#: path is what actually recognizes Heroic as a keyword, unaffected since
+#: it reads `card.keywords` directly rather than this stripped text.)
+def _strip_unregistered_keyword_labels(text: str, keywords: Optional[list[str]]) -> str:
+    if not keywords:
+        return text
+    from .catalogue.keywords import KEYWORDS  # avoid importing the whole catalogue at module load
+
+    for kw in keywords:
+        kw = (kw or "").strip()
+        if not kw:
+            continue
+        slug = kw.lower().replace(" ", "_").replace("-", "_")
+        if slug in KEYWORDS:
+            continue
+        pattern = re.compile(
+            r"^" + re.escape(kw.lower()) + r"\s*[—–-]\s*", re.MULTILINE
+        )
+        text = pattern.sub("", text)
+    return text
+
+
 #: RULE 700.4 — "the term *dies* means 'is put into a graveyard from the
 #: battlefield'". An exact definitional synonym, so folding the long
 #: (pre-2011) phrasing to the modern one-word verb lets every existing
@@ -195,7 +242,7 @@ def _fold_self_name(text: str, name: Optional[str]) -> str:
     return text
 
 
-def normalize(text: str, name: Optional[str] = None) -> str:
+def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str]] = None) -> str:
     """Canonicalise ``text`` for the segmenter and handler table (docs/09).
 
     Strips reminder text, folds the card's own ``name`` to ``~``, lowercases,
@@ -203,12 +250,18 @@ def normalize(text: str, name: Optional[str] = None) -> str:
     a graveyard from the battlefield" phrasing to "dies", and collapses runs
     of spaces/tabs — while **preserving newlines**, which separate a card's
     distinct abilities and drive segmentation.
+
+    ``keywords`` — the card's own raw Scryfall ``keywords`` array, optional
+    and unused unless passed — feeds `_strip_unregistered_keyword_labels`,
+    stripping any one-off "Name — <effect>" flavor label alongside the
+    fixed evergreen ability-word list.
     """
     text = strip_reminder_text(text or "")
     text = _fold_self_name(text, name)
     text = text.lower()
     text = _fold_self_reference(text)
     text = _strip_ability_words(text)
+    text = _strip_unregistered_keyword_labels(text, keywords)
     text = _fold_dies_long_form(text)
     text = _fold_leading_until_end_of_turn(text)
     text = _NUMBER_WORD_RE.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text)

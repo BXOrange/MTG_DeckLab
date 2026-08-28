@@ -496,10 +496,10 @@ planeswalkers; commander damage + tax; the RULE 702
 keyword catalogue (195 registered rows, `parser/oracle/catalogue/keywords.py`
 — **parser recognition only, not proof of engine behavior**: a 2026-08-27
 audit found ~70 fully working, ~122 recognized-but-inert or unenforced,
-~3 hand-authored-only — see `BACKLOG.md`'s `PAR-14` for the evergreen
-gaps and `PARSER_LONG_TAIL.md`'s set-specific table for the per-product
-ones; don't cite a keyword as "implemented" from this catalogue's mere
-existence), flag keywords bound to combat, RULE 702.8b
+~3 hand-authored-only — see `BACKLOG.md`'s `PAR-22` through `PAR-26` for
+the evergreen gaps and `PARSER_LONG_TAIL.md`'s set-specific table for the
+per-product ones; don't cite a keyword as "implemented" from this
+catalogue's mere existence), flag keywords bound to combat, RULE 702.8b
 Flash now gating cast timing, and — since 2026-08-05 — RULE 702.90/91
 **Infect**/**Wither** as real damage-conversion behavior in
 `RulesEngine.deal_damage` rather than just parse-level flag recognition:
@@ -626,8 +626,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **34.9%
-covered (12,162 / 34,811) as of 2026-08-27, PARSER_VERSION 98** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **35.3%
+covered (12,279 / 34,811) as of 2026-08-28, PARSER_VERSION 99** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -1376,7 +1376,7 @@ line's activated ability bound structurally off Scryfall's own
 Class's own `min_level`/`level_counter` gate (pointed at `"charge"`
 counters) for cumulative per-threshold grants. Along the way, a
 systematic **audit of the full RULE 702 keyword catalogue** (filed as
-`PAR-14`, see the correction above) found the "N keywords implemented"
+`PAR-21` through `PAR-27`, see the correction above) found the "N keywords implemented"
 framing this doc used to carry was never a safe inference from the
 parser's own coverage gate, and fixed one real bug the Station build
 itself surfaced: `combat.keywords_of`'s oracle-text fallback scan had no

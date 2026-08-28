@@ -116,6 +116,40 @@ def test_fold_self_name_does_not_strip_a_prefix_when_next_char_not_a_letter():
     assert out == f"{SELF} is great, unlike 1."
 
 
+def test_normalize_strips_a_one_off_flavor_keyword_label():
+    # Universes Beyond sets mint card-specific "Name — <effect>" labels
+    # (Jumbo Cactuar's real printed text) using the exact RULE 207.2c
+    # ability-word template, but for a one-off name no fixed whitelist can
+    # ever enumerate — Scryfall's own per-card `keywords` array is what
+    # confirms "10,000 Needles" is being used label-style here.
+    text = "10,000 Needles — Whenever this creature attacks, it gets +9999/+0 until end of turn."
+    out = normalize(text, keywords=["10,000 Needles"])
+    assert out == "whenever ~ attacks, it gets +9999/+0 until end of turn."
+
+
+def test_normalize_strips_an_ability_word_not_on_the_fixed_evergreen_list():
+    # Threshold isn't in `_ABILITY_WORD_RE`'s small hand-maintained list,
+    # but it's a real RULE 207.2c ability word Scryfall tags the same way —
+    # the keywords-driven strip catches it too, generically.
+    text = "Threshold — Enchanted creature has shroud as long as there are 7 or more cards in your graveyard."
+    out = normalize(text, keywords=["Threshold"])
+    assert out == "enchanted creature has shroud as long as there are 7 or more cards in your graveyard."
+
+
+def test_normalize_never_strips_a_registered_real_keywords_own_line():
+    # A genuine flag/parametric keyword's own bare line must never be
+    # touched by this mechanism — only a string Scryfall lists that ISN'T
+    # one of our registered RULE 701/702 keywords is a strip candidate.
+    text = "Flying — this text should never appear, but the label must survive."
+    out = normalize(text, keywords=["Flying"])
+    assert out.startswith("flying —")
+
+
+def test_normalize_keywords_param_is_optional_and_backward_compatible():
+    text = "Flying\nVigilance"
+    assert normalize(text) == normalize(text, keywords=None) == normalize(text, keywords=[])
+
+
 # ---------------------------------------------------------------------------
 # SUB-GRAMMARS
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**34.9% covered — 12,162 / 34,811 — as of 2026-08-27, PARSER_VERSION 98.**
+**35.3% covered — 12,279 / 34,811 — as of 2026-08-28, PARSER_VERSION 99.**
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
@@ -113,11 +113,11 @@ rules, not one:
   The rows above come from a 2026-08-27 systematic audit of all 195
   registered `parser/oracle/catalogue/keywords.py` entries against real
   `game/` consumers (not just cache LIKE-counts) — see `BACKLOG.md`'s
-  `PAR-14` for the audit's full findings, including the **evergreen**
-  gaps it found alongside these set-specific ones (Prowess, Affinity,
-  Delve, Shroud, and a dozen others — those belong on the *basic* track,
-  not this table, since they recur every set rather than being confined
-  to one product). Several of the rows above are still first-pass
+  `PAR-22` through `PAR-26` for the audit's full findings, including the
+  **evergreen** gaps it found alongside these set-specific ones (Prowess,
+  Affinity, Delve, Shroud, and a dozen others — those belong on the
+  *basic* track, not this table, since they recur every set rather than
+  being confined to one product). Several of the rows above are still first-pass
   cache-count estimates (0-2 hits at audit time, not yet `parser_probe.py
   blocked`-verified per this section's own rule) — verify before sizing a
   build, don't just copy the status.
@@ -185,6 +185,33 @@ Each was paid for once; re-reading them is cheaper than re-learning them.
   with an already-shipped constraint (`distinct_controllers`) doing the rest.
   Measuring the *mechanism* rather than the quoted phrase turned a
   one-card item into a five-card one at no extra cost.
+- **Scryfall's own `keywords` array is noisy — cross-reference before
+  treating a raw string as a real keyword.** It mixes RULE 702 keyword
+  *abilities* (what `catalogue/keywords.py` tracks), RULE 701 keyword
+  *actions* (Mill/Scry/Investigate — a structurally different mechanism,
+  ordinary verbs handled by `handlers.py`), created-token type names
+  (Treasure/Food), and — the majority by distinct-string-count — one-off
+  card-specific *flavor* ability names Scryfall's own keyword-extraction
+  heuristic mistakes for a reusable keyword whenever a card prints the
+  "Name — effect" ability-word template with a novel name ("10,000
+  Needles", Jumbo Cactuar). A diff of "every distinct raw `keywords`
+  string not in our registry" (2026-08-28) found 689 distinct strings —
+  almost none of them a real registry gap; see `normalize.
+  _strip_unregistered_keyword_labels` (PARSER_VERSION 99) for the fix this
+  specific noise pattern led to.
+- **At scale, "verify before sizing" can invalidate an entire `rank`
+  top-N in one pass, not just one entry.** 2026-08-28: six of the highest-
+  count templates in a fresh cache-wide `rank` (40-240 raw hits each) were
+  checked with `parser_probe.py blocked`, and *all six* turned out to
+  already be fully claimed by existing grammar — every card's real
+  blocker was a distinct, unrelated, one-off co-resident clause. This
+  isn't a one-off miss; it's a sign the basic-mechanics (cache-wide)
+  track's easy big wins are genuinely thinning out at the current
+  coverage level (35.3%), not just a bad `rank` run. When this happens,
+  don't keep re-running `rank` hoping for a better top-N — switch to the
+  deck-first track instead (a real saved deck's cards are far more likely
+  to share an actual unfixed pattern than the whole-cache aggregate is at
+  this point).
 - **"Coverage" and "actually playable" are two different claims — check
   both.** Three separate PAR-6..10 (2026-08-03) cards were already
   `MODELED` (the coverage gate satisfied) while being functionally inert: a
