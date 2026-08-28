@@ -52,6 +52,8 @@ mtg_analyzer/parser/oracle/segmenter.py, mtg_analyzer/game/rules_engine.py.
 
 from __future__ import annotations
 
+import pytest
+
 from mtg_analyzer.game import combat
 from mtg_analyzer.game.effect_binder import attach_to_object
 from mtg_analyzer.game.game_engine import GameEngine
@@ -112,6 +114,113 @@ def test_a_keywords_own_continuation_that_looks_like_prose_is_still_rejected():
     # Fail-closed guard: the smarter comma-split must not become so permissive
     # that a genuine non-keyword continuation gets swallowed.
     assert not is_keyword_line("flying, then draw a card")
+
+
+# ---------------------------------------------------------------------------
+# PAR-27 — whole-line recognisers for keyword-only lines whose own parameter
+# contains commas (a full-cache audit of all 195 registered keywords)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "flashback—{1}{u}, pay 3 life.",                       # Deep Analysis
+        "flashback {3}{b}, pay 3 life.",                       # space, not em-dash
+        "flashback—{r}{r}, discard x cards.",                  # Conflagrate
+        "flashback—{1}{r}, exile x cards from your graveyard.",
+        "eternalize—{3}{u}{u}, discard a card.",               # Sinuous Striker
+        "blitz—{2}{b}{b}, pay 2 life.",                        # Tenacious Underdog
+        "evoke—{1}{b}{b}, pay 3 life.",                        # Infestation
+        "buyback—pay 3 life, discard a card at random.",       # Flowstone Flood
+        "recover—pay half your life, rounded up.",             # Garza's Assassin
+        "madness—{2}{b}, pay 8 life.",                         # Shadowgrange Archfiend
+        "squad—{1}, discard a card.",                          # Thrill-Kill Disciple
+        "equip—{2}, pay 2 life.",                              # My Precious
+        "protection from blue, from black, and from red",      # Oversoul of Dusk
+        "protection from vampires, from werewolves, and from zombies",
+        "hexproof from artifacts, creatures, and enchantments",
+        "enchant creature, land, or planeswalker",             # Imprisoned in the Moon
+        "enchant artifact, creature, or planeswalker",         # Planar Disruption
+        "firebending x, where x is the number of creatures you control.",
+        "mobilize x, where x is your devotion to mardu.",
+        "devour x, where x is the number of creatures devoured this way",
+        "companion — your starting deck contains no cards with a silver, "
+        "gold, orange, or purple expansion symbol.",           # Lutri
+    ],
+)
+def test_par27_compound_keyword_lines_are_recognised(line):
+    assert is_keyword_line(line)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        # A real cost-reduction sentence trailing the flashback cost — the
+        # Visions of X cycle. The mid-line period must stop the match.
+        "flashback {8}{g}{g}. this spell costs {x} less to cast this way, "
+        "where x is the greatest mana value of a commander you own.",
+        # "Keyword — <activated ability>" (the colon-introduced ability body
+        # families deliberately left for a follow-up ticket): a comma inside
+        # the ability body must not let the compound-cost recogniser claim
+        # the whole line.
+        "boast — {1}{b}, sacrifice a creature: each opponent sacrifices a "
+        "creature or planeswalker.",                             # Eradicator Valkyrie
+        "boast — {1}{b}: target player searches their library for a card, "
+        "then shuffles and puts that card on top.",              # Varragoth
+        "exhaust — {2}{r}: discard up to 2 cards, then draw that many "
+        "cards. put a +1/+1 counter on ~.",                      # Greasewrench Goblin
+        "equip {10}. this ability costs {x} less to activate, where x is "
+        "the power of the creature it targets.",                 # Belt of Giant Strength
+        # Still-prose continuation must never be swallowed.
+        "flying, then draw a card",
+    ],
+)
+def test_par27_recognisers_do_not_swallow_a_real_ability_body(line):
+    assert not is_keyword_line(line)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "legendary landwalk",   # Ayumi, the Last Visitor
+        "nonbasic landwalk",    # Dryad Sophisticate
+        "snow landwalk",        # Zombie Musher
+        "snow forestwalk",      # Rime Dryad
+        "snow-covered plainswalk",
+        "fox offering",         # Patron of the Kitsune
+        "artifact offering",    # Blast-Furnace Hellkite
+    ],
+)
+def test_par27_multiword_landwalk_and_offering_lines_are_recognised(line):
+    assert is_keyword_line(line)
+
+
+def test_par27_offering_recogniser_does_not_match_prose():
+    assert not is_keyword_line("make an offering to the dark gods")
+
+
+def test_par27_deep_analysis_is_modeled_end_to_end():
+    card = _card(
+        "Deep Analysis",
+        "Target player draws two cards.\n"
+        "Flashback—{1}{U}, Pay 3 life. (You may cast this card from your "
+        "graveyard for its flashback cost. Then exile it.)",
+        ["Flashback"],
+        type_line="Sorcery", is_sorcery=True,
+    )
+    assert parse_oracle(card).coverage is MODELED
+
+
+def test_par27_boast_card_stays_unmodeled():
+    card = _card(
+        "Varragoth, Bloodsky Sire",
+        "Boast — {1}{B}: Target player searches their library for a card, "
+        "then shuffles and puts that card on top.",
+        ["Boast"],
+        type_line="Legendary Creature — Shade Assassin",
+    )
+    assert parse_oracle(card).coverage is UNMODELED
 
 
 # ---------------------------------------------------------------------------

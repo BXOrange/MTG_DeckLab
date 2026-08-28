@@ -27,7 +27,7 @@ from .catalogue.handlers import (
     _MAY_COST_THEN_CLAUSE,
     match_clause,
 )
-from .catalogue.keywords import ALIAS_DISPLAYS, KEYWORDS
+from .catalogue.keywords import ALIAS_DISPLAYS, KEYWORDS, KeywordShape
 from .catalogue.replacements import replacement_clause_specs
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
 from .catalogue.static_handlers import enter_choice_specs, static_effect_specs
@@ -1576,9 +1576,108 @@ _COMPOUND_PARAM_START_RE = re.compile(
     r"^(?:escape|ward|kicker|multikicker|partner with|friends forever)\b", re.IGNORECASE
 )
 
+# --- PAR-27: whole-line recognisers for keyword-only lines the comma-split
+# token walk in `is_keyword_line` can't see -----------------------------------
+# These match the *entire* line before it is ever split on commas, so a
+# keyword ability whose own parameter contains commas ("Flashback—{1}{U},
+# Pay 3 life.", "Protection from blue, from black, and from red", "Enchant
+# creature, land, or planeswalker") is recognised as covered instead of
+# dropping its card to UNMODELED over a formatting detail. Each pattern is
+# anchored `^…$` and rejects `:` / a mid-line sentence period so it can never
+# swallow a real ability body ("Boast — {1}{B}, Sacrifice a creature: …",
+# "Flashback {8}{G}{G}. This spell costs {X} less …").
+
+#: COST / NUMBER_COST keyword display words — the shapes whose parameter is a
+#: cost and can therefore be a comma-joined "{mana}, <extra cost>" run.
+_COST_KEYWORD_ALT = "|".join(
+    re.escape(kdef.display.lower())
+    for kdef in sorted(KEYWORDS.values(), key=lambda k: len(k.display), reverse=True)
+    if kdef.shape in (KeywordShape.COST, KeywordShape.NUMBER_COST)
+)
+#: One component of a compound keyword cost. `:` and `.` are excluded from
+#: every negated class so a match can never run past a cost into an ability
+#: body or the next sentence.
+_KW_COST_FRAG = (
+    r"(?:\{[^}]+\}(?:\s*\{[^}]+\})*"          # a mana run
+    r"|pay\s+[^,.:]*?(?:life|mana)"           # "pay 3 life", "pay half your life"
+    r"|rounded\s+(?:up|down)"                 # tail of "pay half your life, rounded up"
+    r"|discard\s+[^,.:]*?cards?(?:\s+at\s+random)?"
+    r"|sacrifice\s+[^,.:]+"
+    r"|exile\s+[^,.:]*?(?:cards?|creatures?|permanents?|lands?)[^,.:]*"
+    r"|remove\s+[^,.:]*?counters?[^,.:]*"
+    r"|collect\s+evidence\s+\d+"
+    r"|behold\s+\d+\s+[a-z]+"
+    r"|\{t\})"
+)
+_COMPOUND_COST_LINE_RE = re.compile(
+    rf"^(?:{_COST_KEYWORD_ALT})\s*(?:[—-]\s*)?{_KW_COST_FRAG}"
+    rf"(?:\s*,\s*{_KW_COST_FRAG})*\.?$",
+    re.IGNORECASE,
+)
+
+#: "Protection from X, from Y, and from Z" / "Hexproof from A, B, and C"
+#: (RULE 702.16 / 702.11b) — one keyword ability, comma-listed quality.
+_MULTI_QUALITY_LINE_RE = re.compile(
+    r"^(?:protection|hexproof)\s+from\s+[a-z][a-z ]*?"
+    r"(?:,\s*(?:and\s+)?(?:from\s+)?[a-z][a-z ]*?)+\.?$",
+    re.IGNORECASE,
+)
+
+#: "Enchant creature, land, or planeswalker" (RULE 702.5) — comma-listed
+#: attachment restriction.
+_ENCHANT_MULTI_LINE_RE = re.compile(
+    r"^enchant\s+[a-z][a-z ]*?(?:,\s*(?:or\s+)?[a-z][a-z ]*?)+\.?$",
+    re.IGNORECASE,
+)
+
+#: NUMBER-shape keywords printed with a variable "X" plus its defining clause
+#: ("Firebending X, where X is the number of creatures you control.",
+#: "Mobilize X, where X is …", "Devour X, where X is …"). The keyword stays
+#: engine-inert either way (no binder reads a variable N), so recognising the
+#: line only stops the card being UNMODELED for a formatting reason — exactly
+#: as a plain "Firebending 2" is already claimed and inert.
+_NUMBER_KEYWORD_ALT = "|".join(
+    re.escape(kdef.display.lower())
+    for kdef in sorted(KEYWORDS.values(), key=lambda k: len(k.display), reverse=True)
+    if kdef.shape is KeywordShape.NUMBER
+)
+_VARIABLE_N_LINE_RE = re.compile(
+    rf"^(?:{_NUMBER_KEYWORD_ALT})\s+x(?:,\s*where\s+x\s+is\s+[^.:]*)?\.?$",
+    re.IGNORECASE,
+)
+
+#: "Companion — <deckbuilding restriction>" (RULE 702.139). Companion is a
+#: pre-game action with no in-game rules effect (like Partner / Choose a
+#: Background — see `catalogue/keywords.py`), so the labelled restriction is
+#: claimed as an inert keyword line rather than left UNMODELED.
+_COMPANION_LABEL_LINE_RE = re.compile(r"^companion\s*[—-]\s*\S.*$", re.IGNORECASE)
+
+_COMPOUND_KEYWORD_LINE_RES: tuple[re.Pattern[str], ...] = (
+    _COMPOUND_COST_LINE_RE,
+    _MULTI_QUALITY_LINE_RE,
+    _ENCHANT_MULTI_LINE_RE,
+    _VARIABLE_N_LINE_RE,
+    _COMPANION_LABEL_LINE_RE,
+)
+
+
+def _is_compound_keyword_line(stripped: str) -> bool:
+    """A keyword-only line whose own parameter contains commas (PAR-27)."""
+    return any(rx.match(stripped) for rx in _COMPOUND_KEYWORD_LINE_RES)
+
 
 def _is_keyword_token(tok: str) -> bool:
-    return bool(_KEYWORD_TOKEN_RE.match(tok) or _CYCLING_TOKEN_RE.match(tok) or re.match(r"^[a-z]+walk\b", tok))
+    return bool(
+        _KEYWORD_TOKEN_RE.match(tok)
+        or _CYCLING_TOKEN_RE.match(tok)
+        # RULE 702.14 landwalk, incl. the multi-word variants Scryfall names
+        # ("legendary landwalk", "nonbasic landwalk", "snow forestwalk",
+        # "snow-covered plainswalk") — the base rule was `^[a-z]+walk\b`.
+        or re.match(r"^(?:[a-z-]+\s+)?[a-z-]*walk\b", tok)
+        # RULE 702.48 "<type> offering" (Patron cycle) — the whole token is
+        # "<Type> offering" and nothing else.
+        or re.match(r"^[a-z]+\s+offering\s*$", tok)
+    )
 
 
 @dataclass
@@ -2143,6 +2242,8 @@ def is_keyword_line(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
         return False
+    if _is_compound_keyword_line(stripped):
+        return True
     raw_tokens = [t.strip() for t in stripped.split(",") if t.strip()]
     if not raw_tokens:
         return False

@@ -157,25 +157,33 @@ Plan-level sequencing lives in
   `_KEYWORD_TRIGGERED_BUILDERS`, rather than trusting this list to stay
   current as more keywords get built.)
 
-- **PAR-27 · Missing keyword recognition: audit the remaining registered
-  keywords for segmenter false-negatives.** The headline instance in this
-  category — RULE 207.2c-shaped "Name — `<effect>`" labels never getting
-  stripped unless hand-whitelisted, which was silently marking 1,349 real
-  cards `UNMODELED` purely because of an un-stripped label (Universes
-  Beyond's one-off "signature ability" names — "10,000 Needles", Jumbo
-  Cactuar — being the biggest single driver, alongside 400+ real RULE
-  207.2c ability words never added to the old 7-word fixed list) — was
-  found and **closed 2026-08-28** (PARSER_VERSION 99, `normalize.
-  _strip_unregistered_keyword_labels`; +117 cards flipped to `MODELED`
-  immediately, more as other gaps close since it's a structural fix, not
-  per-card; see `Done_Backend.md`). No further concrete instance is known
-  right now — what's left is the audit itself: spot-check each of the 195
-  registered keywords against 2–3 real cache cards via `parser_probe.py
-  card "<name>"` to confirm the keyword line is actually being *claimed*
-  (not silently falling into `UNCLAIMED` for a phrasing/pluralization/
-  formatting reason `is_keyword_line`/`parse_keywords` doesn't handle),
-  and report any found — a real, bounded, session-sized check even though
-  it isn't pre-loaded with known targets the way PAR-22..26 are.
+- **PAR-28 · "Keyword — `<activated/triggered ability>`" label family
+  (deferred out of PAR-27's recognition pass).** RULE 702 keywords that
+  print a RULE 207.2c-style em-dash label introducing a *real* ability
+  whose behaviour also carries the keyword's own restriction: **Boast**
+  (702.142, once per turn + only if the creature attacked — Eradicator
+  Valkyrie, Varragoth), **Exhaust** (702.177, once per game — Greasewrench
+  Goblin, Mindspring Merfolk, Winter Cursed Rider, Echoing Cavern,
+  Rebellious Captives, Riverchurn Monument), **Solved** (702.169,
+  conditional on the Case being solved — Case of the Filched Falcon / …
+  Locked Hothouse / … Pilfered Proof), **Max Speed** (~702.178, active
+  only at max speed — Slick Imitator, Far Fortune, The Mystery Raceway),
+  **Power-up** (Marvel — Hercules, Immortus, Molly Hayes, Nick Fury, White
+  Tiger), **Forecast** (702.57, activated from hand during upkeep, once
+  per turn — the Dissension cycle, ~6 cards). PAR-27 deliberately did
+  **not** claim these: stripping the label alone would model a working but
+  *unrestricted* ability (freely re-activatable, no timing gate), a
+  half-model. The real work is to strip the label **and** bind each
+  keyword's restriction (Boast/Exhaust reuse existing once-per-turn /
+  once-per-game machinery; Solved reuses the `is_solved` designation gate;
+  Forecast needs a from-hand activation zone). Only the two Boast cards are
+  SOLO-blocked on the label today (Eradicator Valkyrie, Varragoth); the
+  Exhaust/Solved/Power-up/Max Speed cards are additionally blocked on
+  unrelated set mechanics, so this is a fidelity/no-half-model ticket more
+  than a coverage-number one.
+  Set-specific status rows for Exhaust/Solved/Max Speed are in
+  `PARSER_LONG_TAIL.md`'s table; this ticket is the consolidated engine/
+  parser build across all six.
 
 ## MEC — Game mechanics
 

@@ -1049,7 +1049,19 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: +1,449 cards print this shape cache-wide (1,349 previously UNMODELED
 #: solely because of the unstripped label — verified via re-parse, not
 #: the raw count).
-PARSER_VERSION = "99"
+#: "100": PAR-27 — `segmenter.is_keyword_line` now recognises keyword-only
+#: lines whose own parameter contains commas, which the token-by-token
+#: comma split could never see: a compound keyword cost ("Flashback—{1}{U},
+#: Pay 3 life.", "Recover—Pay half your life, rounded up."), a comma-listed
+#: Protection-from / Hexproof-from / Enchant restriction, a variable-N
+#: NUMBER keyword ("Firebending X, where X is …"), and the labelled
+#: "Companion — <deckbuilding restriction>" (inert, like bare Partner). Plus
+#: `_is_keyword_token` now accepts the multi-word landwalk variants
+#: ("legendary landwalk", "snow forestwalk") and "<type> offering". Pure
+#: recognition — no new/changed `AbilitySpec`; the specs still come from
+#: `parse_keywords` off Scryfall's `keywords` array. Findings from a
+#: full-cache audit of all 195 registered keywords.
+PARSER_VERSION = "100"
 
 
 def parser_source_hash() -> str:
