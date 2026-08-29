@@ -13,9 +13,10 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**35.5% covered — 12,358 / 34,811 — as of 2026-08-29, PARSER_VERSION 104.**
-(104 was PAR-21's first parser handlers for RULE 701.50 Connive / RULE 701.57
-Discover — both engine effects already shipped, +30 cards.)
+**35.6% covered — 12,378 / 34,811 — as of 2026-08-29, PARSER_VERSION 105.**
+(104 = PAR-21's Connive/Discover keyword-action handlers, +30. 105 = PAR-20's
+RULE 604.3 "power and toughness are each equal to the number of `<X>`"
+characteristic-defining P/T handler, +20.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
@@ -203,14 +204,23 @@ Each was paid for once; re-reading them is cheaper than re-learning them.
   _strip_unregistered_keyword_labels` (PARSER_VERSION 99) for the fix this
   specific noise pattern led to.
 - **At scale, "verify before sizing" can invalidate an entire `rank`
-  top-N in one pass, not just one entry.** 2026-08-28: six of the highest-
-  count templates in a fresh cache-wide `rank` (40-240 raw hits each) were
-  checked with `parser_probe.py blocked`, and *all six* turned out to
-  already be fully claimed by existing grammar — every card's real
-  blocker was a distinct, unrelated, one-off co-resident clause. This
-  isn't a one-off miss; it's a sign the basic-mechanics (cache-wide)
-  track's easy big wins are genuinely thinning out at the current
-  coverage level (35.3%), not just a bad `rank` run. When this happens,
+  top-N in one pass, not just one entry.** 2026-08-28 (was ticket PAR-20,
+  now closed): six of the highest-count templates in a fresh cache-wide
+  `rank` (40-240 raw hits each — "choose N —", "you get an emblem with
+  `<name>`", "costs `<cost>` more … for each target beyond the first", the
+  O-Ring "exile … until ~ leaves", "enchanted creature has `<name>`", the
+  2011+ werewolf transform condition) were checked with `parser_probe.py
+  blocked`, and *all six* turned out to already be fully claimed by
+  existing grammar — every card's real blocker was a distinct, unrelated,
+  one-off co-resident clause (`blocked`'s "what else blocks those cards"
+  residue came back essentially all count-1). This isn't a one-off miss;
+  it's a sign the basic-mechanics (cache-wide) track's easy big wins are
+  genuinely thinning out at the current coverage level (~35.5%), not just
+  a bad `rank` run. The one discrete win squeezed from that residue
+  afterward — RULE 604.3's "power and toughness are each equal to the
+  number of `<X>`" CDA-P/T handler (PARSER_VERSION 105, +20 cards) — was
+  the exception that proves it: a genuinely unrecognized shape, but a
+  narrow whitelisted one, not a big generic family. When this happens,
   don't keep re-running `rank` hoping for a better top-N — switch to the
   deck-first track instead (a real saved deck's cards are far more likely
   to share an actual unfixed pattern than the whole-cache aggregate is at

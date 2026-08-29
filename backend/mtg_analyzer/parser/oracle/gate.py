@@ -1098,7 +1098,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Vote, Clash, Learn, Incubate, Suspect, Forage, Collect Evidence, the
 #: Avatar bending quartet, ...) - are filed as PAR-29 in `BACKLOG.md`,
 #: each needing a new engine primitive first.
-PARSER_VERSION = "104"
+#: "105": PAR-20 follow-up (1) - RULE 604.3's "~'s power and toughness are
+#: each equal to the number of <X>." characteristic-defining P/T gets its
+#: first oracle-text handler (`catalogue/static_handlers._PT_CDA_RE` ->
+#: `pt_cda` static, `continuous.recompute`'s layer-7a pass, hand-authored
+#: only since the Ashaya batch). `<X>` matched against a fixed whitelist of
+#: phrases that already have a `continuous.count_selector` (plus a new
+#: `cards_in_your_hand` selector): "cards in your hand" / "lands you
+#: control" / "cards in your graveyard" / "creatures you control". Any
+#: other quantity phrase fails closed. +20 real cards (parser_probe.py
+#: diff, full cache, 0 regressed).
+PARSER_VERSION = "105"
 
 
 def parser_source_hash() -> str:

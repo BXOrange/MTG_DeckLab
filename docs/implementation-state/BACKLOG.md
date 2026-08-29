@@ -46,8 +46,14 @@ Plan-level sequencing lives in
   tracks: **basic mechanics** (generic shapes, worked by raw cache-wide
   yield) and **set-specific mechanics** (one expansion/precon's own
   signature keyword, worked deck-first against a saved deck's actual
-  commander/product). `PAR-20` below is 2026-08-28's concrete finding
-  about where the basic-mechanics track currently stands. Planechase
+  commander/product). As of 2026-08-28 the basic-mechanics track's easy
+  big wins are **exhausted**: a fresh cache-wide `rank` top-N verified
+  card-by-card with `parser_probe.py blocked` came back all-already-claimed
+  (see `PARSER_LONG_TAIL.md`'s "verify before sizing … at scale" lesson —
+  PAR-20, now closed, was the dated finding; its one concrete follow-up,
+  the RULE 604.3 CDA-P/T handler, shipped at PARSER_VERSION 105). So the
+  **deck-first set-specific track is the primary one now** — audit a real
+  saved deck's card list rather than re-mining `rank`. Planechase
   (901)/Archenemy (904) plane/scheme card *bodies* (13/309 measured
   2026-08-04) are ordinary long-tail work with a known card list under
   this same pointer, not a distinct ticket — their trigger conditions are
@@ -56,41 +62,11 @@ Plan-level sequencing lives in
   to end already — see Done_Backend.md "PLR-13"; Vanguard's own avatar
   picker/text is a permanent non-goal, see the MEC callout below.)
 
-  > **Ticket-id note:** every number from `PAR-1` through `PAR-19` is
+  > **Ticket-id note:** every number from `PAR-1` through `PAR-28` is
   > already a real, shipped, cross-referenced ticket elsewhere in this
   > codebase (grep before reusing one — `PAR-14`, for one, is RULE 603.2's
   > once-per-turn trigger limiter, `Done_Backend.md`, nothing to do with
-  > keywords). The tickets below correctly start at `PAR-20`.
-
-- **PAR-20 · Parsable Grammar: the cache-wide basic-mechanics track has run
-  out of single big wins — verify before sizing, deck-first is now the
-  better track.** `rank`'s raw top-25 (2026-08-28, PARSER_VERSION 99) still
-  *lists* count-40+ templates ("choose N —", "you get an emblem with
-  `<name>`", "this spell costs `<cost>` more to cast for each target beyond
-  the first", O-Ring-shaped "exile target nonland permanent ... until ~
-  leaves the battlefield", "enchanted creature has `<name>`", the
-  2011+-template werewolf transform condition) — but `parser_probe.py
-  blocked` on all six found the clause each one names is **already
-  correctly claimed** by existing grammar; every one of those cards'
-  *real* blocker is a distinct, unique, one-off co-resident clause with no
-  shared pattern (`blocked`'s own "what else blocks those cards" residue
-  comes back essentially all count-1). This is a real, dated finding, not
-  a guess — don't re-verify the same six from scratch, but don't trust a
-  fresh `rank` top-N either without re-running `blocked` on it, since this
-  is exactly the failure mode `PARSER_LONG_TAIL.md`'s own "lessons"
-  section already warns about, now confirmed at unusual scale. Two
-  concrete follow-ups, both session-sized: (1) check whether "`<name>`'s
-  power and toughness are each equal to the number of cards in your hand"
-  and "...the number of lands you control" (two independently-occurring
-  CDA templates in that same residue) already generalize for free via the
-  existing count-selector CDA support (MEC-27's "General Count-Amount
-  Resolver") — if not, a small paired handler; (2) given the cache-wide
-  track's diminishing returns, the better next session is switching
-  primary effort to `PARSER_LONG_TAIL.md`'s own **deck-first** track —
-  audit a real saved deck (a cluster of cards someone actually plays is
-  far more likely to share a real, unfixed pattern than the aggregate
-  cache is at this point) rather than mining `rank`'s cache-wide top-N
-  again.
+  > keywords). The only open parser ticket below is `PAR-29`.
 
 - **PAR-29 · RULE 701 keyword actions with no parser handler.** The
   RULE 701 audit that PAR-21 asked for is done (2026-08-29,

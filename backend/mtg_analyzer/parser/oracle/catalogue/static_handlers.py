@@ -185,6 +185,35 @@ _CARD_TYPE_WORDS: frozenset[str] = frozenset(
     {"artifact", "creature", "enchantment", "land", "planeswalker", "permanent"}
 )
 
+# "~'s power and toughness are each equal to the number of <X>."  (RULE 604.3
+# characteristic-defining ability — Maro / Molimo / Psychosis Crawler / Dakkon
+# Blackblade). The engine layer (`continuous.recompute`'s 7a `pt_cda` pass,
+# reading a `count_selector` for both power and toughness) has existed since
+# the Ashaya batch but was only ever hand-authored; this is its first oracle-
+# text route (PAR-20's named follow-up). `<X>` is matched against a fixed
+# whitelist of phrases that already have a `continuous.count_selector` (plus
+# `cards_in_your_hand`, added alongside this) — any other phrase fails closed,
+# since a CDA reading an unmodeled quantity would silently define the creature
+# as 0/0.
+_PT_CDA_RE = re.compile(
+    r"~'?s power and toughness are each equal to the number of (?P<what>.+)",
+    re.IGNORECASE,
+)
+
+#: The `<X>` phrases `_PT_CDA_RE` accepts → their `continuous.count_selector`
+#: string. Deliberately exact-match and small: the two PAR-20 named
+#: ("cards in your hand", "lands you control") plus the two adjacent ones a
+#: real cache card prints in this exact shape and that already have a
+#: selector. "creature cards in your graveyard", "cards in all graveyards",
+#: "<type> you control" &c. are each a *different* selector and stay
+#: unclaimed until one is actually wired.
+_PT_CDA_SELECTORS: dict[str, str] = {
+    "cards in your hand": "cards_in_your_hand",
+    "lands you control": "lands_you_control",
+    "cards in your graveyard": "cards_in_your_graveyard",
+    "creatures you control": "creatures_you_control",
+}
+
 # "Activated abilities of <type>[s] can't be activated."  (RULE 602 prohibition,
 # Collector Ouphe/Stony Silence/Null Rod) — global, not "you control"-scoped:
 # it silences *every* qualifying permanent's activated abilities, including
@@ -2515,6 +2544,19 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     conditional = _conditional_static_specs(text)
     if conditional is not None:
         return conditional
+
+    # RULE 604.3 characteristic-defining P/T — "~'s power and toughness are
+    # each equal to the number of <X>."  (see `_PT_CDA_RE`).
+    m = _PT_CDA_RE.fullmatch(text)
+    if m is not None:
+        selector = _PT_CDA_SELECTORS.get(m.group("what").strip().rstrip("."))
+        if selector is None:
+            return None  # fail-closed — an unwhitelisted quantity phrase
+        return [EffectSpec("pt_cda", {
+            "affects": "self",
+            "power_count": selector,
+            "toughness_count": selector,
+        })]
 
     # "This spell can't be countered." (RULE 118-area) — printed on a
     # permanent as a standing line even though it only matters while the
