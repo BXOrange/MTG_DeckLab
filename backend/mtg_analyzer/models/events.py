@@ -197,6 +197,13 @@ class EventType:
     #: and put any number of them into their graveyard, the rest staying on
     #: top in any order (no bottoming option, unlike SCRY).
     SURVEIL = "SURVEIL"
+    #: A permanent explored (RULE 701.44b) — fired after the whole process
+    #: (reveal top card; land → hand, else +1/+1 counter + may bin the
+    #: revealed card), even if some or all of it was impossible. Carries
+    #: ``instance_id`` (the exploring permanent), ``controller_id``, and
+    #: ``found_land`` (bool). For "whenever ~/a creature you control
+    #: explores, <effect>" (Wildgrowth Walker/Path of Discovery-shaped).
+    EXPLORED = "EXPLORED"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
     #: The Ring tempted a player (RULE 701.51a, Tales of Middle-earth) —

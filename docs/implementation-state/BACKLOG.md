@@ -72,15 +72,25 @@ Plan-level sequencing lives in
   RULE 701 audit that PAR-21 asked for is done (2026-08-29,
   `Done_Backend.md` "PAR-21: RULE 701 keyword-action audit" — it also
   closed Connive and Discover, which already had shipped engine effects).
-  These are the genuine gaps it found. Each is an ordinary effect-grammar
-  gap, *not* a "keyword ability missing from a registry"; most need a new
-  engine primitive before a handler is worth writing, so most belong under
-  `MEC` once picked up. Solo-blocker counts are cache-wide from
-  `parser_probe.py`.
-  - **Needs an engine primitive first:** Explore (RULE 701.44, ~43 solo —
-    a whole Ixalan mechanic: reveal top, land→hand else +1/+1 counter and
-    may put revealed card in graveyard); Populate (701.36, ~22 — copy a
-    creature token you control); Vote (701.38, ~28 — the voting subsystem,
+  **Explore** (RULE 701.44) was then built end-to-end (2026-08-29,
+  `Done_Backend.md` "Explore" — a new `RulesEngine.explore` primitive +
+  `EventType.EXPLORED` + `explore_bin` choice + oracle handlers, +22
+  cards); its only residue is a trigger-condition parser row for
+  "whenever ~/a creature you control explores, `<effect>`" (the
+  `EXPLORED` event fires already, nothing reads it), grouped with the
+  other RULE 603.1 trigger-vocabulary gaps rather than tracked here.
+  **Populate** (RULE 701.36) followed the same day (2026-08-29,
+  `Done_Backend.md` "Populate" — `RulesEngine.populate` on the existing
+  `copy_permanent` path + a `populate` "which token?" choice + one
+  bare-word handler, +14 cards); no residue beyond "populate X times"
+  (Full Flowering, a dynamic repeat count) and cards carrying a second
+  unmodeled clause alongside their now-real "populate".
+  What remains below is the rest of the audit's gaps. Each is an ordinary
+  effect-grammar gap, *not* a "keyword ability missing from a registry";
+  most need a new engine primitive before a handler is worth writing, so
+  most belong under `MEC` once picked up. Solo-blocker counts are
+  cache-wide from `parser_probe.py`.
+  - **Needs an engine primitive first:** Vote (701.38, ~28 — the voting subsystem,
     RULE 701.38a APNAP-order choice); Clash (701.30, ~33 — reveal top, may
     bottom it, "if you win" = higher mana value); Detain (701.35, ~11 —
     an "until your next turn, can't attack/block, abilities can't be
@@ -114,7 +124,7 @@ Plan-level sequencing lives in
     Exile, Fight, Goad, Investigate, Mill, Regenerate, Scry, Search,
     Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate,
     Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
-    The Ring Tempts You, Connive, Discover — plus engine-action verbs with
+    The Ring Tempts You, Connive, Discover, Explore, Populate — plus engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
     (Planeswalk/Set in Motion/Abandon, Meld). Assemble (701.45) is out of
     the CR; Open an Attraction / Roll to Visit (701.51/52) are the

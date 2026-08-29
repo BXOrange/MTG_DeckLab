@@ -9453,6 +9453,70 @@ class ConniveEffect(GameEffect):
         )
 
 
+class ExploreEffect(GameEffect):
+    """RULE 701.44: "`<permanent>` explores." — reveal the top card of the
+    exploring permanent's controller's library; a land goes to hand,
+    otherwise a +1/+1 counter goes on the permanent and its controller may
+    bin the revealed card. `RulesEngine.explore` owns the whole procedure
+    (and the one interactive pause, the "may put it into your graveyard"
+    choice); this effect only resolves *which* permanent(s) explore.
+
+    Like `GoadEffect`, the subject is a permanent and comes in three shapes:
+    ``target_kind`` set — "target creature you control explores"; ``previous_
+    subject`` — "it explores" / "that creature explores", the creature an
+    earlier clause of this resolution chose (`GameContext.previous_targets`);
+    and the bare self form (``target_kind=None``, not a pronoun) — "when ~
+    enters, it explores", exploring `self.source`.
+    """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+        previous_subject: bool = False,
+        optional: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.previous_subject = bool(previous_subject)
+        self.target_spec = (
+            TargetSpec(kind=target_kind, optional=optional)
+            if target_kind is not None
+            else None
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec is not None:
+            explorers = list(targets or [])
+        elif self.previous_subject:
+            explorers = [
+                obj for obj in context.previous_targets
+                if getattr(obj, "instance_id", None) is not None
+            ]
+        else:
+            explorers = [self.source] if self.source is not None else []
+        for obj in explorers:
+            context.engine.explore(obj)
+
+
+class PopulateEffect(GameEffect):
+    """RULE 701.36: "Populate." — put a token onto the battlefield that's a
+    copy of a creature token this effect's controller controls (701.36a);
+    if they control no creature tokens, populate does nothing (701.36b).
+
+    Always the resolving controller's own creature tokens — "populate" never
+    takes a target or a pronoun subject (unlike `ExploreEffect`/`GoadEffect`),
+    so there is only the one shape. `RulesEngine.populate` owns the whole
+    procedure, including the one interactive pause (which token to copy when
+    the controller has more than one).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.engine.populate(player)
+
+
 class SacrificeSpecificEffect(GameEffect):
     """Sacrifice the exact permanents baked into this effect (RULE 701.17).
 
@@ -17316,6 +17380,24 @@ EffectRegistry.register(
     # discard a card; if a nonland card was discarded this way, put a
     # +1/+1 counter on the conniving permanent. See `ConniveEffect`.
     "connive", lambda p: ConniveEffect(),
+)
+EffectRegistry.register(
+    # RULE 701.44 (explore, PAR-29): reveal top card of library — land to
+    # hand, else +1/+1 counter on the permanent + may bin the card. See
+    # `ExploreEffect` / `RulesEngine.explore`.
+    "explore",
+    lambda p: ExploreEffect(
+        target_kind=p.get("target_kind"),
+        previous_subject=bool(p.get("previous_subject")),
+        optional=bool(p.get("optional")),
+    ),
+)
+EffectRegistry.register(
+    # RULE 701.36 (populate, PAR-29): put a token onto the battlefield
+    # that's a copy of a creature token you control (nothing if you control
+    # none). See `PopulateEffect` / `RulesEngine.populate`.
+    "populate",
+    lambda p: PopulateEffect(),
 )
 EffectRegistry.register(
     "the_ring_tempts_you",  # RULE 701.51a

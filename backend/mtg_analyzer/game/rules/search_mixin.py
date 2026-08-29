@@ -270,6 +270,96 @@ class SearchMixin:
         self.state.pending_choice = self._look_top_choice(
             player, kind, "away", remaining, [], [], source_name
         )
+    def explore(self, permanent: GameObject, player: Optional[Player] = None) -> None:
+        """RULE 701.44a: ``permanent``'s controller reveals the top card of
+        their library. If a land is revealed, it goes to that player's hand;
+        otherwise a +1/+1 counter is put on ``permanent`` and the player may
+        put the revealed card into their graveyard (an interactive
+        ``explore_bin`` choice — the only branch that pauses).
+
+        RULE 701.44b: the `EventType.EXPLORED` event fires once the whole
+        process is complete — inline here when nothing was revealed or a land
+        went to hand, and from `resolve_explore_bin_choice` otherwise — even
+        if some or all of the steps were impossible. RULE 701.44c: last known
+        information (``controller_id`` off ``permanent``) identifies the
+        explorer if it has already left the battlefield.
+        """
+        inst = getattr(permanent, "instance_id", None)
+        controller_id = getattr(permanent, "controller_id", None)
+        if player is None and controller_id is not None:
+            try:
+                player = self.state.player_by_id(controller_id)
+            except KeyError:
+                player = None
+        if player is None:
+            return
+
+        top = player.library[-1] if player.library else None
+        if top is None:
+            self._fire_explored(inst, controller_id, found_land=False)
+            return
+        # RULE 701.20a: revealing is a public move; no hidden-zone bookkeeping
+        # is needed here since the card immediately changes zone either way.
+        if top.card.is_land:
+            player.library.pop()
+            player.add_to_zone(top, Zone.HAND)
+            self._fire_explored(inst, controller_id, found_land=True)
+            return
+
+        if inst is not None:
+            self.add_counters(permanent, 1, "+1/+1", source=permanent)
+        # RULE 701.44a's "may put the revealed card into their graveyard" —
+        # a genuine yes/no; declining leaves it on top of the library.
+        self.state.pending_choice = {
+            "kind": "explore_bin",
+            "player_id": player.id,
+            "optional": True,
+            "description": f"Erkunden: {top.card.name}",
+            "prompt": f"Erkunden — „{top.card.name}“ auf den Friedhof legen?",
+            "card_id": top.instance_id,
+            "explorer_id": inst,
+            "explorer_controller_id": controller_id,
+            "options": [
+                {"id": "graveyard", "label": "Auf den Friedhof",
+                 "instance_id": top.instance_id},
+                {"id": "top", "label": "Oben lassen (Bibliothek)"},
+            ],
+        }
+    def _fire_explored(
+        self, inst: Optional[str], controller_id: Optional[str], *, found_land: bool
+    ) -> None:
+        self.state.fire_event(GameEvent(
+            EventType.EXPLORED, instance_id=inst,
+            controller_id=controller_id, found_land=found_land,
+        ))
+    def resolve_explore_bin_choice(self, to_graveyard: bool = False) -> None:
+        """Finish an explore (RULE 701.44a): ``to_graveyard`` puts the
+        revealed nonland card into its owner's graveyard; otherwise it stays
+        on top of the library. Fires `EventType.EXPLORED` afterward (701.44b).
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "explore_bin":
+            raise ValueError("no pending explore to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+
+        if to_graveyard:
+            card_id = choice["card_id"]
+            revealed = next(
+                (o for o in player.library if o.instance_id == card_id), None
+            )
+            if revealed is not None:
+                # A library → graveyard move from a look (like surveil,
+                # `_look_at_top`/`_dig_until`); no leave-the-battlefield
+                # triggers, so the zone fields are set directly rather than
+                # through `_move_to_graveyard`.
+                player.library.remove(revealed)
+                revealed.zone = Zone.GRAVEYARD
+                player.graveyard.append(revealed)
+        self._fire_explored(
+            choice.get("explorer_id"), choice.get("explorer_controller_id"),
+            found_land=False,
+        )
     def _look_top_choice(
         self,
         player: Player,

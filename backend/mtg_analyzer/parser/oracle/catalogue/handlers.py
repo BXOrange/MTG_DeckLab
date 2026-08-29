@@ -5117,6 +5117,42 @@ def _discover(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("discover", {"mana_value": int(m.group("n"))})]
 
 
+# "<permanent> explores." (RULE 701.44) — `RulesEngine.explore` owns the
+# whole procedure (reveal top card; land → hand, else +1/+1 counter + a
+# "may bin it" choice). Same three subject shapes as `_goad`/`_connive`:
+#   • "~ explores" / "it/he/she explores" — the ability's own source, i.e.
+#     "when ~ enters, it explores" (the 15-card bulk of the mechanic);
+#   • "that creature explores" — a creature an earlier clause chose
+#     (`previous_subject_only`, e.g. "return target creature card … that
+#     creature explores");
+#   • "target creature [you control] explores" — off the shared TARGET rows.
+# "explores, then it explores again" (Defossilize) and "each Merfolk you
+# control explores" (a mass selector) stay unclaimed — different shapes.
+def _explore_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("explore", {})]
+
+
+def _explore_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("explore", {"previous_subject": True})]
+
+
+def _explore_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+        return None  # only a creature explores on a real card (RULE 701.44)
+    return [EffectSpec("explore", {"target_kind": kind, **_optional_param(m)})]
+
+
+# "Populate." (RULE 701.36a) — put a token onto the battlefield that's a
+# copy of a creature token you control. `RulesEngine.populate` owns the
+# procedure (and the "which token?" choice); `effects.PopulateEffect` is
+# registered as ``populate``. Bare word only — populate never takes a
+# target or a pronoun subject. "Populate X times" (Full Flowering, 1 card)
+# stays UNMODELED: a dynamic repeat count PopulateEffect can't take yet.
+def _populate(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("populate", {})]
+
+
 # "Goad target creature." (RULE 701.15a) and its controller-scoped variants
 # ("…target creature an opponent controls"), off the shared `TARGET` rows.
 def _goad(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -7205,6 +7241,43 @@ HANDLERS: list[EffectHandler] = [
         "discover",
         _c(r"discover (?P<n>\d+)"),
         _discover,
+    ),
+    # "target creature [you control] explores" (RULE 701.44) — before the
+    # bare/pronoun rows so its TARGET isn't stolen by a looser match.
+    EffectHandler(
+        "explore_target",
+        _c(rf"{TARGET} explores"),
+        _explore_target,
+    ),
+    # "~ explores" — explicit self (activated body / self-subject trigger
+    # with the name kept, "when ~ enters, ~ explores").
+    EffectHandler(
+        "explore_self_named",
+        _c(r"~ explores"),
+        _explore_self,
+    ),
+    # "it explores" / "he explores" / "she explores" — self-subject trigger
+    # pronoun ("when ~ enters, it explores").
+    EffectHandler(
+        "explore_self_pronoun",
+        _c(r"(?:it|he|she) explores"),
+        _explore_self,
+        self_subject_only=True,
+    ),
+    # "that creature explores" — a creature an earlier clause of this same
+    # resolution chose ("return target creature card … that creature
+    # explores", Defossilize's first half).
+    EffectHandler(
+        "explore_previous",
+        _c(r"(?:it|that creature) explores"),
+        _explore_previous,
+        previous_subject_only=True,
+    ),
+    # "populate" (RULE 701.36a) — copy a creature token you control.
+    EffectHandler(
+        "populate",
+        _c(r"populate"),
+        _populate,
     ),
     # "goad all creatures your opponents control" (RULE 701.15a) — the mass
     # form first: the targeted row below can't match it (no "target"), but

@@ -13,10 +13,11 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**35.6% covered — 12,378 / 34,811 — as of 2026-08-29, PARSER_VERSION 105.**
+**35.7% covered — 12,414 / 34,811 — as of 2026-08-29, PARSER_VERSION 107.**
 (104 = PAR-21's Connive/Discover keyword-action handlers, +30. 105 = PAR-20's
-RULE 604.3 "power and toughness are each equal to the number of `<X>`"
-characteristic-defining P/T handler, +20.)
+RULE 604.3 characteristic-defining P/T handler, +20. 106 = PAR-29's RULE
+701.44 Explore primitive + handlers, +22. 107 = PAR-29's RULE 701.36 Populate
+primitive + handler, +14.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

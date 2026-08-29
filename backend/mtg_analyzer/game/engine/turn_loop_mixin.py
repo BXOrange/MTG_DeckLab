@@ -1065,6 +1065,15 @@ class TurnLoopMixin:
         elif kind == "discover":
             # Two positive options: cast (default) or take to hand.
             self.rules.resolve_discover_choice(to_hand=(answer == "hand"))
+        elif kind == "explore_bin":
+            # RULE 701.44a's "may put the revealed card into your graveyard"
+            # — a yes/no; declining ("top") leaves it on the library.
+            self.rules.resolve_explore_bin_choice(to_graveyard=(answer == "graveyard"))
+        elif kind == "populate":
+            # RULE 701.36a: the option id is which creature token you control
+            # to copy — mandatory (no "you may"), so a missing answer defaults
+            # to the first offered token in `resolve_populate_choice`.
+            self.rules.resolve_populate_choice(None if declined else int(answer))
         elif kind == "order_triggers":
             # RULE 603.3b: the option id is the index of the trigger to place next.
             index = None if declined else int(answer)

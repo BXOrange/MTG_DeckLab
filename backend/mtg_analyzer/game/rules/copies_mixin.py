@@ -178,6 +178,56 @@ class CopiesMixin:
                 set_power=set_power, set_toughness=set_toughness,
             )
         return self.create_token(controller_id, copiable, count)
+    def populate(self, player: Player) -> list[GameObject]:
+        """"Populate" (RULE 701.36a): put a token onto the battlefield that's
+        a copy of a creature token ``player`` controls. RULE 701.36b — if
+        they control no creature tokens, populate does nothing.
+
+        Degenerate cases resolve without asking, the same way `request_
+        manifest_dread` does: no creature tokens → nothing; exactly one →
+        copy it with no choice to make; two or more → an interactive
+        `populate` `pending_choice` (RULE 701.36a's "a creature token he or
+        she controls" is the controller's own free choice). The copy is
+        itself a token, made via `copy_permanent`, so it binds its own
+        abilities and follows the RULE 704.5d token lifecycle.
+        """
+        tokens = [
+            obj
+            for obj in self.state.battlefield
+            if obj.controller_id == player.id
+            and getattr(obj, "is_token", False)
+            and getattr(obj, "is_creature", False)
+        ]
+        if not tokens:
+            return []
+        if len(tokens) == 1:
+            return self.copy_permanent(player.id, tokens[0])
+        self.state.pending_choice = {
+            "kind": "populate",
+            "player_id": player.id,
+            "prompt": "Bevölkern: welches Kreaturen-Token wird kopiert?",
+            "options": [
+                {"id": str(obj.instance_id), "label": obj.name, "instance_id": obj.instance_id}
+                for obj in tokens
+            ],
+        }
+        return []
+    def resolve_populate_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending `populate` choice: create a token copy of the
+        chosen creature token. A missing/unrecognized answer defaults to the
+        first offered token — populate is mandatory once you control one
+        (RULE 701.36a has no "you may")."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "populate":
+            raise ValueError("no pending populate choice to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+        offered = [opt["instance_id"] for opt in choice["options"]]
+        chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
+        chosen = self._object_by_instance_id(chosen_id) if chosen_id is not None else None
+        if chosen is not None:
+            self.copy_permanent(player.id, chosen)
+        self.check_state_based_actions()
     def copy_spell(
         self,
         target: Any,

@@ -1108,7 +1108,29 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: control" / "cards in your graveyard" / "creatures you control". Any
 #: other quantity phrase fails closed. +20 real cards (parser_probe.py
 #: diff, full cache, 0 regressed).
-PARSER_VERSION = "105"
+#: "106": PAR-29 - RULE 701.44 Explore, a new engine primitive
+#: (`RulesEngine.explore` / `effects.ExploreEffect` / `EventType.EXPLORED`
+#: / the `explore_bin` "may put the revealed card in your graveyard"
+#: choice) with its oracle handlers: "~ explores" / self-subject-trigger
+#: "it/he/she explores" / previous-clause "that creature explores" /
+#: "target creature [you control] explores" (`catalogue/handlers.py`,
+#: same three subject shapes as `_goad`/`_connive`). "explores, then it
+#: explores again" (Defossilize) and mass "each Merfolk you control
+#: explores" stay UNMODELED. +22 real cards (parser_probe.py diff, full
+#: cache, 0 regressed).
+#: "107": PAR-29 - RULE 701.36 Populate, a new engine primitive
+#: (`RulesEngine.populate` / `effects.PopulateEffect`, on the existing
+#: `copy_permanent` token-copy path) with its `populate` `pending_choice`
+#: (which creature token to copy when you control more than one) and a
+#: single oracle handler for the bare word "populate" (`catalogue/
+#: handlers.py`). "Populate X times" (Full Flowering) stays UNMODELED - a
+#: dynamic repeat count PopulateEffect can't take yet, and ~9 more cards
+#: whose "populate" clause is real but that carry a second unmodeled
+#: clause (Determined Iteration's "the token ... gains haste", Ghired's
+#: attack trigger, ...) stay UNMODELED too. +14 real cards net
+#: (parser_probe.py, full cache, 0 regressed - a bare-word fullmatch
+#: handler cannot over-match).
+PARSER_VERSION = "107"
 
 
 def parser_source_hash() -> str:
