@@ -106,6 +106,9 @@ Plan-level sequencing lives in
   `_can_attack`/`can_block`/`can_activate`, +10 cards). Residue: Lavinia's
   mass-selector-with-mana-value-filter and a "with backup or vehicle"
   filter (Azorius Traffic Enforcement).
+  **Blight N**'s standalone-verb form followed (2026-08-30,
+  `Done_Backend.md` "Blight N" — `RulesEngine.blight` + a `blight` choice
+  + `BlightEffect`, +1 card); the cost forms are left open below.
   What remains below is the rest of the audit's gaps. Each is an ordinary
   effect-grammar gap, *not* a "keyword ability missing from a registry";
   most need a new engine primitive before a handler is worth writing, so
@@ -119,9 +122,16 @@ Plan-level sequencing lives in
     only today); Face a Villainous Choice (701.55, ~11 — a forced modal
     on an opponent); Collect Evidence (701.59, ~12 — additional cost:
     exile graveyard cards totalling mana value ≥ N); Forage (701.61, ~5); Endure
-    (701.63 — N/N Spirit *or* N +1/+1 counters); Blight as a generic
-    `blight N` (701.68, ~13 — N -1/-1 counters on a creature you control;
-    hand-authored per-card only); Time Travel (701.56, ~3 — suspend-
+    (701.63 — N/N Spirit *or* N +1/+1 counters); **Blight — cost forms
+    only** (Bloomburrow; the standalone-verb form shipped at PARSER_VERSION
+    111, `Done_Backend.md` "Blight N"): "{cost}, Blight N: `<effect>`" and
+    "as an additional cost … blight N" need an `ActivationCost`/cast-cost
+    field + payment path; the "you may blight N. If you do" wrapper needs
+    `pay_cost_then`. **Also fix here:** the cost-parser currently *silently
+    drops* "Blight N" from a cost string, so Sting-Slinger/Gristle Glutton
+    et al. are wrongly MODELED — the fix (fail-closed on "blight" in a
+    cost, or the real payment path) will *reduce* the coverage count by
+    ~5 until built. Time Travel (701.56, ~3 — suspend-
     adjacent); Behold (701.4, ~6 — "behold a `<quality>`" additional
     cost); Harness (701.64 — a monstrous-style marker designation), Heal
     (701.69 — remove marked damage), Recruit (701.70 — draw/discard→1/1
@@ -140,7 +150,8 @@ Plan-level sequencing lives in
     Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate,
     Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
     The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster,
-    Support, Suspect, Detain — plus engine-action verbs with
+    Support, Suspect, Detain, Blight (standalone verb form; cost forms
+    open above) — plus engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
     (Planeswalk/Set in Motion/Abandon, Meld). Assemble (701.45) is out of
     the CR; Open an Attraction / Roll to Visit (701.51/52) are the

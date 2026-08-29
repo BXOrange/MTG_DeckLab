@@ -523,6 +523,62 @@ class ManaCountersMixin:
         if chosen is not None:
             self.add_counters(chosen, int(choice["amount"]), "+1/+1", source=source)
         self.check_state_based_actions()
+    def blight(
+        self, player: Player, amount: int, source: Optional[GameObject] = None
+    ) -> None:
+        """"Blight N" (Bloomburrow's reminder text: "put N -1/-1 counters on
+        a creature you control"). The negative sibling of `bolster` — but the
+        creature is ``player``'s free choice (not least-toughness), so it
+        opens a `blight` `pending_choice` whenever they control 2+ creatures.
+
+        Degenerate cases resolve without asking (the `bolster`/`populate`
+        idiom): no creatures → nothing (like a cost that can't be paid);
+        exactly one → the counters go straight on it. Placed through
+        `add_counters` (kind ``"-1/-1"``), so RULE 122.5 "whenever a -1/-1
+        counter is put on ~" triggers and the RULE 704.5q +1/-1 annihilation
+        SBA all apply.
+        """
+        if amount <= 0:
+            return
+        creatures = [
+            obj
+            for obj in self.state.battlefield
+            if obj.controller_id == player.id and getattr(obj, "is_creature", False)
+        ]
+        if not creatures:
+            return
+        if len(creatures) == 1:
+            self.add_counters(creatures[0], amount, "-1/-1", source=source)
+            return
+        self.state.pending_choice = {
+            "kind": "blight",
+            "player_id": player.id,
+            "amount": amount,
+            "source_id": source.instance_id if source is not None else None,
+            "prompt": f"Verkümmern {amount}: auf welche Kreatur (−1/−1-Marken)?",
+            "options": [
+                {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+                for o in creatures
+            ],
+        }
+    def resolve_blight_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending `blight` choice: put the parked -1/-1 counters on
+        the chosen creature you control. A missing/unknown answer defaults to
+        the first offered creature (blight has no "you may" once you control
+        one — its optionality lives in the "you may blight N" wrapper, not
+        here)."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "blight":
+            raise ValueError("no pending blight choice to resolve")
+        self.state.pending_choice = None
+        offered = [opt["instance_id"] for opt in choice["options"]]
+        chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
+        chosen = self._object_by_instance_id(chosen_id) if chosen_id is not None else None
+        source_id = choice.get("source_id")
+        source = self._object_by_instance_id(source_id) if source_id is not None else None
+        if chosen is not None:
+            self.add_counters(chosen, int(choice["amount"]), "-1/-1", source=source)
+        self.check_state_based_actions()
     def request_remove_counters_choice(
         self, target: Union[GameObject, Player], max_count: int, chooser: Player
     ) -> None:

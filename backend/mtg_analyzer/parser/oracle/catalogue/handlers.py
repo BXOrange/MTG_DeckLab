@@ -5162,6 +5162,18 @@ def _bolster(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("bolster", {"amount": int(m.group("n"))})]
 
 
+# "Blight N." (Bloomburrow — "put N -1/-1 counters on a creature you
+# control"). `RulesEngine.blight` / `effects.BlightEffect` (registered as
+# ``blight``). Only the standalone-verb form ("whenever ~ attacks, blight
+# 1", "draw a card and blight 1"). The *cost* forms — "{cost}, Blight N:
+# <effect>" and "as an additional cost … blight N" — and the "you may
+# blight N. If you do, <effect>" pay-cost-then wrapper stay UNMODELED
+# (they need `ActivationCost`/cast-cost integration, not an effect). "blight
+# X" (Soul Immolation, a dynamic amount) also stays UNMODELED, fail-closed.
+def _blight(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("blight", {"amount": int(m.group("n"))})]
+
+
 # "Support N." (RULE 701.41a) — put a +1/+1 counter on each of up to N
 # target creatures. Needs no effect of its own: it's the exact spec shape
 # `_add_counters_multi_target` already emits for "put a +1/+1 counter on
@@ -7386,6 +7398,12 @@ HANDLERS: list[EffectHandler] = [
         "bolster",
         _c(r"bolster (?P<n>\d+)"),
         _bolster,
+    ),
+    # "blight N" (Bloomburrow) — N -1/-1 counters on a creature you control.
+    EffectHandler(
+        "blight",
+        _c(r"blight (?P<n>\d+)"),
+        _blight,
     ),
     # "support N" (RULE 701.41a) — +1/+1 counter on each of up to N target
     # creatures (rides the existing `add_counters` multi-target path).

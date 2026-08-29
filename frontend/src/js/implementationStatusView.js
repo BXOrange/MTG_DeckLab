@@ -206,6 +206,7 @@ const GROUPS = [
               ['full', 'add_counters (+1/+1 / −1/−1)'],
               ['full', 'Verstärken / bolster (701.39) — +1/+1-Marken auf die Kreatur mit der geringsten Widerstandskraft; Auswahl bei Gleichstand'],
               ['full', 'Unterstützen / support (701.41) — +1/+1-Marke auf bis zu N Zielkreaturen'],
+              ['full', 'Verkümmern / blight N (Bloomburrow) — N −1/−1-Marken auf eine eigene Kreatur (nur die eigenständige Verbform; Kostenform offen)'],
               ['full', 'pump (+N/+N bis Zugende)'],
               ['full', 'scry (701.18, interaktiv: unterlegen + Reihenfolge)'],
               ['full', 'surveil (701.31, interaktiv: Friedhof + Reihenfolge)'],
@@ -433,7 +434,7 @@ const GROUPS = [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (35,8 % · 12.457 / 34.811, PARSER_VERSION 110)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (35,8 % · 12.458 / 34.811, PARSER_VERSION 111)'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

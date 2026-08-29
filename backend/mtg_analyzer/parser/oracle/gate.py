@@ -1164,7 +1164,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: opponents control". "detain each nonland permanent ... with mana value N
 #: or less" (Lavinia) and a "with backup or vehicle" filter stay UNMODELED.
 #: Also adds a `target nonland permanent an opponent controls` TARGET row.
-PARSER_VERSION = "110"
+#: "111": PAR-29 - "Blight N" (Bloomburrow: "put N -1/-1 counters on a
+#: creature you control"), the negative sibling of Bolster:
+#: `RulesEngine.blight` + a `blight` "which creature" `pending_choice` +
+#: `effects.BlightEffect`. Handler covers only the standalone-verb form
+#: ("whenever ~ attacks, blight 1"). The cost forms ("{cost}, Blight N:
+#: <effect>", "as an additional cost ... blight N") and the "you may blight
+#: N. If you do, <effect>" wrapper stay UNMODELED - they need
+#: `ActivationCost`/cast-cost integration, tracked in BACKLOG. "blight X"
+#: (dynamic amount) also stays UNMODELED, fail-closed.
+PARSER_VERSION = "111"
 
 
 def parser_source_hash() -> str:

@@ -9537,6 +9537,24 @@ class BolsterEffect(GameEffect):
         context.engine.bolster(player, self.amount, source=self.source)
 
 
+class BlightEffect(GameEffect):
+    """"Blight N." (Bloomburrow — "put N -1/-1 counters on a creature you
+    control"). `BolsterEffect`'s negative sibling: a bare "you"-subject
+    effect (no target, no pronoun), `RulesEngine.blight` owns the procedure
+    and its "which creature" `pending_choice`.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None, amount: int = 1) -> None:
+        super().__init__(source)
+        self.amount = max(1, int(amount))
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.engine.blight(player, self.amount, source=self.source)
+
+
 class SacrificeSpecificEffect(GameEffect):
     """Sacrifice the exact permanents baked into this effect (RULE 701.17).
 
@@ -17540,6 +17558,12 @@ EffectRegistry.register(
     # "up to N target creatures" spec.
     "bolster",
     lambda p: BolsterEffect(amount=p.get("amount", p.get("count", 1))),
+)
+EffectRegistry.register(
+    # "Blight N" (Bloomburrow, PAR-29): put N -1/-1 counters on a creature
+    # you control (your choice). See `BlightEffect` / `RulesEngine.blight`.
+    "blight",
+    lambda p: BlightEffect(amount=p.get("amount", p.get("count", 1))),
 )
 EffectRegistry.register(
     "the_ring_tempts_you",  # RULE 701.51a

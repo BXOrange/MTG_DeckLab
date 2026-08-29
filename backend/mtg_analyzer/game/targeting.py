@@ -163,10 +163,16 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "permanent_you_control",
         # "target nonland permanent" (Retraction Helix-shaped) — any
         # controller's, unlike the `_you_control`/`_you_dont_control`
-        # suffixed forms below (which already had their own row here); the
+        # suffixed forms (which have their own `legal_targets` branch); the
         # bare unscoped form's own `legal_targets` branch already existed
         # but was never whitelisted.
         "nonland_permanent",
+        # "target nonland permanent an opponent controls" / "… you don't
+        # control" (Lyev Skyknight/New Prahv Guildmage's detain, PAR-29) and
+        # its "you control" mirror — the `legal_targets` branch has always
+        # handled both (see the ``nonland_permanent_you_control`` case), just
+        # never whitelisted here until a real card's TARGET row needed it.
+        "nonland_permanent_you_control", "nonland_permanent_you_dont_control",
         # "target spell or nonland permanent an opponent controls" (Sink
         # into Stupor) — the ``"spell"``/``nonland_permanent_you_dont_
         # control`` union.

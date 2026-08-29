@@ -1082,6 +1082,10 @@ class TurnLoopMixin:
             # creature to put the +1/+1 counters on — mandatory (no "you may"),
             # a missing answer defaults to the first tied creature.
             self.rules.resolve_bolster_choice(None if declined else int(answer))
+        elif kind == "blight":
+            # "Blight N": the option id is which creature you control gets the
+            # -1/-1 counters — a missing answer defaults to the first offered.
+            self.rules.resolve_blight_choice(None if declined else int(answer))
         elif kind == "order_triggers":
             # RULE 603.3b: the option id is the index of the trigger to place next.
             index = None if declined else int(answer)
