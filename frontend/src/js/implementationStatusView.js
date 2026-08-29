@@ -293,7 +293,7 @@ const GROUPS = [
               ['full', 'Madness (702.35) — beim Abwerfen exiliert, für die Madness-Kosten wirkbar, sonst in den Friedhof'],
               ['partial', 'Miracle (702.94) — erste gezogene Karte des Zuges, Fenster gilt vereinfacht den ganzen Zug'],
               ['full', 'Ninjutsu (702.49) — ungeblockter Angreifer zurück, Ninja getappt & angreifend ins Spiel'],
-              ['partial', 'Bestow (702.103) — noch nicht umgesetzt (echter Doppel-Kartentyp Kreatur/Aura)'],
+              ['full', 'Bestow (702.103) — für die Bestow-Kosten als Aura mit „verzaubert Kreatur" gewirkt, hängt sich beim Verrechnen an; wird wieder zur Kreatur, sobald sie nicht mehr angelegt ist'],
               ['full', 'Dethrone (702.107)'],
               ['full', 'Kicker / Multikicker (702.33)'],
               ['full', 'Buyback (702.27)'],

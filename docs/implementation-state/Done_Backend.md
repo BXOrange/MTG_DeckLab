@@ -2668,11 +2668,12 @@ is in the rules-engine categories below them.
   improvise taps artifacts, each covering exactly the generic shortfall;
   `help_pay` is refused for a spell without any of the three keywords)
 
-### Cast-alternative/timing keywords: Backup, Dash, Madness, Miracle, Ninjutsu (PAR-26)
+### Cast-alternative/timing keywords: Backup, Dash, Madness, Miracle, Ninjutsu, Bestow (PAR-26)
 
-- **What:** Five of the six cast-alternative/timing keywords, all
-  parser-recognised but implemented nowhere (Bestow is left open — see
-  `BACKLOG.md`, it's a dual-card-type project).
+- **What:** All six cast-alternative/timing keywords, all
+  parser-recognised but implemented nowhere. **PAR-26 is closed** — Bestow,
+  the dual-card-type member deferred from the first wave, shipped
+  2026-08-29 (see its own bullet below).
   - **Backup N** (702.165) — `effect_binder._kw_backup`: an
     `ENTERS_BATTLEFIELD` self-trigger with a targeted `AddCountersEffect`
     (`amount=N`). New `targeting` kind `"creature_including_self"` (the
@@ -2715,25 +2716,74 @@ is in the rules-engine categories below them.
     attacking in its combat slot (same `combat_defender`), firing its own
     `ENTERS_BATTLEFIELD` and `ATTACKS` events. `obj.ninjutsu_cost`
     (`ManaCost`) is the bound marker.
+  - **Bestow** (702.103, 2026-08-29) — a fourth `face` on `cast_spell`
+    (`face="bestow"`, next to `"back"`/`"fuse"`/`"face_down"`). No card
+    swap: `RulesEngine._begin_bestow` sets `GameObject.bestowed` and adds
+    a **synthetic `parametric_keywords["enchant"] = {"quality":
+    "creature", "bestow": True}`** entry, which is all the *existing* Aura
+    machinery needs — `_attachment_kind` → `"enchant"`,
+    `targeting.spell_target_specs` synthesizes the "enchant creature"
+    requirement (RULE 702.103b/601.2c), and `_resolve_permanent_spell`'s
+    attach branch attaches it on resolution with no new code.
+    `GameObject.is_creature` returns `False` while `bestowed` (RULE
+    702.103b/d), so combat/SBAs/the board read it as an Aura; its printed
+    "Enchanted creature gets +X/+X"/"…and has …" clauses are the ordinary
+    parser-bound `affects="attached_permanent"` statics, inert while it's
+    a plain creature and live once attached — nothing bestow-specific.
+    The cost is read off the parser's own `bestow` keyword param
+    (`_bestow_cost`, same shape as `_buyback_cost`/`_kicker_cost`) and
+    substituted for the mana cost via a `face="bestow"` branch in
+    `effective_cast_cost` + a `bestow=True` branch in `_cast_current_face`
+    (an ordinary paid `rules.cast_spell(..., cost=…)`, unlike the no-mana
+    free/alt-cost paths). **Un-bestow** (RULE 702.103e/f) is
+    `_end_bestow` (clears the flag + the synthetic entry), driven from
+    three sites: `_detach_attachments_from`/`_revalidate_attachments`
+    (host leaves / attachment becomes illegal — the RULE 704.5m exception,
+    stays on the battlefield as a creature rather than going to the
+    graveyard), the new SBA `_sba_check_unbestow` (catch-all for any other
+    route to "unattached"), and the resolve-time illegal-target branch
+    (RULE 702.103e/608.3b — finishes resolving as a creature spell, no
+    fizzle). `_offer_cast` adds the Bestow offer as an independent payment
+    method alongside the plain creature cast (locked with RULE 601.2c's
+    "no creature to enchant" reason when the board has none). Documented
+    simplification: RULE 702.103d ("only bestow-modified characteristics
+    are evaluated to determine if it can be cast", i.e. "creature spells
+    can't be cast" doesn't stop a bestow cast) isn't honoured — `can_cast`
+    reads the printed `Card` for its per-turn/prohibition checks. Purely
+    engine work: no PARSER_VERSION bump (the keyword line was already
+    recognised, and the ~22 still-`UNMODELED` bestow cards are each held
+    up by *other*, unrelated effect-body grammar).
 - **Files:** `game/effect_binder.py` (`_kw_backup` + the dash/madness/
   miracle/ninjutsu keyword-bind hooks), `game/targeting.py`
   (`creature_including_self`), `game/engine/casting_mixin.py` (`cast_via_
-  dash` stamp), `game/rules/casting_mixin.py` (dash resolution),
-  `game/rules/draw_discard_mixin.py` (`_maybe_madness`/`_arm_miracle`),
-  `game/effects.py` (`MadnessToGraveyardEffect`), `game/engine/combat_
-  mixin.py` (`ninjutsu`), `game/engine/legal_actions_mixin.py` (ninjutsu
-  offer + madness/miracle offer gates), `game/engine/turn_loop_mixin.py`
-  (miracle cleanup), `services/game_session.py` (`_dispatch_ninjutsu`),
-  `models/game_object.py` (`cast_via_dash`/`madness`/`madness_exiled`/
-  `miracle`/`miracle_armed`), `models/game_state.py` (`miracle_armed_ids`),
-  `frontend/src/js/implementationStatusView.js`
-- **Tests:** `tests/test_par26_cast_timing_keywords.py` (9 — backup
+  dash` stamp; `_bestow_cost`, `cast_spell`/`_cast_current_face`/
+  `effective_cast_cost`/`can_cast` bestow branches), `game/rules/
+  casting_mixin.py` (dash resolution; `_begin_bestow`/`_end_bestow`,
+  bestow-aware `_detach_attachments_from`/`_revalidate_attachments`/
+  `_resolve_permanent_spell`), `game/rules/sba_mixin.py`
+  (`_sba_check_unbestow`), `game/rules/draw_discard_mixin.py`
+  (`_maybe_madness`/`_arm_miracle`), `game/effects.py`
+  (`MadnessToGraveyardEffect`), `game/engine/combat_mixin.py`
+  (`ninjutsu`), `game/engine/legal_actions_mixin.py` (ninjutsu offer +
+  madness/miracle offer gates; `_cast_action`/`_offer_cast` bestow
+  offer), `game/engine/turn_loop_mixin.py` (miracle cleanup),
+  `services/game_session.py` (`_dispatch_ninjutsu`; `face` already
+  round-trips for bestow), `models/game_object.py` (`cast_via_dash`/
+  `madness`/`madness_exiled`/`miracle`/`miracle_armed`; `bestowed` +
+  `is_creature`/`type_words`), `models/game_state.py`
+  (`miracle_armed_ids`), `frontend/src/js/gameBoardView.js` (`faceHint`
+  bestow label), `frontend/src/js/implementationStatusView.js`
+- **Tests:** `tests/test_par26_cast_timing_keywords.py` (15 — backup
   counters another creature / itself when alone; dash grants haste and
   bounces at the end step; madness exiles on discard, is castable only
   for the madness cost, and goes to the graveyard if not cast that turn;
   miracle arms only the first draw of the turn and the window closes at
   cleanup; ninjutsu swaps an unblocked attacker for a ninja and is
-  refused for a blocked one)
+  refused for a blocked one; bestow offers a second action, casts as an
+  Aura that buffs the host and isn't a creature, un-bestows to a creature
+  when the host leaves, is locked with no creature to enchant, resolves
+  as a creature on an illegal target, and still casts normally as a plain
+  creature)
 
 ## Designations & Standing Systems
 

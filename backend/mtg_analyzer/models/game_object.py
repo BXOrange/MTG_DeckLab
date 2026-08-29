@@ -246,6 +246,19 @@ class GameObject:
         #: which is what makes RULE 708.8's "it regains its normal
         #: characteristics" a single assignment rather than a re-parse.
         self._face_up_snapshot: Optional[dict[str, Any]] = None
+        #: RULE 702.103 Bestow: this creature card was cast for its bestow
+        #: cost, so for as long as it stays attached it's an Aura
+        #: enchantment with "enchant creature" and is **not** a creature
+        #: (702.103b/d). A synthetic ``parametric_keywords["enchant"]``
+        #: entry is added alongside this flag (`RulesEngine._begin_bestow`)
+        #: so every Aura code path — `_attachment_kind`,
+        #: `targeting.spell_target_specs`, `_resolve_permanent_spell`'s
+        #: attach branch — treats it as an ordinary Aura with no special
+        #: case. Cleared, and the synthetic entry removed, the moment it
+        #: stops being attached (RULE 702.103e/f — `_end_bestow`, driven by
+        #: `_sba_check_unbestow` and the un-attach paths), at which point it
+        #: is a creature again.
+        self.bestowed: bool = False
         #: RULE 702.140c Mutate: the abilities merged in from *under* this
         #: permanent — the oracle text of every card mutated onto it, kept as
         #: text so `effect_binder.bind_from_catalogue` can re-derive real
@@ -1229,6 +1242,11 @@ class GameObject:
 
     @property
     def is_creature(self) -> bool:
+        # RULE 702.103b/d: a spell cast bestowed, or the permanent it
+        # becomes while attached, is an Aura enchantment — not a creature —
+        # until it ceases to be bestowed (702.103e/f).
+        if self.bestowed:
+            return False
         # Printed creature (unless a layer-4 effect strips it, RULE 702.151b),
         # or made one by a layer-4 type-changing effect.
         if self.card.is_creature:
@@ -1287,6 +1305,10 @@ class GameObject:
         words |= self._added_types
         words -= self._removed_types
         words.add("permanent")
+        if self.bestowed:
+            # RULE 702.103b: an Aura enchantment, not a creature, while bestowed.
+            words.discard("creature")
+            words.add("enchantment")
         return words
 
     @property

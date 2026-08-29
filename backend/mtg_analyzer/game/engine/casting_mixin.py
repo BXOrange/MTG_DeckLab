@@ -530,6 +530,10 @@ class CastingMixin:
                 return False
         if buyback and self._buyback_cost(obj) is None:
             return False
+        if face == "bestow" and self._bestow_cost(obj) is None:
+            # RULE 702.103: only a card that actually carries Bestow can be
+            # cast this way — fails closed, like evoke/buyback above.
+            return False
         if mutate:
             if self._mutate_cost(obj) is None:
                 return False
@@ -660,6 +664,17 @@ class CastingMixin:
         """RULE 702.27: ``obj``'s Buyback cost as a `ManaCost`, or ``None``
         if it carries no Buyback keyword (or one with no parsed cost)."""
         param = (getattr(obj, "parametric_keywords", None) or {}).get("buyback")
+        if not param or not param.get("cost"):
+            return None
+        return ManaCost.parse(str(param["cost"]))
+    @staticmethod
+    def _bestow_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.103: ``obj``'s Bestow cost as a `ManaCost`, or ``None``
+        if it carries no Bestow keyword (or one with no parsed cost). Read
+        off the ``bestow`` parametric keyword the parser already docks
+        (`parser/oracle/catalogue/keywords.py`), the same shape as
+        `_buyback_cost`/`_kicker_cost` — PAR-26 is purely engine work."""
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("bestow")
         if not param or not param.get("cost"):
             return None
         return ManaCost.parse(str(param["cost"]))
@@ -801,6 +816,14 @@ class CastingMixin:
         anything but "choose one or more".
         """
         card = self._face_card(obj, face) or obj.card
+        if face == "bestow":
+            # RULE 702.103a: the Bestow cost replaces the printed mana cost
+            # (an alternative cost, the same substitution shape Mutate/Evoke
+            # use just below) — still subject to the generic reduction/tax
+            # `_adjust_cost` applies afterward.
+            bestow_cost = self._bestow_cost(obj)
+            if bestow_cost is not None:
+                return self._adjust_cost(bestow_cost, player, obj)
         if mutate:
             # RULE 702.140b: the Mutate cost replaces the printed one — an
             # alternative cost, the same substitution shape Flashback/Escape
@@ -1043,6 +1066,27 @@ class CastingMixin:
             except Exception:
                 obj.turn_face_up()
                 self.rules.restore_face(obj, snapshot)
+                raise
+        if face == "bestow":
+            # RULE 702.103a/b: a creature card cast for its Bestow cost goes
+            # on the stack as an Aura spell with "enchant creature"
+            # (`_begin_bestow` reshapes ``obj`` first, so the ordinary Aura
+            # target/attach machinery takes it from here) and pays the
+            # bestow cost rather than its mana cost. Same "reshape before
+            # the body, roll it back on any failure" discipline as the
+            # face-down / second-face branches.
+            if self._bestow_cost(obj) is None:
+                raise ValueError(f"{obj.name} has no bestow cost")
+            self._auto_tap_for_cast_if_needed(player, obj, x, face="bestow")
+            if not self.can_cast(player, obj, x, face="bestow"):
+                raise ValueError(f"{player.id} cannot cast {obj.name} bestowed now")
+            self.rules._begin_bestow(obj)
+            try:
+                return self._cast_current_face(
+                    player, obj, targets, x, target_groups=target_groups, bestow=True,
+                )
+            except Exception:
+                self.rules._end_bestow(obj)
                 raise
         if face in ("back", "fuse"):
             if not self.can_cast(
@@ -1336,6 +1380,7 @@ class CastingMixin:
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         help_pay: bool = False,
+        bestow: bool = False,
     ):
         """The common cast body, reading whatever `obj.card` currently is.
 
@@ -1344,7 +1389,11 @@ class CastingMixin:
         `RulesEngine.cast_without_paying`, instead of the ordinary
         `RulesEngine.cast_spell` mana-cost path. ``alt_cost=True`` (RULE
         118.9, MEC-15) does the same, then pays `GameObject.alt_cast_cost`
-        (`_pay_alt_cast_cost`) instead of nothing.
+        (`_pay_alt_cast_cost`) instead of nothing. ``bestow=True`` (RULE
+        702.103) pays the Bestow cost (`_bestow_cost`) instead of the mana
+        cost — an ordinary paid cast with a substituted cost; ``obj`` is
+        already reshaped to a bestowed Aura spell by the `cast_spell`
+        branch that got here (`RulesEngine._begin_bestow`).
         """
         if mode == "both" and not getattr(obj, "spell_modes_or_both", False):
             # RULE 702.42a: on an ordinary "choose one" block, "choose all"
@@ -1365,14 +1414,19 @@ class CastingMixin:
             # re-stamps the identical value once resolved.
             if x:
                 obj.x_paid = x
+            # RULE 702.103: a bestowed cast reads its cost off ``face=
+            # "bestow"`` in `can_cast`/`effective_cast_cost` (``obj`` has no
+            # ``face`` param of its own to carry down here) — every other
+            # cast keeps the default "front".
+            bestow_face = "bestow" if bestow else "front"
             self._auto_tap_for_cast_if_needed(
-                player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
+                player, obj, x, face=bestow_face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets, help_pay=help_pay,
             )
             if not self.can_cast(
-                player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
+                player, obj, x, face=bestow_face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets, help_pay=help_pay,
@@ -1423,6 +1477,15 @@ class CastingMixin:
             )
             if free:
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups)
+            elif bestow:
+                # RULE 702.103a: pay the Bestow cost in place of the mana
+                # cost — otherwise an ordinary paid cast (`rules.cast_spell`
+                # with an explicit ``cost``), unlike the no-mana free/
+                # alt-cost paths above.
+                cost = self.effective_cast_cost(player, obj, x, face="bestow")
+                result = self.rules.cast_spell(
+                    player, obj, targets, x, cost=cost, target_groups=target_groups,
+                )
             elif alt_cost:
                 # RULE 118.9 (MEC-15): no mana leaves the pool at all — the
                 # spell goes on the stack for free, then its controller

@@ -844,6 +844,32 @@ class CastingResolutionMixin:
             return False
         obj.attached_to = target.instance_id
         return True
+
+    def _begin_bestow(self, obj: GameObject) -> None:
+        """RULE 702.103b: reshape ``obj`` into a bestowed Aura spell — an
+        Aura enchantment that gains "enchant creature" and stops being a
+        creature (`GameObject.bestowed` → `is_creature` False, RULE
+        702.103d). The synthetic ``parametric_keywords["enchant"]`` entry
+        is what every existing Aura code path keys off (attachment kind,
+        `targeting.spell_target_specs`, the resolve-time attach), so nothing
+        downstream needs a bestow special case. Undone by `_end_bestow`.
+        """
+        obj.bestowed = True
+        obj.parametric_keywords = {
+            **(obj.parametric_keywords or {}),
+            "enchant": {"quality": "creature", "bestow": True},
+        }
+
+    def _end_bestow(self, obj: GameObject) -> None:
+        """RULE 702.103e/f: ``obj`` ceases to be bestowed — it stops being
+        an Aura and is a creature again, staying on the battlefield. Removes
+        only the synthetic "enchant" entry `_begin_bestow` added (a real
+        Aura card never carries Bestow, so this can't strip a printed one).
+        """
+        obj.bestowed = False
+        enchant = (obj.parametric_keywords or {}).get("enchant")
+        if isinstance(enchant, dict) and enchant.get("bestow"):
+            obj.parametric_keywords.pop("enchant", None)
     def _detach_attachments_from(self, host: GameObject) -> None:
         """Unattach permanents attached to ``host`` when it leaves the battlefield.
 
@@ -856,7 +882,12 @@ class CastingResolutionMixin:
             if attached.attached_to != host.instance_id:
                 continue
             attached.attached_to = None
-            if self._attachment_kind(attached) == "enchant":
+            if getattr(attached, "bestowed", False):
+                # RULE 702.103f: a bestowed Aura that becomes unattached
+                # ceases to be bestowed and stays on the battlefield as a
+                # creature — the exception to RULE 704.5m below.
+                self._end_bestow(attached)
+            elif self._attachment_kind(attached) == "enchant":
                 self._move_to_graveyard(attached)
     def _revalidate_attachments(self) -> bool:
         """RULE 704.5m/n: unattach any permanent whose attachment has become
@@ -885,6 +916,12 @@ class CastingResolutionMixin:
             if self._attachment_legal(attached, host):
                 continue
             attached.attached_to = None
+            if getattr(attached, "bestowed", False):
+                # RULE 702.103f: an exception to RULE 704.5m — the bestowed
+                # Aura becomes unattached and stays on the battlefield as a
+                # creature rather than being put into its owner's graveyard.
+                self._end_bestow(attached)
+                return True
             if self._attachment_kind(attached) == "enchant":
                 self._move_to_graveyard(attached)  # RULE 704.5m
             return True  # RULE 704.5n: Equipment/Fortification just unattaches
@@ -1286,16 +1323,24 @@ class CastingResolutionMixin:
                 if target_in_graveyard:
                     obj.reanimate_target_id = target.instance_id
                 elif not (target is not None and self.attach_to_target(obj, target)):
-                    self._move_to_graveyard(obj)
-                    self.state.fire_event(
-                        GameEvent(
-                            EventType.SPELL_RESOLVED,
-                            spell=obj.name,
-                            controller_id=item.controller_id,
+                    if getattr(obj, "bestowed", False):
+                        # RULE 702.103e/608.3b: a bestowed Aura spell whose
+                        # target is illegal as it begins resolving ceases to
+                        # be bestowed and finishes resolving as a creature
+                        # spell — it enters the battlefield rather than
+                        # fizzling. Fall through to the ordinary ETB below.
+                        self._end_bestow(obj)
+                    else:
+                        self._move_to_graveyard(obj)
+                        self.state.fire_event(
+                            GameEvent(
+                                EventType.SPELL_RESOLVED,
+                                spell=obj.name,
+                                controller_id=item.controller_id,
+                            )
                         )
-                    )
-                    self.check_state_based_actions()
-                    return
+                        self.check_state_based_actions()
+                        return
             self.state.fire_event(
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,

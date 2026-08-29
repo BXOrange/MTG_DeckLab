@@ -8,6 +8,15 @@ Covered here so far:
   documented simplification.
 * **Dash** (702.109) — an alternative cast cost (`obj.alt_cast_cost` +
   `dash` marker): haste on enter, returned to hand at the next end step.
+* **Bestow** (702.103) — a ``face="bestow"`` cast that reshapes the
+  creature card into an Aura spell with "enchant creature" (`GameObject.
+  bestowed` + a synthetic ``parametric_keywords["enchant"]``), pays the
+  bestow cost, attaches on resolution, and un-bestows back to a creature
+  (RULE 702.103e/f) the moment it stops being attached. RULE 702.103d's
+  "creature spells can't be cast doesn't stop a bestow cast" corner is a
+  documented simplification (the reshape flips `GameObject.is_creature`
+  but `can_cast`'s per-turn/prohibition checks still read the printed
+  `Card`).
 """
 
 from __future__ import annotations
@@ -300,3 +309,134 @@ def test_ninjutsu_refused_for_a_blocked_attacker():
     import pytest
     with pytest.raises(ValueError):
         eng.ninjutsu(p1, ninja, rat)
+
+
+# -- Bestow (RULE 702.103) --------------------------------------------
+
+
+def _bestow_card(name="Nyxborn Rollicker", cost="{R}", bestow="{1}{R}"):
+    return _card(
+        name, cost=cost, keywords=["Bestow"],
+        type_line="Enchantment Creature — Satyr", power=1, toughness=1,
+        oracle_text=(
+            f"Bestow {bestow} (If you cast this card for its bestow cost, it's an "
+            f"Aura spell with enchant creature. It becomes a creature again if it's "
+            f"not attached to a creature.)\nEnchanted creature gets +1/+1."
+        ),
+    )
+
+
+def _cast_actions(eng, player, obj):
+    return [
+        a for a in eng.legal_actions(player)
+        if a.get("type") == "cast_spell" and a.get("instance_id") == obj.instance_id
+    ]
+
+
+def test_bestow_offer_is_a_second_action_alongside_the_plain_creature_cast():
+    eng = _engine()
+    state = eng.state
+    _bf(state, _card("Bear", power=2, toughness=2, type_line="Creature — Bear"))
+    nyx = _hand(state, _bestow_card())
+    _to_main(eng)
+    p1 = state.player_by_id("p1")
+    p1.mana_pool.add_many({"R": 2, "C": 1})
+
+    actions = _cast_actions(eng, p1, nyx)
+    plain = [a for a in actions if a.get("face", "front") == "front"]
+    bestow = [a for a in actions if a.get("face") == "bestow"]
+    assert len(plain) == 1 and len(bestow) == 1
+    assert bestow[0]["bestow"] is True
+    assert bestow[0]["bestow_cost_label"] == "{1}{R}"
+    assert bestow[0]["requires_target"] is True
+    assert not bestow[0].get("locked")
+
+
+def test_bestow_cast_makes_an_aura_that_buffs_the_host_and_isnt_a_creature():
+    eng = _engine()
+    state = eng.state
+    bear = _bf(state, _card("Bear", power=2, toughness=2, type_line="Creature — Bear"))
+    nyx = _hand(state, _bestow_card())
+    _to_main(eng)
+    p1 = state.player_by_id("p1")
+    p1.mana_pool.add_many({"R": 1, "C": 1})  # the bestow cost {1}{R}, not the printed {R}
+
+    eng.cast_spell(p1, nyx, [bear], face="bestow")
+    assert nyx.bestowed and nyx.zone == Zone.STACK
+    assert p1.mana_pool.total() == 0  # paid the bestow cost
+    eng.resolve_until_stable()
+    continuous.recompute(state)
+
+    assert nyx.zone == Zone.BATTLEFIELD
+    assert nyx.attached_to == bear.instance_id
+    assert nyx.bestowed and not nyx.is_creature   # RULE 702.103b/d
+    assert (bear.power, bear.toughness) == (3, 3)  # enchanted creature gets +1/+1
+
+
+def test_bestow_unbestows_into_a_creature_when_its_host_leaves(  ):
+    eng = _engine()
+    state = eng.state
+    bear = _bf(state, _card("Bear", power=2, toughness=2, type_line="Creature — Bear"))
+    nyx = _hand(state, _bestow_card())
+    _to_main(eng)
+    p1 = state.player_by_id("p1")
+    p1.mana_pool.add_many({"R": 1, "C": 1})
+    eng.cast_spell(p1, nyx, [bear], face="bestow")
+    eng.resolve_until_stable()
+
+    eng.rules.put_into_graveyard(bear)          # RULE 702.103f trigger
+    eng.rules.check_state_based_actions()
+    continuous.recompute(state)
+
+    assert nyx.zone == Zone.BATTLEFIELD          # stays on the battlefield…
+    assert not nyx.bestowed and nyx.attached_to is None
+    assert nyx.is_creature and (nyx.power, nyx.toughness) == (1, 1)  # …as a creature again
+
+
+def test_bestow_offer_is_locked_with_no_creature_to_enchant():
+    eng = _engine()
+    state = eng.state
+    nyx = _hand(state, _bestow_card())
+    _to_main(eng)
+    p1 = state.player_by_id("p1")
+    p1.mana_pool.add_many({"R": 2, "C": 1})
+
+    bestow = [a for a in _cast_actions(eng, p1, nyx) if a.get("face") == "bestow"]
+    assert len(bestow) == 1 and bestow[0]["locked"] is True  # RULE 601.2c
+
+
+def test_bestow_cast_with_an_illegal_target_resolves_as_a_creature():
+    eng = _engine()
+    state = eng.state
+    bear = _bf(state, _card("Bear", power=2, toughness=2, type_line="Creature — Bear"))
+    nyx = _hand(state, _bestow_card())
+    _to_main(eng)
+    p1 = state.player_by_id("p1")
+    p1.mana_pool.add_many({"R": 1, "C": 1})
+    eng.cast_spell(p1, nyx, [bear], face="bestow")
+    assert nyx.zone == Zone.STACK and nyx.bestowed
+
+    # the target is gone before the bestowed Aura spell resolves (RULE 702.103e)
+    eng.rules.put_into_graveyard(bear)
+    eng.resolve_until_stable()
+    continuous.recompute(state)
+
+    assert nyx.zone == Zone.BATTLEFIELD
+    assert not nyx.bestowed and nyx.attached_to is None
+    assert nyx.is_creature and (nyx.power, nyx.toughness) == (1, 1)
+
+
+def test_bestow_card_cast_normally_is_still_a_plain_creature():
+    eng = _engine()
+    state = eng.state
+    nyx = _hand(state, _bestow_card())
+    _to_main(eng)
+    p1 = state.player_by_id("p1")
+    p1.mana_pool.add_many({"R": 1})  # the printed {R}, not the bestow cost
+
+    eng.cast_spell(p1, nyx, [])  # no face → plain creature cast
+    eng.resolve_until_stable()
+    continuous.recompute(state)
+
+    assert nyx.zone == Zone.BATTLEFIELD
+    assert not nyx.bestowed and nyx.is_creature and nyx.attached_to is None

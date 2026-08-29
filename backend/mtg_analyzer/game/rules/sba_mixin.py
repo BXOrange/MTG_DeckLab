@@ -240,6 +240,14 @@ class StateBasedActionsMixin:
         if self._revalidate_attachments():
             return True
 
+        # RULE 702.103f: a bestowed Aura that is no longer attached to a
+        # creature ceases to be bestowed and becomes a creature again. The
+        # un-attach paths (`_detach_attachments_from`/`_revalidate_
+        # attachments`) already call `_end_bestow` themselves; this is the
+        # catch-all at SBA cadence for any other route to "unattached".
+        if self._sba_check_unbestow():
+            return True
+
         # 704.5j: legend rule — same-named legendaries a player controls.
         if self._apply_legend_rule():
             return True
@@ -484,6 +492,19 @@ class StateBasedActionsMixin:
                 removed = min(plus, minus)
                 obj.add_counters("+1/+1", -removed)
                 obj.add_counters("-1/-1", -removed)
+                return True
+        return False
+
+    def _sba_check_unbestow(self) -> bool:
+        """RULE 702.103f: a bestowed Aura not attached to a creature ceases
+        to be bestowed — it stops being an Aura and is a creature again,
+        remaining on the battlefield. `_end_bestow` clears the flag and the
+        synthetic "enchant" keyword; the next `recompute` at the top of the
+        following SBA pass then re-derives it as a creature.
+        """
+        for obj in self.state.permanents():
+            if getattr(obj, "bestowed", False) and obj.attached_to is None:
+                self._end_bestow(obj)
                 return True
         return False
 

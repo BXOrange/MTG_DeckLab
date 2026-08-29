@@ -221,6 +221,7 @@ class LegalActionsMixin:
         alt_cost: bool = False,
         evoke: bool = False,
         help_pay: bool = False,
+        bestow: bool = False,
     ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
@@ -263,6 +264,29 @@ class LegalActionsMixin:
             finally:
                 self.rules.restore_face(obj, snapshot)
             action["face"] = face
+            return action
+        if bestow:
+            # RULE 702.103: preview the Bestow cast — reshape ``obj`` to a
+            # bestowed Aura spell so the target-requirement tail below
+            # synthesizes "enchant creature" (`targeting.spell_target_specs`),
+            # then tag the offer with its own cost. Restored before
+            # returning — a pure preview, like the second-face branch above.
+            self.rules._begin_bestow(obj)
+            try:
+                action = self._cast_action(player, obj)
+            finally:
+                self.rules._end_bestow(obj)
+            action["face"] = "bestow"
+            action["bestow"] = True
+            bestow_cost = self._bestow_cost(obj)
+            if bestow_cost is not None:
+                action["mana_value"] = bestow_cost.converted_mana_cost
+                action["base_cost"] = bestow_cost.raw
+                action["bestow_cost_label"] = bestow_cost.raw
+                action["effective_cost"] = self.effective_cast_cost(player, obj, face="bestow").raw
+            if not self.can_cast(player, obj, face="bestow"):
+                action["locked"] = True
+                action["lock_reason"] = "Manakosten nicht bezahlbar"
             return action
         action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
         if mode is not None:
@@ -614,6 +638,14 @@ class LegalActionsMixin:
         )
         if has_evoke and self.can_cast(player, obj, evoke=True):
             actions.append(self._cast_action(player, obj, evoke=True))
+        # RULE 702.103 (PAR-26): a creature card with Bestow may instead be
+        # cast for its bestow cost as an Aura — a further independent
+        # payment method, offered alongside the plain creature cast, never
+        # in place of it. `can_cast(face="bestow")` folds in the substituted
+        # cost and (via `_cast_action`'s own locked/target tail) RULE
+        # 601.2c's "needs a creature to enchant".
+        if self._bestow_cost(obj) is not None and self.can_cast(player, obj, face="bestow"):
+            actions.append(self._cast_action(player, obj, bestow=True))
         # PAR-23: RULE 702.51/702.66/702.126 — a "cast using Convoke/Delve/
         # Improvise" offer whenever the spell has one of them and that mode
         # is castable, the same "offered alongside, never in place of" shape

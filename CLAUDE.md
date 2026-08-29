@@ -504,8 +504,14 @@ Delve/Improvise → an opt-in `help_pay` cast flag paying generic with
 tapped creatures / exiled graveyard cards / tapped artifacts), **PAR-24**
 triggered (Prowess, Exalted, Battle Cry, Mentor), **PAR-25** death/
 graveyard (Undying, Persist, Unearth, Embalm, Eternalize, Dredge),
-**PAR-26** cast-timing (Backup, Dash, Madness, Miracle, Ninjutsu — Bestow
-still open as a dual-card-type project). `PARSER_LONG_TAIL.md`'s set-
+**PAR-26** cast-timing (Backup, Dash, Madness, Miracle, Ninjutsu, and —
+2026-08-29 — **Bestow** (RULE 702.103): a `face="bestow"` cast that
+reshapes the creature card into an Aura spell with "enchant creature"
+via a synthetic `parametric_keywords["enchant"]` entry rather than a
+card swap — `GameObject.bestowed` flips `is_creature` off, the existing
+Aura target/attach machinery does the rest, and `_end_bestow` (an SBA +
+the un-attach paths, RULE 702.103e/f) turns it back into a creature when
+it stops being attached). `PARSER_LONG_TAIL.md`'s set-
 specific table holds the per-product ones; don't cite a keyword as
 "implemented" from this catalogue's mere existence), the **"Keyword —
 `<ability>`" label family**

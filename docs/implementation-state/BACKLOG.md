@@ -109,39 +109,6 @@ Plan-level sequencing lives in
   has a real handler (not just that some card using it happens to be
   `MODELED` for an unrelated reason), and report any genuine gap found.
 
-- **PAR-26 · Bestow (RULE 702.103) — the one still-inert member of the
-  cast-alternative/timing keyword family.** Madness/Miracle/Ninjutsu/Dash/
-  Backup all shipped 2026-08-28 (`Done_Backend.md`); Bestow was left out
-  because it's a genuine **dual card-type** mechanic on the scale of the
-  DFC/Adventure/Split work, not a cast-cost flag: cast for its bestow cost,
-  the creature card is *an Aura spell with enchant creature*; it enters
-  attached, granting its own P/T (as +X/+X) and abilities to the host; and
-  RULE 704.5n's "it becomes a creature again if it's not attached to a
-  creature" is a state-based action. Needs a `face`-style cast that
-  reshapes the card to an Aura, the Aura-grant of the bestowed creature's
-  characteristics, and the un-bestow SBA. `("Bestow", _C, "702.103")` is
-  already parser-recognised (the keyword line), so the cost is available on
-  `obj.parametric_keywords["bestow"]["cost"]` — this is purely engine work.
-
-  (PAR-26 is the last still-open **evergreen** portion of the
-  2026-08-27 audit's ~122-of-195-inert finding — PAR-22 (combat-evasion
-  keywords: Shroud/Fear/Intimidate/Skulk/Shadow), PAR-23 (cost keywords:
-  Affinity/Convoke/Delve/Improvise), PAR-24 (triggered keywords: Prowess/
-  Exalted/Battle Cry/Mentor), PAR-25 (death/graveyard: Undying/Persist/
-  Unearth/Embalm/Eternalize/Dredge) and the rest of PAR-26 (Madness/
-  Miracle/Ninjutsu/Dash/Backup) shipped 2026-08-28, see `Done_Backend.md`.
-  The set-specific portion, one expansion each, is
-  tracked in `PARSER_LONG_TAIL.md`'s own set-specific table instead. Each
-  ticket is independently shippable — no shared blocking primitive ties
-  them together, unlike Station's/Amass's own single-mechanism builds. The
-  audit's full table — all 195 rows, categorized, with file:line evidence
-  per bucket — isn't reproduced here since this file stays open-scope-only;
-  re-derive via `parser_probe.py card "<name>"` per keyword, cross-
-  referenced against `game/combat.py`'s `COMBAT_KEYWORDS` and `game/
-  effect_binder.py`'s `attach_keyword`/`_KEYWORD_TRIGGERED_BUILDERS`,
-  rather than trusting this list to stay current as more keywords get
-  built.)
-
 ## MEC — Game mechanics
 
 > **Permanent non-goals** (never to be built, not gaps): Stickers (RULE

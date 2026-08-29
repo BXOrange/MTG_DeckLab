@@ -2777,6 +2777,12 @@ export function createGameBoardView(opts = {}) {
   // change for the common single-face case).
   function faceHint(a) {
     if (a.face === 'fuse') return ' (Fuse — beide Hälften)';
+    // RULE 702.103: the Bestow cast is the same card name as the plain
+    // creature cast, so it gets a short "(Bestow — <cost>)" suffix rather
+    // than a redundant repeated name, the same treatment as Fuse above.
+    if (a.face === 'bestow') {
+      return a.bestow_cost_label ? ` (Bestow — ${escapeHtml(a.bestow_cost_label)})` : ' (Bestow)';
+    }
     return a.face ? ` — ${escapeHtml(a.name)}` : '';
   }
 
