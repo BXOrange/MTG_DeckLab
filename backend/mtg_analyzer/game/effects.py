@@ -12089,6 +12089,45 @@ class SuspectEffect(GameEffect):
                 context.engine.suspect(obj)
 
 
+class DetainEffect(GameEffect):
+    """RULE 701.35a: "Detain [up to N] target `<permanent>` an opponent
+    controls." — until the detainer's next turn, each target can't attack or
+    block and its activated abilities can't be activated (RULE 701.35b,
+    enforced by `_can_attack` / `can_block` / `can_activate` reading
+    `combat.is_detained`).
+
+    The detainer is this effect's *controller* (701.35a — "the controller of
+    the spell or ability"), read off the source at resolution like
+    `GoadEffect`. Always targeted (no self/pronoun form on any real card);
+    ``count``/``optional`` cover the "up to two target …" cycle.
+    """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature_you_dont_control",
+        optional: bool = False,
+        count: int = 1,
+    ) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(
+            kind=target_kind,
+            optional=optional,
+            count=count if isinstance(count, int) else 1,
+        )
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        detainer_id = getattr(self.source, "controller_id", None)
+        if detainer_id is None:
+            return
+        for obj in list(targets or []):
+            if getattr(obj, "instance_id", None) is not None:
+                context.engine.detain(obj, detainer_id)
+
+
 class RemoveSuspectedEffect(GameEffect):
     """"All suspected creatures are no longer suspected." (RULE 701.60a's
     reverse — Absolving Lammasu's ETB). ``scope="all"`` is the only shape a
@@ -19303,6 +19342,17 @@ EffectRegistry.register(
     # suspected." See `RemoveSuspectedEffect` / `RulesEngine.remove_suspected`.
     "remove_suspected",
     lambda p: RemoveSuspectedEffect(),
+)
+EffectRegistry.register(
+    # RULE 701.35a (detain, PAR-29): until the detainer's next turn the
+    # target can't attack/block and its activated abilities can't be
+    # activated. See `DetainEffect` / `RulesEngine.detain`.
+    "detain",
+    lambda p: DetainEffect(
+        target_kind=p.get("target_kind", "creature_you_dont_control"),
+        optional=bool(p.get("optional")),
+        count=p.get("count", 1),
+    ),
 )
 EffectRegistry.register(
     "create_emblem",  # "you get an emblem with '<ability>'" (RULE 114.2)

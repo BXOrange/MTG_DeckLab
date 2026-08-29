@@ -5219,6 +5219,41 @@ def _remove_suspected_all(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("remove_suspected", {})]
 
 
+# "Detain [up to N] target <permanent> an opponent controls." (RULE 701.35a
+# — Return to Ravnica). `RulesEngine.detain` / `effects.DetainEffect`
+# (registered as ``detain``). Only an opponent-controlled creature or
+# nonland permanent (every real detain card); a plain "target creature"
+# with no controller qualifier isn't a real printing, so leave it
+# unclaimed. "detain each nonland permanent … with mana value N or less"
+# (Lavinia) and a "with backup or vehicle" filter (Azorius Traffic
+# Enforcement) stay UNMODELED — a selector + filter this doesn't build yet.
+_DETAIN_TARGET_KINDS = (
+    "creature_you_dont_control", "nonland_permanent_you_dont_control",
+    "permanent_you_dont_control",
+)
+_DETAIN_MULTI_RE = _c(
+    r"detain up to (?P<n>2|3|two|three) target "
+    r"(?P<what>creatures|nonland permanents) "
+    r"(?:your opponents control|an opponent controls)"
+)
+_DETAIN_WORD_N = {"two": 2, "three": 3, "2": 2, "3": 3}
+
+
+def _detain(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in _DETAIN_TARGET_KINDS:
+        return None
+    return [EffectSpec("detain", {"target_kind": kind, **_optional_param(m)})]
+
+
+def _detain_multi(m: re.Match[str]) -> list[EffectSpec]:
+    kind = ("nonland_permanent_you_dont_control"
+            if m.group("what") == "nonland permanents" else "creature_you_dont_control")
+    return [EffectSpec("detain", {
+        "target_kind": kind, "count": _DETAIN_WORD_N[m.group("n")], "optional": True,
+    })]
+
+
 # "Goad target creature." (RULE 701.15a) and its controller-scoped variants
 # ("…target creature an opponent controls"), off the shared `TARGET` rows.
 def _goad(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -7446,6 +7481,21 @@ HANDLERS: list[EffectHandler] = [
         _c(r"suspect (?:it|that creature)"),
         _suspect_previous,
         previous_subject_only=True,
+    ),
+    # "detain up to two target creatures your opponents control" (RULE
+    # 701.35a) — before the singular row, which its `TARGET` can't match
+    # (plural) but reads better kept together.
+    EffectHandler(
+        "detain_multi",
+        _DETAIN_MULTI_RE,
+        _detain_multi,
+    ),
+    # "detain [up to one] target creature/nonland permanent an opponent
+    # controls" (RULE 701.35a).
+    EffectHandler(
+        "detain",
+        _c(rf"detain {TARGET}"),
+        _detain,
     ),
     # "manifest dread" (RULE 701.40a) — tried before the plain manifest row
     # below, which would otherwise not match it at all but reads more

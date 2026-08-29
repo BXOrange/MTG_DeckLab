@@ -1152,7 +1152,19 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: suspected" (Absolving Lammasu). Conditional "if it's suspected, ..."
 #: clauses, "can't become suspected" statics, "suspected creatures you
 #: control" selectors and two-colour token bodies stay UNMODELED.
-PARSER_VERSION = "109"
+#: "110": PAR-29 - RULE 701.35 Detain (Return to Ravnica), a designation
+#: like goad/suspect: `GameObject.detained_by` (per-detainer set, expiring
+#: "until your next turn" via the same `begin_turn` sweep goad uses) +
+#: `RulesEngine.detain` + `effects.DetainEffect` + `EventType.DETAINED`.
+#: RULE 701.35b's three consequences (can't attack, can't block, activated
+#: abilities can't be activated) are enforced in `_can_attack` /
+#: `can_block` / `can_activate` via `combat.is_detained`. Handlers: "detain
+#: [up to one] target creature/nonland permanent an opponent controls" and
+#: "detain up to two/three target creatures/nonland permanents your
+#: opponents control". "detain each nonland permanent ... with mana value N
+#: or less" (Lavinia) and a "with backup or vehicle" filter stay UNMODELED.
+#: Also adds a `target nonland permanent an opponent controls` TARGET row.
+PARSER_VERSION = "110"
 
 
 def parser_source_hash() -> str:

@@ -384,6 +384,13 @@ class EventType:
     #: No card yet triggers on "becomes suspected"; the event exists so one
     #: could bind the same way as `GOADED`.
     SUSPECTED = "SUSPECTED"
+    #: RULE 701.35a: a permanent was just **detained** — carries its
+    #: ``instance_id``, ``controller_id`` and ``detainer_id``. The three
+    #: 701.35b consequences (can't attack/block, abilities can't be
+    #: activated) are read off `GameObject.detained_by` at the point of use
+    #: (`combat.is_detained`), not the event; it exists so a "whenever you
+    #: detain" trigger could bind the same way as `GOADED`.
+    DETAINED = "DETAINED"
     #: RULE 506.4's "a player attacks you [with one or more creatures]" —
     #: an aggregate, once-per-combat event `ATTACKS` (fired once per
     #: *creature*) can't express on its own: a player attacking with 3

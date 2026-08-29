@@ -312,6 +312,9 @@ class TurnLoopMixin:
         # source does.
         for obj in self.state.battlefield:
             obj.goaded_by.discard(active.id)
+            # RULE 701.35b: detain lasts "until your next turn" too — same
+            # per-detainer sweep as goad just above.
+            obj.detained_by.discard(active.id)
         # RULE 611.2b: "until your next turn" ends as that player's turn
         # begins — the one duration a `temp_*` field can't express, since
         # those are all cleared at the cleanup step of the turn they were

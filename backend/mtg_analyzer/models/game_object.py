@@ -860,6 +860,15 @@ class GameObject:
         #: object leaves the battlefield — so `reset_as_new_object` clears it
         #: (RULE 400.7's new object isn't suspected).
         self.is_suspected: bool = False
+        #: RULE 701.35b: the ids of players who have **detained** this
+        #: permanent. A designation like `goaded_by` (a set, though in
+        #: practice only ever one entry): while detained the permanent can't
+        #: attack or block and its activated abilities can't be activated
+        #: (`combat.is_detained`, checked in `_can_attack` / `can_block` /
+        #: `can_activate`). Entries expire "until your next turn"
+        #: (RULE 701.35b) — dropped as the detaining player's turn begins,
+        #: the same `GameEngine.begin_turn` sweep `goaded_by` uses.
+        self.detained_by: set[str] = set()
         #: RULE 701.37b: whether this permanent is **monstrous**. A
         #: designation with no rules meaning of its own — it exists so
         #: monstrosity's own "if this permanent isn't monstrous" guard can
@@ -1189,6 +1198,9 @@ class GameObject:
         #: battlefield — leaving *is* this transition, so the new object is
         #: no longer suspected.
         self.is_suspected = False
+        #: RULE 701.35b/400.7: detain likewise doesn't survive the zone
+        #: change — what comes back is a new object, not detained.
+        self.detained_by = set()
         #: RULE 701.15b: goaded is not part of a permanent's copiable values
         #: and doesn't survive the zone change either — including the
         #: "rest of the game" variant, whose duration outlasts a turn but
@@ -1681,6 +1693,10 @@ class GameObject:
             # RULE 701.60a: the "suspected" designation (menace + can't block),
             # for the board to show a badge.
             "is_suspected": self.is_suspected,
+            # RULE 701.35b: "detained" (can't attack/block, abilities can't be
+            # activated) — a bool for the board; the per-detainer set is
+            # engine-internal.
+            "is_detained": bool(self.detained_by),
             "combat_defender": self.combat_defender,
             "blocking": self.blocking,
             "additional_blocking": list(self.additional_blocking),

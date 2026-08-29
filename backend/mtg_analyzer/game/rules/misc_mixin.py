@@ -1692,6 +1692,33 @@ class MiscSystemsMixin:
                 object_types=sorted(obj.type_words),
             )
         )
+    def detain(self, obj: Optional[GameObject], detainer_id: str) -> None:
+        """RULE 701.35a: ``detainer_id`` detains ``obj`` until their next turn.
+
+        Stored as the *set* of players detaining it (mirroring `goad` — in
+        practice always one), so `GameEngine.begin_turn` can drop it the same
+        way it drops goad, "until the next turn of the controller of the
+        spell or ability" (RULE 701.35b). While detained, RULE 701.35b's
+        three consequences — can't attack, can't block, activated abilities
+        can't be activated — are enforced by `_can_attack` / `can_block` /
+        `can_activate` consulting `combat.is_detained`.
+
+        A no-op-safe re-detain (already detained by this player) still fires
+        the event, like `goad`/`suspect`.
+        """
+        if obj is None or getattr(obj, "instance_id", None) is None:
+            return
+        obj.detained_by.add(detainer_id)
+        self.state.fire_event(
+            GameEvent(
+                EventType.DETAINED,
+                instance_id=obj.instance_id,
+                detainer_id=detainer_id,
+                controller_id=detainer_id,
+                object=obj.name,
+                object_types=sorted(obj.type_words),
+            )
+        )
     def remove_suspected(self, objs: list[GameObject]) -> None:
         """"... is/are no longer suspected." (RULE 701.60a's reverse) — clear
         the designation on each of ``objs``. Used both for the mass

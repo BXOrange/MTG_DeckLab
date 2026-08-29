@@ -765,6 +765,8 @@ class CombatMixin:
             # `parser/oracle/catalogue/static_handlers.py`'s combat-
             # restriction family.
             and not combat.has(obj, "cant_attack")
+            # RULE 701.35b: a detained permanent can't attack.
+            and not combat.is_detained(obj)
             # "~ can't attack unless <condition>." — the parameterized
             # sibling of that flag (`GameObject.combat_restrictions`).
             and self._attack_conditions_ok(obj, player, defending_player)
@@ -1124,6 +1126,8 @@ class CombatMixin:
             and not combat.has(blocker, "cant_block")
             # RULE 701.60b: a suspected creature can't block.
             and not combat.is_suspected(blocker)
+            # RULE 701.35b: a detained permanent can't block.
+            and not combat.is_detained(blocker)
             and attacker.attacking
             and self._attacker_attacks_player(attacker, player)
             and combat.can_block(attacker, blocker)

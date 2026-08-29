@@ -98,6 +98,14 @@ Plan-level sequencing lives in
   `combat_mixin`, +8 cards). The mechanic is complete; residue is
   conditional "if it's suspected" clauses, "can't become suspected"
   statics and "suspected creatures you control" selectors.
+  **Detain** (RULE 701.35) followed (2026-08-29, `Done_Backend.md`
+  "Detain" — `GameObject.detained_by` designation swept "until your next
+  turn" by the same `begin_turn` loop as goad + `RulesEngine.detain` +
+  `DetainEffect` + `EventType.DETAINED`; RULE 701.35b's can't-attack /
+  can't-block / can't-activate enforced via `combat.is_detained` in
+  `_can_attack`/`can_block`/`can_activate`, +10 cards). Residue: Lavinia's
+  mass-selector-with-mana-value-filter and a "with backup or vehicle"
+  filter (Azorius Traffic Enforcement).
   What remains below is the rest of the audit's gaps. Each is an ordinary
   effect-grammar gap, *not* a "keyword ability missing from a registry";
   most need a new engine primitive before a handler is worth writing, so
@@ -105,9 +113,7 @@ Plan-level sequencing lives in
   cache-wide from `parser_probe.py`.
   - **Needs an engine primitive first:** Vote (701.38, ~28 — the voting subsystem,
     RULE 701.38a APNAP-order choice); Clash (701.30, ~33 — reveal top, may
-    bottom it, "if you win" = higher mana value); Detain (701.35, ~11 —
-    an "until your next turn, can't attack/block, abilities can't be
-    activated" designation, shaped like goad); Learn (701.48, ~16 — discard-may→draw, else Lesson from
+    bottom it, "if you win" = higher mana value); Learn (701.48, ~16 — discard-may→draw, else Lesson from
     outside the game); Incubate as a generic `incubate N` (701.53, ~25 —
     Incubator DFC token with N +1/+1 counters; hand-authored per-card
     only today); Face a Villainous Choice (701.55, ~11 — a forced modal
@@ -134,7 +140,7 @@ Plan-level sequencing lives in
     Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate,
     Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
     The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster,
-    Support, Suspect — plus engine-action verbs with
+    Support, Suspect, Detain — plus engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
     (Planeswalk/Set in Motion/Abandon, Meld). Assemble (701.45) is out of
     the CR; Open an Attraction / Roll to Visit (701.51/52) are the

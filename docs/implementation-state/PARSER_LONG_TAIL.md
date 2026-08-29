@@ -13,12 +13,11 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**35.8% covered — 12,447 / 34,811 — as of 2026-08-29, PARSER_VERSION 109.**
-(105 = PAR-20's RULE 604.3 characteristic-defining P/T handler, +20. 106 =
-PAR-29's RULE 701.44 Explore primitive + handlers, +22. 107 = PAR-29's RULE
-701.36 Populate primitive + handler, +14. 108 = PAR-29's RULE 701.39 Bolster
-+ RULE 701.41 Support, +25. 109 = PAR-29's RULE 701.60 Suspect designation,
-+8.)
+**35.8% covered — 12,457 / 34,811 — as of 2026-08-29, PARSER_VERSION 110.**
+(106 = PAR-29's RULE 701.44 Explore primitive + handlers, +22. 107 = PAR-29's
+RULE 701.36 Populate primitive + handler, +14. 108 = PAR-29's RULE 701.39
+Bolster + RULE 701.41 Support, +25. 109 = PAR-29's RULE 701.60 Suspect
+designation, +8. 110 = PAR-29's RULE 701.35 Detain designation, +10.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

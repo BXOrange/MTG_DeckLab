@@ -754,6 +754,19 @@ def is_suspected(obj: "GameObject") -> bool:
     return bool(getattr(obj, "is_suspected", False))
 
 
+def is_detained(obj: "GameObject") -> bool:
+    """RULE 701.35b: whether ``obj`` is currently **detained** by anyone.
+
+    Reads `GameObject.detained_by` (a set of detaining players, expiring at
+    each detainer's next turn — `GameEngine.begin_turn`). Its three
+    consequences — can't attack, can't block, activated abilities can't be
+    activated — are applied by `_can_attack` / `can_block` / `can_activate`
+    consulting this, the same way `is_goaded` feeds the combat-requirement
+    checks and `is_suspected` feeds the menace/can't-block ones.
+    """
+    return bool(getattr(obj, "detained_by", None))
+
+
 def blocker_allowed(
     attacker: "GameObject", blocker: "GameObject", state: "Optional[GameState]" = None
 ) -> bool:

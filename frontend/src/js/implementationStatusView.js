@@ -326,6 +326,7 @@ const GROUPS = [
               ['full', 'Anpassen / adapt (701.46)'],
               ['full', 'Aufstacheln / goad (701.15) — beide Kampfauflagen, „für den Rest der Partie", dynamische Zielanzahl („für jeden Gegner …")'],
               ['full', 'Verdächtigen / suspect (701.60) — Bezeichnung: Menace + kann nicht blocken; „~/es", verzauberte Kreatur, Ziel-Kreatur, „alle … nicht mehr verdächtigt"'],
+              ['full', 'Festsetzen / detain (701.35) — Bezeichnung bis zu deinem nächsten Zug: kann nicht angreifen/blocken, Fähigkeiten nicht aktivierbar; „bis zu N Ziele"'],
               ['full', 'Strive (606) + „eine beliebige Anzahl Zielkreaturen" — Kostenmechanik und Zielwahl modelliert (Blinding Flare als erste vollständig modellierte Strive-Karte)'],
               ['full', 'Morph / Megamorph / Verkleidung (702.37/702.168)'],
               ['full', 'Boast (702.142) — nur nach eigenem Angriff, einmal pro Zug'],
@@ -432,7 +433,7 @@ const GROUPS = [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (35,8 % · 12.447 / 34.811, PARSER_VERSION 109)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (35,8 % · 12.457 / 34.811, PARSER_VERSION 110)'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

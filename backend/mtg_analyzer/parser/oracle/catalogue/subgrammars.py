@@ -153,6 +153,12 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # but is modeled the same controller-restricted way: a choice among the
     # controller's own permanents, narrowed to lands at resolution.
     (r"a land you control", "land_you_control"),
+    # "target nonland permanent an opponent controls" / "…you don't
+    # control" (Lyev Skyknight/New Prahv Guildmage's detain) — the
+    # controller-scoped narrowing, above the bare row so the longer phrase
+    # wins, mirroring the "target permanent an opponent controls" pair.
+    (r"target nonland permanent (?:an opponent controls|you don't control)",
+     "nonland_permanent_you_dont_control"),
     (r"target nonland permanent", "nonland_permanent"),
     (r"target spell", "spell"),
     (r"target player or planeswalker", "player"),

@@ -168,6 +168,12 @@ class ActivationMixin:
             # single choke point both this validation and `legal_actions`'s
             # offer list already go through.
             return False
+        if combat.is_detained(source):
+            # RULE 701.35b: a detained permanent's activated abilities can't
+            # be activated. (Mana abilities go through `tap_for_mana`, not
+            # here — a detained permanent's mana ability staying usable is a
+            # known minor deviation, no detain target in the cache has one.)
+            return False
         if ability.once_per_turn and ability._last_activated_turn == self.state.turn_number:
             return False
         if getattr(ability, "once_per_game", False) and (
