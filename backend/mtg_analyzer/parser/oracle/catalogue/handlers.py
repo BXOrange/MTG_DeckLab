@@ -5090,6 +5090,33 @@ def _adapt(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("adapt", {"amount": int(m.group("n"))})]
 
 
+# "~ connives." / "it connives." (RULE 701.50a) — the conniving permanent is
+# always the ability's own source (`effects.ConniveEffect` connives
+# `self.source`: draw a card, discard a card, +1/+1 counter if a nonland was
+# discarded). Two subjects only: the explicit self ("~ connives", an
+# activated ability's body or a self-subject trigger where `normalize` kept
+# the card name) and the "it/he/she" pronoun of a self-subject trigger
+# ("when ~ enters, it connives", `self_subject_only`). A pronoun bound to an
+# *earlier clause's* target ("target Villain you control gains menace. It
+# connives.", Doctor Doom) is deliberately left unclaimed — `ConniveEffect`
+# has no target and would connive the wrong permanent. "Connive N" (RULE
+# 701.50d) and "connives x" stay unclaimed too: the registered effect is the
+# fixed draw-one/discard-one form, fail-closed on a count it can't honour.
+def _connive(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("connive", {})]
+
+
+# "Discover N." (RULE 701.57a) — exile from the top of your library until a
+# nonland card with mana value N or less, free-cast it or put it in hand,
+# rest to the bottom. `effects.DiscoverEffect` (registered as ``discover``,
+# a sibling of Cascade) already does all of it; only the parser row was
+# missing. Literal N only: "discover X, where X is <count-selector>"
+# (Pantlaza/Aloy/…) is a dynamic amount `DiscoverEffect` can't take yet, so
+# it stays UNMODELED (fail-closed) rather than discovering 0.
+def _discover(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("discover", {"mana_value": int(m.group("n"))})]
+
+
 # "Goad target creature." (RULE 701.15a) and its controller-scoped variants
 # ("…target creature an opponent controls"), off the shared `TARGET` rows.
 def _goad(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -7156,6 +7183,28 @@ HANDLERS: list[EffectHandler] = [
         "adapt",
         _c(rf"adapt {NUMBER}"),
         _adapt,
+    ),
+    # "~ connives" (RULE 701.50a) — explicit self reference (activated-ability
+    # body / self-subject trigger with the name kept).
+    EffectHandler(
+        "connive_self_named",
+        _c(r"~ connives?"),
+        _connive,
+    ),
+    # "it connives" / "he connives" / "she connives" — the self-subject
+    # trigger pronoun; only offered when the body's "it" really is the source
+    # (`self_subject_only`), never an earlier clause's pick.
+    EffectHandler(
+        "connive_self_pronoun",
+        _c(r"(?:it|he|she) connives?"),
+        _connive,
+        self_subject_only=True,
+    ),
+    # "discover 3" (RULE 701.57a) — literal mana value only.
+    EffectHandler(
+        "discover",
+        _c(r"discover (?P<n>\d+)"),
+        _discover,
     ),
     # "goad all creatures your opponents control" (RULE 701.15a) — the mass
     # form first: the targeted row below can't match it (no "target"), but

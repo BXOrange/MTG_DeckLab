@@ -92,22 +92,57 @@ Plan-level sequencing lives in
   cache is at this point) rather than mining `rank`'s cache-wide top-N
   again.
 
-- **PAR-21 · Missing Keywords: RULE 702 catalogue is numerically complete;
-  RULE 701 keyword actions need their own audit.** Verified 2026-08-28:
-  `parser/oracle/catalogue/keywords.py`'s 195 rows cover all 193 distinct
-  RULE 702.2–702.194 rule numbers with **zero gaps** (cross-checked
-  programmatically against the full numeric range) — "a real RULE 702
-  keyword ability entirely absent from the registry" is not an open
-  problem. What's genuinely unaudited: RULE 701 **keyword actions** (Scry,
-  Mill, Investigate, Explore, Fight, …) are deliberately *not* tracked via
-  this catalogue at all — they're ordinary verbs recognized by
-  `catalogue/handlers.py`'s effect grammar, a structurally different
-  mechanism, and most are believed covered per this doc's own extensive
-  feature list, but that belief has never been exhaustively cross-checked
-  action-by-action. Session-workable: walk the full RULE 701 keyword-action
-  list (`docs/Reference/rules_wiki/`) against `handlers.py`, confirm each
-  has a real handler (not just that some card using it happens to be
-  `MODELED` for an unrelated reason), and report any genuine gap found.
+- **PAR-29 · RULE 701 keyword actions with no parser handler.** The
+  RULE 701 audit that PAR-21 asked for is done (2026-08-29,
+  `Done_Backend.md` "PAR-21: RULE 701 keyword-action audit" — it also
+  closed Connive and Discover, which already had shipped engine effects).
+  These are the genuine gaps it found. Each is an ordinary effect-grammar
+  gap, *not* a "keyword ability missing from a registry"; most need a new
+  engine primitive before a handler is worth writing, so most belong under
+  `MEC` once picked up. Solo-blocker counts are cache-wide from
+  `parser_probe.py`.
+  - **Needs an engine primitive first:** Explore (RULE 701.44, ~43 solo —
+    a whole Ixalan mechanic: reveal top, land→hand else +1/+1 counter and
+    may put revealed card in graveyard); Populate (701.36, ~22 — copy a
+    creature token you control); Vote (701.38, ~28 — the voting subsystem,
+    RULE 701.38a APNAP-order choice); Clash (701.30, ~33 — reveal top, may
+    bottom it, "if you win" = higher mana value); Detain (701.35, ~11 —
+    an "until your next turn, can't attack/block, abilities can't be
+    activated" designation, shaped like goad); Bolster (701.39, ~20 —
+    "least toughness among creatures you control" selector + counters) and
+    Support (701.41, ~11 — "+1/+1 counter on each of up to N target
+    creatures"); Learn (701.48, ~16 — discard-may→draw, else Lesson from
+    outside the game); Incubate as a generic `incubate N` (701.53, ~25 —
+    Incubator DFC token with N +1/+1 counters; hand-authored per-card
+    only today); Face a Villainous Choice (701.55, ~11 — a forced modal
+    on an opponent); Collect Evidence (701.59, ~12 — additional cost:
+    exile graveyard cards totalling mana value ≥ N); Suspect (701.60, ~14
+    — menace + "can't block" designation); Forage (701.61, ~5); Endure
+    (701.63 — N/N Spirit *or* N +1/+1 counters); Blight as a generic
+    `blight N` (701.68, ~13 — N -1/-1 counters on a creature you control;
+    hand-authored per-card only); Time Travel (701.56, ~3 — suspend-
+    adjacent); Behold (701.4, ~6 — "behold a `<quality>`" additional
+    cost); Harness (701.64 — a monstrous-style marker designation), Heal
+    (701.69 — remove marked damage), Recruit (701.70 — draw/discard→1/1
+    token); the Avatar bending quartet — Airbend (701.65), Earthbend
+    (701.66, ~18), Waterbend (701.67, ~11 — a "tap artifacts/creatures
+    for generic mana" cost mechanic), Firebend.
+  - **Parser-shaped only (engine already fine):** "connive N" (701.50d —
+    `ConniveEffect` needs a count parameter); standalone "double/triple
+    target creature's power and toughness" (701.10/11 — damage- and
+    token/counter-doubling are already covered); a general "exchange
+    control of `<X>`" / "exchange life totals" handler (701.12 — only
+    per-card hand-authored today, Gilded Drake-shaped).
+  - **Not gaps** (real handler verified action-by-action, not an
+    incidental `MODELED`): Attach, Counter, Create, Destroy, Discard,
+    Exile, Fight, Goad, Investigate, Mill, Regenerate, Scry, Search,
+    Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate,
+    Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
+    The Ring Tempts You, Connive, Discover — plus engine-action verbs with
+    no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
+    (Planeswalk/Set in Motion/Abandon, Meld). Assemble (701.45) is out of
+    the CR; Open an Attraction / Roll to Visit (701.51/52) are the
+    Attractions non-goal.
 
 ## MEC — Game mechanics
 

@@ -1081,7 +1081,24 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `game/effect_binder` turns that into the real RULE 702.41 cost-reduction
 #: static. Recognition-neutral for the gate (the keyword *line* was already
 #: claimed by `is_keyword_line`) — the bump is for the new emitted spec.
-PARSER_VERSION = "102"
+#: "104": PAR-21 - RULE 701 keyword-action audit. A first parser handler
+#: for RULE 701.50 Connive (`catalogue/handlers.py`'s `connive_self_named`
+#: / `connive_self_pronoun` rows) reaching the already-shipped `game/
+#: effects.py` `ConniveEffect` (proven only via the hand-authored Ledger
+#: Shredder entry until now). Only the two source-is-subject phrasings are
+#: claimed - "~ connives" and a self-subject trigger's "it/he/she
+#: connives"; a pronoun bound to an earlier clause's target, "connive N"
+#: (RULE 701.50d) and "connives x" stay UNMODELED (the effect has no
+#: target and no count parameter). Same shape for RULE 701.57 Discover
+#: (`discover` row): literal `discover <n>` -> the shipped `effects.
+#: DiscoverEffect` (Cascade's sibling); "discover X, where X is <selector>"
+#: stays UNMODELED. +30 real cards total (parser_probe.py diff, full cache,
+#: 0 regressed). The audit's other findings - the RULE 701 keyword actions
+#: with no handler at all (Explore, Populate, Detain, Bolster/Support,
+#: Vote, Clash, Learn, Incubate, Suspect, Forage, Collect Evidence, the
+#: Avatar bending quartet, ...) - are filed as PAR-29 in `BACKLOG.md`,
+#: each needing a new engine primitive first.
+PARSER_VERSION = "104"
 
 
 def parser_source_hash() -> str:

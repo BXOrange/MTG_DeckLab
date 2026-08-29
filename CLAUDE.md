@@ -649,10 +649,11 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **35.4%
-covered (12,328 / 34,811) as of 2026-08-29, PARSER_VERSION 102** (parser-`MODELED` **or**
-hand-`AUTHORED`; the 102 bump was PAR-23's recognition-neutral "Affinity
-for `<quality>`" keyword-slug fix, so the count is unchanged from 101).
+(`scripts/import_bulk.py`), so coverage is measured against that: **35.5%
+covered (12,358 / 34,811) as of 2026-08-29, PARSER_VERSION 104** (parser-`MODELED` **or**
+hand-`AUTHORED`; the 104 bump was PAR-21's first parser handlers for the
+RULE 701.50 Connive / RULE 701.57 Discover keyword actions — both engine
+effects already shipped, +30 cards).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in
