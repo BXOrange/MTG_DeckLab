@@ -9517,6 +9517,26 @@ class PopulateEffect(GameEffect):
         context.engine.populate(player)
 
 
+class BolsterEffect(GameEffect):
+    """RULE 701.39: "Bolster N." — put N +1/+1 counters on a least-toughness
+    creature this effect's controller controls (their own choice on a tie),
+    nothing if they control no creatures. Always the resolving controller's
+    own creatures — "bolster" never takes a target or a pronoun subject, so
+    (like `PopulateEffect`) there is only the one shape. `RulesEngine.bolster`
+    owns the whole procedure, including the tie-break `pending_choice`.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None, amount: int = 1) -> None:
+        super().__init__(source)
+        self.amount = max(1, int(amount))
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.engine.bolster(player, self.amount, source=self.source)
+
+
 class SacrificeSpecificEffect(GameEffect):
     """Sacrifice the exact permanents baked into this effect (RULE 701.17).
 
@@ -17398,6 +17418,15 @@ EffectRegistry.register(
     # none). See `PopulateEffect` / `RulesEngine.populate`.
     "populate",
     lambda p: PopulateEffect(),
+)
+EffectRegistry.register(
+    # RULE 701.39 (bolster, PAR-29): put N +1/+1 counters on a least-
+    # toughness creature you control (your choice on a tie). See
+    # `BolsterEffect` / `RulesEngine.bolster`. Support (RULE 701.41) needs
+    # no effect of its own — it's a parser alias onto `add_counters` with a
+    # "up to N target creatures" spec.
+    "bolster",
+    lambda p: BolsterEffect(amount=p.get("amount", p.get("count", 1))),
 )
 EffectRegistry.register(
     "the_ring_tempts_you",  # RULE 701.51a

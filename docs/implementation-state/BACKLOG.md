@@ -85,6 +85,12 @@ Plan-level sequencing lives in
   bare-word handler, +14 cards); no residue beyond "populate X times"
   (Full Flowering, a dynamic repeat count) and cards carrying a second
   unmodeled clause alongside their now-real "populate".
+  **Bolster** (RULE 701.39) + **Support** (RULE 701.41) followed
+  (2026-08-29, `Done_Backend.md` "Bolster + Support" — `RulesEngine.
+  bolster` (least-toughness selector + a `bolster` tie-break choice) is a
+  new primitive; Support is a parser alias onto the existing `add_counters`
+  "up to N target creatures" spec, +25 cards); residue is the dynamic
+  "bolster X" / "support X" amount and a couple of second-clause cards.
   What remains below is the rest of the audit's gaps. Each is an ordinary
   effect-grammar gap, *not* a "keyword ability missing from a registry";
   most need a new engine primitive before a handler is worth writing, so
@@ -94,10 +100,7 @@ Plan-level sequencing lives in
     RULE 701.38a APNAP-order choice); Clash (701.30, ~33 — reveal top, may
     bottom it, "if you win" = higher mana value); Detain (701.35, ~11 —
     an "until your next turn, can't attack/block, abilities can't be
-    activated" designation, shaped like goad); Bolster (701.39, ~20 —
-    "least toughness among creatures you control" selector + counters) and
-    Support (701.41, ~11 — "+1/+1 counter on each of up to N target
-    creatures"); Learn (701.48, ~16 — discard-may→draw, else Lesson from
+    activated" designation, shaped like goad); Learn (701.48, ~16 — discard-may→draw, else Lesson from
     outside the game); Incubate as a generic `incubate N` (701.53, ~25 —
     Incubator DFC token with N +1/+1 counters; hand-authored per-card
     only today); Face a Villainous Choice (701.55, ~11 — a forced modal
@@ -124,7 +127,8 @@ Plan-level sequencing lives in
     Exile, Fight, Goad, Investigate, Mill, Regenerate, Scry, Search,
     Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate,
     Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
-    The Ring Tempts You, Connive, Discover, Explore, Populate — plus engine-action verbs with
+    The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster,
+    Support — plus engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
     (Planeswalk/Set in Motion/Abandon, Meld). Assemble (701.45) is out of
     the CR; Open an Attraction / Roll to Visit (701.51/52) are the

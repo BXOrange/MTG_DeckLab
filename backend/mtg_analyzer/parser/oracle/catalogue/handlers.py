@@ -5153,6 +5153,29 @@ def _populate(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("populate", {})]
 
 
+# "Bolster N." (RULE 701.39a) — put N +1/+1 counters on a least-toughness
+# creature you control (your choice on a tie). `RulesEngine.bolster` /
+# `effects.BolsterEffect` (registered as ``bolster``) own the procedure and
+# the tie-break choice. Literal N only: "bolster X" (Retreat to Kazandu-
+# shaped, a dynamic amount) stays UNMODELED, fail-closed.
+def _bolster(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("bolster", {"amount": int(m.group("n"))})]
+
+
+# "Support N." (RULE 701.41a) — put a +1/+1 counter on each of up to N
+# target creatures. Needs no effect of its own: it's the exact spec shape
+# `_add_counters_multi_target` already emits for "put a +1/+1 counter on
+# each of up to two target creatures", so it rides the existing
+# `add_counters` multi-target path. RULE 701.41c ("a creature's own support
+# can't put a counter on itself") falls out for free — `targeting`'s plain
+# ``"creature"`` kind already excludes the ability's source. Literal N only.
+def _support(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_counters", {
+        "count": 1, "kind": "+1/+1", "target_kind": "creature",
+        "target_count": int(m.group("n")), "optional": True,
+    })]
+
+
 # "Goad target creature." (RULE 701.15a) and its controller-scoped variants
 # ("…target creature an opponent controls"), off the shared `TARGET` rows.
 def _goad(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -7278,6 +7301,20 @@ HANDLERS: list[EffectHandler] = [
         "populate",
         _c(r"populate"),
         _populate,
+    ),
+    # "bolster N" (RULE 701.39a) — N +1/+1 counters on a least-toughness
+    # creature you control.
+    EffectHandler(
+        "bolster",
+        _c(r"bolster (?P<n>\d+)"),
+        _bolster,
+    ),
+    # "support N" (RULE 701.41a) — +1/+1 counter on each of up to N target
+    # creatures (rides the existing `add_counters` multi-target path).
+    EffectHandler(
+        "support",
+        _c(r"support (?P<n>\d+)"),
+        _support,
     ),
     # "goad all creatures your opponents control" (RULE 701.15a) — the mass
     # form first: the targeted row below can't match it (no "target"), but

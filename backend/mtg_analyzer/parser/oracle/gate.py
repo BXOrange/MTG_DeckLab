@@ -1130,7 +1130,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: attack trigger, ...) stay UNMODELED too. +14 real cards net
 #: (parser_probe.py, full cache, 0 regressed - a bare-word fullmatch
 #: handler cannot over-match).
-PARSER_VERSION = "107"
+#: "108": PAR-29 - RULE 701.39 Bolster + RULE 701.41 Support, the +1/+1
+#: keyword-action pair. Bolster is a new primitive (`RulesEngine.bolster`
+#: / `effects.BolsterEffect` + a `bolster` tie-break `pending_choice` for
+#: RULE 701.39a's "if two or more creatures are tied for least
+#: toughness"); Support needs no effect of its own - "support N" is a
+#: parser alias onto the existing `add_counters` "up to N target
+#: creatures" multi-target spec (RULE 701.41c's self-exclusion falls out
+#: of `targeting`'s plain "creature" kind). Both literal-N only ("bolster
+#: X" / "support X" dynamic amounts stay UNMODELED, fail-closed); the
+#: `when ~ enters, <kw> N` and `<cost>: <kw> N` wrappers are free from the
+#: existing trigger/activated-ability grammar.
+PARSER_VERSION = "108"
 
 
 def parser_source_hash() -> str:

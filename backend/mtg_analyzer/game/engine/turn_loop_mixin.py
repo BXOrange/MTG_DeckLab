@@ -1074,6 +1074,11 @@ class TurnLoopMixin:
             # to copy — mandatory (no "you may"), so a missing answer defaults
             # to the first offered token in `resolve_populate_choice`.
             self.rules.resolve_populate_choice(None if declined else int(answer))
+        elif kind == "bolster":
+            # RULE 701.39a's tie clause: the option id is which least-toughness
+            # creature to put the +1/+1 counters on — mandatory (no "you may"),
+            # a missing answer defaults to the first tied creature.
+            self.rules.resolve_bolster_choice(None if declined else int(answer))
         elif kind == "order_triggers":
             # RULE 603.3b: the option id is the index of the trigger to place next.
             index = None if declined else int(answer)

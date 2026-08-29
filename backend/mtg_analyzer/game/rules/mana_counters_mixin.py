@@ -465,6 +465,64 @@ class ManaCountersMixin:
             self.state.fire_event(resolved)
 
         self.apply_replacements(event, on_resolved=_finish)
+    def bolster(
+        self, player: Player, amount: int, source: Optional[GameObject] = None
+    ) -> None:
+        """"Bolster N" (RULE 701.39a): choose a creature with the least
+        toughness among creatures ``player`` controls, then put N +1/+1
+        counters on it. RULE 701.39a's tie clause — if two or more creatures
+        tie for least toughness, ``player`` chooses one; if they control no
+        creatures, bolster does nothing.
+
+        Degenerate cases resolve without asking (the `RulesEngine.populate`
+        idiom): no creatures, or a single least-toughness creature → place
+        the counters straight away; a genuine tie → a `bolster`
+        `pending_choice` (`resolve_bolster_choice`). The counters go on
+        through `add_counters`, so RULE 616.1 doublers (Doubling Season) and
+        RULE 122.5 "whenever a +1/+1 counter is put on ~" triggers apply.
+        """
+        if amount <= 0:
+            return
+        creatures = [
+            obj
+            for obj in self.state.battlefield
+            if obj.controller_id == player.id and getattr(obj, "is_creature", False)
+        ]
+        if not creatures:
+            return
+        least = min(obj.toughness for obj in creatures)
+        tied = [obj for obj in creatures if obj.toughness == least]
+        if len(tied) == 1:
+            self.add_counters(tied[0], amount, "+1/+1", source=source)
+            return
+        self.state.pending_choice = {
+            "kind": "bolster",
+            "player_id": player.id,
+            "amount": amount,
+            "source_id": source.instance_id if source is not None else None,
+            "prompt": f"Verstärken {amount}: welche Kreatur mit der geringsten Widerstandskraft?",
+            "options": [
+                {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+                for o in tied
+            ],
+        }
+    def resolve_bolster_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending `bolster` tie-break: put the parked +1/+1
+        counters on the chosen least-toughness creature. A missing/unknown
+        answer defaults to the first tied creature — RULE 701.39a is
+        mandatory once you control a creature (no "you may")."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "bolster":
+            raise ValueError("no pending bolster choice to resolve")
+        self.state.pending_choice = None
+        offered = [opt["instance_id"] for opt in choice["options"]]
+        chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
+        chosen = self._object_by_instance_id(chosen_id) if chosen_id is not None else None
+        source_id = choice.get("source_id")
+        source = self._object_by_instance_id(source_id) if source_id is not None else None
+        if chosen is not None:
+            self.add_counters(chosen, int(choice["amount"]), "+1/+1", source=source)
+        self.check_state_based_actions()
     def request_remove_counters_choice(
         self, target: Union[GameObject, Player], max_count: int, chooser: Player
     ) -> None:
