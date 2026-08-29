@@ -870,6 +870,15 @@ class TurnLoopMixin:
         # RULE 615 (MEC-30): "Damage can't be prevented this turn." also
         # lapses here, the same window every other "this turn" flag clears.
         self.state.damage_prevention_disabled = False
+        # RULE 702.94b (PAR-26): a Miracle card's "cast for the miracle
+        # cost" window is torn down here (the simplification is that it
+        # lasts the whole turn rather than only until priority is next
+        # received — see `draw_discard_mixin._arm_miracle`).
+        if self.state.miracle_armed_ids:
+            for pl in self.state.players:
+                for o in pl.hand:
+                    o.miracle_armed = False
+            self.state.miracle_armed_ids.clear()
         self._clear_combat()
         # RULE 601.3b analogue: a temporary "play until end of your next
         # turn" permission (Light Up the Stage-shaped impulsive draw) lapses
@@ -1338,6 +1347,11 @@ class TurnLoopMixin:
             # the target carries 2+ kinds — a mandatory pick (no "decline"
             # option is ever offered), defaulted like choose_creature_type.
             self.rules.resolve_remove_counters_kind_choice(None if declined else str(answer))
+        elif kind == "dredge":
+            # RULE 702.52a-c: replace a would-draw by milling a dredge
+            # card's N and returning it to hand — "you may", so a plain
+            # "draw" option / decline falls back to the deferred draw.
+            self.rules.resolve_dredge_choice(None if declined else str(answer))
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)

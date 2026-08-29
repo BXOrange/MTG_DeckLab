@@ -34,6 +34,7 @@ from .costs import ActivationCost, parse_activation_cost
 from .static_conditions import condition_holds
 from .effects import (
     ActivatedAbility,
+    AddCountersEffect,
     AttachEffect,
     BecomeSaddledEffect,
     CumulativeUpkeepEffect,
@@ -47,6 +48,7 @@ from .effects import (
     ChooseNumberReplacement,
     ConditionalEffect,
     EffectRegistry,
+    EmbalmEternalizeEffect,
     GameEffect,
     GetCityBlessingEffect,
     GrantUntilEffect,
@@ -60,6 +62,7 @@ from .effects import (
     ReturnSelfFromGraveyardToBattlefieldEffect,
     ReturnSelfFromGraveyardToHandEffect,
     SacrificeEffect,
+    UnearthEffect,
     StaticAbility,
     TriggeredAbility,
 )
@@ -1696,6 +1699,8 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         return _saddle_activated_ability(obj, spec, keyword)
     if name == "station":
         return _station_activated_ability(obj, spec)
+    if name in {"unearth", "embalm", "eternalize"}:
+        return _graveyard_keyword_activated_ability(obj, spec, keyword)
     if name not in {"equip", "fortify", "reconfigure"}:
         return None
 
@@ -1712,6 +1717,86 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         source=obj,
         description=spec.raw_text or f"{name}",
         attach_kind=name,
+    )
+
+
+#: RULE 702.41 Affinity — quality word (lower-cased, trailing "s" trimmed)
+#: → the `continuous.count_selector` name for "for each `<quality>` you
+#: control". Only the qualities `count_selector` actually supports; an
+#: unrecognised one (a rare tribal "Affinity for Dwarves") synthesizes
+#: nothing, leaving the keyword recognised-but-inert rather than wrong
+#: (fail-closed, PAR-23).
+_AFFINITY_SELECTORS: dict[str, str] = {
+    "artifact": "artifacts_you_control",
+    "creature": "creatures_you_control",
+    "land": "lands_you_control",
+    "plain": "lands_you_control_of_type_plains",
+    "island": "lands_you_control_of_type_island",
+    "swamp": "lands_you_control_of_type_swamp",
+    "mountain": "lands_you_control_of_type_mountain",
+    "forest": "lands_you_control_of_type_forest",
+}
+
+
+def _attach_affinity_static(obj: Any, spec: AbilitySpec) -> None:
+    """RULE 702.41: "Affinity for `<quality>`" — "This spell costs {1} less
+    to cast for each `<quality>` you control." Synthesized as a
+    ``layer="cost"``/``affects="self"`` `StaticAbility` on ``obj.static_
+    effects`` with ``params={"generic": 1, "per": <count_selector>}`` —
+    exactly the shape `continuous.self_cost_reduction_for` /
+    `_cost_static_amount` already read for a hand-authored Delve/Affinity-
+    style reduction, just now driven by the keyword itself (PAR-23).
+    """
+    keyword = spec.keyword or {}
+    if str(keyword.get("name") or "") != "affinity":
+        return
+    quality = str(keyword.get("quality") or "").strip().lower()
+    quality = quality[:-1] if quality.endswith("s") else quality  # "artifacts" → "artifact"
+    selector = _AFFINITY_SELECTORS.get(quality)
+    if selector is None:
+        return
+    obj.static_effects.append(
+        StaticAbility(
+            layer="cost",
+            affects="self",
+            params={"generic": 1, "per": selector},
+            source=obj,
+            description=spec.raw_text or f"Affinity for {keyword.get('quality')}",
+        )
+    )
+
+
+def _graveyard_keyword_activated_ability(
+    obj: Any, spec: AbilitySpec, keyword: dict[str, Any]
+) -> Optional[ActivatedAbility]:
+    """RULE 702.84 Unearth / 702.128 Embalm / 702.129 Eternalize — three
+    `KeywordShape.COST` keywords whose whole rules text is a sorcery-speed
+    activated ability that functions from the *graveyard* (PAR-25). All
+    were parser-recognized (a bare keyword-line claim) but bound to
+    nothing, the same "recognized but inert" gap PAR-9 closed for Cycling
+    and MEC-29/MEC-40 for Crew/Saddle.
+
+    `ActivationCost.graveyard_zone` (the source must sit in the player's
+    graveyard — reused from PAR-10's "return this from your graveyard"
+    activated-ability family) + `sorcery_speed_only`. Unearth returns the
+    card itself; Embalm/Eternalize exile it and make a modified token copy.
+    """
+    name = str(keyword.get("name") or "")
+    cost = parse_activation_cost(keyword.get("cost") or "{0}")
+    cost.graveyard_zone = True
+    cost.sorcery_speed_only = True
+    if name == "unearth":
+        effects: list[GameEffect] = [UnearthEffect(source=obj)]
+    elif name == "eternalize":
+        # RULE 702.129a: the token is a 4/4 (black Zombie) copy.
+        effects = [EmbalmEternalizeEffect(set_power=4, set_toughness=4, source=obj)]
+    else:  # embalm — RULE 702.128a: same P/T as the card, a white Zombie.
+        effects = [EmbalmEternalizeEffect(source=obj)]
+    return ActivatedAbility(
+        effects=effects,
+        cost=cost,
+        source=obj,
+        description=spec.raw_text or name.capitalize(),
     )
 
 
@@ -2148,6 +2233,142 @@ def _kw_bushido(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     ]
 
 
+def _kw_prowess(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.108a Prowess — "Whenever you cast a noncreature spell, this
+    creature gets +1/+1 until end of turn." Parser-recognized as a flag
+    keyword but bound to nothing before PAR-24, so the ~50 UNMODELED and
+    ~58 MODELED cache cards carrying it were all inert.
+
+    "You" is read live off ``obj.controller_id`` in the condition (not baked
+    at bind time) so a control-change hands the trigger to the new
+    controller, RULE 702.108b. "Noncreature" reads the `SPELL_CAST` event's
+    own ``object_types`` payload (`RulesEngine._cast_spell`).
+    """
+
+    def _cast_noncreature_you(event: Any, context: Any, src=obj) -> bool:
+        if event.get("player_id") != getattr(src, "controller_id", None):
+            return False
+        return "creature" not in (event.get("object_types") or [])
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.SPELL_CAST,
+            effects=[PumpEffect(power=1, toughness=1)],
+            condition=_cast_noncreature_you,
+            source=obj,
+            description=spec.raw_text or "Prowess",
+        )
+    ]
+
+
+def _kw_exalted(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.83a Exalted — "Whenever a creature you control attacks
+    alone, that creature gets +1/+1 until end of turn." The lone-attacker
+    aggregate `EventType.ATTACKS_ALONE` (`GameEngine._fire_attacks_alone_
+    event`) already carries the attacker's ``player_id`` (its controller)
+    and ``instance_id``; ``PumpEffect.trigger_subject`` pumps that object,
+    "that creature", rather than the source (which may not even be the one
+    attacking). RULE 702.83c: each instance triggers separately, which the
+    Sublime-Archangel-style "other creatures you control have exalted"
+    layer-6 grant already produces as a second keyword instance.
+    """
+
+    def _ally_attacks_alone(event: Any, context: Any, src=obj) -> bool:
+        return event.get("player_id") == getattr(src, "controller_id", None)
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ATTACKS_ALONE,
+            effects=[PumpEffect(power=1, toughness=1, trigger_subject=True)],
+            condition=_ally_attacks_alone,
+            source=obj,
+            description=spec.raw_text or "Exalted",
+        )
+    ]
+
+
+def _kw_battle_cry(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.92a Battle Cry — "Whenever this creature attacks, each
+    other attacking creature gets +1/+0 until end of turn." A self-only
+    `ATTACKS` trigger whose effect is an untargeted group pump over the
+    ``other_attacking_creatures`` selector (`continuous.group_selector_
+    objects`, PAR-24) — every attacker except this one, regardless of
+    controller (multiplayer edge, matching the literal text).
+    """
+    condition = _self_only_condition(getattr(obj, "instance_id", None))
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ATTACKS,
+            effects=[PumpEffect(power=1, toughness=0, selector="other_attacking_creatures")],
+            condition=condition,
+            source=obj,
+            description=spec.raw_text or "Battle cry",
+        )
+    ]
+
+
+def _kw_mentor(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.134a Mentor — "Whenever this creature attacks, put a +1/+1
+    counter on target attacking creature with lesser power." A self-only
+    `ATTACKS` trigger with a *targeted* `AddCountersEffect`: the target is
+    an attacking creature whose power is strictly less than this creature's
+    own, expressed as a `matches_object_filter` ``creature_filter``
+    (``power_vs_reference: "less"`` anchored on the ability's source —
+    PAR-24's `targeting._creature_matches_filter` reference pass-through).
+    RULE 702.134b: multiple instances trigger separately.
+    """
+    condition = _self_only_condition(getattr(obj, "instance_id", None))
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ATTACKS,
+            effects=[
+                AddCountersEffect(
+                    amount=1,
+                    kind="+1/+1",
+                    target_kind="creature",
+                    creature_filter={"attacking": True, "power_vs_reference": "less"},
+                )
+            ],
+            condition=condition,
+            source=obj,
+            description=spec.raw_text or "Mentor",
+        )
+    ]
+
+
+def _kw_backup(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.165a Backup N — "When this creature enters, put N +1/+1
+    counters on target creature." (PAR-26 — the keyword was parser-
+    recognised but placed no counters at all, `parser_probe.py card "Bola
+    Slinger"`.)
+
+    The counter-placement half only. RULE 702.165a's "If it's another
+    creature, it gains the following abilities until end of turn." is a
+    documented simplification — the "copy this creature's other abilities
+    to the target" grant is a separate, un-built primitive (a resolve-time
+    ability snapshot, MEC-23-shaped) — so a Backup creature's *own* other
+    abilities still work, they just aren't lent out.
+
+    ``target_kind="creature_including_self"`` because RULE 702.165a
+    explicitly allows targeting the source itself (the common line: it
+    entered alone).
+    """
+    if n is None:
+        return []
+    n = int(n)
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ENTERS_BATTLEFIELD,
+            effects=[AddCountersEffect(
+                amount=n, kind="+1/+1", target_kind="creature_including_self",
+            )],
+            condition=_self_only_condition(getattr(obj, "instance_id", None)),
+            source=obj,
+            description=spec.raw_text or f"Backup {n}",
+        )
+    ]
+
+
 #: `keyword["name"]` → builder, mirroring `EffectRegistry`'s dict-over-
 #: if/elif pattern. Each builder takes ``(obj, spec, n)`` and returns the
 #: real triggered abilities to synthesize for that keyword (or ``[]`` if
@@ -2162,6 +2383,11 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "annihilator": _kw_annihilator,
     "afflict": _kw_afflict,
     "bushido": _kw_bushido,
+    "prowess": _kw_prowess,
+    "exalted": _kw_exalted,
+    "battle_cry": _kw_battle_cry,
+    "mentor": _kw_mentor,
+    "backup": _kw_backup,
 }
 
 
@@ -2351,6 +2577,47 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             if keyword_ability is not None:
                 obj.activated_abilities.append(keyword_ability)
             obj.triggered_abilities.extend(_keyword_triggered_abilities(obj, spec))
+            _attach_affinity_static(obj, spec)
+            if str((spec.keyword or {}).get("name") or "") == "ninjutsu":
+                # RULE 702.49a Ninjutsu (PAR-26): "[cost], Return an
+                # unblocked attacker you control to hand: Put this card onto
+                # the battlefield from your hand tapped and attacking." A
+                # combat-timed special action (`GameEngine.ninjutsu`,
+                # offered during the declare-blockers step) — its cost is
+                # pure mana here, read off `obj.ninjutsu_cost`.
+                obj.ninjutsu_cost = ManaCost.parse((spec.keyword or {}).get("cost") or "{0}")
+            if str((spec.keyword or {}).get("name") or "") == "miracle":
+                # RULE 702.94a Miracle (PAR-26): "You may cast this card for
+                # its miracle cost when you draw it if it's the first card
+                # you've drawn this turn." The cast half is a RULE 118.9-
+                # style alternative cost (`obj.alt_cast_cost`); the draw
+                # window is armed by `draw_discard_mixin._arm_miracle` and
+                # `_offer_cast` gates the offer on `obj.miracle_armed`.
+                obj.alt_cast_cost = parse_activation_cost((spec.keyword or {}).get("cost") or "{0}")
+                obj.miracle = True
+            if str((spec.keyword or {}).get("name") or "") == "madness":
+                # RULE 702.35a Madness (PAR-26): "If you discard this card,
+                # exile it instead of putting it into your graveyard. When
+                # you do, you may cast it by paying its madness cost." The
+                # cast half is a RULE 118.9-style alternative cost
+                # (`obj.alt_cast_cost`, reused from Force of Will) — the
+                # discard→exile interception + "to graveyard if not cast"
+                # delayed trigger live in `draw_discard_mixin._maybe_madness`.
+                obj.alt_cast_cost = parse_activation_cost((spec.keyword or {}).get("cost") or "{0}")
+                obj.madness = True
+            if str((spec.keyword or {}).get("name") or "") == "dash":
+                # RULE 702.109 Dash (PAR-26): "You may cast this spell for
+                # its dash cost." — modeled as a RULE 118.9-style
+                # alternative cast cost (`obj.alt_cast_cost`, the
+                # Force-of-Will machinery — offer/dispatch/payment all
+                # already wired), plus a ``dash`` marker so resolution
+                # grants haste (702.109c) and arms the "return to hand at
+                # the beginning of the next end step" delayed trigger
+                # (702.109d). Dash's cost is pure mana, so it needs mana in
+                # the pool (the `alt_cost` path skips auto-tap) — a known
+                # UX papercut, not a rules gap.
+                obj.alt_cast_cost = parse_activation_cost((spec.keyword or {}).get("cost") or "{0}")
+                obj.dash = True
             # RULE 702.131a: Ascend on an instant/sorcery is a one-shot spell
             # ability ("you get the city's blessing"), checked once at
             # resolution — unlike Ascend on a permanent (702.131b), which

@@ -343,6 +343,15 @@ def group_selector_objects(
         # text (every creature currently attacking, same convention
         # `count_selector`'s own ``"attacking_creatures"`` uses).
         result = [o for o in battlefield if o.is_creature and o.attacking]
+    elif affects == "other_attacking_creatures":
+        # RULE 702.92a Battle Cry — "each *other* attacking creature gets
+        # +1/+0 until end of turn": ``attacking_creatures`` minus the
+        # source, the same RULE 109.5 self-exclusion ``other_creatures_
+        # you_control`` applies (PAR-24).
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.attacking and o is not src
+        ]
     elif affects == "legendary_creatures_you_control":
         # "Legendary creatures you control get +2/+1 and have ward {1}."
         # (Flowering of the White Tree) — RULE 205.4a's supertype, the

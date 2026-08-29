@@ -47,6 +47,7 @@ from ..effects import (
     ChooseCreatureTypeReplacement,
     ChooseNamedModeReplacement,
     DiscardEffect,
+    MadnessToGraveyardEffect,
     DrawCardEffect,
     LoseLifeEffect,
     ReturnUncastExiledEffect,
@@ -156,6 +157,22 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 
 
 
+def _dredge_value(obj: Any) -> Optional[int]:
+    """The N in ``obj``'s Dredge N (RULE 702.52a), or ``None`` if it has no
+    dredge ability. Dredge is a ``NUMBER``-shaped parametric keyword — like
+    Toxic/Annihilator it never joins `combat._obj_keywords`; `effect_binder.
+    attach_keyword` docks it onto ``parametric_keywords["dredge"] = {"n":
+    N}`` instead (PAR-25)."""
+    if getattr(obj, "loses_all_abilities", False):
+        return None
+    n = ((getattr(obj, "parametric_keywords", None) or {}).get("dredge") or {}).get("n")
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
 class DrawDiscardMixin:
     """Draw, mill, discard."""
 
@@ -174,6 +191,15 @@ class DrawDiscardMixin:
             # cost for every ordinary one-card draw measurably slowed down
             # long games (a bot test's own many-hundred-turn line went from
             # comfortably under the per-test timeout to tripping it).
+            #
+            # RULE 702.52a: Dredge replaces a *would-draw*, and is "you
+            # may" — offered here (the single-card path only; a multi-card
+            # `draw()` is a documented simplification) as an interactive
+            # `dredge` `pending_choice`. If it opens, the draw is deferred:
+            # `GameEngine.resolve_dredge_choice` either mills+returns the
+            # dredged card or falls back to `_single_draw`.
+            if self._maybe_offer_dredge(player):
+                return
             self._single_draw(player)
             return
         # MEC-32: fire one event for the whole "draw `count` cards"
@@ -235,6 +261,13 @@ class DrawDiscardMixin:
                 player.attempted_draw_from_empty = True  # type: ignore[attr-defined]
             drawn = player.draw(n)
             if drawn:
+                # RULE 702.94a Miracle (PAR-26): "You may cast this card for
+                # its miracle cost when you draw it if it's the first card
+                # you've drawn this turn." Arm the same-turn miracle-cost
+                # cast window on the first drawn card, before the count is
+                # bumped below (see `_arm_miracle`).
+                if self.state.cards_drawn_this_turn.get(player.id, 0) == 0:
+                    self._arm_miracle(player, drawn[0])
                 self.state.cards_drawn_this_turn[player.id] = (
                     self.state.cards_drawn_this_turn.get(player.id, 0) + len(drawn)
                 )
@@ -258,6 +291,62 @@ class DrawDiscardMixin:
                 )
 
         self.apply_replacements(event, on_resolved=_finish)
+    def _maybe_offer_dredge(self, player: Player) -> bool:
+        """RULE 702.52a-c — if ``player`` would draw a card and has one or
+        more Dredge cards in their graveyard with at least that card's N in
+        their library, open a `dredge` `pending_choice` and return ``True``
+        (the caller then defers the draw). "You may", so "draw a card" is
+        always an option too. Returns ``False`` when there is nothing to
+        offer, leaving the ordinary draw to proceed.
+        """
+        if self.state.pending_choice is not None:
+            return False
+        candidates = [
+            o for o in player.graveyard
+            if (_dredge_value(o) or 0) > 0 and _dredge_value(o) <= len(player.library)
+        ]
+        if not candidates:
+            return False
+        options = [
+            {
+                "id": str(o.instance_id),
+                "instance_id": o.instance_id,
+                "label": f"{o.name} (Dredge {_dredge_value(o)})",
+            }
+            for o in candidates
+        ]
+        options.append({"id": "draw", "label": "Eine Karte ziehen"})
+        self.state.pending_choice = {
+            "kind": "dredge",
+            "player_id": player.id,
+            "prompt": "Statt zu ziehen aufmahlen (Dredge)?",
+            "options": options,
+        }
+        return True
+    def resolve_dredge_choice(self, answer: Optional[Union[str, int]]) -> None:
+        """Answer a `dredge` `pending_choice` (RULE 702.52b): ``"draw"`` /
+        ``None`` draws the deferred card normally; a card's instance id
+        mills that card's N and, if it milled anything or not, returns the
+        card from the graveyard to its owner's hand."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "dredge":
+            return
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+        if answer in (None, "draw", "decline"):
+            self._single_draw(player)
+            return
+        try:
+            card = self.state.find_object(int(answer))
+        except (TypeError, ValueError):
+            card = None
+        n = _dredge_value(card) if card is not None else None
+        if card is None or n is None or card.zone != Zone.GRAVEYARD:
+            self._single_draw(player)
+            return
+        self.mill(player, n)
+        if card.zone == Zone.GRAVEYARD:  # RULE 702.52b "return this card"
+            self.return_from_graveyard(card, "hand")
     def mill(self, player: Player, count: int) -> None:
         milled: list[GameObject] = []
         for _ in range(count):
@@ -274,6 +363,51 @@ class DrawDiscardMixin:
                 self.state.fire_event(
                     GameEvent(EventType.MILL_CARD, player_id=player.id, instance_id=obj.instance_id)
                 )
+    def _maybe_madness(self, player: Player, obj: GameObject) -> bool:
+        """RULE 702.35a: a discarded Madness card is exiled instead of going
+        to the graveyard, becomes castable from exile for its madness cost
+        (`obj.alt_cast_cost`, bound alongside `obj.madness`) this turn, and
+        — RULE 702.35b — is put into the graveyard if it hasn't been cast by
+        the next end step (`MadnessToGraveyardEffect`, a delayed trigger).
+        Returns ``True`` when it intercepted the move (the caller then skips
+        the graveyard step but still fires the DISCARD_CARD event). PAR-26.
+        """
+        if not getattr(obj, "madness", False):
+            return False
+        if obj in player.hand:  # `discard` has already popped it; `discard_specific` hasn't
+            player.remove_from_zone(obj, Zone.HAND)
+        player.add_to_zone(obj, Zone.EXILE)
+        obj.madness_exiled = True  # `_offer_cast` reads this to suppress the printed-cost offer
+        self.state.temp_play_permissions[obj.instance_id] = self.state.turn_number
+        self.state.temp_play_permission_player[obj.instance_id] = player.id
+        self.state.temp_play_permission_source[obj.instance_id] = obj.name
+        self.state.temp_play_permission_same_turn_only.add(obj.instance_id)
+        self.state.delayed_triggers.append(
+            DelayedTrigger(
+                controller_id=player.id,
+                step="end",
+                scope="any",
+                effects=[MadnessToGraveyardEffect(source=obj)],
+                targets=[obj],
+                description=f"{obj.name}: Madness — in den Friedhof, falls nicht gewirkt",
+            )
+        )
+        return True
+
+    def _arm_miracle(self, player: Player, obj: GameObject) -> None:
+        """RULE 702.94a-b: if ``obj`` (the first card ``player`` drew this
+        turn) has Miracle, make it castable from hand for its miracle cost
+        (`obj.alt_cast_cost`, bound alongside `obj.miracle`) this turn.
+        Deliberately a whole-turn window rather than RULE 702.94b's narrow
+        "before you get priority" one — a documented simplification (PAR-26).
+        The window is torn down at cleanup (`GameEngine._step_cleanup`) and
+        the moment the card is cast or otherwise leaves the hand.
+        """
+        if not getattr(obj, "miracle", False):
+            return
+        obj.miracle_armed = True
+        self.state.miracle_armed_ids.add(obj.instance_id)
+
     def discard(self, player: Player, count: int = 1) -> None:
         """Non-interactive discard: cost payment (`GameEngine._pay_activation_
         cost`/`_pay_additional_cast_cost`, ward, RULE 514.3 cleanup) pays a
@@ -285,9 +419,11 @@ class DrawDiscardMixin:
             if not player.hand:
                 break
             obj = player.hand.pop()  # auto-choose (no chooser in MVP)
-            obj.zone = Zone.GRAVEYARD
-            player.graveyard.append(obj)
-            self._flag_commander_zone_choice(obj)  # RULE 903.9a
+            madness = self._maybe_madness(player, obj)  # RULE 702.35a
+            if not madness:
+                obj.zone = Zone.GRAVEYARD
+                player.graveyard.append(obj)
+                self._flag_commander_zone_choice(obj)  # RULE 903.9a
             discarded += 1
             self.state.fire_event(
                 GameEvent(
@@ -384,9 +520,10 @@ class DrawDiscardMixin:
         `discard` (a player-scoped count with no chooser, RULE 701.8's
         general form)."""
         player = self.state.player_by_id(obj.owner_id)
-        player.remove_from_zone(obj, Zone.HAND)
-        player.add_to_zone(obj, Zone.GRAVEYARD)
-        self._flag_commander_zone_choice(obj)  # RULE 903.9a
+        if not self._maybe_madness(player, obj):  # RULE 702.35a
+            player.remove_from_zone(obj, Zone.HAND)
+            player.add_to_zone(obj, Zone.GRAVEYARD)
+            self._flag_commander_zone_choice(obj)  # RULE 903.9a
         self.state.fire_event(
             GameEvent(
                 EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,

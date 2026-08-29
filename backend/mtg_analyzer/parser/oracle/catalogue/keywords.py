@@ -490,6 +490,14 @@ def _resolve(slug: str) -> Optional[KeywordDef]:
         return KEYWORDS["landwalk"]
     if slug.endswith("cycling") and slug != "cycling":
         return KEYWORDS["cycling"]
+    # Scryfall names Affinity by its full quality phrase in the `keywords`
+    # array ("Affinity for artifacts", "Affinity for Islands", …) rather
+    # than a bare "Affinity" — resolve any such slug onto the generic
+    # `affinity` row, whose `_SPECIAL_REGEX` then recovers the quality from
+    # oracle text (PAR-23). Same "one Scryfall name per variant → one
+    # catalogue row" shape as the walk/cycling families above.
+    if slug.startswith("affinity_for_"):
+        return KEYWORDS["affinity"]
     return None
 
 

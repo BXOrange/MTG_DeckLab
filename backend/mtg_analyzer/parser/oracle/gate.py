@@ -1074,7 +1074,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "this Case" folded to `~` in `normalize`, and `_KEYWORD_TOKEN_RE`'s `\b`
 #: → `(?![a-z0-9])` so "Start Your Engines!"/"For Mirrodin!" keyword lines
 #: (trailing `!`) are recognised.
-PARSER_VERSION = "101"
+#: "102": PAR-23 — `keywords._resolve` now maps Scryfall's full "Affinity
+#: for <quality>" keyword-array name onto the generic `affinity` row (the
+#: same "one Scryfall name per variant" shape as the walk/cycling
+#: families), so `parse_keywords` emits its `{name, quality}` spec at last;
+#: `game/effect_binder` turns that into the real RULE 702.41 cost-reduction
+#: static. Recognition-neutral for the gate (the keyword *line* was already
+#: claimed by `is_keyword_line`) — the bump is for the new emitted spec.
+PARSER_VERSION = "102"
 
 
 def parser_source_hash() -> str:

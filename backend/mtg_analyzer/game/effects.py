@@ -10689,6 +10689,161 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
         context.return_from_graveyard(self.source, destination)
 
 
+class UndyingPersistReturnEffect(GameEffect):
+    """RULE 702.79b / 702.93b — the body of Persist's / Undying's own
+    triggered ability: "return this card from its owner's graveyard to the
+    battlefield under its owner's control with a ``counter_kind`` counter on
+    it." Untargeted, always ``self.source``; a no-op unless it is actually
+    in a graveyard when this resolves (it could have been exiled or
+    otherwise moved in response). The RULE 702.79a/702.93a "if it had no
+    such counter on it" guard lives on the trigger, not here — see
+    `RulesEngine._collect_undying_persist_triggers` (PAR-25).
+
+    `return_from_graveyard`'s own `reset_as_new_object` (RULE 400.7) drops
+    whatever the creature died with *before* it lands, so placing the fresh
+    counter afterwards is a clean single counter, not stacked on a stale
+    one.
+    """
+
+    def __init__(self, counter_kind: str = "+1/+1", source: Optional["GameObject"] = None):
+        super().__init__(source)
+        self.counter_kind = counter_kind
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None or self.source.zone != Zone.GRAVEYARD:
+            return
+        context.return_from_graveyard(self.source, "battlefield")
+        context.add_counters(self.source, 1, self.counter_kind, source=self.source)
+
+
+class UnearthEffect(GameEffect):
+    """RULE 702.84a Unearth's own activated-ability body: "Return this card
+    from your graveyard to the battlefield. It gains haste. Exile it at the
+    beginning of the next end step or if it would leave the battlefield.
+    Activate this ability only as a sorcery." (PAR-25 — bound via
+    `effect_binder._keyword_activated_ability` with `ActivationCost.
+    graveyard_zone`/`sorcery_speed_only`, so it is offered while the source
+    sits in a graveyard.)
+
+    Untargeted, always ``self.source``. The end-step exile is a
+    `DelayedTrigger` (``scope="any"`` — the *next* end step whoever's turn
+    it is, exactly like Corpse Dance's own trailing clause in
+    `ReturnTopGraveyardCreatureWithHasteEffect`). The "if it would leave the
+    battlefield" half is modeled as a `WOULD_DIE` → exile replacement (the
+    one leave-the-battlefield event this engine fires pre-emptively), so an
+    unearthed creature that dies is exiled rather than left re-unearthable;
+    a bounce/blink that keeps it is a known simplification (no general
+    "would leave the battlefield" event yet).
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..models.game_state import DelayedTrigger
+
+        creature = self.source
+        if creature is None or creature.zone != Zone.GRAVEYARD:
+            return
+        context.return_from_graveyard(creature, "battlefield")
+        creature.temp_keywords.add("haste")
+        context.state.delayed_triggers.append(
+            DelayedTrigger(
+                controller_id=creature.controller_id,
+                step="end",
+                scope="any",
+                effects=[ExileEffect(target_kind=None, target=creature, source=self.source)],
+                targets=[creature],
+                description=f"{creature.name}: Unearth — im nächsten Endsegment exilieren",
+            )
+        )
+        tid = creature.instance_id
+
+        def _cond(e: GameEvent, c: GameContext, tid=tid) -> bool:
+            return e.get("target_id") == tid
+
+        def _replace(e: GameEvent, c: GameContext) -> Optional[GameEvent]:
+            obj = c.state.find_object(e.get("target_id"))
+            if obj is not None:
+                c.engine.exile(obj)
+            return None
+
+        creature.replacement_effects.append(
+            ReplacementEffect(
+                event_type=EventType.WOULD_DIE,
+                replacement_fn=_replace,
+                condition=_cond,
+                description="Unearth: exilieren statt sterben",
+            )
+        )
+        context.recompute()
+
+
+class MadnessToGraveyardEffect(GameEffect):
+    """RULE 702.35b's "If you don't [cast it], put it into your graveyard."
+    — armed as a `DelayedTrigger` for the next end step when a Madness card
+    is exiled on discard (`draw_discard_mixin._maybe_madness`). A no-op
+    unless ``self.source`` is still sitting in an exile zone (it was cast,
+    or already moved) when this fires (PAR-26)."""
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        obj = self.source
+        if obj is None or obj.zone != Zone.EXILE:
+            return
+        owner = context.state.player_by_id(obj.owner_id)
+        if owner is None or obj not in owner.exile:
+            return
+        owner.exile.remove(obj)
+        obj.zone = Zone.GRAVEYARD
+        owner.graveyard.append(obj)
+        context.state.temp_play_permissions.pop(obj.instance_id, None)
+
+
+class EmbalmEternalizeEffect(GameEffect):
+    """RULE 702.128a Embalm / 702.129a Eternalize's own activated-ability
+    body: "Exile this card from your graveyard: Create a token that's a
+    copy of it, except it's a white Zombie [Embalm] / a 4/4 black Zombie
+    [Eternalize] with no mana cost." (PAR-25 — bound via `effect_binder.
+    _keyword_activated_ability` with `ActivationCost.graveyard_zone`/
+    `sorcery_speed_only`.)
+
+    Reuses `RulesEngine.copy_permanent`'s ``add_subtypes``/``set_power``/
+    ``set_toughness`` copy-modifier vocabulary exactly as
+    `CreateTokenCopyOfLinkedExileEffect` (Lazotep Quarry) does. The colour
+    override (white/black) is dropped — `Card.as_copy` has no colour
+    mechanism (CLAUDE.md's documented gotcha), the same simplification that
+    effect and The Jolly Balloon Man's catalogue entry accept. "With no
+    mana cost" is likewise not modeled (only matters to an {X} in the
+    copied card's cost).
+    """
+
+    def __init__(
+        self,
+        set_power: Optional[int] = None,
+        set_toughness: Optional[int] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.set_power = set_power
+        self.set_toughness = set_toughness
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        card_obj = self.source
+        if card_obj is None or card_obj.zone != Zone.GRAVEYARD:
+            return
+        controller_id = card_obj.controller_id or card_obj.owner_id
+        context.engine.exile(card_obj)  # RULE 702.128a/702.129a: "Exile this card…"
+        made = context.engine.copy_permanent(
+            controller_id, card_obj,
+            add_subtypes=["Zombie"],
+            set_power=self.set_power, set_toughness=self.set_toughness,
+        )
+        context.created_objects.extend(made or [])
+
+
 class ReturnSelfFromGraveyardToHandEffect(GameEffect):
     """"Return this card from your graveyard to your hand." (PAR-16 —
     Abzan Devotee/Clay Revenant/Chandra's Phoenix/Aurora Eidolon &c) — the
@@ -10961,6 +11116,7 @@ class AddCountersEffect(GameEffect):
         amount_from_count_selector: Optional[str] = None,
         amount_if_trigger_subject_subtype: Optional[list[str]] = None,
         amount_if_trigger_subject_subtype_value: Optional[int] = None,
+        creature_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
@@ -11028,8 +11184,17 @@ class AddCountersEffect(GameEffect):
             if amount_if_trigger_subject_subtype else None
         )
         self.amount_if_trigger_subject_subtype_value = amount_if_trigger_subject_subtype_value
+        #: RULE 702.134a Mentor — "put a +1/+1 counter on target attacking
+        #: creature with lesser power": a `matches_object_filter` dict
+        #: (``{"attacking": True, "power_vs_reference": "less"}``) narrowing
+        #: the RULE 115 target, evaluated against the ability's own source as
+        #: the ``reference`` (`targeting._creature_matches_filter`). PAR-24.
+        self.creature_filter = creature_filter
         if self.selector is None and target_kind is not None:
-            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count, count_max=count_max)
+            self.target_spec = TargetSpec(
+                kind=target_kind, optional=optional, count=count, count_max=count_max,
+                creature_filter=creature_filter,
+            )
 
     def target_polarity(self) -> Optional[str]:
         # "-1/-1"/"stun" counters are a downgrade for whoever's stuck with
@@ -11982,12 +12147,20 @@ class PumpEffect(GameEffect):
         creature_filter: Optional[dict] = None,
         previous_subject: bool = False,
         subtypes: Optional[list[str]] = None,
+        trigger_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.power = power
         self.toughness = toughness
         self.keywords = list(keywords or [])
         self.selector = selector
+        #: RULE 702.83a Exalted — "*that* creature gets +1/+1 until end of
+        #: turn": pump whichever object the firing trigger event names
+        #: (`GameContext.trigger_event["instance_id"]`), not the source and
+        #: not a RULE 115 target. The pump-family analogue of
+        #: `AddCountersEffect.trigger_subject_key` / `GrantKeywordTo
+        #: TriggerSubjectEffect` (PAR-24).
+        self.trigger_subject = trigger_subject
         #: "Birds, Frogs, Otters, and Rats you control get +1/+1 until end
         #: of turn." (Valley Floodcaller, MEC-41) — the ``selector``-group
         #: sibling of `AddCountersEffect.subtypes` (same "any of these
@@ -12092,6 +12265,14 @@ class PumpEffect(GameEffect):
             for obj in chosen:
                 self._pump_one(obj)
             if chosen:
+                context.recompute()
+            return
+        if self.trigger_subject:
+            # RULE 702.83a Exalted: pump the object the firing event names.
+            event = context.trigger_event or {}
+            obj = context.state.find_object(event.get("instance_id"))
+            if obj is not None:
+                self._pump_one(obj)
                 context.recompute()
             return
         if self.amount_from_trigger_event:

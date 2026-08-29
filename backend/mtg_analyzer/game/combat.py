@@ -371,6 +371,56 @@ def has_hexproof(obj: "GameObject") -> bool:
     return "hexproof" in _obj_keywords(obj)
 
 
+def has_shroud(obj: "GameObject") -> bool:
+    """RULE 702.18b: can't be the target of spells or abilities at all —
+    unlike hexproof, shroud stops the permanent's *own* controller too. Like
+    hexproof it isn't an evasion keyword (it doesn't shape blocking/damage);
+    `targeting._targetable_by` is the sole consumer. (PAR-22)"""
+    return "shroud" in _obj_keywords(obj)
+
+
+def has_fear(obj: "GameObject") -> bool:
+    """RULE 702.36b: an attacker with fear can be blocked only by artifact
+    and/or black creatures. Consumed by `can_block` below. (PAR-22)"""
+    return "fear" in _obj_keywords(obj)
+
+
+def has_intimidate(obj: "GameObject") -> bool:
+    """RULE 702.13b: an attacker with intimidate can be blocked only by
+    artifact creatures and/or creatures that share a colour with it. (PAR-22)"""
+    return "intimidate" in _obj_keywords(obj)
+
+
+def has_skulk(obj: "GameObject") -> bool:
+    """RULE 702.118b: a creature with skulk can't be blocked by creatures
+    with greater power. (PAR-22)"""
+    return "skulk" in _obj_keywords(obj)
+
+
+def has_shadow(obj: "GameObject") -> bool:
+    """RULE 702.28b/c: a creature with shadow can block or be blocked by only
+    creatures with shadow, and a creature without shadow can't block a
+    creature with shadow — the restriction runs both ways. (PAR-22)"""
+    return "shadow" in _obj_keywords(obj)
+
+
+def _obj_colours(obj: "GameObject") -> set[str]:
+    """``obj``'s effective colours as upper-case WUBRG letters (RULE 105 /
+    layer 5), the same read every colour check in this module already does
+    inline off ``getattr(obj, "colors", ...)``."""
+    return {str(c).upper() for c in (getattr(obj, "colors", None) or set())}
+
+
+def _is_artifact(obj: "GameObject") -> bool:
+    """Whether ``obj`` is currently an artifact (RULE 613 layer 4 aware —
+    reads the derived ``type_words`` set, falling back to the printed card
+    for a bare object with no layer pass run)."""
+    words = getattr(obj, "type_words", None)
+    if words is not None:
+        return "artifact" in words
+    return bool(getattr(getattr(obj, "card", None), "is_artifact", False))
+
+
 # -- Parameterized combat restrictions (RULE 508.1a / 509.1b) ---------------
 #
 # The plain "~ can't attack."/"can't block."/"can't be blocked." statics are
@@ -938,7 +988,10 @@ def can_block(attacker: "GameObject", blocker: "GameObject") -> bool:
     * flying (702.9b): a creature with flying can be blocked only by a
       creature with flying or reach;
     * protection (702.16e): an attacker with protection from the blocker's
-      quality can't be blocked by it.
+      quality can't be blocked by it;
+    * shadow (702.28b/c), fear (702.36b), intimidate (702.13b), skulk
+      (702.118b): the RULE 509.1b evasion family that reads the blocker's
+      own characteristics (PAR-22).
 
     Menace is a *group* requirement (needs 2+ blockers) and so is enforced
     where the whole block is known, not here — see `min_blockers`.
@@ -946,6 +999,24 @@ def can_block(attacker: "GameObject", blocker: "GameObject") -> bool:
     if has_flying(attacker) and not (has_flying(blocker) or has_reach(blocker)):
         return False
     if is_protected_from(attacker, blocker):
+        return False
+    # RULE 702.28b/c Shadow — runs both ways: a shadow creature is blocked
+    # only by shadow, and a non-shadow creature can't block one with shadow.
+    if has_shadow(attacker) != has_shadow(blocker):
+        return False
+    # RULE 702.36b Fear — blocked only by artifact and/or black creatures.
+    if has_fear(attacker) and not (
+        _is_artifact(blocker) or "B" in _obj_colours(blocker)
+    ):
+        return False
+    # RULE 702.13b Intimidate — blocked only by artifact creatures and/or
+    # creatures that share a colour with the attacker.
+    if has_intimidate(attacker) and not (
+        _is_artifact(blocker) or (_obj_colours(blocker) & _obj_colours(attacker))
+    ):
+        return False
+    # RULE 702.118b Skulk — can't be blocked by creatures with greater power.
+    if has_skulk(attacker) and (blocker.power or 0) > (attacker.power or 0):
         return False
     return True
 
@@ -994,6 +1065,15 @@ def display_keywords(
         "defender": "Defender",
         "haste": "Haste",
         "indestructible": "Indestructible",
+        # RULE 509.1b / 702.11b evasion & targeting keywords the engine now
+        # enforces (PAR-22) — worth a badge so the board shows what combat
+        # and targeting will honour.
+        "shroud": "Shroud",
+        "hexproof": "Hexproof",
+        "fear": "Fear",
+        "intimidate": "Intimidate",
+        "skulk": "Skulk",
+        "shadow": "Shadow",
     }
     kws = (keywords_of(card) | frozenset(granted or set())) - frozenset(removed or set())
     out = [label for slug, label in labels.items() if slug in kws]

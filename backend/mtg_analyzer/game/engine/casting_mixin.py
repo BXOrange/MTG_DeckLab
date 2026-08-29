@@ -299,6 +299,7 @@ class CastingMixin:
         discard_choices: Optional[list[int]] = None,
         targets: Optional[list[Any]] = None,
         assume_mana_available: bool = False,
+        help_pay: bool = False,
     ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
@@ -379,6 +380,11 @@ class CastingMixin:
         # abilities never reach `can_cast` — see `continuous.split_second_
         # active`'s own docstring for why that needs no exemption here).
         if continuous.split_second_active(self.state):
+            return False
+        if help_pay and self._help_pay_keyword(obj) is None:
+            # RULE 702.51/702.66/702.126 (PAR-23): the "cast using Convoke/
+            # Delve/Improvise" offer is illegal for a spell that has none of
+            # them — same guard shape as `evoke`/`buyback` without the keyword.
             return False
         in_castable_zone = (
             obj in player.hand
@@ -609,6 +615,7 @@ class CastingMixin:
             cost = self.effective_cast_cost(
                 player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                 mutate=mutate, entwine=entwine, evoke=evoke, exile_discount=exile_discount, targets=targets,
+                help_pay=help_pay,
             )
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
             wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
@@ -752,6 +759,7 @@ class CastingMixin:
         evoke: bool = False,
         exile_discount: int = 0,
         targets: Optional[list[Any]] = None,
+        help_pay: bool = False,
     ) -> "ManaCost":
         """``obj``'s mana cost after static cost adjustments (RULE 601.2f/903.8).
 
@@ -876,6 +884,12 @@ class CastingMixin:
             spec = continuous.exile_discount_spec_for(obj)
             if spec is not None:
                 cost = cost.reduce_generic_and_x(int(spec.get("generic_per_card", 2)) * exile_discount)
+        if help_pay and self._help_pay_keyword(obj) is not None:
+            # RULE 702.51/702.66/702.126 (PAR-23): the offer-time upper
+            # bound — the *real* cast consumes only the minimum
+            # (`_consume_cast_help`), but `can_cast`/the displayed cost want
+            # the best case this help could reach.
+            cost = self._cast_help_capacity(player, obj, cost)
         return cost
     @staticmethod
     def commander_tax(player: Player, obj: GameObject) -> int:
@@ -956,6 +970,7 @@ class CastingMixin:
         exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        help_pay: bool = False,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -1047,7 +1062,7 @@ class CastingMixin:
                     player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                     target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                     mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
-                    sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+                    sacrifice_choice=sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
                 )
             except Exception:
                 self.rules.restore_face(obj, snapshot)
@@ -1059,7 +1074,7 @@ class CastingMixin:
             player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
             target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
             mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
         )
     def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
         """The `GameEffect`s a modal spell's chosen ``mode`` resolves with.
@@ -1146,6 +1161,80 @@ class CastingMixin:
             yield
         finally:
             obj.spell_effects = previous
+    # -- RULE 702.51 Convoke / 702.66 Delve / 702.126 Improvise (PAR-23) ----
+    #
+    # Three keywords that let a spell's *generic* cost be paid with a
+    # non-mana resource — a tapped creature you control (Convoke), a card
+    # exiled from your graveyard (Delve), a tapped artifact you control
+    # (Improvise). Modeled as a single opt-in ``help_pay`` cast flag (the
+    # same "second offered action" shape `evoke` uses), not one flag each,
+    # since no cached card carries two of them. Generic-only (Convoke's RULE
+    # 702.51b "or one mana of that creature's colour" is a documented
+    # simplification), and auto-*minimal* at the real cast (tap/exile only
+    # what the pool still can't cover) — a per-resource "which creatures"
+    # picker is a future UI refinement, not a rules gap.
+
+    _HELP_PAY_KEYWORDS: tuple[str, ...] = ("convoke", "delve", "improvise")
+
+    def _help_pay_keyword(self, obj: GameObject) -> Optional[str]:
+        """Which of Convoke/Delve/Improvise ``obj`` has printed (or ``None``)."""
+        for kw in self._HELP_PAY_KEYWORDS:
+            if combat.has(obj, kw):
+                return kw
+        return None
+
+    def _cast_help_pool(self, player: Player, obj: GameObject) -> list[GameObject]:
+        """The resources available to help pay ``obj``'s generic cost, in the
+        order they'd be spent: untapped creatures (Convoke) / untapped
+        artifacts (Improvise) you control, or cards in your graveyard
+        (Delve)."""
+        kw = self._help_pay_keyword(obj)
+        if kw == "convoke":
+            return [
+                o for o in self.state.battlefield
+                if o.controller_id == player.id and o.is_creature
+                and not o.tapped and o is not obj
+            ]
+        if kw == "improvise":
+            return [
+                o for o in self.state.battlefield
+                if o.controller_id == player.id and combat._is_artifact(o) and not o.tapped
+            ]
+        if kw == "delve":
+            return list(player.graveyard)
+        return []
+
+    @staticmethod
+    def _generic_of(cost: "ManaCost") -> int:
+        from ...models.mana_cost import GENERIC
+
+        return sum(s.amount for s in cost.symbols if s.kind == GENERIC)
+
+    def _consume_cast_help(
+        self, player: Player, obj: GameObject, cost: "ManaCost"
+    ) -> "ManaCost":
+        """Spend the *minimum* number of help resources (RULE 702.51/702.66/
+        702.126) needed for ``player``'s pool to be able to pay ``cost``,
+        returning the reduced cost. Called from the real cast path only —
+        `can_cast`/previews use `_cast_help_capacity` for the best case."""
+        pool = iter(self._cast_help_pool(player, obj))
+        while self._generic_of(cost) > 0 and not player.mana_pool.can_pay(cost):
+            res = next(pool, None)
+            if res is None:
+                break
+            if res.zone == Zone.GRAVEYARD:
+                self.rules.exile(res)  # RULE 702.66: "Each card you exile … pays for {1}."
+            else:
+                self.rules.set_tapped(res, True)  # RULE 702.51c/702.126b
+            cost = cost.reduce_generic(1)
+        return cost
+
+    def _cast_help_capacity(self, player: Player, obj: GameObject, cost: "ManaCost") -> "ManaCost":
+        """``cost`` with its generic lowered by the *most* the available help
+        resources could pay (the offer-time upper bound — `can_cast` and
+        `_cast_action`'s displayed cost use this)."""
+        return cost.reduce_generic(min(self._generic_of(cost), len(self._cast_help_pool(player, obj))))
+
     def _auto_tap_for_cast_if_needed(
         self,
         player: Player,
@@ -1166,6 +1255,7 @@ class CastingMixin:
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         targets: Optional[list[Any]] = None,
+        help_pay: bool = False,
     ) -> None:
         """"Automatisches Tappen": best-effort, silent mana top-up right
         before a real cast attempt — only when ``obj`` would already be
@@ -1206,19 +1296,19 @@ class CastingMixin:
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-            targets=targets,
+            targets=targets, help_pay=help_pay,
         ):
             return
         if not self.can_cast(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-            targets=targets, assume_mana_available=True,
+            targets=targets, assume_mana_available=True, help_pay=help_pay,
         ):
             return  # illegal for a reason other than mana — never auto-tap
         cost = self.effective_cast_cost(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
-            entwine=entwine, evoke=evoke, exile_discount=exile_discount, targets=targets,
+            entwine=entwine, evoke=evoke, exile_discount=exile_discount, targets=targets, help_pay=help_pay,
         )
         try:
             self.auto_tap_for(player, cost=cost)
@@ -1245,6 +1335,7 @@ class CastingMixin:
         exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        help_pay: bool = False,
     ):
         """The common cast body, reading whatever `obj.card` currently is.
 
@@ -1278,13 +1369,13 @@ class CastingMixin:
                 player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-                targets=targets,
+                targets=targets, help_pay=help_pay,
             )
             if not self.can_cast(
                 player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-                targets=targets,
+                targets=targets, help_pay=help_pay,
             ):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 601.2c: a spell that requires a target can't be cast unless
@@ -1340,6 +1431,11 @@ class CastingMixin:
                 # branch just below uses.
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups)
                 self._pay_alt_cast_cost(player, obj, getattr(obj, "alt_cast_cost", None))
+                if getattr(obj, "dash", False):
+                    # RULE 702.109c/d (PAR-26): a creature cast for its dash
+                    # cost gains haste and is bounced at the next end step —
+                    # consumed at resolution, next to `cast_via_evoke`.
+                    obj.cast_via_dash = True
             elif self._top_library_life_payment(player, obj):
                 # Bolas's Citadel-shaped: no mana leaves the pool — the
                 # spell goes on the stack for free, then its controller
@@ -1353,6 +1449,12 @@ class CastingMixin:
                     player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
                     entwine=entwine, evoke=evoke, exile_discount=exile_discount, targets=targets,
                 )
+                if help_pay and self._help_pay_keyword(obj) is not None:
+                    # RULE 702.51/702.66/702.126 (PAR-23): spend the minimum
+                    # help resources the pool still can't cover, *after*
+                    # `_auto_tap` has already put in what lands it could —
+                    # then pay the (further-reduced) mana cost as normal.
+                    cost = self._consume_cast_help(player, obj, cost)
                 result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
                 if kicked and kicker_x > 0 and self._kicker_x_distinct_colors(obj):
                     # PAR-7: Kicker's own distinct-color-capped {X} was

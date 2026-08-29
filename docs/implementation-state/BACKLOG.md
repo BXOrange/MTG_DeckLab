@@ -109,53 +109,38 @@ Plan-level sequencing lives in
   has a real handler (not just that some card using it happens to be
   `MODELED` for an unrelated reason), and report any genuine gap found.
 
-- **PAR-22 · Combat-evasion keywords never enforced (real rules
-  violations, not missing bonuses).** Shroud (702.18) — a Shroud permanent
-  can currently be freely targeted; Fear (702.36), Intimidate (702.13),
-  Skulk (702.118), Shadow (702.28) — `combat.can_block` only ever checks
-  flying/reach/protection. `targeting._targetable_by` and `combat.can_block`
-  need a generic hook the same shape `has_hexproof` already has, not five
-  hand-rolled hard-coded checks. (One of the five buckets split out of the
-  2026-08-27 RULE 702 keyword audit, `Done_Backend.md`'s "MEC-30"-adjacent
-  entries and the audit's own full findings — see `PAR-23`/`PAR-24`/
-  `PAR-25`/`PAR-26` below for the rest.)
+- **PAR-26 · Bestow (RULE 702.103) — the one still-inert member of the
+  cast-alternative/timing keyword family.** Madness/Miracle/Ninjutsu/Dash/
+  Backup all shipped 2026-08-28 (`Done_Backend.md`); Bestow was left out
+  because it's a genuine **dual card-type** mechanic on the scale of the
+  DFC/Adventure/Split work, not a cast-cost flag: cast for its bestow cost,
+  the creature card is *an Aura spell with enchant creature*; it enters
+  attached, granting its own P/T (as +X/+X) and abilities to the host; and
+  RULE 704.5n's "it becomes a creature again if it's not attached to a
+  creature" is a state-based action. Needs a `face`-style cast that
+  reshapes the card to an Aura, the Aura-grant of the bestowed creature's
+  characteristics, and the un-bestow SBA. `("Bestow", _C, "702.103")` is
+  already parser-recognised (the keyword line), so the cost is available on
+  `obj.parametric_keywords["bestow"]["cost"]` — this is purely engine work.
 
-- **PAR-23 · Cost-reduction keywords never wired to the existing generic
-  mechanism.** `continuous.self_cost_reduction_for` already handles "costs
-  `{N}` less for each X"-shaped statics for hand-authored cards — it just
-  isn't driven by these keywords themselves yet: Affinity (702.41), Delve
-  (702.66), Convoke (702.51), Improvise (702.126).
-
-- **PAR-24 · Triggered keyword abilities with zero engine consumer.**
-  Prowess (702.108, ~92 cache cards — one of the most-reprinted keywords
-  in modern Magic), Exalted (702.83, ~36 cards incl. cEDH staples
-  Rafiq/Qasali Pridemage/Noble Hierarch), Battle Cry (702.91), Mentor
-  (702.134).
-
-- **PAR-25 · Death/graveyard keyword family, zero implementation.**
-  Undying (702.93), Persist (702.79) — even a hand-authored *grant* of
-  "undying" (`ability_catalogue/entries_003.py`) currently does nothing,
-  since no death-replacement code anywhere checks for it; Unearth
-  (702.84), Embalm (702.128), Eternalize (702.129), Dredge (702.52).
-
-- **PAR-26 · Cast-alternative/timing keyword family, zero implementation.**
-  Madness (702.35), Miracle (702.94), Ninjutsu (702.49, a real Ninja-tribal
-  mechanic), Bestow (702.103), Dash (702.109), Backup (702.165 — a
-  counter-placement keyword, confirmed via `parser_probe.py card "Bola
-  Slinger"`: bare `[keyword]`, no counters ever placed).
-
-  (PAR-22 through PAR-26 are the **evergreen** portion of the 2026-08-27
-  audit's ~122-of-195-inert finding — the set-specific portion, one
-  expansion each, is tracked in `PARSER_LONG_TAIL.md`'s own set-specific
-  table instead. Each ticket is independently shippable — no shared
-  blocking primitive ties them together, unlike Station's/Amass's own
-  single-mechanism builds. The audit's full table — all 195 rows,
-  categorized, with file:line evidence per bucket — isn't reproduced here
-  since this file stays open-scope-only; re-derive via `parser_probe.py
-  card "<name>"` per keyword, cross-referenced against `game/combat.py`'s
-  `COMBAT_KEYWORDS` and `game/effect_binder.py`'s `attach_keyword`/
-  `_KEYWORD_TRIGGERED_BUILDERS`, rather than trusting this list to stay
-  current as more keywords get built.)
+  (PAR-26 is the last still-open **evergreen** portion of the
+  2026-08-27 audit's ~122-of-195-inert finding — PAR-22 (combat-evasion
+  keywords: Shroud/Fear/Intimidate/Skulk/Shadow), PAR-23 (cost keywords:
+  Affinity/Convoke/Delve/Improvise), PAR-24 (triggered keywords: Prowess/
+  Exalted/Battle Cry/Mentor), PAR-25 (death/graveyard: Undying/Persist/
+  Unearth/Embalm/Eternalize/Dredge) and the rest of PAR-26 (Madness/
+  Miracle/Ninjutsu/Dash/Backup) shipped 2026-08-28, see `Done_Backend.md`.
+  The set-specific portion, one expansion each, is
+  tracked in `PARSER_LONG_TAIL.md`'s own set-specific table instead. Each
+  ticket is independently shippable — no shared blocking primitive ties
+  them together, unlike Station's/Amass's own single-mechanism builds. The
+  audit's full table — all 195 rows, categorized, with file:line evidence
+  per bucket — isn't reproduced here since this file stays open-scope-only;
+  re-derive via `parser_probe.py card "<name>"` per keyword, cross-
+  referenced against `game/combat.py`'s `COMBAT_KEYWORDS` and `game/
+  effect_binder.py`'s `attach_keyword`/`_KEYWORD_TRIGGERED_BUILDERS`,
+  rather than trusting this list to stay current as more keywords get
+  built.)
 
 ## MEC — Game mechanics
 

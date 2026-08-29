@@ -220,6 +220,7 @@ class LegalActionsMixin:
         free: bool = False,
         alt_cost: bool = False,
         evoke: bool = False,
+        help_pay: bool = False,
     ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
@@ -390,6 +391,19 @@ class LegalActionsMixin:
                     action["locked"] = True
                     action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
 
+        if help_pay:
+            # PAR-23: RULE 702.51 Convoke / 702.66 Delve / 702.126 Improvise —
+            # a *reduction* of the printed cost paid with a non-mana
+            # resource, so (unlike free/alt/evoke) this offer keeps every
+            # normal cost/X/target field above; it just tags itself and
+            # shows the best-case reduced cost.
+            action["help_pay"] = True
+            action["help_pay_kind"] = self._help_pay_keyword(obj)
+            reduced = self._cast_help_capacity(
+                player, obj, self.effective_cast_cost(player, obj, mode=mode)
+            )
+            action["effective_cost"] = reduced.raw
+
         with self._mode_effects_applied(obj, mode):
             requirements = requirements_with_targets(self.state, player.id, obj)
         if requirements:
@@ -491,8 +505,10 @@ class LegalActionsMixin:
             or (card is not None and continuous.has_standing_free_cast_permission(self.state, player, card))
         ) and self.can_cast(player, obj, face=face, free=True):
             return True
-        if getattr(obj, "alt_cast_cost", None) is not None and self.can_cast(
-            player, obj, face=face, alt_cost=True
+        if (
+            getattr(obj, "alt_cast_cost", None) is not None
+            and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
+            and self.can_cast(player, obj, face=face, alt_cost=True)
         ):
             return True
         # RULE 702.74b (MEC-42): Evoke pays real mana (just a different
@@ -508,6 +524,17 @@ class LegalActionsMixin:
                 return True
             if self.can_cast(player, obj, face=face, evoke=True, assume_mana_available=True):
                 cost = self.effective_cast_cost(player, obj, face=face, evoke=True)
+                if mana_potential.is_castable_via_potential(self, player, cost):
+                    return True
+        # PAR-23: RULE 702.51/702.66/702.126 — a spell castable only because
+        # Convoke/Delve/Improvise can cover the shortfall (`help_pay=True`
+        # folds the best-case reduction into `effective_cast_cost`, so the
+        # ordinary mana / mana-potential checks below see the reduced cost).
+        if self._help_pay_keyword(obj) is not None and self._cast_help_pool(player, obj):
+            if self.can_cast(player, obj, face=face, help_pay=True):
+                return True
+            if self.can_cast(player, obj, face=face, help_pay=True, assume_mana_available=True):
+                cost = self.effective_cast_cost(player, obj, face=face, help_pay=True)
                 if mana_potential.is_castable_via_potential(self, player, cost):
                     return True
         return False
@@ -551,7 +578,13 @@ class LegalActionsMixin:
         if getattr(obj, "spell_modes", None):
             actions.extend(self._modal_cast_actions(player, obj))
             return
-        if self._plain_castable_now_or_via_potential(player, obj):
+        # RULE 702.35b (PAR-26): a Madness card sitting in exile after a
+        # discard may be cast *only* for its madness cost (`alt_cast_cost`),
+        # never its printed one — so skip the plain offer for it even though
+        # the `temp_play_permissions` window that keeps it in a castable
+        # zone would otherwise allow it.
+        madness_exiled = getattr(obj, "madness_exiled", False) and obj.zone == Zone.EXILE
+        if not madness_exiled and self._plain_castable_now_or_via_potential(player, obj):
             actions.append(self._cast_action(player, obj))
         # See `_castable_now_or_via_potential`'s matching comment: a
         # standing permission (Aluren) offers the free-cast action just as
@@ -562,7 +595,15 @@ class LegalActionsMixin:
             or (card is not None and continuous.has_standing_free_cast_permission(self.state, player, card))
         ) and self.can_cast(player, obj, free=True):
             actions.append(self._cast_action(player, obj, free=True))
-        if getattr(obj, "alt_cast_cost", None) is not None and self.can_cast(player, obj, alt_cost=True):
+        # RULE 702.94b (PAR-26): a Miracle card's `alt_cast_cost` (its
+        # miracle cost) is only offered while its draw window is open
+        # (`obj.miracle_armed`) — otherwise a Miracle card just sits in hand
+        # castable normally.
+        if (
+            getattr(obj, "alt_cast_cost", None) is not None
+            and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
+            and self.can_cast(player, obj, alt_cost=True)
+        ):
             actions.append(self._cast_action(player, obj, alt_cost=True))
         # RULE 702.74b (MEC-42): a printed or granted Evoke cost is a third,
         # independent payment method — same "offered alongside, never in
@@ -573,6 +614,17 @@ class LegalActionsMixin:
         )
         if has_evoke and self.can_cast(player, obj, evoke=True):
             actions.append(self._cast_action(player, obj, evoke=True))
+        # PAR-23: RULE 702.51/702.66/702.126 — a "cast using Convoke/Delve/
+        # Improvise" offer whenever the spell has one of them and that mode
+        # is castable, the same "offered alongside, never in place of" shape
+        # as evoke. Only added when it actually changes the outcome (there's
+        # at least one help resource to spend).
+        if (
+            self._help_pay_keyword(obj) is not None
+            and self._cast_help_pool(player, obj)
+            and self.can_cast(player, obj, help_pay=True)
+        ):
+            actions.append(self._cast_action(player, obj, help_pay=True))
 
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
         """Every action ``player`` may legally take in the current state.
@@ -782,6 +834,33 @@ class LegalActionsMixin:
                         ],
                     }
                 )
+
+        if (
+            player is self.state.active_player
+            and self.state.current_step == "declare_blockers"
+        ):
+            # RULE 702.49a/b Ninjutsu (PAR-26): the active player may, during
+            # the declare-blockers step, return an *unblocked* attacker they
+            # control to hand and put a Ninjutsu card from hand onto the
+            # battlefield tapped and attacking in its place. One offer per
+            # (ninja in hand, unblocked attacker) pair whose mana cost the
+            # player can pay.
+            unblocked = [
+                o for o in self.state.battlefield
+                if o.attacking and o.controller_id == player.id and not o.blocked_by
+            ]
+            for ninja in list(player.hand):
+                cost = getattr(ninja, "ninjutsu_cost", None)
+                if cost is None or not player.mana_pool.can_pay(cost):
+                    continue
+                for atk in unblocked:
+                    actions.append({
+                        "type": "ninjutsu",
+                        "instance_id": ninja.instance_id,
+                        "name": ninja.name,
+                        "returned_attacker_id": atk.instance_id,
+                        "returned_attacker_name": atk.name,
+                    })
 
         for source in self.state.permanents_controlled_by(player.id):
             # One offer per mana ability the source has (almost always just

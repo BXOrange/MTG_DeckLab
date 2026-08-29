@@ -73,7 +73,7 @@ const CHOICE_ICONS = {
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
-  scry: '🔮', surveil: '🕵️', opening_hand_battlefield: '🌅',
+  scry: '🔮', surveil: '🕵️', opening_hand_battlefield: '🌅', dredge: '⚰️',
 };
 
 /**

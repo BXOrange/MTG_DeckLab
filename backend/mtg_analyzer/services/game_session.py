@@ -898,6 +898,10 @@ class GameSession:
             alt_cost=bool(action.get("alt_cost", False)),
             evoke=bool(action.get("evoke", False)),
             exile_discount=int(action.get("exile_discount", 0)),
+            # PAR-23: RULE 702.51 Convoke / 702.66 Delve / 702.126 Improvise —
+            # round-trips off the flag `_cast_action` stamps on the "cast
+            # using …" offer, same as `evoke`.
+            help_pay=bool(action.get("help_pay", False)),
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:
@@ -980,6 +984,13 @@ class GameSession:
         ]
         self.engine.declare_blockers(blocker_player, pairs)
 
+    def _dispatch_ninjutsu(self, action: dict[str, Any], active: Player) -> None:
+        # RULE 702.49a Ninjutsu (PAR-26): swap an unblocked attacker for a
+        # Ninjutsu card from hand during the declare-blockers step.
+        ninja = self._object(action)
+        returned = self._object_by_id(action["returned_attacker_id"])
+        self.engine.ninjutsu(active, ninja, returned)
+
     #: `kind` (`action["type"]`) → handler, mirroring `EffectRegistry`'s own
     #: dict-over-if/elif pattern. Each handler takes ``(session, action,
     #: active)`` — plain functions here, not yet bound, so `_dispatch` calls
@@ -1008,6 +1019,7 @@ class GameSession:
         "attack": _dispatch_declare_attackers,
         "declare_attackers": _dispatch_declare_attackers,
         "declare_blockers": _dispatch_declare_blockers,
+        "ninjutsu": _dispatch_ninjutsu,
     }
 
     # -- Replay editing (mode == REPLAY) -------------------------

@@ -634,6 +634,56 @@ class CombatMixin:
             # `RulesEngine.check_dethrone` for why this can't go through the
             # ordinary annihilator/afflict/bushido `TriggeredAbility` path.
             self.rules.check_dethrone(obj)
+    def ninjutsu(self, player: Player, ninja: GameObject, returned_attacker: GameObject) -> None:
+        """RULE 702.49a Ninjutsu — "[cost], Return an unblocked attacker you
+        control to hand: Put this card onto the battlefield from your hand
+        tapped and attacking." A RULE 702.49b special action, legal only for
+        the active player during the declare-blockers step (PAR-26).
+
+        The ninja takes the returned attacker's place in combat — same
+        defender, tapped and attacking, and it doesn't tap for its own
+        attack (it's *put* there, not declared). Its own ``ATTACKS`` event
+        fires so an "whenever ~ attacks" trigger (Ninja of the Deep
+        Hours-shaped) still works; ETB fires normally.
+        """
+        cost = getattr(ninja, "ninjutsu_cost", None)
+        if cost is None:
+            raise ValueError(f"{ninja.name} has no ninjutsu")
+        if player is not self.state.active_player or self.state.current_step != "declare_blockers":
+            raise ValueError("ninjutsu can only be used during your declare-blockers step")
+        if ninja not in player.hand:
+            raise ValueError(f"{ninja.name} is not in hand")
+        if not (returned_attacker.attacking and returned_attacker.controller_id == player.id
+                and not returned_attacker.blocked_by):
+            raise ValueError(f"{returned_attacker.name} is not an unblocked attacker you control")
+        if not player.mana_pool.can_pay(cost):
+            raise ValueError("cannot pay the ninjutsu cost")
+
+        player.mana_pool.pay(cost)
+        defender = returned_attacker.combat_defender
+        self.rules.return_to_hand(returned_attacker)  # RULE 702.49a's own cost
+
+        player.remove_from_zone(ninja, Zone.HAND)
+        ninja.tapped = True
+        ninja.attacking = True
+        ninja.attacked_this_turn = True
+        ninja.summoning_sick = False
+        ninja.combat_defender = defender
+        self.state.add_to_battlefield(ninja)
+        self.state.fire_event(
+            GameEvent(
+                EventType.ENTERS_BATTLEFIELD, controller_id=ninja.controller_id,
+                card_id=ninja.card.id, object=ninja.name, instance_id=ninja.instance_id,
+                object_types=sorted(ninja.type_words),
+            )
+        )
+        self.state.fire_event(
+            GameEvent(
+                EventType.ATTACKS, attacker=ninja.name, player_id=player.id,
+                instance_id=ninja.instance_id, object_types=sorted(ninja.type_words),
+                defending_player_id=getattr(self._defending_player(defender), "id", None),
+            )
+        )
     def _assign_defender(
         self, obj: GameObject, defender: Any, legal: list[dict[str, Any]]
     ) -> Optional[dict[str, Any]]:

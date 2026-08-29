@@ -496,10 +496,19 @@ planeswalkers; commander damage + tax; the RULE 702
 keyword catalogue (195 registered rows, `parser/oracle/catalogue/keywords.py`
 — **parser recognition only, not proof of engine behavior**: a 2026-08-27
 audit found ~70 fully working, ~122 recognized-but-inert or unenforced,
-~3 hand-authored-only — see `BACKLOG.md`'s `PAR-22` through `PAR-26` for
-the evergreen gaps and `PARSER_LONG_TAIL.md`'s set-specific table for the
-per-product ones; don't cite a keyword as "implemented" from this
-catalogue's mere existence), the **"Keyword — `<ability>`" label family**
+~3 hand-authored-only. The evergreen inert set was then closed 2026-08-28
+(`Done_Backend.md`): **PAR-22** combat-evasion/targeting (Shroud, Fear,
+Intimidate, Skulk, Shadow → real `can_block`/`_targetable_by` checks),
+**PAR-23** cost (Affinity → a real self cost-reduction static; Convoke/
+Delve/Improvise → an opt-in `help_pay` cast flag paying generic with
+tapped creatures / exiled graveyard cards / tapped artifacts), **PAR-24**
+triggered (Prowess, Exalted, Battle Cry, Mentor), **PAR-25** death/
+graveyard (Undying, Persist, Unearth, Embalm, Eternalize, Dredge),
+**PAR-26** cast-timing (Backup, Dash, Madness, Miracle, Ninjutsu — Bestow
+still open as a dual-card-type project). `PARSER_LONG_TAIL.md`'s set-
+specific table holds the per-product ones; don't cite a keyword as
+"implemented" from this catalogue's mere existence), the **"Keyword —
+`<ability>`" label family**
 (PAR-28 — Boast RULE 702.142 / Exhaust RULE 702.177 / Power-up / Forecast
 RULE 702.57 / Solved RULE 702.169 / Max Speed RULE 702.178, each parsing
 to a real activated/triggered/static ability with the keyword's fixed
@@ -635,8 +644,9 @@ on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
 (`scripts/import_bulk.py`), so coverage is measured against that: **35.4%
-covered (12,328 / 34,811) as of 2026-08-28, PARSER_VERSION 101** (parser-`MODELED` **or**
-hand-`AUTHORED`).
+covered (12,328 / 34,811) as of 2026-08-29, PARSER_VERSION 102** (parser-`MODELED` **or**
+hand-`AUTHORED`; the 102 bump was PAR-23's recognition-neutral "Affinity
+for `<quality>`" keyword-slug fix, so the count is unchanged from 101).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in

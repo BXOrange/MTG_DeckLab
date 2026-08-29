@@ -2483,6 +2483,258 @@ is in the rules-engine categories below them.
 - **Files:** `parser/oracle/segmenter.py`, `parser/oracle/normalize.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/gate.py` (`PARSER_VERSION` 100 → 101 + lock); `game/static_conditions.py`, `game/effect_binder.py`, `game/costs.py`, `game/effects.py`, `game/engine/activation_mixin.py`, `game/engine/combat_mixin.py`, `game/engine/turn_loop_mixin.py`, `game/rules/misc_mixin.py`, `game/rules/sba_mixin.py`, `game/rules/triggers_mixin.py`; `models/game_object.py`, `models/player.py`, `models/events.py`
 - **Tests:** `tests/test_par28_keyword_labeled_abilities.py` (19 — parse + execute per keyword: Boast can't-fire-before-attacking / once-per-turn / flag reset; Exhaust once-per-game and two-abilities-tracked-separately; Power-up cost reduction only the turn it entered; Forecast from-hand + upkeep-only; Start-Your-Engines SBA, once-per-turn speed increase capped at 4, only-your-turn, Max-Speed static gated at speed 4; Case solve trigger at end step + `source_solved` anthem turning on, designation persistence)
 
+### Combat-evasion & targeting keywords: Shroud, Fear, Intimidate, Skulk, Shadow (PAR-22)
+
+- **What:** Five RULE 509.1b / 702.18b keywords that the parser already
+  recognised as flag keywords (rows in `catalogue/keywords.py`, docked
+  onto `GameObject.intrinsic_keywords` by `attach_keyword`) but that *no
+  engine code consulted* — a Shroud permanent could be freely targeted, a
+  Fear/Intimidate/Skulk attacker freely blocked, a Shadow creature blocked
+  by (and blocking) anything. Wired to real behaviour off the same
+  `combat._obj_keywords` union `has_hexproof` already reads, no new
+  recognition path:
+  - **Shroud** (702.18b) — new `combat.has_shroud`, consulted in
+    `targeting._targetable_by` right after the hexproof check but with **no
+    opponent-scoping** (shroud stops the permanent's own controller too).
+  - **Fear** (702.36b) / **Intimidate** (702.13b) / **Skulk** (702.118b) /
+    **Shadow** (702.28b/c) — four predicates (`has_fear`/`has_intimidate`/
+    `has_skulk`/`has_shadow`) plus a block-legality branch each in the pure
+    `combat.can_block(attacker, blocker)` evasion hook (the same place
+    flying/protection live), reading a new `_obj_colours` /`_is_artifact`
+    (`type_words`-derived, layer-4 aware) helper. Shadow runs **both ways**
+    — a non-shadow creature can't block a shadow one and vice versa
+    (`has_shadow(attacker) != has_shadow(blocker)`).
+- **Display:** `combat.display_keywords` gained badge labels for all five
+  (+ hexproof, which had none), surfaced via `GameObject.to_dict`'s
+  existing `intrinsic_keywords`-as-granted pass.
+- **Files:** `game/combat.py`, `game/targeting.py`,
+  `frontend/src/js/implementationStatusView.js`
+- **Tests:** `tests/test_par22_evasion_keywords.py` (14 — parse-still-
+  recognised per keyword; shroud blocks own-controller and opponent
+  targeting + drops out of a `legal_targets` offer; fear artifact/black-
+  only; intimidate shared-colour-or-artifact incl. the colourless case;
+  skulk greater-power-only; shadow both directions; an end-to-end
+  `GameEngine.declare_blockers` refusal)
+
+### Triggered keyword abilities: Prowess, Exalted, Battle Cry, Mentor (PAR-24)
+
+- **What:** Four RULE 702 keywords whose text *is* a triggered ability,
+  parser-recognised but with zero engine consumer (`inspect` showed
+  `triggered 0` on a pure-Prowess Monastery Swiftspear). Synthesized in
+  `effect_binder._KEYWORD_TRIGGERED_BUILDERS`, the same table
+  Annihilator/Afflict/Bushido already use:
+  - **Prowess** (702.108a) — `SPELL_CAST` trigger, "you" read *live* off
+    `obj.controller_id` in the condition (RULE 702.108b, so a control-
+    change hands it over), "noncreature" off the event's `object_types`
+    payload; effect is the same `PumpEffect(1, 1)` (self, until EOT)
+    Bushido uses.
+  - **Exalted** (702.83a) — `ATTACKS_ALONE` aggregate trigger (already
+    fired by `_fire_attacks_alone_event`), condition scoped to the lone
+    attacker's controller being this ability's controller; new
+    `PumpEffect.trigger_subject=True` mode pumps whichever object the
+    firing event names ("*that* creature"), the pump-family analogue of
+    `AddCountersEffect.trigger_subject_key`.
+  - **Battle Cry** (702.92a) — self-only `ATTACKS` trigger; effect is an
+    untargeted group `PumpEffect(1, 0, selector="other_attacking_
+    creatures")`, a new `continuous.group_selector_objects` branch (every
+    attacker except the source, regardless of controller).
+  - **Mentor** (702.134a) — self-only `ATTACKS` trigger with a *targeted*
+    `AddCountersEffect`: target is an attacking creature with power
+    strictly less than the source's, expressed as a new
+    `AddCountersEffect.creature_filter` (`{"attacking": True,
+    "power_vs_reference": "less"}`) threaded onto its `TargetSpec`. Needed
+    `targeting._creature_matches_filter` to pass a `reference`/`state`
+    through to `combat.matches_object_filter` (the relative-power keys had
+    silently no-opped from the `creature` target branch before — a
+    latent gap, not just this ticket).
+- **Files:** `game/effect_binder.py`, `game/effects.py` (`PumpEffect.
+  trigger_subject`, `AddCountersEffect.creature_filter`),
+  `game/continuous.py` (`other_attacking_creatures`),
+  `game/targeting.py`, `frontend/src/js/implementationStatusView.js`
+- **Tests:** `tests/test_par24_triggered_keywords.py` (7 — prowess pumps
+  on a noncreature spell but not a creature spell; exalted pumps the lone
+  attacker and stays silent when two attack; battle cry pumps each *other*
+  attacker; mentor counters a lesser-power attacker and is dropped
+  (RULE 603.3c) when no attacker qualifies)
+
+### Death/graveyard keywords: Undying, Persist, Unearth, Embalm, Eternalize, Dredge (PAR-25)
+
+- **What:** Six RULE 702 keywords parser-recognised but with zero engine
+  implementation (the ticket's headline: even the hand-authored *grant* of
+  "undying" in `ability_catalogue/entries_003.py` did nothing).
+  - **Undying** (702.93) / **Persist** (702.79) — collected in a new
+    `RulesEngine._collect_undying_persist_triggers` (called from
+    `_collect_triggers` next to `_collect_counter_death_return_triggers`)
+    off the `combat._obj_keywords` union, *not* synthesized at bind time,
+    specifically so a layer-6 *grant* works too. On a creature's own `DIES`
+    event, if the pre-death counter snapshot (`event["counters"]`, RULE
+    603.10 last-known-information) has no `+1/+1` (undying) / `-1/-1`
+    (persist) counter, a fresh `TriggeredAbility` with the new
+    `UndyingPersistReturnEffect` returns the card and places one such
+    counter (`return_from_graveyard`'s own `reset_as_new_object` clears the
+    stale counters first, RULE 400.7).
+  - **Unearth** (702.84) / **Embalm** (702.128) / **Eternalize** (702.129)
+    — three `KeywordShape.COST` keywords whose whole text is a
+    sorcery-speed activated ability *functioning from the graveyard*. Bound
+    in a new `effect_binder._graveyard_keyword_activated_ability` (alongside
+    Cycling/Crew/Saddle/Station in `_keyword_activated_ability`) with
+    `ActivationCost.graveyard_zone` (reused from PAR-10's "return this from
+    your graveyard" family — surfaced by `legal_actions`' existing
+    `player.graveyard` scan) + `sorcery_speed_only`. New `UnearthEffect`
+    (return self + haste + a `DelayedTrigger` end-step exile, `scope="any"`,
+    plus a `WOULD_DIE`→exile replacement so a dying unearthed creature
+    isn't re-unearthable — a bounce/blink keeping it is a known
+    simplification) and `EmbalmEternalizeEffect` (exile self, then
+    `RulesEngine.copy_permanent` with `add_subtypes=["Zombie"]` and, for
+    Eternalize, `set_power=set_toughness=4` — the same copy-modifier
+    vocabulary `CreateTokenCopyOfLinkedExileEffect` uses; the white/black
+    colour override is dropped, `Card.as_copy`'s documented limitation).
+  - **Dredge** (702.52) — a `NUMBER` keyword (`parametric_keywords
+    ["dredge"]["n"]`, read by a new `draw_discard_mixin._dredge_value`,
+    Toxic-style). Offered as an interactive `dredge` `pending_choice` from
+    the single-card fast path of `RulesEngine.draw` (a multi-card `draw()`
+    is a documented simplification): if the drawing player has one or more
+    dredge cards in their graveyard with `n <= len(library)` (RULE
+    702.52c), the draw is deferred; `resolve_dredge_choice` either mills
+    that card's N and returns it to hand (RULE 702.52b) or, on "draw"/
+    decline, falls back to `_single_draw`. `GameEngine.resolve_choice`
+    dispatch + `gameBoardView.js` `CHOICE_ICONS` entry added.
+- **Files:** `game/rules/triggers_mixin.py`, `game/rules/draw_discard_mixin.py`,
+  `game/effects.py` (`UndyingPersistReturnEffect`/`UnearthEffect`/
+  `EmbalmEternalizeEffect`), `game/effect_binder.py`,
+  `game/engine/turn_loop_mixin.py`, `frontend/src/js/gameBoardView.js`,
+  `frontend/src/js/implementationStatusView.js`
+- **Tests:** `tests/test_par25_death_graveyard_keywords.py` (13 — undying
+  returns with +1/+1 / stays dead if it died with one; persist returns
+  with -1/-1 / dies for good the second time; granted undying via a
+  layer-6 static; unearth returns with haste + arms the end-step exile,
+  is exiled at that end step, and is exiled rather than left re-unearthable
+  when it dies; embalm makes a white-Zombie same-P/T token copy and exiles
+  the card; eternalize makes a 4/4 Zombie copy; dredge replaces a draw with
+  mill+return, can be declined to draw, and isn't offered below N library
+  cards)
+
+### Cost keywords: Affinity, Convoke, Delve, Improvise (PAR-23)
+
+- **What:** Four `KeywordShape.QUALITY`/`FLAG` cost keywords, all
+  parser-recognised but wired to nothing.
+  - **Affinity for `<quality>`** (702.41) — Scryfall names it by the full
+    phrase in the `keywords` array ("Affinity for artifacts", "Affinity
+    for Islands"), never a bare "Affinity", so `keywords._resolve` never
+    matched it and `parse_keywords` emitted no spec. Fixed with an
+    `affinity_for_*` → `affinity` row resolution (same "one Scryfall name
+    per variant" shape as the walk/cycling families), so its existing
+    `_SPECIAL_REGEX` recovers the quality from oracle text. `effect_binder.
+    _attach_affinity_static` then synthesizes a `StaticAbility(layer=
+    "cost", affects="self", params={"generic": 1, "per": <count_selector>})`
+    on `obj.static_effects` — exactly the shape `continuous.self_cost_
+    reduction_for` / `_cost_static_amount` already read for a hand-authored
+    Delve/Affinity-style reduction. `_AFFINITY_SELECTORS` maps the
+    supported qualities (artifacts / creatures / lands / each basic land
+    type) to a `count_selector`; an unrecognised quality (a rare tribal
+    "Affinity for Dwarves") synthesizes nothing, fail-closed. The board's
+    "was {4}, now {1}" cost display works for free (legal_actions already
+    surfaces `self_cost_reduction_for`'s contributors).
+  - **Convoke** (702.51) / **Delve** (702.66) / **Improvise** (702.126) —
+    a single opt-in `help_pay` cast flag (not one per keyword — no cached
+    card carries two), threaded through `can_cast`/`effective_cast_cost`/
+    `_auto_tap_for_cast_if_needed`/`_cast_current_face`/`cast_spell`
+    parallel to `evoke`, round-tripped by `game_session._dispatch_cast_
+    spell` off the flag `_cast_action` stamps. `effective_cast_cost(help_
+    pay=True)` folds in the *best-case* generic reduction (`_cast_help_
+    capacity`) for `can_cast` / the offer's displayed cost;
+    `_cast_current_face` does the *minimal* real consumption
+    (`_consume_cast_help` — tap untapped creatures / tap untapped
+    artifacts / exile graveyard cards, one at a time, only until the pool
+    can pay, *after* `_auto_tap` has put in what lands it could).
+    `legal_actions._offer_cast` adds a "cast using Convoke/Delve/Improvise"
+    action (with `help_pay_kind`) whenever the keyword is present, a help
+    resource exists, and that mode is castable — including the
+    `_castable_now_or_via_potential` path so a spell castable *only* with
+    help still appears. **Generic-only** (Convoke's RULE 702.51b "or one
+    mana of that creature's colour" is a documented simplification) and
+    auto-*minimal* rather than a per-resource "which creatures" picker
+    (a future UI refinement); an {X} convoke spell's offered `max_x`
+    ignores the help capacity (server re-validates on cast).
+- **Files:** `parser/oracle/catalogue/keywords.py` (`_resolve`),
+  `game/effect_binder.py` (`_attach_affinity_static`),
+  `game/engine/casting_mixin.py` (`_help_pay_keyword`/`_cast_help_pool`/
+  `_consume_cast_help`/`_cast_help_capacity` + `help_pay` threading),
+  `game/engine/legal_actions_mixin.py`, `services/game_session.py`,
+  `frontend/src/js/implementationStatusView.js`
+- **Tests:** `tests/test_par23_cost_help_keywords.py` (6 — affinity for
+  artifacts / for a basic land type reduces the cost per matching
+  permanent; convoke taps creatures, delve exiles graveyard cards,
+  improvise taps artifacts, each covering exactly the generic shortfall;
+  `help_pay` is refused for a spell without any of the three keywords)
+
+### Cast-alternative/timing keywords: Backup, Dash, Madness, Miracle, Ninjutsu (PAR-26)
+
+- **What:** Five of the six cast-alternative/timing keywords, all
+  parser-recognised but implemented nowhere (Bestow is left open — see
+  `BACKLOG.md`, it's a dual-card-type project).
+  - **Backup N** (702.165) — `effect_binder._kw_backup`: an
+    `ENTERS_BATTLEFIELD` self-trigger with a targeted `AddCountersEffect`
+    (`amount=N`). New `targeting` kind `"creature_including_self"` (the
+    plain `creature` branch without RULE 115.6's self-exclusion) because
+    RULE 702.165a explicitly allows targeting the source — the common
+    line, since it enters alone. The "lends its other abilities" clause is
+    a documented simplification (a resolve-time ability-snapshot grant,
+    MEC-23-shaped).
+  - **Dash** (702.109) — bound as a RULE 118.9-style alternative cost
+    (`obj.alt_cast_cost`, reused from Force of Will — the offer/dispatch/
+    payment path is all wired) plus a `dash` marker and `GameObject.cast_
+    via_dash`, stamped in `_cast_current_face`'s `alt_cost` branch; at
+    resolution (next to `cast_via_evoke`) it grants haste and arms a
+    `DelayedTrigger` "return to hand at the beginning of the next end
+    step" (`ReturnToHandEffect` self form). Known papercut: the `alt_cost`
+    path skips auto-tap, so the dash mana must be in the pool.
+  - **Madness** (702.35) — `draw_discard_mixin._maybe_madness`, called
+    from both `discard` and `discard_specific`: exiles the card instead of
+    graveyarding it, arms a `temp_play_permissions` (same-turn-only)
+    window + `obj.madness_exiled`, and arms a `MadnessToGraveyardEffect`
+    delayed trigger for the next end step (RULE 702.35b). The cast is via
+    `obj.alt_cast_cost` (the madness cost); `_offer_cast` suppresses the
+    *printed*-cost offer for a `madness_exiled` card in exile so only the
+    madness-cost cast is available.
+  - **Miracle** (702.94) — `draw_discard_mixin._arm_miracle`, called from
+    `_single_draw` when the drawn card is the first this turn: sets
+    `obj.miracle_armed` + `GameState.miracle_armed_ids`. The cast is via
+    `obj.alt_cast_cost` (the miracle cost), and `_offer_cast`/
+    `_castable_now_or_via_potential` gate that offer on `miracle_armed`
+    (otherwise a Miracle card just sits in hand castable normally). The
+    window is a whole-turn simplification of RULE 702.94b's "before you
+    get priority", torn down in `_step_cleanup`.
+  - **Ninjutsu** (702.49) — `GameEngine.ninjutsu(player, ninja,
+    returned_attacker)`, a RULE 702.49b special action offered by
+    `legal_actions` to the active player during the declare-blockers step
+    (one entry per ninja-in-hand × unblocked-attacker-you-control pair
+    whose mana cost is payable), dispatched by `game_session.
+    _dispatch_ninjutsu`. Pays the mana, returns the attacker to hand
+    (the printed cost), and puts the ninja onto the battlefield tapped +
+    attacking in its combat slot (same `combat_defender`), firing its own
+    `ENTERS_BATTLEFIELD` and `ATTACKS` events. `obj.ninjutsu_cost`
+    (`ManaCost`) is the bound marker.
+- **Files:** `game/effect_binder.py` (`_kw_backup` + the dash/madness/
+  miracle/ninjutsu keyword-bind hooks), `game/targeting.py`
+  (`creature_including_self`), `game/engine/casting_mixin.py` (`cast_via_
+  dash` stamp), `game/rules/casting_mixin.py` (dash resolution),
+  `game/rules/draw_discard_mixin.py` (`_maybe_madness`/`_arm_miracle`),
+  `game/effects.py` (`MadnessToGraveyardEffect`), `game/engine/combat_
+  mixin.py` (`ninjutsu`), `game/engine/legal_actions_mixin.py` (ninjutsu
+  offer + madness/miracle offer gates), `game/engine/turn_loop_mixin.py`
+  (miracle cleanup), `services/game_session.py` (`_dispatch_ninjutsu`),
+  `models/game_object.py` (`cast_via_dash`/`madness`/`madness_exiled`/
+  `miracle`/`miracle_armed`), `models/game_state.py` (`miracle_armed_ids`),
+  `frontend/src/js/implementationStatusView.js`
+- **Tests:** `tests/test_par26_cast_timing_keywords.py` (9 — backup
+  counters another creature / itself when alone; dash grants haste and
+  bounces at the end step; madness exiles on discard, is castable only
+  for the madness cost, and goes to the graveyard if not cast that turn;
+  miracle arms only the first draw of the turn and the window closes at
+  cleanup; ninjutsu swaps an unblocked attacker for a ninja and is
+  refused for a blocked one)
+
 ## Designations & Standing Systems
 
 ### Goad (RULE 701.15)

@@ -294,6 +294,31 @@ class GameObject:
         #: consequence, not a replacement — its own ETB trigger still
         #: fires first), then clears this flag.
         self.cast_via_evoke: bool = False
+        #: RULE 702.109c/d (PAR-26): whether this creature spell was cast
+        #: for its Dash cost — if so, `RulesEngine`'s permanent-spell
+        #: resolution grants it haste and arms a "return to owner's hand at
+        #: the beginning of the next end step" delayed trigger right after
+        #: it enters, then clears this flag (same shape as `cast_via_evoke`).
+        self.cast_via_dash: bool = False
+        #: RULE 702.35 (PAR-26): whether this card has Madness — set at
+        #: bind alongside `alt_cast_cost` (the madness cost). `draw_discard_
+        #: mixin._maybe_madness` reads it to exile the card on discard
+        #: rather than sending it to the graveyard, and to arm the "to
+        #: graveyard if still exiled at the next end step" delayed trigger.
+        self.madness: bool = False
+        #: RULE 702.35b (PAR-26): set while this Madness card sits in exile
+        #: after a discard — `_offer_cast` reads it (together with a live
+        #: ``zone == EXILE`` check) to offer only the madness-cost cast, not
+        #: the printed-cost one the `temp_play_permissions` window would
+        #: otherwise allow.
+        self.madness_exiled: bool = False
+        #: RULE 702.94 (PAR-26): whether this card has Miracle — set at bind
+        #: alongside `alt_cast_cost` (the miracle cost). `draw_discard_mixin.
+        #: _arm_miracle` sets `miracle_armed` when it's the first card drawn
+        #: this turn; `_offer_cast` offers the miracle-cost cast only while
+        #: `miracle_armed` (torn down at cleanup).
+        self.miracle: bool = False
+        self.miracle_armed: bool = False
         #: RULE 702.62 (MEC-42, Delay): whether this object has Suspend
         #: *granted* onto it rather than printed ("If it doesn't have
         #: suspend, it gains suspend.") — `_has_suspend` (`game/rules/
@@ -1099,6 +1124,7 @@ class GameObject:
         self.face_down_in_exile = False
         self.cast_via_flashback = False
         self.cast_via_evoke = False
+        self.cast_via_dash = False
         self.granted_suspend_haste = False
         self.rebound_pending = False
         self.commander_zone_choice_pending = False

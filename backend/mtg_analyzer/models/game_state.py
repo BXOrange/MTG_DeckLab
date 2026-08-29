@@ -439,6 +439,13 @@ class GameState:
         #: swept at cleanup since there's no turn window to expire.
         self.exile_cast_condition: dict[int, tuple[str, dict]] = {}
 
+        #: RULE 702.94 Miracle (PAR-26) — instance ids of hand cards whose
+        #: same-turn "cast for the miracle cost" window is currently open
+        #: (the first card their controller drew this turn). Torn down at
+        #: cleanup by `GameEngine._step_cleanup`; `GameEngine._offer_cast`
+        #: gates the miracle-cost cast offer on membership.
+        self.miracle_armed_ids: set[int] = set()
+
         #: RULE 701.17-adjacent "void counter" marker (Dauthi Voidwalker,
         #: MEC-42) — ``instance_id -> holder player_id`` for a card exiled
         #: by `continuous.void_counter_redirect_controller_for`'s standing

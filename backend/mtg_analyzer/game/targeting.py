@@ -112,6 +112,10 @@ _ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
         "any", "creature", "permanent", "player", "spell",
+        # RULE 702.165a Backup — "target creature" that explicitly includes
+        # the source itself (PAR-26); the plain `creature` branch minus its
+        # RULE 115.6-style self-exclusion.
+        "creature_including_self",
         # Single-type permanent targets (RULE 115.1c — "target artifact"/
         # "target enchantment"/"target land"), any controller's.
         "artifact", "enchantment", "land", "noncreature_artifact",
@@ -614,6 +618,11 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
         return False
     if combat.has_hexproof(obj) and obj.controller_id != source.controller_id:
         return False
+    # RULE 702.18b: shroud can't be targeted by *any* spell or ability,
+    # its own controller's included — no opponent-scoping, unlike hexproof
+    # just above (PAR-22).
+    if combat.has_shroud(obj):
+        return False
     # "Creatures you control can't be the targets of blue or black spells
     # this turn." (Autumn's Veil, MEC-41) — narrower than hexproof (spells
     # only, never abilities) and unlike protection/hexproof above, not
@@ -632,7 +641,12 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
     return True
 
 
-def _creature_matches_filter(obj: GameObject, filt: dict[str, Any]) -> bool:
+def _creature_matches_filter(
+    obj: GameObject,
+    filt: dict[str, Any],
+    reference: Optional[GameObject] = None,
+    state: Optional[GameState] = None,
+) -> bool:
     """Whether ``obj`` satisfies a `TargetSpec.creature_filter` (see its
     docstring for the key vocabulary).
 
@@ -641,9 +655,13 @@ def _creature_matches_filter(obj: GameObject, filt: dict[str, Any]) -> bool:
     blocked by creatures with power 2 or less") — one predicate rather than
     two that can drift. That superset also understands subtype/colour/
     card-type/relative-power keys this field's own docstring doesn't
-    advertise; a `TargetSpec` simply never sets them today.
+    advertise. ``reference``/``state`` are the comparison anchors the
+    relative keys need (``power_vs_reference`` — Mentor's "with lesser
+    power", PAR-24 — and ``power_lt_count_selector``); passed through from
+    the ``creature`` branch, ``None`` elsewhere (no `TargetSpec` outside
+    that branch sets a relative key).
     """
-    return combat.matches_object_filter(obj, filt)
+    return combat.matches_object_filter(obj, filt, reference=reference, state=state)
 
 
 def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool:
@@ -888,19 +906,28 @@ def legal_targets(
         ]
         players = [{"player_id": p.id, "name": p.name} for p in state.living_players()]
         return objs + other_permanents + (players if not (spec.color or spec.colors) else [])
-    if kind in ("creature", "permanent"):
+    if kind in ("creature", "permanent", "creature_including_self"):
+        # RULE 702.165a Backup — "put N +1/+1 counters on target creature"
+        # explicitly *may* target the source itself (the common line: it
+        # enters alone). `"creature_including_self"` is the plain `creature`
+        # branch without the RULE 115.6-style self-exclusion below (PAR-26).
+        allow_self = kind == "creature_including_self"
+        want_creature = kind != "permanent"
         return [
             # ``controller_id`` is only ever consumed client-side when
             # `spec.distinct_controllers` is set (`gameBoardView.js`'s
             # per-round exclusion) — harmless to always include otherwise.
             {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
             for o in state.permanents()
-            if (kind == "permanent" or o.is_creature)
-            and o is not source
+            if (not want_creature or o.is_creature)
+            and (allow_self or o is not source)
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
-            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
+            and (
+                not spec.creature_filter
+                or _creature_matches_filter(o, spec.creature_filter, source, state)
+            )
         ]
     if kind == "permanent_you_control":
         # RULE 115: "target permanent you own/control." (Reality Scramble-

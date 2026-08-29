@@ -69,6 +69,7 @@ from ..effects import (
     SuspendUpkeepEffect,
     TakeInitiativeEffect,
     TriggeredAbility,
+    UndyingPersistReturnEffect,
     WardEffect,
     WinConditionEffect,
 )
@@ -228,6 +229,7 @@ class TriggerCollectionMixin:
         self._collect_attacks_you_rad_counter_triggers(event)
         self._collect_temporary_player_triggers(event)
         self._collect_counter_death_return_triggers(event)
+        self._collect_undying_persist_triggers(event)
         self._collect_mill_return_from_graveyard_triggers(event)
         self._collect_graveyard_function_triggers(event)
         self._collect_cycled_triggers(event)
@@ -748,6 +750,50 @@ class TriggerCollectionMixin:
                 controller_id=obj.controller_id,
                 source=obj,
                 description=f"{obj.name}: {dying_obj.name} zum Ende des Zuges zurückbringen",
+            )
+            self.pending_triggers.append((ability, event))
+    def _collect_undying_persist_triggers(self, event: GameEvent) -> None:
+        """RULE 702.93 Undying / 702.79 Persist — "When this creature dies,
+        if it had no ``<kind>`` counters on it, return it to the battlefield
+        under its owner's control with a ``<kind>`` counter on it" (undying →
+        ``+1/+1``, persist → ``-1/-1``).
+
+        Collected here off the `combat._obj_keywords` union rather than
+        synthesized at bind time in `effect_binder._KEYWORD_TRIGGERED_
+        BUILDERS`, specifically so a *granted* undying/persist works too
+        (Mikaeus, the Unhallowed; the hand-authored undying grant in
+        `ability_catalogue/entries_003.py`) — the ticket's own headline gap
+        was that a granted "undying" did nothing, since a layer-6 grant
+        lands in `granted_keywords`, never on the keyword-spec list the bind
+        pass reads. A `loses_all_abilities` creature reports no keywords at
+        all (`_obj_keywords`), so it correctly loses undying/persist too.
+
+        Self-scoped: fired for the dying object's own keyword, at DIES time
+        while it is still findable (RULE 603.6a look-back). The RULE 702.93a/
+        702.79a "had no such counter" guard reads the pre-death snapshot off
+        the event (``counters``) — the same RULE 603.10 last-known-
+        information read `_collect_counter_death_return_triggers` uses.
+        """
+        if event.type != EventType.DIES:
+            return
+        if "creature" not in (event.get("object_types") or []):
+            return
+        dying_id = event.get("instance_id")
+        dying_obj = self.state.find_object(dying_id) if dying_id is not None else None
+        if dying_obj is None:
+            return
+        dying_counters = event.get("counters") or {}
+        for keyword, counter_kind in (("undying", "+1/+1"), ("persist", "-1/-1")):
+            if not combat.has(dying_obj, keyword):
+                continue
+            if dying_counters.get(counter_kind, 0) > 0:
+                continue
+            ability = TriggeredAbility(
+                trigger_event=EventType.DIES,
+                effects=[UndyingPersistReturnEffect(counter_kind=counter_kind, source=dying_obj)],
+                controller_id=dying_obj.owner_id,
+                source=dying_obj,
+                description=f"{dying_obj.name}: {keyword}",
             )
             self.pending_triggers.append((ability, event))
     def _collect_mill_return_from_graveyard_triggers(self, event: GameEvent) -> None:

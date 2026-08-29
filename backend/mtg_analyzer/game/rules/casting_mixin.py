@@ -66,6 +66,7 @@ from ..effects import (
     ReboundFreeCastWindowEffect,
     ReplacementEffect,
     ReturnSelfFromGraveyardEffect,
+    ReturnToHandEffect,
     SiegeDefeatedEffect,
     StaticAbility,
     StaticEffect,
@@ -1321,6 +1322,24 @@ class CastingResolutionMixin:
                 obj.granted_suspend_haste = False
                 if obj in self.state.permanents():
                     obj.temp_keywords.add("haste")
+            if getattr(obj, "cast_via_dash", False):
+                # RULE 702.109c/d (PAR-26): a creature cast for its dash
+                # cost gains haste and is returned to its owner's hand at
+                # the beginning of the next end step — same "consequence of
+                # entering, consumed once here" shape as `cast_via_evoke`.
+                obj.cast_via_dash = False
+                if obj in self.state.permanents():
+                    obj.temp_keywords.add("haste")
+                    self.state.delayed_triggers.append(
+                        DelayedTrigger(
+                            controller_id=obj.owner_id,
+                            step="end",
+                            scope="any",
+                            effects=[ReturnToHandEffect(target_kind=None, source=obj)],
+                            targets=[obj],
+                            description=f"{obj.name}: Dash — im nächsten Endsegment auf die Hand",
+                        )
+                    )
             self.state.fire_event(
                 GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
             )
