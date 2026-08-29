@@ -91,6 +91,13 @@ Plan-level sequencing lives in
   new primitive; Support is a parser alias onto the existing `add_counters`
   "up to N target creatures" spec, +25 cards); residue is the dynamic
   "bolster X" / "support X" amount and a couple of second-clause cards.
+  **Suspect** (RULE 701.60) followed (2026-08-29, `Done_Backend.md`
+  "Suspect" — `GameObject.is_suspected` designation + `RulesEngine.
+  suspect`/`remove_suspected` + `SuspectEffect`/`RemoveSuspectedEffect`;
+  RULE 701.60b's menace + can't-block read off the flag in `combat.py` /
+  `combat_mixin`, +8 cards). The mechanic is complete; residue is
+  conditional "if it's suspected" clauses, "can't become suspected"
+  statics and "suspected creatures you control" selectors.
   What remains below is the rest of the audit's gaps. Each is an ordinary
   effect-grammar gap, *not* a "keyword ability missing from a registry";
   most need a new engine primitive before a handler is worth writing, so
@@ -105,8 +112,7 @@ Plan-level sequencing lives in
     Incubator DFC token with N +1/+1 counters; hand-authored per-card
     only today); Face a Villainous Choice (701.55, ~11 — a forced modal
     on an opponent); Collect Evidence (701.59, ~12 — additional cost:
-    exile graveyard cards totalling mana value ≥ N); Suspect (701.60, ~14
-    — menace + "can't block" designation); Forage (701.61, ~5); Endure
+    exile graveyard cards totalling mana value ≥ N); Forage (701.61, ~5); Endure
     (701.63 — N/N Spirit *or* N +1/+1 counters); Blight as a generic
     `blight N` (701.68, ~13 — N -1/-1 counters on a creature you control;
     hand-authored per-card only); Time Travel (701.56, ~3 — suspend-
@@ -128,7 +134,7 @@ Plan-level sequencing lives in
     Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate,
     Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
     The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster,
-    Support — plus engine-action verbs with
+    Support, Suspect — plus engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
     (Planeswalk/Set in Motion/Abandon, Meld). Assemble (701.45) is out of
     the CR; Open an Attraction / Roll to Visit (701.51/52) are the

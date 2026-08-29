@@ -1141,7 +1141,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: X" / "support X" dynamic amounts stay UNMODELED, fail-closed); the
 #: `when ~ enters, <kw> N` and `<cost>: <kw> N` wrappers are free from the
 #: existing trigger/activated-ability grammar.
-PARSER_VERSION = "108"
+#: "109": PAR-29 - RULE 701.60 Suspect (Murders at Karlov Manor), a new
+#: designation like goad: `GameObject.is_suspected` + `RulesEngine.suspect`
+#: / `remove_suspected` + `effects.SuspectEffect` / `RemoveSuspectedEffect`.
+#: RULE 701.60b's menace + can't-block are read off the flag at combat time
+#: (`combat.is_suspected`, `has_menace`, `combat_mixin._can_block`), not the
+#: layer engine. Handlers: "suspect it" (self / previous-clause), "suspect
+#: enchanted creature" (Aura host), "suspect [up to N] target creature[ an
+#: opponent controls]", and "all suspected creatures are no longer
+#: suspected" (Absolving Lammasu). Conditional "if it's suspected, ..."
+#: clauses, "can't become suspected" statics, "suspected creatures you
+#: control" selectors and two-colour token bodies stay UNMODELED.
+PARSER_VERSION = "109"
 
 
 def parser_source_hash() -> str:

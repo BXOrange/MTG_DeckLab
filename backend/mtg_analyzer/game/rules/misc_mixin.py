@@ -1670,6 +1670,36 @@ class MiscSystemsMixin:
                 object_types=sorted(obj.type_words),
             )
         )
+    def suspect(self, obj: Optional[GameObject]) -> None:
+        """RULE 701.60a: ``obj`` becomes **suspected** (menace + can't block,
+        RULE 701.60b — both read off `GameObject.is_suspected` at combat
+        time, `combat.is_suspected`).
+
+        A no-op if ``obj`` isn't a creature. Re-suspecting an already-
+        suspected creature is legal and changes nothing (RULE 701.60c), but
+        the event fires either way — "whenever you suspect a creature" cares
+        that the action happened, mirroring `goad`.
+        """
+        if obj is None or not getattr(obj, "is_creature", False):
+            return
+        obj.is_suspected = True
+        self.state.fire_event(
+            GameEvent(
+                EventType.SUSPECTED,
+                instance_id=obj.instance_id,
+                controller_id=obj.controller_id,
+                object=obj.name,
+                object_types=sorted(obj.type_words),
+            )
+        )
+    def remove_suspected(self, objs: list[GameObject]) -> None:
+        """"... is/are no longer suspected." (RULE 701.60a's reverse) — clear
+        the designation on each of ``objs``. Used both for the mass
+        "all suspected creatures are no longer suspected" (Absolving Lammasu)
+        and a single named creature."""
+        for obj in objs:
+            if obj is not None:
+                obj.is_suspected = False
     def become_monarch(self, player: Player) -> None:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it
         (possibly ``player`` themself) ceases to."""

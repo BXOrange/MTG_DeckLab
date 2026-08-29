@@ -12031,6 +12031,80 @@ class GoadEffect(GameEffect):
                 context.goad(obj, goader_id, permanent=self.permanent)
 
 
+class SuspectEffect(GameEffect):
+    """RULE 701.60a: "Suspect `<creature>`." — the creature gains the
+    **suspected** designation (menace + can't block, RULE 701.60b). Subject
+    shapes, like `GoadEffect` / `ExploreEffect`:
+
+      * bare self (``target_kind=None``, not a pronoun) — "when ~ enters,
+        suspect it", suspecting `self.source`;
+      * ``previous_subject`` — "gain control of target creature … suspect
+        it", the creature an earlier clause chose (`previous_targets`);
+      * ``attached`` — "suspect enchanted creature", this Aura's host;
+      * a `TargetSpec` — "suspect [up to N] target creature[ an opponent
+        controls]".
+    """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+        previous_subject: bool = False,
+        attached: bool = False,
+        optional: bool = False,
+        count: Any = 1,
+    ) -> None:
+        super().__init__(source)
+        self.previous_subject = bool(previous_subject)
+        self.attached = bool(attached)
+        self.target_spec = (
+            TargetSpec(
+                kind=target_kind,
+                optional=optional,
+                count=count if isinstance(count, int) else 1,
+            )
+            if target_kind is not None
+            else None
+        )
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec is not None:
+            chosen = list(targets or [])
+        elif self.attached:
+            host_id = getattr(self.source, "attached_to", None)
+            host = context.state.find_object(host_id) if host_id is not None else None
+            chosen = [host] if host is not None else []
+        elif self.previous_subject:
+            chosen = [
+                o for o in context.previous_targets
+                if getattr(o, "instance_id", None) is not None
+            ]
+        else:
+            chosen = [self.source] if self.source is not None else []
+        for obj in chosen:
+            if getattr(obj, "instance_id", None) is not None:
+                context.engine.suspect(obj)
+
+
+class RemoveSuspectedEffect(GameEffect):
+    """"All suspected creatures are no longer suspected." (RULE 701.60a's
+    reverse — Absolving Lammasu's ETB). ``scope="all"`` is the only shape a
+    real card prints as a standalone clause; the single-creature "it's no
+    longer suspected" is always conditional so far ("if it's suspected, it's
+    no longer suspected") and stays unclaimed, fail-closed.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        suspected = [
+            o for o in context.state.battlefield
+            if getattr(o, "is_suspected", False)
+        ]
+        context.engine.remove_suspected(suspected)
+
+
 class LivingWeaponEffect(GameEffect):
     """RULE 702.92: "When this Equipment enters, create a 0/0 black
     Phyrexian Germ creature token, then attach this Equipment to it."
@@ -19209,6 +19283,26 @@ EffectRegistry.register(
         referent=p.get("referent", "previous"),
         permanent=bool(p.get("permanent", False)),
     ),
+)
+EffectRegistry.register(
+    # RULE 701.60a (suspect, PAR-29): the creature gains the suspected
+    # designation (menace + can't block). ``target_kind=None`` is the bare-
+    # self / pronoun forms, ``attached`` the "suspect enchanted creature"
+    # Aura shape. See `SuspectEffect` / `RulesEngine.suspect`.
+    "suspect",
+    lambda p: SuspectEffect(
+        target_kind=p.get("target_kind"),
+        previous_subject=bool(p.get("previous_subject")),
+        attached=bool(p.get("attached")),
+        optional=bool(p.get("optional")),
+        count=p.get("count", 1),
+    ),
+)
+EffectRegistry.register(
+    # RULE 701.60a's reverse: "all suspected creatures are no longer
+    # suspected." See `RemoveSuspectedEffect` / `RulesEngine.remove_suspected`.
+    "remove_suspected",
+    lambda p: RemoveSuspectedEffect(),
 )
 EffectRegistry.register(
     "create_emblem",  # "you get an emblem with '<ability>'" (RULE 114.2)

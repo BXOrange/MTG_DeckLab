@@ -375,6 +375,15 @@ class EventType:
     #: — "whenever you goad a creature" cares that it happened, not whether
     #: the designation changed.
     GOADED = "GOADED"
+    #: RULE 701.60a: a creature was just **suspected** — carries the
+    #: creature's ``instance_id`` and ``controller_id``. Fired on every
+    #: suspect, including one that changed nothing (RULE 701.60c —
+    #: re-suspecting an already-suspected creature). A suspected creature has
+    #: menace and can't block (701.60b), both read off `GameObject.
+    #: is_suspected` at combat time (`combat.is_suspected`), not the event.
+    #: No card yet triggers on "becomes suspected"; the event exists so one
+    #: could bind the same way as `GOADED`.
+    SUSPECTED = "SUSPECTED"
     #: RULE 506.4's "a player attacks you [with one or more creatures]" —
     #: an aggregate, once-per-combat event `ATTACKS` (fired once per
     #: *creature*) can't express on its own: a player attacking with 3

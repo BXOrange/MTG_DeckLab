@@ -5176,6 +5176,49 @@ def _support(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+# "Suspect <creature>." (RULE 701.60a — Murders at Karlov Manor): the
+# creature gains the suspected designation (menace + can't block, 701.60b).
+# `RulesEngine.suspect` / `effects.SuspectEffect` (registered as
+# ``suspect``). Same subject shapes as `_goad`/`_explore`:
+#   • "suspect it" — the ability's own source ("when ~ enters, suspect it");
+#   • "suspect it"/"suspect that creature" after a targeting clause — the
+#     previous target (`previous_subject_only`, Caught Red-Handed);
+#   • "suspect enchanted creature" — this Aura's host (`attached`);
+#   • "suspect [up to N] target creature[ an opponent controls / other
+#     target creature you control]" — off the shared TARGET rows.
+_SUSPECT_TARGET_KINDS = (
+    "creature", "creature_you_control", "creature_you_dont_control",
+    "other_creature_you_control",
+)
+
+
+def _suspect_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("suspect", {})]
+
+
+def _suspect_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("suspect", {"previous_subject": True})]
+
+
+def _suspect_attached(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("suspect", {"attached": True})]
+
+
+def _suspect_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in _SUSPECT_TARGET_KINDS:
+        return None  # only a creature can be suspected (RULE 701.60a)
+    return [EffectSpec("suspect", {"target_kind": kind, **_optional_param(m)})]
+
+
+# "All suspected creatures are no longer suspected." (RULE 701.60a's
+# reverse — Absolving Lammasu). Only the mass standalone shape; the
+# conditional single-creature "if it's suspected, it's no longer suspected"
+# stays unclaimed, fail-closed.
+def _remove_suspected_all(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("remove_suspected", {})]
+
+
 # "Goad target creature." (RULE 701.15a) and its controller-scoped variants
 # ("…target creature an opponent controls"), off the shared `TARGET` rows.
 def _goad(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -7367,6 +7410,41 @@ HANDLERS: list[EffectHandler] = [
         "goad_previous",
         _c(r"goad (?:it|that creature)"),
         _goad_previous,
+        previous_subject_only=True,
+    ),
+    # "all suspected creatures are no longer suspected" (RULE 701.60a's
+    # reverse) — before the `suspect {TARGET}` row, which can't match it
+    # (no "target") but reads better kept together.
+    EffectHandler(
+        "remove_suspected_all",
+        _c(r"all suspected creatures are no longer suspected"),
+        _remove_suspected_all,
+    ),
+    # "suspect enchanted creature" (RULE 701.60a) — an Aura's host.
+    EffectHandler(
+        "suspect_attached",
+        _c(r"suspect enchanted creature"),
+        _suspect_attached,
+    ),
+    # "suspect [up to N] target creature [an opponent controls]" (RULE 701.60a).
+    EffectHandler(
+        "suspect_target",
+        _c(rf"suspect {TARGET}"),
+        _suspect_target,
+    ),
+    # "suspect it" — explicit self ("when ~ enters, suspect it").
+    EffectHandler(
+        "suspect_self",
+        _c(r"suspect (?:it|~)"),
+        _suspect_self,
+        self_subject_only=True,
+    ),
+    # "suspect it" / "suspect that creature" — the previous clause's target
+    # ("gain control of target creature … suspect it", Caught Red-Handed).
+    EffectHandler(
+        "suspect_previous",
+        _c(r"suspect (?:it|that creature)"),
+        _suspect_previous,
         previous_subject_only=True,
     ),
     # "manifest dread" (RULE 701.40a) — tried before the plain manifest row

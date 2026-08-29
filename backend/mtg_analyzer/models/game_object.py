@@ -851,6 +851,15 @@ class GameObject:
         #: *does* clear it — RULE 400.7's new object hasn't become renowned
         #: either.
         self.renowned: bool = False
+        #: RULE 701.60a: whether this creature is **suspected** (Murders at
+        #: Karlov Manor). A designation, like `is_monstrous`/`goaded_by`, not
+        #: an ability — RULE 701.60b's "has menace and can't block" is read
+        #: off this flag at combat time (`combat.is_suspected`), never via the
+        #: layer engine. Survives an ordinary recompute; ends only when an
+        #: effect says "no longer suspected" (`RemoveSuspectedEffect`) or the
+        #: object leaves the battlefield — so `reset_as_new_object` clears it
+        #: (RULE 400.7's new object isn't suspected).
+        self.is_suspected: bool = False
         #: RULE 701.37b: whether this permanent is **monstrous**. A
         #: designation with no rules meaning of its own — it exists so
         #: monstrosity's own "if this permanent isn't monstrous" guard can
@@ -1176,6 +1185,10 @@ class GameObject:
         #: no longer monstrous and its monstrosity X is forgotten with it.
         self.is_monstrous = False
         self.monstrosity_x = 0
+        #: RULE 701.60a/400.7: suspected ends when the creature leaves the
+        #: battlefield — leaving *is* this transition, so the new object is
+        #: no longer suspected.
+        self.is_suspected = False
         #: RULE 701.15b: goaded is not part of a permanent's copiable values
         #: and doesn't survive the zone change either — including the
         #: "rest of the game" variant, whose duration outlasts a turn but
@@ -1665,6 +1678,9 @@ class GameObject:
             # PAR-28 RULE 719.3b: the "solved" designation, for the board to
             # show a Case's solved badge and enable its Solved ability.
             "is_solved": self.is_solved,
+            # RULE 701.60a: the "suspected" designation (menace + can't block),
+            # for the board to show a badge.
+            "is_suspected": self.is_suspected,
             "combat_defender": self.combat_defender,
             "blocking": self.blocking,
             "additional_blocking": list(self.additional_blocking),

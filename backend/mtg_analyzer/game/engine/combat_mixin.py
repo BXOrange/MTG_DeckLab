@@ -1122,6 +1122,8 @@ class CombatMixin:
             # "~ can't block." / "enchanted creature can't block [or
             # attack]." — a synthetic layer-6 flag, same family as above.
             and not combat.has(blocker, "cant_block")
+            # RULE 701.60b: a suspected creature can't block.
+            and not combat.is_suspected(blocker)
             and attacker.attacking
             and self._attacker_attacks_player(attacker, player)
             and combat.can_block(attacker, blocker)

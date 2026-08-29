@@ -298,7 +298,9 @@ def has_lifelink(obj: "GameObject") -> bool:
 
 
 def has_menace(obj: "GameObject") -> bool:
-    return "menace" in _obj_keywords(obj)
+    # RULE 701.60b: a suspected creature has menace (in addition to any
+    # printed/granted keyword), so `min_blockers` requires 2+ blockers for it.
+    return "menace" in _obj_keywords(obj) or bool(getattr(obj, "is_suspected", False))
 
 
 def has_defender(obj: "GameObject") -> bool:
@@ -737,6 +739,19 @@ def goaders(obj: "GameObject") -> set[str]:
 def is_goaded(obj: "GameObject") -> bool:
     """Whether ``obj`` is goaded by anyone (RULE 701.15b)."""
     return bool(goaders(obj))
+
+
+def is_suspected(obj: "GameObject") -> bool:
+    """RULE 701.60a: whether ``obj`` carries the **suspected** designation.
+
+    A plain `GameObject.is_suspected` flag (`RulesEngine.suspect` sets it,
+    `RemoveSuspectedEffect` clears it), not a keyword and not read from the
+    layer engine — its two rules consequences (RULE 701.60b: menace, and
+    can't block) are applied by `has_menace` and `combat_mixin._can_block`
+    consulting this directly, mirroring how `is_goaded` feeds the
+    combat-requirement checks.
+    """
+    return bool(getattr(obj, "is_suspected", False))
 
 
 def blocker_allowed(
