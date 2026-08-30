@@ -9453,6 +9453,25 @@ class ConniveEffect(GameEffect):
         )
 
 
+class RecruitEffect(GameEffect):
+    """"Recruit." (RULE 701.70a — Tales of Middle-earth): this effect's
+    controller draws a card, then discards a card; if the discarded card was
+    a nonland card, they create a 1/1 white Human Soldier creature token.
+
+    Connive's sibling (`ConniveEffect`) — same draw-then-conditional-discard
+    shape, different payoff (a token, not a +1/+1 counter on a source), so
+    `RulesEngine.recruit` owns it as its own small primitive rather than
+    reusing the shared chooser's ``connive`` flag. Bare "you"-subject only —
+    every real card says just "recruit."
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.engine.recruit(player)
+
+
 class ExploreEffect(GameEffect):
     """RULE 701.44: "`<permanent>` explores." — reveal the top card of the
     exploring permanent's controller's library; a land goes to hand,
@@ -17574,6 +17593,13 @@ EffectRegistry.register(
     # discard a card; if a nonland card was discarded this way, put a
     # +1/+1 counter on the conniving permanent. See `ConniveEffect`.
     "connive", lambda p: ConniveEffect(),
+)
+EffectRegistry.register(
+    # RULE 701.70a (recruit, PAR-29 — Tales of Middle-earth): draw a card,
+    # then discard a card; if the discarded card was a nonland card, create
+    # a 1/1 white Human Soldier token. See `RecruitEffect` /
+    # `RulesEngine.recruit`.
+    "recruit", lambda p: RecruitEffect(),
 )
 EffectRegistry.register(
     # RULE 701.44 (explore, PAR-29): reveal top card of library — land to

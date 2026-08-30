@@ -114,6 +114,10 @@ Plan-level sequencing lives in
   (N +1/+1 counters *or* an N/N white Spirit token) + `EndureEffect`,
   +7 cards). Residue: the "you may pay `{cost}`. If you do, it endures N"
   pay-cost-then wrapper.
+  **Recruit** (RULE 701.70) followed (2026-08-30, `Done_Backend.md`
+  "Recruit" — `RulesEngine.recruit` + a `recruit` "which card to discard"
+  `pending_choice` + `RecruitEffect`; Connive's sibling with a token
+  payoff, +5 cards). No residue.
   What remains below is the rest of the audit's gaps. Each is an ordinary
   effect-grammar gap, *not* a "keyword ability missing from a registry";
   most need a new engine primitive before a handler is worth writing, so
@@ -138,9 +142,9 @@ Plan-level sequencing lives in
     cost, or the real payment path) will *reduce* the coverage count by
     ~5 until built. Time Travel (701.56, ~3 — suspend-
     adjacent); Behold (701.4, ~6 — "behold a `<quality>`" additional
-    cost); Harness (701.64 — a monstrous-style marker designation), Heal
-    (701.69 — remove marked damage), Recruit (701.70 — draw/discard→1/1
-    token); the Avatar bending quartet — Airbend (701.65), Earthbend
+    cost); Harness (701.64 — a monstrous-style marker designation, only
+    ~3 cards), Heal (701.69 — remove marked damage, ~0 cache cards);
+    the Avatar bending quartet — Airbend (701.65), Earthbend
     (701.66, ~18), Waterbend (701.67, ~11 — a "tap artifacts/creatures
     for generic mana" cost mechanic), Firebend.
   - **Parser-shaped only (engine already fine):** "connive N" (701.50d —
@@ -155,8 +159,8 @@ Plan-level sequencing lives in
     Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate,
     Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
     The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster,
-    Support, Suspect, Detain, Endure, Blight (standalone verb form; cost
-    forms open above) — plus engine-action verbs with
+    Support, Suspect, Detain, Endure, Recruit, Blight (standalone verb
+    form; cost forms open above) — plus engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
     (Planeswalk/Set in Motion/Abandon, Meld). Assemble (701.45) is out of
     the CR; Open an Attraction / Roll to Visit (701.51/52) are the

@@ -1090,6 +1090,10 @@ class TurnLoopMixin:
             # RULE 701.63a "Endure N": "counters" (default) or "token"
             # (an N/N white Spirit) — a yes/no, not an object pick.
             self.rules.resolve_endure_choice(to_token=(answer == "token"))
+        elif kind == "recruit":
+            # RULE 701.70a "Recruit": the option id is which hand card to
+            # discard — mandatory, a missing answer defaults to the first.
+            self.rules.resolve_recruit_choice(None if declined else int(answer))
         elif kind == "order_triggers":
             # RULE 603.3b: the option id is the index of the trigger to place next.
             index = None if declined else int(answer)

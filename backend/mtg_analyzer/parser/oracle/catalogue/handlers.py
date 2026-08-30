@@ -5106,6 +5106,15 @@ def _connive(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("connive", {})]
 
 
+# "Recruit." (RULE 701.70a — Tales of Middle-earth: "draw a card, then
+# discard a card. If you discarded a nonland card, create a 1/1 white
+# Human Soldier creature token."). Bare word only — every real card says
+# just "recruit" (as an ETB or attack trigger's whole body).
+# `RulesEngine.recruit` / `effects.RecruitEffect` (registered as ``recruit``).
+def _recruit(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("recruit", {})]
+
+
 # "Discover N." (RULE 701.57a) — exile from the top of your library until a
 # nonland card with mana value N or less, free-cast it or put it in hand,
 # rest to the bottom. `effects.DiscoverEffect` (registered as ``discover``,
@@ -7375,6 +7384,12 @@ HANDLERS: list[EffectHandler] = [
         _c(r"(?:it|he|she) connives?"),
         _connive,
         self_subject_only=True,
+    ),
+    # "recruit" (RULE 701.70a) — bare word (an ETB/attack trigger's whole body).
+    EffectHandler(
+        "recruit",
+        _c(r"recruit"),
+        _recruit,
     ),
     # "discover 3" (RULE 701.57a) — literal mana value only.
     EffectHandler(

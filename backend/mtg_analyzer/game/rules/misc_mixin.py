@@ -1640,6 +1640,70 @@ class MiscSystemsMixin:
             return False
         self.add_counters(obj, max(0, int(amount)), "+1/+1", source=obj)
         return True
+    def recruit(self, player: Player) -> None:
+        """"Recruit" (RULE 701.70a — Tales of Middle-earth): ``player`` draws
+        a card, then discards a card; if the discarded card was a **nonland**
+        card, they create a 1/1 white Human Soldier creature token.
+
+        The "which card to discard" is a `recruit` `pending_choice`
+        (`resolve_recruit_choice`) whenever the hand has 2+ cards after the
+        draw; one card → discarded with no choice, an empty hand → the
+        discard simply doesn't happen (RULE 701.70a is "discard a card", not
+        "you may"). The nonland check + token are `_recruit_discard`.
+        Deliberately its own small primitive rather than reusing
+        `request_choose_objects`'s ``connive`` machinery — the payoff is a
+        token, not a counter on a source, and this shape (draw, then a
+        mandatory conditional discard) is the same `explore_bin`/`bolster`
+        idiom the other PAR-29 keyword actions use.
+        """
+        self.draw(player, 1)
+        if not player.hand:
+            return
+        if len(player.hand) == 1:
+            self._recruit_discard(player, player.hand[0])
+            return
+        self.state.pending_choice = {
+            "kind": "recruit",
+            "player_id": player.id,
+            "prompt": "Rekrutieren: welche Karte abwerfen?",
+            "options": [
+                {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+                for o in player.hand
+            ],
+        }
+    def _recruit_discard(self, player: Player, card: GameObject) -> None:
+        """The discard + conditional token half of `recruit` (RULE
+        701.70a). ``is_land`` is read before the move — a card-type property
+        unaffected by zone, but the obviously-correct order (the same one
+        `_apply_chosen_object`'s connive branch uses)."""
+        is_land = card.is_land
+        self.discard_specific(card)
+        if not is_land:
+            from ...services.token_database import synthesize_token_card  # function-scoped: avoid cycle
+
+            token = synthesize_token_card(
+                name="Soldier", power=1, toughness=1, colors=["W"],
+                subtypes=["Human", "Soldier"],
+            )
+            self.create_token(player.id, token, 1)
+    def resolve_recruit_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending `recruit` discard choice. A missing/unknown answer
+        defaults to the first card — RULE 701.70a's discard is mandatory."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "recruit":
+            raise ValueError("no pending recruit choice to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+        offered = [opt["instance_id"] for opt in choice["options"]]
+        chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
+        card = next(
+            (o for o in player.hand if o.instance_id == chosen_id), None
+        )
+        if card is None and player.hand:
+            card = player.hand[0]
+        if card is not None:
+            self._recruit_discard(player, card)
+        self.check_state_based_actions()
     def _endure_make_token(self, player: Player, amount: int) -> None:
         """The token half of `endure` (RULE 701.63a) — an N/N white Spirit
         creature token."""

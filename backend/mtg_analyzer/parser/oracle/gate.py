@@ -1181,7 +1181,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "you may pay {cost}. If you do, it endures N" wrapper (Descendant of
 #: Storms) stays UNMODELED - a separate pay-cost-then build. Literal N
 #: only ("endures X" fails closed).
-PARSER_VERSION = "112"
+#: "113": PAR-29 - RULE 701.70 "Recruit" (Tales of Middle-earth): draw a
+#: card, then discard a card; if the discarded card was a nonland card,
+#: create a 1/1 white Human Soldier creature token. `RulesEngine.recruit`
+#: + a `recruit` "which card to discard" `pending_choice` +
+#: `effects.RecruitEffect` (bare "you"-subject). Connive's sibling but its
+#: own primitive (token payoff, not a counter on a source). Bare-word
+#: handler.
+PARSER_VERSION = "113"
 
 
 def parser_source_hash() -> str:

@@ -378,6 +378,13 @@ is in the rules-engine categories below them.
 - **Yield:** +7 real cache cards (`parser_probe.py` diff vs v111, full cache, 0 regressed) — Anafenza, Unyielding Lineage, Dusyut Earthcarver, Fortress Kin-Guard, Inspirited Vanguard, Kin-Tree Nurturer, Sandskitter Outrider, Sinkhole Surveyor.
 - **Tests:** `tests/test_par29_endure.py`
 
+### Recruit (RULE 701.70) (PAR-29, PARSER_VERSION 113)
+
+- **What:** The Tales of Middle-earth keyword action — "draw a card, then discard a card. If you discarded a nonland card, create a 1/1 white Human Soldier creature token." **Connive's sibling** (`ConniveEffect` — the same draw-then-conditional-discard shape) but its own primitive, `RulesEngine.recruit(player)` (in `misc_mixin.py`): the payoff is a token, not a +1/+1 counter on a source, and threading a second flag through `request_choose_objects`'s 8 `connive` touch-points would have been more surface than the mechanic needs. `recruit` draws, then opens a `recruit` "which card to discard" `pending_choice` (`resolve_recruit_choice`, mandatory — a missing answer defaults to the first card) when the hand has 2+; `_recruit_discard` reads `is_land` *before* the move (same order as the connive branch) and calls `synthesize_token_card(name="Soldier", …, colors=["W"], subtypes=["Human","Soldier"])` → `create_token`. `effects.RecruitEffect` is a bare "you"-subject effect. Handler `recruit` (bare word — every card prints it as an ETB/attack trigger's whole body).
+- **Files:** `game/rules/misc_mixin.py` (`recruit` / `_recruit_discard` / `resolve_recruit_choice`), `game/effects.py` (`RecruitEffect` + `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice`), `parser/oracle/catalogue/handlers.py`, `frontend/src/js/gameBoardView.js` (`recruit` icon).
+- **Yield:** +5 real cache cards (`parser_probe.py` diff vs v112, full cache, 0 regressed) — Great Gilded Boat, Lake-town Lookout, Long Lake Nuisance, Patient Instructor, The Mountain-king's Return.
+- **Tests:** `tests/test_par29_recruit.py`
+
 ### Reproducible random numbers (RULE 705/706)
 
 - **What:** `RulesEngine.random_int`/`random_choice`/`coin_flip` draw off `GameState`'s own `(rng_seed, rng_counter)` pair, so randomness survives clone/undo/rewind deterministically.
