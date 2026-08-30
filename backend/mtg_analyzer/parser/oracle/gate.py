@@ -1173,7 +1173,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: N. If you do, <effect>" wrapper stay UNMODELED - they need
 #: `ActivationCost`/cast-cost integration, tracked in BACKLOG. "blight X"
 #: (dynamic amount) also stays UNMODELED, fail-closed.
-PARSER_VERSION = "111"
+#: "112": PAR-29 - RULE 701.63 "Endure N" (Bloomburrow): the permanent's
+#: controller either puts N +1/+1 counters on it or creates an N/N white
+#: Spirit creature token. `RulesEngine.endure` + a modal `endure`
+#: `pending_choice` (`resolve_endure_choice`) + `effects.EndureEffect`
+#: (self / previous / target subject shapes, mirroring `explore`). The
+#: "you may pay {cost}. If you do, it endures N" wrapper (Descendant of
+#: Storms) stays UNMODELED - a separate pay-cost-then build. Literal N
+#: only ("endures X" fails closed).
+PARSER_VERSION = "112"
 
 
 def parser_source_hash() -> str:

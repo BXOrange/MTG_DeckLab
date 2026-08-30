@@ -1640,6 +1640,75 @@ class MiscSystemsMixin:
             return False
         self.add_counters(obj, max(0, int(amount)), "+1/+1", source=obj)
         return True
+    def _endure_make_token(self, player: Player, amount: int) -> None:
+        """The token half of `endure` (RULE 701.63a) — an N/N white Spirit
+        creature token."""
+        from ...services.token_database import synthesize_token_card  # function-scoped: avoid cycle
+
+        card = synthesize_token_card(
+            name="Spirit", power=amount, toughness=amount, colors=["W"]
+        )
+        self.create_token(player.id, card, 1)
+    def endure(
+        self, permanent: Optional[GameObject], amount: int, player: Optional[Player] = None
+    ) -> None:
+        """"Endure N" (RULE 701.63a — Bloomburrow): the controller of
+        ``permanent`` **either** puts N +1/+1 counters on it **or** creates an
+        N/N white Spirit creature token.
+
+        A genuine modal choice (`endure` `pending_choice`,
+        `resolve_endure_choice`) — but only when the counters branch is
+        actually possible: if ``permanent`` has left the battlefield or isn't
+        a creature, only the token is available (RULE 608.2b), so it resolves
+        without asking. Counters go on through `add_counters` so RULE 122.5
+        triggers and doublers apply; the token through `create_token`.
+        """
+        if amount <= 0:
+            return
+        controller_id = getattr(permanent, "controller_id", None)
+        if player is None and controller_id is not None:
+            try:
+                player = self.state.player_by_id(controller_id)
+            except KeyError:
+                player = None
+        if player is None:
+            return
+        counters_possible = (
+            permanent is not None
+            and getattr(permanent, "is_creature", False)
+            and permanent in self.state.battlefield
+        )
+        if not counters_possible:
+            self._endure_make_token(player, amount)
+            return
+        self.state.pending_choice = {
+            "kind": "endure",
+            "player_id": player.id,
+            "amount": amount,
+            "permanent_id": permanent.instance_id,
+            "prompt": f"Ausharren {amount}: {amount} +1/+1-Marken oder ein {amount}/{amount} weißer Geist-Token?",
+            "options": [
+                {"id": "counters", "label": f"{amount} +1/+1-Marken auf {permanent.name}"},
+                {"id": "token", "label": f"{amount}/{amount} weißer Geist-Token"},
+            ],
+        }
+    def resolve_endure_choice(self, to_token: bool = False) -> None:
+        """Answer a pending `endure` choice. A missing/unknown answer defaults
+        to the counters branch (the permanent is still there — RULE 701.63a
+        has no "you may", one of the two must happen)."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "endure":
+            raise ValueError("no pending endure choice to resolve")
+        self.state.pending_choice = None
+        player = self.state.player_by_id(choice["player_id"])
+        amount = int(choice["amount"])
+        perm = self._object_by_instance_id(choice.get("permanent_id"))
+        if not to_token and perm is not None and perm in self.state.battlefield:
+            self.add_counters(perm, amount, "+1/+1", source=perm)
+        else:
+            # token chosen, or "it" left the battlefield before resolution
+            self._endure_make_token(player, amount)
+        self.check_state_based_actions()
     def goad(self, obj: GameObject, goader_id: str, permanent: bool = False) -> None:
         """RULE 701.15a: ``goader_id`` goads ``obj`` until their next turn.
 

@@ -109,6 +109,11 @@ Plan-level sequencing lives in
   **Blight N**'s standalone-verb form followed (2026-08-30,
   `Done_Backend.md` "Blight N" — `RulesEngine.blight` + a `blight` choice
   + `BlightEffect`, +1 card); the cost forms are left open below.
+  **Endure N** (RULE 701.63) followed (2026-08-30, `Done_Backend.md`
+  "Endure N" — `RulesEngine.endure` + a modal `endure` `pending_choice`
+  (N +1/+1 counters *or* an N/N white Spirit token) + `EndureEffect`,
+  +7 cards). Residue: the "you may pay `{cost}`. If you do, it endures N"
+  pay-cost-then wrapper.
   What remains below is the rest of the audit's gaps. Each is an ordinary
   effect-grammar gap, *not* a "keyword ability missing from a registry";
   most need a new engine primitive before a handler is worth writing, so
@@ -121,8 +126,8 @@ Plan-level sequencing lives in
     Incubator DFC token with N +1/+1 counters; hand-authored per-card
     only today); Face a Villainous Choice (701.55, ~11 — a forced modal
     on an opponent); Collect Evidence (701.59, ~12 — additional cost:
-    exile graveyard cards totalling mana value ≥ N); Forage (701.61, ~5); Endure
-    (701.63 — N/N Spirit *or* N +1/+1 counters); **Blight — cost forms
+    exile graveyard cards totalling mana value ≥ N); Forage (701.61, ~5);
+    **Blight — cost forms
     only** (Bloomburrow; the standalone-verb form shipped at PARSER_VERSION
     111, `Done_Backend.md` "Blight N"): "{cost}, Blight N: `<effect>`" and
     "as an additional cost … blight N" need an `ActivationCost`/cast-cost
@@ -150,8 +155,8 @@ Plan-level sequencing lives in
     Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate,
     Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
     The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster,
-    Support, Suspect, Detain, Blight (standalone verb form; cost forms
-    open above) — plus engine-action verbs with
+    Support, Suspect, Detain, Endure, Blight (standalone verb form; cost
+    forms open above) — plus engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
     (Planeswalk/Set in Motion/Abandon, Meld). Assemble (701.45) is out of
     the CR; Open an Attraction / Roll to Visit (701.51/52) are the

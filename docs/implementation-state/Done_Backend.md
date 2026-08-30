@@ -370,6 +370,14 @@ is in the rules-engine categories below them.
 - **Yield:** +1 real cache card net (`parser_probe.py` diff vs v110, full cache, 0 regressed) — Sinister Gnarlbark. Most Blight cards are cost-form or carry a second unmodeled clause (Shadow Urchin's counter-death trigger).
 - **Tests:** `tests/test_par29_blight.py`
 
+### Endure N (RULE 701.63) (PAR-29, PARSER_VERSION 112)
+
+- **What:** The Bloomburrow keyword action — the permanent's controller **either** puts N +1/+1 counters on it **or** creates an N/N white Spirit creature token. A genuine modal choice: `RulesEngine.endure(permanent, amount)` (in `misc_mixin.py`, beside `monstrosity`/`adapt`) opens an `endure` `pending_choice` (`resolve_endure_choice`, `to_token` yes/no; a missing answer defaults to the counters branch) — but *only* when the counters branch is possible (the permanent is still a creature on the battlefield). If "it" has left, RULE 608.2b leaves only the token, so it resolves without asking. `_endure_make_token` builds the token via `synthesize_token_card(name="Spirit", power=N, toughness=N, colors=["W"])` → `create_token`; counters go through `add_counters` so RULE 122.5 triggers and doublers apply. `effects.EndureEffect` resolves *which* permanent endures — the same subject shapes as `ExploreEffect`: bare self ("when ~ enters, it endures 3", the bulk), `previous_subject`, and a `TargetSpec`.
+- **Files:** `game/rules/misc_mixin.py` (`endure` / `_endure_make_token` / `resolve_endure_choice`), `game/effects.py` (`EndureEffect` + `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice`), `parser/oracle/catalogue/handlers.py` (`endure_self_named` / `endure_self_pronoun` / `endure_previous` / `endure_target`), `frontend/src/js/gameBoardView.js` (`endure` + the previously-missing `blight` icon).
+- **Deliberately unclaimed:** "you may pay `{cost}`. If you do, it endures N" (Descendant of Storms — a pay-cost-then wrapper); "endures X" (a dynamic amount).
+- **Yield:** +7 real cache cards (`parser_probe.py` diff vs v111, full cache, 0 regressed) — Anafenza, Unyielding Lineage, Dusyut Earthcarver, Fortress Kin-Guard, Inspirited Vanguard, Kin-Tree Nurturer, Sandskitter Outrider, Sinkhole Surveyor.
+- **Tests:** `tests/test_par29_endure.py`
+
 ### Reproducible random numbers (RULE 705/706)
 
 - **What:** `RulesEngine.random_int`/`random_choice`/`coin_flip` draw off `GameState`'s own `(rng_seed, rng_counter)` pair, so randomness survives clone/undo/rewind deterministically.

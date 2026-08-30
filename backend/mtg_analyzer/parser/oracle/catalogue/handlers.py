@@ -5143,6 +5143,33 @@ def _explore_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("explore", {"target_kind": kind, **_optional_param(m)})]
 
 
+# "<permanent> endures N." (RULE 701.63a — Bloomburrow): its controller
+# either puts N +1/+1 counters on it or creates an N/N white Spirit token.
+# `RulesEngine.endure` / `effects.EndureEffect` (registered as ``endure``)
+# own the modal choice. Same subject shapes as `_explore`:
+#   • "~ endures N" / "it endures N" — the ability's own source (the bulk:
+#     "when ~ enters, it endures 3");
+#   • "that creature endures N" — a previous clause's pick;
+#   • "target creature you control endures N" — off the shared TARGET rows.
+# The "you may pay {cost}. If you do, it endures N" wrapper (Descendant of
+# Storms) is a separate pay-cost-then build. Literal N only.
+def _endure_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("endure", {"amount": int(m.group("n"))})]
+
+
+def _endure_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("endure", {"amount": int(m.group("n")), "previous_subject": True})]
+
+
+def _endure_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+        return None
+    return [EffectSpec("endure", {
+        "amount": int(m.group("n")), "target_kind": kind, **_optional_param(m),
+    })]
+
+
 # "Populate." (RULE 701.36a) — put a token onto the battlefield that's a
 # copy of a creature token you control. `RulesEngine.populate` owns the
 # procedure (and the "which token?" choice); `effects.PopulateEffect` is
@@ -7384,6 +7411,33 @@ HANDLERS: list[EffectHandler] = [
         "explore_previous",
         _c(r"(?:it|that creature) explores"),
         _explore_previous,
+        previous_subject_only=True,
+    ),
+    # "target creature you control endures N" (RULE 701.63a) — before the
+    # bare/pronoun rows so its TARGET isn't stolen.
+    EffectHandler(
+        "endure_target",
+        _c(rf"{TARGET} endures (?P<n>\d+)"),
+        _endure_target,
+    ),
+    # "~ endures N" — explicit self ("when ~ enters, ~ endures 3").
+    EffectHandler(
+        "endure_self_named",
+        _c(r"~ endures (?P<n>\d+)"),
+        _endure_self,
+    ),
+    # "it endures N" / "he/she endures N" — self-subject trigger pronoun.
+    EffectHandler(
+        "endure_self_pronoun",
+        _c(r"(?:it|he|she) endures (?P<n>\d+)"),
+        _endure_self,
+        self_subject_only=True,
+    ),
+    # "it endures N" / "that creature endures N" — a previous clause's pick.
+    EffectHandler(
+        "endure_previous",
+        _c(r"(?:it|that creature) endures (?P<n>\d+)"),
+        _endure_previous,
         previous_subject_only=True,
     ),
     # "populate" (RULE 701.36a) — copy a creature token you control.

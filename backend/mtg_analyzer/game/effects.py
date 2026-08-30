@@ -9537,6 +9537,49 @@ class BolsterEffect(GameEffect):
         context.engine.bolster(player, self.amount, source=self.source)
 
 
+class EndureEffect(GameEffect):
+    """RULE 701.63a: "`<permanent>` endures N." (Bloomburrow) — its
+    controller either puts N +1/+1 counters on it or creates an N/N white
+    Spirit creature token. `RulesEngine.endure` owns the procedure and the
+    modal `endure` `pending_choice`; this effect only resolves *which*
+    permanent endures.
+
+    Subject shapes, like `ExploreEffect`: bare self ("when ~ enters, it
+    endures 3", the bulk), ``previous_subject`` ("that creature endures N"),
+    and a `TargetSpec` ("target creature you control endures N").
+    """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        amount: int = 1,
+        target_kind: Optional[str] = None,
+        previous_subject: bool = False,
+        optional: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.amount = max(1, int(amount))
+        self.previous_subject = bool(previous_subject)
+        self.target_spec = (
+            TargetSpec(kind=target_kind, optional=optional)
+            if target_kind is not None
+            else None
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec is not None:
+            endurers = list(targets or [])
+        elif self.previous_subject:
+            endurers = [
+                o for o in context.previous_targets
+                if getattr(o, "instance_id", None) is not None
+            ]
+        else:
+            endurers = [self.source] if self.source is not None else []
+        for obj in endurers:
+            context.engine.endure(obj, self.amount)
+
+
 class BlightEffect(GameEffect):
     """"Blight N." (Bloomburrow — "put N -1/-1 counters on a creature you
     control"). `BolsterEffect`'s negative sibling: a bare "you"-subject
@@ -17564,6 +17607,18 @@ EffectRegistry.register(
     # you control (your choice). See `BlightEffect` / `RulesEngine.blight`.
     "blight",
     lambda p: BlightEffect(amount=p.get("amount", p.get("count", 1))),
+)
+EffectRegistry.register(
+    # "Endure N" (RULE 701.63a, Bloomburrow, PAR-29): either N +1/+1
+    # counters on the permanent, or an N/N white Spirit token — its
+    # controller's choice. See `EndureEffect` / `RulesEngine.endure`.
+    "endure",
+    lambda p: EndureEffect(
+        amount=p.get("amount", p.get("count", 1)),
+        target_kind=p.get("target_kind"),
+        previous_subject=bool(p.get("previous_subject")),
+        optional=bool(p.get("optional")),
+    ),
 )
 EffectRegistry.register(
     "the_ring_tempts_you",  # RULE 701.51a

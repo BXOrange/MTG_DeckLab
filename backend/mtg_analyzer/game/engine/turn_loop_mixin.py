@@ -1086,6 +1086,10 @@ class TurnLoopMixin:
             # "Blight N": the option id is which creature you control gets the
             # -1/-1 counters — a missing answer defaults to the first offered.
             self.rules.resolve_blight_choice(None if declined else int(answer))
+        elif kind == "endure":
+            # RULE 701.63a "Endure N": "counters" (default) or "token"
+            # (an N/N white Spirit) — a yes/no, not an object pick.
+            self.rules.resolve_endure_choice(to_token=(answer == "token"))
         elif kind == "order_triggers":
             # RULE 603.3b: the option id is the index of the trigger to place next.
             index = None if declined else int(answer)

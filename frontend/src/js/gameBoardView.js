@@ -74,7 +74,7 @@ const CHOICE_ICONS = {
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
   scry: '🔮', surveil: '🕵️', opening_hand_battlefield: '🌅', dredge: '⚰️',
-  explore_bin: '🧭', populate: '🌱', bolster: '💪',
+  explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️',
 };
 
 /**
