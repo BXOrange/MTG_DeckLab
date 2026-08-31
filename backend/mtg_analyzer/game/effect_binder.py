@@ -35,6 +35,7 @@ from .static_conditions import condition_holds
 from .effects import (
     ActivatedAbility,
     AddCountersEffect,
+    AddManaEffect,
     AttachEffect,
     BecomeSaddledEffect,
     CumulativeUpkeepEffect,
@@ -2383,6 +2384,36 @@ def _kw_backup(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     ]
 
 
+def _kw_firebending(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.189 (approx) Firebending N (Doctor Who) — "Whenever this
+    creature attacks, add {R}×N. This mana lasts until end of combat."
+
+    A self-only `ATTACKS` triggered **mana** ability (RULE 605.4 —
+    resolves off-stack, so the {R} is spendable in the same combat). The
+    "lasts until end of combat" note is a **documented simplification**:
+    the mana is added to the pool now and empties at the ordinary step
+    boundary rather than being tagged with a combat-scoped lifetime.
+
+    Only reached from a *printed* Firebending keyword line. A *granted*
+    "gains firebending N" (Sozin's Comet, Fire Nation Palace) needs
+    parametric keyword grants — ENG-46 — so those cards stay UNMODELED
+    (PAR-30).
+    """
+    if n is None:
+        return []
+    n = int(n)
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ATTACKS,
+            effects=[AddManaEffect(colors=["R"] * n)],
+            condition=_self_only_condition(getattr(obj, "instance_id", None)),
+            source=obj,
+            mana_ability=True,
+            description=spec.raw_text or f"Firebending {n}",
+        )
+    ]
+
+
 #: `keyword["name"]` → builder, mirroring `EffectRegistry`'s dict-over-
 #: if/elif pattern. Each builder takes ``(obj, spec, n)`` and returns the
 #: real triggered abilities to synthesize for that keyword (or ``[]`` if
@@ -2402,6 +2433,7 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "battle_cry": _kw_battle_cry,
     "mentor": _kw_mentor,
     "backup": _kw_backup,
+    "firebending": _kw_firebending,
 }
 
 

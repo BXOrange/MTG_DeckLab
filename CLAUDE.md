@@ -721,7 +721,14 @@ PAR-30. Also fixed a latent "you create a … token with `<kw>`" →
 Travel — `RulesEngine.time_travel` (documented simplification: remove a
 time counter from each suspended card you own, add one to each
 Vanishing-style permanent you control), `effects.TimeTravelEffect`, a bare
-"time travel" handler [+3]).
+"time travel" handler [+3]). **PAR-29 is closed** — every RULE 701 keyword
+action now has parser recognition + an engine primitive (Firebending's
+printed-keyword ATTACKS `{R}×N` mana ability binds in `effect_binder.py`;
+its *grant* path is `ENG-31`). The residual effect-/outcome-body grammar
+for those cards is `PAR-30` ("PAR-29's parser trail"), with `ENG-31`
+(parametric keyword grants), `ENG-32` (Waterbend cost mechanic) and
+`ENG-33` (villainous-choice/vote option-body primitives) for the
+engine-dependent parts.
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in
