@@ -260,6 +260,10 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # means "win a clash" needs no event ``filter``.
     (re.compile(r"^you clash$"), "CLASHED"),
     (re.compile(r"^you win a clash$"), "WON_CLASH"),
+    # RULE 701.59b: "Whenever you collect evidence, …" (Evidence Examiner/
+    # Surveillance Monitor). `RulesEngine.collect_evidence` fires
+    # `EventType.COLLECTED_EVIDENCE` per-player, same `player_id` convention.
+    (re.compile(r"^you collect evidence$"), "COLLECTED_EVIDENCE"),
 )
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".

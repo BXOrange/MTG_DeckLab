@@ -1729,6 +1729,44 @@ class MiscSystemsMixin:
             source=source,
             then_specs=[{"type": "draw", "params": {"count": 1}}],
         )
+    def collect_evidence_possible(self, player: Player, amount: int) -> bool:
+        """Whether ``player``'s graveyard holds cards whose **total mana
+        value** is ``amount`` or greater (RULE 701.59a) — the affordability
+        check shared by every "collect evidence N" cost site."""
+        total = sum(c.card.converted_mana_cost for c in player.graveyard)
+        return total >= amount
+
+    def collect_evidence(self, player: Player, amount: int) -> bool:
+        """RULE 701.59a: exile cards from ``player``'s graveyard whose total
+        mana value is ``amount`` or greater, then fire
+        `EventType.COLLECTED_EVIDENCE` (701.59b — process-complete, fired
+        even if ``amount`` was 0). Returns whether the exile met the
+        threshold.
+
+        **Documented simplification:** which cards leave is an auto-choice
+        — **highest** mana value first, so the *fewest* cards are spent to
+        clear the threshold — rather than an interactive pick. The same
+        "auto-pick, no chooser in this MVP" idiom `_pay_escape_graveyard_
+        cost` / `discard` / `put_hand_cards_on_top` already use for a
+        value-neutral cost selection.
+        """
+        picked: list[GameObject] = []
+        running = 0
+        for card in sorted(
+            player.graveyard, key=lambda c: c.card.converted_mana_cost, reverse=True
+        ):
+            if running >= amount:
+                break
+            picked.append(card)
+            running += card.card.converted_mana_cost
+        met = running >= amount
+        for card in picked:
+            self.exile(card)
+        self.state.fire_event(GameEvent(
+            EventType.COLLECTED_EVIDENCE,
+            player_id=player.id, controller_id=player.id, amount=amount,
+        ))
+        return met
     def _endure_make_token(self, player: Player, amount: int) -> None:
         """The token half of `endure` (RULE 701.63a) — an N/N white Spirit
         creature token."""
@@ -3362,6 +3400,10 @@ class MiscSystemsMixin:
         # cost`), not both.
         if cost.sacrifice_or_discard and not self._can_sacrifice_or_discard(player):
             return False
+        if cost.collect_evidence and not self.collect_evidence_possible(
+            player, cost.collect_evidence
+        ):
+            return False
         return True
     def _can_sacrifice_or_discard(self, player: Player) -> bool:
         """Whether ``player`` could pay a `sacrifice_or_discard` cost right
@@ -3388,6 +3430,8 @@ class MiscSystemsMixin:
             self.add_player_counters(player, -cost.pay_energy, "energy")
         if cost.sacrifice_or_discard:
             self._pay_sacrifice_or_discard(player)
+        if cost.collect_evidence:
+            self.collect_evidence(player, cost.collect_evidence)
     def _pay_sacrifice_or_discard(self, player: Player) -> None:
         """Pay a `sacrifice_or_discard` cost component — the payer's own
         choice of *which* half (Tergrid's Lantern, MEC-43 round 4E). Forced

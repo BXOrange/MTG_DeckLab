@@ -9689,6 +9689,32 @@ class LearnEffect(GameEffect):
         context.engine.learn(player, source=self.source)
 
 
+class CollectEvidenceEffect(GameEffect):
+    """"Collect evidence N." (RULE 701.59a — Murders at Karlov Manor) as a
+    *resolving effect* rather than a cost: this effect's controller exiles
+    graveyard cards totalling mana value ``amount`` or greater (auto-picked;
+    see `RulesEngine.collect_evidence`) and fires
+    `EventType.COLLECTED_EVIDENCE`. A no-op if their graveyard can't reach
+    the threshold.
+
+    The "you may" that precedes it on every real card is the segmenter's
+    outer `_peel_optional` (`AbilitySpec.optional`) — a *non*-peeled "you
+    may collect evidence N" whole clause is claimed instead by
+    `handlers._collect_evidence_bare` as an interactive `pay_cost_then`.
+    """
+
+    def __init__(self, amount: int = 0, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.amount = int(amount)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        if context.engine.collect_evidence_possible(player, self.amount):
+            context.engine.collect_evidence(player, self.amount)
+
+
 class ExploreEffect(GameEffect):
     """RULE 701.44: "`<permanent>` explores." — reveal the top card of the
     exploring permanent's controller's library; a land goes to hand,
@@ -17977,6 +18003,11 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "learn", lambda p: LearnEffect(),  # RULE 701.48 "Learn."
+)
+EffectRegistry.register(
+    # RULE 701.59 "Collect evidence N" as a resolving effect (the "you may"
+    # is the segmenter's outer optional peel). See `CollectEvidenceEffect`.
+    "collect_evidence", lambda p: CollectEvidenceEffect(amount=int(p.get("amount", 0) or 0)),
 )
 EffectRegistry.register(
     # RULE 701.44 (explore, PAR-29): reveal top card of library — land to

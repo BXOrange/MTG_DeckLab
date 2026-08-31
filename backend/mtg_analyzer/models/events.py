@@ -204,6 +204,15 @@ class EventType:
     #: ``found_land`` (bool). For "whenever ~/a creature you control
     #: explores, <effect>" (Wildgrowth Walker/Path of Discovery-shaped).
     EXPLORED = "EXPLORED"
+    #: A player collected evidence (RULE 701.59a — exiled cards with total
+    #: mana value N or greater from their graveyard, as a cost) — fired once
+    #: by `RulesEngine.collect_evidence` after the exile, carrying
+    #: ``player_id``/``controller_id`` (that player, the SCRY/SURVEIL
+    #: player-subject convention) and ``amount`` (N). Powers "whenever you
+    #: collect evidence, …" (Evidence Examiner/Surveillance Monitor). Fired
+    #: even when N was 0 / the exile was trivial, since 701.59b's "has
+    #: collected evidence" is process-complete, not outcome-gated.
+    COLLECTED_EVIDENCE = "COLLECTED_EVIDENCE"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
     #: The Ring tempted a player (RULE 701.51a, Tales of Middle-earth) —

@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.0% covered — 12,535 / 34,811 — as of 2026-08-31, PARSER_VERSION 117.**
+**36.0% covered — 12,538 / 34,811 — as of 2026-08-31, PARSER_VERSION 118.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -41,7 +41,19 @@ discard-then-draw via the existing `request_choose_objects` chooser
 (`optional` + `then_specs`); the "reveal a Lesson from outside the game"
 branch is a **documented simplification** (dropped — no sideboard, same as
 `ability_catalogue/entries_010.py` for Karn's -2). Bare-word handler,
-+15.)
++15.
+118 = PAR-29's RULE 701.59 Collect Evidence — a real new
+`ActivationCost.collect_evidence` field (a total-mana-value threshold, the
+MV-sum sibling of Escape's `exile_from_graveyard` card count), charged by
+`RulesEngine.collect_evidence` (auto-picks highest-MV-first — documented
+simplification) wherever a cost is paid: `{cost}, collect evidence N:`
+activated abilities, `pay_cost_then` ("you may collect evidence N. if you
+do, …"), and a bare "you may collect evidence N". `EventType.
+COLLECTED_EVIDENCE` + a "whenever you collect evidence" trigger. +3 — most
+of the ~9 remaining SOLO cards block on their *effect bodies* (an exotic
+land-animation / edict / class-up activated body, a *targeted* "if you do"
+payoff `pay_cost_then` can't resolve off-stack, a "rather than pay the mana
+cost" alt-cast), not on the cost primitive.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

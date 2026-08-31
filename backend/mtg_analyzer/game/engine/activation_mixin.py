@@ -481,6 +481,10 @@ class ActivationMixin:
             player, chosen_id=sacrifice_choice
         ) is None:
             return False
+        if cost.collect_evidence and not self.rules.collect_evidence_possible(
+            player, cost.collect_evidence
+        ):
+            return False
         if cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand) is None:
             return False
         if cost.unattach_self and source.attached_to is None:
@@ -1067,6 +1071,11 @@ class ActivationMixin:
                 if not player.library:
                     break
                 self.rules.exile(player.library[-1])
+        if cost.collect_evidence:
+            # RULE 701.59a — exile graveyard cards totalling `collect_evidence`
+            # mana value or more; `RulesEngine.collect_evidence` auto-picks
+            # and fires `EventType.COLLECTED_EVIDENCE`.
+            self.rules.collect_evidence(player, cost.collect_evidence)
         if cost.put_hand_card_on_library:
             chosen = self._resolve_put_hand_card_cost(player, hand_card_choices)
             if chosen:

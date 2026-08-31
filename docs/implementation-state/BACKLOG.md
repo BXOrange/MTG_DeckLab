@@ -83,8 +83,18 @@ Plan-level sequencing lives in
     `extra_counters` to take a count-selector / `"x"` sentinel / a repeat
     count — `extra_counters` is a static `{kind,count}` dict today);
     Face a Villainous Choice (701.55, ~11 — a forced modal
-    on an opponent); Collect Evidence (701.59, ~12 — additional cost:
-    exile graveyard cards totalling mana value ≥ N); Forage (701.61, ~5);
+    on an opponent); **Collect Evidence — residue only** (701.59; the
+    `ActivationCost.collect_evidence` cost primitive +
+    `RulesEngine.collect_evidence` + `EventType.COLLECTED_EVIDENCE` + the
+    `pay_cost_then` / "whenever you collect evidence" wiring shipped at
+    PARSER_VERSION 118): ~9 cache cards still UNMODELED on their *effect
+    bodies*, not the cost — an exotic `{cost}, collect evidence N:`
+    activated body (Hedge Whisperer's land-animation, Polygraph Orb's
+    edict, Tenth District Hero's class-up), a *targeted* "if you do"
+    payoff (`pay_cost_then` resolves off-stack with no target step — Sample
+    Collector, Memory Vampire), a dynamic "collect evidence X" (Incinerator
+    of the Guilty), and "collect evidence N rather than pay the mana cost"
+    as an alt-cast (Conspiracy Unraveler); Forage (701.61, ~5);
     **Blight — cost forms
     only** (Bloomburrow; the standalone-verb form is already modeled):
     "{cost}, Blight N: `<effect>`" and
@@ -149,7 +159,10 @@ Plan-level sequencing lives in
     Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate,
     Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
     The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster,
-    Support, Suspect, Detain, Endure, Recruit, Learn (PARSER_VERSION 117 —
+    Support, Suspect, Detain, Endure, Recruit, Collect Evidence
+    (PARSER_VERSION 118 — the `ActivationCost.collect_evidence` cost
+    primitive; exotic-body/targeted-payoff/alt-cast residue open above),
+    Learn (PARSER_VERSION 117 —
     `RulesEngine.learn`, an optional discard-then-draw via the existing
     `request_choose_objects` chooser; the "Lesson from outside the game"
     branch is dropped, no sideboard — documented simplification), Incubate (literal

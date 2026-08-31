@@ -3704,6 +3704,10 @@ _MAY_COST_THEN_CLAUSE = (
     r"|sacrifice another \w+"
     r"|discard (?:your hand|a card|\d+ cards?|[a-z]+ cards?)"
     r"|pay \d+ life"
+    # RULE 701.59a — a non-mana graveyard cost sized by total mana value;
+    # `costs.parse_activation_cost` recognises it and `_can/_pay_player_cost`
+    # charge it (`RulesEngine.collect_evidence`, PAR-29).
+    r"|collect evidence \d+"
 )
 _PAY_COST_THEN_GENERAL_RE = _c(
     r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?:if|when) you do,?\s*(?P<effect>.+)"
@@ -5325,6 +5329,29 @@ def _recruit(m: re.Match[str]) -> list[EffectSpec]:
 # sideboard), so it collapses to an optional discard-a-card-then-draw.
 def _learn(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("learn", {})]
+
+
+# "You may collect evidence N." (RULE 701.59a, PAR-29) with no "if you do"
+# rider — Corpseberry Cultivator / Evidence Examiner / Surveillance Monitor
+# each print it as a bare optional cost whose *only* payoff is the separate
+# "whenever you collect evidence, …" trigger firing. Modeled as
+# `pay_cost_then` with an empty effect list (an optional cost payment,
+# nothing else); `RulesEngine.collect_evidence` fires
+# `EventType.COLLECTED_EVIDENCE` when paid.
+def _collect_evidence_bare(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pay_cost_then", {
+        "cost": f"collect evidence {m.group('n')}",
+        "effects": [],
+    })]
+
+
+# Bare "collect evidence N" (RULE 701.59a) — what's left after the segmenter
+# peels a triggered ability's outer "you may " (`AbilitySpec.optional`).
+# `CollectEvidenceEffect` (registered as ``collect_evidence``) does the
+# exile + `EventType.COLLECTED_EVIDENCE`; the peeled "you may" carries the
+# optionality.
+def _collect_evidence(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("collect_evidence", {"amount": int(m.group("n"))})]
 
 
 # "Discover N." (RULE 701.57a) — exile from the top of your library until a
@@ -7785,6 +7812,18 @@ HANDLERS: list[EffectHandler] = [
         "learn",
         _c(r"learn"),
         _learn,
+    ),
+    # "you may collect evidence N" (RULE 701.59a) — bare, no "if you do" rider.
+    EffectHandler(
+        "collect_evidence_bare",
+        _c(r"you may collect evidence (?P<n>\d+)"),
+        _collect_evidence_bare,
+    ),
+    # bare "collect evidence N" — the segmenter-peeled triggered-ability body.
+    EffectHandler(
+        "collect_evidence",
+        _c(r"collect evidence (?P<n>\d+)"),
+        _collect_evidence,
     ),
     # "discover 3" (RULE 701.57a) — literal mana value only.
     EffectHandler(

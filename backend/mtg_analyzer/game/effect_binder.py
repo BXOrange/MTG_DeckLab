@@ -250,6 +250,9 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # the same ``player_id`` convention as SCRY/SURVEIL/LIFE_GAINED above.
     "CLASHED": "player_id",
     "WON_CLASH": "player_id",
+    # "Whenever you collect evidence, …" (RULE 701.59b, PAR-29) —
+    # `RulesEngine.collect_evidence` fires `COLLECTED_EVIDENCE` per-player.
+    "COLLECTED_EVIDENCE": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE
