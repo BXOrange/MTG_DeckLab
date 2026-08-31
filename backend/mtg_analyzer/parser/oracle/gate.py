@@ -1350,7 +1350,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Elendra Pranksters, …). +11, 0 regressed. Fire Nation Cadets ("~ has
 #: firebending N as long as there's a lesson card in your graveyard") still
 #: needs a self-keyword-grant static shape + that condition — PAR-30.
-PARSER_VERSION = "135"
+#: "136": PAR-30 — the threaten / "it gains haste" restatement tail. (a) a
+#: singular-pronoun previous-subject pump family ("it [also] gets +N/+N …" /
+#: "it [also] gains `<kw>` until end of turn" — `_PUMP_PREV_SINGULAR_*_RE`,
+#: `previous_subject_only`), the singular sibling of `_PUMP_PREVIOUS_TARGETS_*`.
+#: (b) the connector-split loop now *propagates* the previous-subject referent
+#: through a clause that itself consumed the pronoun ("untap that creature." →
+#: "it gains haste."), so a threaten card's third+ restatement sentence still
+#: resolves. (c) `_GAIN_CONTROL_HASTE_TAIL_RE` also accepts "untap that
+#: permanent" and a ", and" join. Threaten payoffs (Bloody Betrayal, Infernal
+#: Captor, …) + clash "if you win, that creature gets …" (Fistful of Force).
+PARSER_VERSION = "136"
 
 
 def parser_source_hash() -> str:

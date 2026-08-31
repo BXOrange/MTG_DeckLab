@@ -1242,8 +1242,9 @@ _LOOK_TOP_SELECT_DESTINATIONS: dict[str, tuple[str, Optional[str]]] = {
 #: untap effect.
 _GAIN_CONTROL_HASTE_TAIL_RE = re.compile(
     r"^(?P<before>gain control of target .+? until end of turn)\.\s*"
-    r"untap (?:that creature|it)\.?\s*(?:it|they) gains? haste until end of turn"
-    r"(?:\.\s*(?P<after>.+))?$",
+    r"untap (?:that creature|that permanent|it)[.,]?\s*(?:and\s+)?"
+    r"(?:it|they) gains? haste until end of turn"
+    r"(?:[.,]\s*(?:and\s+)?(?P<after>.+))?$",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -2316,6 +2317,17 @@ def parse_effect_body(
                 # unclaimed — rather than letting it drift onto some earlier
                 # clause's pick, which is the ambiguity this gate exists for.
                 referent = _announces_creature_target(sub)
+                # PAR-30: a clause that itself *consumed* the pronoun ("untap
+                # that creature", "it gains haste until end of turn") keeps the
+                # referent chain alive for the clause after it rather than
+                # clearing it — real cards run several such restatement clauses
+                # in series off one "gain control of target creature" antecedent
+                # (the threaten family; RULE 701.30d clash "if you win, …"
+                # payoffs). Only extends an existing chain, never starts one.
+                if not referent and any(
+                    s.params.get("previous_subject") for s in sub
+                ):
+                    referent = True
                 # MEC-28: the mass-selector sibling — "untap all attacking
                 # creatures. They gain …" — tracked independently since a
                 # selector clause never sets ``referent`` above (it targets

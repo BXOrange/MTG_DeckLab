@@ -125,9 +125,13 @@ its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
     Each remaining reanimator-token cluster card is blocked on its *own*
     separate filter/quantifier/tail gap: **Anikthea** "non-aura enchantment
     card" filter, **God-Pharaoh's Gift / Offspring's Revenge** "It gains
-    haste until end of turn." trailing sentence (a general "create token …
-    It gains haste" tail, ~60 SOLO cache-wide — its own PAR item, not
-    ENG-33), **Séance** "exile it at the beginning of the next end step."
+    haste until end of turn." trailing sentence — v136 shipped the general
+    *singular-pronoun* previous-subject pump family ("it [also] gets +N/+N /
+    gains `<kw>` until end of turn", `_PUMP_PREV_SINGULAR_*_RE`) and the
+    connector-loop referent propagation, but a create-token antecedent still
+    needs `GameContext.created_objects` (not `previous_targets`) threaded as
+    the "it" referent — the ~55 remaining "create token … It gains haste"
+    SOLO cards, its own PAR item, not ENG-33 — , **Séance** "exile it at the beginning of the next end step."
     trailing delayed trigger, **Hour of Eternity** "exile X target creature
     cards", **Offspring's Revenge** "target red, white, or black creature
     card" colour filter, **Sauron the Necromancer / Sin** "create a tapped
@@ -237,7 +241,16 @@ its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
     UNMODELED on ordinary effect-grammar in their "if you win" branch —
     "return ~ to hand", "those creatures gain `<keyword>`", "that player
     `<verb>s`", "repeat this process", "protection from the color of your
-    choice" — none of it clash-specific.
+    choice" — none of it clash-specific. v136 closed the "if you win, that
+    creature gets +2/+2 …" singular-pronoun pump payoff (Fistful of Force)
+    via the shared `_PUMP_PREV_SINGULAR_*_RE` family; the rest each need a
+    distinct body handler (a "repeat this process" loop primitive, mass
+    "untap all Forests you control", "return this card to its owner's hand"
+    self-bounce as a split clause, "~ deals N damage to that creature's
+    controller", …). Also still open: making "clash with an opponent" a
+    *referent-transparent* interstitial in the connector-split loop so a
+    "`<main effect on target>`. clash. if you win, `<that creature …>`"
+    card keeps its pronoun chain across the clash sentence.
 
   - **Suspect (RULE 701.60) one-off shapes.** A genuine if/else *effect*
     primitive ("if `<cond>`, A. Otherwise, B." — two mutually exclusive

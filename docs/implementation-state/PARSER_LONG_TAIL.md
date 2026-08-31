@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.5% covered — 12,706 / 34,811 — as of 2026-08-31, PARSER_VERSION 135.**
+**36.6% covered — 12,756 / 34,811 — as of 2026-08-31, PARSER_VERSION 136.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -151,6 +151,26 @@ Cutthroat, Dream Spoilers, Glen Elendra Pranksters, …). +11. Fire Nation
 Cadets ("~ has firebending N as long as there's a lesson card in your
 graveyard") still needs a self-keyword-grant static shape + that
 condition.)
+
+136 = PAR-30 — the threaten / "it gains haste" restatement tail. (a) a
+singular-pronoun previous-subject pump family — "it [also] gets +N/+N [and
+gains `<kw>`] until end of turn" / "it [also] gains `<kw>` until end of
+turn" (`_PUMP_PREV_SINGULAR_*_RE`, `previous_subject_only`), the singular
+sibling of `_PUMP_PREVIOUS_TARGETS_*` ("those creatures"). (b) the
+connector-split loop now *propagates* the previous-subject referent through
+a clause that itself consumed the pronoun ("untap that creature." → "it
+gains haste."), so a threaten card's third-and-later restatement sentence
+still resolves. (c) `_GAIN_CONTROL_HASTE_TAIL_RE` also accepts "untap that
+permanent" and a ", and" join. +50 — mostly the broad "put a +1/+1 counter
+on / deal N damage to / untap target creature. it gains `<kw>` until end of
+turn" shape (Snakeskin Veil, Gerrard's Command, Rile, Eutropia the
+Twice-Favored, …) plus threaten (Malevolent Whispers) and clash "if you
+win, that creature gets …" (Fistful of Force) payoffs. The narrower "it
+gains **haste** until end of turn" threaten tail proper (63 SOLO) mostly
+still blocks on antecedent widening — `_gain_control_eot` rejecting a
+qualified target ("an opponent controls with power 2 or less", "with mana
+value ≤ the number of Vampires"), an "if you do," wrapper, or "create a
+Blood token" not parsing — left open.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

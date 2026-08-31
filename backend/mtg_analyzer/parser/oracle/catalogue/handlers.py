@@ -6524,6 +6524,28 @@ def _pump_previous_targets_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", {"keywords": keywords, "previous_subject": True})]
 
 
+#: PAR-30: the singular-pronoun sibling of `_PUMP_PREVIOUS_TARGETS_*_RE` —
+#: "it [also] gets +N/+N [and gains `<kw>`] until end of turn" / "it [also]
+#: gains `<kw>` until end of turn", where "it"/"that creature"/"that
+#: permanent" is the single RULE 115 target the preceding split clause chose
+#: (`GameContext.previous_targets`, `PumpEffect.previous_subject`). Real
+#: cards run this off a threaten clause's own restatement tail ("gain
+#: control of target creature until end of turn. untap that creature. **it**
+#: gains haste …") when a further sentence keeps `segmenter.
+#: _GAIN_CONTROL_HASTE_TAIL_RE` from absorbing the pair whole, and off clash
+#: "if you win, **that creature** gets +2/+2 …" payoffs (RULE 701.30d).
+#: Gated `previous_subject_only`, so it only competes once the preceding
+#: clause actually bound the pronoun.
+_PREV_SUBJECT_SINGULAR = r"(?:it|that creature|that permanent|that artifact|that token)"
+_PUMP_PREV_SINGULAR_PT_RE = _c(
+    rf"{_PREV_SUBJECT_SINGULAR}(?: also)? gets? (?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
+    r"(?: and gains? (?P<kw>[a-z][a-z, ]*?))? until end of turn"
+)
+_PUMP_PREV_SINGULAR_KW_RE = _c(
+    rf"{_PREV_SUBJECT_SINGULAR}(?: also)? gains? (?P<kw>[a-z][a-z, ]*?) until end of turn"
+)
+
+
 #: MEC-28: "They gain first strike until end of turn." (Karlach, Fury of
 #: Avernus's own trailing sentence, following "untap all attacking
 #: creatures.") — the *mass-selector* sibling of the row above: "they" isn't
@@ -8266,6 +8288,22 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "pump_previous_targets_kw",
         _PUMP_PREVIOUS_TARGETS_KW_RE,
+        _pump_previous_targets_kw,
+        previous_subject_only=True,
+    ),
+    # PAR-30: the singular-pronoun siblings — "it [also] gets +N/+N …" /
+    # "it [also] gains <kw> until end of turn" (threaten restatement tails,
+    # clash "if you win, that creature …" payoffs). P/T row first so a
+    # delta isn't swallowed by the keyword row's bare capture.
+    EffectHandler(
+        "pump_prev_singular_pt",
+        _PUMP_PREV_SINGULAR_PT_RE,
+        _pump_previous_targets_pt,
+        previous_subject_only=True,
+    ),
+    EffectHandler(
+        "pump_prev_singular_kw",
+        _PUMP_PREV_SINGULAR_KW_RE,
         _pump_previous_targets_kw,
         previous_subject_only=True,
     ),

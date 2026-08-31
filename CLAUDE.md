@@ -649,8 +649,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **36.5%
-covered (12,706 / 34,811) as of 2026-08-31, PARSER_VERSION 135** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **36.6%
+covered (12,756 / 34,811) as of 2026-08-31, PARSER_VERSION 136** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -755,7 +755,15 @@ cards) [+12], 135 = "those creatures"/"each of those creatures" prev-target
 pronoun + "each creature you control **with a counter on it**" group
 selector (Iroh) + a "during an opponent's turn" qualifier on
 `_CAST_SPELL_TRIGGER_PLAIN_RE` → `not_controllers_turn` (Fire Nation
-Occupation + the flash-matters cluster — Brineborn Cutthroat &c.) [+11]).
+Occupation + the flash-matters cluster — Brineborn Cutthroat &c.) [+11],
+136 = the singular-pronoun previous-subject pump family ("it [also] gets
++N/+N …" / "it [also] gains `<kw>` until end of turn" — `_PUMP_PREV_
+SINGULAR_*_RE`, the singular sibling of `_PUMP_PREVIOUS_TARGETS_*`), the
+connector-split loop now *propagating* the previous-subject referent
+through a clause that itself consumed the pronoun ("untap that creature." →
+"it gains haste."), and `_GAIN_CONTROL_HASTE_TAIL_RE` widened for "untap
+that permanent" / a ", and" join — Snakeskin Veil, Gerrard's Command,
+Malevolent Whispers, Fistful of Force &c. [+50]).
 **PAR-29 is closed** — every RULE 701
 keyword action has parser recognition + an engine primitive, and its three
 spun-off engine tickets (`ENG-31`/`ENG-32`/`ENG-33`) have all shipped. The
