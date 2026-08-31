@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**35.9% covered — 12,498 / 34,811 — as of 2026-08-31, PARSER_VERSION 114.**
+**35.9% covered — 12,507 / 34,811 — as of 2026-08-31, PARSER_VERSION 115.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -22,7 +22,13 @@ RULE 701.63 Endure, +7. 113 = PAR-29's RULE 701.70 Recruit, +5. 114 = PAR-29's
 dynamic-X, standalone double/triple power-and-toughness, general exchange
 control/exchange life totals, Populate/Endure "X times"/"endures X" riding
 the plain `"x"` sentinel, Bolster/Support dynamic amounts, and a suspected-
-creature target filter, +28.)
+creature target filter, +28. 115 = PAR-29's RULE 701.30 Clash — the
+`RulesEngine.clash` primitive, `effects.ClashEffect`, the `clash_won`
+`ConditionalEffect` key, and `EventType.CLASHED`/`WON_CLASH` — plus "clash
+with an opponent" / "if you win …/otherwise …" / "whenever you clash"
+handlers, +9. The other ~24 cache clash cards stay UNMODELED on ordinary
+effect-grammar residue in their win branches — "return ~ to hand", "those
+creatures gain …", "that player …", "repeat this process" — not on clash.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

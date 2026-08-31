@@ -93,6 +93,11 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # Foretell-gated scry (wired but unreachable — see `effects.py`'s
         # `_condition_holds` for why nothing sets `GameObject.foretold` yet).
         "instant_sorcery_cards_in_graveyard_at_least", "source_was_foretold",
+        # RULE 701.30d (PAR-29): "clash with an opponent. if you win, … /
+        # otherwise, …" — the outcome an earlier `ClashEffect` in the same
+        # resolution stashed on `GameContext.clash_won` (or the firing
+        # `CLASHED` event's own ``won``).
+        "clash_won",
     }
 )
 
@@ -957,6 +962,8 @@ class AbilitySpec:
                 raise SpecValidationError("'kicked' condition must be a bool")
             if key == "target_is_controller" and not isinstance(value, bool):
                 raise SpecValidationError("'target_is_controller' condition must be a bool")
+            if key == "clash_won" and not isinstance(value, bool):
+                raise SpecValidationError("'clash_won' condition must be a bool")
             if key == "kicked_at_least":
                 if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                     raise SpecValidationError("'kicked_at_least' condition must be a positive int")

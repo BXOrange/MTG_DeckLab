@@ -252,6 +252,14 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # this exact shape, only the oracle-text recognition was missing.
     (re.compile(r"^1 or more creatures you control deal combat damage to a player$"),
      "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"),
+    # RULE 701.30: "Whenever you clash, …" (Entangling Trap/Rebellion of the
+    # Flamekin) and its favourable-outcome sibling "Whenever you win a
+    # clash, …" (Marvo, Deep Operative). `EventType.CLASHED` /
+    # `EventType.WON_CLASH` fire from `RulesEngine.clash`; the
+    # `CLASHED`/`WON_CLASH` split (mirroring `LIFE_GAIN`/`LIFE_GAINED`)
+    # means "win a clash" needs no event ``filter``.
+    (re.compile(r"^you clash$"), "CLASHED"),
+    (re.compile(r"^you win a clash$"), "WON_CLASH"),
 )
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
@@ -1117,6 +1125,27 @@ _CONTROLS_NONE_OF_TYPE_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: RULE 701.30d's "clash with an opponent. **if you win**, `<effect>`.
+#: **otherwise**, `<effect>`." branch (PAR-29) — same "wrap the rest, tag the
+#: condition" idiom as `_KICKED_CONDITION_RE`, onto `effects.
+#: ConditionalEffect`'s ``"clash_won"`` key. The `_CONNECTORS` period-split
+#: hands each of "clash with an opponent" / "if you win, …" / "otherwise, …"
+#: to `parse_effect_body` separately; `_clash` (handlers.py) claims the
+#: first, these two the rest. "if you won" (past tense — Entangling Trap's
+#: "whenever you clash, … if you won, …", where the clash is the trigger)
+#: reads the firing `CLASHED` event instead, handled by the same condition
+#: key. "otherwise" carries no explicit "clash" word, so it's deliberately
+#: only recognised as a *split part* here (a top-level body never starts
+#: with a bare "otherwise") and fails closed if its `<effect>` isn't
+#: modelled — and `ConditionalEffect` refuses it anyway when no clash is in
+#: scope.
+_IF_YOU_WIN_CLASH_RE = re.compile(
+    r"^if you w(?:in|on)(?: the clash)?,\s*(?P<rest>.+)$", re.IGNORECASE,
+)
+_OTHERWISE_CLASH_RE = re.compile(
+    r"^otherwise,\s*(?P<rest>.+)$", re.IGNORECASE,
+)
+
 #: "Destroy target X. It can't be regenerated." (Terminate/Doom Blade's
 #: mass/multi/filtered siblings — Death Bomb, Big Game Hunter, Cruel
 #: Revival, …) — the single most repeated removal-spell tail in the cache
@@ -1971,6 +2000,20 @@ def parse_effect_body(
         wants_controller = not target_is_you.group("neg")
         return [
             EffectSpec(e.type, dict(e.params), condition={"target_is_controller": wants_controller})
+            for e in inner
+        ]
+
+    clash_branch = _IF_YOU_WIN_CLASH_RE.match(body) or _OTHERWISE_CLASH_RE.match(body)
+    if clash_branch is not None:
+        inner = parse_effect_body(
+            clash_branch.group("rest"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if inner is None:
+            return None
+        won = _IF_YOU_WIN_CLASH_RE.match(body) is not None
+        return [
+            EffectSpec(e.type, dict(e.params), condition={"clash_won": won})
             for e in inner
         ]
 

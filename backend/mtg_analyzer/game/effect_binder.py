@@ -245,6 +245,11 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # contributing creatures' controller as ``player_id``, the same
     # convention every other player-subject aggregate event above uses.
     "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER": "player_id",
+    # "Whenever you clash, …" / "Whenever you win a clash, …" (RULE 701.30,
+    # PAR-29) — `RulesEngine.clash` fires `CLASHED`/`WON_CLASH` per-player,
+    # the same ``player_id`` convention as SCRY/SURVEIL/LIFE_GAINED above.
+    "CLASHED": "player_id",
+    "WON_CLASH": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE

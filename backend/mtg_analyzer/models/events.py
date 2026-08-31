@@ -444,6 +444,26 @@ class EventType:
     #: declare_attackers`, after `ATTACKS`.
     EXERTED = "EXERTED"
 
+    #: RULE 701.30: a player clashed (revealed the top card of their library
+    #: as part of "clash with an opponent") — fired once by `RulesEngine.
+    #: clash` for the *instructed* player, carrying ``player_id``/
+    #: ``controller_id`` (that player, the RULE 603.1 subject-key convention
+    #: `SCRY`/`SURVEIL` use) and ``won`` (bool, RULE 701.30d). What
+    #: "whenever you clash, …" (Entangling Trap/Rebellion of the Flamekin)
+    #: watches; a "whenever you clash **with an opponent**" qualifier isn't
+    #: split out (no card needs the bare-clash vs clash-with-opponent
+    #: distinction in a trigger). The opponent who also clashes does *not*
+    #: fire this — only the player told to clash.
+    CLASHED = "CLASHED"
+    #: RULE 701.30d: the player named by `CLASHED` won that clash — fired
+    #: additionally (right after `CLASHED`) only on a win, the "whenever you
+    #: win a clash, …" (Marvo, Deep Operative) trigger source. Same
+    #: ``player_id``/``controller_id`` payload; the `CLASHED`/`WON_CLASH`
+    #: split mirrors `LIFE_GAIN`/`LIFE_GAINED` — one event for "it happened",
+    #: a narrower one for "it happened favourably" — so a "win a clash"
+    #: trigger needs no event ``filter``.
+    WON_CLASH = "WON_CLASH"
+
     # Win/loss (RULE 104, RULE 704).
     PLAYER_WOULD_LOSE = "PLAYER_WOULD_LOSE"
     PLAYER_LOST = "PLAYER_LOST"

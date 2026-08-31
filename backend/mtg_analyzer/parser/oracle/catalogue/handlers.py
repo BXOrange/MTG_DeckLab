@@ -5404,6 +5404,18 @@ def _populate_x_times(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("populate", {"count": "x"})]
 
 
+# "Clash with an opponent." / "Clash with defending player." (RULE 701.30,
+# PAR-29) — reveal the top card of your (and one opponent's) library;
+# `RulesEngine.clash` / `effects.ClashEffect` (registered as ``clash``) own
+# the procedure and RULE 701.30d win check. The "if you win, `<effect>`. /
+# otherwise, `<effect>`." branch is a *separate* condition-gated spec
+# (`segmenter._IF_YOU_WIN_CLASH_RE` / `_OTHERWISE_CLASH_RE`), so this
+# handler is only the clash itself — a bare "clash with defending player."
+# (Marvo, Deep Operative) with no branch at all is the whole clause.
+def _clash(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("clash", {})]
+
+
 # "Bolster N." (RULE 701.39a) — put N +1/+1 counters on a least-toughness
 # creature you control (your choice on a tie). `RulesEngine.bolster` /
 # `effects.BolsterEffect` (registered as ``bolster``) own the procedure and
@@ -7822,6 +7834,12 @@ HANDLERS: list[EffectHandler] = [
         "populate_x_times",
         _c(r"populate x times"),
         _populate_x_times,
+    ),
+    # "clash with an opponent" / "clash with defending player" (RULE 701.30).
+    EffectHandler(
+        "clash",
+        _c(r"clash with (?:an opponent|defending player)"),
+        _clash,
     ),
     # "bolster N" (RULE 701.39a) — N +1/+1 counters on a least-toughness
     # creature you control.

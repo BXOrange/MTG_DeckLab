@@ -141,6 +141,17 @@ class GameContext:
         #: `AddManaEffect`'s ``any_amount_from_context`` param.
         #: `_apply_effects_partitioned`'s own save/reset/restore idiom.
         self.permanents_destroyed_this_way: int = 0
+        #: RULE 701.30: whether this resolution's most recent `ClashEffect`
+        #: won its clash (RULE 701.30d), or ``None`` if no clash has happened
+        #: in it. Read by a following `ConditionalEffect(condition=
+        #: {"clash_won": True/False})` — the "clash with an opponent. **if you
+        #: win**, `<effect>`. **otherwise**, `<effect>`." branch — the same
+        #: within-one-resolution referent idiom as `previous_targets`, since
+        #: the clash clause and its conditional clause are always siblings in
+        #: one effect list. `_apply_effects_partitioned`'s save/reset/restore
+        #: idiom (reset to ``None`` per resolution, outer value restored
+        #: after, so a nested trigger resolution can't see a stale win).
+        self.clash_won: Optional[bool] = None
 
     @property
     def players(self) -> list["Player"]:
@@ -916,11 +927,13 @@ def _apply_effects_partitioned(
     outer_life_lost = getattr(context, "life_lost_this_way", 0)
     outer_permanents_destroyed = getattr(context, "permanents_destroyed_this_way", 0)
     outer_previous_selector = getattr(context, "previous_selector", None)
+    outer_clash_won = getattr(context, "clash_won", None)
     context.previous_targets = list(previous_targets or [])
     context.created_objects = list(created_objects or [])
     context.life_lost_this_way = life_lost_this_way
     context.permanents_destroyed_this_way = permanents_destroyed_this_way
     context.previous_selector = previous_selector
+    context.clash_won = None
     try:
         for position, effect in enumerate(effects):
             if source is not None and effect.source is None:
@@ -971,6 +984,7 @@ def _apply_effects_partitioned(
         context.life_lost_this_way = outer_life_lost
         context.permanents_destroyed_this_way = outer_permanents_destroyed
         context.previous_selector = outer_previous_selector
+        context.clash_won = outer_clash_won
 
 
 # ---------------------------------------------------------------------------
@@ -2544,6 +2558,23 @@ class ConditionalEffect(GameEffect):
             is_active = player is not None and active is not None and player.id == active.id
             if is_active != is_your_turn:
                 return False
+        clash_won = self.condition.get("clash_won")
+        if clash_won is not None:
+            # RULE 701.30d: "clash with an opponent. **if you win**, `<effect>`.
+            # **otherwise**, `<effect>`." — the outcome an earlier
+            # `ClashEffect` in *this same resolution* stashed on
+            # `GameContext.clash_won`, OR, for "whenever you clash, … if you
+            # won, …" (Entangling Trap), the firing `CLASHED` event's own
+            # ``won`` (the clash there is the *trigger*, not a body clause).
+            # ``None`` from both means no clash is in scope — fails *both*
+            # branches, so a stray "otherwise" resolves to nothing.
+            outcome = getattr(context, "clash_won", None)
+            if outcome is None:
+                ev = getattr(context, "trigger_event", None)
+                if ev is not None and getattr(ev, "type", None) == EventType.CLASHED:
+                    outcome = ev.get("won")
+            if outcome is None or bool(outcome) != bool(clash_won):
+                return False
         return True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -2662,6 +2693,33 @@ class CoinFlipEffect(GameEffect):
         )
         for effect in inner:
             effect.apply(context, targets)
+
+
+class ClashEffect(GameEffect):
+    """RULE 701.30: "Clash with an opponent." — this effect's controller
+    clashes (`RulesEngine.clash`), stashing the RULE 701.30d outcome on
+    `GameContext.clash_won` for a following `ConditionalEffect(condition=
+    {"clash_won": True/False})` — the "if you win, `<effect>`. otherwise,
+    `<effect>`." branch the parser emits as sibling specs in printed order.
+
+    ``with_opponent`` is RULE 701.30b's "with an opponent" / "with defending
+    player" phrasing (an opponent reveals their top card too); a bare "clash"
+    with no such phrasing has no cache card and is treated identically. The
+    optional 701.30a bottoming and the win/lose branch effects both live
+    elsewhere (`RulesEngine.clash`'s docstring / the sibling `ConditionalEffect`s).
+    """
+
+    def __init__(
+        self, with_opponent: bool = True, source: Optional["GameObject"] = None
+    ) -> None:
+        super().__init__(source)
+        self.with_opponent = bool(with_opponent)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        context.clash_won = context.engine.clash(
+            player, with_opponent=self.with_opponent
+        )
 
 
 class DealDamageEffect(GameEffect):
@@ -18436,6 +18494,13 @@ EffectRegistry.register(
     lambda p: CoinFlipEffect(
         win_effects=p.get("win_effects"), lose_effects=p.get("lose_effects"),
     ),
+)
+EffectRegistry.register(
+    # RULE 701.30 "clash with an opponent" — see `ClashEffect`. The "if you
+    # win, …" / "otherwise, …" branches are separate condition-gated specs,
+    # not params here.
+    "clash",
+    lambda p: ClashEffect(with_opponent=p.get("with_opponent", True)),
 )
 EffectRegistry.register(
     "return_from_graveyard_transformed", lambda p: ReturnFromGraveyardTransformedEffect()

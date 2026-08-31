@@ -1860,6 +1860,56 @@ class MiscSystemsMixin:
         for obj in objs:
             if obj is not None:
                 obj.is_suspected = False
+    def clash(self, player: Optional[Player], with_opponent: bool = True) -> bool:
+        """RULE 701.30: ``player`` clashes — reveals the top card of their
+        library — and, for "clash with an opponent" (``with_opponent``, RULE
+        701.30b), one opponent reveals theirs too. Returns whether ``player``
+        **won** (RULE 701.30d — their revealed card's mana value is strictly
+        higher than every other card revealed in the clash), which the "if
+        you win, `<effect>`. / otherwise, `<effect>`." branch reads back via
+        `effects.ClashEffect` → `GameContext.clash_won`.
+
+        **Documented simplification** — RULE 701.30a's "may then put that card
+        on the bottom of their library" is always declined here: every
+        revealed card stays on top. Modeling that optional bottoming means an
+        APNAP pair of interactive yes/no pauses (RULE 701.30c) for a keyword
+        action ~33 cache cards use, and it never changes *this* resolution's
+        win/lose outcome — only a later draw. Same accepted "an undecided
+        beneficial *may* is declined" convention `effects.CoinFlipEffect`
+        documents.
+
+        With no opponent at all (a 1-player Goldfisch/Replay board) or every
+        opponent's library empty, no *other* card is revealed, so ``player``
+        wins on the strength of their own reveal alone — a deliberate reading
+        of 701.30b's "choose an opponent" when there is none, keeping clash
+        cards functional in solo play. If ``player``'s own library is empty
+        they reveal nothing and cannot win.
+
+        Fires `EventType.CLASHED` (always, for "whenever you clash") and
+        `EventType.WON_CLASH` (only on a win, for "whenever you win a clash").
+        """
+        if player is None:
+            return False
+        top = player.library[-1] if player.library else None
+        my_mv = top.card.converted_mana_cost if top is not None else -1
+        other_mvs: list[int] = []
+        if with_opponent:
+            for opp in self.state.living_players():
+                if opp.id == player.id:
+                    continue
+                opp_top = opp.library[-1] if opp.library else None
+                if opp_top is not None:
+                    other_mvs.append(opp_top.card.converted_mana_cost)
+        won = top is not None and all(my_mv > mv for mv in other_mvs)
+        self.state.fire_event(GameEvent(
+            EventType.CLASHED, player_id=player.id, controller_id=player.id, won=won,
+        ))
+        if won:
+            self.state.fire_event(GameEvent(
+                EventType.WON_CLASH, player_id=player.id, controller_id=player.id,
+            ))
+        return won
+
     def become_monarch(self, player: Player) -> None:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it
         (possibly ``player`` themself) ceases to."""
