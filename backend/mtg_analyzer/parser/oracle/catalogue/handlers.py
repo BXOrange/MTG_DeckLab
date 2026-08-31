@@ -333,6 +333,31 @@ def _damage_kicked_override(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: file; a real card needing one is `game/ability_catalogue.py`'s job
 #: instead (PAR-18's own compound-except residue: Espers to Magicite/
 #: Haunting Imitation/Lazav, Dimir Mastermind/Soul Separator).
+#: Card-type words a copy-"except" tail can't be safely reduced to a colour /
+#: subtype / `add_types=["Artifact"]` — "enchantment creature" &c. would need
+#: `add_types` handling this shape doesn't do, so those stay fail-closed.
+_COPY_EXCEPT_REJECT_TYPE_WORDS: frozenset[str] = frozenset(
+    {"enchantment", "land", "planeswalker", "permanent"}
+)
+
+#: PAR-18 residue — "…except it's a 4/4 black zombie[ creature][ in addition
+#: to its other types]" (the Anikthea / Ardyn / God-Pharaoh's Gift / Hour of
+#: Eternity reanimator-token cycle). P/T + colour + one creature subtype;
+#: the `CopyPermanentEffect.set_power`/`set_toughness`/`set_colors`/
+#: `add_subtypes` params all already existed. **Documented simplification:**
+#: without "in addition to its other types" the printed clause replaces the
+#: copied creature's subtypes rather than adding to them — this always
+#: appends (RULE-inexact for tribal synergies only).
+_COPY_EXCEPT_PT_RE = re.compile(
+    r"it'?s (?:an? )?"
+    r"(?:(?P<p>\d+)/(?P<t>\d+)\s*)?"
+    r"(?P<mid>[a-z][a-z ]*?)?"
+    r"(?:\s*creature)?"
+    r"(?:\s+in addition to its other types)?",
+    re.IGNORECASE,
+)
+
+
 def _copy_except_modifier(piece: str) -> Optional[dict]:
     piece = piece.strip()
     if re.fullmatch(r"it isn'?t legendary|it'?s not legendary", piece):
@@ -353,6 +378,23 @@ def _copy_except_modifier(piece: str) -> Optional[dict]:
         if subtypes:
             out["add_subtypes"] = [s.capitalize() for s in subtypes]
         return out
+    pt = _COPY_EXCEPT_PT_RE.fullmatch(piece)
+    if pt:
+        mid = (pt.group("mid") or "").strip()
+        if any(w.rstrip("s") in _COPY_EXCEPT_REJECT_TYPE_WORDS for w in mid.lower().split()):
+            return None
+        colors, subtypes, is_artifact = _split_token_mid_words(mid)
+        out = {}
+        if pt.group("p") is not None:
+            out["set_power"] = int(pt.group("p"))
+            out["set_toughness"] = int(pt.group("t"))
+        if colors:
+            out["set_colors"] = colors
+        if is_artifact:
+            out["add_types"] = ["Artifact"]
+        if subtypes:
+            out["add_subtypes"] = [s.capitalize() for s in subtypes]
+        return out or None  # nothing recognised in the piece → fail closed
     return None
 
 

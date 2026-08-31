@@ -650,7 +650,7 @@ on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
 (`scripts/import_bulk.py`), so coverage is measured against that: **36.3%
-covered (12,626 / 34,811) as of 2026-08-31, PARSER_VERSION 129** (parser-`MODELED` **or**
+covered (12,627 / 34,811) as of 2026-08-31, PARSER_VERSION 130** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60

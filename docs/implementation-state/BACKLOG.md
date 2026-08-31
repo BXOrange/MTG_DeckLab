@@ -132,15 +132,20 @@ that populates `previous_targets` — is a 12-SOLO cluster, PAR-30.)*
     (v129) shipped the targeted-player edict, uncapped/noncreature
     free-cast and put-`<type>`-from-hand bodies — Great Intelligence's Plan
     and Dr. Eggman are MODELED. Still open: "you create a token that's a
-    copy of that card" (The Master — PAR-18's `CopyPermanentEffect(referent=
-    "previous")` primitive exists; needs the "except it's a 3/3 …" modifier
-    grammar + the graveyard-exile clause that populates `previous_targets`,
-    a 12-SOLO cluster: Anikthea, Ardyn, Back from the Brink, God-Pharaoh's
-    Gift, Hour of Eternity, …); "exile cards … until you exile a nonland
-    card, then cast it" (Ensnared by the Mara); "that creature becomes a
-    1/1 and loses all abilities" (Hunted by The Family); conditional/previous
-    subjects — "each opponent who lost 3+ life this turn" (Davros), "choose
-    an opponent with the most life" (The Master).
+    copy of that card" (The Master). The "except it's [a] `<P/T>`
+    `<colour>` `<subtype>`" **tail** parses now (v130 —
+    `_COPY_EXCEPT_PT_RE`, `CopyPermanentEffect.set_colors`); each remaining
+    "copy of that card" cluster card is blocked on its *own* separate
+    connector/filter gap: **Anikthea** "non-aura enchantment card" filter,
+    **Ardyn / God-Pharaoh's Gift** "if you exiled a card this way," / "if
+    you do," reflexive connector, **Hour of Eternity** "exile X target
+    creature cards", **Offspring's Revenge** "target red, white, or black
+    creature card", **Back from the Brink** "…and pay its mana cost:"
+    activation cost. Also still open: "exile cards … until you exile a
+    nonland card, then cast it" (Ensnared by the Mara); "that creature
+    becomes a 1/1 and loses all abilities" (Hunted by The Family);
+    conditional/previous subjects — "each opponent who lost 3+ life this
+    turn" (Davros), "choose an opponent with the most life" (The Master).
 
   - **Firebending (RULE ~702.189) grants — ENG-31 shipped (v128).** The
     parametric-keyword-grant primitive is done: "target creature / creatures

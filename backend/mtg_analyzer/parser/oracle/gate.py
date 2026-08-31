@@ -1258,7 +1258,22 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "except it's a 3/3 ..." modifier grammar + the graveyard-exile clause
 #: that populates `previous_targets`, a 12-SOLO cluster left to PAR-30.
 #: +45 cache cards (parser_probe diff, full cache, 0 regressed).
-PARSER_VERSION = "129"
+#: "130": ENG-33 follow-up (the "copy of that card" family the ticket's
+#: 4th named primitive names) - `_copy_except_modifier` gained a
+#: `_COPY_EXCEPT_PT_RE` branch for "except it's [a] <P>/<T> [<colour>]
+#: <subtype> [creature] [in addition to its other types]" (the Anikthea /
+#: Ardyn / God-Pharaoh's Gift / Hour of Eternity reanimator-token cycle,
+#: and Ember Island Production's modal shape). The engine params all
+#: already existed except colour: added `Card.as_copy(set_colors=...)` /
+#: `RulesEngine.copy_permanent(set_colors=...)` /
+#: `CopyPermanentEffect.set_colors`. **Documented simplification:** without
+#: "in addition to its other types" the printed clause replaces the
+#: copied creature's subtypes; this always appends (tribal-synergy-inexact
+#: only). +1 now (Ember Island Production); each remaining cluster card is
+#: blocked on its own separate small connector/filter gap ("if you exiled
+#: a card this way", "non-aura enchantment card", "exile X target …") -
+#: PAR-30.
+PARSER_VERSION = "130"
 
 
 def parser_source_hash() -> str:

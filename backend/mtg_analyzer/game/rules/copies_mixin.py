@@ -155,6 +155,7 @@ class CopiesMixin:
         not_legendary: bool = False,
         set_power: Optional[int] = None,
         set_toughness: Optional[int] = None,
+        set_colors: Optional[list[str]] = None,
     ) -> list[GameObject]:
         """Create ``count`` token copies of ``source`` (RULE 707.2 / 111.5).
 
@@ -172,10 +173,11 @@ class CopiesMixin:
         enters-as-a-copy replacement shape.
         """
         copiable = getattr(source, "_front_card", source.card)
-        if add_types or add_subtypes or not_legendary or set_power is not None or set_toughness is not None:
+        if (add_types or add_subtypes or not_legendary or set_power is not None
+                or set_toughness is not None or set_colors is not None):
             copiable = copiable.as_copy(
                 add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
-                set_power=set_power, set_toughness=set_toughness,
+                set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
             )
         return self.create_token(controller_id, copiable, count)
     def populate(self, player: Player) -> list[GameObject]:

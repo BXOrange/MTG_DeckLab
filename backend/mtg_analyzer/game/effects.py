@@ -322,12 +322,13 @@ class GameContext:
         not_legendary: bool = False,
         set_power: Optional[int] = None,
         set_toughness: Optional[int] = None,
+        set_colors: Optional[list[str]] = None,
     ) -> list[Any]:
         # Returns what it made, same as `create_token` — see `created_objects`.
         return self.engine.copy_permanent(
             controller_id, source, count,
             add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
-            set_power=set_power, set_toughness=set_toughness,
+            set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
         )
 
     def copy_spell(
@@ -13577,6 +13578,7 @@ class CopyPermanentEffect(GameEffect):
         target_optional: bool = False,
         set_power: Optional[int] = None,
         set_toughness: Optional[int] = None,
+        set_colors: Optional[list[str]] = None,
         extra_temp_keywords: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
@@ -13621,6 +13623,11 @@ class CopyPermanentEffect(GameEffect):
         #: through the same way ``add_types``/``add_subtypes`` are.
         self.set_power = set_power
         self.set_toughness = set_toughness
+        #: "…except it's a 4/4 **black** zombie" (PAR-18 residue — the
+        #: Anikthea/Ardyn/God-Pharaoh's Gift/Hour of Eternity reanimator-
+        #: token cycle): replace the copied card's colour identity outright
+        #: with these WUBRG letters (`Card.as_copy`'s ``set_colors``).
+        self.set_colors = list(set_colors) if set_colors is not None else None
         #: "…and it has flying and haste." (The Jolly Balloon Man, MEC-40)
         #: — ``haste`` above stays its own bool for backward compatibility
         #: (every existing caller already sets it that way); any *other*
@@ -13674,6 +13681,7 @@ class CopyPermanentEffect(GameEffect):
                     add_types=self.add_types, add_subtypes=self.add_subtypes,
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
+                    set_colors=self.set_colors,
                 )
                 context.created_objects.extend(made)
                 if self.haste:
@@ -13714,6 +13722,7 @@ class CopyPermanentEffect(GameEffect):
                 add_types=self.add_types, add_subtypes=self.add_subtypes,
                 not_legendary=self.not_legendary,
                 set_power=self.set_power, set_toughness=self.set_toughness,
+                set_colors=self.set_colors,
             )
             # RULE 608.2's "the tokens"/"it" referent for a following
             # clause — `create_token`'s own effect already does this; this
@@ -18757,6 +18766,7 @@ EffectRegistry.register(
         target_optional=bool(p.get("target_optional", False)),
         set_power=p.get("set_power"),
         set_toughness=p.get("set_toughness"),
+        set_colors=p.get("set_colors"),
         extra_temp_keywords=p.get("extra_temp_keywords"),
     ),
 )

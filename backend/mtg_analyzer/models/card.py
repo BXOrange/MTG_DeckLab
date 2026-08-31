@@ -436,6 +436,7 @@ class Card:
         add_keywords: Optional[list[str]] = None,
         set_power: Optional[int] = None,
         set_toughness: Optional[int] = None,
+        set_colors: Optional[list[str]] = None,
     ) -> "Card":
         """This card's *copiable values* (RULE 706.2), as a fresh `Card`.
 
@@ -464,7 +465,11 @@ class Card:
         ``set_power``/``set_toughness`` (The Jolly Balloon Man, MEC-40 —
         "…except it's a 1/1 red Balloon creature…") override the copied
         creature's own printed P/T outright, applied last so they win over
-        whatever the copied card printed.
+        whatever the copied card printed. ``set_colors`` (PAR-18 residue —
+        "…except it's a 4/4 **black** zombie", the reanimator-token cycle:
+        Anikthea/Ardyn/God-Pharaoh's Gift/Hour of Eternity) replaces the
+        copied card's colour identity outright with exactly the given WUBRG
+        letters (an empty list makes the copy colourless).
         ``add_keywords`` appends raw keyword strings onto the copy (Flesh
         Duplicate's conditional Vanishing, Imposter Mech's Crew) — RULE
         707.2 replaces the original's printed text with the copied object's,
@@ -512,6 +517,10 @@ class Card:
             power = set_power
         if set_toughness is not None:
             toughness = set_toughness
+        color_identity = (
+            {c for c in set_colors if c in VALID_COLORS}
+            if set_colors is not None else set(self.color_identity)
+        )
         keywords = list(self.keywords)
         oracle_text = self.oracle_text
         if add_keywords:
@@ -542,7 +551,7 @@ class Card:
             mana_cost=dict(self.mana_cost),
             mana_cost_string=self.mana_cost_string,
             converted_mana_cost=self.converted_mana_cost,
-            color_identity=set(self.color_identity),
+            color_identity=color_identity,
             is_creature=is_creature,
             is_instant=self.is_instant,
             is_sorcery=self.is_sorcery,
