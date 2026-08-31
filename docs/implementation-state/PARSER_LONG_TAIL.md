@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.0% covered — 12,520 / 34,811 — as of 2026-08-31, PARSER_VERSION 116.**
+**36.0% covered — 12,535 / 34,811 — as of 2026-08-31, PARSER_VERSION 117.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -35,7 +35,13 @@ hand-authored entry already used (the Incubator DFC token and its "{2}:
 Transform" bind off the token name via `ability_catalogue/entries_008.py`),
 +13. Dynamic "incubate X, where X is `<count>`" stays open — needs
 `create_token`'s `extra_counters` to accept a count-selector/`"x"` sentinel;
-"incubate N twice" / "incubate N that many times" likewise.)
+"incubate N twice" / "incubate N that many times" likewise.
+117 = PAR-29's RULE 701.48 Learn — `RulesEngine.learn` opens an optional
+discard-then-draw via the existing `request_choose_objects` chooser
+(`optional` + `then_specs`); the "reveal a Lesson from outside the game"
+branch is a **documented simplification** (dropped — no sideboard, same as
+`ability_catalogue/entries_010.py` for Karn's -2). Bare-word handler,
++15.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

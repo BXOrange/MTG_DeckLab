@@ -1704,6 +1704,31 @@ class MiscSystemsMixin:
         if card is not None:
             self._recruit_discard(player, card)
         self.check_state_based_actions()
+    def learn(self, player: Player, source: Optional[GameObject] = None) -> None:
+        """"Learn" (RULE 701.48a — Strixhaven): ``player`` may **either**
+        reveal a Lesson card they own from outside the game and put it into
+        their hand, **or** discard a card, then — if they discarded a card
+        this way — draw a card.
+
+        **Documented simplification:** the "Lesson from outside the game"
+        branch is dropped. This engine has no sideboard / outside-the-game
+        zone with any Commander-legal use (the same call the `ability_
+        catalogue` already makes for Karn's -2, `entries_010.py`), so Learn
+        collapses to its other, fully-modelable half: an optional
+        discard-a-card-then-draw-a-card, driven straight through
+        `request_choose_objects`'s existing ``optional`` + ``then_specs``
+        machinery (a real discard fires the draw; a decline does nothing).
+        An empty hand → nothing happens (nothing to discard, and the Lesson
+        branch is gone).
+        """
+        if not player.hand:
+            return
+        self.request_choose_objects(
+            player, list(player.hand), "discard", count=1, optional=True,
+            prompt="Lernen — eine Karte abwerfen, dann eine Karte ziehen?",
+            source=source,
+            then_specs=[{"type": "draw", "params": {"count": 1}}],
+        )
     def _endure_make_token(self, player: Player, amount: int) -> None:
         """The token half of `endure` (RULE 701.63a) — an N/N white Spirit
         creature token."""

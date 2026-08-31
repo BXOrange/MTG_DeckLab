@@ -9675,6 +9675,20 @@ class RecruitEffect(GameEffect):
         context.engine.recruit(player)
 
 
+class LearnEffect(GameEffect):
+    """"Learn." (RULE 701.48a — Strixhaven): this effect's controller may
+    discard a card, then draw a card (the "Lesson from outside the game"
+    branch is dropped — see `RulesEngine.learn`). Bare "you"-subject only —
+    every real card says just "learn.".
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.engine.learn(player, source=self.source)
+
+
 class ExploreEffect(GameEffect):
     """RULE 701.44: "`<permanent>` explores." — reveal the top card of the
     exploring permanent's controller's library; a land goes to hand,
@@ -17960,6 +17974,9 @@ EffectRegistry.register(
     # a 1/1 white Human Soldier token. See `RecruitEffect` /
     # `RulesEngine.recruit`.
     "recruit", lambda p: RecruitEffect(),
+)
+EffectRegistry.register(
+    "learn", lambda p: LearnEffect(),  # RULE 701.48 "Learn."
 )
 EffectRegistry.register(
     # RULE 701.44 (explore, PAR-29): reveal top card of library — land to

@@ -74,8 +74,7 @@ Plan-level sequencing lives in
   `MEC` once picked up. Solo-blocker counts are cache-wide from
   `parser_probe.py`.
   - **Needs an engine primitive first:** Vote (701.38, ~28 — the voting subsystem,
-    RULE 701.38a APNAP-order choice); Learn (701.48, ~16 — discard-may→draw, else Lesson from
-    outside the game); **Incubate — dynamic amount only** (701.53; the literal
+    RULE 701.38a APNAP-order choice); **Incubate — dynamic amount only** (701.53; the literal
     `incubate N` form is modeled at PARSER_VERSION 116, reusing the existing
     Incubator DFC token + "{2}: Transform"): "incubate X, where X is
     `<count>`" (Bloated Processor/Chrome Host Seedshark/Sunfall/Blight
@@ -150,7 +149,10 @@ Plan-level sequencing lives in
     Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate,
     Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
     The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster,
-    Support, Suspect, Detain, Endure, Recruit, Incubate (literal
+    Support, Suspect, Detain, Endure, Recruit, Learn (PARSER_VERSION 117 —
+    `RulesEngine.learn`, an optional discard-then-draw via the existing
+    `request_choose_objects` chooser; the "Lesson from outside the game"
+    branch is dropped, no sideboard — documented simplification), Incubate (literal
     `incubate N` — PARSER_VERSION 116, parser handler only onto the
     pre-existing Incubator token; dynamic-amount forms open above), Clash (PARSER_VERSION 115 —
     `RulesEngine.clash` + `effects.ClashEffect` + the `clash_won`

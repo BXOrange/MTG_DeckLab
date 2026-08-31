@@ -650,7 +650,7 @@ on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
 (`scripts/import_bulk.py`), so coverage is measured against that: **36.0%
-covered (12,520 / 34,811) as of 2026-08-31, PARSER_VERSION 116** (parser-`MODELED` **or**
+covered (12,535 / 34,811) as of 2026-08-31, PARSER_VERSION 117** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -665,7 +665,11 @@ RULE 701.30 Clash primitive (`RulesEngine.clash`, `effects.ClashEffect`, the
 opponent" / "if you win …/otherwise …" handlers [+9], 116 was PAR-29's
 RULE 701.53 "incubate N" handler — no engine primitive needed, the Incubator
 DFC token + its "{2}: Transform" already existed (Glissa, Herald of
-Predation); dynamic "incubate X, where X is …" stays open [+13]).
+Predation); dynamic "incubate X, where X is …" stays open [+13], 117 was
+PAR-29's RULE 701.48 Learn (`RulesEngine.learn`, `effects.LearnEffect`) —
+the "Lesson from outside the game" branch dropped (no sideboard), collapsed
+to an optional discard-then-draw via the existing `request_choose_objects`
+chooser [+15]).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in

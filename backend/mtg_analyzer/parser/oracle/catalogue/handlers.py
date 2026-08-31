@@ -5318,6 +5318,15 @@ def _recruit(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("recruit", {})]
 
 
+# "Learn." (RULE 701.48a — Strixhaven). Bare word only — every real card
+# says just "learn." (as a spell effect, or an ETB/dies/activated-ability
+# body). `RulesEngine.learn` / `effects.LearnEffect` (registered as
+# ``learn``) — the "Lesson from outside the game" branch is dropped (no
+# sideboard), so it collapses to an optional discard-a-card-then-draw.
+def _learn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("learn", {})]
+
+
 # "Discover N." (RULE 701.57a) — exile from the top of your library until a
 # nonland card with mana value N or less, free-cast it or put it in hand,
 # rest to the bottom. `effects.DiscoverEffect` (registered as ``discover``,
@@ -7770,6 +7779,12 @@ HANDLERS: list[EffectHandler] = [
         "recruit",
         _c(r"recruit"),
         _recruit,
+    ),
+    # "learn" (RULE 701.48a) — bare word (spell effect / ETB / dies / cost body).
+    EffectHandler(
+        "learn",
+        _c(r"learn"),
+        _learn,
     ),
     # "discover 3" (RULE 701.57a) — literal mana value only.
     EffectHandler(
