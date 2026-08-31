@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.8% covered — 12,810 / 34,811 — as of 2026-08-31, PARSER_VERSION 139.**
+**36.9% covered — 12,852 / 34,811 — as of 2026-08-31, PARSER_VERSION 140.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -229,6 +229,33 @@ werewolf cycle (Reckless Waif, Kruin Outlaw, Mayor of Avabruck, Mondronen
 Shaman, Village Messenger, Call of the Full Moon's Aura form, …), 0
 regressed. The legacy "deliberately deferred" negative test in
 `test_batch9_conditional_transform_family.py` flipped to a positive one.
+
+140 = PAR-30 — the **O-Ring / Banisher Priest / Fiend Hunter** family,
+modern one-sentence templating: "exile `<TARGET>` [an opponent controls]
+until ~ leaves the battlefield." (~47 SOLO). The engine halves both
+pre-existed — `ExileEffect(remember=True)` stamps `GameObject.
+linked_exile_id`, `ReturnLinkedExileEffect` reads it back (MEC-21 /
+MEC-30 / Skyclave Apparition) — the gap was purely parser recognition,
+and specifically that one clause maps to *two* abilities. `handlers.
+_exile_until_leaves` emits the exile spec with a new `until_source_leaves`
+param; `segmenter.segment_line`, right after building the primary
+triggered `AbilitySpec`, checks for that param and appends a companion
+`LEAVES_BATTLEFIELD` → `return_linked_exile` `AbilitySpec` via
+`Segment.extra_specs`. Target-kind maps "an opponent controls" onto the
+`_you_dont_control` kinds ("target artifact or creature an opponent
+controls" → `permanent_you_dont_control`, "…defending player controls"
+stays a bare kind). +42 (Banisher Priest, Banishing Light, Cast Out,
+Conclave Tribunal, Glass Casket, Fairgrounds Warden, Detention Chariot,
+Chained to the Rocks, …), 0 regressed. Verified end-to-end: Banisher
+Priest's ETB exiles the opponent's creature and putting the Priest in the
+graveyard returns it. Still open: the **old two-sentence** O-Ring
+templating (Oblivion Ring itself — "exile another target nonland
+permanent." + a separate "When ~ leaves the battlefield, return the
+exiled card…"), the multi-event trigger forms ("enters or transforms
+into ~" — Brutal Cathar; "enters and at the beginning of your first main
+phase" — Crack in Time), and per-card after-tails (Driftgloom Coyote's
+"if that creature had power 2 or less…", Food Coma's "create a Food
+token").
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

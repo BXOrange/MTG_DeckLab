@@ -3973,6 +3973,43 @@ def _exile_return_transformed(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("exile_return_transformed", {})]
 
 
+#: The O-Ring / Banisher Priest / Fiend Hunter family — modern one-sentence
+#: templating: "exile `<TARGET>` [an opponent controls] until ~ leaves the
+#: battlefield." (~47 SOLO cache cards). `ExileEffect(remember=True)` stamps
+#: the exiled card's id onto `GameObject.linked_exile_id`; the companion
+#: `LEAVES_BATTLEFIELD` → `return_linked_exile` ability is synthesized by
+#: the segmenter (`_EXILE_UNTIL_LEAVES_LTB`), since a body handler emits
+#: one ability's effects and the return is a *second* ability. The
+#: ``until_source_leaves`` param is that signal. Old two-sentence O-Ring
+#: templating ("…exile another target nonland permanent." + a separate
+#: "When ~ leaves the battlefield, return the exiled card…") is a
+#: different, still-unmodeled shape.
+_EXILE_UNTIL_LEAVES_RE = _c(
+    rf"exile {TARGET}(?P<opp_ctrl> an opponent controls| defending player controls)? "
+    r"until ~ leaves the battlefield"
+)
+_EXILE_UNTIL_LEAVES_OPP_KINDS: dict[str, str] = {
+    "creature": "creature_you_dont_control",
+    "permanent": "permanent_you_dont_control",
+    "artifact": "artifact_you_dont_control",
+    "nonland_permanent": "nonland_permanent_you_dont_control",
+}
+
+
+def _exile_until_leaves(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None:
+        return None
+    if (m.group("opp_ctrl") or "").strip() == "an opponent controls":
+        kind = _EXILE_UNTIL_LEAVES_OPP_KINDS.get(kind, kind)
+    return [EffectSpec("exile", {
+        "target_kind": kind,
+        "remember": True,
+        "until_source_leaves": True,
+        **_optional_param(m),
+    })]
+
+
 #: "return it/~ to the battlefield transformed under its owner's control"
 #: (RULE 400.7 + RULE 712.8, Bruce Banner-shaped) — the graveyard-sourced
 #: sibling of `_EXILE_RETURN_TRANSFORMED_RE` above: a dies trigger's own
@@ -8022,6 +8059,15 @@ HANDLERS: list[EffectHandler] = [
         "exile_return_transformed",
         _EXILE_RETURN_TRANSFORMED_RE,
         _exile_return_transformed,
+    ),
+    # "exile <TARGET> [an opponent controls] until ~ leaves the
+    # battlefield." (O-Ring / Banisher Priest / Fiend Hunter) — the
+    # companion LEAVES_BATTLEFIELD return ability is synthesized by the
+    # segmenter off the ``until_source_leaves`` param.
+    EffectHandler(
+        "exile_until_leaves",
+        _EXILE_UNTIL_LEAVES_RE,
+        _exile_until_leaves,
     ),
     # "return it/~ to the battlefield transformed under its owner's
     # control" (RULE 400.7 + RULE 712.8, Bruce Banner-shaped) — a dies

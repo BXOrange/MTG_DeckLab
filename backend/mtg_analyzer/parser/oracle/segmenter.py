@@ -3795,7 +3795,29 @@ def segment_line(
             raw_text=raw,
             parser=provenance,
         )
-        return Segment(raw=raw, spec=spec, claimed=True)
+        # O-Ring / Banisher Priest: "exile … until ~ leaves the battlefield"
+        # (`handlers._exile_until_leaves`, `ExileEffect(remember=True)`) needs
+        # a *second* ability — "When ~ leaves the battlefield, return the
+        # exiled card." (`ReturnLinkedExileEffect`) — which a single body
+        # parse can't emit. The ``until_source_leaves`` param on the exile
+        # spec is that signal.
+        extra_ltb: list[AbilitySpec] = []
+        if any(
+            e.type == "exile" and e.params.get("until_source_leaves") for e in effects
+        ):
+            extra_ltb.append(
+                AbilitySpec(
+                    "triggered",
+                    effects=[EffectSpec("return_linked_exile", {})],
+                    trigger={
+                        "event": "LEAVES_BATTLEFIELD",
+                        "condition": {"subject": "self"},
+                    },
+                    raw_text=raw,
+                    parser=provenance,
+                )
+            )
+        return Segment(raw=raw, spec=spec, extra_specs=extra_ltb, claimed=True)
 
     # No trigger wrapper. On a *permanent*, "As ~ enters, choose a creature
     # type/color" (RULE 601.2b) is a characteristic-defining choice made as

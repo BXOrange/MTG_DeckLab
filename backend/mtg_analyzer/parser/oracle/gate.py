@@ -1388,7 +1388,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `apply_day_night_turn_check` / RULE 731.2 already use). +27 — the whole
 #: DFC werewolf cycle (Reckless Waif, Kruin Outlaw, Mayor of Avabruck, …),
 #: 0 regressed.
-PARSER_VERSION = "139"
+#: "140": PAR-30 — the O-Ring / Banisher Priest / Fiend Hunter family, modern
+#: one-sentence templating: "exile `<TARGET>` [an opponent controls] until ~
+#: leaves the battlefield." `handlers._exile_until_leaves` emits an
+#: `ExileEffect(remember=True)` with a new `until_source_leaves` param;
+#: `segmenter.segment_line` reads that param and synthesizes the companion
+#: `LEAVES_BATTLEFIELD` → `return_linked_exile` ability (a single body parse
+#: emits one ability, the return is a second). Both halves' engine
+#: primitives pre-existed (MEC-21 / MEC-30 / Skyclave Apparition). +42
+#: (Banisher Priest, Banishing Light, Cast Out, Conclave Tribunal, Glass
+#: Casket, …), 0 regressed. Old two-sentence O-Ring templating stays open.
+PARSER_VERSION = "140"
 
 
 def parser_source_hash() -> str:
