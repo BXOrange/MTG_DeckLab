@@ -6109,11 +6109,25 @@ def _airbend(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 # control becomes a 0/0 creature with haste that's still a land. Put N +1/+1
 # counters on it."). `RulesEngine.earthbend` / `effects.EarthbendEffect`
 # (registered as ``earthbend``). Only the literal ``earthbend N`` form; the
-# "that creature's power" X (Beifong's Bounty Hunters — a dying creature's
-# own last-known power) and the "then untap that land" pronoun tail stay
-# UNMODELED, fail-closed.
+# "then untap that land" pronoun tail stays UNMODELED, fail-closed.
 def _earthbend(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("earthbend", {"amount": int(m.group("n"))})]
+
+
+#: "Earthbend X, where X is **that creature's power**." (PAR-30 — Beifong's
+#: Bounty Hunters, on a "whenever a nonland creature you control dies"
+#: trigger). "that creature" is the dying creature; `EarthbendEffect.
+#: amount_from_trigger_event="power"` reads the DIES event's RULE 400.7
+#: last-known-power snapshot (`damage_death_mixin`). Deliberately anchored
+#: on "that creature's power" so it only claims the dying-subject shape;
+#: "its power" / "that creature's toughness" / other reads stay UNMODELED.
+_EARTHBEND_THAT_CREATURES_POWER_RE = _c(
+    r"(?:you )?earthbend x, where x is that creature's power"
+)
+
+
+def _earthbend_that_creatures_power(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("earthbend", {"amount_from_trigger_event": "power"})]
 
 
 #: "Earthbend X, where X is [twice] the number of `<count>`." (PAR-30 —
@@ -8851,6 +8865,13 @@ HANDLERS: list[EffectHandler] = [
         "earthbend_x",
         _EARTHBEND_X_RE,
         _earthbend_x,
+    ),
+    # "earthbend X, where X is that creature's power" (PAR-30, Beifong's
+    # Bounty Hunters) — the dying-subject read; also digit-free, no overlap.
+    EffectHandler(
+        "earthbend_that_creatures_power",
+        _EARTHBEND_THAT_CREATURES_POWER_RE,
+        _earthbend_that_creatures_power,
     ),
     # "earthbend N" (RULE 701.66, Avatar: TLA) — target land you control
     # becomes a 0/0 haste creature that's still a land + N +1/+1 counters.

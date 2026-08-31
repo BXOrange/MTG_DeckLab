@@ -505,6 +505,12 @@ def _build_group_ok(
     # (after the printed em dash), so it needs its own live board check
     # rather than either existing filter above.
     want_nonbasic = bool(condition.get("nonbasic"))
+    # "Whenever a **nonland** creature/permanent you control dies, …"
+    # (Beifong's Bounty Hunters) — a negated main type on the acting object.
+    # Checked against the DIES event's snapshotted ``object_types`` (the
+    # object has left the battlefield by the time this runs, RULE 400.7),
+    # with the same live-lookup fallback the ``type`` filter uses.
+    want_nonland = bool(condition.get("nonland"))
     # RULE 603.1 Panharmonicon-shaped self-recursion guard (MEC-43 round
     # 4D, Kodama of the East Tree — "if it wasn't put onto the
     # battlefield with this ability"): the acting object's own live
@@ -535,6 +541,7 @@ def _build_group_ok(
         want_recipient_you=wants_recipient_you,
         want_crewed_by_self=want_crewed_by_self,
         want_nonbasic=want_nonbasic,
+        want_nonland=want_nonland,
         want_not_entered_via_self=want_not_entered_via_self,
     ) -> bool:
         event_instance = event.get(skey)
@@ -596,6 +603,14 @@ def _build_group_ok(
             state = getattr(context, "state", None)
             obj = state.find_object(event_instance) if state is not None else None
             if obj is None or "basic" in str(getattr(obj.card, "type_line", "") or "").lower():
+                return False
+        if want_nonland:
+            types = event.get("object_types")
+            if types is None and event_instance is not None:
+                state = getattr(context, "state", None)
+                obj = state.find_object(event_instance) if state is not None else None
+                types = sorted(obj.type_words) if obj is not None else None
+            if types is None or "land" in types:
                 return False
         if want_crewed_by_self:
             if iid is None or event_instance is None:

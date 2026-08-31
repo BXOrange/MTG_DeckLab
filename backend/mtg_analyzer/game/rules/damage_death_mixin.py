@@ -1667,6 +1667,13 @@ class DamageDeathMixin:
                     # permanent from combat as it leaves the battlefield.
                     goaded=bool(combat.is_goaded(obj)),
                     in_combat=bool(obj.attacking) or obj.blocking is not None,
+                    # RULE 400.7 last-known information: "whenever a nonland
+                    # creature you control dies, earthbend X, where X is
+                    # **that creature's power**" (Beifong's Bounty Hunters) —
+                    # read via `EarthbendEffect.amount_from_trigger_event`,
+                    # since a live re-lookup after this fires sees nothing.
+                    # Mirrors the same snapshot on LEAVES_BATTLEFIELD above.
+                    power=obj.power,
                 )
             )
             if cause == "sacrifice":

@@ -866,7 +866,8 @@ _ATTACHED_SUBJECT_RE = re.compile(
 #: enters", "a creature dies", "another creature you control dies", "a
 #: creature you control attacks".
 _GROUP_SUBJECT_RE = re.compile(
-    r"^(?P<article>another|an|a)\s+(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
+    r"^(?P<article>another|an|a)\s+(?P<nonland>nonland\s+)?"
+    r"(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
     r"(?P<you_a> you control)?"
     rf"\s+(?:{_VERB_ALT})"
     r"(?:\s+the\s+battlefield)?(?:\s+alone)?"
@@ -1978,12 +1979,20 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     # of being misread as a one-word tribal filter with no real subtype.
     m = _GROUP_SUBJECT_RE.match(cond)
     if m is not None:
-        return {
+        out = {
             "subject": "group",
             "type": m.group("type"),
             "controller": "you" if (m.group("you_a") or m.group("you_b")) else "any",
             "other": m.group("article") == "another",
         }
+        if m.group("nonland"):
+            # RULE 111 / 205: "a **nonland** creature/permanent you control
+            # dies" (Beifong's Bounty Hunters) — a negated main type on the
+            # acting object, checked against the DIES event's snapshotted
+            # ``object_types`` (`effect_binder._build_group_ok`'s
+            # ``want_nonland``), the same shape ``nontoken`` already uses.
+            out["nonland"] = True
+        return out
     # Only reached once the exact main-type vocabulary above has already
     # failed to match — a genuine tribal filter ("another nontoken Zombie
     # or Mutant you control dies", The Ghoul Gunslinger-shaped).

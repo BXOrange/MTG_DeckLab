@@ -10208,10 +10208,18 @@ class EarthbendEffect(GameEffect):
         source: Optional["GameObject"] = None,
         amount_from_count_selector: Optional[str] = None,
         amount_multiplier: int = 1,
+        amount_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.previous_subject = previous_subject
+        #: RULE 701.66 dynamic "earthbend X, where X is **that creature's
+        #: power**" (Beifong's Bounty Hunters) — a field name read off
+        #: `GameContext.trigger_event` at resolution (``"power"``, the DIES
+        #: event's RULE 400.7 last-known-power snapshot), the same
+        #: "amount comes from the firing event's payload" idiom
+        #: `DealDamageEffect.amount_from_trigger_event` uses.
+        self.amount_from_trigger_event = amount_from_trigger_event
         #: RULE 701.66's dynamic "earthbend X, where X is `<board count>`"
         #: (Rockalanche/The Boulder, Ready to Rumble — PAR-30), read live via
         #: `continuous.count_selector` at resolution, the same idiom
@@ -10234,7 +10242,16 @@ class EarthbendEffect(GameEffect):
             lands = [t for t in (targets or []) if getattr(t, "instance_id", None) is not None]
         if not lands:
             return
-        if self.amount_from_count_selector:
+        if self.amount_from_trigger_event:
+            from ..parser.oracle.spec import MAX_EFFECT_MAGNITUDE
+
+            event = context.trigger_event or {}
+            raw = event.get(self.amount_from_trigger_event) or 0
+            try:
+                amount = max(0, min(int(raw), MAX_EFFECT_MAGNITUDE))
+            except (TypeError, ValueError):
+                amount = 0
+        elif self.amount_from_count_selector:
             from . import continuous  # function-scoped: avoid an import cycle
             from ..parser.oracle.spec import MAX_EFFECT_MAGNITUDE
 
@@ -18507,6 +18524,7 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject")),
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_multiplier=int(p.get("amount_multiplier", 1) or 1),
+        amount_from_trigger_event=p.get("amount_from_trigger_event"),
     ),
 )
 EffectRegistry.register(

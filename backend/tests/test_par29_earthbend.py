@@ -30,8 +30,12 @@ from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 def test_earthbend_clause_parses():
     assert match_clause("earthbend 4") == [EffectSpec("earthbend", {"amount": 4})]
-    # dynamic form stays unclaimed (fail-closed)
-    assert match_clause("earthbend x, where x is that creature's power") is None
+    # "that creature's power" now claimed as a dying-subject read (PAR-30
+    # v143, Beifong's Bounty Hunters); an un-modeled dynamic form still isn't
+    assert match_clause("earthbend x, where x is that creature's power") == [
+        EffectSpec("earthbend", {"amount_from_trigger_event": "power"})
+    ]
+    assert match_clause("earthbend x, where x is the highest mana value among creatures you control") is None
 
 
 def test_real_earthbend_cards_modeled():

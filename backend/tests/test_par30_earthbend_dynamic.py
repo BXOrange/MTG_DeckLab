@@ -19,8 +19,14 @@ This closes two of its residue items:
   that land|permanent|artifact|creature" (also unlocking a cluster of
   "pump/attach/counter target creature. Untap that creature." cards).
 
-"…where X is that creature's power" (a dying creature's own last-known
-power — Beifong's Bounty Hunters) stays UNMODELED, fail-closed.
+**"earthbend X, where X is that creature's power"** (PAR-30, v143 —
+Beifong's Bounty Hunters, on a "whenever a nonland creature you control
+dies" trigger): `_GROUP_SUBJECT_RE` gained an optional `nonland` qualifier
+→ `effect_binder._build_group_ok`'s `want_nonland` (checked against the
+DIES event's snapshotted `object_types`); `EarthbendEffect.
+amount_from_trigger_event="power"` reads the DIES event's RULE 400.7
+last-known-power snapshot (`damage_death_mixin` now stamps `power=` on
+DIES, mirroring LEAVES_BATTLEFIELD).
 """
 
 from __future__ import annotations
@@ -70,8 +76,16 @@ def test_earthbend_x_power_filter_and_twice_multiplier_parse():
     ]
 
 
-def test_earthbend_x_its_power_stays_unmodeled():
-    assert match_clause("earthbend x, where x is that creature's power") is None
+def test_earthbend_x_that_creatures_power_parses():
+    assert match_clause("earthbend x, where x is that creature's power") == [
+        EffectSpec("earthbend", {"amount_from_trigger_event": "power"})
+    ]
+
+
+def test_earthbend_x_its_bare_power_still_unmodeled():
+    # only the explicit "that creature's power" dying-subject shape is claimed
+    assert match_clause("earthbend x, where x is its power") is None
+    assert match_clause("earthbend x, where x is that creature's toughness") is None
 
 
 def test_real_cards_modeled():
@@ -83,6 +97,9 @@ def test_real_cards_modeled():
          "of Foods you control."),
         ("Avatar Kyoshi, Earthbender", "Legendary Creature — Human",
          "At the beginning of combat on your turn, earthbend 8, then untap that land."),
+        ("Beifong's Bounty Hunters", "Creature — Human Warrior",
+         "Whenever a nonland creature you control dies, earthbend X, where X "
+         "is that creature's power."),
     ]:
         c = Card(id=name[:6], name=name, type_line=tl, oracle_text=text,
                  is_creature="Creature" in tl, is_sorcery="Sorcery" in tl,
@@ -92,6 +109,65 @@ def test_real_cards_modeled():
 
 
 # --- execute ------------------------------------------------------------
+
+
+def test_beifong_earthbends_by_dying_creatures_power_end_to_end():
+    eng, state = _engine()
+    land = _forest(state)
+
+    beifong = GameObject(
+        Card(id="BEIF", name="Beifong's Bounty Hunters",
+             type_line="Creature — Human Warrior", is_creature=True, power=3, toughness=3,
+             oracle_text=("Whenever a nonland creature you control dies, earthbend X, "
+                          "where X is that creature's power.")),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    beifong.controller_id = "p1"
+    state.add_to_battlefield(beifong)
+    bind_from_catalogue(beifong)
+
+    victim = GameObject(
+        Card(id="VIC", name="Big Ox", type_line="Creature — Ox", is_creature=True,
+             power=5, toughness=5),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    victim.controller_id = "p1"
+    state.add_to_battlefield(victim)
+
+    eng.rules.destroy(victim)
+    eng.resolve_until_stable()
+    # one legal "land you control" — auto-resolves the target
+    for _ in range(4):
+        pc = getattr(state, "pending_choice", None)
+        if not pc:
+            break
+        opts = pc.get("options") or []
+        eng.resolve_pending_choice(opts[0]["id"]) if opts else eng.resolve_pending_choice(None)
+        eng.resolve_until_stable()
+
+    eng.recompute_continuous_effects()
+    assert land.is_creature and land.is_land
+    assert land.counters.get("+1/+1") == 5  # the Ox's last-known power
+
+
+def test_nonland_filter_ignores_a_dying_land():
+    eng, state = _engine()
+    _forest(state)
+    beifong = GameObject(
+        Card(id="BEIF2", name="Beifong's Bounty Hunters",
+             type_line="Creature — Human Warrior", is_creature=True, power=3, toughness=3,
+             oracle_text=("Whenever a nonland creature you control dies, earthbend X, "
+                          "where X is that creature's power.")),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    beifong.controller_id = "p1"
+    state.add_to_battlefield(beifong)
+    bind_from_catalogue(beifong)
+
+    dying_land = _forest(state)  # a plain land dying must NOT fire the trigger
+    eng.rules.destroy(dying_land)
+    eng.resolve_until_stable()
+    assert getattr(state, "pending_choice", None) in (None, {}, [])
 
 
 def test_earthbend_x_reads_a_live_forest_count():

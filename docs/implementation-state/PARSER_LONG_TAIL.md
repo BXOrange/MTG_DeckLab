@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.0% covered — 12,874 / 34,811 — as of 2026-08-31, PARSER_VERSION 142.**
+**37.0% covered — 12,875 / 34,811 — as of 2026-08-31, PARSER_VERSION 143.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -284,10 +284,25 @@ that it can never claim the genuine optional "you may `<action>`. When you
 do, …" family. The `<effect>` half ("up to 1 target creature you control
 fights target creature an opponent controls") already parsed via the
 connector-split loop — only the literal "When you do," between the two
-sentences was blocking. +1, 0 regressed. Still open in the Earthbend residue
-cluster: Beifong's Bounty Hunters ("earthbend X, where X is that creature's
-power" — a dying creature's last-known power, off the dies-trigger's own
-subject) and Earthshape ("earthbend N. then each creature you control with
+sentences was blocking. +1, 0 regressed.
+
+143 = PAR-30 — **Earthbend residue, card 2 of 3.** "Whenever a **nonland**
+creature you control dies, earthbend X, where X is **that creature's
+power**." (Beifong's Bounty Hunters). Two small pieces: (a) `_GROUP_SUBJECT_
+RE` gained an optional `nonland` qualifier → `condition["nonland"]` →
+`effect_binder._build_group_ok`'s new `want_nonland`, a negated main-type
+check against the DIES event's snapshotted `object_types` (RULE 400.7 — the
+object is gone by the time the trigger check runs), the same shape
+`nontoken` already uses; (b) `_EARTHBEND_THAT_CREATURES_POWER_RE` →
+`EarthbendEffect.amount_from_trigger_event="power"`, reading the DIES
+event's last-known-power snapshot — which `damage_death_mixin` now stamps on
+DIES (`power=obj.power`), mirroring the identical stamp LEAVES_BATTLEFIELD
+already carried for `LoseLifeEffect.amount_from_trigger_event`. Deliberately
+anchored on the literal "that creature's power" so it only claims the
+dying-subject read; "its power" / "that creature's toughness" stay
+UNMODELED. +1, 0 regressed; verified end-to-end (a 5/5 dying earthbends the
+land by 5; a plain land dying doesn't fire the trigger). Still open in the
+cluster: **Earthshape** ("earthbend N. then each creature you control with
 power <= **that land's power** gains hexproof and indestructible until end
 of turn. you gain hexproof until end of turn").
 

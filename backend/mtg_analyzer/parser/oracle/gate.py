@@ -1411,7 +1411,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: collapse to one plain `[earthbend N, <effect>]` sequence, the same
 #: certain-antecedent rationale `_SACRIFICE_THEN_WHEN_YOU_DO_RE` uses.
 #: `_EARTHBEND_THEN_WHEN_YOU_DO_RE` in `segmenter`. +1, 0 regressed.
-PARSER_VERSION = "142"
+#: "143": PAR-30 (Earthbend residue, card 2 of 3) — "Whenever a **nonland**
+#: creature you control dies, earthbend X, where X is **that creature's
+#: power**." (Beifong's Bounty Hunters). `_GROUP_SUBJECT_RE` gained an
+#: optional `nonland` qualifier → `condition["nonland"]` →
+#: `effect_binder._build_group_ok`'s new `want_nonland` (checked against the
+#: DIES event's snapshotted `object_types`, same shape as `nontoken`). New
+#: `_EARTHBEND_THAT_CREATURES_POWER_RE` handler → `EarthbendEffect.
+#: amount_from_trigger_event="power"`, reading the DIES event's RULE 400.7
+#: last-known-power snapshot (now stamped by `damage_death_mixin`, mirroring
+#: LEAVES_BATTLEFIELD's existing `power=`). +1, 0 regressed.
+PARSER_VERSION = "143"
 
 
 def parser_source_hash() -> str:
