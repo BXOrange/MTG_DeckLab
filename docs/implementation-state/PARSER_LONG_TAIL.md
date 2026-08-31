@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.1% covered — 12,578 / 34,811 — as of 2026-08-31, PARSER_VERSION 126.**
+**36.1% covered — 12,581 / 34,811 — as of 2026-08-31, PARSER_VERSION 127.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -114,7 +114,14 @@ options parse: +2 (Damocles Base, The Dalek Emperor). The rest — "cast a
 spell without paying", "put a permanent from hand", "create a copy of that
 card", "exile until …", conditional/previous subjects — are PAR-30. Also
 fixed a latent bug: "**you** create a … token **with `<kw>`**" was
-mis-tagged `creators="each_player"` (the `who` group captured "you").)
+mis-tagged `creators="each_player"` (the `who` group captured "you").
+127 = PAR-29's RULE 701.56 Time Travel — `RulesEngine.time_travel(player,
+times)`, `effects.TimeTravelEffect`, a bare "time travel" handler.
+Documented simplification (no per-object add/remove choice): remove one
+time counter from each suspended card the player owns (opening the RULE
+702.62a free-cast window if it empties), add one to each Vanishing-style
+permanent they control. "time travel, then time travel" = two of them.
++3 (All of History All at Once, Time Beetle, Wibbly-wobbly Timey-wimey).)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

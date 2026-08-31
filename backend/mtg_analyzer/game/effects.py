@@ -9792,6 +9792,20 @@ class VoteEffect(GameEffect):
         )
 
 
+class TimeTravelEffect(GameEffect):
+    """RULE 701.56: "Time travel." — a bare "you"-subject keyword action;
+    `RulesEngine.time_travel` owns the procedure and its documented
+    add-to-Vanishing / remove-from-suspended simplification. "Time travel,
+    then time travel." (The Parting of the Ways) is two of these in
+    sequence from `parse_effect_body`'s ", then" split.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.engine.time_travel(player)
+
+
 class FaceVillainousChoiceEffect(GameEffect):
     """RULE 701.55: "`<player>` faces a villainous choice — `<A>`, or
     `<B>`." Each facing player (resolved from ``subject``) chooses one of
@@ -18244,6 +18258,13 @@ EffectRegistry.register(
     # you control (your choice). See `BlightEffect` / `RulesEngine.blight`.
     "blight",
     lambda p: BlightEffect(amount=p.get("amount", p.get("count", 1))),
+)
+EffectRegistry.register(
+    # "Time travel" (RULE 701.56, PAR-29): remove a time counter from each
+    # suspended card you own / add one to each Vanishing-style permanent
+    # you control. See `TimeTravelEffect` / `RulesEngine.time_travel`.
+    "time_travel",
+    lambda p: TimeTravelEffect(),
 )
 EffectRegistry.register(
     # "Face a villainous choice" (RULE 701.55, PAR-29): each facing player

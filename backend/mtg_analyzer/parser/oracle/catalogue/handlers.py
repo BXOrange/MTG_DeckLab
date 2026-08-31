@@ -8269,6 +8269,15 @@ HANDLERS: list[EffectHandler] = [
         _c(r"(?:you )?incubate (?P<n>\d+)"),
         _incubate,
     ),
+    # "time travel" (RULE 701.56, Doctor Who) — remove a time counter from
+    # each suspended card you own / add one to each Vanishing-style
+    # permanent you control. "time travel, then time travel" is two of
+    # these from `parse_effect_body`'s ", then" split.
+    EffectHandler(
+        "time_travel",
+        _c(r"(?:you )?time travel"),
+        lambda _m: [EffectSpec("time_travel", {})],
+    ),
     # "bolster N" (RULE 701.39a) — N +1/+1 counters on a least-toughness
     # creature you control.
     EffectHandler(

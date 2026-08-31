@@ -2066,6 +2066,38 @@ class MiscSystemsMixin:
             instance_id=revealed.instance_id, quality=quality,
         ))
         return True
+    def time_travel(self, player: Player, times: int = 1) -> None:
+        """"Time travel" (RULE 701.56a — Doctor Who): "For each suspended
+        card you own and each permanent you control with a time counter on
+        it, you may add or remove a time counter." ``times`` repeats the
+        whole process ("time travel, then time travel").
+
+        **Documented simplification** — no per-object interactive add/
+        remove choice: a **suspended card** ``player`` owns loses one time
+        counter (acceleration — the reason to time travel your own
+        suspended spells; if that empties it, the RULE 702.62a free-cast
+        window opens exactly as the upkeep trigger would), and a
+        **Vanishing/Fading**-style permanent ``player`` controls (a time
+        counter on a battlefield permanent) gains one (prolongs it — the
+        reason to time travel those). Both are the beneficial-to-you
+        direction. A time counter on something that is neither is left
+        alone.
+        """
+        for _ in range(max(1, int(times))):
+            for obj in list(player.exile):
+                if obj.owner_id != player.id or obj.counters.get("time", 0) <= 0:
+                    continue
+                if not _has_suspend(obj):
+                    continue
+                obj.add_counters("time", -1)
+                if obj.counters.get("time", 0) <= 0:
+                    if getattr(obj.card, "is_creature", False):
+                        obj.granted_suspend_haste = True
+                    self.grant_free_cast_window_from_exile(obj)
+            for obj in self.state.permanents_controlled_by(player.id):
+                if obj.counters.get("time", 0) > 0:
+                    obj.add_counters("time", 1)
+        self.check_state_based_actions()
     def _endure_make_token(self, player: Player, amount: int) -> None:
         """The token half of `endure` (RULE 701.63a) — an N/N white Spirit
         creature token."""
