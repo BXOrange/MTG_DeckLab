@@ -884,6 +884,16 @@ class CastingMixin:
             buyback_cost = self._buyback_cost(obj)
             if buyback_cost is not None:
                 cost = cost.add(buyback_cost)
+        # ENG-32 (RULE 601.2b/701.67): "as an additional cost to cast this
+        # spell, waterbend {N}." — a {N}/{X} generic mana cost folded into
+        # the spell's total here (not paid separately in
+        # `_pay_additional_cast_cost`), so `can_cast`'s pool check and
+        # `_auto_tap_for_cast_if_needed` both see it. Only the *mandatory*
+        # form reaches this; "you may waterbend {N}" is UNMODELED.
+        add_cost = getattr(obj, "additional_cast_cost", None)
+        if (add_cost is not None and add_cost.mana.symbols and face != "face_down"):
+            wb_mana = add_cost.mana.with_x(x) if add_cost.mana.has_variable else add_cost.mana
+            cost = cost.add(wb_mana)
         if entwine:
             # RULE 702.42a: Entwine's cost is added on top of the printed
             # one, like Kicker/Buyback above — not substituted for it.

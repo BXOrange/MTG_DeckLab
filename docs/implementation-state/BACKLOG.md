@@ -36,28 +36,11 @@ Plan-level sequencing lives in
 
 ## ENG — Game engine
 
-> ENG-32 below backs the PAR-29 keyword-action parser handlers shipped at
-> PARSER_VERSION 126-127: those handlers recognize their cards but need
-> this primitive before the affected cards resolve correctly. Card lists
-> and the exact parser-side state are in **PAR-30**. (ENG-31, parametric
-> keyword *grants*, shipped at PARSER_VERSION 128; ENG-33, villainous /
-> vote option bodies, at 129 — see `Done_Backend.md`.)
-
-- **ENG-32 · Waterbend cost mechanic (RULE 701.67).** "Waterbend {N}" is a
-  `{N}` generic mana cost with a Convoke-style helper — "while paying a
-  waterbend cost, you can tap your artifacts and creatures to help; each
-  one pays for {1}." The parser can strip the "waterbend " prefix so a
-  `waterbend {N}:` activated ability parses as a plain `{N}` cost (a
-  documented simplification dropping the helper), but: (a) the helper
-  itself is `help_pay` (Convoke/Improvise) generalized from a *cast* flag
-  to any activated/additional cost — genuinely unbuilt; (b) "as an
-  additional cost to cast this spell, waterbend {N}" (Benevolent River
-  Spirit, Water Whip) needs mana *in* an additional cast cost, which
-  `_can/_pay_additional_cast_cost` explicitly doesn't support. **Note:** the
-  Waterbend cards are *also* blocked on their effect bodies (base-P/T-set
-  with a duration, resolve-time "can't be blocked this turn",
-  owner-shuffles-into-library) — see PAR-30 — so ENG-32 alone unlocks
-  nothing; do it alongside those PAR-30 handlers.
+> ENG-31 (parametric keyword *grants*, PARSER_VERSION 128), ENG-33
+> (villainous / vote option bodies, 129) and ENG-32 (Waterbend, 131) —
+> the three engine primitives PAR-29's keyword-action handlers needed —
+> have all shipped. See `Done_Backend.md`. The residual per-card grammar
+> is **PAR-30**.
 
 *(ENG-33, villainous-choice / vote option-body primitives, shipped at
 PARSER_VERSION 129 — three of its four named primitives are done: the
@@ -158,19 +141,34 @@ that populates `previous_targets` — is a 12-SOLO cluster, PAR-30.)*
     an unrecognized trigger condition); **Iroh, Dragon of the West** ("each
     creature you control **with a counter on it** gains firebending N …" — a
     group-selector filter). Also the "whenever you waterbend / earthbend /
-    firebend / airbend" bending-verb trigger row (Avatar Aang) — needs the
-    four bending primitives to fire an event first, so blocked on ENG-32.
+    firebend / airbend" bending-verb trigger row (Avatar Aang) — still needs
+    each of the four bending primitives to fire an event (none do yet).
 
-  - **Waterbend (RULE 701.67) — ENG-32 + these bodies.** The activated
-    `waterbend {N}: <body>` cards (Flexible Waterbender, Giant Koi, Katara,
-    Water Tribe Rallier, Watery Grasp) are blocked on their *bodies*
-    (base-P/T-set with a duration; resolve-time "can't be blocked this
-    turn"; "enchanted creature's owner shuffles it into their library"),
-    not the cost — the cost stripping is trivial once a body parses. (Yue,
-    the Moon Spirit's "cast a noncreature spell without paying" body is
-    handled now — ENG-33's `free_cast_from_hand` `noncreature_only`.)
-    Benevolent River Spirit / Water Whip / Waterbending Lesson need
-    mana-in-an-additional-cost (ENG-32).
+  - **Waterbend (RULE 701.67) residue — ENG-32 shipped (v131), 10/28
+    cards MODELED.** Done: the activated `waterbend {N}:` cost, base-P/T-
+    set-with-duration, bare "can't be blocked this turn", "enchanted
+    creature's owner shuffles it into their library", Yue's noncreature
+    free-cast (ENG-33), and the *mandatory* "as an additional cost to
+    cast this spell, waterbend {N}" (Water Whip, Benevolent River Spirit).
+    Still open, each its own gap: **"waterbend {X}"** additional cost
+    (Crashing Wave, Foggy Swamp Visions, Waterbender's Restoration — needs
+    the printed cost to trigger an {X} announcement it doesn't); **"you
+    may waterbend {N}" + "if this spell's additional cost was paid"**
+    (Katara Seeking Revenge, Ruinous Waterbending, Secret of Bloodbending,
+    Spirit Water Revival — a Kicker-shaped *optional additional cost paid*
+    tracker, unbuilt); **"discard a card unless you waterbend {N}"** body
+    (Waterbending Lesson); **Water Tribe Rallier**'s "look at the top N …
+    reveal a creature card with power M or less … put the rest on the
+    bottom in a random order" (a `look_top_select` reveal-filter variant);
+    **North Pole Patrol**'s `waterbend {N}, {T}` compound cost + "{T}:
+    untap another target permanent"; **Ward—Waterbend {4}** (The Unagi);
+    **Exhaust — Waterbend {3}: becomes an artifact creature …** (Invasion
+    Submersible); the "whenever you waterbend / earthbend / firebend /
+    airbend" bending-verb trigger (Avatar Aang — no bending events fire
+    yet). Plus cards blocked on unrelated clauses: Aang, Swift Savior
+    (airbend a *spell*), Katara, Bending Prodigy ("her" pronoun),
+    Waterbender Ascension (quest counters), Hama (alt-cast by
+    waterbending), Aang's Iceberg (O-Ring clause).
 
   - **Earthbend (RULE 701.66) residue.** Dynamic "earthbend X, where X is
     `<count>`" (Beifong's Bounty Hunters "that creature's power", Bumi's

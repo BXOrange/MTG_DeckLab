@@ -765,6 +765,15 @@ class AbilitySpec:
             valid = isinstance(value, int) and not isinstance(value, bool) and value > 0
             if not valid:
                 raise SpecValidationError("'additional_cost' blight must be a positive int")
+        elif key == "waterbend":
+            # ENG-32 (RULE 701.67): "as an additional cost to cast this
+            # spell, waterbend {N}." — a {N} generic mana cost paid inside
+            # the additional cost. The Convoke-style helper ("tap your
+            # artifacts and creatures to help") is a documented
+            # simplification, dropped. ``"x"`` for "waterbend {X}".
+            valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
+            if value != "x" and not valid_int:
+                raise SpecValidationError("'additional_cost' waterbend must be a positive int or 'x'")
         else:
             raise SpecValidationError(f"unknown additional_cost kind {key!r}")
 

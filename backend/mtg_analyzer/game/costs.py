@@ -508,6 +508,13 @@ class ActivationCost:
     #: hand-authored only (`game/ability_catalogue.py`); no oracle-text
     #: grammar for it yet.
     dynamic_reduction: Optional[dict[str, Any]] = None
+    #: ENG-32 (RULE 701.67 Waterbend): which Convoke-style "tap your
+    #: artifacts and creatures to help pay this cost" helper applies, or
+    #: ``None``. Currently only ``"waterbend"`` and only *recorded* — the
+    #: helper itself (generalizing `casting_mixin`'s Convoke/Delve/Improvise
+    #: pool to an arbitrary cost) is a documented simplification, dropped;
+    #: the {N} generic is paid as plain mana.
+    help_pay_kind: Optional[str] = None
     #: PAR-28 / Power-up: "Reduce the cost by its mana cost if it entered
     #: this turn." A generic-mana reduction equal to the *source permanent's
     #: own mana value*, applied only while it entered the battlefield this
@@ -854,6 +861,13 @@ def parse_activation_cost(
         parsed.unattach_self = bool(cost["unattach_self"])
     if cost.get("dynamic_reduction"):
         parsed.dynamic_reduction = dict(cost["dynamic_reduction"])
+    if "waterbend" in cost:
+        # ENG-32 (RULE 701.67): "as an additional cost to cast this spell,
+        # waterbend {N}." — a {N}/{X} generic mana cost. The Convoke-style
+        # helper is a documented simplification (dropped).
+        wb = cost["waterbend"]
+        parsed.mana = ManaCost.parse("{X}" if wb == "x" else f"{{{int(wb)}}}")
+        parsed.help_pay_kind = "waterbend"
     parsed.raw = parsed.raw or text
     return parsed
 

@@ -1313,6 +1313,16 @@ _ADDITIONAL_COST_BEHOLD_RE = re.compile(
 _ADDITIONAL_COST_BLIGHT_RE = re.compile(
     r"^blight\s+(?P<n>\d+)(?:\s+or pay\s+(?:\{[^}]+\})+)?$", re.IGNORECASE
 )
+#: ENG-32 (RULE 701.67, Avatar: TLA): "as an additional cost to cast this
+#: spell, waterbend {N}." — a fixed {N} generic mana cost folded into the
+#: spell's total (`casting_mixin.effective_cast_cost`). **Not** matched:
+#: "waterbend {X}" (needs {X}-announcement plumbing the printed cost
+#: doesn't trigger — Crashing Wave/Foggy Swamp Visions), and "you may
+#: waterbend {N}" (a Kicker-shaped optional additional cost) — both stay
+#: UNMODELED.
+_ADDITIONAL_COST_WATERBEND_RE = re.compile(
+    r"^waterbend\s+\{(?P<n>\d+)\}$", re.IGNORECASE
+)
 
 #: RULE 601.2f-adjacent: "If you control a commander, you may cast this
 #: spell without paying its mana cost." (Deadly Rollick/Deflecting Swat/
@@ -1610,6 +1620,10 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     blt = _ADDITIONAL_COST_BLIGHT_RE.match(text)
     if blt is not None:
         return {"blight": int(blt.group("n"))}
+    wtr = _ADDITIONAL_COST_WATERBEND_RE.match(text)
+    if wtr is not None:
+        n = wtr.group("n").lower()
+        return {"waterbend": "x" if n == "x" else int(n)}
     return None
 
 

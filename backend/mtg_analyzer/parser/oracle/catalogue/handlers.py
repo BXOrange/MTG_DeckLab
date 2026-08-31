@@ -3248,10 +3248,19 @@ def _trigger_copy_spell(m: re.Match[str]) -> list[EffectSpec]:
 _SHUFFLE_SELF_INTO_LIBRARY_RE = _c(
     rf"shuffle {_SELF_SUBJECT} into its owner'?s library"
 )
+#: ENG-32 (Watery Grasp) — the Aura-host form: "Enchanted creature's owner
+#: shuffles it into their library."
+_SHUFFLE_ENCHANTED_INTO_LIBRARY_RE = _c(
+    r"enchanted creature'?s owner shuffles it into (?:their|its owner'?s) library"
+)
 
 
 def _shuffle_self_into_library(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("shuffle_self_into_library", {})]
+
+
+def _shuffle_enchanted_into_library(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("shuffle_self_into_library", {"subject": "attached_permanent"})]
 
 
 #: "attach it to target creature you control" / "attach ~ to target creature
@@ -4684,6 +4693,34 @@ _PUMP_SELF_FROM_LIFE_GAINED_RE = _c(
 
 def _pump_self_from_life_gained(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("pump", {"amount_from_trigger_event": "amount"})]
+
+
+#: ENG-32 (Flexible Waterbender / Katara, Water Tribe's Hope) — "~ / creatures
+#: you control ha[s|ve] base power and toughness N/M until end of turn"
+#: (a resolve-time layer-7b `pt_set`, parked in `GameState.floating_statics`
+#: via `grant_until` so it ends at cleanup like any RULE 611 duration).
+#: Literal digits or the `{X}` form (Katara — "X can't be 0", a documented
+#: simplification: X is announced, and 0 is already meaningless for it).
+_BASE_PT_UNTIL_EOT_RE = _c(
+    rf"(?:{_SELF_SUBJECT}|(?P<group>creatures you control)) "
+    rf"(?:has|have) base power and toughness (?P<p>\d+|x)/(?P<t>\d+|x) until end of turn"
+    rf"(?:\. x can'?t be 0)?(?:\. activate only during your turn)?"
+)
+
+
+def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    def _v(g: str) -> "int | str":
+        return "x" if g.lower() == "x" else int(g)
+
+    params: dict = {
+        "power": _v(m.group("p")), "toughness": _v(m.group("t")),
+        "affects": "creatures_you_control" if m.groupdict().get("group") else "self",
+    }
+    return [EffectSpec("grant_until", {
+        "static": {"type": "pt_set", "params": params},
+        "duration": "end_of_turn",
+        "target_kind": None,
+    })]
 
 
 #: "put a +1/+1 counter on each of up to two target creatures" (RULE 115.1a
@@ -6419,6 +6456,23 @@ def _pump_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: ENG-32: a bare "~ / target creature can't be blocked this turn" (Giant
+#: Koi's own activated ability / Waterbender Ascension) — the standalone
+#: `UnblockableEffect`, no P/T delta (that's `_PUMP_UNBLOCKABLE_RE` above).
+_CANT_BE_BLOCKED_TURN_RE = _c(
+    rf"(?:(?P<selfref>{_SELF_SUBJECT})|{TARGET}) can'?t be blocked this turn"
+)
+
+
+def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.groupdict().get("selfref"):
+        return [EffectSpec("unblockable", {"target_kind": None})]
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "permanent", "creature_you_control", "creature_you_dont_control"):
+        return None
+    return [EffectSpec("unblockable", {"target_kind": kind})]
+
+
 #: "Target creature can't block this turn" (Falter/Ahn-Crop Crasher/Abandon
 #: the Post) — the *resolve-time* half of the combat-restriction family, and
 #: by far its largest: an ordinary one-shot effect (`game/effects.py`'s
@@ -7524,6 +7578,13 @@ HANDLERS: list[EffectHandler] = [
         _SHUFFLE_SELF_INTO_LIBRARY_RE,
         _shuffle_self_into_library,
     ),
+    # ENG-32 (Watery Grasp): "Enchanted creature's owner shuffles it into
+    # their library."
+    EffectHandler(
+        "shuffle_enchanted_into_library",
+        _SHUFFLE_ENCHANTED_INTO_LIBRARY_RE,
+        _shuffle_enchanted_into_library,
+    ),
     # "An opponent gains control of ~." (Wishclaw Talisman's own drawback
     # clause).
     EffectHandler(
@@ -7893,6 +7954,14 @@ HANDLERS: list[EffectHandler] = [
         _pump_self_from_life_gained,
         self_subject_only=True,
     ),
+    # ENG-32: "~ / creatures you control ha[s|ve] base power and toughness
+    # N/M until end of turn" (Flexible Waterbender / Katara, Water Tribe's
+    # Hope) — a resolve-time layer-7b `pt_set` via `grant_until`.
+    EffectHandler(
+        "base_pt_until_eot",
+        _BASE_PT_UNTIL_EOT_RE,
+        _base_pt_until_eot,
+    ),
     # "put a +1/+1 counter on each of up to two target creatures" (RULE
     # 115.1a generalized to N>=2 — the Support-keyword-shaped family).
     EffectHandler(
@@ -7939,6 +8008,13 @@ HANDLERS: list[EffectHandler] = [
         "pump_unblockable",
         _PUMP_UNBLOCKABLE_RE,
         _pump_unblockable,
+    ),
+    # ENG-32: bare "~ / target creature can't be blocked this turn" (Giant
+    # Koi / Waterbender Ascension) — no P/T delta.
+    EffectHandler(
+        "cant_be_blocked_this_turn",
+        _CANT_BE_BLOCKED_TURN_RE,
+        _cant_be_blocked_turn,
     ),
     # "Up to two target creatures can't block this turn" / "target creature
     # can't block this turn" / "creatures without flying can't block this

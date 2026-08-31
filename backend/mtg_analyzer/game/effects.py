@@ -8531,13 +8531,23 @@ class ShuffleSelfIntoLibraryEffect(GameEffect):
     know this effect exists.
     """
 
-    def __init__(self, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, subject: str = "self", source: Optional["GameObject"] = None
+    ) -> None:
         super().__init__(source)
         self.target_spec = None
+        #: ``"attached_permanent"`` — "Enchanted creature's owner shuffles it
+        #: into their library." (Watery Grasp, ENG-32): act on whatever this
+        #: Aura is currently `attached_to`, re-read live at resolution.
+        self.subject = subject
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.source is not None:
-            context.shuffle_into_library(self.source)
+        obj = self.source
+        if self.subject == "attached_permanent":
+            host_id = getattr(self.source, "attached_to", None)
+            obj = context.state.find_object(host_id) if host_id is not None else None
+        if obj is not None:
+            context.shuffle_into_library(obj)
 
 
 class ReturnFromGraveyardEffect(GameEffect):
@@ -10939,15 +10949,23 @@ class UnblockableEffect(GameEffect):
         self,
         target: Any = None,
         source: Optional["GameObject"] = None,
-        target_kind: str = "creature",
+        target_kind: Optional[str] = "creature",
         creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter)
+        #: ``target_kind=None`` — "~ can't be blocked this turn" from the
+        #: creature's own activated ability (Giant Koi, ENG-32): no RULE 115
+        #: target, acts on this effect's own source.
+        self.target_spec = (
+            TargetSpec(kind=target_kind, creature_filter=creature_filter)
+            if target_kind is not None else None
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
+        if target is None and self.target_spec is None:
+            target = self.source
         if target is not None:
             target.temp_unblockable = True
 
@@ -12173,7 +12191,21 @@ class GrantUntilEffect(GameEffect):
         spec_type = self.static.get("type")
         if not spec_type or not EffectRegistry.is_registered(str(spec_type)):
             return  # fail closed — an unregistered static grants nothing
-        ability = EffectRegistry.create(str(spec_type), dict(self.static.get("params") or {}))
+        params = dict(self.static.get("params") or {})
+        # `RulesEngine._substitute_x` walks a one-shot effect's own
+        # magnitude fields, not a nested `static.params` dict — so an
+        # X-scaled grant ("Creatures you control have base power and
+        # toughness X/X until end of turn" — Biomass Mutation / Katara,
+        # Water Tribe's Hope) still carries the ``"x"`` sentinel here.
+        # Resolve it against the spell/ability's announced X (RULE 107.3c),
+        # stamped on the source at cast/activate time.
+        x_paid = getattr(self.source, "x_paid", 0) or 0
+        for k in ("power", "toughness", "count", "amount"):
+            if params.get(k) == "x":
+                params[k] = x_paid
+            elif params.get(k) == "-x":
+                params[k] = -x_paid
+        ability = EffectRegistry.create(str(spec_type), params)
         if not isinstance(ability, StaticAbility):
             return
         controller_id = getattr(self.source, "controller_id", None)
@@ -17748,9 +17780,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    # "Shuffle ~ into its owner's library." (Green Sun's Zenith)
+    # "Shuffle ~ into its owner's library." (Green Sun's Zenith); with
+    # ``subject="attached_permanent"`` the Aura-host form (Watery Grasp).
     "shuffle_self_into_library",
-    lambda p: ShuffleSelfIntoLibraryEffect(),
+    lambda p: ShuffleSelfIntoLibraryEffect(subject=p.get("subject", "self")),
 )
 EffectRegistry.register(
     # "Put target permanent you own on the bottom of your library. Reveal
@@ -18458,7 +18491,8 @@ EffectRegistry.register(
 EffectRegistry.register(
     "unblockable",  # "Target creature can't be blocked this turn" (Rogue's Passage)
     lambda p: UnblockableEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "creature"),
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "creature") if "target_kind" in p else "creature",
         creature_filter=p.get("creature_filter"),
     ),
 )

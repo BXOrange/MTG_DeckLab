@@ -650,7 +650,7 @@ on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
 (`scripts/import_bulk.py`), so coverage is measured against that: **36.3%
-covered (12,627 / 34,811) as of 2026-08-31, PARSER_VERSION 130** (parser-`MODELED` **or**
+covered (12,679 / 34,811) as of 2026-08-31, PARSER_VERSION 131** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -726,12 +726,23 @@ Vanishing-style permanent you control), `effects.TimeTravelEffect`, a bare
 `effect_binder.parametric_keyword_triggered_abilities` re-synthesizing
 firebending's ATTACKS `{R}×N` mana ability off a *granted* N, wired into
 `pump`/`grant_keyword`/`create_token` via a `parametric_keywords` param
-[+3 — Fire Nation Palace, Fire Nation Attacks, Sozin's Comet]). **PAR-29 is
-closed** — every RULE 701 keyword action now has parser recognition + an
-engine primitive. The residual effect-/outcome-body grammar for those cards
-is `PAR-30` ("PAR-29's parser trail"), with `ENG-32` (Waterbend cost
-mechanic) and `ENG-33` (villainous-choice/vote option-body primitives) for
-the remaining engine-dependent parts.
+[+3 — Fire Nation Palace, Fire Nation Attacks, Sozin's Comet], 129 was
+`ENG-33` villainous / vote option-body primitives — targeted-player edict
+(`SacrificeEffect.target_kind="player"`), uncapped/noncreature
+`free_cast_from_hand`, "put a `<type>` card from your hand onto the
+battlefield" [+45, incl. Diabolic Edict, Elvish Piper, Stoneforge Mystic,
+Growth Spiral], 130 folded a "except it's [a] `<P/T>` `<colour>` `<subtype>`"
+tail into the copy-of-that-card grammar (`Card.as_copy(set_colors=…)`) [+1],
+131 was `ENG-32` Waterbend — the activated `waterbend {N}:` cost was never
+the blocker; this shipped the *bodies* (base-P/T-set-with-duration via
+`grant_until`, bare "can't be blocked this turn", "enchanted creature's
+owner shuffles it into their library") plus the *mandatory* "as an
+additional cost to cast this spell, waterbend {N}" folded into
+`effective_cast_cost` [+52, incl. Slip Through Space, Biomass Mutation,
+Water Whip]). **PAR-29 is closed** — every RULE 701 keyword action has
+parser recognition + an engine primitive, and its three spun-off engine
+tickets (`ENG-31`/`ENG-32`/`ENG-33`) have all shipped. The residual
+per-card grammar is `PAR-30`.
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in

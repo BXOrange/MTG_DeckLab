@@ -1258,6 +1258,30 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "except it's a 3/3 ..." modifier grammar + the graveyard-exile clause
 #: that populates `previous_targets`, a 12-SOLO cluster left to PAR-30.
 #: +45 cache cards (parser_probe diff, full cache, 0 regressed).
+#: "131": ENG-32 — Waterbend (RULE 701.67). The activated `waterbend {N}:`
+#: cost already parsed (the word is noise over a `{N}` mana cost, the
+#: Convoke-style helper a documented simplification); this batch is the
+#: *bodies* those cards were actually blocked on, all general primitives:
+#: "~ / creatures you control ha[s|ve] base power and toughness N/M until
+#: end of turn" (`_BASE_PT_UNTIL_EOT_RE` → a resolve-time layer-7b `pt_set`
+#: via `grant_until`, with `{X}` resolved in `GrantUntilEffect.apply`);
+#: bare "~ / target creature can't be blocked this turn"
+#: (`_CANT_BE_BLOCKED_TURN_RE` → `UnblockableEffect`, new self mode);
+#: "enchanted creature's owner shuffles it into their library"
+#: (`ShuffleSelfIntoLibraryEffect.subject="attached_permanent"`). Plus the
+#: *mandatory* "as an additional cost to cast this spell, waterbend {N}"
+#: (`AbilitySpec.additional_cost` gains a `waterbend` key; `ActivationCost.
+#: help_pay_kind`; the {N} generic folded into `casting_mixin.effective_
+#: cast_cost`). +50 cache cards (the can't-be-blocked and base-P/T handlers
+#: unlock large non-Waterbend families too — Slip Through Space, Infiltrate,
+#: Biomass Mutation, …), 0 regressed. Still UNMODELED and tracked in PAR-30:
+#: "waterbend {X}" additional cost (needs {X}-announcement plumbing), "you
+#: may waterbend {N}" + "if the additional cost was paid" (a Kicker-shaped
+#: optional-additional-cost feature), Ward—Waterbend, Exhaust + Waterbend,
+#: the "whenever you waterbend/…" bending-verb trigger (Avatar Aang), and
+#: cards blocked on unrelated clauses (Aang Swift Savior's airbend-a-spell,
+#: Katara Bending Prodigy's "her" pronoun, Waterbender Ascension's quest
+#: counters).
 #: "130": ENG-33 follow-up (the "copy of that card" family the ticket's
 #: 4th named primitive names) - `_copy_except_modifier` gained a
 #: `_COPY_EXCEPT_PT_RE` branch for "except it's [a] <P>/<T> [<colour>]
@@ -1273,7 +1297,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: blocked on its own separate small connector/filter gap ("if you exiled
 #: a card this way", "non-aura enchantment card", "exile X target …") -
 #: PAR-30.
-PARSER_VERSION = "130"
+PARSER_VERSION = "131"
 
 
 def parser_source_hash() -> str:
