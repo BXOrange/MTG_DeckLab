@@ -6479,6 +6479,39 @@ def _tap_previous_subject(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("tap", {"previous_subject": True, "untap": m.group("verb").lower() == "untap"})]
 
 
+#: PAR-30 — the single biggest RULE 701-trail sub-cluster (~100 SOLO cache
+#: cards): a trailing "[Then] sacrifice / exile <it / that creature / that
+#: token / them / those tokens> at the beginning of [the/your] next end
+#: step." (Kiki-Jiki / Twinflame / every "create a token …, exile it" and
+#: "reanimate …, sacrifice it" card). RULE 603.7 delayed trigger over
+#: `create_delayed_trigger` — the same primitive the hand-authored
+#: Kiki-Jiki/Twinflame entries use, with a new ``capture="previous_or_
+#: self"`` that bakes in whatever the *earlier clause of this same
+#: resolution* chose (RULE 115 target — `GameContext.previous_targets`) or
+#: created (RULE 608.2 — `created_objects`), falling back to the ability's
+#: own source for a bare self-subject "sacrifice it" (Brackwater Elemental /
+#: Deathknell Kami). Deliberately **not** `previous_subject_only`: the
+#: capture no-ops cleanly on an empty referent chain (same safety the
+#: exile→copy connector relies on), and a create-token antecedent never
+#: sets the segmenter's `previous_subject` flag, so gating would miss the
+#: majority of the cluster.
+_DELAYED_SAC_EXILE_TAIL_RE = _c(
+    r"(?:then )?(?P<verb>sacrifice|exile) "
+    r"(?:it|that creature|that token|that permanent|that artifact|those tokens|them) "
+    r"at the beginning of (?:the|your) next end step"
+)
+
+
+def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
+    inner = "sacrifice_specific" if m.group("verb").lower() == "sacrifice" else "exile_specific"
+    return [EffectSpec("create_delayed_trigger", {
+        "step": "end",
+        "scope": "any",
+        "capture": "previous_or_self",
+        "effects": [{"type": inner, "params": {}}],
+    })]
+
+
 #: ENG-30: "They [each] get +N/+N [and gain `<kw>`]/gain `<kw>` until end of
 #: turn." (A-Bretagard Stronghold/Fancy Footwork-shaped, following "…1 or 2
 #: target creatures…") — the pump-family sibling of `_UNTAP_PREVIOUS_GROUP_
@@ -8272,6 +8305,17 @@ HANDLERS: list[EffectHandler] = [
         _TAP_PREVIOUS_SUBJECT_RE,
         _tap_previous_subject,
         previous_subject_only=True,
+    ),
+    # PAR-30: "[Then] sacrifice/exile <it/that creature/that token/them/
+    # those tokens> at the beginning of [the/your] next end step." — the
+    # RULE 603.7 delayed-trigger tail on every "create a token …, exile it"
+    # / "reanimate …, sacrifice it" card (~100 SOLO). Ungated: `capture=
+    # "previous_or_self"` resolves the referent (prev target → created
+    # object → the source) at arm time and no-ops on an empty chain.
+    EffectHandler(
+        "delayed_sac_exile_tail",
+        _DELAYED_SAC_EXILE_TAIL_RE,
+        _delayed_sac_exile_tail,
     ),
     # ENG-30: "They [each] get +N/+N [and gain <kw>] until end of turn."
     # (A-Bretagard Stronghold/Fancy Footwork) — the pump-family sibling of

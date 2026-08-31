@@ -649,8 +649,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **36.6%
-covered (12,756 / 34,811) as of 2026-08-31, PARSER_VERSION 136** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **36.7%
+covered (12,777 / 34,811) as of 2026-08-31, PARSER_VERSION 137** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -763,7 +763,14 @@ connector-split loop now *propagating* the previous-subject referent
 through a clause that itself consumed the pronoun ("untap that creature." →
 "it gains haste."), and `_GAIN_CONTROL_HASTE_TAIL_RE` widened for "untap
 that permanent" / a ", and" join — Snakeskin Veil, Gerrard's Command,
-Malevolent Whispers, Fistful of Force &c. [+50]).
+Malevolent Whispers, Fistful of Force &c. [+50]),
+137 = the "[Then] sacrifice / exile `<it / that creature / that token /
+them>` at the beginning of [the/your] next end step" trailing clause (~100
+SOLO cache cards — the biggest single RULE 701-trail sub-cluster) → one
+ungated `create_delayed_trigger` handler (RULE 603.7, `step="end"`) with a
+new `capture="previous_or_self"` baking in the earlier clause's RULE 115
+target / created object, else the ability's own source — Tidal Wave, Akoum
+Stonewaker, Dawn of the Dead, In Thrall to the Pit &c. [+21]).
 **PAR-29 is closed** — every RULE 701
 keyword action has parser recognition + an engine primitive, and its three
 spun-off engine tickets (`ENG-31`/`ENG-32`/`ENG-33`) have all shipped. The

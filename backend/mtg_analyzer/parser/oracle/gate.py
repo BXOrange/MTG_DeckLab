@@ -1360,7 +1360,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: resolves. (c) `_GAIN_CONTROL_HASTE_TAIL_RE` also accepts "untap that
 #: permanent" and a ", and" join. Threaten payoffs (Bloody Betrayal, Infernal
 #: Captor, …) + clash "if you win, that creature gets …" (Fistful of Force).
-PARSER_VERSION = "136"
+#: "137": PAR-30 — the "[Then] sacrifice / exile <it / that creature / that
+#: token / them / those tokens> at the beginning of [the/your] next end step."
+#: trailing clause (~100 SOLO cache cards — the single biggest RULE 701-trail
+#: sub-cluster). One ungated handler → `create_delayed_trigger` (RULE 603.7,
+#: `step="end"`) with a new `capture="previous_or_self"` that bakes in the
+#: earlier clause's RULE 115 target (`previous_targets`) or created object
+#: (`created_objects`), falling back to the ability's own source for a bare
+#: self-subject "sacrifice it" (Brackwater Elemental). +21 (Tidal Wave,
+#: Akoum Stonewaker, Dawn of the Dead, In Thrall to the Pit, …), 0 regressed —
+#: the rest of the ~100 stay blocked on their own *other* clauses.
+PARSER_VERSION = "137"
 
 
 def parser_source_hash() -> str:

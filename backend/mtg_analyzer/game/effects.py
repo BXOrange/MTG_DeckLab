@@ -9078,6 +9078,26 @@ class CreateDelayedTriggerEffect(GameEffect):
                     effect.exiled_object = made[0]
                 elif hasattr(effect, "target") and made:
                     effect.target = made[0]
+        if self.capture == "previous_or_self":
+            # PAR-30: "…sacrifice/exile it at the beginning of the next end
+            # step." as a *trailing split clause* — "it"/"that creature"/
+            # "that token"/"them" names whatever this same resolution's
+            # earlier clause chose (a RULE 115 target, `previous_targets`)
+            # or created (RULE 608.2, `created_objects`), falling back to
+            # this ability's own source for a bare self-subject "sacrifice
+            # it" with nothing before it (Brackwater Elemental). Baked in
+            # now so the object set survives to the delayed firing; an
+            # empty chain with no source leaves the delayed effect a no-op.
+            made = (
+                list(context.previous_targets)
+                or list(getattr(context, "created_objects", []))
+                or ([self.source] if self.source is not None else [])
+            )
+            for effect in inner:
+                if hasattr(effect, "objects"):
+                    effect.objects = made
+                elif hasattr(effect, "target") and made:
+                    effect.target = made[0]
         # "Its controller may draw up to two cards at the beginning of the
         # next turn's upkeep." (Arcane Denial's own first sentence) — the
         # delayed draw belongs to the countered spell's controller, not

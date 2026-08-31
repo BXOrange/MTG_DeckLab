@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.6% covered — 12,756 / 34,811 — as of 2026-08-31, PARSER_VERSION 136.**
+**36.7% covered — 12,777 / 34,811 — as of 2026-08-31, PARSER_VERSION 137.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -171,6 +171,25 @@ still blocks on antecedent widening — `_gain_control_eot` rejecting a
 qualified target ("an opponent controls with power 2 or less", "with mana
 value ≤ the number of Vampires"), an "if you do," wrapper, or "create a
 Blood token" not parsing — left open.
+
+137 = PAR-30 — the "[Then] sacrifice / exile `<it / that creature / that
+token / them / those tokens>` at the beginning of [the/your] next end step"
+trailing clause, the single biggest RULE 701-trail sub-cluster (~100 SOLO
+by substring, ~21 that are genuinely SOLO). One **ungated**
+`_DELAYED_SAC_EXILE_TAIL_RE` handler → `create_delayed_trigger` (RULE
+603.7, `step="end"`, `scope="any"`, inner `sacrifice_specific` /
+`exile_specific`) with a new engine `capture="previous_or_self"`:
+`CreateDelayedTriggerEffect.apply` bakes in `context.previous_targets` (the
+earlier clause's RULE 115 target) → `created_objects` (RULE 608.2, a
+just-made token / reanimated card) → `[self.source]` (a bare self-subject
+"sacrifice it" with nothing before it — Brackwater Elemental / Deathknell
+Kami). Ungated because the capture no-ops cleanly on an empty referent
+chain and a create-token antecedent never sets the segmenter's
+`previous_subject` flag. +21 (Tidal Wave, Akoum Stonewaker, Dawn of the
+Dead, In Thrall to the Pit's kicked-gated form, Footsteps of the Goryo,
+Feral Lightning, Thatcher Revolt, …), 0 regressed — the rest of the ~100
+stay blocked on their *own* other clauses (populate / conjure / "tapped
+and attacking" / kicked riders).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

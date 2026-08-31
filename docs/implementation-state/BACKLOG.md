@@ -131,8 +131,11 @@ its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
     connector-loop referent propagation, but a create-token antecedent still
     needs `GameContext.created_objects` (not `previous_targets`) threaded as
     the "it" referent — the ~55 remaining "create token … It gains haste"
-    SOLO cards, its own PAR item, not ENG-33 — , **Séance** "exile it at the beginning of the next end step."
-    trailing delayed trigger, **Hour of Eternity** "exile X target creature
+    SOLO cards, its own PAR item, not ENG-33 — , (**Séance**'s "exile it at
+    the beginning of the next end step." trailing delayed trigger is now
+    handled — v137, `_DELAYED_SAC_EXILE_TAIL_RE` → `create_delayed_trigger`
+    with `capture="previous_or_self"`; Séance stays UNMODELED only on its
+    remaining exile-return clause), **Hour of Eternity** "exile X target creature
     cards", **Offspring's Revenge** "target red, white, or black creature
     card" colour filter, **Sauron the Necromancer / Sin** "create a tapped
     [and attacking] token", **Back from the Brink** "…and pay its mana
