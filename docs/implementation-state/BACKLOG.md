@@ -145,9 +145,13 @@ Plan-level sequencing lives in
     Waterbender Ascension (quest counters), Hama (alt-cast by
     waterbending), Aang's Iceberg (O-Ring clause).
 
-  - **Airbend (RULE 701.65) residue.** "airbend that creature" trigger-
-    subject pronoun (Monk Gyatso); "airbend … creature or **spell**"
-    exiling off the stack (Aang, Swift Savior).
+  - **Airbend (RULE 701.65) residue.** One card left: **Aang, Swift
+    Savior** — "airbend up to one other target creature **or spell**".
+    Airbending a *spell* means exiling it off the stack (like a counter
+    that sends it to exile, `RulesEngine.move_spell_off_stack`) and
+    stamping the same owner-recast-for-{2} permission the permanent form
+    already grants — a real new primitive (a `creature_or_spell` target
+    kind + an `ExileEffect` stack-spell branch), not just parser grammar.
 
   - **"Create a token …. It gains haste until end of turn." tail (~55
     SOLO cache-wide).** The singular-pronoun previous-subject pump family

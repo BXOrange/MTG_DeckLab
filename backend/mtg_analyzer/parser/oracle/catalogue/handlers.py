@@ -6078,31 +6078,74 @@ def _blight(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("blight", {"amount": int(m.group("n"))})]
 
 
-# "Airbend [up to N] target `<X>`." (RULE 701.65, Avatar: The Last
-# Airbender — "Exile it. While it's exiled, its owner may cast it for {2}
-# rather than its mana cost."). Reuses `ExileEffect`'s existing
-# `grant_owner_play_permission` (→ `GameState.exile_cast_condition`) plus
-# the new `owner_play_permission_cost` ("{2}" → `GameState.exile_cast_cost_
-# override`, consulted by `GameEngine.effective_cast_cost`). Only the
-# targeted forms — "airbend that creature" (Monk Gyatso, a trigger-subject
-# pronoun) and "airbend ... creature or spell" (exile off the stack) stay
-# UNMODELED, fail-closed.
+# "Airbend [up to N] [other] target `<X>` [you control]." (RULE 701.65,
+# Avatar: The Last Airbender — "Exile it. While it's exiled, its owner may
+# cast it for {2} rather than its mana cost."). Reuses `ExileEffect`'s
+# existing `grant_owner_play_permission` (→ `GameState.exile_cast_
+# condition`) plus `owner_play_permission_cost` ("{2}" → `GameState.exile_
+# cast_cost_override`, consulted by `GameEngine.effective_cast_cost`).
+# "airbend that creature" (a trigger-subject pronoun — Monk Gyatso) is the
+# sibling `_AIRBEND_TRIGGER_SUBJECT_RE` below; "airbend … creature or spell"
+# (exile off the stack — Aang, Swift Savior) stays UNMODELED, fail-closed.
+_AIRBEND_TARGET_CAP = 10  # "any number of" — the shared `_ANY_NUMBER_TARGET_CAP` sentinel
 _AIRBEND_RE = _c(
-    r"airbend (?:up to (?P<n>\d+) )?target (?P<what>nonland permanent|creature)s?"
+    r"airbend "
+    r"(?:(?:up to |exactly )?(?P<n>\d+) |(?P<any>any number of )?)"
+    r"(?:(?P<other>other|another) )?"
+    r"target (?P<what>nonland permanent|creature)s?"
+    r"(?P<yc> you control)?"
 )
 
 
 def _airbend(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = "nonland_permanent" if m.group("what") == "nonland permanent" else "creature"
+    base = "nonland_permanent" if m.group("what") == "nonland permanent" else "creature"
+    if m.group("yc"):
+        # "another target creature you control" → the source-excluding kind;
+        # "target creature you control" → the plain one (which now *includes*
+        # the source, per the cEDH-cube fix).
+        kind = (
+            "other_creature_you_control"
+            if (base == "creature" and m.group("other"))
+            else f"{base}_you_control"
+        )
+    else:
+        # "another target creature" (no "you control") ≈ "target creature":
+        # this engine's `targeting.py` already excludes the effect's own
+        # source from a plain creature/permanent pick, and airbend's source
+        # is usually a spell or an ETB'ing creature anyway.
+        kind = base
     params: dict[str, Any] = {
         "target_kind": kind,
         "grant_owner_play_permission": True,
         "owner_play_permission_cost": "{2}",
     }
-    if m.group("n") is not None:
+    if m.group("any"):
+        params["count"] = _AIRBEND_TARGET_CAP
+        params["optional"] = True
+    elif m.group("n") is not None:
         params["count"] = int(m.group("n"))
-        params["optional"] = True  # "up to N"
+        params["optional"] = True  # "up to N" / "exactly N" both read as N here
     return [EffectSpec("exile", params)]
+
+
+#: "airbend that creature / that permanent / it" — a trigger-subject
+#: pronoun (Monk Gyatso: "Whenever another creature you control becomes the
+#: target of a spell or ability, you may airbend that creature."). Reuses
+#: `ExileEffect`'s `target_kind="trigger_subject"` (MEC-38), which reads
+#: the firing event's own `instance_id`; the airbend permission params ride
+#: along unchanged. The "you may" is peeled by the BECOMES_TARGET dispatch
+#: (`_peel_optional`), so this only claims the bare verb.
+_AIRBEND_TRIGGER_SUBJECT_RE = _c(
+    r"airbend (?:that creature|that permanent|it)"
+)
+
+
+def _airbend_trigger_subject(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exile", {
+        "target_kind": "trigger_subject",
+        "grant_owner_play_permission": True,
+        "owner_play_permission_cost": "{2}",
+    })]
 
 
 # "Earthbend N." (RULE 701.66, Avatar: The Last Airbender — "target land you
@@ -8880,8 +8923,15 @@ HANDLERS: list[EffectHandler] = [
         _c(r"earthbend (?P<n>\d+)"),
         _earthbend,
     ),
-    # "airbend [up to N] target <X>" (RULE 701.65, Avatar: TLA) — exile it,
-    # its owner may cast it from exile for {2}.
+    # "airbend that creature / it" (RULE 701.65) — a trigger-subject pronoun
+    # (Monk Gyatso). Before the targeted row: "that creature" has no "target".
+    EffectHandler(
+        "airbend_trigger_subject",
+        _AIRBEND_TRIGGER_SUBJECT_RE,
+        _airbend_trigger_subject,
+    ),
+    # "airbend [up to N] [other] target <X> [you control]" (RULE 701.65,
+    # Avatar: TLA) — exile it, its owner may cast it from exile for {2}.
     EffectHandler(
         "airbend",
         _AIRBEND_RE,

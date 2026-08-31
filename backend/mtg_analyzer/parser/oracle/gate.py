@@ -1421,7 +1421,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: amount_from_trigger_event="power"`, reading the DIES event's RULE 400.7
 #: last-known-power snapshot (now stamped by `damage_death_mixin`, mirroring
 #: LEAVES_BATTLEFIELD's existing `power=`). +1, 0 regressed.
-PARSER_VERSION = "143"
+#: "144": PAR-30 (Airbend residue) — widened `_AIRBEND_RE` for the qualifier
+#: set real Avatar cards actually print ("[up to N / any number of] [other /
+#: another] target `<X>` [you control]") and added `_AIRBEND_TRIGGER_
+#: SUBJECT_RE` ("airbend that creature / it" → `ExileEffect` `target_kind=
+#: "trigger_subject"`, MEC-38 — Monk Gyatso's "you may airbend that
+#: creature" on a group BECOMES_TARGET trigger). +2 SOLO (Monk Gyatso,
+#: Airbender's Reversal); also unblocks the airbend *clause* on Aang
+#: Airbending Master / Aang the Last Airbender / Appa Loyal / Appa
+#: Steadfast (each still blocked on its own other clauses). "airbend …
+#: creature or **spell**" (Aang, Swift Savior — exile off the stack) stays
+#: open. 0 regressed.
+PARSER_VERSION = "144"
 
 
 def parser_source_hash() -> str:

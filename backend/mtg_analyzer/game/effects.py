@@ -6268,6 +6268,11 @@ class ExileEffect(GameEffect):
             target = context.state.find_object(obj_id) if obj_id is not None else None
             if target is not None:
                 context.exile(target)
+                # "…you may **airbend that creature**." (Monk Gyatso, PAR-30)
+                # — the trigger-subject sibling still needs the airbend
+                # exile-cast permission / remember / free-cast-window riders,
+                # exactly as the RULE 115 targeted branch below applies them.
+                self._post_exile(context, target)
             return
         if self.target_spec is None:
             # Self mode ("Exile ~."/"Exile this spell/card.") — like
@@ -6289,29 +6294,36 @@ class ExileEffect(GameEffect):
             if self.track_exiled_with and self.source is not None:
                 self.source.exiled_with_ids.append(target.instance_id)
             context.exile(target)
-            if self.grant_free_cast_window:
-                context.engine.grant_free_cast_window_from_exile(target)
-            if self.grant_owner_play_permission:
-                context.state.exile_cast_condition[target.instance_id] = (target.owner_id, {})
-                if self.owner_play_permission_cost:
-                    context.state.exile_cast_cost_override[target.instance_id] = (
-                        self.owner_play_permission_cost
-                    )
-                if self.owner_play_permission_tax:
-                    from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
-                    from ..parser.oracle.spec import EffectSpec
+            self._post_exile(context, target)
 
-                    exiler_id = getattr(self.source, "controller_id", None)
-                    tax = build_effects(
-                        [EffectSpec("cost_reduction", {
-                            "affects": "self",
-                            "generic": self.owner_play_permission_tax,
-                            "increase": True,
-                            "except_same_controller_as": exiler_id,
-                        })],
-                        target,
-                    )
-                    target.static_effects.extend(tax)
+    def _post_exile(self, context: GameContext, target: "GameObject") -> None:
+        """The free-cast-window / owner-play-permission / import-tax riders a
+        just-exiled object may carry — shared by the RULE 115 targeted branch
+        and the ``trigger_subject`` one (Monk Gyatso's "airbend that
+        creature")."""
+        if self.grant_free_cast_window:
+            context.engine.grant_free_cast_window_from_exile(target)
+        if self.grant_owner_play_permission:
+            context.state.exile_cast_condition[target.instance_id] = (target.owner_id, {})
+            if self.owner_play_permission_cost:
+                context.state.exile_cast_cost_override[target.instance_id] = (
+                    self.owner_play_permission_cost
+                )
+            if self.owner_play_permission_tax:
+                from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+                from ..parser.oracle.spec import EffectSpec
+
+                exiler_id = getattr(self.source, "controller_id", None)
+                tax = build_effects(
+                    [EffectSpec("cost_reduction", {
+                        "affects": "self",
+                        "generic": self.owner_play_permission_tax,
+                        "increase": True,
+                        "except_same_controller_as": exiler_id,
+                    })],
+                    target,
+                )
+                target.static_effects.extend(tax)
 
 
 class ExileTopOfLibraryEffect(GameEffect):

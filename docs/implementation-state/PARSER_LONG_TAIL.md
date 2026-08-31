@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.0% covered — 12,876 / 34,811 — as of 2026-09-01, PARSER_VERSION 143.**
+**37.0% covered — 12,878 / 34,811 — as of 2026-09-01, PARSER_VERSION 144.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -315,6 +315,27 @@ narrow the `selector`-group branch (not only the targeted one); and "You
 gain hexproof until end of turn" is dropped (player-level hexproof is
 deliberately unmodeled, same call as Veil of Summer in the Kinnan/M-K
 batch). **Earthbend residue is now closed** — its BACKLOG bullet deleted.
+
+144 = PAR-30 — **Airbend residue.** `_AIRBEND_RE` only handled "airbend [up
+to N] target creature/nonland permanent"; real Avatar cards print a fuller
+qualifier set. Widened to "[up to N / exactly N / any number of] [other /
+another] target `<X>` [you control]" → the right source-scoping/-excluding
+`ExileEffect` `target_kind` (`creature_you_control` /
+`other_creature_you_control` / `nonland_permanent_you_control`). New
+`_AIRBEND_TRIGGER_SUBJECT_RE` ("airbend that creature / it") →
+`target_kind="trigger_subject"` (MEC-38 — reads the firing event's own
+`instance_id`), for **Monk Gyatso**'s "you may airbend that creature" on a
+group BECOMES_TARGET trigger. One real engine gap fixed along the way:
+`ExileEffect`'s `trigger_subject` branch did the exile but skipped every
+post-exile rider (owner-play-permission, free-cast window, import tax) —
+extracted into a shared `_post_exile` helper both branches call. +2 SOLO
+(Monk Gyatso, Airbender's Reversal); the airbend *clause* also stops
+blocking Aang Airbending Master / Aang the Last Airbender / Appa Loyal Sky
+Bison / Appa Steadfast Guardian (each still UNMODELED on its *own* other
+clauses — experience-counter triggers, lesson-spell triggers, a modal
+choose, cast-from-exile — separate PAR-30 items). 0 regressed. Still open:
+**"airbend … creature or spell"** (Aang, Swift Savior — exiling a spell off
+the stack + owner-recast, a real new primitive).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

@@ -21,6 +21,7 @@ from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
+from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 
 # --- parse -----------------------------------------------------------------
@@ -43,12 +44,51 @@ def test_airbend_clause_forms():
     assert match_clause("airbend up to 1 other target creature or spell") is None
 
 
+def test_airbend_qualifier_forms_v144():
+    # "another target creature" — no "you control" → plain kind
+    assert match_clause("airbend another target creature")[0].params["target_kind"] == "creature"
+    # "target creature you control"
+    assert match_clause("airbend target creature you control")[0].params["target_kind"] == (
+        "creature_you_control"
+    )
+    # "another target creature you control" → source-excluding kind
+    assert match_clause("airbend another target creature you control")[0].params["target_kind"] == (
+        "other_creature_you_control"
+    )
+    # "another target nonland permanent you control"
+    assert match_clause(
+        "airbend another target nonland permanent you control"
+    )[0].params["target_kind"] == "nonland_permanent_you_control"
+    # "any number of other target nonland permanents you control"
+    anynum = match_clause("airbend any number of other target nonland permanents you control")
+    assert anynum[0].params["target_kind"] == "nonland_permanent_you_control"
+    assert anynum[0].params["count"] == 10 and anynum[0].params["optional"] is True
+
+
+def test_airbend_that_creature_trigger_subject_form():
+    got = match_clause("airbend that creature")
+    assert got == [EffectSpec("exile", {
+        "target_kind": "trigger_subject",
+        "grant_owner_play_permission": True,
+        "owner_play_permission_cost": "{2}",
+    })]
+    assert match_clause("airbend it") == got
+
+
 def test_real_airbend_cards_modeled():
     for name, text in [
         ("Airbending Lesson", "Airbend target nonland permanent.\nDraw a card."),
         ("Whirlwind Technique", "Airbend up to two target creatures."),
+        ("Airbender's Reversal", "Airbend target creature you control."),
+        ("Monk Gyatso",
+         "Whenever another creature you control becomes the target of a spell "
+         "or ability, you may airbend that creature."),
     ]:
-        c = Card(id=name[:3], name=name, type_line="Sorcery", is_sorcery=True,
+        tl = "Creature — Human Monk" if name == "Monk Gyatso" else "Sorcery"
+        c = Card(id=name[:3], name=name, type_line=tl,
+                 is_sorcery=tl == "Sorcery", is_creature=tl != "Sorcery",
+                 power=2 if tl != "Sorcery" else None,
+                 toughness=3 if tl != "Sorcery" else None,
                  mana_cost_string="{2}{W}", oracle_text=text)
         assert parse_oracle(c).modeled, (name, parse_oracle(c).unclaimed)
 
@@ -92,3 +132,39 @@ def test_airbend_exiles_and_grants_fixed_cost_cast_permission():
     # ...for a fixed {2}, not its printed {4}{G}{G}
     assert state.exile_cast_cost_override.get(victim.instance_id) == "{2}"
     assert eng.effective_cast_cost(p2, victim).converted_mana_cost == 2
+
+
+def test_airbend_trigger_subject_exiles_the_triggering_creature():
+    eng, state = _engine()
+    p1 = state.player_by_id("p1")
+
+    gyatso = GameObject(
+        Card(id="MG", name="Monk Gyatso", type_line="Creature — Human Monk",
+             is_creature=True, power=2, toughness=3,
+             oracle_text=("Whenever another creature you control becomes the target "
+                          "of a spell or ability, you may airbend that creature.")),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    gyatso.controller_id = "p1"
+    state.add_to_battlefield(gyatso)
+    bind_from_catalogue(gyatso)
+
+    ally = GameObject(
+        Card(id="AL2", name="Ally", type_line="Creature — Bird", is_creature=True,
+             power=1, toughness=1, mana_cost_string="{3}{W}", converted_mana_cost=4),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    ally.controller_id = "p1"
+    state.add_to_battlefield(ally)
+
+    trig = next(t for t in gyatso.triggered_abilities
+                if t.trigger_event == "BECOMES_TARGET")
+    # simulate the ally becoming the target: the effect reads the firing
+    # event's own instance_id (ExileEffect target_kind="trigger_subject")
+    eng.rules.context.trigger_event = {"instance_id": ally.instance_id}
+    for eff in trig.effects:
+        eff.apply(eng.rules.context, [])
+    eng.rules.context.trigger_event = None
+
+    assert ally not in state.battlefield and ally in p1.exile
+    assert state.exile_cast_cost_override.get(ally.instance_id) == "{2}"
