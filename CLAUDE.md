@@ -649,8 +649,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **36.1%
-covered (12,581 / 34,811) as of 2026-08-31, PARSER_VERSION 127** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **36.2%
+covered (12,584 / 34,811) as of 2026-08-31, PARSER_VERSION 128** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -721,14 +721,17 @@ PAR-30. Also fixed a latent "you create a … token with `<kw>`" →
 Travel — `RulesEngine.time_travel` (documented simplification: remove a
 time counter from each suspended card you own, add one to each
 Vanishing-style permanent you control), `effects.TimeTravelEffect`, a bare
-"time travel" handler [+3]). **PAR-29 is closed** — every RULE 701 keyword
-action now has parser recognition + an engine primitive (Firebending's
-printed-keyword ATTACKS `{R}×N` mana ability binds in `effect_binder.py`;
-its *grant* path is `ENG-31`). The residual effect-/outcome-body grammar
-for those cards is `PAR-30` ("PAR-29's parser trail"), with `ENG-31`
-(parametric keyword grants), `ENG-32` (Waterbend cost mechanic) and
-`ENG-33` (villainous-choice/vote option-body primitives) for the
-engine-dependent parts.
+"time travel" handler [+3], 128 was `ENG-31` parametric keyword *grants* —
+`GameObject._granted_parametric_keywords`/`temp_parametric_keywords` +
+`effect_binder.parametric_keyword_triggered_abilities` re-synthesizing
+firebending's ATTACKS `{R}×N` mana ability off a *granted* N, wired into
+`pump`/`grant_keyword`/`create_token` via a `parametric_keywords` param
+[+3 — Fire Nation Palace, Fire Nation Attacks, Sozin's Comet]). **PAR-29 is
+closed** — every RULE 701 keyword action now has parser recognition + an
+engine primitive. The residual effect-/outcome-body grammar for those cards
+is `PAR-30` ("PAR-29's parser trail"), with `ENG-32` (Waterbend cost
+mechanic) and `ENG-33` (villainous-choice/vote option-body primitives) for
+the remaining engine-dependent parts.
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in

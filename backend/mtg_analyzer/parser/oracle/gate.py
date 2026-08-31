@@ -1222,7 +1222,25 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (a designation-aware group trigger filter) are real new-primitive needs
 #: this batch found but did not build - flagged in BACKLOG.md rather than
 #: silently deferred.
-PARSER_VERSION = "127"
+#: "128": ENG-31 - parametric keyword *grants*. A grant of a keyword that
+#: carries a number ("gains firebending N until end of turn" - Fire Nation
+#: Palace; "creatures you control gain firebending N …" - Sozin's Comet; a
+#: token "with firebending N" - Fire Nation Attacks) had no representation:
+#: `pump`/`grant_keyword`/`create_token` all carried a flat `keywords:
+#: [str]` list. Added a `{name, n}` shape those three effect/static
+#: families accept alongside the flat list (`_split_keywords_with_
+#: parametric`, `_GRANTABLE_PARAMETRIC_KEYWORDS` = firebending/annihilator/
+#: afflict/bushido), stamped onto `GameObject._granted_parametric_keywords`
+#: / `temp_parametric_keywords` by `continuous._apply_layer_6_ability`, and
+#: `effect_binder.parametric_keyword_triggered_abilities` re-synthesizes
+#: the keyword's RULE 702-text triggered ability off the *granted* N every
+#: recompute (the printed-keyword path already ran the same builders at
+#: bind-on-load). +3 real cards (parser_probe diff, full cache, 0
+#: regressed). Fire Nation Cadets / Fire Nation Occupation / Iroh stay
+#: UNMODELED on unrelated grammar (a conditional-static "there's a lesson
+#: card in your graveyard", a "cast a spell during an opponent's turn"
+#: trigger, a "with a counter on it" group filter) - PAR-30.
+PARSER_VERSION = "128"
 
 
 def parser_source_hash() -> str:

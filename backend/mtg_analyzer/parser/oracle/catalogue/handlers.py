@@ -4073,6 +4073,42 @@ def _token_keywords(text: str) -> Optional[list[str]]:
     return slugs
 
 
+#: ENG-31: the parametric keywords a *grant* ("gains firebending N until end
+#: of turn", "has firebending N as long as …", a token "with firebending N")
+#: can model — exactly the ones whose RULE 702 text is a triggered ability
+#: `effect_binder._KEYWORD_TRIGGERED_BUILDERS` re-synthesizes off the granted
+#: N. Every other NUMBER-shape keyword (renown, toxic, …) stays fail-closed
+#: for a grant.
+_GRANTABLE_PARAMETRIC_KEYWORDS: frozenset[str] = frozenset(
+    {"firebending", "annihilator", "afflict", "bushido"}
+)
+
+
+def _split_keywords_with_parametric(
+    text: str,
+) -> Optional[tuple[list[str], list[dict[str, object]]]]:
+    """A "<kw>[, <kw> and firebending N …]" list → ``(flag_slugs,
+    [{"name", "n"}, ...])``, or ``None`` if any entry is neither a FLAG
+    keyword nor a grantable parametric one (fail-closed, like
+    `_token_keywords`). ``"firebending 2"`` / ``"annihilator 1"`` entries go
+    to the parametric list; everything else must be a plain flag."""
+    flags: list[str] = []
+    parametric: list[dict[str, object]] = []
+    for part in re.split(r",|\band\b", text):
+        part = part.strip()
+        if not part:
+            continue
+        pm = re.fullmatch(r"([a-z]+)\s+(\d+)", part)
+        if pm and pm.group(1) in _GRANTABLE_PARAMETRIC_KEYWORDS:
+            parametric.append({"name": pm.group(1), "n": int(pm.group(2))})
+            continue
+        kdef = KEYWORDS.get(keyword_slug(part))
+        if kdef is None or (kdef.shape is not KeywordShape.FLAG and kdef.slug != "hexproof"):
+            return None
+        flags.append(kdef.slug)
+    return flags, parametric
+
+
 def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     """The shared ``create_token`` params for the inline-stats creature-token
     grammar (``p``/``t``/``mid``/``kw``/``n``/``tapped``/``legendary``/``who``
@@ -4080,11 +4116,12 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     can build the same params for its own, differently-wrapped clause."""
     colors, subtypes, is_artifact = _split_token_mid_words(m.group("mid") or "")
     keywords: list[str] = []
+    parametric_keywords: list[dict[str, object]] = []
     if m.groupdict().get("kw"):
-        parsed = _token_keywords(m.group("kw"))
-        if parsed is None:
+        split = _split_keywords_with_parametric(m.group("kw"))
+        if split is None:
             return None  # unrecognised "with …" ability → fail-closed
-        keywords = parsed
+        keywords, parametric_keywords = split
     params: dict = {
         "count": count_of(m.group("n")),
         "power": int(m.group("p")),
@@ -4093,6 +4130,8 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         "subtypes": subtypes,
         "keywords": keywords,
     }
+    if parametric_keywords:  # ENG-31: "… token with firebending N"
+        params["parametric_keywords"] = parametric_keywords
     if is_artifact:
         params["is_artifact"] = True
     if subtypes:
@@ -4255,7 +4294,10 @@ def _create_token_number_equal_devotion(m: re.Match[str]) -> Optional[list[Effec
 #: "and attach …" tail the way the top-level row's fullmatch would demand.
 _CREATE_TOKEN_INLINE = (
     rf"{COUNT} (?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
-    rf"(?P<mid>[a-z ]*?)creature tokens?(?: with (?P<kw>[a-z, ]+))?"
+    # ``0-9`` in the keyword capture is ENG-31's "… token with firebending
+    # N" — `_inline_create_token_params` splits a "<name> <N>" entry into
+    # ``parametric_keywords`` and fail-closes on any other numbered ability.
+    rf"(?P<mid>[a-z ]*?)creature tokens?(?: with (?P<kw>[a-z0-9, ]+))?"
 )
 
 #: "create a 1/1 white Halfling creature token and attach ~ to it." (Living
@@ -4679,10 +4721,17 @@ def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if subject is None:
         return None
     target_kind, selector = subject
-    keywords = _token_keywords(m.group("kw"))
-    if keywords is None:
+    split = _split_keywords_with_parametric(m.group("kw"))
+    if split is None:
         return None
-    params: dict = {"keywords": keywords}
+    flags, parametric = split
+    if not flags and not parametric:
+        return None
+    params: dict = {}
+    if flags:
+        params["keywords"] = flags
+    if parametric:  # ENG-31: "gains firebending N until end of turn"
+        params["parametric_keywords"] = parametric
     if target_kind:
         params["target_kind"] = target_kind
     if selector:
@@ -7929,7 +7978,12 @@ HANDLERS: list[EffectHandler] = [
     # "creatures you control gain flying until end of turn".
     EffectHandler(
         "pump_keyword",
-        _c(rf"{_SUBJECT} gains? (?P<kw>[a-z, ]+?) until end of turn"),
+        # ``0-9`` in the keyword capture is ENG-31's parametric grant
+        # ("gains firebending 4 until end of turn"); `_pump_keywords` splits
+        # a "<name> <N>" entry off into ``parametric_keywords`` and
+        # fail-closes on anything that isn't a FLAG or a grantable
+        # parametric keyword.
+        _c(rf"{_SUBJECT} gains? (?P<kw>[a-z0-9, ]+?) until end of turn"),
         _pump_keywords,
     ),
     # "Each creature your opponents control gets -1/-1 until end of turn
@@ -8548,7 +8602,9 @@ HANDLERS: list[EffectHandler] = [
             rf"(?:(?P<who>you|each player|each opponent) )?creates? {COUNT} "
             rf"(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
             rf"(?P<mid>[a-z ]*?)creature tokens?"
-            rf"(?: with (?P<kw>[a-z, ]+))?"
+            # ``0-9`` in the keyword capture is ENG-31's "… token with
+            # firebending N" (Fire Nation Attacks/Occupation).
+            rf"(?: with (?P<kw>[a-z0-9, ]+))?"
         ),
         _create_token,
     ),

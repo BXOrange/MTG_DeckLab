@@ -338,19 +338,19 @@ def toxic_value(obj: "GameObject") -> Optional[int]:
     have the keyword.
 
     RULE 702.164b's "total toxic value" sums every toxic ability an object
-    has, but `attach_keyword` only ever docks one entry per keyword name —
-    there's no standing "grant Toxic" mechanism yet to stack a second
-    source on top of a printed one — so this is just the single printed N.
-    Consulted by `RulesEngine.deal_damage` (RULE 702.164c), never by this
-    module's own combat predicates: unlike infect/wither, toxic doesn't
-    change how damage is dealt or what it does to a creature, so nothing
-    here needs to branch on it.
+    has. `parametric_keyword_value` (ENG-31) reads a *granted* "toxic N"
+    (`_granted_parametric_keywords`, from a layer-6 or until-EOT grant)
+    ahead of the printed value docked by `attach_keyword`; there's still no
+    card that both prints and is granted toxic, so this stays a single N
+    rather than a real 702.164b sum. Consulted by `RulesEngine.deal_damage`
+    (RULE 702.164c), never by this module's own combat predicates.
     """
     if getattr(obj, "loses_all_abilities", False):
         return None
-    params = getattr(obj, "parametric_keywords", None) or {}
-    toxic = params.get("toxic") or {}
-    n = toxic.get("n")
+    getter = getattr(obj, "parametric_keyword_value", None)
+    n = getter("toxic") if callable(getter) else (
+        (getattr(obj, "parametric_keywords", None) or {}).get("toxic") or {}
+    ).get("n")
     if n is None:
         return None
     try:

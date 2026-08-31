@@ -12975,11 +12975,17 @@ class PumpEffect(GameEffect):
         subtypes: Optional[list[str]] = None,
         trigger_subject: bool = False,
         self_multiplier: Optional[int] = None,
+        parametric_keywords: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.power = power
         self.toughness = toughness
         self.keywords = list(keywords or [])
+        #: ENG-31: "gains firebending N until end of turn" — a keyword with a
+        #: number, which the flat `keywords` slug list can't carry. Written
+        #: to the recipient's `temp_parametric_keywords`, the parametric
+        #: sibling of `temp_keywords`. ``[{"name": str, "n": int}, ...]``.
+        self.parametric_keywords = [dict(pk) for pk in (parametric_keywords or [])]
         self.selector = selector
         #: RULE 702.83a Exalted — "*that* creature gets +1/+1 until end of
         #: turn": pump whichever object the firing trigger event names
@@ -13091,11 +13097,15 @@ class PumpEffect(GameEffect):
         obj.temp_power += power
         obj.temp_toughness += toughness
         obj.temp_keywords.update(self.keywords)
+        for pk in self.parametric_keywords:
+            name, n = pk.get("name"), pk.get("n")
+            if name and n is not None:
+                obj.temp_parametric_keywords[str(name)] = int(n)
         if self.unblockable:
             obj.temp_unblockable = True
         # Record a per-source breakdown for the board's per-card effect
         # summary (display-only — the aggregate ints above drive the math).
-        if power or toughness or self.keywords:
+        if power or toughness or self.keywords or self.parametric_keywords:
             obj.temp_effects.append(
                 {
                     "source": self.source.name if self.source is not None else "Effekt",
@@ -13350,6 +13360,7 @@ class CreateTokenEffect(GameEffect):
         extra_counters: Optional[dict[str, Any]] = None,
         grant_self_anthem: Optional[dict[str, Any]] = None,
         is_artifact: bool = False,
+        parametric_keywords: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         #: "…colorless Construct **artifact** creature token…" — see
@@ -13377,6 +13388,13 @@ class CreateTokenEffect(GameEffect):
         self.colors = colors or []
         self.subtypes = subtypes or []
         self.keywords = keywords or []
+        #: ENG-31: "create a 2/2 red Soldier creature token with firebending
+        #: N" (Fire Nation Attacks/Occupation) — a keyword with a number the
+        #: flat `keywords` list can't hold. Docked onto each created token's
+        #: own `parametric_keywords` + its ATTACKS mana ability synthesized,
+        #: right after it enters — a *printed* part of the token's
+        #: definition, not a layer-6 grant. ``[{"name": str, "n": int}, ...]``.
+        self.parametric_keywords = [dict(pk) for pk in (parametric_keywords or [])]
         self.count_selector = count_selector
         self.creators = creators if creators in self._CREATORS else "you"
         self.tapped = bool(tapped)
@@ -13487,6 +13505,22 @@ class CreateTokenEffect(GameEffect):
                         token,
                     )
                     token.static_effects.extend(anthem)
+            if self.parametric_keywords:
+                # ENG-31: dock each numbered keyword onto the token itself and
+                # synthesize its RULE 702-text triggered ability, the same
+                # `attach_keyword` + `_keyword_triggered_abilities` pair a
+                # printed keyword line goes through at bind-on-load.
+                from .effect_binder import parametric_keyword_triggered_abilities  # effects↔binder cycle
+
+                for pk in self.parametric_keywords:
+                    name, n = str(pk.get("name") or ""), pk.get("n")
+                    if not name or n is None:
+                        continue
+                    for token in made:
+                        token.parametric_keywords[name] = {"n": int(n)}
+                        token.triggered_abilities.extend(
+                            parametric_keyword_triggered_abilities(token, name, int(n))
+                        )
             # The referent for a following "the tokens are …" clause.
             context.created_objects.extend(made)
 
@@ -18595,6 +18629,7 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         subtypes=p.get("subtypes"),
         self_multiplier=p.get("self_multiplier"),
+        parametric_keywords=p.get("parametric_keywords"),
     ),
 )
 EffectRegistry.register(
@@ -18670,6 +18705,7 @@ EffectRegistry.register(
         extra_counters=p.get("extra_counters"),
         grant_self_anthem=p.get("grant_self_anthem"),
         is_artifact=bool(p.get("is_artifact", False)),
+        parametric_keywords=p.get("parametric_keywords"),
     ),
 )
 EffectRegistry.register(
@@ -18995,6 +19031,12 @@ EffectRegistry.register(
         affects=p.get("affects", "creatures_you_control"),
         params={
             "keywords": list(p.get("keywords", [])),
+            # ENG-31: parametric keyword grants ("~ has firebending N …") —
+            # ``[{"name": str, "n": int}, ...]``, stamped onto
+            # `GameObject._granted_parametric_keywords` by `continuous._apply_
+            # layer_6_ability` since a numbered keyword can't be a bare slug.
+            **({"parametric_keywords": [dict(pk) for pk in p["parametric_keywords"]]}
+               if p.get("parametric_keywords") else {}),
             # RULE 702.21b's quoted grant ("Other creatures you control
             # have 'Ward—Pay 2 life.'") — see `continuous.recompute`'s own
             # `ward_cost` consumer for why this rides `grant_keyword`

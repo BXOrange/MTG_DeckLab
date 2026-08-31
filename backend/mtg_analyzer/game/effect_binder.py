@@ -2472,6 +2472,27 @@ def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredA
     return builder(obj, spec, keyword.get("n"))
 
 
+def parametric_keyword_triggered_abilities(
+    obj: Any, name: str, n: Any
+) -> list[TriggeredAbility]:
+    """ENG-31: synthesize the triggered abilities for a *granted* parametric
+    keyword — "target creature gains firebending N until end of turn" (Fire
+    Nation Palace), "creatures you control have firebending N" (Sozin's
+    Comet). The printed-keyword path runs the same
+    `_KEYWORD_TRIGGERED_BUILDERS` at bind-on-load via
+    `_keyword_triggered_abilities`; a *grant* has no bind step, so
+    `continuous._apply_layer_6_ability` calls this every recompute onto
+    `GameObject._granted_triggered_abilities`. Only the keywords whose RULE
+    702 text *is* a triggered ability (firebending / annihilator / afflict /
+    bushido) have a builder; anything else returns ``[]``.
+    """
+    builder = _KEYWORD_TRIGGERED_BUILDERS.get(str(name))
+    if builder is None:
+        return []
+    spec = AbilitySpec("keyword", keyword={"name": str(name), "n": n})
+    return builder(obj, spec, n)
+
+
 def _build_mode_entries(modes: dict[str, Any], source: Any) -> list[dict[str, Any]]:
     """Bind each mode's effects (RULE 700.2) into ``{"effects": [GameEffect,
     ...], "description": str}`` entries, one per printed mode — shared by a

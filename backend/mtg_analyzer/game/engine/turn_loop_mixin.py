@@ -766,10 +766,12 @@ class TurnLoopMixin:
         ended_effects = False
         for obj in self.state.permanents():
             obj.damage_marked = 0
-            if obj.temp_power or obj.temp_toughness or obj.temp_keywords:
+            if (obj.temp_power or obj.temp_toughness or obj.temp_keywords
+                    or obj.temp_parametric_keywords):
                 obj.temp_power = 0
                 obj.temp_toughness = 0
                 obj.temp_keywords.clear()
+                obj.temp_parametric_keywords.clear()  # ENG-31
                 obj.temp_effects.clear()
                 ended_effects = True
             if obj.temp_unblockable:

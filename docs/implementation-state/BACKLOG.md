@@ -36,26 +36,11 @@ Plan-level sequencing lives in
 
 ## ENG — Game engine
 
-> The three below back the PAR-29 keyword-action parser handlers shipped at
+> The two below back the PAR-29 keyword-action parser handlers shipped at
 > PARSER_VERSION 126-127: those handlers recognize their cards but need
 > these primitives before the affected cards resolve correctly. Card lists
-> and the exact parser-side state are in **PAR-30**.
-
-- **ENG-31 · Parametric keyword *grants*.** A grant of a keyword that
-  carries a number — "gains firebending N until end of turn" (Sozin's
-  Comet, Fire Nation Palace, Iroh), "has firebending N as long as `<cond>`"
-  (Fire Nation Cadets), a token "with firebending N" (Fire Nation Attacks/
-  Occupation) — has no representation today: `pump`/`grant_keyword`/
-  `create_token` all carry a flat `keywords: [str]` list, and
-  `_token_keywords` fail-closes on any non-FLAG keyword. Needs: (a) a
-  `{name, n}` shape those three effect/static families accept alongside the
-  flat list; (b) `continuous.recompute` stamping it so `GameObject.
-  parametric_keywords` reflects a *granted* value, not only a printed one;
-  (c) `_kw_firebending` (already built, `effect_binder.py`) then fires off
-  the granted N. General win beyond Firebend — granted Annihilator/Afflict/
-  Bushido have the same gap. ~7 Firebend SOLO + a scattering of others.
-  Firebend's printed-keyword behaviour (the ATTACKS `{R}×N` mana ability)
-  is **already bound**; only the grant path is missing.
+> and the exact parser-side state are in **PAR-30**. (ENG-31, parametric
+> keyword *grants*, shipped at PARSER_VERSION 128 — see `Done_Backend.md`.)
 
 - **ENG-32 · Waterbend cost mechanic (RULE 701.67).** "Waterbend {N}" is a
   `{N}` generic mana cost with a Convoke-style helper — "while paying a
@@ -130,12 +115,13 @@ Plan-level sequencing lives in
   keyword ATTACKS `{R}×N` mana ability is bound in `effect_binder.py`).
   Full per-mechanic narrative in `Done_Backend.md`. What stays UNMODELED is
   **not the keyword action** — it's the ordinary effect-/outcome-body
-  grammar around it, plus three engine primitives filed as **ENG-31**
-  (parametric keyword *grants* — Firebend's grant path), **ENG-32**
-  (Waterbend cost mechanic), **ENG-33** (villainous-choice / vote option-
-  body primitives — edict-on-target-player, free-cast-a-spell, copy-of-
-  a-referenced-card, put-permanent-from-hand). Cache-wide `parser_probe.py`
-  SOLO counts.
+  grammar around it, plus engine primitives filed as **ENG-32** (Waterbend
+  cost mechanic) and **ENG-33** (villainous-choice / vote option-body
+  primitives — edict-on-target-player, free-cast-a-spell, copy-of-
+  a-referenced-card, put-permanent-from-hand). (**ENG-31**, parametric
+  keyword *grants* — Firebend's grant path — shipped at PARSER_VERSION 128;
+  Fire Nation Palace / Fire Nation Attacks / Sozin's Comet are MODELED.)
+  Cache-wide `parser_probe.py` SOLO counts.
 
   - **Vote (RULE 701.38) outcome bodies.** 3+-option votes (Council
     Guardian — WUBRG protection vote); "vote for a nonland permanent / a
@@ -161,13 +147,19 @@ Plan-level sequencing lives in
     "each opponent who lost 3+ life this turn" (Davros), "choose an
     opponent with the most life" (The Master).
 
-  - **Firebending (RULE ~702.189) grants — ENG-31.** "creatures you
-    control / target creature gains firebending N until end of turn"
-    (Sozin's Comet, Fire Nation Palace, Iroh), "~ has firebending N as long
-    as `<cond>`" (Fire Nation Cadets), a token "with firebending N" (Fire
-    Nation Attacks/Occupation) — parametric keyword grants, ~7 SOLO. Also
-    the "whenever you waterbend / earthbend / firebend / airbend" bending-
-    verb trigger row (Avatar Aang).
+  - **Firebending (RULE ~702.189) grants — ENG-31 shipped (v128).** The
+    parametric-keyword-grant primitive is done: "target creature / creatures
+    you control gain firebending N until end of turn" parses (Fire Nation
+    Palace, Fire Nation Attacks, Sozin's Comet MODELED). Still UNMODELED on
+    *unrelated* grammar: **Fire Nation Cadets** ("~ has firebending N as long
+    as there's a lesson card in your graveyard" — a conditional-static
+    condition `static_conditions.py` doesn't have); **Fire Nation
+    Occupation** ("whenever you cast a spell during an opponent's turn, …" —
+    an unrecognized trigger condition); **Iroh, Dragon of the West** ("each
+    creature you control **with a counter on it** gains firebending N …" — a
+    group-selector filter). Also the "whenever you waterbend / earthbend /
+    firebend / airbend" bending-verb trigger row (Avatar Aang) — needs the
+    four bending primitives to fire an event first, so blocked on ENG-32.
 
   - **Waterbend (RULE 701.67) — ENG-32 + these bodies.** The activated
     `waterbend {N}: <body>` cards (Flexible Waterbender, Giant Koi, Katara,

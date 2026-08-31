@@ -770,6 +770,14 @@ class GameObject:
         self._derived_power: Optional[int] = None
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
+        #: ENG-31: a *granted* parametric keyword's number, keyed by slug —
+        #: "target creature gains firebending N until end of turn" (Fire
+        #: Nation Palace), "~ has firebending N as long as <cond>" (Fire
+        #: Nation Cadets). Re-derived every `continuous.recompute` pass from
+        #: the layer-6 grant / `temp_parametric_keywords`, unlike
+        #: `parametric_keywords` which is bound once from printed text.
+        #: `parametric_keyword_value` reads the two together.
+        self._granted_parametric_keywords: dict[str, int] = {}
         #: A *granted* Ward's cost text (RULE 702.21b — "Other creatures
         #: you control have 'Ward—Pay 2 life.'", Hexing Squelcher-shaped),
         #: re-derived every `continuous.recompute` pass by
@@ -979,6 +987,14 @@ class GameObject:
         self.temp_power: int = 0
         self.temp_toughness: int = 0
         self.temp_keywords: set[str] = set()
+        #: ENG-31: "until end of turn" grants of a *parametric* keyword
+        #: ("target creature gains firebending N until end of turn" — Fire
+        #: Nation Palace), slug → number. The parametric sibling of
+        #: `temp_keywords`; `continuous.recompute` folds it into
+        #: `_granted_parametric_keywords` and synthesizes the keyword's
+        #: triggered ability. Cleared at cleanup (RULE 514.2) alongside
+        #: `temp_keywords`.
+        self.temp_parametric_keywords: dict[str, int] = {}
         #: Per-source breakdown of the "until end of turn" buffs above, for the
         #: board's per-card effect summary (source attribution the aggregate
         #: ints can't carry) — a list of
@@ -1068,6 +1084,7 @@ class GameObject:
         self._derived_power = None
         self._derived_toughness = None
         self._granted_keywords = set()
+        self._granted_parametric_keywords = {}
         self.granted_ward_cost = None
         self._removed_keywords = set()
         self._granted_protections = set()
@@ -1223,6 +1240,7 @@ class GameObject:
         self.temp_power = 0
         self.temp_toughness = 0
         self.temp_keywords = set()
+        self.temp_parametric_keywords = {}
         self.temp_effects = []
         self.temp_unblockable = False
         self.temp_cant_block = False
@@ -1426,6 +1444,21 @@ class GameObject:
     def granted_keywords(self) -> set[str]:
         """Keyword slugs granted by layer-6 static abilities (RULE 613.7f)."""
         return set(self._granted_keywords)
+
+    def parametric_keyword_value(self, name: str) -> Optional[int]:
+        """ENG-31: the effective number for a parametric keyword — a
+        *granted* value (`_granted_parametric_keywords`, re-derived each
+        `continuous.recompute` from a layer-6 grant or
+        `temp_parametric_keywords`) if one applies, else the printed value
+        bound once onto `parametric_keywords` (``{"n": ...}``). ``None`` when
+        the object has the keyword by neither route."""
+        granted = self._granted_parametric_keywords.get(name)
+        if granted is not None:
+            return int(granted)
+        printed = (self.parametric_keywords or {}).get(name)
+        if isinstance(printed, dict) and printed.get("n") is not None:
+            return int(printed["n"])
+        return None
 
     @property
     def removed_keywords(self) -> set[str]:

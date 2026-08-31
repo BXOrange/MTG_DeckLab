@@ -1796,6 +1796,13 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
     live_grant_keys: set[tuple[int, int]] = set()
     for ability in _in_layer(abilities, "ability"):
         keywords = ability.params.get("keywords", [])
+        #: ENG-31: parametric keyword *grants* — ``[{"name": "firebending",
+        #: "n": 2}, ...]``. A number-carrying keyword can't ride the flat
+        #: `keywords` slug list; stamped onto `GameObject.
+        #: _granted_parametric_keywords` and, where the keyword's RULE 702
+        #: text is itself a triggered ability, re-synthesized onto
+        #: `_granted_triggered_abilities` every pass.
+        parametric_grants = ability.params.get("parametric_keywords", [])
         remove_keywords = ability.params.get("remove_keywords", [])
         lose_all = bool(ability.params.get("lose_all_abilities", False))
         mana = ability.params.get("mana", [])
@@ -1832,6 +1839,24 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
             if keywords:
                 obj._granted_keywords.update(keywords)
                 _trace(obj, 6, _source_name(ability), "gains " + ", ".join(keywords))
+            for pk in parametric_grants:
+                pname = str(pk.get("name") or "")
+                pn = pk.get("n")
+                if not pname or pn is None:
+                    continue
+                obj._granted_parametric_keywords[pname] = int(pn)
+                _trace(obj, 6, _source_name(ability), f"gains {pname} {int(pn)}")
+                # ``int(pn)`` in the key so a changed amount (a dynamic grant)
+                # mints a fresh ability and the stale one is pruned below.
+                key = (id(ability), obj.instance_id, "parametric", pname, int(pn))
+                live_grant_keys.add(key)
+                built = state._granted_ability_cache.get(key)
+                if built is None:
+                    from .effect_binder import parametric_keyword_triggered_abilities  # local: avoid an import cycle
+
+                    built = parametric_keyword_triggered_abilities(obj, pname, int(pn))
+                    state._granted_ability_cache[key] = built
+                obj._granted_triggered_abilities.extend(built)
             if remove_keywords:
                 obj._removed_keywords.update(remove_keywords)
                 _trace(obj, 6, _source_name(ability), "loses " + ", ".join(remove_keywords))
@@ -1910,6 +1935,29 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     state._granted_ability_cache[key] = granted_activated
                 obj._granted_activated_abilities.append(granted_activated)
                 _trace(obj, 6, _source_name(ability), "gains an activated ability")
+
+    # ENG-31: "until end of turn" parametric keyword grants from a resolved
+    # effect ("target creature gains firebending N until end of turn" — Fire
+    # Nation Palace). The parametric sibling of the `temp_keywords` merge
+    # below; folded in here (before the prune) so its synthesized abilities
+    # share the same `_granted_ability_cache` identity-preservation. Cleared
+    # at cleanup (RULE 514.2) with `temp_keywords`.
+    for obj in state.battlefield:
+        for pname, pn in (obj.temp_parametric_keywords or {}).items():
+            if pn is None:
+                continue
+            obj._granted_parametric_keywords[pname] = int(pn)
+            key = (id(obj), obj.instance_id, "parametric_temp", pname, int(pn))
+            live_grant_keys.add(key)
+            built = state._granted_ability_cache.get(key)
+            if built is None:
+                from .effect_binder import parametric_keyword_triggered_abilities  # local: avoid an import cycle
+
+                built = parametric_keyword_triggered_abilities(obj, pname, int(pn))
+                state._granted_ability_cache[key] = built
+            obj._granted_triggered_abilities.extend(built)
+            _trace(obj, 6, "Until-EOT", f"gains {pname} {int(pn)}", duration="end_of_turn")
+
     # Prune cache entries for relationships that no longer hold (the granting
     # ability left, or this object is no longer among its `affects`) — so a
     # later re-grant starts a fresh instance (fresh "once per turn" state),

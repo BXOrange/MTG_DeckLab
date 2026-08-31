@@ -990,6 +990,12 @@ class AbilitySpec:
                 continue
             if isinstance(value, int):
                 params[key] = max(0, min(value, MAX_EFFECT_MAGNITUDE))
+        # ENG-31: parametric keyword grants carry their number one level down,
+        # in ``[{"name": str, "n": int}, ...]`` — clamp each nested "n" too so
+        # a synthesized ``["R"] * n`` can't be handed an unbounded amount.
+        for entry in params.get("parametric_keywords") or []:
+            if isinstance(entry, dict) and isinstance(entry.get("n"), int) and not isinstance(entry["n"], bool):
+                entry["n"] = max(0, min(entry["n"], MAX_EFFECT_MAGNITUDE))
 
     def to_dict(self) -> dict[str, Any]:
         return {
