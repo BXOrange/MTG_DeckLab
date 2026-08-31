@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.7% covered — 12,777 / 34,811 — as of 2026-08-31, PARSER_VERSION 137.**
+**36.7% covered — 12,783 / 34,811 — as of 2026-08-31, PARSER_VERSION 138.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -190,6 +190,26 @@ Dead, In Thrall to the Pit's kicked-gated form, Footsteps of the Goryo,
 Feral Lightning, Thatcher Revolt, …), 0 regressed — the rest of the ~100
 stay blocked on their *own* other clauses (populate / conjure / "tapped
 and attacking" / kicked riders).
+
+138 = PAR-30 — threaten-effect antecedent widening. `_gain_control_eot`
+gained "`(?:another )?target`", a bare "target artifact" kind, and an
+optional "with power N or less/greater" filter (threaded to
+`GainControlUntilEndOfTurnEffect.creature_filter` → `TargetSpec`). A new
+whole-clause `_GAIN_CONTROL_EOT_PER_OPPONENT_RE` ("for each opponent, gain
+control of up to 1 target creature that player controls until end of turn.
+untap those creatures. they gain haste until end of turn.") reaches the
+`count_selector="opponents"` requirement shape `_goad_per_opponent`
+already uses — and `GainControlUntilEndOfTurnEffect.apply` now iterates
+*every* chosen target rather than `targets[0]`, so the list a
+`count_selector` yields is all taken. +6 (Enthralling Victor, Metallic
+Mastery, Mass Mutiny, Molten Primordial, Smelt-Ward Ignus, Wrangle), 0
+regressed. Still open in the threaten cluster: the targeted-opponent mass
+form ("gain control of all creatures target opponent controls …" —
+Broadcast Takeover / Call for Aid), the richer haste clause ("until end of
+turn, it gains haste and `<X>`" — Furnace Reins / Loki's Scepter / Flayer
+of Loyalties), and after-tails (Goatnap's "if that creature is a Goat",
+Awaken the Sleeper's "if it's equipped", Bloody Betrayal's "create a Blood
+token" — that last blocked only on Blood tokens not parsing at all).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

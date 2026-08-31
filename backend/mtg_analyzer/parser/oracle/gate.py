@@ -1370,7 +1370,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: self-subject "sacrifice it" (Brackwater Elemental). +21 (Tidal Wave,
 #: Akoum Stonewaker, Dawn of the Dead, In Thrall to the Pit, …), 0 regressed —
 #: the rest of the ~100 stay blocked on their own *other* clauses.
-PARSER_VERSION = "137"
+#: "138": PAR-30 — threaten-effect antecedent widening. `_gain_control_eot`
+#: now takes "another target …", a bare "target artifact", and a "with power
+#: N or less/greater" filter (`GainControlUntilEndOfTurnEffect.creature_
+#: filter`); a new whole-clause `_GAIN_CONTROL_EOT_PER_OPPONENT_RE` reaches
+#: the `count_selector="opponents"` shape (`_goad_per_opponent`'s sibling)
+#: over a now-multi-target `GainControlUntilEndOfTurnEffect` (`apply`
+#: iterates every chosen target). +6 (Enthralling Victor, Metallic Mastery,
+#: Mass Mutiny, Molten Primordial, Smelt-Ward Ignus, Wrangle), 0 regressed.
+PARSER_VERSION = "138"
 
 
 def parser_source_hash() -> str:

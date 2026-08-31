@@ -1241,8 +1241,8 @@ _LOOK_TOP_SELECT_DESTINATIONS: dict[str, tuple[str, Optional[str]]] = {
 #: an unrelated creature-choosing clause followed by an unrelated genuine
 #: untap effect.
 _GAIN_CONTROL_HASTE_TAIL_RE = re.compile(
-    r"^(?P<before>gain control of target .+? until end of turn)\.\s*"
-    r"untap (?:that creature|that permanent|it)[.,]?\s*(?:and\s+)?"
+    r"^(?P<before>gain control of (?:another )?target .+? until end of turn)\.\s*"
+    r"untap (?:that creature|that permanent|that artifact|it)[.,]?\s*(?:and\s+)?"
     r"(?:it|they) gains? haste until end of turn"
     r"(?:[.,]\s*(?:and\s+)?(?P<after>.+))?$",
     re.IGNORECASE | re.DOTALL,

@@ -7213,6 +7213,8 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         haste: bool = True,
         max_mana_value: Optional[int] = None,
         selector: Optional[str] = None,
+        creature_filter: Optional[dict] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -7228,8 +7230,20 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
             #: "Gain control of target creature **with mana value 3 or
             #: less**" (Claim the Firstborn) — a target-offer-time cap, the
             #: same `TargetSpec.max_mana_value` `DestroyEffect`/`destroy_mv`
-            #: already use.
-            self.target_spec = TargetSpec(kind=target_kind, max_mana_value=max_mana_value)
+            #: already use. ``creature_filter`` is the sibling power/
+            #: toughness filter ("…**with power 2 or less**" — Enthralling
+            #: Victor, PAR-30).
+            #: "For each opponent, gain control of up to 1 target creature
+            #: **that player controls** …" (Mass Mutiny/Molten Primordial,
+            #: PAR-30) — one requirement whose *count* is the opponent
+            #: count, RULE 601.2c, the same `count_selector`/`distinct_
+            #: controllers` shape `GoadEffect` uses for "for each opponent,
+            #: goad up to one target creature that player controls".
+            self.target_spec = TargetSpec(
+                kind=target_kind, max_mana_value=max_mana_value,
+                creature_filter=creature_filter, count_selector=count_selector,
+                optional=count_selector is not None,
+            )
         self.haste = haste
 
     def target_polarity(self) -> Optional[str]:
@@ -7253,10 +7267,14 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
                 self._take(context, obj, controller)
             context.recompute()
             return
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
+        chosen = list(targets or ([self.target] if self.target is not None else []))
+        if not chosen:
             return
-        self._take(context, target, controller)
+        # RULE 601.2c: a `count_selector` requirement ("for each opponent,
+        # gain control of up to 1 target creature that player controls")
+        # yields a *list*; the single-target forms still pass exactly one.
+        for target in chosen:
+            self._take(context, target, controller)
         context.recompute()
 
 
@@ -17605,7 +17623,8 @@ EffectRegistry.register(
     lambda p: GainControlUntilEndOfTurnEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
         haste=bool(p.get("haste", True)), max_mana_value=p.get("max_mana_value"),
-        selector=p.get("selector"),
+        selector=p.get("selector"), creature_filter=p.get("creature_filter"),
+        count_selector=p.get("count_selector"),
     ),
 )
 EffectRegistry.register("return_linked_exile", lambda p: ReturnLinkedExileEffect())

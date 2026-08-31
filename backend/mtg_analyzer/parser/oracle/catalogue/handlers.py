@@ -3093,17 +3093,29 @@ def _gain_control_by_opponent(m: re.Match[str]) -> list[EffectSpec]:
 #: it's absorbed there rather than re-parsed into a second (redundant, and
 #: RULE-115-target-doubling-risky) untap/haste effect here.
 _GAIN_CONTROL_EOT_RE = _c(
-    rf"gain control of {TARGET}(?: with mana value (?P<mv>\d+) or less)? until end of turn"
+    rf"gain control of (?P<another>another )?{TARGET}"
+    r"(?: with power (?P<pn>\d+) or (?P<pcmp>less|greater))?"
+    r"(?: with mana value (?P<mv>\d+) or less)? until end of turn"
 )
 
 
 def _gain_control_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in ("creature", "creature_you_dont_control", "permanent"):
+    if kind is None or kind not in (
+        "creature", "creature_you_dont_control", "permanent", "artifact",
+    ):
         return None
     params: dict = {"target_kind": kind, **_optional_param(m)}
     if m.group("mv"):
         params["max_mana_value"] = int(m.group("mv"))
+    # "gain control of target creature an opponent controls **with power N
+    # or less/greater**" (Enthralling Victor) — a target-offer-time filter,
+    # RULE 115.1c. "another" (Akroan Conscriptor) is accepted but its RULE
+    # 601.2c self-exclusion isn't enforced (documented simplification —
+    # these are all trigger/ETB bodies with no reason to grab the source).
+    if m.group("pn"):
+        key = "max_power" if m.group("pcmp") == "less" else "min_power"
+        params["creature_filter"] = {key: int(m.group("pn"))}
     return [EffectSpec("gain_control_until_eot", params)]
 
 
@@ -3122,6 +3134,30 @@ _GAIN_CONTROL_ALL_RE = _c(
 
 def _gain_control_all(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("gain_control_until_eot", {"selector": "all_creatures"})]
+
+
+#: "For each opponent, gain control of up to 1 target creature that player
+#: controls until end of turn. Untap those creatures. They gain haste until
+#: end of turn." (Mass Mutiny / Molten Primordial / Mob Rule-shaped) — the
+#: one-requirement-per-opponent RULE 601.2c count, the same `count_selector`
+#: shape `_goad_per_opponent` uses, over the multi-target
+#: `GainControlUntilEndOfTurnEffect` (its `apply` now iterates every chosen
+#: target, not just the first). A whole-body match like `_GAIN_CONTROL_ALL_
+#: RE` — the untap/haste restatement is the same "the effect already does
+#: this" tail `_GAIN_CONTROL_HASTE_TAIL_RE` absorbs.
+_GAIN_CONTROL_EOT_PER_OPPONENT_RE = _c(
+    r"for each opponent, gain control of up to (?:one|1) target creature "
+    r"that player controls until end of turn\.\s*"
+    r"untap (?:those creatures|them)\.\s*they gain haste until end of turn"
+)
+
+
+def _gain_control_eot_per_opponent(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_control_until_eot", {
+        "target_kind": "creature_you_dont_control",
+        "optional": True,
+        "count_selector": "opponents",
+    })]
 
 
 #: "Whenever a player casts an instant or sorcery spell, that player
@@ -7776,6 +7812,14 @@ HANDLERS: list[EffectHandler] = [
         "gain_control_all",
         _GAIN_CONTROL_ALL_RE,
         _gain_control_all,
+    ),
+    # "For each opponent, gain control of up to 1 target creature that player
+    # controls until end of turn. Untap those creatures. They gain haste …"
+    # (Mass Mutiny / Molten Primordial) — one requirement per opponent.
+    EffectHandler(
+        "gain_control_eot_per_opponent",
+        _GAIN_CONTROL_EOT_PER_OPPONENT_RE,
+        _gain_control_eot_per_opponent,
     ),
     # "that player copies it and may choose new targets for the copy [until
     # end of turn]" (Bonus Round's own trigger body).
