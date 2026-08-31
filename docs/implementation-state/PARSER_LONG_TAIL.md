@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.5% covered — 12,695 / 34,811 — as of 2026-08-31, PARSER_VERSION 134.**
+**36.5% covered — 12,706 / 34,811 — as of 2026-08-31, PARSER_VERSION 135.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -139,7 +139,18 @@ pronoun tail — `earthbend` now announces a land referent to
 `_announces_creature_target`, and a new `previous_subject`-only
 `_TAP_PREVIOUS_SUBJECT_RE` claims "tap/untap that land|permanent|artifact|
 creature", which also caught ~8 unrelated "…target creature. Untap that
-creature." cards. "…where X is that creature's power" stays UNMODELED. +12.)
+creature." cards. "…where X is that creature's power" stays UNMODELED. +12.
+135 = PAR-30 — three small grammar widenings: (a) "those creatures" / "each
+of those creatures" as the RULE 115 previous-target-group pronoun alongside
+"they"; (b) "each creature you control **with a counter on it**" group
+selector (Iroh, Dragon of the West — ENG-31 firebending grant over a
+group); (c) an optional "during an opponent's turn" qualifier on
+`_CAST_SPELL_TRIGGER_PLAIN_RE` → the trigger's `not_controllers_turn` gate
+(Fire Nation Occupation + the "flash matters" cluster — Brineborn
+Cutthroat, Dream Spoilers, Glen Elendra Pranksters, …). +11. Fire Nation
+Cadets ("~ has firebending N as long as there's a lesson card in your
+graveyard") still needs a self-keyword-grant static shape + that
+condition.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

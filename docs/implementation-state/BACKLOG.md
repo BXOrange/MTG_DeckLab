@@ -140,19 +140,22 @@ its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
     creature becomes a 1/1 and loses all abilities" (Hunted by The Family);
     "each opponent who lost 3+ life this turn" (Davros).
 
-  - **Firebending (RULE ~702.189) grants — ENG-31 shipped (v128).** The
-    parametric-keyword-grant primitive is done: "target creature / creatures
-    you control gain firebending N until end of turn" parses (Fire Nation
-    Palace, Fire Nation Attacks, Sozin's Comet MODELED). Still UNMODELED on
-    *unrelated* grammar: **Fire Nation Cadets** ("~ has firebending N as long
-    as there's a lesson card in your graveyard" — a conditional-static
-    condition `static_conditions.py` doesn't have); **Fire Nation
-    Occupation** ("whenever you cast a spell during an opponent's turn, …" —
-    an unrecognized trigger condition); **Iroh, Dragon of the West** ("each
-    creature you control **with a counter on it** gains firebending N …" — a
-    group-selector filter). Also the "whenever you waterbend / earthbend /
-    firebend / airbend" bending-verb trigger row (Avatar Aang) — still needs
-    each of the four bending primitives to fire an event (none do yet).
+  - **Firebending (RULE ~702.189) grants — ENG-31 shipped (v128), residue
+    mostly closed (v135).** The parametric-keyword-grant primitive is done:
+    "target creature / creatures you control gain firebending N until end of
+    turn" (Fire Nation Palace/Attacks, Sozin's Comet). v135 closed **Iroh,
+    Dragon of the West** ("each creature you control **with a counter on it**
+    gains firebending N …" — new `creatures_you_control_with_a_counter` group
+    selector) and **Fire Nation Occupation** ("whenever you cast a spell
+    during an opponent's turn, …" — a "during an opponent's turn" qualifier
+    on `_CAST_SPELL_TRIGGER_PLAIN_RE` → the trigger's `not_controllers_turn`
+    gate). Still UNMODELED: **Fire Nation Cadets** ("~ has firebending N as
+    long as there's a lesson card in your graveyard") — needs a
+    self-keyword-grant static shape ("~ has `<keyword>` [as long as
+    `<cond>`]", not yet parsed at all) **and** a `static_conditions.py`
+    "a lesson card in your graveyard" condition. Also the "whenever you
+    waterbend / earthbend / firebend / airbend" bending-verb trigger row
+    (Avatar Aang) — still needs each bending primitive to fire an event.
 
   - **Waterbend (RULE 701.67) residue — ENG-32 shipped (v131), 10/28
     cards MODELED.** Done: the activated `waterbend {N}:` cost, base-P/T-

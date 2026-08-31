@@ -6377,7 +6377,13 @@ def _create_emblem(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: group_selector_objects` selector as each other (every creature not
 #: yours, the plain-English reading of either phrasing).
 _GROUP = (
-    r"(?P<group>other creatures you control|each creature you control"
+    r"(?P<group>other creatures you control"
+    # "Each creature you control with a counter on it gains firebending N …"
+    # (Iroh, Dragon of the West) — a counter-presence filter on the
+    # controller-scoped creature set; tried before the bare
+    # "each creature you control" alternative below.
+    r"|each creature you control with a counter on it"
+    r"|each creature you control"
     r"|creatures you control|all creatures"
     r"|creatures your opponents control|creatures you don'?t control"
     r"|permanents you control|elves you control|elf creatures you control"
@@ -6397,6 +6403,8 @@ _GROUP_SELECTORS: dict[str, str] = {
     # indestructible until end of turn." — Avacyn and Griselbrand) is the
     # same group, just worded per-creature.
     "each creature you control": "creatures_you_control",
+    "each creature you control with a counter on it":
+        "creatures_you_control_with_a_counter",
     "other creatures you control": "other_creatures_you_control",
     "all creatures": "all_creatures",
     "creatures your opponents control": "creatures_opponents_control",
@@ -6482,12 +6490,17 @@ def _tap_previous_subject(m: re.Match[str]) -> list[EffectSpec]:
 #: one whose gate the actual preceding clause satisfied. Two rows (P/T vs.
 #: keyword-only) rather than one combined regex, mirroring `_pump`/`_pump_
 #: keyword`'s own split for the ordinary targeted form.
+#: "they"/"those creatures"/"each of those creatures" — all name the RULE
+#: 115 target group the preceding clause chose (`GameContext.
+#: previous_targets`); the wordier forms are what most real cards actually
+#: print ("Arm the Cathars", "Cauldron Haze", …).
+_PREV_GROUP_SUBJECT = r"(?:they|those creatures|each of those creatures)"
 _PUMP_PREVIOUS_TARGETS_PT_RE = _c(
-    r"they(?: each)? gets? (?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
+    rf"{_PREV_GROUP_SUBJECT}(?: each)? gets? (?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
     r"(?: and gains? (?P<kw>[a-z][a-z, ]*?))? until end of turn"
 )
 _PUMP_PREVIOUS_TARGETS_KW_RE = _c(
-    r"they(?: each)? gains? (?P<kw>[a-z][a-z, ]*?) until end of turn"
+    rf"{_PREV_GROUP_SUBJECT}(?: each)? gains? (?P<kw>[a-z][a-z, ]*?) until end of turn"
 )
 
 
@@ -6524,7 +6537,9 @@ def _pump_previous_targets_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: recognised group selector (`segmenter._announces_group_selector`,
 #: `EffectHandler.previous_selector_only`) — never reused for
 #: `previous_subject_only`'s existing meaning, a deliberately separate gate.
-_PUMP_PREVIOUS_SELECTOR_RE = _c(r"they gains? (?P<kw>[a-z, ]+?) until end of turn")
+_PUMP_PREVIOUS_SELECTOR_RE = _c(
+    rf"{_PREV_GROUP_SUBJECT} gains? (?P<kw>[a-z, ]+?) until end of turn"
+)
 
 
 def _pump_previous_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:

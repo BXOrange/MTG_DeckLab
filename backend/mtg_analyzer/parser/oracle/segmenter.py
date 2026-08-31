@@ -408,7 +408,12 @@ _CAST_SPELL_TRIGGER_NEG_RE = re.compile(
 #: `DRAW`-event use of the identical shape), so no new engine primitive is
 #: needed here — purely a missing recognizer.
 _CAST_SPELL_TRIGGER_PLAIN_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell,\s*(?P<body>.+)$",
+    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell"
+    # "…during an opponent's turn" (Fire Nation Occupation) — the caster
+    # isn't the active player, i.e. the trigger's own ``not_controllers_
+    # turn`` gate (`effect_binder`, RULE 603.4). "during your turn" has no
+    # matching engine gate, so it's deliberately left out (fail-closed).
+    r"(?P<opp_turn> during an opponent'?s turn)?,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
 
@@ -2781,10 +2786,15 @@ def segment_line(
         effects = parse_effect_body(body)
         if effects is None:
             return Segment(raw=raw)
+        trig: dict[str, Any] = {
+            "event": "SPELL_CAST", "condition": _cast_spell_trigger_condition(subj),
+        }
+        if cast_spell_trig_plain.group("opp_turn"):
+            trig["not_controllers_turn"] = True
         spec = AbilitySpec(
             "triggered",
             effects=effects,
-            trigger={"event": "SPELL_CAST", "condition": _cast_spell_trigger_condition(subj)},
+            trigger=trig,
             optional=optional,
             raw_text=raw,
             parser=provenance,

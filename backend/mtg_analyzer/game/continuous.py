@@ -303,6 +303,15 @@ def group_selector_objects(
         ]
     elif affects == "creatures_you_control":
         result = [o for o in battlefield if o.is_creature and o.controller_id == controller_id]
+    elif affects == "creatures_you_control_with_a_counter":
+        # "Each creature you control with a counter on it gains firebending
+        # N …" (Iroh, Dragon of the West, PAR-30) — any counter kind, any
+        # positive count (RULE 122.1 / 701.19).
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id == controller_id
+            and any(v for v in (o.counters or {}).values())
+        ]
     elif affects == "nontoken_creatures_you_control":
         # "Nontoken creatures you control are Forest lands in addition to
         # their other types." (Ashaya, Soul of the Wild, MEC-12) — the

@@ -1337,7 +1337,20 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: The Boulder, Bumi's Feast Lecture, Avatar Kyoshi + Savage Surge, Stony
 #: Strength, Galadhrim Bow, Stun Sniper, Super Suit, Veteran's Reflexes,
 #: Seedcradle Witch, Stabbing Pain), 0 regressed.
-PARSER_VERSION = "134"
+#: "135": PAR-30 — three small grammar widenings. (a) "those creatures" /
+#: "each of those creatures" alongside "they" as the RULE 115 previous-
+#: target-group pronoun (`_PREV_GROUP_SUBJECT`) — Cauldron Haze/of Souls.
+#: (b) "each creature you control with a counter on it" group selector
+#: (`_GROUP` + `_GROUP_SELECTORS` + `continuous.group_selector_objects`'
+#: new `creatures_you_control_with_a_counter`) — Iroh, Dragon of the West
+#: (ENG-31 parametric-keyword grant over a group). (c) an optional "during
+#: an opponent's turn" qualifier on `_CAST_SPELL_TRIGGER_PLAIN_RE` mapping
+#: to the trigger's existing `not_controllers_turn` gate — Fire Nation Occupation
+#: + the "flash matters" cluster (Brineborn Cutthroat, Dream Spoilers, Glen
+#: Elendra Pranksters, …). +11, 0 regressed. Fire Nation Cadets ("~ has
+#: firebending N as long as there's a lesson card in your graveyard") still
+#: needs a self-keyword-grant static shape + that condition — PAR-30.
+PARSER_VERSION = "135"
 
 
 def parser_source_hash() -> str:
