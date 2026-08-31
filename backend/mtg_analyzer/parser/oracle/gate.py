@@ -1188,7 +1188,41 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `effects.RecruitEffect` (bare "you"-subject). Connive's sibling but its
 #: own primitive (token payoff, not a counter on a source). Bare-word
 #: handler.
-PARSER_VERSION = "113"
+#: "114": PAR-29 "Parser-shaped only" residue, one batch closing seven items
+#: at once (BACKLOG.md's PAR-29 entry): Connive widened with a `TargetSpec`/
+#: previous-subject subject and RULE 701.50d's dynamic "connives X" (draw X,
+#: discard X as one batch, not X separate 1-and-1 cycles); a standalone
+#: `PumpEffect.self_multiplier` for RULE 701.10/11 "double"/"triple `<X>`'s
+#: power and toughness"; RULE 701.10's "exchange control of X and Y"/
+#: "exchange life totals" generalized from Gilded Drake/Oko/Soul Conduit's
+#: three narrow shapes to the general self+target/two-explicit-target/N-
+#: same-kind-target templates (`ExchangeControlEffect`/
+#: `ExchangeLifeTotalsEffect`), plus a new `land_you_dont_control` target
+#: kind; Populate's/Endure's dynamic "X times"/"endures X" riding the
+#: existing plain `"x"` sentinel `RulesEngine._substitute_x` already
+#: resolves on any effect's own amount/count attribute (Full Flowering/
+#: Krumar Initiate); Bolster's dynamic "bolster X, where X is `<board
+#: count>`" (`BolsterEffect.amount_from_count_selector`) and Support's
+#: "support X" (`AddCountersEffect`'s target `count_selector`); Descendant
+#: of Storms' "you may pay `<cost>`. If you do, it endures N." via
+#: `pay_cost_then_general`'s recursive follow-up parse widened to pass
+#: `self_subject=True`; and Deadly Complication's "target suspected
+#: creature you control" (`combat.matches_object_filter`'s new
+#: ``is_suspected`` key). Two dormant bugs found and fixed along the way:
+#: `AddCountersEffect.apply`'s multi-target branch didn't know about
+#: `TargetSpec.count_selector` the way `GoadEffect` already did (silently
+#: dropped every target past the first for a dynamic-count spec); connive's
+#: original implementation would have repeated a full 1-draw/1-discard
+#: cycle N times for "connives N" instead of RULE 701.50d's real
+#: draw-N-discard-N-as-one-choice shape, caught before shipping by an
+#: execute-level test. Agrus Kos's "if it's suspected, exile it. otherwise,
+#: suspect it." (a genuine if/else effect primitive), Airtight Alibi's
+#: "can't become suspected" (a new static-flag family), and Clandestine
+#: Meddler's "whenever 1 or more suspected creatures you control attack"
+#: (a designation-aware group trigger filter) are real new-primitive needs
+#: this batch found but did not build - flagged in BACKLOG.md rather than
+#: silently deferred.
+PARSER_VERSION = "114"
 
 
 def parser_source_hash() -> str:

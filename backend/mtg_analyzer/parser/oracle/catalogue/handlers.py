@@ -3294,6 +3294,69 @@ def _choose_targets_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("choose_targets", {"kinds": [kind], **params})]
 
 
+# RULE 701.10 "exchange control of `<X>` and `<Y>`" (PAR-29) — three
+# distinct printed shapes, each onto `effects.ExchangeControlEffect`'s own
+# matching mode: this permanent plus one target (`_exchange_control_self`,
+# Avarice Totem/Phyrexian Infiltrator-shaped — the mandatory sibling of the
+# already-hand-authored Gilded Drake "up to one"); two independently-typed
+# targets named in full (`_exchange_control_two_explicit`, Chromeshell
+# Crab's "target creature you control and target creature an opponent
+# controls"); and "N target `<same kind>`[ controlled by different
+# players]" (`_exchange_control_multi`, Shifting Borders/Modify Memory —
+# reusing `_multi_target_params`'s own quantifier/`distinct_controllers`
+# grammar rather than a new one, same as `_choose_targets_group` just
+# above). "Controlled by different players" only ever reaches
+# `_exchange_control_multi`'s `distinct_controllers` as an *offer-time*
+# constraint (`targeting.TargetSpec`'s own docstring — it has no
+# equivalent for the two-explicit-target shape's independent specs); a
+# same-controller pick there still can't actually exchange anything
+# (`ExchangeControlEffect.apply`'s own runtime `mine.controller_id !=
+# theirs.controller_id` check), so nothing incorrect resolves either way.
+_EXCHANGE_CONTROL_TARGET_KINDS = frozenset(
+    {"creature", "creature_you_control", "creature_you_dont_control",
+     "permanent", "nonland_permanent", "artifact", "land",
+     "land_you_control", "land_you_dont_control"}
+)
+
+
+def _exchange_control_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in _EXCHANGE_CONTROL_TARGET_KINDS:
+        return None
+    return [EffectSpec("exchange_control", {
+        "target_kind": kind, **_optional_param(m),
+    })]
+
+
+def _exchange_control_two_explicit(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    first = resolve_target_kind(m.group("target"))
+    second = resolve_target_kind(m.group("target_b"))
+    if first not in _EXCHANGE_CONTROL_TARGET_KINDS or second not in _EXCHANGE_CONTROL_TARGET_KINDS:
+        return None
+    return [EffectSpec("exchange_control", {"first_target_kind": first, "target_kind": second})]
+
+
+def _exchange_control_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None:
+        return None
+    return [EffectSpec("exchange_control", params)]
+
+
+# RULE 701.10's life-total half — "exchange life totals with target
+# opponent/player" (this effect's own controller + one target, Magus of the
+# Mirror/Mirror Universe-shaped) and "N target players exchange life
+# totals" (two independent targets, Soul Conduit/Axis of Mortality's own
+# "have" phrasing — the same causative verb `_THEN`'s neighborhood already
+# tolerates for "have it fight").
+def _exchange_life_totals_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exchange_life_totals", {"target_kind": "player"})]
+
+
+def _exchange_life_totals_two_target(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exchange_life_totals", {})]
+
+
 #: "you may **have** it fight …" — `_peel_optional` strips the "you may",
 #: leaving the causative "have <subject> fight" (uninflected verb), so both
 #: inflections are accepted in one row. A leading "then " survives the
@@ -3650,7 +3713,12 @@ _PAY_COST_THEN_GENERAL_RE = _c(
 def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
-    sub = parse_effect_body(m.group("effect").strip())
+    # PAR-29: "it endures N" (Descendant of Storms) needs `self_subject=True`
+    # to unlock `self_subject_only` rows — safe here because a target-bearing
+    # follow-up is rejected below anyway (the only pronoun shape left is the
+    # ability's own source), and RULE 603.5's "if you do, <effect>" always
+    # continues the *same* triggered ability's subject, never introduces one.
+    sub = parse_effect_body(m.group("effect").strip(), self_subject=True)
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
     if any(s.params.get("target_kind") for s in sub):
@@ -4334,6 +4402,19 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return _add_counters_target_params(m, params)
 
 
+# "put a +1/+1 counter on target suspected creature you control" (RULE
+# 701.60, PAR-29 — Deadly Complication) — the one adjective-qualified TARGET
+# phrase `subgrammars.TARGET`'s own alternation doesn't carry (unlike
+# "target attacking/tapped creature", it isn't worth widening that shared
+# macro for a single-card phrase), so its own small row feeding
+# `combat.matches_object_filter`'s new ``is_suspected`` key.
+def _add_counters_suspected_target(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_counters", {
+        "count": count_of(m.group("n")), "kind": _counter_sign(m.group("ckind")),
+        "target_kind": "creature_you_control", "creature_filter": {"is_suspected": True},
+    })]
+
+
 #: MEC-27: "put x +1/+1 counters on ~/target creature, where x is the number
 #: of `<noun phrase>` you control." (Domain-shaped triggers, "the number of
 #: Elves you control", etc.) — `subgrammars.DEVOTION`'s wider RULE 613.7c
@@ -4568,6 +4649,66 @@ def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if selector:
         params["selector"] = selector
     return [EffectSpec("pump", params)]
+
+
+# RULE 701.10/11 "double"/"triple `<creature>`'s power and toughness [until
+# end of turn]" — a `PumpEffect.self_multiplier` recipient-relative pump
+# (each recipient's own current power/toughness, not a flat/shared amount),
+# PAR-29. Three surface shapes on real cards, each its own row: "double the
+# power and toughness of `<TARGET>`/each creature you control" (Dragonclaw
+# Strike/Roar of Endless Song), the possessive "double `<TARGET>`'s/~'s
+# power and toughness" (Nylea's Colossus/Reckless Amplimancer/Tifa's Limit
+# Break's own "triple"), and the bare pronoun "double its power and
+# toughness" — offered both `self_subject_only` (Grunn's "whenever ~
+# attacks alone, double its power and toughness") and `previous_subject_
+# only` (World War Hulk's "choose target creature you control. … double its
+# power and toughness.").
+_DOUBLE_PT_MULTIPLIERS: dict[str, int] = {"double": 2, "triple": 3}
+_DOUBLE_PT_TARGET_KINDS = frozenset(
+    {"creature", "creature_you_control", "creature_you_dont_control"}
+)
+
+
+def _double_pt_of(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    mult = _DOUBLE_PT_MULTIPLIERS.get(m.group("mult"))
+    if mult is None:
+        return None
+    if m.groupdict().get("each_group"):
+        return [EffectSpec("pump", {"selector": "creatures_you_control", "self_multiplier": mult})]
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in _DOUBLE_PT_TARGET_KINDS:
+        return None
+    return [EffectSpec("pump", {
+        "target_kind": kind, "self_multiplier": mult, **_optional_param(m),
+    })]
+
+
+def _double_pt_possessive(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    mult = _DOUBLE_PT_MULTIPLIERS.get(m.group("mult"))
+    if mult is None:
+        return None
+    if m.groupdict().get("selfposs"):
+        return [EffectSpec("pump", {"self_multiplier": mult})]
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in _DOUBLE_PT_TARGET_KINDS:
+        return None
+    return [EffectSpec("pump", {
+        "target_kind": kind, "self_multiplier": mult, **_optional_param(m),
+    })]
+
+
+def _double_pt_pronoun(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    mult = _DOUBLE_PT_MULTIPLIERS.get(m.group("mult"))
+    if mult is None:
+        return None
+    return [EffectSpec("pump", {"self_multiplier": mult})]
+
+
+def _double_pt_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    mult = _DOUBLE_PT_MULTIPLIERS.get(m.group("mult"))
+    if mult is None:
+        return None
+    return [EffectSpec("pump", {"self_multiplier": mult, "previous_subject": True})]
 
 
 #: "Target attacking Elf you control gains deathtouch until end of turn."
@@ -5090,20 +5231,82 @@ def _adapt(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("adapt", {"amount": int(m.group("n"))})]
 
 
-# "~ connives." / "it connives." (RULE 701.50a) — the conniving permanent is
-# always the ability's own source (`effects.ConniveEffect` connives
-# `self.source`: draw a card, discard a card, +1/+1 counter if a nonland was
-# discarded). Two subjects only: the explicit self ("~ connives", an
-# activated ability's body or a self-subject trigger where `normalize` kept
-# the card name) and the "it/he/she" pronoun of a self-subject trigger
-# ("when ~ enters, it connives", `self_subject_only`). A pronoun bound to an
-# *earlier clause's* target ("target Villain you control gains menace. It
-# connives.", Doctor Doom) is deliberately left unclaimed — `ConniveEffect`
-# has no target and would connive the wrong permanent. "Connive N" (RULE
-# 701.50d) and "connives x" stay unclaimed too: the registered effect is the
-# fixed draw-one/discard-one form, fail-closed on a count it can't honour.
+# RULE 701.50d's optional "connives X, where X is …" tail, embedded at the
+# end of every connive verb form below. Two readings: a firing trigger's own
+# event field ("the amount of damage it dealt to that player", Mask of the
+# Schemer — `GameContext.trigger_event`, the `DealDamageEffect.
+# amount_from_trigger_event` idiom) or a live board count (`{DEVOTION}`'s
+# "the number of attacking creatures"/"creatures that died this turn").
+_CONNIVE_AMOUNT = (
+    r"(?: x, where x is (?:"
+    r"(?P<connive_damage>the amount of damage it dealt to that player)"
+    rf"|{DEVOTION}"
+    r"))?"
+)
+
+
+# "~ connives[ X]." / "it connives[ X]." (RULE 701.50a/d, PAR-29) — the
+# conniving permanent is the ability's own source (`self.source`, including
+# a triggered ability whose subject was retargeted onto e.g. an attached
+# permanent before this builder ever sees it). Two subjects: the explicit
+# self ("~ connives", an activated ability's body or a self-subject trigger
+# where `normalize` kept the card name) and the "it/he/she" pronoun of a
+# self-subject trigger ("when ~ enters, it connives", `self_subject_only`).
+# A pronoun bound to an *earlier clause's* target ("target Villain you
+# control gains menace. It connives.", Doctor Doom) is deliberately left
+# unclaimed — the bare-self row would connive the wrong permanent; that
+# needs `_connive_previous` below instead, and no real card in the cache
+# pairs that exact pronoun shape with a *target* antecedent yet.
+# "connives X, where X is …" (RULE 701.50d) is `_CONNIVE_AMOUNT`'s optional
+# tail, shared by every connive row in this family — a literal repeat count
+# never appears on a real card (only "connives" or "connives X"), so there
+# is no plain-integer form to parse.
+def _connive_amount_params(m: re.Match[str]) -> dict:
+    if m.groupdict().get("connive_damage"):
+        return {"times_from_trigger_event": "amount"}
+    selector = devotion_selector(m)
+    if selector:
+        return {"times_from_count_selector": selector}
+    return {}
+
+
 def _connive(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("connive", {})]
+    return [EffectSpec("connive", _connive_amount_params(m))]
+
+
+# "target creature [you control/an opponent controls] connives[ X]" (RULE
+# 601.2c targeting on 701.50a) and "that creature connives" — the two
+# subject shapes `_goad`/`_explore` already established, adapted for
+# connive. Only a creature-shaped target row is meaningful (RULE 701.47's
+# "permanent" is narrowed to creatures by every printed connive card);
+# anything else leaves the clause unclaimed rather than conniving the wrong
+# kind of object.
+_CONNIVE_TARGET_KINDS = frozenset(
+    {"creature", "creature_you_control", "creature_you_dont_control"}
+)
+
+
+def _connive_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in _CONNIVE_TARGET_KINDS:
+        return None
+    return [EffectSpec("connive", {
+        "target_kind": kind, **_optional_param(m), **_connive_amount_params(m),
+    })]
+
+
+def _connive_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("connive", {"previous_subject": True, **_connive_amount_params(m)})]
+
+
+# "Each of X target creatures you control connive." (Change of Plans) — the
+# spell's own announced {X} (`GameObject.x_paid`), the same
+# `count_selector="source_x_paid"` reading March of Swirling Mist's "up to X
+# target creatures phase out" already uses.
+def _connive_each_x(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("connive", {
+        "target_kind": "creature_you_control", "count_selector": "source_x_paid", "optional": True,
+    })]
 
 
 # "Recruit." (RULE 701.70a — Tales of Middle-earth: "draw a card, then
@@ -5166,6 +5369,13 @@ def _endure_self(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("endure", {"amount": int(m.group("n"))})]
 
 
+# "~ endures x" (PAR-29, Krumar Initiate) — X is the activated ability's own
+# announced/paid {X}, the plain ``"x"`` sentinel `RulesEngine._substitute_x`
+# already resolves generically on any effect's ``amount`` attribute.
+def _endure_self_x(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("endure", {"amount": "x"})]
+
+
 def _endure_previous(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("endure", {"amount": int(m.group("n")), "previous_subject": True})]
 
@@ -5179,23 +5389,50 @@ def _endure_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
-# "Populate." (RULE 701.36a) — put a token onto the battlefield that's a
-# copy of a creature token you control. `RulesEngine.populate` owns the
-# procedure (and the "which token?" choice); `effects.PopulateEffect` is
-# registered as ``populate``. Bare word only — populate never takes a
-# target or a pronoun subject. "Populate X times" (Full Flowering, 1 card)
-# stays UNMODELED: a dynamic repeat count PopulateEffect can't take yet.
+# "Populate[ X times]." (RULE 701.36a, PAR-29) — put a token onto the
+# battlefield that's a copy of a creature token you control. `RulesEngine.
+# populate` owns the procedure (and the "which token?" choice);
+# `effects.PopulateEffect` is registered as ``populate``. Never a target or
+# a pronoun subject. "X times" (Full Flowering) rides the plain ``"x"``
+# sentinel `RulesEngine._substitute_x` already resolves generically on any
+# effect's ``count`` — no dynamic-amount plumbing needed here.
 def _populate(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("populate", {})]
+
+
+def _populate_x_times(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("populate", {"count": "x"})]
 
 
 # "Bolster N." (RULE 701.39a) — put N +1/+1 counters on a least-toughness
 # creature you control (your choice on a tie). `RulesEngine.bolster` /
 # `effects.BolsterEffect` (registered as ``bolster``) own the procedure and
-# the tie-break choice. Literal N only: "bolster X" (Retreat to Kazandu-
-# shaped, a dynamic amount) stays UNMODELED, fail-closed.
+# the tie-break choice.
 def _bolster(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("bolster", {"amount": int(m.group("n"))})]
+
+
+# "Bolster X, where X is `<board count>`." (PAR-29) — the three phrases real
+# cards print, each onto `continuous.count_selector`'s matching entry.
+# A dedicated small map rather than routing through the shared `DEVOTION`
+# macro: only one of the three ("tapped creatures you control") overlaps
+# its vocabulary at all, and the other two ("cards in your hand", the
+# distinct-name artifact-token count) are single-card phrasings not worth
+# widening a general grammar for.
+_BOLSTER_AMOUNT_SELECTORS: dict[str, str] = {
+    "the number of tapped creatures you control": "tapped_creatures_you_control",
+    "the number of cards in your hand": "cards_in_your_hand",
+    "the number of differently named artifact tokens you control":
+        "distinct_named_artifact_tokens_you_control",
+}
+_BOLSTER_AMOUNT_ALT = "|".join(re.escape(phrase) for phrase in _BOLSTER_AMOUNT_SELECTORS)
+
+
+def _bolster_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    selector = _BOLSTER_AMOUNT_SELECTORS.get(m.group("selector"))
+    if selector is None:
+        return None
+    return [EffectSpec("bolster", {"amount_from_count_selector": selector})]
 
 
 # "Blight N." (Bloomburrow — "put N -1/-1 counters on a creature you
@@ -5221,6 +5458,16 @@ def _support(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("add_counters", {
         "count": 1, "kind": "+1/+1", "target_kind": "creature",
         "target_count": int(m.group("n")), "optional": True,
+    })]
+
+
+# "Support X." (PAR-29, Blitzball Stadium/The Crowd Goes Wild) — the same
+# alias, X read off the spell/ability's own announced {X}
+# (`TargetSpec.count_selector="source_x_paid"`) rather than a literal N.
+def _support_x(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_counters", {
+        "count": 1, "kind": "+1/+1", "target_kind": "creature",
+        "target_count_selector": "source_x_paid", "optional": True,
     })]
 
 
@@ -6854,6 +7101,40 @@ HANDLERS: list[EffectHandler] = [
     # — the quantified-group announcement `_return_previous_group` (below)
     # reads back via "those creatures".
     EffectHandler("choose_targets_group", _CHOOSE_TARGETS_GROUP_RE, _choose_targets_group),
+    # RULE 701.10 "exchange control of `<X>` and `<Y>`" (PAR-29) — three
+    # printed shapes, longest/most-specific first (the file's usual
+    # convention): two fully-named independent targets, then "N target
+    # `<kind>`[ controlled by different players]", then this permanent plus
+    # one target.
+    EffectHandler(
+        "exchange_control_two_explicit",
+        _c(rf"exchange control of {TARGET} and {_TARGET_B}"),
+        _exchange_control_two_explicit,
+    ),
+    EffectHandler(
+        "exchange_control_multi",
+        _c(
+            rf"exchange control of {_MULTI_TARGET_QUANTIFIER}(?:other )?"
+            rf"(?P<target>{_MULTI_TARGET_ALT}){_MULTI_TARGET_DISTINCT_CONTROLLERS}"
+        ),
+        _exchange_control_multi,
+    ),
+    EffectHandler(
+        "exchange_control_self",
+        _c(rf"exchange control of ~ and {TARGET}"),
+        _exchange_control_self,
+    ),
+    # RULE 701.10's life-total half.
+    EffectHandler(
+        "exchange_life_totals_self",
+        _c(r"exchange life totals with (?:target opponent|target player)"),
+        _exchange_life_totals_self,
+    ),
+    EffectHandler(
+        "exchange_life_totals_two_target",
+        _c(r"(?:have )?2 target players exchange life totals"),
+        _exchange_life_totals_two_target,
+    ),
     # The one-sided fight (RULE 701.14's shape minus the damage back):
     # "target creature you control deals damage equal to its power to target
     # creature you don't control" and its six implicit-dealer/selector
@@ -7010,6 +7291,14 @@ HANDLERS: list[EffectHandler] = [
     # row below since "x" never matches that row's `{COUNT}` (digit/"a"/"an"
     # only).
     EffectHandler("add_counters_devotion", _ADD_COUNTERS_DEVOTION_RE, _add_counters_devotion),
+    # "put a +1/+1 counter on target suspected creature you control" (PAR-29)
+    # — tried before the plain `add_counters` row below, whose `TARGET`
+    # alternation has no "suspected" adjective row.
+    EffectHandler(
+        "add_counters_suspected_target",
+        _c(rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on target suspected creature you control"),
+        _add_counters_suspected_target,
+    ),
     # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" /
     # "… on ~"/"this creature" (Walking Ballista's "{4}: Put a +1/+1 counter
     # on this creature." — `_SELF_SUBJECT`, the same self-reference
@@ -7164,6 +7453,45 @@ HANDLERS: list[EffectHandler] = [
             rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
         ),
         _pump,
+    ),
+    # RULE 701.10/11 "double"/"triple the power and toughness of <target
+    # creature[ you control]>/each creature you control until end of turn"
+    # (Dragonclaw Strike/Roar of Endless Song).
+    EffectHandler(
+        "double_pt_of",
+        _c(
+            rf"(?P<mult>double|triple) the power and toughness of "
+            rf"(?:{TARGET}|(?P<each_group>each creature you control)) until end of turn"
+        ),
+        _double_pt_of,
+    ),
+    # The possessive phrasing — "double/triple <target creature>'s/~'s
+    # power and toughness until end of turn" (Nylea's Colossus/Reckless
+    # Amplimancer/Tifa's Limit Break's own "triple").
+    EffectHandler(
+        "double_pt_possessive",
+        _c(
+            rf"(?P<mult>double|triple) (?:(?P<selfposs>~)|{TARGET})'s "
+            rf"power and toughness until end of turn"
+        ),
+        _double_pt_possessive,
+    ),
+    # The bare pronoun — "double its power and toughness until end of
+    # turn." Self-subject (Grunn's "whenever ~ attacks alone, double its
+    # power and toughness") and the previous-clause pronoun (World War
+    # Hulk's "choose target creature you control. … double its power and
+    # toughness.") are genuinely different referents, so two rows.
+    EffectHandler(
+        "double_pt_self_pronoun",
+        _c(r"(?P<mult>double|triple) its power and toughness until end of turn"),
+        _double_pt_pronoun,
+        self_subject_only=True,
+    ),
+    EffectHandler(
+        "double_pt_previous",
+        _c(r"(?P<mult>double|triple) its power and toughness until end of turn"),
+        _double_pt_previous,
+        previous_subject_only=True,
     ),
     # PAR-15: "any number of target creatures each get +N/+N [and gain
     # `<keyword>`] until end of turn" — every chosen creature gets the full
@@ -7369,21 +7697,42 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"adapt {NUMBER}"),
         _adapt,
     ),
-    # "~ connives" (RULE 701.50a) — explicit self reference (activated-ability
-    # body / self-subject trigger with the name kept).
+    # "~ connives[ X]" (RULE 701.50a/d) — explicit self reference
+    # (activated-ability body / self-subject trigger with the name kept).
     EffectHandler(
         "connive_self_named",
-        _c(r"~ connives?"),
+        _c(rf"~ connives?{_CONNIVE_AMOUNT}"),
         _connive,
     ),
-    # "it connives" / "he connives" / "she connives" — the self-subject
+    # "it connives[ X]" / "he connives" / "she connives" — the self-subject
     # trigger pronoun; only offered when the body's "it" really is the source
     # (`self_subject_only`), never an earlier clause's pick.
     EffectHandler(
         "connive_self_pronoun",
-        _c(r"(?:it|he|she) connives?"),
+        _c(rf"(?:it|he|she) connives?{_CONNIVE_AMOUNT}"),
         _connive,
         self_subject_only=True,
+    ),
+    # "that creature connives" — the previous-clause pronoun ("target
+    # creature you control gains menace. That creature connives.").
+    EffectHandler(
+        "connive_previous",
+        _c(rf"(?:it|that creature) connives?{_CONNIVE_AMOUNT}"),
+        _connive_previous,
+        previous_subject_only=True,
+    ),
+    # "each of x target creatures you control connive" (Change of Plans).
+    EffectHandler(
+        "connive_each_x",
+        _c(r"each of x target creatures you control connive"),
+        _connive_each_x,
+    ),
+    # "target creature [you control/an opponent controls] connives[ X]"
+    # (RULE 601.2c targeting on 701.50a/d).
+    EffectHandler(
+        "connive_target",
+        _c(rf"{TARGET} connives?{_CONNIVE_AMOUNT}"),
+        _connive_target,
     ),
     # "recruit" (RULE 701.70a) — bare word (an ETB/attack trigger's whole body).
     EffectHandler(
@@ -7441,6 +7790,13 @@ HANDLERS: list[EffectHandler] = [
         _c(r"~ endures (?P<n>\d+)"),
         _endure_self,
     ),
+    # "~ endures x" (PAR-29, Krumar Initiate) — X is this activated
+    # ability's own announced {X}.
+    EffectHandler(
+        "endure_self_named_x",
+        _c(r"~ endures x"),
+        _endure_self_x,
+    ),
     # "it endures N" / "he/she endures N" — self-subject trigger pronoun.
     EffectHandler(
         "endure_self_pronoun",
@@ -7461,12 +7817,24 @@ HANDLERS: list[EffectHandler] = [
         _c(r"populate"),
         _populate,
     ),
+    # "populate x times" (RULE 701.36a, Full Flowering).
+    EffectHandler(
+        "populate_x_times",
+        _c(r"populate x times"),
+        _populate_x_times,
+    ),
     # "bolster N" (RULE 701.39a) — N +1/+1 counters on a least-toughness
     # creature you control.
     EffectHandler(
         "bolster",
         _c(r"bolster (?P<n>\d+)"),
         _bolster,
+    ),
+    # "bolster x, where x is <board count>" (PAR-29).
+    EffectHandler(
+        "bolster_x",
+        _c(rf"bolster x, where x is (?P<selector>{_BOLSTER_AMOUNT_ALT})"),
+        _bolster_x,
     ),
     # "blight N" (Bloomburrow) — N -1/-1 counters on a creature you control.
     EffectHandler(
@@ -7480,6 +7848,12 @@ HANDLERS: list[EffectHandler] = [
         "support",
         _c(r"support (?P<n>\d+)"),
         _support,
+    ),
+    # "support x" (PAR-29) — X is the spell/ability's own announced {X}.
+    EffectHandler(
+        "support_x",
+        _c(r"support x"),
+        _support_x,
     ),
     # "goad all creatures your opponents control" (RULE 701.15a) — the mass
     # form first: the targeted row below can't match it (no "target"), but

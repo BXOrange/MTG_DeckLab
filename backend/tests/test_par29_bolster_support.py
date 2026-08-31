@@ -36,9 +36,24 @@ def test_bolster_and_support_parse():
     ]
 
 
-def test_dynamic_amounts_stay_unclaimed():
+def test_dynamic_amounts_parse():
+    # RULE 701.39a/701.41 dynamic X — PAR-29's "Parser-shaped only" residue.
+    assert match_clause("bolster x, where x is the number of tapped creatures you control") == [
+        EffectSpec("bolster", {"amount_from_count_selector": "tapped_creatures_you_control"})
+    ]
+    assert match_clause("support x") == [
+        EffectSpec("add_counters", {
+            "count": 1, "kind": "+1/+1", "target_kind": "creature",
+            "target_count_selector": "source_x_paid", "optional": True,
+        })
+    ]
+
+
+def test_bare_dynamic_x_with_no_explanation_stays_unclaimed():
+    # No real card prints a bare "bolster x" without a "where x is …" tail —
+    # unlike "support x" (which is always the spell/ability's own announced
+    # {X}, no explanation needed), so this stays fail-closed.
     assert match_clause("bolster x") is None
-    assert match_clause("support x") is None
 
 
 def test_real_cards_modeled_end_to_end():
@@ -179,6 +194,73 @@ def test_real_bolster_card_fires_on_etb_via_binder():
 
     # "Existing" (toughness 1) is the sole least-toughness creature.
     assert existing.plus_one_counters == 1
+
+
+def test_bolster_dynamic_amount_reads_a_live_board_count():
+    # Dragonscale General-shaped: "bolster X, where X is the number of
+    # tapped creatures you control."
+    eng, state, p1 = _engine()
+    a, b, c = _creature("A", 2), _creature("B", 5), _creature("C", 5)
+    for o in (a, b, c):
+        state.add_to_battlefield(o)
+    b.tapped = True
+    c.tapped = True
+
+    from mtg_analyzer.game.effects import BolsterEffect, GameContext
+
+    ctx = GameContext(state, eng.rules)
+    BolsterEffect(source=a, amount_from_count_selector="tapped_creatures_you_control").apply(ctx)
+
+    assert state.pending_choice is None
+    assert a.plus_one_counters == 2  # 2 tapped creatures, least-toughness A gets both
+
+
+def test_bolster_dynamic_amount_of_zero_is_a_no_op():
+    # RULE 701.39e: bolstering 0 places no counters (no tapped creatures).
+    eng, state, p1 = _engine()
+    a = _creature("A", 2)
+    state.add_to_battlefield(a)
+
+    from mtg_analyzer.game.effects import BolsterEffect, GameContext
+
+    ctx = GameContext(state, eng.rules)
+    BolsterEffect(source=a, amount_from_count_selector="tapped_creatures_you_control").apply(ctx)
+
+    assert a.plus_one_counters == 0
+    assert state.pending_choice is None
+
+
+def test_support_x_reads_the_spells_own_announced_x():
+    # The Crowd Goes Wild-shaped: "Support X." cast for {X}{G}, X=2 — the
+    # spell's own `x_paid` both sizes the target-gathering round
+    # (`TargetSpec.count_selector`/`resolved_count`) and, independently,
+    # this effect's own target count param, the same `source_x_paid`
+    # sentinel March of Swirling Mist/Change of Plans already use.
+    eng, state, p1 = _engine()
+    friend1 = _creature("Friend1", 2)
+    friend2 = _creature("Friend2", 2)
+    for o in (friend1, friend2):
+        state.add_to_battlefield(o)
+
+    spell_card = Card(id="Crowd", name="The Crowd Goes Wild", type_line="Sorcery",
+                       is_sorcery=True, mana_cost_string="{X}{G}")
+    spell = GameObject(spell_card, owner_id="p1", zone=Zone.HAND)
+    spell.x_paid = 2
+
+    from mtg_analyzer.game.effects import AddCountersEffect, GameContext
+    from mtg_analyzer.game.targeting import resolved_count
+
+    effect = AddCountersEffect(
+        amount=1, kind="+1/+1", target_kind="creature", optional=True,
+        count_selector="source_x_paid", source=spell,
+    )
+    assert resolved_count(effect.target_spec, state, "p1", spell) == 2
+
+    ctx = GameContext(state, eng.rules)
+    effect.apply(ctx, targets=[friend1, friend2])
+
+    assert friend1.plus_one_counters == 1
+    assert friend2.plus_one_counters == 1
 
 
 def test_support_puts_counters_on_up_to_n_targets_excluding_source():

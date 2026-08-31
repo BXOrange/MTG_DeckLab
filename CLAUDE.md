@@ -649,13 +649,17 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **35.8%
-covered (12,470 / 34,811) as of 2026-08-30, PARSER_VERSION 113** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **35.9%
+covered (12,498 / 34,811) as of 2026-08-31, PARSER_VERSION 114** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
 Suspect designation [+8], 110 was PAR-29's RULE 701.35 Detain designation [+10],
-111 was PAR-29's "Blight N" standalone form [+1], 112 was PAR-29's RULE 701.63 Endure [+7], 113 was PAR-29's RULE 701.70 Recruit [+5]).
+111 was PAR-29's "Blight N" standalone form [+1], 112 was PAR-29's RULE 701.63 Endure [+7],
+113 was PAR-29's RULE 701.70 Recruit [+5], 114 was PAR-29's "Parser-shaped only"
+residue batch — Connive targeting/dynamic-X, standalone double/triple power-and-
+toughness, general exchange control/life totals, Populate/Endure/Bolster/Support
+dynamic amounts, and a suspected-creature target filter [+28]).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in

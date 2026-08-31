@@ -1057,6 +1057,19 @@ def count_selector(
         except KeyError:
             player = None
         return len(player.hand) if player is not None else 0
+    if selector == "distinct_named_artifact_tokens_you_control":
+        # "Bolster X, where X is the number of differently named artifact
+        # tokens you control." (Sandsteppe War Riders, PAR-29) — a distinct-
+        # name count (RULE 201.4b treats each name as a separate value),
+        # scoped to artifact tokens the way `tapped_<type>_you_control`
+        # scopes to a printed type.
+        return len({
+            obj.name
+            for obj in bf
+            if obj.controller_id == controller_id
+            and getattr(obj, "is_token", False)
+            and obj.card.is_artifact
+        })
     if selector.startswith("devotion_to_"):
         # RULE 202.2f/700.5: "your devotion to <colour>" is the number of
         # mana symbols of that colour in the mana costs of permanents you

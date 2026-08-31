@@ -13,11 +13,16 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**35.8% covered — 12,470 / 34,811 — as of 2026-08-30, PARSER_VERSION 113.**
+**35.9% covered — 12,498 / 34,811 — as of 2026-08-31, PARSER_VERSION 114.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
-RULE 701.63 Endure, +7. 113 = PAR-29's RULE 701.70 Recruit, +5.)
+RULE 701.63 Endure, +7. 113 = PAR-29's RULE 701.70 Recruit, +5. 114 = PAR-29's
+"Parser-shaped only" residue batch — Connive targeting/previous-subject/
+dynamic-X, standalone double/triple power-and-toughness, general exchange
+control/exchange life totals, Populate/Endure "X times"/"endures X" riding
+the plain `"x"` sentinel, Bolster/Support dynamic amounts, and a suspected-
+creature target filter, +28.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

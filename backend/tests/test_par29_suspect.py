@@ -206,3 +206,68 @@ def test_leaving_battlefield_clears_suspected():
 
     c.reset_as_new_object()  # RULE 400.7 — the new object isn't suspected
     assert c.is_suspected is False
+
+
+# --- PAR-29 residue: "target suspected creature you control" -------------
+#
+# Deadly Complication's own "put a +1/+1 counter on target suspected
+# creature you control. You may have it become no longer suspected." stays
+# UNMODELED even with this row (the two sentences bundle into one unclaimed
+# compound clause, an unrelated segmenter gap — see docs/implementation-
+# state/BACKLOG.md's PAR-29 entry) — this covers the reachable, tested half:
+# the new `combat.matches_object_filter` ``is_suspected`` key and the
+# `add_counters` row that uses it.
+
+
+def test_suspected_creature_target_filter_parses():
+    assert match_clause("put a +1/+1 counter on target suspected creature you control") == [
+        EffectSpec("add_counters", {
+            "count": 1, "kind": "+1/+1", "target_kind": "creature_you_control",
+            "creature_filter": {"is_suspected": True},
+        })
+    ]
+
+
+def test_matches_object_filter_is_suspected_key():
+    eng, state = _engine()
+    suspected = _creature("Suspected", "p1")
+    plain = _creature("Plain", "p1")
+    state.add_to_battlefield(suspected)
+    state.add_to_battlefield(plain)
+    eng.rules.suspect(suspected)
+
+    assert combat.matches_object_filter(suspected, {"is_suspected": True}) is True
+    assert combat.matches_object_filter(plain, {"is_suspected": True}) is False
+    assert combat.matches_object_filter(plain, {}) is True  # empty filter matches everything
+
+
+def test_add_counters_effect_only_offers_suspected_creatures_as_legal_targets():
+    from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+
+    eng, state = _engine()
+    suspected = _creature("Suspected", "p1")
+    plain = _creature("Plain", "p1")
+    state.add_to_battlefield(suspected)
+    state.add_to_battlefield(plain)
+    eng.rules.suspect(suspected)
+
+    spec = TargetSpec(kind="creature_you_control", creature_filter={"is_suspected": True})
+    offered = {o["instance_id"] for o in legal_targets(state, "p1", spec)}
+    assert offered == {suspected.instance_id}
+
+
+def test_add_counters_effect_puts_counter_on_the_suspected_target():
+    from mtg_analyzer.game.effects import AddCountersEffect, GameContext
+
+    eng, state = _engine()
+    suspected = _creature("Suspected", "p1")
+    state.add_to_battlefield(suspected)
+    eng.rules.suspect(suspected)
+
+    ctx = GameContext(state, eng.rules)
+    AddCountersEffect(
+        amount=1, kind="+1/+1", target_kind="creature_you_control",
+        creature_filter={"is_suspected": True},
+    ).apply(ctx, targets=[suspected])
+
+    assert suspected.plus_one_counters == 1

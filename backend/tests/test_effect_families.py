@@ -62,6 +62,61 @@ def test_giant_growth_pumps_until_end_of_turn():
     assert bear.temp_power == 3 and bear.temp_toughness == 3
 
 
+def test_double_power_and_toughness_pumps_by_the_creatures_own_stats():
+    # RULE 701.10 (PAR-29): "Double target creature's power and toughness
+    # until end of turn." — the delta is the creature's *own* current P/T,
+    # not a flat/shared amount, so a 2/2 gets a +2/+2 delta (→ 4/4).
+    engine, state, caster, bear = _rules_with_creature()
+    spell = _spell(
+        "Dragonclaw Strike", "Double target creature's power and toughness until end of turn.",
+        [EffectSpec("pump", {"target_kind": "creature", "self_multiplier": 2})],
+        target={"kind": "creature"},
+    )
+    caster.hand.append(spell)
+    engine.cast_spell(caster, spell, targets=[bear])
+    engine.resolve_top_of_stack()
+    engine.check_state_based_actions()
+    assert (bear.power, bear.toughness) == (4, 4)
+
+
+def test_triple_power_and_toughness_pumps_by_double_the_creatures_own_stats():
+    # RULE 701.11: "triple" is +2x/+2x (original + 2 more copies), not +3x.
+    engine, state, caster, bear = _rules_with_creature()
+    spell = _spell(
+        "Final Heaven", "Triple target creature's power and toughness until end of turn.",
+        [EffectSpec("pump", {"target_kind": "creature", "self_multiplier": 3})],
+        target={"kind": "creature"},
+    )
+    caster.hand.append(spell)
+    engine.cast_spell(caster, spell, targets=[bear])
+    engine.resolve_top_of_stack()
+    engine.check_state_based_actions()
+    assert (bear.power, bear.toughness) == (6, 6)
+
+
+def test_double_power_and_toughness_reads_each_creatures_own_current_stats_in_a_group():
+    # "Double the power and toughness of each creature you control until end
+    # of turn." (Unnatural Growth) — a shared `self_multiplier` scales each
+    # recipient by *its own* stats, not one shared magnitude the way
+    # `amount_from_count_selector` works.
+    engine, state, caster, bear = _rules_with_creature()
+    other = GameObject(_bear("Other", power=3, toughness=1), owner_id="p1", zone=Zone.BATTLEFIELD)
+    other.summoning_sick = False
+    state.add_to_battlefield(other)
+    engine.check_state_based_actions()
+
+    spell = _spell(
+        "Unnatural Growth", "Double the power and toughness of each creature you control.",
+        [EffectSpec("pump", {"selector": "creatures_you_control", "self_multiplier": 2})],
+    )
+    caster.hand.append(spell)
+    engine.cast_spell(caster, spell, targets=[])
+    engine.resolve_top_of_stack()
+    engine.check_state_based_actions()
+    assert (bear.power, bear.toughness) == (4, 4)
+    assert (other.power, other.toughness) == (6, 2)
+
+
 def test_pump_can_grant_a_keyword():
     engine, state, caster, bear = _rules_with_creature()
     trick = _spell(

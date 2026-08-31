@@ -624,6 +624,7 @@ def _gilded_drake() -> list[AbilitySpec]:
             [EffectSpec("exchange_control", {
                 "target_kind": "creature",
                 "sacrifice_self_if_no_exchange": True,
+                "optional": True,
             })],
             trigger={
                 "event": EventType.ENTERS_BATTLEFIELD,

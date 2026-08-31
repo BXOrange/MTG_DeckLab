@@ -140,6 +140,12 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # narrowed to exclude the ability's own controller.
         "opponent",
         "creature_you_control", "land_you_control",
+        # "target land an opponent controls" (Political Trickery/Vedalken
+        # Plotter's own exchange-control targets, PAR-29) — the
+        # `land_you_control` mirror, same "you control"/"you don't
+        # control" pairing `nonland_permanent_you_control`/`_dont_control`
+        # already has.
+        "land_you_dont_control",
         # RULE 109.5's "*another* target creature you control" (Giver of
         # Runes) — `creature_you_control` minus the ability's own source.
         "other_creature_you_control",
@@ -512,6 +518,7 @@ class TargetSpec:
             "attached_aura_or_equipment_you_control":
                 "Aura oder Ausrüstung an einer Kreatur unter deiner Kontrolle",
             "land_you_control": "Land unter deiner Kontrolle",
+            "land_you_dont_control": "Land, das du nicht kontrollierst",
             "attached_equipment_you_control": "befestigte Ausrüstung unter deiner Kontrolle",
             "equipment_you_control": "Ausrüstung unter deiner Kontrolle",
             "nonbasic_land": "nichtgrundlegendes Land",
@@ -1092,6 +1099,17 @@ def legal_targets(
             if o.controller_id == controller_id
             and o.attached_to in hosts
             and ("aura" in o.card.type_line.lower() or "equipment" in o.card.type_line.lower())
+            and _targetable_by(o, source)
+        ]
+    if kind == "land_you_dont_control":
+        # "target land an opponent controls" (PAR-29) — the controller-
+        # scoped mirror of `land_you_control` just below, same "you don't
+        # control" shape `nonland_permanent_you_dont_control` already has.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_land
+            and o.controller_id != controller_id
             and _targetable_by(o, source)
         ]
     if kind in (

@@ -4492,12 +4492,19 @@ class GraveyardRedirectToExileEffect(GameEffect):
 
 class ExchangeLifeTotalsEffect(GameEffect):
     """"Two target players exchange life totals." (Soul Conduit, MEC-43
-    round 2) — a genuine simultaneous swap, distinct from every other life
-    effect in this file (`GainLifeEffect`/`LoseLifeEffect`, both single-
-    player deltas): neither player's life total is set *to* a number, each
-    just receives the *other's* current one, in one atomic step so a
-    same-resolution "then" clause reading either player's life sees the
-    post-swap value.
+    round 2; PAR-29) — a genuine simultaneous swap, distinct from every
+    other life effect in this file (`GainLifeEffect`/`LoseLifeEffect`, both
+    single-player deltas): neither player's life total is set *to* a
+    number, each just receives the *other's* current one, in one atomic
+    step so a same-resolution "then" clause reading either player's life
+    sees the post-swap value.
+
+    RULE 701.10's other printed shape — "`<source's controller>` exchange[s]
+    life totals with target opponent/player." (Magus of the Mirror/Mister
+    Negative) — is this effect's own controller plus one `TargetSpec`
+    rather than two, the same self+target/two-target split
+    `ExchangeControlEffect` uses: ``target_kind=None`` (the default) keeps
+    the original two-target mode, a real ``target_kind`` switches to it.
 
     Not modeled as a gain/loss for either player (no `GAIN_LIFE`/
     `LOSE_LIFE` event fires) — an exchange is its own RULE 119 category,
@@ -4505,15 +4512,27 @@ class ExchangeLifeTotalsEffect(GameEffect):
     follow-up that would depend on one firing.
     """
 
-    def __init__(self, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, source: Optional["GameObject"] = None, target_kind: Optional[str] = None,
+    ) -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind="player", count=2)
+        self._two_target_mode = target_kind is None
+        self.target_spec = (
+            TargetSpec(kind="player", count=2) if self._two_target_mode
+            else TargetSpec(kind=target_kind)
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         chosen = list(targets or [])
-        if len(chosen) != 2:
-            return
-        a, b = chosen
+        if self._two_target_mode:
+            if len(chosen) != 2:
+                return
+            a, b = chosen
+        else:
+            a = _controller_of(self.source, context)
+            b = chosen[0] if chosen else None
+            if a is None or b is None:
+                return
         a.life, b.life = b.life, a.life
 
 
@@ -9423,9 +9442,9 @@ class ChooseObjectsEffect(GameEffect):
 
 
 class ConniveEffect(GameEffect):
-    """"~ connives." (RULE 701.47, MEC-43 — Ledger Shredder): its
-    controller draws a card, then discards a card; if a nonland card was
-    discarded this way, put a +1/+1 counter on ~.
+    """"`<permanent>` connives[ N]." (RULE 701.47/701.50, MEC-43 — Ledger
+    Shredder; PAR-29): its controller draws a card, then discards a card; if
+    a nonland card was discarded this way, put a +1/+1 counter on it.
 
     The draw is plain `context.draw`; the discard is the general
     interactive hand-card chooser (`RulesEngine.request_choose_objects`,
@@ -9438,19 +9457,145 @@ class ConniveEffect(GameEffect):
     "if you did X" conditional depends on *what* was picked, not just
     *whether* something was, which the existing ``then_specs_if_commander``
     boolean-tracking idiom doesn't cover.
+
+    Same three subject shapes as `GoadEffect`/`ExploreEffect`: bare self
+    (``target_kind=None``, not a pronoun — "~ connives"/"it connives" off
+    ``self.source``, including a triggered ability whose own subject was
+    dynamically retargeted onto e.g. the attached permanent), a `TargetSpec`
+    ("target creature [you control] connives"), and ``previous_subject``
+    ("that creature connives", `GameContext.previous_targets`).
+
+    ``times``/``times_from_count_selector``/``times_from_trigger_event`` are
+    RULE 701.50d's "connives N"/"connives X": the controller draws N cards,
+    discards N cards (**one** N-card choice, not N separate 1-and-1
+    cycles — `request_choose_objects`'s own ``count=N`` already offers that
+    as N sequential picks, same as any other multi-pick chooser), then a
+    counter goes on the conniving permanent for each nonland card among
+    those N discards (unbounded — RULE 701.50d, unlike 701.50a's implicit
+    cap of one). ``times_from_trigger_event`` reads the firing event's own
+    field (`GameContext.trigger_event`, the `DealDamageEffect.
+    amount_from_trigger_event` idiom — "the amount of damage it dealt to
+    that player", Mask of the Schemer); ``times_from_count_selector`` reads
+    a live board count (`continuous.count_selector`, DEVOTION-derived —
+    "the number of attacking creatures"/"creatures that died this turn").
+    RULE 701.50e: conniving 0 is a no-op (no draw, no discard, no event).
+
+    Every conniving creature's *own* controller draws/discards for it (RULE
+    701.47), not necessarily this effect's controller — so with 2+ subjects
+    (a `TargetSpec` naming several, e.g. "each of X target creatures you
+    control connive") each is processed one at a time via
+    `GameState.deferred_effects`, the same RULE 608.2 idiom
+    `SacrificeEffect._sacrifice_each_in_order` uses: looping every subject's
+    interactive discard synchronously in one `apply()` would silently
+    overwrite an earlier subject's still-unanswered prompt with a later
+    one's, since the game state holds exactly one `pending_choice` at a
+    time.
     """
 
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
-        if player is None:
-            return
-        context.draw(player, 1)
-        if not player.hand:
-            return
-        context.engine.request_choose_objects(
-            player, list(player.hand), "discard", count=1,
-            source=self.source, connive=True,
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+        previous_subject: bool = False,
+        optional: bool = False,
+        count: Any = 1,
+        count_selector: Optional[str] = None,
+        times: int = 1,
+        times_from_count_selector: Optional[str] = None,
+        times_from_trigger_event: Optional[str] = None,
+    ) -> None:
+        super().__init__(source)
+        self.previous_subject = bool(previous_subject)
+        self.times = max(1, int(times))
+        self.times_from_count_selector = times_from_count_selector
+        self.times_from_trigger_event = times_from_trigger_event
+        self.target_spec = (
+            TargetSpec(kind=target_kind, optional=optional,
+                       count=count if isinstance(count, int) else 1,
+                       count_selector=count_selector)
+            if target_kind is not None
+            else None
         )
+
+    #: A resumed continuation's own remaining-subjects queue (see
+    #: `_connive_queue`) — never set by a parsed `EffectSpec` (outside the
+    #: whitelisted-param security boundary on purpose: pure runtime state,
+    #: constructed only by this class itself), only by this class
+    #: re-scheduling its own remainder. The same idiom as
+    #: `SacrificeEffect._remaining_players`.
+    _remaining_queue: Optional[list["GameObject"]] = None
+    #: Carried onto a resumed continuation alongside ``_remaining_queue`` —
+    #: every subject in one resolution connives the same N (RULE 701.50c/d
+    #: never mixes a per-subject count within a single instruction).
+    _resumed_times: int = 1
+
+    def _resolve_times(self, context: GameContext) -> int:
+        if self.times_from_trigger_event:
+            event = context.trigger_event
+            value = (event or {}).get(self.times_from_trigger_event)
+            try:
+                return max(0, int(value))
+            except (TypeError, ValueError):
+                return 0
+        if self.times_from_count_selector:
+            from . import continuous
+            controller_id = getattr(self.source, "controller_id", None)
+            return max(0, continuous.count_selector(
+                context.state, controller_id, self.times_from_count_selector, source=self.source,
+            ))
+        return self.times
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self._remaining_queue is not None:
+            self._connive_queue(context, self._remaining_queue, self._resumed_times)
+            return
+        if self.target_spec is not None:
+            subjects = list(targets or [])
+        elif self.previous_subject:
+            subjects = [
+                obj for obj in context.previous_targets
+                if getattr(obj, "instance_id", None) is not None
+            ]
+        else:
+            subjects = [self.source] if self.source is not None else []
+        times = self._resolve_times(context)
+        if times <= 0:
+            # RULE 701.50e: conniving 0 does nothing — no draw, no discard.
+            return
+        self._connive_queue(context, subjects, times)
+
+    def _connive_queue(
+        self, context: GameContext, queue: list["GameObject"], times: int,
+    ) -> None:
+        state = context.state
+        for i, obj in enumerate(queue):
+            player = _controller_of(obj, context)
+            if player is None:
+                continue
+            before = getattr(state, "pending_choice", None)
+            context.draw(player, times)
+            if player.hand:
+                context.engine.request_choose_objects(
+                    player, list(player.hand), "discard", count=min(times, len(player.hand)),
+                    source=obj, connive=True,
+                )
+            opened = getattr(state, "pending_choice", None)
+            if opened is not None and opened is not before and i + 1 < len(queue):
+                remainder = ConniveEffect(source=self.source)
+                remainder._remaining_queue = queue[i + 1:]
+                remainder._resumed_times = times
+                state.deferred_effects.append(
+                    {
+                        "effects": [remainder],
+                        "targets": None,
+                        "target_groups": None,
+                        "group_index": 0,
+                        "source": self.source,
+                        "previous_targets": list(getattr(context, "previous_targets", [])),
+                        "created_objects": list(getattr(context, "created_objects", [])),
+                    }
+                )
+                return
 
 
 class RecruitEffect(GameEffect):
@@ -9518,46 +9663,112 @@ class ExploreEffect(GameEffect):
 
 
 class PopulateEffect(GameEffect):
-    """RULE 701.36: "Populate." — put a token onto the battlefield that's a
-    copy of a creature token this effect's controller controls (701.36a);
-    if they control no creature tokens, populate does nothing (701.36b).
+    """RULE 701.36: "Populate[ X times]." — put a token onto the
+    battlefield that's a copy of a creature token this effect's controller
+    controls (701.36a); if they control no creature tokens, populate does
+    nothing (701.36b).
 
     Always the resolving controller's own creature tokens — "populate" never
     takes a target or a pronoun subject (unlike `ExploreEffect`/`GoadEffect`),
     so there is only the one shape. `RulesEngine.populate` owns the whole
     procedure, including the one interactive pause (which token to copy when
     the controller has more than one).
+
+    ``count`` (PAR-29, Full Flowering's "Populate X times.") is the plain
+    ``"x"``/``"-x"`` sentinel `RulesEngine._substitute_x` already resolves
+    generically on any effect's own ``count`` attribute — no bespoke
+    ``count_selector``/``trigger_event`` plumbing needed, unlike
+    `ConniveEffect`'s dynamic amount (connive's X can come from a board
+    count or a firing trigger's own field; populate's only ever comes from
+    the spell's own announced {X}). 2+ repeats are sequenced one at a time
+    via `GameState.deferred_effects` — the same RULE 608.2 idiom
+    `ConniveEffect`/`SacrificeEffect` use — since looping every repeat's
+    interactive "which token?" choice synchronously would silently
+    overwrite an earlier repeat's still-unanswered prompt with a later
+    one's.
     """
 
+    def __init__(self, source: Optional["GameObject"] = None, count: Any = 1) -> None:
+        super().__init__(source)
+        self.count = count if not isinstance(count, int) else max(1, count)
+
+    #: A resumed continuation's own remaining-repeat count — never set by a
+    #: parsed `EffectSpec`, only by this class re-scheduling its own
+    #: remainder (the same idiom as `SacrificeEffect._remaining_players`).
+    _remaining_count: Optional[int] = None
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        count = self.count if self._remaining_count is None else self._remaining_count
+        count = count if isinstance(count, int) else 1
+        if count <= 0:
+            return
         player = _controller_of(self.source, context)
         if player is None:
             return
-        context.engine.populate(player)
+        state = context.state
+        for i in range(count):
+            before = getattr(state, "pending_choice", None)
+            context.engine.populate(player)
+            opened = getattr(state, "pending_choice", None)
+            if opened is not None and opened is not before and i + 1 < count:
+                remainder = PopulateEffect(source=self.source)
+                remainder._remaining_count = count - i - 1
+                state.deferred_effects.append(
+                    {
+                        "effects": [remainder],
+                        "targets": None,
+                        "target_groups": None,
+                        "group_index": 0,
+                        "source": self.source,
+                        "previous_targets": list(getattr(context, "previous_targets", [])),
+                        "created_objects": list(getattr(context, "created_objects", [])),
+                    }
+                )
+                return
 
 
 class BolsterEffect(GameEffect):
-    """RULE 701.39: "Bolster N." — put N +1/+1 counters on a least-toughness
-    creature this effect's controller controls (their own choice on a tie),
-    nothing if they control no creatures. Always the resolving controller's
-    own creatures — "bolster" never takes a target or a pronoun subject, so
-    (like `PopulateEffect`) there is only the one shape. `RulesEngine.bolster`
-    owns the whole procedure, including the tie-break `pending_choice`.
+    """RULE 701.39: "Bolster N[/X]." — put N +1/+1 counters on a least-
+    toughness creature this effect's controller controls (their own choice
+    on a tie), nothing if they control no creatures. Always the resolving
+    controller's own creatures — "bolster" never takes a target or a
+    pronoun subject, so (like `PopulateEffect`) there is only the one
+    shape. `RulesEngine.bolster` owns the whole procedure, including the
+    tie-break `pending_choice`.
+
+    ``amount_from_count_selector`` (PAR-29, Dragonscale General/Sunbringer's
+    Touch) is RULE 701.39a's dynamic "bolster X, where X is `<board
+    count>`" — read live via `continuous.count_selector` at resolution, the
+    same idiom `PumpEffect.amount_from_count_selector` uses. RULE 701.39e's
+    "bolster 0 does nothing" falls out for free: `RulesEngine.bolster`
+    already treats an amount of 0 as trivially satisfied (0 counters placed).
     """
 
-    def __init__(self, source: Optional["GameObject"] = None, amount: int = 1) -> None:
+    def __init__(
+        self, source: Optional["GameObject"] = None, amount: int = 1,
+        amount_from_count_selector: Optional[str] = None,
+    ) -> None:
         super().__init__(source)
-        self.amount = max(1, int(amount))
+        self.amount = max(1, int(amount)) if amount_from_count_selector is None else int(amount)
+        self.amount_from_count_selector = amount_from_count_selector
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
             return
-        context.engine.bolster(player, self.amount, source=self.source)
+        amount = self.amount
+        if self.amount_from_count_selector:
+            from . import continuous
+            amount = continuous.count_selector(
+                context.state, player.id, self.amount_from_count_selector, source=self.source,
+            )
+        if amount <= 0:
+            return
+        context.engine.bolster(player, amount, source=self.source)
 
 
 class EndureEffect(GameEffect):
-    """RULE 701.63a: "`<permanent>` endures N." (Bloomburrow) — its
+    """RULE 701.63a: "`<permanent>` endures N[/X]." (Bloomburrow) — its
     controller either puts N +1/+1 counters on it or creates an N/N white
     Spirit creature token. `RulesEngine.endure` owns the procedure and the
     modal `endure` `pending_choice`; this effect only resolves *which*
@@ -9566,18 +9777,25 @@ class EndureEffect(GameEffect):
     Subject shapes, like `ExploreEffect`: bare self ("when ~ enters, it
     endures 3", the bulk), ``previous_subject`` ("that creature endures N"),
     and a `TargetSpec` ("target creature you control endures N").
+
+    ``amount`` (PAR-29, Krumar Initiate's "~ endures X") may be the plain
+    ``"x"`` sentinel `RulesEngine._substitute_x` already resolves
+    generically on any effect's own ``amount`` attribute — the same idiom
+    `PopulateEffect.count`/`MonstrosityEffect.amount` use, so int
+    conversion is deferred rather than attempted at construction time
+    (``int("x")`` would raise).
     """
 
     def __init__(
         self,
         source: Optional["GameObject"] = None,
-        amount: int = 1,
+        amount: Any = 1,
         target_kind: Optional[str] = None,
         previous_subject: bool = False,
         optional: bool = False,
     ) -> None:
         super().__init__(source)
-        self.amount = max(1, int(amount))
+        self.amount = amount if not isinstance(amount, int) else max(1, amount)
         self.previous_subject = bool(previous_subject)
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional)
@@ -9595,8 +9813,9 @@ class EndureEffect(GameEffect):
             ]
         else:
             endurers = [self.source] if self.source is not None else []
+        amount = self.amount if isinstance(self.amount, int) else 1
         for obj in endurers:
-            context.engine.endure(obj, self.amount)
+            context.engine.endure(obj, amount)
 
 
 class BlightEffect(GameEffect):
@@ -11281,6 +11500,7 @@ class AddCountersEffect(GameEffect):
         amount_if_trigger_subject_subtype: Optional[list[str]] = None,
         amount_if_trigger_subject_subtype_value: Optional[int] = None,
         creature_filter: Optional[dict] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
@@ -11358,6 +11578,15 @@ class AddCountersEffect(GameEffect):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
                 creature_filter=creature_filter,
+                # "Support X." (RULE 702.163, PAR-29 — Blitzball Stadium/The
+                # Crowd Goes Wild) — "up to X target creatures" where X is
+                # this spell/ability's own announced {X}, the identical
+                # `TargetSpec.count_selector="source_x_paid"` reading "up
+                # to X target creatures phase out" (March of Swirling
+                # Mist)/"each of X target creatures connive" (Change of
+                # Plans) already use — resolved at announce time off
+                # `GameObject.x_paid`, not this class's own ``count``.
+                count_selector=count_selector,
             )
 
     def target_polarity(self) -> Optional[str]:
@@ -11399,8 +11628,22 @@ class AddCountersEffect(GameEffect):
                         continue
                 context.add_counters(obj, self.amount, self.kind, source=self.source)
             return
-        if self.target_spec is not None and self.target_spec.effective_count != 1:
-            chosen = _chosen_targets(targets, self.target_spec.effective_count)
+        if self.target_spec is not None and (
+            self.target_spec.count_selector or self.target_spec.effective_count != 1
+        ):
+            # `effective_count` is a static field on a frozen dataclass —
+            # it has no live board access, so a `count_selector`-sized spec
+            # ("Support X.") always reads back as its printed ``count``
+            # (1), never the real live value. `targets` was already
+            # gathered by the *real*, state-aware `targeting.resolved_
+            # count`, so take it whole rather than re-slicing to that
+            # wrong static cap (the same `count_selector or …` guard
+            # `GoadEffect.apply` already uses for the identical reason).
+            chosen = (
+                list(targets or [])
+                if self.target_spec.count_selector
+                else _chosen_targets(targets, self.target_spec.effective_count)
+            )
             if not chosen:
                 return
             if self.divided:
@@ -12425,6 +12668,7 @@ class PumpEffect(GameEffect):
         previous_subject: bool = False,
         subtypes: Optional[list[str]] = None,
         trigger_subject: bool = False,
+        self_multiplier: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.power = power
@@ -12487,6 +12731,15 @@ class PumpEffect(GameEffect):
         #: after reading it, the "-X/-X" sibling of that always-positive
         #: "+X/+X" default rather than a second, duplicated param.
         self.amount_from_count_selector_negative = amount_from_count_selector_negative
+        #: RULE 701.10/11 "double"/"triple target creature's power and
+        #: toughness" (Dragonclaw Strike/Tifa's Limit Break) — a per-object
+        #: amount unlike every ``amount_from_*`` above (each recipient's own
+        #: *current* power/toughness, not one shared magnitude), so it's
+        #: read fresh at `_pump_one` time rather than folded into a single
+        #: `apply()`-wide ``self.power``/``self.toughness`` set once. ``2``
+        #: doubles (a "+1x/+1x" delta on top of the base), ``3`` triples
+        #: (+2x/+2x); ``None`` leaves ``power``/``toughness`` as printed.
+        self.self_multiplier = self_multiplier
         self._attached_mode = target_kind == "attached_permanent"
         if target_kind is not None and not self._attached_mode and not previous_subject:
             # PAR-15: "any number of target creatures each get +N/+N [and
@@ -12519,19 +12772,29 @@ class PumpEffect(GameEffect):
         return "harmful" if (_is_negative(self.power) or _is_negative(self.toughness)) else "beneficial"
 
     def _pump_one(self, obj: "GameObject") -> None:
-        obj.temp_power += self.power
-        obj.temp_toughness += self.toughness
+        if self.self_multiplier:
+            # RULE 701.10/11: each recipient's own *current* power/toughness
+            # (post-layer-engine, so an earlier anthem in the same resolution
+            # is already reflected) sets its own delta — a group-selector
+            # "double each creature you control" scales every creature by
+            # its own stats, not by one shared amount.
+            delta = self.self_multiplier - 1
+            power, toughness = delta * obj.power, delta * obj.toughness
+        else:
+            power, toughness = self.power, self.toughness
+        obj.temp_power += power
+        obj.temp_toughness += toughness
         obj.temp_keywords.update(self.keywords)
         if self.unblockable:
             obj.temp_unblockable = True
         # Record a per-source breakdown for the board's per-card effect
         # summary (display-only — the aggregate ints above drive the math).
-        if self.power or self.toughness or self.keywords:
+        if power or toughness or self.keywords:
             obj.temp_effects.append(
                 {
                     "source": self.source.name if self.source is not None else "Effekt",
-                    "power": self.power,
-                    "toughness": self.toughness,
+                    "power": power,
+                    "toughness": toughness,
                     "keywords": list(self.keywords),
                 }
             )
@@ -14291,6 +14554,9 @@ class ExchangeControlEffect(GameEffect):
         source: Optional["GameObject"] = None,
         first_target_kind: Optional[str] = None,
         second_creature_filter: Optional[dict[str, Any]] = None,
+        optional: bool = False,
+        count: int = 1,
+        distinct_controllers: bool = False,
     ) -> None:
         super().__init__(source)
         # "Exchange control of target artifact or creature you control and
@@ -14305,14 +14571,37 @@ class ExchangeControlEffect(GameEffect):
         # rather than ``self`` + one target. Neither is ``optional`` here
         # (Oko's own text prints no "up to"/failure clause), unlike the
         # single-target mode below.
-        self._two_target_mode = first_target_kind is not None
-        if self._two_target_mode:
+        #
+        # "Exchange control of 2 target creatures controlled by different
+        # players." (PAR-29 — Modify Memory/Shifting Borders/Djinn of
+        # Infinite Deceits-shaped) is neither of those: both sides are the
+        # *same* kind and neither is this effect's own source, but unlike
+        # Oko it's one RULE 601.2c requirement of two, not two independent
+        # ones — ``count=2`` on a single `TargetSpec` (the same "up to two"
+        # multi-target idiom `DestroyEffect`/`ChooseTargetsEffect`'s own
+        # group form already use), which is also what makes
+        # ``distinct_controllers`` (an *across-rounds* offer-time
+        # constraint, `targeting.TargetSpec`'s own docstring) meaningful
+        # here at all — it has no cross-spec equivalent for the
+        # ``first_target_kind`` two-spec mode above. `apply()` doesn't need
+        # to know which of the two shapes produced its two targets; a flat
+        # ``targets`` list of 2 reads the same either way.
+        self._two_target_mode = first_target_kind is not None or count >= 2
+        if first_target_kind is not None:
             self.target_spec = TargetSpec(kind=first_target_kind)
             self.extra_target_specs = (
                 TargetSpec(kind=target_kind, creature_filter=second_creature_filter),
             )
+        elif count >= 2:
+            self.target_spec = TargetSpec(
+                kind=target_kind, count=count, distinct_controllers=distinct_controllers,
+            )
         else:
-            self.target_spec = TargetSpec(kind=target_kind, optional=True)
+            # ``optional`` is RULE 115.1a's "up to one" (Gilded Drake) —
+            # PAR-29's plain "exchange control of ~ and target X." cards
+            # (Avarice Totem/Phyrexian Infiltrator) print no "up to" and
+            # need a real, mandatory target instead.
+            self.target_spec = TargetSpec(kind=target_kind, optional=optional)
         self.sacrifice_self_if_no_exchange = sacrifice_self_if_no_exchange
 
     def target_polarity(self) -> Optional[str]:
@@ -16411,7 +16700,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "exchange_life_totals",  # "Two target players exchange life totals." (Soul Conduit)
-    lambda p: ExchangeLifeTotalsEffect(),
+    lambda p: ExchangeLifeTotalsEffect(target_kind=p.get("target_kind")),
 )
 EffectRegistry.register(
     "lose_life",
@@ -17520,6 +17809,9 @@ EffectRegistry.register(
         # ExchangeControlEffect's own two-target-mode docstring.
         first_target_kind=p.get("first_target_kind"),
         second_creature_filter=p.get("second_creature_filter"),
+        optional=bool(p.get("optional", False)),
+        count=int(p.get("count", 1) or 1),
+        distinct_controllers=bool(p.get("distinct_controllers", False)),
     ),
 )
 EffectRegistry.register(
@@ -17589,10 +17881,20 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    # RULE 701.47 (connive, MEC-43 — Ledger Shredder): draw a card, then
-    # discard a card; if a nonland card was discarded this way, put a
-    # +1/+1 counter on the conniving permanent. See `ConniveEffect`.
-    "connive", lambda p: ConniveEffect(),
+    # RULE 701.47/701.50 (connive, MEC-43 — Ledger Shredder; PAR-29): draw a
+    # card, then discard a card; if a nonland card was discarded this way,
+    # put a +1/+1 counter on the conniving permanent. See `ConniveEffect`.
+    "connive",
+    lambda p: ConniveEffect(
+        target_kind=p.get("target_kind"),
+        previous_subject=bool(p.get("previous_subject", False)),
+        optional=bool(p.get("optional", False)),
+        count=p.get("count", 1),
+        count_selector=p.get("count_selector"),
+        times=int(p.get("times", 1) or 1),
+        times_from_count_selector=p.get("times_from_count_selector"),
+        times_from_trigger_event=p.get("times_from_trigger_event"),
+    ),
 )
 EffectRegistry.register(
     # RULE 701.70a (recruit, PAR-29 — Tales of Middle-earth): draw a card,
@@ -17617,7 +17919,7 @@ EffectRegistry.register(
     # that's a copy of a creature token you control (nothing if you control
     # none). See `PopulateEffect` / `RulesEngine.populate`.
     "populate",
-    lambda p: PopulateEffect(),
+    lambda p: PopulateEffect(count=p.get("count", 1)),
 )
 EffectRegistry.register(
     # RULE 701.39 (bolster, PAR-29): put N +1/+1 counters on a least-
@@ -17626,7 +17928,10 @@ EffectRegistry.register(
     # no effect of its own — it's a parser alias onto `add_counters` with a
     # "up to N target creatures" spec.
     "bolster",
-    lambda p: BolsterEffect(amount=p.get("amount", p.get("count", 1))),
+    lambda p: BolsterEffect(
+        amount=p.get("amount", p.get("count", 1)),
+        amount_from_count_selector=p.get("amount_from_count_selector"),
+    ),
 )
 EffectRegistry.register(
     # "Blight N" (Bloomburrow, PAR-29): put N -1/-1 counters on a creature
@@ -17894,6 +18199,7 @@ EffectRegistry.register(
         count=p.get("target_count", 1),
         # ENG-30: "1 or 2" range ceiling — see `target_count`'s own comment.
         count_max=p.get("target_count_max"),
+        count_selector=p.get("target_count_selector"),
         subtypes=p.get("subtypes"),
         divided=bool(p.get("divided", False)),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
@@ -17926,6 +18232,7 @@ EffectRegistry.register(
         creature_filter=p.get("creature_filter"),
         previous_subject=bool(p.get("previous_subject", False)),
         subtypes=p.get("subtypes"),
+        self_multiplier=p.get("self_multiplier"),
     ),
 )
 EffectRegistry.register(

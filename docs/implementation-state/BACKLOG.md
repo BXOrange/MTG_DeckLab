@@ -69,60 +69,24 @@ Plan-level sequencing lives in
   > keywords). The only open parser ticket below is `PAR-29`.
 
 - **PAR-29 · RULE 701 keyword actions with no parser handler.** The
-  RULE 701 audit that PAR-21 asked for is done (2026-08-29,
-  `Done_Backend.md` "PAR-21: RULE 701 keyword-action audit" — it also
-  closed Connive and Discover, which already had shipped engine effects).
-  **Explore** (RULE 701.44) was then built end-to-end (2026-08-29,
-  `Done_Backend.md` "Explore" — a new `RulesEngine.explore` primitive +
-  `EventType.EXPLORED` + `explore_bin` choice + oracle handlers, +22
-  cards); its only residue is a trigger-condition parser row for
-  "whenever ~/a creature you control explores, `<effect>`" (the
-  `EXPLORED` event fires already, nothing reads it), grouped with the
-  other RULE 603.1 trigger-vocabulary gaps rather than tracked here.
-  **Populate** (RULE 701.36) followed the same day (2026-08-29,
-  `Done_Backend.md` "Populate" — `RulesEngine.populate` on the existing
-  `copy_permanent` path + a `populate` "which token?" choice + one
-  bare-word handler, +14 cards); no residue beyond "populate X times"
-  (Full Flowering, a dynamic repeat count) and cards carrying a second
-  unmodeled clause alongside their now-real "populate".
-  **Bolster** (RULE 701.39) + **Support** (RULE 701.41) followed
-  (2026-08-29, `Done_Backend.md` "Bolster + Support" — `RulesEngine.
-  bolster` (least-toughness selector + a `bolster` tie-break choice) is a
-  new primitive; Support is a parser alias onto the existing `add_counters`
-  "up to N target creatures" spec, +25 cards); residue is the dynamic
-  "bolster X" / "support X" amount and a couple of second-clause cards.
-  **Suspect** (RULE 701.60) followed (2026-08-29, `Done_Backend.md`
-  "Suspect" — `GameObject.is_suspected` designation + `RulesEngine.
-  suspect`/`remove_suspected` + `SuspectEffect`/`RemoveSuspectedEffect`;
-  RULE 701.60b's menace + can't-block read off the flag in `combat.py` /
-  `combat_mixin`, +8 cards). The mechanic is complete; residue is
-  conditional "if it's suspected" clauses, "can't become suspected"
-  statics and "suspected creatures you control" selectors.
-  **Detain** (RULE 701.35) followed (2026-08-29, `Done_Backend.md`
-  "Detain" — `GameObject.detained_by` designation swept "until your next
-  turn" by the same `begin_turn` loop as goad + `RulesEngine.detain` +
-  `DetainEffect` + `EventType.DETAINED`; RULE 701.35b's can't-attack /
-  can't-block / can't-activate enforced via `combat.is_detained` in
-  `_can_attack`/`can_block`/`can_activate`, +10 cards). Residue: Lavinia's
-  mass-selector-with-mana-value-filter and a "with backup or vehicle"
-  filter (Azorius Traffic Enforcement).
-  **Blight N**'s standalone-verb form followed (2026-08-30,
-  `Done_Backend.md` "Blight N" — `RulesEngine.blight` + a `blight` choice
-  + `BlightEffect`, +1 card); the cost forms are left open below.
-  **Endure N** (RULE 701.63) followed (2026-08-30, `Done_Backend.md`
-  "Endure N" — `RulesEngine.endure` + a modal `endure` `pending_choice`
-  (N +1/+1 counters *or* an N/N white Spirit token) + `EndureEffect`,
-  +7 cards). Residue: the "you may pay `{cost}`. If you do, it endures N"
-  pay-cost-then wrapper.
-  **Recruit** (RULE 701.70) followed (2026-08-30, `Done_Backend.md`
-  "Recruit" — `RulesEngine.recruit` + a `recruit` "which card to discard"
-  `pending_choice` + `RecruitEffect`; Connive's sibling with a token
-  payoff, +5 cards). No residue.
-  What remains below is the rest of the audit's gaps. Each is an ordinary
-  effect-grammar gap, *not* a "keyword ability missing from a registry";
-  most need a new engine primitive before a handler is worth writing, so
-  most belong under `MEC` once picked up. Solo-blocker counts are
-  cache-wide from `parser_probe.py`.
+  RULE 701 audit that PAR-21 asked for is done (`Done_Backend.md`
+  "PAR-21: RULE 701 keyword-action audit" — it also closed Connive and
+  Discover, which already had shipped engine effects). Eight mechanics
+  off that audit's gap list have since shipped end-to-end — Explore,
+  Populate, Bolster + Support, Suspect, Detain, Blight's standalone-verb
+  form, Endure, and Recruit (PARSER_VERSION 106–113, +91 cards combined;
+  full detail under each one's own heading in `Done_Backend.md`). The
+  whole former "Parser-shaped only" residue bullet closed the same way,
+  one batch, PARSER_VERSION 114, +28 cards (`Done_Backend.md`'s "PAR-29:
+  Parser-shaped only residue" entry) — Connive's targeting/previous-
+  subject/dynamic-X, standalone double/triple power-and-toughness, general
+  exchange control/exchange life totals, Populate/Endure's dynamic "X
+  times"/"endures X", Bolster/Support's dynamic amounts, and a suspected-
+  creature target filter. What remains below is the rest of the original
+  audit's gaps, plus new residue that batch surfaced. Each is an ordinary
+  effect-grammar gap or a genuinely new primitive, *not* a "keyword
+  ability missing from a registry"; most belong under `MEC` once picked
+  up. Solo-blocker counts are cache-wide from `parser_probe.py`.
   - **Needs an engine primitive first:** Vote (701.38, ~28 — the voting subsystem,
     RULE 701.38a APNAP-order choice); Clash (701.30, ~33 — reveal top, may
     bottom it, "if you win" = higher mana value); Learn (701.48, ~16 — discard-may→draw, else Lesson from
@@ -146,13 +110,53 @@ Plan-level sequencing lives in
     ~3 cards), Heal (701.69 — remove marked damage, ~0 cache cards);
     the Avatar bending quartet — Airbend (701.65), Earthbend
     (701.66, ~18), Waterbend (701.67, ~11 — a "tap artifacts/creatures
-    for generic mana" cost mechanic), Firebend.
-  - **Parser-shaped only (engine already fine):** "connive N" (701.50d —
-    `ConniveEffect` needs a count parameter); standalone "double/triple
-    target creature's power and toughness" (701.10/11 — damage- and
-    token/counter-doubling are already covered); a general "exchange
-    control of `<X>`" / "exchange life totals" handler (701.12 — only
-    per-card hand-authored today, Gilded Drake-shaped).
+    for generic mana" cost mechanic), Firebend; Detain's Lavinia
+    mass-selector-with-mana-value-filter and a "with backup or vehicle"
+    filter (Azorius Traffic Enforcement); a genuine if/else *effect*
+    primitive ("if `<condition>`, A. Otherwise, B." — two mutually
+    exclusive effect bodies, not `ConditionalEffect`'s existing single-
+    branch gate) for Agrus Kos, Spirit of Justice's "if it's suspected,
+    exile it. Otherwise, suspect it." (RULE 701.60, 1 card); a "can't
+    become `<designation>`" static-flag family (Airtight Alibi's "…and
+    can't become suspected.", RULE 701.60, 1 card — pairs with a second
+    gap on the same card, a `ConditionalEffect` condition key reading a
+    previous-subject/target's own `is_suspected` flag for "if it's
+    suspected, it's no longer suspected."); a bare mid-resolution "you
+    may `<effect>`" one-shot wrapper with no cost at all (distinct from
+    `pay_cost_then`, which requires a real cost) for Deadly Complication's
+    "You may have it become no longer suspected." (RULE 701.60, pairs
+    with the "target suspected creature you control" filter PARSER_VERSION
+    114 already ships — the card stays UNMODELED on this second half
+    alone); and a designation-aware RULE 603.1 group-subject trigger
+    filter ("whenever 1 or more suspected creatures you control attack" —
+    Clandestine Meddler, RULE 701.60/603.1, needs `is_suspected` composed
+    with the existing aggregate-attack trigger). None of these four are
+    "parser-shaped" — each needs real new engine work, found and correctly
+    reclassified while closing the residue bullet above rather than left
+    filed under the wrong heading. RULE 701.10's own exchange-control
+    family (`ExchangeControlEffect`, PARSER_VERSION 114) left a real
+    residue too, mostly one shared gap: a cross-target "shares a
+    card/permanent type with it" legality predicate (RULE 115 has no
+    existing mechanism checking one already-chosen target's characteristics
+    against another's) — Confusion in the Ranks, Daring Thief, Gauntlets
+    of Chaos, Legerdemain, Role Reversal, Shifting Loyalties, The
+    Trickster-God's Heist, ~7 cards; the same shape with a numeric
+    comparison instead (mana value/power) — Puca's Mischief, Spawnbroker;
+    a "you neither own nor control" target kind (Conjured Currency); a
+    "nonlegendary" `creature_filter` key (Djinn of Infinite Deceits); a
+    dynamic "the creature/artifact **with the greatest mana value**"
+    selection, not a RULE 115 target at all (Cultural Exchange, Juxtapose);
+    exchanging a **spell** on the stack rather than a permanent (Perplexing
+    Chimera, Sudden Substitution); teams (Get a Life, RULE 810 — a
+    permanent non-goal per the card-type-structures batch, not reachable
+    regardless); a delayed triple exchange (life totals + all permanents +
+    whole hand/library/graveyard) at the next end step (Mirror Mirror); and
+    a numeric-comparison conditional gate before the effect at all (Psychic
+    Transfer's "if the difference between your life total and target
+    player's life total is 5 or less, …"). None needed for PARSER_VERSION
+    114's own +11 cards; listed here so a future cross-target-predicate
+    primitive (if one gets built for an unrelated card) is checked against
+    this whole list rather than closing just its own card.
   - **Not gaps** (real handler verified action-by-action, not an
     incidental `MODELED`): Attach, Counter, Create, Destroy, Discard,
     Exile, Fight, Goad, Investigate, Mill, Regenerate, Scry, Search,
@@ -160,7 +164,10 @@ Plan-level sequencing lives in
     Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
     The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster,
     Support, Suspect, Detain, Endure, Recruit, Blight (standalone verb
-    form; cost forms open above) — plus engine-action verbs with
+    form; cost forms open above), Exchange Control, Exchange Life Totals
+    (both PARSER_VERSION 114 — the "shares a card/permanent type"/mana-
+    value/power cross-target qualifier cycle stays open above) — plus
+    engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
     (Planeswalk/Set in Motion/Abandon, Meld). Assemble (701.45) is out of
     the CR; Open an Attraction / Roll to Visit (701.51/52) are the

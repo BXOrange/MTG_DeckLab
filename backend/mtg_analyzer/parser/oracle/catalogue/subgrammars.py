@@ -145,6 +145,13 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # "target Forest" (Arbor Elf) — a specific basic land subtype, above
     # the bare "target land" row so the longer/more specific phrase wins.
     (r"target forest", "forest"),
+    # "target land you control" / "target land an opponent controls" (PAR-29
+    # — Political Trickery/Vedalken Plotter's own exchange-control targets)
+    # — the controller-scoped pair, above the bare "target land" row so the
+    # longer phrase wins, mirroring "target creature you control"/"target
+    # creature an opponent controls" above.
+    (r"target land you control", "land_you_control"),
+    (r"target land (?:an opponent controls|you don't control)", "land_you_dont_control"),
     # "target land" (Sinkhole) — same RULE 115.1c precision as the artifact/
     # enchantment rows just above.
     (r"target land", "land"),
@@ -320,6 +327,7 @@ DEVOTION = (
     r"|(?P<count_bare>creatures|permanents|artifacts|lands|enchantments|planeswalkers) you control"
     r"|(?P<count_attacking>attacking creatures)(?P<count_attacking_yours> you control)?"
     r"|tapped (?P<count_tapped_1>[a-z]+)(?: and/or (?P<count_tapped_2>[a-z]+))? you control"
+    r"|(?P<count_died_this_turn>creatures that died this turn)"
     r"|(?P<count_subtype>[a-z]+) you control"
     r"))"
     r")"
@@ -368,6 +376,8 @@ def devotion_selector(m: "re.Match[str]") -> Optional[str]:
             "attacking_creatures_you_control" if m.groupdict().get("count_attacking_yours")
             else "attacking_creatures"
         )
+    if m.groupdict().get("count_died_this_turn"):
+        return "creatures_died_this_turn"
     tapped1 = m.groupdict().get("count_tapped_1")
     if tapped1:
         # "the number of tapped `<type>`[ and/or `<type>`] you control"
