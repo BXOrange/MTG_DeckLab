@@ -487,6 +487,8 @@ class ActivationMixin:
             return False
         if cost.forage and not self.rules.forage_possible(player):
             return False
+        if cost.blight and not self.rules.blight_possible(player):
+            return False
         if cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand) is None:
             return False
         if cost.unattach_self and source.attached_to is None:
@@ -1083,6 +1085,10 @@ class ActivationMixin:
             # three graveyard cards and sacrificing a Food, fires
             # `EventType.FORAGED`.
             self.rules.forage(player)
+        if cost.blight:
+            # RULE 701.68 — put N -1/-1 counters on a creature you control;
+            # `interactive=False` auto-picks (payment can't pause).
+            self.rules.blight(player, cost.blight, source=source, interactive=False)
         if cost.put_hand_card_on_library:
             chosen = self._resolve_put_hand_card_cost(player, hand_card_choices)
             if chosen:

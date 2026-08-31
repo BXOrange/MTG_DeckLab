@@ -100,16 +100,18 @@ Plan-level sequencing lives in
     you forage" wiring shipped at PARSER_VERSION 119): Curious Forager's
     *targeted* "when you do, return target permanent card…" payoff and Feed
     the Cycle's "forage or pay {B}" alt additional cast cost stay open;
-    **Blight — cost forms
-    only** (Bloomburrow; the standalone-verb form is already modeled):
-    "{cost}, Blight N: `<effect>`" and
-    "as an additional cost … blight N" need an `ActivationCost`/cast-cost
-    field + payment path; the "you may blight N. If you do" wrapper needs
-    `pay_cost_then`. **Also fix here:** the cost-parser currently *silently
-    drops* "Blight N" from a cost string, so Sting-Slinger/Gristle Glutton
-    et al. are wrongly MODELED — the fix (fail-closed on "blight" in a
-    cost, or the real payment path) will *reduce* the coverage count by
-    ~5 until built. Time Travel (701.56, ~3 — suspend-
+    **Blight — residue only** (701.68; the `ActivationCost.blight` cost
+    primitive + `RulesEngine.blight(interactive=False)` + the activated-cost
+    / `_can/_pay_player_cost` / never-blocking-additional-cast-cost /
+    `_PAY_COST_THEN_OR_ELSE_RE` "if you don't" wiring shipped at
+    PARSER_VERSION 121; the silent-drop-from-a-cost-string bug is fixed):
+    Gristle Glutton's `{T}, Blight 1: discard a card. If you do, draw a
+    card.` and Spiral into Solitude's `{1}{W}, Blight 1, Sacrifice ~:` both
+    stay UNMODELED on their *activated-ability bodies* (a `pay_cost_then`-
+    shaped body inside an activation; a three-part mana+blight+sacrifice
+    cost with an "exile enchanted creature" body), not the blight cost;
+    Warren Torchmaster's *targeted* "when you do, target creature gains
+    haste" payoff can't resolve off-stack. Time Travel (701.56, ~3 — suspend-
     adjacent); Harness (701.64 — a monstrous-style marker designation, only
     ~3 cards), Heal (701.69 — remove marked damage, ~0 cache cards);
     the Avatar bending quartet — Airbend (701.65), Earthbend
@@ -193,8 +195,10 @@ Plan-level sequencing lives in
     their "if you win" branch — "return ~ to its owner's hand", "those
     creatures gain `<keyword>`", "that player `<verb>s`", "repeat this
     process", a "protection from the color of your choice" first clause —
-    none of it clash-specific), Blight (standalone verb
-    form; cost forms open above), Exchange Control, Exchange Life Totals
+    none of it clash-specific), Blight (standalone verb form PARSER_VERSION
+    111 + cost forms PARSER_VERSION 121 — `ActivationCost.blight` +
+    `RulesEngine.blight(interactive=False)`; activated-body residue open
+    above), Exchange Control, Exchange Life Totals
     (the cross-target qualifier cycle stays open above) — plus
     engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones

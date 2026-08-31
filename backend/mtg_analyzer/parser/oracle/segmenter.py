@@ -1305,7 +1305,13 @@ _ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE = re.compile(
 #: trailing "and exile it." (the Champion cycle) deliberately fails this
 #: anchor, staying unclaimed.
 _ADDITIONAL_COST_BEHOLD_RE = re.compile(
-    r"^behold an?\s+(?P<q>[a-z][a-z'-]*)(?:\s+or pay\s+\{[^}]+\})?$", re.IGNORECASE
+    r"^behold an?\s+(?P<q>[a-z][a-z'-]*)(?:\s+or pay\s+(?:\{[^}]+\})+)?$", re.IGNORECASE
+)
+#: RULE 701.68 (Blight, PAR-29 — Bloomburrow): "blight N [or pay {M}]" as
+#: an additional cast cost (Bogslither's Embrace/Wild Unraveling). Same
+#: documented "or pay {M}" drop as `_ADDITIONAL_COST_BEHOLD_RE`.
+_ADDITIONAL_COST_BLIGHT_RE = re.compile(
+    r"^blight\s+(?P<n>\d+)(?:\s+or pay\s+(?:\{[^}]+\})+)?$", re.IGNORECASE
 )
 
 #: RULE 601.2f-adjacent: "If you control a commander, you may cast this
@@ -1601,6 +1607,9 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     beh = _ADDITIONAL_COST_BEHOLD_RE.match(text)
     if beh is not None:
         return {"behold": beh.group("q").strip()}
+    blt = _ADDITIONAL_COST_BLIGHT_RE.match(text)
+    if blt is not None:
+        return {"blight": int(blt.group("n"))}
     return None
 
 

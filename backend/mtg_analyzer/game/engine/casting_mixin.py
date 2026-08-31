@@ -1684,10 +1684,11 @@ class CastingMixin:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             if player.life < amount:
                 return False
-        # RULE 701.4a (PAR-29): a `behold` additional cost never blocks
-        # casting — the "or pay {N}" alternative (the documented-dropped
-        # half) means a player with no matching permanent/hand card still
-        # gets to cast. `_pay_additional_cast_cost` reveals one if able.
+        # RULE 701.4a / 701.68 (PAR-29): a `behold` or `blight` additional
+        # cost never blocks casting — the "or pay {N}" alternative (the
+        # documented-dropped half) means a player who can't behold / has no
+        # creature to blight still gets to cast. `_pay_additional_cast_cost`
+        # does the reveal / -1/-1 counters if able.
         return True
     def _pay_additional_cast_cost(
         self,
@@ -1750,6 +1751,15 @@ class CastingMixin:
             # the documented-dropped half), so this is a best-effort reveal:
             # a `behold` returning False just means nothing was revealed.
             self.rules.behold(player, cost.behold, source=obj)
+        if cost.blight:
+            # RULE 701.68 (PAR-29): "blight N or pay {M}" as an additional
+            # cast cost (Bogslither's Embrace/Wild Unraveling). Same
+            # non-blocking, "or pay {M}"-dropped treatment as `behold`:
+            # `_can_pay_additional_cast_cost` never rejects it, so this is
+            # best-effort — auto-picking the least-harmful creature since
+            # payment can't pause for a chooser. A player with no creature
+            # simply pays nothing (the {M} they'd owe isn't modeled).
+            self.rules.blight(player, cost.blight, source=obj, interactive=False)
     def _exile_hand_card_candidate(
         self, player: Player, color: str, exclude: Optional[GameObject] = None
     ) -> Optional[GameObject]:

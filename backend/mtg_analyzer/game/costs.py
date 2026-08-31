@@ -118,6 +118,12 @@ _COLLECT_EVIDENCE_RE = re.compile(r"collect\s+evidence\s+(\d+)", re.IGNORECASE)
 #: RULE 701.61a "Forage" — a compound "exile three graveyard cards or
 #: sacrifice a Food" non-mana cost (`ActivationCost.forage`, a bool).
 _FORAGE_RE = re.compile(r"\bforage\b", re.IGNORECASE)
+#: RULE 701.68 "Blight N" — a non-mana cost (an activated ability's, or an
+#: additional cast cost): put N -1/-1 counters on a creature you control
+#: (`ActivationCost.blight`). Previously silently dropped from a cost
+#: string — the standalone-verb effect handler covered "blight N" only
+#: mid-sentence, never `{cost}, Blight N: <effect>`.
+_BLIGHT_RE = re.compile(r"\bblight\s+(\d+)", re.IGNORECASE)
 #: "Exile the top card of your library" (Thought Lash) / "Exile the top
 #: four cards of your library" (Seasoned Tactician, MEC-30) — a non-mana
 #: additional cost paid straight off the payer's own library, distinct from
@@ -314,6 +320,16 @@ class ActivationCost:
     #: attempted, and the spell casts whether or not it succeeds; it never
     #: blocks casting.
     behold: Optional[str] = None
+    #: RULE 701.68 (Blight N, PAR-29 — Bloomburrow): "put N -1/-1 counters on
+    #: a creature you control", paid as a cost — an activated-ability cost
+    #: ("{T}, Blight 1:" — Gristle Glutton), an additional cast cost
+    #: ("blight N or pay {M}" — Bogslither's Embrace), or a `pay_cost_then`
+    #: half ("you may blight N. If you do, …"). The standalone-verb *effect*
+    #: form is `effects.BlightEffect`; this is the cost integration.
+    #: Charged non-interactively via `RulesEngine.blight(..., interactive=
+    #: False)` (auto-picks the highest-toughness creature — payment can't
+    #: pause for a chooser).
+    blight: int = 0
     #: "Tap N untapped <type>s you control" (Birchlore Rangers, Heritage
     #: Druid) — ``(count, singular type word)``; taps *other* permanents
     #: instead of the source. Not limited by the tapped permanents' own
@@ -577,6 +593,7 @@ class ActivationCost:
             or self.collect_evidence
             or self.forage
             or self.behold
+            or self.blight
             or self.tap_others
             or self.sacrifice_count
             or self.add_counters_cost
@@ -635,6 +652,8 @@ class ActivationCost:
             parts.append("Forage")
         if self.behold:
             parts.append(f"Behold a {self.behold}")
+        if self.blight:
+            parts.append(f"Blight {self.blight}")
         if self.tap_others:
             count, subtype = self.tap_others
             parts.append(f"Tap {count} untapped {subtype}(s) you control")
@@ -686,6 +705,7 @@ class ActivationCost:
             "collect_evidence": self.collect_evidence,
             "forage": self.forage,
             "behold": self.behold,
+            "blight": self.blight,
             "tap_others": list(self.tap_others) if self.tap_others else None,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
@@ -768,6 +788,8 @@ def parse_activation_cost(
         parsed.forage = True
     if cost.get("behold"):
         parsed.behold = str(cost["behold"])
+    if cost.get("blight"):
+        parsed.blight = int(cost["blight"])
     if cost.get("tap_others"):
         count, subtype = cost["tap_others"]
         parsed.tap_others = (int(count), str(subtype))
@@ -934,6 +956,10 @@ def _parse_text(text: str) -> ActivationCost:
 
     if _FORAGE_RE.search(cost_text):
         cost.forage = True
+
+    blight_cost = _BLIGHT_RE.search(cost_text)
+    if blight_cost:
+        cost.blight = int(blight_cost.group(1))
 
     exile_top = _EXILE_TOP_LIBRARY_RE.search(cost_text)
     if exile_top:

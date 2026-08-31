@@ -3486,6 +3486,8 @@ class MiscSystemsMixin:
             return False
         if cost.forage and not self.forage_possible(player):
             return False
+        if cost.blight and not self.blight_possible(player):
+            return False
         return True
     def _can_sacrifice_or_discard(self, player: Player) -> bool:
         """Whether ``player`` could pay a `sacrifice_or_discard` cost right
@@ -3516,6 +3518,9 @@ class MiscSystemsMixin:
             self.collect_evidence(player, cost.collect_evidence)
         if cost.forage:
             self.forage(player)
+        if cost.blight:
+            # RULE 701.68 — auto-pick (payment can't pause for a chooser).
+            self.blight(player, cost.blight, interactive=False)
     def _pay_sacrifice_or_discard(self, player: Player) -> None:
         """Pay a `sacrifice_or_discard` cost component — the payer's own
         choice of *which* half (Tergrid's Lantern, MEC-43 round 4E). Forced

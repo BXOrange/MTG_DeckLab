@@ -3711,9 +3711,21 @@ _MAY_COST_THEN_CLAUSE = (
     # RULE 701.61a — "exile three graveyard cards or sacrifice a Food"
     # (`ActivationCost.forage`; `RulesEngine.forage`, PAR-29).
     r"|forage"
+    # RULE 701.68 — "put N -1/-1 counters on a creature you control"
+    # (`ActivationCost.blight`; `RulesEngine.blight(interactive=False)`, PAR-29).
+    r"|blight \d+"
 )
 _PAY_COST_THEN_GENERAL_RE = _c(
     r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?:if|when) you do,?\s*(?P<effect>.+)"
+)
+#: RULE 603.5's *negative* antecedent: "you may `<cost>`. If you don't,
+#: `<effect>`." (Chaos Spewer, Gutsplitter Gang, Scuzzback Scrounger — the
+#: PAR-29 Blight batch's "if you don't" shape). The mirror of
+#: `_PAY_COST_THEN_GENERAL_RE`: the effect goes in `pay_cost_then`'s
+#: ``else_effects`` branch (`game/effects.py`'s `PayCostThenEffect`), which
+#: fires only when the optional cost is *declined* or unpayable.
+_PAY_COST_THEN_OR_ELSE_RE = _c(
+    r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*if you don't,?\s*(?P<effect>.+)"
 )
 
 
@@ -3733,6 +3745,23 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pay_cost_then", {
         "cost": m.group("cost"),
         "effects": [s.to_dict() for s in sub],
+    })]
+
+
+def _pay_cost_then_or_else(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """"you may `<cost>`. If you don't, `<effect>`." — the else-branch
+    sibling of `_pay_cost_then_general` (PAR-29 Blight batch)."""
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    sub = parse_effect_body(m.group("effect").strip(), self_subject=True)
+    if not sub:
+        return None
+    if any(s.params.get("target_kind") for s in sub):
+        return None  # a targeted else-branch can't resolve off-stack either
+    return [EffectSpec("pay_cost_then", {
+        "cost": m.group("cost"),
+        "effects": [],
+        "else_effects": [s.to_dict() for s in sub],
     })]
 
 
@@ -7244,6 +7273,14 @@ HANDLERS: list[EffectHandler] = [
         "pay_cost_then_general",
         _PAY_COST_THEN_GENERAL_RE,
         _pay_cost_then_general,
+    ),
+    # PAR-29 (Blight batch): the "If you don't, <effect>." else-branch
+    # sibling — same clause shape, opposite antecedent, into
+    # `pay_cost_then`'s `else_effects`.
+    EffectHandler(
+        "pay_cost_then_or_else",
+        _PAY_COST_THEN_OR_ELSE_RE,
+        _pay_cost_then_or_else,
     ),
     # MEC-19: "counter it unless that player pays <cost>" — the
     # un-keyworded-Ward-shaped `BECOMES_TARGET` trigger's own resolution.

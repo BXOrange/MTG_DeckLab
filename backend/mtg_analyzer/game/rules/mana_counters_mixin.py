@@ -524,7 +524,8 @@ class ManaCountersMixin:
             self.add_counters(chosen, int(choice["amount"]), "+1/+1", source=source)
         self.check_state_based_actions()
     def blight(
-        self, player: Player, amount: int, source: Optional[GameObject] = None
+        self, player: Player, amount: int, source: Optional[GameObject] = None,
+        interactive: bool = True,
     ) -> None:
         """"Blight N" (Bloomburrow's reminder text: "put N -1/-1 counters on
         a creature you control"). The negative sibling of `bolster` — but the
@@ -537,6 +538,12 @@ class ManaCountersMixin:
         `add_counters` (kind ``"-1/-1"``), so RULE 122.5 "whenever a -1/-1
         counter is put on ~" triggers and the RULE 704.5q +1/-1 annihilation
         SBA all apply.
+
+        ``interactive=False`` (PAR-29 — "Blight N" paid as a *cost*, where
+        payment is synchronous and can't pause for a chooser): auto-pick the
+        creature with the highest toughness, then highest power — the
+        least-self-harm pick, the same "auto-pick to minimise loss"
+        documented simplification `collect_evidence` uses.
         """
         if amount <= 0:
             return
@@ -549,6 +556,13 @@ class ManaCountersMixin:
             return
         if len(creatures) == 1:
             self.add_counters(creatures[0], amount, "-1/-1", source=source)
+            return
+        if not interactive:
+            victim = max(
+                creatures,
+                key=lambda o: (getattr(o, "toughness", 0) or 0, getattr(o, "power", 0) or 0),
+            )
+            self.add_counters(victim, amount, "-1/-1", source=source)
             return
         self.state.pending_choice = {
             "kind": "blight",
@@ -579,6 +593,13 @@ class ManaCountersMixin:
         if chosen is not None:
             self.add_counters(chosen, int(choice["amount"]), "-1/-1", source=source)
         self.check_state_based_actions()
+    def blight_possible(self, player: Player) -> bool:
+        """Whether ``player`` could pay a "Blight N" cost right now (PAR-29) —
+        i.e. controls at least one creature to put the -1/-1 counters on."""
+        return any(
+            obj.controller_id == player.id and getattr(obj, "is_creature", False)
+            for obj in self.state.battlefield
+        )
     def request_remove_counters_choice(
         self, target: Union[GameObject, Player], max_count: int, chooser: Player
     ) -> None:

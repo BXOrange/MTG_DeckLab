@@ -758,6 +758,13 @@ class AbilitySpec:
             # `_ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE`).
             if not isinstance(value, str) or not value.strip():
                 raise SpecValidationError("'additional_cost' behold must be a non-empty type word")
+        elif key == "blight":
+            # RULE 701.68 (PAR-29): "blight N or pay {M}." — N -1/-1 counters
+            # on a creature you control. Same "or pay {M}" documented
+            # simplification as `behold`.
+            valid = isinstance(value, int) and not isinstance(value, bool) and value > 0
+            if not valid:
+                raise SpecValidationError("'additional_cost' blight must be a positive int")
         else:
             raise SpecValidationError(f"unknown additional_cost kind {key!r}")
 
