@@ -727,7 +727,12 @@ _DAMAGE_RECIPIENT_TRIGGER_RE = re.compile(
 #: you control becomes the target…", Thunderbreak Regent/Dragon's
 #: Disciple/Scalelord Reckoner/Svyelun-shaped): those stay unclaimed.
 _BECOMES_TARGET_TRIGGER_RE = re.compile(
-    r"^whenever (?:"
+    # "When" and "whenever" are interchangeable here — the ~19-card
+    # Illusion cycle (Phantasmal Bear, Frost Walker, Skulking Ghost, …)
+    # prints "When ~ becomes the target …, sacrifice it.", and a
+    # self-sacrifice on becoming a target behaves identically either way
+    # (the permanent is gone after the first firing).
+    r"^when(?:ever)? (?:"
     r"(?P<self>~)"
     r"|(?P<attached>(?:enchanted|equipped) (?:creature|permanent|land|artifact))"
     r"|(?P<article>another|an|a) (?P<type>"

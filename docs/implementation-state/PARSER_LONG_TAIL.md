@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.9% covered — 12,852 / 34,811 — as of 2026-08-31, PARSER_VERSION 140.**
+**37.0% covered — 12,873 / 34,811 — as of 2026-08-31, PARSER_VERSION 141.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -256,6 +256,22 @@ into ~" — Brutal Cathar; "enters and at the beginning of your first main
 phase" — Crack in Time), and per-card after-tails (Driftgloom Coyote's
 "if that creature had power 2 or less…", Food Coma's "create a Food
 token").
+
+141 = PAR-30 — a one-word regex widen: `_BECOMES_TARGET_TRIGGER_RE` had
+only ever matched "**Whenever** ~ becomes the target of a spell or
+ability, …", but the ~19-card Innistrad/Zendikar **Illusion cycle**
+(Phantasmal Bear, Frost Walker, Skulking Ghost, Gossamer Phantasm,
+Illusionary Servant, Phantom Beast, Skulking Fugitive/Knight, Tar Pit
+Warrior, …) prints "**When** ~ becomes the target of a spell or ability,
+sacrifice it." — semantically interchangeable here (a self-sacrifice
+fires identically off the first event either way). `when(?:ever)?`. The
+engine side — `EventType.BECOMES_TARGET` (MEC-19's "targets finalized"
+choke point in `RulesEngine.check_ward`) driving a `{"subject": "self"}`
+`SacrificeSelfEffect` — was untouched. +21, 0 regressed; verified
+end-to-end (Lightning Bolt at a Phantasmal Bear sacrifices it). Still
+open: the "sacrifice it **unless you discard a land card**" variant
+(Cursed Monstrosity) and the quoted-grant forms (Crystalline Nautilus,
+Dismiss into Dream, Boneshard Slasher, Makeshift Mannequin).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

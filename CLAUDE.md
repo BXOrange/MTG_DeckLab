@@ -649,8 +649,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **36.9%
-covered (12,852 / 34,811) as of 2026-08-31, PARSER_VERSION 140** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **37.0%
+covered (12,873 / 34,811) as of 2026-08-31, PARSER_VERSION 141** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -791,7 +791,12 @@ leaves the battlefield." `handlers._exile_until_leaves` → `ExileEffect
 (remember=True)` + a new `until_source_leaves` param the segmenter reads to
 synthesize the companion `LEAVES_BATTLEFIELD` → `return_linked_exile`
 ability; both engine halves pre-existed (MEC-21 / Skyclave Apparition)
-[+42]).
+[+42]),
+141 = `_BECOMES_TARGET_TRIGGER_RE` widened from "Whenever" to
+"When(?:ever)?" — the ~19-card Illusion cycle (Phantasmal Bear, Frost
+Walker, Skulking Ghost, …) prints "When ~ becomes the target of a spell or
+ability, sacrifice it."; engine side (`EventType.BECOMES_TARGET` +
+`SacrificeSelfEffect`, MEC-19) unchanged [+21]).
 **PAR-29 is closed** — every RULE 701
 keyword action has parser recognition + an engine primitive, and its three
 spun-off engine tickets (`ENG-31`/`ENG-32`/`ENG-33`) have all shipped. The

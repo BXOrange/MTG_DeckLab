@@ -1398,7 +1398,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: primitives pre-existed (MEC-21 / MEC-30 / Skyclave Apparition). +42
 #: (Banisher Priest, Banishing Light, Cast Out, Conclave Tribunal, Glass
 #: Casket, …), 0 regressed. Old two-sentence O-Ring templating stays open.
-PARSER_VERSION = "140"
+#: "141": PAR-30 — `_BECOMES_TARGET_TRIGGER_RE` accepted only "Whenever";
+#: the ~19-card Innistrad/Zendikar **Illusion cycle** (Phantasmal Bear,
+#: Frost Walker, Skulking Ghost, Gossamer Phantasm, …) prints "**When** ~
+#: becomes the target of a spell or ability, sacrifice it." — interchangeable
+#: here (a self-sacrifice fires identically either way). One-word regex
+#: widen to `when(?:ever)?`. +21, 0 regressed. Engine side (`EventType.
+#: BECOMES_TARGET` + `SacrificeSelfEffect`) is MEC-19, unchanged.
+PARSER_VERSION = "141"
 
 
 def parser_source_hash() -> str:
