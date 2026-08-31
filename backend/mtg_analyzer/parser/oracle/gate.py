@@ -1405,7 +1405,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: here (a self-sacrifice fires identically either way). One-word regex
 #: widen to `when(?:ever)?`. +21, 0 regressed. Engine side (`EventType.
 #: BECOMES_TARGET` + `SacrificeSelfEffect`) is MEC-19, unchanged.
-PARSER_VERSION = "141"
+#: "142": PAR-30 (Earthbend residue, card 1 of 3) — "Earthbend N. **When you
+#: do,** `<effect>`." (Earth Rumble). "earthbend N" is a mandatory keyword
+#: action, so RULE 603.3's "when you do" always fires; the two sentences
+#: collapse to one plain `[earthbend N, <effect>]` sequence, the same
+#: certain-antecedent rationale `_SACRIFICE_THEN_WHEN_YOU_DO_RE` uses.
+#: `_EARTHBEND_THEN_WHEN_YOU_DO_RE` in `segmenter`. +1, 0 regressed.
+PARSER_VERSION = "142"
 
 
 def parser_source_hash() -> str:

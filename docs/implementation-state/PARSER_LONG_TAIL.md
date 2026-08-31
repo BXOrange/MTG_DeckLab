@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.0% covered — 12,873 / 34,811 — as of 2026-08-31, PARSER_VERSION 141.**
+**37.0% covered — 12,874 / 34,811 — as of 2026-08-31, PARSER_VERSION 142.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -272,6 +272,24 @@ end-to-end (Lightning Bolt at a Phantasmal Bear sacrifices it). Still
 open: the "sacrifice it **unless you discard a land card**" variant
 (Cursed Monstrosity) and the quoted-grant forms (Crystalline Nautilus,
 Dismiss into Dream, Boneshard Slasher, Makeshift Mannequin).
+
+142 = PAR-30 — **Earthbend residue, card 1 of 3.** "Earthbend N. **When you
+do,** `<effect>`." (Earth Rumble). "earthbend N" is a mandatory keyword
+action (no "may"), so RULE 603.3's "when you do" sub-trigger is a certainty
+and the two sentences collapse to one plain `[earthbend N, <effect>]`
+sequence with no interactive branch — the same certain-antecedent rationale
+`_SACRIFICE_THEN_WHEN_YOU_DO_RE` uses. `_EARTHBEND_THEN_WHEN_YOU_DO_RE` in
+`segmenter`, narrow enough (before-clause must be exactly `earthbend \d+`)
+that it can never claim the genuine optional "you may `<action>`. When you
+do, …" family. The `<effect>` half ("up to 1 target creature you control
+fights target creature an opponent controls") already parsed via the
+connector-split loop — only the literal "When you do," between the two
+sentences was blocking. +1, 0 regressed. Still open in the Earthbend residue
+cluster: Beifong's Bounty Hunters ("earthbend X, where X is that creature's
+power" — a dying creature's last-known power, off the dies-trigger's own
+subject) and Earthshape ("earthbend N. then each creature you control with
+power <= **that land's power** gains hexproof and indestructible until end
+of turn. you gain hexproof until end of turn").
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

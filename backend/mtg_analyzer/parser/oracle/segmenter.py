@@ -1288,6 +1288,19 @@ _SACRIFICE_THEN_WHEN_YOU_DO_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: "Earthbend N. **When you do,** `<effect>`." (RULE 701.66 + RULE 603.3's
+#: "when you do" sub-trigger — Earth Rumble). Same collapse rationale as
+#: `_SACRIFICE_THEN_WHEN_YOU_DO_RE`: "earthbend N" is a mandatory keyword
+#: action (no "may"), so RULE 603.3's "when you do" is a certainty and the
+#: two sentences reduce to one plain sequence — `[earthbend N, <effect>]` —
+#: with no interactive branch. Narrow: only when the clause immediately
+#: before "When you do," is exactly `earthbend N`, so it can never misfire
+#: onto the genuine optional "you may `<action>`. When you do, …" family.
+_EARTHBEND_THEN_WHEN_YOU_DO_RE = re.compile(
+    r"^(?P<before>earthbend \d+)\.\s*when you do,\s*(?P<after>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: PAR-18/ENG-33: "Exile [up to N] target <X> card from [a/your] graveyard.
 #: [If you do / If you exiled a card this way,] create a token that's a copy
 #: of **that card**[, except <tail>]." — the reanimator-token cycle (Ardyn,
@@ -2293,6 +2306,18 @@ def parse_effect_body(
         if before_specs is None or not any(spec.type == "sacrifice_self" for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
         return _with_after_tail(before_specs, sac_when_you_do.group("after"), group_subject=group_subject)
+
+    earthbend_when_you_do = _EARTHBEND_THEN_WHEN_YOU_DO_RE.match(body)
+    if earthbend_when_you_do is not None:
+        before_specs = parse_effect_body(
+            earthbend_when_you_do.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if before_specs is None or not any(spec.type == "earthbend" for spec in before_specs):
+            return None  # fail closed — only a certain, unconditional antecedent collapses
+        return _with_after_tail(
+            before_specs, earthbend_when_you_do.group("after"), group_subject=group_subject,
+        )
 
     exile_then_copy = _EXILE_THEN_COPY_SENTENCE_RE.match(body)
     if exile_then_copy is not None:
