@@ -544,6 +544,144 @@ class MiscSystemsMixin:
                 self._pending_all_decline_or = None
                 return
         self._advance_all_decline_or()
+    def request_vote(
+        self,
+        source: Optional[GameObject],
+        controller_id: str,
+        options: list[str],
+        majority_specs: Optional[list[list[dict[str, Any]]]] = None,
+        tie_index: Optional[int] = None,
+        per_vote_specs: Optional[list[dict[str, Any]]] = None,
+    ) -> None:
+        """RULE 701.38: "Starting with you, each player votes for one of
+        ``options``." An APNAP sweep — every living player, beginning with
+        the active player and proceeding in turn order, picks one option;
+        the running tally is kept in ``_pending_vote``. Once everyone has
+        voted, `_tally_and_apply_vote` resolves the outcome, applied with
+        ``controller_id``'s player as the target (the printed "you").
+
+        Two outcome shapes, exactly one supplied:
+
+        * ``majority_specs`` — one serialized effect list per option (same
+          index order as ``options``). The option with the strictly most
+          votes has its list applied; ``tie_index`` names the option whose
+          branch wins if no option is a sole leader (RULE 701.38d — "or the
+          vote is tied").
+        * ``per_vote_specs`` — a list of ``{"option": <index>, "effects":
+          [...], "scale": <int>}`` entries: each entry's effects are
+          applied once, with every ``count``/``amount`` param multiplied by
+          ``scale`` × that option's vote total ("put a +1/+1 counter on ~
+          for each strength vote").
+
+        Built as a chain of ordinary single-player choices over the same
+        `_apply_effect_specs` tail every "if you do" branch already uses,
+        the same way `request_all_players_decline_or` is.
+        """
+        start = self.state.active_player_index
+        n = len(self.state.players)
+        order = [
+            self.state.players[(start + i) % n].id
+            for i in range(n)
+            if not self.state.players[(start + i) % n].has_lost
+        ]
+        self._pending_vote = {
+            "remaining_ids": order,
+            "tally": {i: 0 for i in range(len(options))},
+            "options": list(options),
+            "source": source,
+            "controller_id": controller_id,
+            "majority_specs": [[dict(d) for d in lst] for lst in majority_specs] if majority_specs else None,
+            "tie_index": tie_index,
+            "per_vote_specs": [dict(d) for d in per_vote_specs] if per_vote_specs else None,
+        }
+        self._advance_vote()
+    def _advance_vote(self) -> None:
+        """Ask the next still-pending voter in a `request_vote` sweep; once
+        everyone has voted, tally and apply the outcome."""
+        pending = self._pending_vote
+        if pending is None:
+            return
+        remaining: list[str] = pending["remaining_ids"]
+        options: list[str] = pending["options"]
+        while remaining:
+            player_id = remaining.pop(0)
+            try:
+                player = self.state.player_by_id(player_id)
+            except (KeyError, ValueError):
+                continue
+            if player.has_lost:
+                continue
+            # RULE 701.38f: "you choose how each player votes this turn."
+            # (Illusion of Choice / Grudge Keeper) — a forced pre-set vote
+            # is a documented non-goal for now; every voter chooses for
+            # themselves. A missing answer defaults to option 0.
+            self.state.pending_choice = {
+                "kind": "vote",
+                "player_id": player.id,
+                "prompt": "Abstimmung: " + " / ".join(options),
+                "options": [
+                    {"id": str(i), "label": opt} for i, opt in enumerate(options)
+                ],
+            }
+            return  # a real choice opened — resumed via resolve_vote_choice
+        self._tally_and_apply_vote()
+    def resolve_vote_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `vote` choice: record this player's vote for the
+        chosen option index (a missing/unknown answer defaults to option 0,
+        RULE 701.38b's "each player must choose"), then move on."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "vote":
+            raise ValueError("no pending vote choice to resolve")
+        self.state.pending_choice = None
+        pending = self._pending_vote
+        if pending is None:
+            return
+        tally: dict[int, int] = pending["tally"]
+        try:
+            idx = int(answer) if answer is not None else 0
+        except (TypeError, ValueError):
+            idx = 0
+        if idx not in tally:
+            idx = 0
+        tally[idx] += 1
+        self._advance_vote()
+    def _tally_and_apply_vote(self) -> None:
+        """Resolve a finished `request_vote` sweep's outcome (majority
+        branch or per-vote scaling) and clear it."""
+        pending = self._pending_vote
+        self._pending_vote = None
+        if pending is None:
+            return
+        tally: dict[int, int] = pending["tally"]
+        source = pending["source"]
+        try:
+            controller = self.state.player_by_id(pending["controller_id"])
+        except (KeyError, ValueError):
+            controller = None
+        targets = [controller] if controller is not None else None
+
+        if pending["majority_specs"] is not None:
+            specs_by_option: list[list[dict]] = pending["majority_specs"]
+            top = max(tally.values()) if tally else 0
+            leaders = [i for i, v in tally.items() if v == top]
+            winner = leaders[0] if len(leaders) == 1 else pending.get("tie_index", 0)
+            if 0 <= winner < len(specs_by_option):
+                self._apply_effect_specs(specs_by_option[winner], source, targets)
+            return
+
+        for entry in pending["per_vote_specs"] or []:
+            opt = int(entry.get("option", 0))
+            scale = int(entry.get("scale", 1) or 1) * int(tally.get(opt, 0))
+            if scale <= 0:
+                continue
+            scaled: list[dict] = []
+            for spec in entry.get("effects", []):
+                params = dict(spec.get("params") or {})
+                for key in ("count", "amount"):
+                    if isinstance(params.get(key), int):
+                        params[key] = params[key] * scale
+                scaled.append({"type": spec["type"], "params": params})
+            self._apply_effect_specs(scaled, source, targets)
     def _apply_effect_specs(
         self,
         effect_specs: list[dict],

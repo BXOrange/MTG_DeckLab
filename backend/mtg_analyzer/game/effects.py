@@ -9747,6 +9747,51 @@ class ForageEffect(GameEffect):
             context.engine.forage(player)
 
 
+class VoteEffect(GameEffect):
+    """RULE 701.38: "Starting with you, each player votes for one of
+    ``options``." An APNAP sweep (`RulesEngine.request_vote`) collects one
+    vote per living player, then resolves an outcome:
+
+    * ``majority_specs`` — one serialized effect list per option (same order
+      as ``options``); the strict vote leader's list is applied, or
+      ``tie_index``'s if no option leads alone (RULE 701.38d, "or the vote
+      is tied").
+    * ``per_vote_specs`` — ``[{"option": i, "effects": [...], "scale": k}]``:
+      each entry's ``count``/``amount`` params are multiplied by ``k`` ×
+      option ``i``'s vote total ("… for each `<option>` vote").
+
+    A bare "you"-subject effect — no target, no pronoun. The vote outcome
+    is applied with this effect's own controller as the target ("you").
+    """
+
+    def __init__(
+        self,
+        options: Optional[list[str]] = None,
+        majority_specs: Optional[list[list[dict[str, Any]]]] = None,
+        tie_index: Optional[int] = None,
+        per_vote_specs: Optional[list[dict[str, Any]]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.options = list(options or [])
+        self.majority_specs = majority_specs
+        self.tie_index = tie_index
+        self.per_vote_specs = per_vote_specs
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or len(self.options) < 2:
+            return
+        context.engine.request_vote(
+            source=self.source,
+            controller_id=player.id,
+            options=self.options,
+            majority_specs=self.majority_specs,
+            tie_index=self.tie_index,
+            per_vote_specs=self.per_vote_specs,
+        )
+
+
 class ExploreEffect(GameEffect):
     """RULE 701.44: "`<permanent>` explores." — reveal the top card of the
     exploring permanent's controller's library; a land goes to hand,
@@ -18126,6 +18171,18 @@ EffectRegistry.register(
     # you control (your choice). See `BlightEffect` / `RulesEngine.blight`.
     "blight",
     lambda p: BlightEffect(amount=p.get("amount", p.get("count", 1))),
+)
+EffectRegistry.register(
+    # "Vote" (RULE 701.38, PAR-29): an APNAP vote among `options`, then a
+    # majority-branch or per-vote-scaled outcome. See `VoteEffect` /
+    # `RulesEngine.request_vote`.
+    "vote",
+    lambda p: VoteEffect(
+        options=list(p.get("options", [])),
+        majority_specs=p.get("majority_specs"),
+        tie_index=p.get("tie_index"),
+        per_vote_specs=p.get("per_vote_specs"),
+    ),
 )
 EffectRegistry.register(
     # "Earthbend N" (RULE 701.66, Avatar: The Last Airbender, PAR-29): a

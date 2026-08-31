@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.1% covered — 12,570 / 34,811 — as of 2026-08-31, PARSER_VERSION 123.**
+**36.1% covered — 12,575 / 34,811 — as of 2026-08-31, PARSER_VERSION 124.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -87,7 +87,18 @@ condition`) plus a new `owner_play_permission_cost` → `GameState.exile_
 cast_cost_override`, a fixed alt cost `GameEngine.effective_cast_cost`
 substitutes like Flashback/Escape's graveyard cost. Targeted forms only —
 "airbend that creature" (trigger-subject pronoun) and "…creature or spell"
-(exile off the stack) stay open. +3.)
+(exile off the stack) stay open. +3.
+124 = PAR-29's RULE 701.38 Vote — the APNAP voting subsystem:
+`RulesEngine.request_vote`/`_advance_vote`/`resolve_vote_choice`/`_tally_
+and_apply_vote` (a `vote` `pending_choice` per living player, the same
+sweep shape as `request_all_players_decline_or`), `effects.VoteEffect`,
+`GameState._pending_vote`. Two outcome shapes parsed: **majority**
+("if `<A>` gets more votes, `<X>`. if `<B>` … or tied, `<Y>`.") and
+**per-vote scaling** ("`<body>` for each `<A>` vote"), each outcome body
+recursively `parse_effect_body`'d. 2-option only; 3+-option (Council
+Guardian), "vote for a permanent/card" (Council's Judgment), a carried
+per-player subject across "and" (Capital Punishment — fail-closed), and
+untargetable-off-stack outcome bodies all stay open. +5.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

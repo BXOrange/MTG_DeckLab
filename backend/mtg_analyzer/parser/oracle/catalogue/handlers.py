@@ -5517,6 +5517,118 @@ def _clash(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("clash", {})]
 
 
+# "Starting with you, each player votes for `<A>` or `<B>`. If `<A>` gets
+# more votes, `<X>`. If `<B>` gets more votes or the vote is tied, `<Y>`."
+# (RULE 701.38, PAR-29). `RulesEngine.request_vote` / `effects.VoteEffect`
+# own the APNAP sweep and outcome. Two shapes: a majority branch (this
+# handler) and per-vote scaling ("… for each `<A>` vote", `_vote_per_vote`
+# below). Only the 2-option majority form here — 3+-option votes
+# (Council Guardian) and "vote for a permanent/card" (Council's Judgment)
+# stay UNMODELED, fail-closed.
+_VOTE_HEADER_RE = _c(
+    r"starting with you, each player votes for (?P<opts>[a-z][a-z, /'-]+?)\.\s+(?P<rest>.+)"
+)
+_VOTE_MAJORITY_BODY_RE = re.compile(
+    r"^if (?P<a>[a-z'-]+) gets more votes, (?P<x>.+?)\.\s*"
+    r"if (?P<b>[a-z'-]+) gets more votes or the vote is tied, (?P<y>.+?)\.?$",
+    re.IGNORECASE,
+)
+
+
+def _split_vote_options(raw: str) -> list[str]:
+    parts = re.split(r",?\s+or\s+|,\s+", raw.strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _vote_majority(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    options = _split_vote_options(m.group("opts"))
+    if len(options) != 2:
+        return None
+    mm = _VOTE_MAJORITY_BODY_RE.match(m.group("rest").strip())
+    if mm is None:
+        return None
+    a, b = mm.group("a").lower(), mm.group("b").lower()
+    if {a, b} != {o.lower() for o in options}:
+        return None
+    x_specs = parse_effect_body(mm.group("x").strip())
+    y_specs = parse_effect_body(mm.group("y").strip())
+    if not x_specs or not y_specs:
+        return None
+    if any(s.params.get("target_kind") for s in (*x_specs, *y_specs)):
+        return None  # a targeted branch can't resolve off-stack — see `_pay_cost_then_general`
+    lowered = [o.lower() for o in options]
+    idx_a = lowered.index(a)
+    majority: list[Optional[list[dict]]] = [None, None]
+    majority[idx_a] = [s.to_dict() for s in x_specs]
+    majority[1 - idx_a] = [s.to_dict() for s in y_specs]
+    return [EffectSpec("vote", {
+        "options": options,
+        "majority_specs": majority,
+        "tie_index": lowered.index(b),
+    })]
+
+
+#: "… for each `<option>` vote" — the per-vote-scaling outcome shape
+#: (Lieutenants of the Guard / Orchard Elemental / Messenger Jays). Each
+#: segment's body parses as a *unit* effect (`add_counters` count 1/2,
+#: `create_token` count 1, `gain_life` amount 3, `draw` count 1); `Vote
+#: Effect`'s `per_vote_specs` then multiplies that ``count``/``amount`` by
+#: the option's vote total at resolve time.
+_VOTE_PER_VOTE_SEG_RE = re.compile(
+    r"(?P<body>.+?)\s+for each (?P<opt>[a-z'-]+) votes?"
+    r"(?:\s*\.\s*|\s*,\s*(?:and\s+)?|\s+and\s+|\s*$)",
+    re.IGNORECASE,
+)
+
+
+def _vote_per_vote(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    options = _split_vote_options(m.group("opts"))
+    if len(options) != 2:
+        return None
+    lowered = [o.lower() for o in options]
+    rest = m.group("rest").strip()
+    segments = list(_VOTE_PER_VOTE_SEG_RE.finditer(rest))
+    if not segments:
+        return None
+    # every segment must be consumed — a trailing non-"for each" clause
+    # (Messenger Jays' "for each card drawn this way, discard a card") is
+    # not modeled, fail-closed.
+    if segments[-1].end() != len(rest):
+        return None
+    per_vote: list[dict] = []
+    for i, seg in enumerate(segments):
+        opt = seg.group("opt").lower()
+        if opt not in lowered:
+            return None
+        body = seg.group("body").strip()
+        # A later segment split on a bare "and" can silently lose a subject
+        # carried from the first ("each opponent sacrifices … *and* discards
+        # a card for each taxes vote" — the "discards" clause is still each
+        # opponent's). Only the first segment may name a per-player subject;
+        # fail-closed otherwise rather than mis-scoping it to the caster.
+        if i > 0 and re.match(r"^(?:each (?:player|opponent)|target|that player)\b", body):
+            return None
+        if i == 0 and len(segments) > 1 and re.match(
+            r"^(?:each (?:player|opponent)|target|that player)\b", body
+        ):
+            return None
+        body_specs = parse_effect_body(body)
+        if not body_specs:
+            return None
+        if any(s.params.get("target_kind") for s in body_specs):
+            return None
+        per_vote.append({
+            "option": lowered.index(opt),
+            "effects": [s.to_dict() for s in body_specs],
+            "scale": 1,
+        })
+    return [EffectSpec("vote", {"options": options, "per_vote_specs": per_vote})]
+
+
 # "Bolster N." (RULE 701.39a) — put N +1/+1 counters on a least-toughness
 # creature you control (your choice on a tie). `RulesEngine.bolster` /
 # `effects.BolsterEffect` (registered as ``bolster``) own the procedure and
@@ -8017,6 +8129,23 @@ HANDLERS: list[EffectHandler] = [
         "clash",
         _c(r"clash with (?:an opponent|defending player)"),
         _clash,
+    ),
+    # "starting with you, each player votes for A or B. if A gets more
+    # votes, X. if B gets more votes or the vote is tied, Y." (RULE 701.38,
+    # PAR-29) — the 2-option majority form. Tried before the per-vote form
+    # below since its "if … gets more votes" tail is more specific.
+    EffectHandler(
+        "vote_majority",
+        _VOTE_HEADER_RE,
+        _vote_majority,
+    ),
+    # "starting with you, each player votes for A or B. <body1> for each A
+    # vote[ and <body2> for each B vote]." (RULE 701.38, PAR-29) — the
+    # per-vote scaling form.
+    EffectHandler(
+        "vote_per_vote",
+        _VOTE_HEADER_RE,
+        _vote_per_vote,
     ),
     # "incubate N" / "you incubate N" (RULE 701.53).
     EffectHandler(

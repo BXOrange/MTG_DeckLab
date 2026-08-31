@@ -249,6 +249,15 @@ class RulesEngine(
         #: effect at all). See `request_all_players_decline_or`/
         #: `_advance_all_decline_or`/`resolve_all_decline_or_choice`.
         self._pending_all_decline_or: Optional[dict[str, Any]] = None
+        #: Backing state for a `request_vote` APNAP sweep (RULE 701.38 —
+        #: "starting with you, each player votes for `<A>` or `<B>`."): the
+        #: still-to-ask player ids, the running per-option tally, and the
+        #: serialized outcome specs (a `majority` winner/tie branch, or a
+        #: `per_vote` set of magnitude-scaled effect lists). Chained one
+        #: `vote` choice at a time, the same shape as
+        #: `_pending_all_decline_or`. See `request_vote`/`_advance_vote`/
+        #: `resolve_vote_choice`/`_tally_and_apply_vote`.
+        self._pending_vote: Optional[dict[str, Any]] = None
         #: Backing state for a `name_card` `pending_choice` (Demonic
         #: Consultation's "choose a card name") — the follow-up effects the
         #: chosen name gets substituted into; see `request_name_card`/

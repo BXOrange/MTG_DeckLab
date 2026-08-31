@@ -1200,6 +1200,11 @@ class TurnLoopMixin:
             # "pay" cancels the whole sweep; anything else moves on to the
             # next player.
             self.rules.resolve_all_decline_or_choice(None if declined else str(answer))
+        elif kind == "vote":
+            # RULE 701.38: "starting with you, each player votes for <A> or
+            # <B>." — the option id is the vote index; a decline/missing
+            # answer defaults to option 0 (each player must vote).
+            self.rules.resolve_vote_choice(None if declined else str(answer))
         elif kind == "pay_energy_then":
             # RULE 122: "you may pay {E}{E}. If you do, <effect>." (Aether
             # Chaser) — "pay" spends the energy and resolves the follow-up,

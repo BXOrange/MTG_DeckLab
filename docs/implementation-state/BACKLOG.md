@@ -73,8 +73,21 @@ Plan-level sequencing lives in
   *not* a "keyword ability missing from a registry"; most belong under
   `MEC` once picked up. Solo-blocker counts are cache-wide from
   `parser_probe.py`.
-  - **Needs an engine primitive first:** Vote (701.38, ~28 — the voting subsystem,
-    RULE 701.38a APNAP-order choice); **Incubate — dynamic amount only** (701.53; the literal
+  - **Needs an engine primitive first:** **Vote — residue only** (701.38;
+    the APNAP voting subsystem shipped at PARSER_VERSION 124 —
+    `RulesEngine.request_vote` / `_tally_and_apply_vote`, `effects.Vote
+    Effect`, `GameState._pending_vote`, plus **majority** ("if A gets more
+    votes, X; if B … or tied, Y") and **per-vote scaling** ("`<body>` for
+    each A vote") outcome handlers). Open: 3+-option votes (Council
+    Guardian's WUBRG protection vote), "vote for a nonland permanent / a
+    card in a graveyard" then "exile/return each with the most votes"
+    (Council's Judgment, Custodi Squire — a *targeted-tally* shape, no
+    named options), a per-player subject carried across "and" in a per-vote
+    body (Capital Punishment — deliberately fail-closed), the "planeswalk /
+    chaos ensues" and "the ring tempts you" outcome bodies (Path of the
+    Animist, Galadriel), Illusion of Choice's "you choose how each player
+    votes", and Expropriate's extra-turn / gain-control per-vote outcome;
+    **Incubate — dynamic amount only** (701.53; the literal
     `incubate N` form is modeled at PARSER_VERSION 116, reusing the existing
     Incubator DFC token + "{2}: Transform"): "incubate X, where X is
     `<count>`" (Bloated Processor/Chrome Host Seedshark/Sunfall/Blight
@@ -219,7 +232,10 @@ Plan-level sequencing lives in
     pronoun-tail / reflexive-trigger residue open above), Airbend (targeted
     forms — PARSER_VERSION 123, `ExileEffect.owner_play_permission_cost` /
     `GameState.exile_cast_cost_override`; pronoun / off-stack-spell / verb-
-    trigger residue open above), Exchange Control, Exchange Life Totals
+    trigger residue open above), Vote (2-option majority + per-vote scaling
+    — PARSER_VERSION 124, `RulesEngine.request_vote` / `effects.VoteEffect`;
+    3+-option / permanent-tally / carried-subject residue open above),
+    Exchange Control, Exchange Life Totals
     (the cross-target qualifier cycle stays open above) — plus
     engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
