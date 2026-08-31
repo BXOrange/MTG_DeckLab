@@ -36,11 +36,12 @@ Plan-level sequencing lives in
 
 ## ENG — Game engine
 
-> The two below back the PAR-29 keyword-action parser handlers shipped at
+> ENG-32 below backs the PAR-29 keyword-action parser handlers shipped at
 > PARSER_VERSION 126-127: those handlers recognize their cards but need
-> these primitives before the affected cards resolve correctly. Card lists
+> this primitive before the affected cards resolve correctly. Card lists
 > and the exact parser-side state are in **PAR-30**. (ENG-31, parametric
-> keyword *grants*, shipped at PARSER_VERSION 128 — see `Done_Backend.md`.)
+> keyword *grants*, shipped at PARSER_VERSION 128; ENG-33, villainous /
+> vote option bodies, at 129 — see `Done_Backend.md`.)
 
 - **ENG-32 · Waterbend cost mechanic (RULE 701.67).** "Waterbend {N}" is a
   `{N}` generic mana cost with a Convoke-style helper — "while paying a
@@ -58,21 +59,15 @@ Plan-level sequencing lives in
   owner-shuffles-into-library) — see PAR-30 — so ENG-32 alone unlocks
   nothing; do it alongside those PAR-30 handlers.
 
-- **ENG-33 · Villainous-choice / Vote option-body primitives.** The
-  `face_villainous_choice` (RULE 701.55) and `vote` (RULE 701.38) parsers
-  ship, but only claim a card when *every* option/outcome body is
-  modelable. The recurring missing bodies: **edict on a single targeted
-  player** ("target player sacrifices a creature of their choice" —
-  `SacrificeEffect` reads `targets[0]` already, but no parser row emits a
-  selector-less `sacrifice` for a *targeted* player; a small handler, but
-  it needs to guarantee the villainous/vote caller passes the right
-  target); **free-cast a spell from your hand as a resolving effect**
-  ("you may cast a spell from your hand without paying its mana cost" —
-  Great Intelligence's Plan, distinct from the exiled-card `FreeCastFrom
-  HandEffect`); **"create a token that's a copy of that card"** (The
-  Master — a previously-referenced *card*, not a battlefield permanent);
-  **"put a `<type>` card from your hand onto the battlefield"** (Dr.
-  Eggman). Each is a general primitive; card lists in PAR-30.
+*(ENG-33, villainous-choice / vote option-body primitives, shipped at
+PARSER_VERSION 129 — three of its four named primitives are done: the
+targeted-player edict (`SacrificeEffect.target_kind="player"`), the
+uncapped/noncreature `free_cast_from_hand`, and "put a `<type>` card from
+your hand onto the battlefield". See `Done_Backend.md`. The fourth,
+"create a token that's a copy of that card", is PAR-18's existing
+`CopyPermanentEffect(referent="previous")`; the remaining parser work —
+the "except it's a 3/3 …" modifier grammar and the graveyard-exile clause
+that populates `previous_targets` — is a 12-SOLO cluster, PAR-30.)*
 
 ## PAR — Parser
 
@@ -115,13 +110,12 @@ Plan-level sequencing lives in
   keyword ATTACKS `{R}×N` mana ability is bound in `effect_binder.py`).
   Full per-mechanic narrative in `Done_Backend.md`. What stays UNMODELED is
   **not the keyword action** — it's the ordinary effect-/outcome-body
-  grammar around it, plus engine primitives filed as **ENG-32** (Waterbend
-  cost mechanic) and **ENG-33** (villainous-choice / vote option-body
-  primitives — edict-on-target-player, free-cast-a-spell, copy-of-
-  a-referenced-card, put-permanent-from-hand). (**ENG-31**, parametric
-  keyword *grants* — Firebend's grant path — shipped at PARSER_VERSION 128;
-  Fire Nation Palace / Fire Nation Attacks / Sozin's Comet are MODELED.)
-  Cache-wide `parser_probe.py` SOLO counts.
+  grammar around it, plus the **ENG-32** (Waterbend cost mechanic) engine
+  primitive. (**ENG-31**, parametric keyword *grants* — Firebend's grant
+  path — shipped at PARSER_VERSION 128; **ENG-33**, villainous / vote
+  option-body primitives — the targeted-player edict, uncapped/noncreature
+  free-cast, and put-`<type>`-from-hand — at 129. Both in
+  `Done_Backend.md`.) Cache-wide `parser_probe.py` SOLO counts.
 
   - **Vote (RULE 701.38) outcome bodies.** 3+-option votes (Council
     Guardian — WUBRG protection vote); "vote for a nonland permanent / a
@@ -134,18 +128,19 @@ Plan-level sequencing lives in
     Expropriate's extra-turn / gain-control per-vote outcome; Magister of
     Worth's mass-graveyard-return / "destroy all creatures other than ~".
 
-  - **Face a Villainous Choice (RULE 701.55) option bodies.** "you may
-    cast a spell from your hand without paying its mana cost" (Great
-    Intelligence's Plan — ENG-33); "you may put a `<type>` card from your
-    hand onto the battlefield" (Dr. Eggman — ENG-33); "you create a token
-    that's a copy of that card" (The Master — ENG-33); "target player
-    sacrifices a creature of their choice" as the *other* option (Damocles
-    Base and The Dalek Emperor already ship via the bare-edict row; ENG-33
-    generalizes it); "exile cards … until you exile a nonland card, then
-    cast it" (Ensnared by the Mara); "that creature becomes a 1/1 and loses
-    all abilities" (Hunted by The Family); conditional/previous subjects —
-    "each opponent who lost 3+ life this turn" (Davros), "choose an
-    opponent with the most life" (The Master).
+  - **Face a Villainous Choice (RULE 701.55) option bodies.** ENG-33
+    (v129) shipped the targeted-player edict, uncapped/noncreature
+    free-cast and put-`<type>`-from-hand bodies — Great Intelligence's Plan
+    and Dr. Eggman are MODELED. Still open: "you create a token that's a
+    copy of that card" (The Master — PAR-18's `CopyPermanentEffect(referent=
+    "previous")` primitive exists; needs the "except it's a 3/3 …" modifier
+    grammar + the graveyard-exile clause that populates `previous_targets`,
+    a 12-SOLO cluster: Anikthea, Ardyn, Back from the Brink, God-Pharaoh's
+    Gift, Hour of Eternity, …); "exile cards … until you exile a nonland
+    card, then cast it" (Ensnared by the Mara); "that creature becomes a
+    1/1 and loses all abilities" (Hunted by The Family); conditional/previous
+    subjects — "each opponent who lost 3+ life this turn" (Davros), "choose
+    an opponent with the most life" (The Master).
 
   - **Firebending (RULE ~702.189) grants — ENG-31 shipped (v128).** The
     parametric-keyword-grant primitive is done: "target creature / creatures
@@ -163,12 +158,14 @@ Plan-level sequencing lives in
 
   - **Waterbend (RULE 701.67) — ENG-32 + these bodies.** The activated
     `waterbend {N}: <body>` cards (Flexible Waterbender, Giant Koi, Katara,
-    Water Tribe Rallier, Watery Grasp, Yue) are blocked on their *bodies*
+    Water Tribe Rallier, Watery Grasp) are blocked on their *bodies*
     (base-P/T-set with a duration; resolve-time "can't be blocked this
-    turn"; "enchanted creature's owner shuffles it into their library";
-    "cast a noncreature spell without paying"), not the cost — the cost
-    stripping is trivial once a body parses. Benevolent River Spirit / Water
-    Whip / Waterbending Lesson need mana-in-an-additional-cost (ENG-32).
+    turn"; "enchanted creature's owner shuffles it into their library"),
+    not the cost — the cost stripping is trivial once a body parses. (Yue,
+    the Moon Spirit's "cast a noncreature spell without paying" body is
+    handled now — ENG-33's `free_cast_from_hand` `noncreature_only`.)
+    Benevolent River Spirit / Water Whip / Waterbending Lesson need
+    mana-in-an-additional-cost (ENG-32).
 
   - **Earthbend (RULE 701.66) residue.** Dynamic "earthbend X, where X is
     `<count>`" (Beifong's Bounty Hunters "that creature's power", Bumi's

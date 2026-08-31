@@ -905,15 +905,51 @@ def _draw_reveal_cast_free(m: re.Match[str]) -> list[EffectSpec]:
 #: ``triggered`` binder branch, never ``spell_effect``, and this effect's
 #: own `request_choose_objects(optional=True)` already models the "may").
 _FREE_CAST_FROM_HAND_RE = _c(
-    rf"(?:you may )?cast a spell with mana value {COUNT_X} or less from your hand "
+    # ENG-33 (Great Intelligence's Plan) / ENG-32 (Waterbend "cast a
+    # noncreature spell without paying"): the "with mana value N or less"
+    # cap and the "noncreature" qualifier are both optional — an uncapped
+    # `free_cast_from_hand` offers every nonland hand card.
+    rf"(?:you may )?cast an? (?P<noncreature>noncreature )?spell"
+    rf"(?: with mana value {COUNT_X} or less)? from your hand "
     rf"without paying its mana cost(?P<selector>, where x is the number of attacking creatures)?"
 )
 
 
 def _free_cast_from_hand(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {}
+    if m.groupdict().get("noncreature"):
+        params["noncreature_only"] = True
     if m.group("selector"):
-        return [EffectSpec("free_cast_from_hand", {"max_mana_value_selector": "attacking_creatures"})]
-    return [EffectSpec("free_cast_from_hand", {"max_mana_value": count_or_x_of(m.group("n"))})]
+        params["max_mana_value_selector"] = "attacking_creatures"
+    elif m.groupdict().get("n") is not None:
+        params["max_mana_value"] = count_or_x_of(m.group("n"))
+    return [EffectSpec("free_cast_from_hand", params)]
+
+
+#: ENG-33: "you may put a `<type>` card from your hand onto the battlefield"
+#: (Dr. Eggman, Sonic's Nemesis — a villainous-choice option body).
+#: `PutFromHandOntoBattlefieldEffect` already exists (Tooth and Nail); this
+#: reaches it from a resolving effect. Every named type/subtype must be a
+#: recognized word (fail-closed) — a bare `card_query` substring test would
+#: silently match nothing on a typo.
+_PUT_FROM_HAND_TYPE_WORDS: frozenset[str] = frozenset(PERMANENT_TYPE_WORDS) | {
+    "construct", "robot", "vehicle", "equipment", "aura", "clue",
+    "food", "treasure",
+}
+_PUT_FROM_HAND_RE = _c(
+    r"(?:you may )?put an? (?P<types>[a-z, ]+?) card from your hand onto the battlefield"
+)
+
+
+def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    words = [
+        w.strip() for w in re.split(r",\s*or\s+|,\s*|\s+or\s+", m.group("types"))
+        if w.strip()
+    ]
+    if not words or any(w not in _PUT_FROM_HAND_TYPE_WORDS for w in words):
+        return None
+    crit = words if len(words) > 1 else words[0]
+    return [EffectSpec("put_from_hand_onto_battlefield", {"criteria": {"type": crit}, "count": 1})]
 
 
 #: RULE 119/701.8's "Target opponent/player reveals their hand. You choose
@@ -1170,6 +1206,28 @@ def _sacrifice_edict(m: re.Match[str]) -> list[EffectSpec]:
     count_word = m.group("count")
     count = 1 if count_word in ("a", "an") else int(count_word)
     return [EffectSpec("sacrifice", {"selector": selector, "what": what, "count": count})]
+
+
+#: ENG-33: "target player/opponent sacrifices [N] [nontoken] `<what>` [of
+#: their choice]" (Diabolic Edict / Chainer's Edict / Dead Drop-shaped, ~21
+#: SOLO cards, and the recurring villainous-choice / vote *other* option).
+#: A real RULE 115 player target (`SacrificeEffect.target_kind="player"` →
+#: reads `targets[0]`), the single-target sibling of `_SACRIFICE_EDICT_RE`'s
+#: `each_player`/`each_opponent` mass form.
+_TARGET_PLAYER_EDICT_RE = _c(
+    rf"target (?P<who>player|opponent) sacrifices? "
+    rf"(?P<count>a|an|\d+) (?P<nontoken>nontoken )?"
+    rf"(?P<what>{'|'.join(_SACRIFICE_EDICT_WHAT_WORDS)})s?(?: of their choice)?"
+)
+
+
+def _target_player_edict(m: re.Match[str]) -> list[EffectSpec]:
+    what = _SACRIFICE_EDICT_WHAT_WORDS[m.group("what")]
+    if m.group("nontoken") and what == "creature":
+        what = "nontoken_creature"
+    count_word = m.group("count")
+    count = 1 if count_word in ("a", "an") else int(count_word)
+    return [EffectSpec("sacrifice", {"target_kind": "player", "what": what, "count": count})]
 
 
 #: "Each player loses N life unless they discard a card."/"...unless they
@@ -6751,6 +6809,13 @@ HANDLERS: list[EffectHandler] = [
         _FREE_CAST_FROM_HAND_RE,
         _free_cast_from_hand,
     ),
+    # ENG-33: "you may put a <type> card from your hand onto the
+    # battlefield" (Dr. Eggman — a villainous-choice option body).
+    EffectHandler(
+        "put_from_hand",
+        _PUT_FROM_HAND_RE,
+        _put_from_hand,
+    ),
     # "Target opponent reveals their hand. You choose a nonland card from
     # it. That player discards that card." (Duress/Thoughtseize-shaped) —
     # tried before the plain `discard` row below (unrelated shapes, but
@@ -6823,6 +6888,13 @@ HANDLERS: list[EffectHandler] = [
         "sacrifice_edict",
         _SACRIFICE_EDICT_RE,
         _sacrifice_edict,
+    ),
+    # ENG-33: "target player/opponent sacrifices a <what> of their choice"
+    # (Diabolic Edict-shaped, and villainous/vote's *other* option).
+    EffectHandler(
+        "target_player_edict",
+        _TARGET_PLAYER_EDICT_RE,
+        _target_player_edict,
     ),
     # PAR-13: "discard a card and sacrifice a creature, an artifact, and a
     # land." — Oubliette's own compound mandatory punishment.

@@ -4990,6 +4990,7 @@ class SacrificeEffect(GameEffect):
         player: Any = None,
         selector: Optional[str] = None,
         greatest_power: bool = False,
+        target_kind: Optional[str] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -5000,6 +5001,13 @@ class SacrificeEffect(GameEffect):
         self.player = player
         self.selector = selector
         self.greatest_power = greatest_power
+        #: ``target_kind="player"`` ("target player sacrifices a creature of
+        #: their choice" — Diabolic Edict, and villainous/vote option bodies,
+        #: ENG-33) opts into a real RULE 115 player target, exactly as
+        #: `DiscardEffect`/`GainLifeEffect` do. Without a declared
+        #: `target_spec` this effect keeps its untargeted `targets[0]`-when-
+        #: present convention (villainous choice passes `targets=[facing]`).
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     #: A resumed continuation's own remaining-players list (see
     #: `_sacrifice_each_in_order`) — never set by a parsed `EffectSpec`
@@ -6734,11 +6742,17 @@ class FreeCastFromHandEffect(GameEffect):
         self,
         criteria: Optional[dict[str, Any]] = None,
         max_mana_value_selector: Optional[str] = None,
+        noncreature_only: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.criteria = dict(criteria or {})
         self.max_mana_value_selector = max_mana_value_selector
+        #: ENG-33 (Great Intelligence's Plan) / ENG-32 (Waterbend "cast a
+        #: noncreature spell without paying") — an *uncapped* free cast: no
+        #: ``max_mana_value``/selector at all, so every nonland hand card is
+        #: offered. ``noncreature_only`` further narrows it.
+        self.noncreature_only = bool(noncreature_only)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         source = self.source
@@ -6747,19 +6761,26 @@ class FreeCastFromHandEffect(GameEffect):
         player = _controller_of(source, context)
         if player is None:
             return
+        max_mv: Any = None
         if self.max_mana_value_selector:
             from . import continuous  # function-scoped: avoid the continuous<->effects import cycle
 
             max_mv = continuous.count_selector(
                 context.state, player.id, self.max_mana_value_selector, source=source
             )
-        else:
+        elif self.criteria.get("max_mana_value") is not None:
             max_mv = self.criteria.get("max_mana_value")
-        if not isinstance(max_mv, int):
-            return  # an unresolved "x" sentinel or missing cap — nothing legal to offer
+        # A cap was *asked for* (selector / literal) but didn't resolve to an
+        # int → an unresolved "x" sentinel; nothing legal to offer. An
+        # uncapped effect (neither given) skips the check entirely.
+        capped = self.max_mana_value_selector is not None or self.criteria.get("max_mana_value") is not None
+        if capped and not isinstance(max_mv, int):
+            return
         candidates = [
             obj for obj in player.hand
-            if not obj.card.is_land and (obj.card.converted_mana_cost or 0) <= max_mv
+            if not obj.card.is_land
+            and (not self.noncreature_only or not obj.card.is_creature)
+            and (not isinstance(max_mv, int) or (obj.card.converted_mana_cost or 0) <= max_mv)
         ]
         context.engine.request_choose_objects(
             player, candidates, "grant_free_cast", count=1, optional=True,
@@ -17379,6 +17400,7 @@ EffectRegistry.register(
     lambda p: FreeCastFromHandEffect(
         criteria={"max_mana_value": p.get("max_mana_value")},
         max_mana_value_selector=p.get("max_mana_value_selector"),
+        noncreature_only=bool(p.get("noncreature_only", False)),
     ),
 )
 EffectRegistry.register(
@@ -17947,6 +17969,7 @@ EffectRegistry.register(
         what=p.get("what", "permanent"),
         selector=p.get("selector"),
         greatest_power=bool(p.get("greatest_power", False)),
+        target_kind=p.get("target_kind"),
     ),
 )
 EffectRegistry.register(

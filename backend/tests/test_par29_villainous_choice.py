@@ -41,10 +41,13 @@ def test_villainous_parse_edict_vs_lose_life():
 
 
 def test_villainous_parse_unmodelable_option_fails_closed():
-    # option B ("cast a spell without paying") is not modeled → whole clause unclaimed
+    # option B ("create a token that's a copy of that card" — a
+    # previously-referenced *card*, PAR-30) is not modeled → whole clause
+    # unclaimed. ("cast a spell without paying" and the target-player edict
+    # are modeled now, ENG-33.)
     assert match_clause(
         "target opponent faces a villainous choice — they discard 3 cards, or "
-        "you may cast a spell from your hand without paying its mana cost."
+        "you create a token that's a copy of that card."
     ) is None
 
 

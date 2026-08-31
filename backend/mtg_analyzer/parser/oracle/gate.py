@@ -1240,7 +1240,25 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: UNMODELED on unrelated grammar (a conditional-static "there's a lesson
 #: card in your graveyard", a "cast a spell during an opponent's turn"
 #: trigger, a "with a counter on it" group filter) - PAR-30.
-PARSER_VERSION = "128"
+#: "129": ENG-33 - villainous-choice / vote option-body primitives, three
+#: general handlers that also unlock far beyond the villainous cards: (1)
+#: "target player/opponent sacrifices [N] [nontoken] <what> [of their
+#: choice]" (`_TARGET_PLAYER_EDICT_RE` -> `sacrifice` with the new
+#: `SacrificeEffect.target_kind="player"` RULE 115 target - Diabolic /
+#: Chainer's / Sudden Edict, ~13 SOLO); (2) an *uncapped* / "noncreature"
+#: `free_cast_from_hand` (`FreeCastFromHandEffect.noncreature_only`, cap
+#: now optional - Great Intelligence's Plan, Maelstrom Archangel, Yue the
+#: Moon Spirit); (3) "you may put a <type> card from your hand onto the
+#: battlefield" (`_PUT_FROM_HAND_RE` -> the existing
+#: `PutFromHandOntoBattlefieldEffect` - Dr. Eggman, plus the whole Elvish
+#: Piper / Quicksilver Amulet / Stoneforge Mystic / Growth Spiral /
+#: Sakura-Tribe Scout family, +26). The 4th named primitive, "create a
+#: token that's a copy of that card" (The Master), is PAR-18's existing
+#: `CopyPermanentEffect(referent="previous")`; the remaining work is the
+#: "except it's a 3/3 ..." modifier grammar + the graveyard-exile clause
+#: that populates `previous_targets`, a 12-SOLO cluster left to PAR-30.
+#: +45 cache cards (parser_probe diff, full cache, 0 regressed).
+PARSER_VERSION = "129"
 
 
 def parser_source_hash() -> str:
