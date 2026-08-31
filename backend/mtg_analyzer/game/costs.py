@@ -115,6 +115,9 @@ _EXILE_GRAVEYARD_RE = re.compile(
 #: ability's, or an additional cast cost) sized by a total-mana-value
 #: threshold rather than a card count (`ActivationCost.collect_evidence`).
 _COLLECT_EVIDENCE_RE = re.compile(r"collect\s+evidence\s+(\d+)", re.IGNORECASE)
+#: RULE 701.61a "Forage" — a compound "exile three graveyard cards or
+#: sacrifice a Food" non-mana cost (`ActivationCost.forage`, a bool).
+_FORAGE_RE = re.compile(r"\bforage\b", re.IGNORECASE)
 #: "Exile the top card of your library" (Thought Lash) / "Exile the top
 #: four cards of your library" (Seasoned Tactician, MEC-30) — a non-mana
 #: additional cost paid straight off the payer's own library, distinct from
@@ -295,6 +298,12 @@ class ActivationCost:
     #: idiom `discard`/`put_hand_cards_on_top` use for a value-neutral
     #: selection).
     collect_evidence: int = 0
+    #: RULE 701.61a (Forage, PAR-29 — Bloomburrow): a compound "exile three
+    #: cards from your graveyard **or** sacrifice a Food" non-mana cost.
+    #: A bool — the "N" is fixed at three. Charged by `RulesEngine.forage`
+    #: (auto-picks between the two halves) from `_pay_activation_cost` /
+    #: `_pay_player_cost`.
+    forage: bool = False
     #: "Tap N untapped <type>s you control" (Birchlore Rangers, Heritage
     #: Druid) — ``(count, singular type word)``; taps *other* permanents
     #: instead of the source. Not limited by the tapped permanents' own
@@ -556,6 +565,7 @@ class ActivationCost:
             or self.loyalty is not None
             or self.exile_from_graveyard
             or self.collect_evidence
+            or self.forage
             or self.tap_others
             or self.sacrifice_count
             or self.add_counters_cost
@@ -610,6 +620,8 @@ class ActivationCost:
             parts.append(f"Exile {self.exile_from_graveyard} other card(s) from your graveyard")
         if self.collect_evidence:
             parts.append(f"Collect evidence {self.collect_evidence}")
+        if self.forage:
+            parts.append("Forage")
         if self.tap_others:
             count, subtype = self.tap_others
             parts.append(f"Tap {count} untapped {subtype}(s) you control")
@@ -659,6 +671,7 @@ class ActivationCost:
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
             "exile_from_graveyard": self.exile_from_graveyard,
             "collect_evidence": self.collect_evidence,
+            "forage": self.forage,
             "tap_others": list(self.tap_others) if self.tap_others else None,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
@@ -737,6 +750,8 @@ def parse_activation_cost(
         parsed.exile_from_graveyard = int(cost["exile_from_graveyard"])
     if cost.get("collect_evidence"):
         parsed.collect_evidence = int(cost["collect_evidence"])
+    if cost.get("forage"):
+        parsed.forage = True
     if cost.get("tap_others"):
         count, subtype = cost["tap_others"]
         parsed.tap_others = (int(count), str(subtype))
@@ -900,6 +915,9 @@ def _parse_text(text: str) -> ActivationCost:
     collect_ev = _COLLECT_EVIDENCE_RE.search(cost_text)
     if collect_ev:
         cost.collect_evidence = int(collect_ev.group(1))
+
+    if _FORAGE_RE.search(cost_text):
+        cost.forage = True
 
     exile_top = _EXILE_TOP_LIBRARY_RE.search(cost_text)
     if exile_top:

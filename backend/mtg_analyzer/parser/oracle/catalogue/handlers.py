@@ -3708,6 +3708,9 @@ _MAY_COST_THEN_CLAUSE = (
     # `costs.parse_activation_cost` recognises it and `_can/_pay_player_cost`
     # charge it (`RulesEngine.collect_evidence`, PAR-29).
     r"|collect evidence \d+"
+    # RULE 701.61a — "exile three graveyard cards or sacrifice a Food"
+    # (`ActivationCost.forage`; `RulesEngine.forage`, PAR-29).
+    r"|forage"
 )
 _PAY_COST_THEN_GENERAL_RE = _c(
     r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?:if|when) you do,?\s*(?P<effect>.+)"
@@ -5352,6 +5355,20 @@ def _collect_evidence_bare(m: re.Match[str]) -> list[EffectSpec]:
 # optionality.
 def _collect_evidence(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("collect_evidence", {"amount": int(m.group("n"))})]
+
+
+# "You may forage." (RULE 701.61a, PAR-29) with no "if you do" rider —
+# Corpseberry Cultivator: a bare optional cost whose only payoff is the
+# separate "whenever you forage, …" trigger. `pay_cost_then` with an empty
+# effect list, same shape as `_collect_evidence_bare`.
+def _forage_bare(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pay_cost_then", {"cost": "forage", "effects": []})]
+
+
+# Bare "forage" — what's left after the segmenter peels a triggered
+# ability's outer "you may ". `ForageEffect` (registered as ``forage``).
+def _forage(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("forage", {})]
 
 
 # "Discover N." (RULE 701.57a) — exile from the top of your library until a
@@ -7824,6 +7841,18 @@ HANDLERS: list[EffectHandler] = [
         "collect_evidence",
         _c(r"collect evidence (?P<n>\d+)"),
         _collect_evidence,
+    ),
+    # "you may forage" (RULE 701.61a) — bare, no "if you do" rider.
+    EffectHandler(
+        "forage_bare",
+        _c(r"you may forage"),
+        _forage_bare,
+    ),
+    # bare "forage" — the segmenter-peeled triggered-ability body.
+    EffectHandler(
+        "forage",
+        _c(r"forage"),
+        _forage,
     ),
     # "discover 3" (RULE 701.57a) — literal mana value only.
     EffectHandler(

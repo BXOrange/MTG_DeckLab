@@ -213,6 +213,12 @@ class EventType:
     #: even when N was 0 / the exile was trivial, since 701.59b's "has
     #: collected evidence" is process-complete, not outcome-gated.
     COLLECTED_EVIDENCE = "COLLECTED_EVIDENCE"
+    #: A player foraged (RULE 701.61a — exiled three cards from their
+    #: graveyard, or sacrificed a Food) — fired once by `RulesEngine.forage`,
+    #: carrying ``player_id``/``controller_id``. Powers "whenever you forage,
+    #: …" (Corpseberry Cultivator/Euru, Acorn Scrounger). Fired even if
+    #: neither option was possible (701.61b process-complete).
+    FORAGED = "FORAGED"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
     #: The Ring tempted a player (RULE 701.51a, Tales of Middle-earth) —

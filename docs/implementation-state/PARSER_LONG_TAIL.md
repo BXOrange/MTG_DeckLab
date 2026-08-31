@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.0% covered — 12,538 / 34,811 — as of 2026-08-31, PARSER_VERSION 118.**
+**36.0% covered — 12,541 / 34,811 — as of 2026-08-31, PARSER_VERSION 119.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -53,7 +53,15 @@ COLLECTED_EVIDENCE` + a "whenever you collect evidence" trigger. +3 — most
 of the ~9 remaining SOLO cards block on their *effect bodies* (an exotic
 land-animation / edict / class-up activated body, a *targeted* "if you do"
 payoff `pay_cost_then` can't resolve off-stack, a "rather than pay the mana
-cost" alt-cast), not on the cost primitive.)
+cost" alt-cast), not on the cost primitive.
+119 = PAR-29's RULE 701.61 Forage — the same cost-family build as 118:
+`ActivationCost.forage` (bool — "exile three graveyard cards or sacrifice
+a Food"), `RulesEngine.forage` auto-picking between the two halves (Food
+first, documented simplification), `EventType.FORAGED`,
+`effects.ForageEffect`, `pay_cost_then` / bare / "whenever you forage"
+handlers. +3 (Bushy Bodyguard, Corpseberry Cultivator, Treetop Sentries);
+Curious Forager's *targeted* "when you do" payoff and Feed the Cycle's
+"forage or pay {B}" alt additional cast cost stay open.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

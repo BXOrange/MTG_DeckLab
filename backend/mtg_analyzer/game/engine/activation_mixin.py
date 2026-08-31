@@ -485,6 +485,8 @@ class ActivationMixin:
             player, cost.collect_evidence
         ):
             return False
+        if cost.forage and not self.rules.forage_possible(player):
+            return False
         if cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand) is None:
             return False
         if cost.unattach_self and source.attached_to is None:
@@ -1076,6 +1078,11 @@ class ActivationMixin:
             # mana value or more; `RulesEngine.collect_evidence` auto-picks
             # and fires `EventType.COLLECTED_EVIDENCE`.
             self.rules.collect_evidence(player, cost.collect_evidence)
+        if cost.forage:
+            # RULE 701.61a — `RulesEngine.forage` auto-picks between exiling
+            # three graveyard cards and sacrificing a Food, fires
+            # `EventType.FORAGED`.
+            self.rules.forage(player)
         if cost.put_hand_card_on_library:
             chosen = self._resolve_put_hand_card_cost(player, hand_card_choices)
             if chosen:

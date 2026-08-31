@@ -650,7 +650,7 @@ on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
 (`scripts/import_bulk.py`), so coverage is measured against that: **36.0%
-covered (12,538 / 34,811) as of 2026-08-31, PARSER_VERSION 118** (parser-`MODELED` **or**
+covered (12,541 / 34,811) as of 2026-08-31, PARSER_VERSION 119** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -673,7 +673,10 @@ chooser [+15], 118 was PAR-29's RULE 701.59 Collect Evidence primitive
 (`ActivationCost.collect_evidence` — a mana-value-sum threshold cost;
 `RulesEngine.collect_evidence`; `EventType.COLLECTED_EVIDENCE`) wired into
 activation costs / `pay_cost_then` / a "whenever you collect evidence"
-trigger [+3]).
+trigger [+3], 119 was PAR-29's RULE 701.61 Forage — the same cost-family
+build (`ActivationCost.forage` bool, `RulesEngine.forage` auto-picking
+"exile 3 from graveyard" vs "sacrifice a Food", `EventType.FORAGED`,
+`effects.ForageEffect`, a "whenever you forage" trigger) [+3]).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in

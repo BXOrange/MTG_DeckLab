@@ -1767,6 +1767,46 @@ class MiscSystemsMixin:
             player_id=player.id, controller_id=player.id, amount=amount,
         ))
         return met
+    def forage_possible(self, player: Player) -> bool:
+        """Whether ``player`` could forage right now (RULE 701.61a) — three
+        cards in their graveyard to exile, or a Food they control to
+        sacrifice."""
+        if len(player.graveyard) >= 3:
+            return True
+        return any(
+            continuous.has_subtype(o, "Food")
+            for o in self.state.permanents_controlled_by(player.id)
+        )
+
+    def forage(self, player: Player) -> bool:
+        """RULE 701.61a: ``player`` exiles three cards from their graveyard
+        **or** sacrifices a Food. Fires `EventType.FORAGED` afterwards
+        (701.61b — process-complete, fired even if neither was possible).
+        Returns whether either option was actually carried out.
+
+        **Documented simplification:** no interactive choice between the two
+        halves — a Food is sacrificed whenever ``player`` controls one
+        (keeping the three graveyard cards, the strictly more valuable
+        line), otherwise the three oldest graveyard cards are exiled (the
+        same "auto-pick, no chooser in this MVP" idiom `collect_evidence` /
+        `_pay_escape_graveyard_cost` use).
+        """
+        did = False
+        foods = [
+            o for o in self.state.permanents_controlled_by(player.id)
+            if continuous.has_subtype(o, "Food")
+        ]
+        if foods:
+            self.put_into_graveyard(foods[0])  # RULE 701.17 sacrifice
+            did = True
+        elif len(player.graveyard) >= 3:
+            for card in list(player.graveyard)[:3]:
+                self.exile(card)
+            did = True
+        self.state.fire_event(GameEvent(
+            EventType.FORAGED, player_id=player.id, controller_id=player.id,
+        ))
+        return did
     def _endure_make_token(self, player: Player, amount: int) -> None:
         """The token half of `endure` (RULE 701.63a) — an N/N white Spirit
         creature token."""
@@ -3404,6 +3444,8 @@ class MiscSystemsMixin:
             player, cost.collect_evidence
         ):
             return False
+        if cost.forage and not self.forage_possible(player):
+            return False
         return True
     def _can_sacrifice_or_discard(self, player: Player) -> bool:
         """Whether ``player`` could pay a `sacrifice_or_discard` cost right
@@ -3432,6 +3474,8 @@ class MiscSystemsMixin:
             self._pay_sacrifice_or_discard(player)
         if cost.collect_evidence:
             self.collect_evidence(player, cost.collect_evidence)
+        if cost.forage:
+            self.forage(player)
     def _pay_sacrifice_or_discard(self, player: Player) -> None:
         """Pay a `sacrifice_or_discard` cost component — the payer's own
         choice of *which* half (Tergrid's Lantern, MEC-43 round 4E). Forced

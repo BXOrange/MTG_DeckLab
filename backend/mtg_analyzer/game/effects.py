@@ -9715,6 +9715,26 @@ class CollectEvidenceEffect(GameEffect):
             context.engine.collect_evidence(player, self.amount)
 
 
+class ForageEffect(GameEffect):
+    """"Forage." (RULE 701.61a — Bloomburrow) as a *resolving effect*: this
+    effect's controller exiles three cards from their graveyard or
+    sacrifices a Food (auto-picked; see `RulesEngine.forage`) and fires
+    `EventType.FORAGED`. A no-op if they can do neither.
+
+    The "you may" before it is the segmenter's outer `_peel_optional`
+    (`AbilitySpec.optional`); a *non*-peeled "you may forage" whole clause
+    is claimed instead by `handlers._forage_bare` as an interactive
+    `pay_cost_then`.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        if context.engine.forage_possible(player):
+            context.engine.forage(player)
+
+
 class ExploreEffect(GameEffect):
     """RULE 701.44: "`<permanent>` explores." — reveal the top card of the
     exploring permanent's controller's library; a land goes to hand,
@@ -18008,6 +18028,11 @@ EffectRegistry.register(
     # RULE 701.59 "Collect evidence N" as a resolving effect (the "you may"
     # is the segmenter's outer optional peel). See `CollectEvidenceEffect`.
     "collect_evidence", lambda p: CollectEvidenceEffect(amount=int(p.get("amount", 0) or 0)),
+)
+EffectRegistry.register(
+    # RULE 701.61 "Forage" as a resolving effect (the "you may" is the
+    # segmenter's outer optional peel). See `ForageEffect`.
+    "forage", lambda p: ForageEffect(),
 )
 EffectRegistry.register(
     # RULE 701.44 (explore, PAR-29): reveal top card of library — land to

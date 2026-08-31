@@ -264,6 +264,10 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # Surveillance Monitor). `RulesEngine.collect_evidence` fires
     # `EventType.COLLECTED_EVIDENCE` per-player, same `player_id` convention.
     (re.compile(r"^you collect evidence$"), "COLLECTED_EVIDENCE"),
+    # RULE 701.61b: "Whenever you forage, …" (Corpseberry Cultivator/Euru,
+    # Acorn Scrounger). `RulesEngine.forage` fires `EventType.FORAGED`
+    # per-player.
+    (re.compile(r"^you forage$"), "FORAGED"),
 )
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".

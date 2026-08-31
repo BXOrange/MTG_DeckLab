@@ -94,7 +94,12 @@ Plan-level sequencing lives in
     payoff (`pay_cost_then` resolves off-stack with no target step — Sample
     Collector, Memory Vampire), a dynamic "collect evidence X" (Incinerator
     of the Guilty), and "collect evidence N rather than pay the mana cost"
-    as an alt-cast (Conspiracy Unraveler); Forage (701.61, ~5);
+    as an alt-cast (Conspiracy Unraveler); **Forage — residue only**
+    (701.61; the `ActivationCost.forage` cost primitive + `RulesEngine.
+    forage` + `EventType.FORAGED` + the `pay_cost_then` / bare / "whenever
+    you forage" wiring shipped at PARSER_VERSION 119): Curious Forager's
+    *targeted* "when you do, return target permanent card…" payoff and Feed
+    the Cycle's "forage or pay {B}" alt additional cast cost stay open;
     **Blight — cost forms
     only** (Bloomburrow; the standalone-verb form is already modeled):
     "{cost}, Blight N: `<effect>`" and
@@ -162,6 +167,8 @@ Plan-level sequencing lives in
     Support, Suspect, Detain, Endure, Recruit, Collect Evidence
     (PARSER_VERSION 118 — the `ActivationCost.collect_evidence` cost
     primitive; exotic-body/targeted-payoff/alt-cast residue open above),
+    Forage (PARSER_VERSION 119 — `ActivationCost.forage` +
+    `RulesEngine.forage`; targeted-payoff/alt-cast residue open above),
     Learn (PARSER_VERSION 117 —
     `RulesEngine.learn`, an optional discard-then-draw via the existing
     `request_choose_objects` chooser; the "Lesson from outside the game"
