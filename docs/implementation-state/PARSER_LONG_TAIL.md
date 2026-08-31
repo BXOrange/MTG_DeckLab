@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.4% covered — 12,683 / 34,811 — as of 2026-08-31, PARSER_VERSION 133.**
+**36.5% covered — 12,695 / 34,811 — as of 2026-08-31, PARSER_VERSION 134.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -131,7 +131,15 @@ count_selector` read — lands you control, and a new
 `creature_cards_in_your_graveyard` selector) and `count_from_trigger_event`
 ("that spell's mana value"); "incubate X twice" = `create_token` `count=2`.
 "…where X is its power" / "…that many times" stay UNMODELED. +3 (Glistening
-Dawn, Blight Titan, Chrome Host Seedshark).)
+Dawn, Blight Titan, Chrome Host Seedshark).
+134 = PAR-30's Earthbend residue: "earthbend X, where X is [twice] the
+number of `<count>`" (`EarthbendEffect.amount_from_count_selector` +
+`amount_multiplier`) and the "earthbend N, then untap **that land**"
+pronoun tail — `earthbend` now announces a land referent to
+`_announces_creature_target`, and a new `previous_subject`-only
+`_TAP_PREVIOUS_SUBJECT_RE` claims "tap/untap that land|permanent|artifact|
+creature", which also caught ~8 unrelated "…target creature. Untap that
+creature." cards. "…where X is that creature's power" stays UNMODELED. +12.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

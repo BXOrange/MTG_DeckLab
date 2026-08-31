@@ -6036,11 +6036,52 @@ def _airbend(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 # control becomes a 0/0 creature with haste that's still a land. Put N +1/+1
 # counters on it."). `RulesEngine.earthbend` / `effects.EarthbendEffect`
 # (registered as ``earthbend``). Only the literal ``earthbend N`` form; the
-# dynamic "earthbend X, where X is `<count>`" (Beifong's Bounty Hunters,
-# Bumi's Feast Lecture) and the "then untap that land" pronoun tail stay
+# "that creature's power" X (Beifong's Bounty Hunters — a dying creature's
+# own last-known power) and the "then untap that land" pronoun tail stay
 # UNMODELED, fail-closed.
 def _earthbend(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("earthbend", {"amount": int(m.group("n"))})]
+
+
+#: "Earthbend X, where X is [twice] the number of `<count>`." (PAR-30 —
+#: Rockalanche "forests you control", The Boulder, Ready to Rumble
+#: "creatures you control with power 4 or greater", Bumi's Feast Lecture
+#: "twice the number of Foods you control"). A small self-contained count
+#: vocabulary (rather than reusing `subgrammars.DEVOTION`, whose
+#: `count_subtype` group would mis-read a *land* subtype like "forests" as
+#: a creature type) onto `continuous.count_selector`'s existing entries.
+_EARTHBEND_X_SUBTYPE_SELECTORS: dict[str, str] = {
+    "forests": "lands_you_control_of_type_forest",
+    "islands": "lands_you_control_of_type_island",
+    "swamps": "lands_you_control_of_type_swamp",
+    "mountains": "lands_you_control_of_type_mountain",
+    "plains": "lands_you_control_of_type_plains",
+    "foods": "foods_you_control",
+}
+_EARTHBEND_X_RE = _c(
+    r"(?:you )?earthbend x, where x is (?P<mult>twice )?the number of (?:"
+    r"(?P<ebsub>" + "|".join(_EARTHBEND_X_SUBTYPE_SELECTORS) + r") you control"
+    r"|creatures you control with power (?P<ebpow_n>\d+) or (?P<ebpow_cmp>less|greater)"
+    r"|(?P<ebbare>creatures|permanents|artifacts|lands|enchantments) you control"
+    r")"
+)
+
+
+def _earthbend_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    sub = m.groupdict().get("ebsub")
+    if sub:
+        selector = _EARTHBEND_X_SUBTYPE_SELECTORS[sub]
+    elif m.groupdict().get("ebpow_n"):
+        op = "le" if m.group("ebpow_cmp") == "less" else "ge"
+        selector = f"creatures_you_control_with_power_{op}_{m.group('ebpow_n')}"
+    elif m.groupdict().get("ebbare"):
+        selector = f"{m.group('ebbare')}_you_control"
+    else:
+        return None  # fail closed — an X phrasing we don't model
+    params: dict[str, Any] = {"amount_from_count_selector": selector}
+    if m.groupdict().get("mult"):
+        params["amount_multiplier"] = 2
+    return [EffectSpec("earthbend", params)]
 
 
 # "Support N." (RULE 701.41a) — put a +1/+1 counter on each of up to N
@@ -6412,6 +6453,22 @@ _UNTAP_PREVIOUS_GROUP_RE = _c(r"(?:then )?untap (?:those creatures|them)")
 
 def _untap_previous_group(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("tap", {"previous_subject": True, "untap": True})]
+
+
+#: "…, then untap **that land**." (Avatar Kyoshi — PAR-30, following
+#: "earthbend N") / "…, then tap **that permanent**." — the singular
+#: `previous_subject` sibling of `_UNTAP_PREVIOUS_GROUP_RE`: "that
+#: `<permanent-word>`" names the single object the preceding clause chose
+#: (`EffectHandler.previous_subject_only`, `GameContext.previous_targets`).
+#: Distinct from `_TAP_GROUP_SUBJECT_RE` ("that creature", `group_subject_
+#: only`) and `_tap_self` ("it"/"this ~", the ability's own source).
+_TAP_PREVIOUS_SUBJECT_RE = _c(
+    r"(?:then )?(?P<verb>tap|untap) that (?:land|permanent|artifact|creature)"
+)
+
+
+def _tap_previous_subject(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("tap", {"previous_subject": True, "untap": m.group("verb").lower() == "untap"})]
 
 
 #: ENG-30: "They [each] get +N/+N [and gain `<kw>`]/gain `<kw>` until end of
@@ -8171,6 +8228,14 @@ HANDLERS: list[EffectHandler] = [
         _untap_previous_group,
         previous_subject_only=True,
     ),
+    # "…, then untap that land." (Avatar Kyoshi, following "earthbend N") —
+    # the singular previous-subject sibling of the row just above.
+    EffectHandler(
+        "tap_previous_subject",
+        _TAP_PREVIOUS_SUBJECT_RE,
+        _tap_previous_subject,
+        previous_subject_only=True,
+    ),
     # ENG-30: "They [each] get +N/+N [and gain <kw>] until end of turn."
     # (A-Bretagard Stronghold/Fancy Footwork) — the pump-family sibling of
     # `untap_previous_group`, same previous-target-group gate.
@@ -8592,6 +8657,13 @@ HANDLERS: list[EffectHandler] = [
         "blight",
         _c(r"blight (?P<n>\d+)"),
         _blight,
+    ),
+    # "earthbend X, where X is [twice] the number of <count>" (PAR-30) —
+    # tried before the plain-N row (its regex needs a digit, so no overlap).
+    EffectHandler(
+        "earthbend_x",
+        _EARTHBEND_X_RE,
+        _earthbend_x,
     ),
     # "earthbend N" (RULE 701.66, Avatar: TLA) — target land you control
     # becomes a 0/0 haste creature that's still a land + N +1/+1 counters.

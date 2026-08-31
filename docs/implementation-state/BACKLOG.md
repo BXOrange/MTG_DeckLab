@@ -180,11 +180,19 @@ its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
     Waterbender Ascension (quest counters), Hama (alt-cast by
     waterbending), Aang's Iceberg (O-Ring clause).
 
-  - **Earthbend (RULE 701.66) residue.** Dynamic "earthbend X, where X is
-    `<count>`" (Beifong's Bounty Hunters "that creature's power", Bumi's
-    Feast Lecture "twice the number of Foods"); "earthbend N, then untap
-    that land" `previous_subject` pronoun tail (Avatar Kyoshi); "earthbend
-    N. when you do, `<reflexive trigger>`" (Earth Rumble). ~8 cards.
+  - **Earthbend (RULE 701.66) residue — partly shipped (v134).** Done:
+    "earthbend X, where X is [twice] the number of `<board count>`"
+    (`EarthbendEffect.amount_from_count_selector` + `amount_multiplier` —
+    Rockalanche, The Boulder Ready to Rumble, Bumi's Feast Lecture); the
+    "earthbend N, then untap **that land**" `previous_subject` pronoun tail
+    (Avatar Kyoshi — `earthbend` now announces a land referent, new
+    `_TAP_PREVIOUS_SUBJECT_RE` for "tap/untap that land|permanent|artifact|
+    creature", which also closed ~8 unrelated "pump/attach/+1+1 target
+    creature. Untap that creature." cards). Still open: "earthbend X, where
+    X is **that creature's power**" — a dying creature's own last-known
+    power (Beifong's Bounty Hunters); "earthbend N. when you do,
+    `<reflexive trigger>`" (Earth Rumble); "earthbend N. then each creature
+    …" pronoun-to-that-land's-power (Earthshape).
 
   - **Airbend (RULE 701.65) residue.** "airbend that creature" trigger-
     subject pronoun (Monk Gyatso); "airbend … creature or **spell**"

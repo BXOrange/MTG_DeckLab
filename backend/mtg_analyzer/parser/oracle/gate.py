@@ -1324,7 +1324,20 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `create_token`'s own `count=2`. "…where X is its power" / "…that many
 #: times" stay UNMODELED, fail-closed. +3 (Glistening Dawn, Blight Titan,
 #: Chrome Host Seedshark), 0 regressed.
-PARSER_VERSION = "133"
+#: "134": PAR-30 — Earthbend residue. "earthbend X, where X is [twice] the
+#: number of `<count>`" (`_earthbend_x`/`_EARTHBEND_X_RE`): `EarthbendEffect`
+#: gained `amount_from_count_selector` (live `continuous.count_selector`) +
+#: `amount_multiplier` (Bumi's Feast Lecture's "twice"). "earthbend N, then
+#: untap **that land**" (Avatar Kyoshi): `earthbend` is now recognised by
+#: `segmenter._announces_creature_target` as picking a land, and a new
+#: `previous_subject`-only `_TAP_PREVIOUS_SUBJECT_RE` claims "tap/untap that
+#: land|permanent|artifact|creature" — which also closed a cluster of
+#: "pump/attach/+1+1-counter target creature. Untap that creature." cards.
+#: "…where X is that creature's power" stays UNMODELED. +12 (Rockalanche,
+#: The Boulder, Bumi's Feast Lecture, Avatar Kyoshi + Savage Surge, Stony
+#: Strength, Galadhrim Bow, Stun Sniper, Super Suit, Veteran's Reflexes,
+#: Seedcradle Witch, Stabbing Pain), 0 regressed.
+PARSER_VERSION = "134"
 
 
 def parser_source_hash() -> str:

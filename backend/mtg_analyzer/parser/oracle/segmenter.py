@@ -2355,8 +2355,16 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
     """
     if not specs:
         return False
+    last = specs[-1]
+    # "earthbend N, then untap **that land**." (Avatar Kyoshi — PAR-30): an
+    # ``earthbend`` spec always picks a target land you control (the
+    # `TargetSpec` is built inside `EarthbendEffect.__init__`, not surfaced
+    # as a param), so it's recognised by type here rather than by scanning
+    # params like every other kind below.
+    if last.type == "earthbend" and not last.params.get("previous_subject"):
+        return True
     values: list[Any] = []
-    for value in specs[-1].params.values():
+    for value in last.params.values():
         values.extend(value if isinstance(value, list) else [value])
     return any(
         isinstance(v, str) and (

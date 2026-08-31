@@ -10149,10 +10149,20 @@ class EarthbendEffect(GameEffect):
         amount: Any = 1,
         previous_subject: bool = False,
         source: Optional["GameObject"] = None,
+        amount_from_count_selector: Optional[str] = None,
+        amount_multiplier: int = 1,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.previous_subject = previous_subject
+        #: RULE 701.66's dynamic "earthbend X, where X is `<board count>`"
+        #: (Rockalanche/The Boulder, Ready to Rumble — PAR-30), read live via
+        #: `continuous.count_selector` at resolution, the same idiom
+        #: `BolsterEffect.amount_from_count_selector` uses. ``amount_
+        #: multiplier`` folds in a "**twice** the number of …" prefix
+        #: (Bumi's Feast Lecture).
+        self.amount_from_count_selector = amount_from_count_selector
+        self.amount_multiplier = max(1, int(amount_multiplier))
         self.target_spec = (
             None if previous_subject else TargetSpec(kind="land_you_control")
         )
@@ -10167,10 +10177,20 @@ class EarthbendEffect(GameEffect):
             lands = [t for t in (targets or []) if getattr(t, "instance_id", None) is not None]
         if not lands:
             return
-        try:
-            amount = int(self.amount)
-        except (TypeError, ValueError):
-            amount = 0  # unresolved "x" sentinel — nothing to add
+        if self.amount_from_count_selector:
+            from . import continuous  # function-scoped: avoid an import cycle
+            from ..parser.oracle.spec import MAX_EFFECT_MAGNITUDE
+
+            controller_id = getattr(self.source, "controller_id", None)
+            raw = continuous.count_selector(
+                context.state, controller_id, self.amount_from_count_selector, source=self.source,
+            ) * self.amount_multiplier
+            amount = max(0, min(int(raw), MAX_EFFECT_MAGNITUDE))
+        else:
+            try:
+                amount = int(self.amount)
+            except (TypeError, ValueError):
+                amount = 0  # unresolved "x" sentinel — nothing to add
         context.engine.earthbend(lands[0], max(0, amount), source=self.source)
 
 
@@ -18427,6 +18447,8 @@ EffectRegistry.register(
     lambda p: EarthbendEffect(
         amount=p.get("amount", p.get("count", 1)),
         previous_subject=bool(p.get("previous_subject")),
+        amount_from_count_selector=p.get("amount_from_count_selector"),
+        amount_multiplier=int(p.get("amount_multiplier", 1) or 1),
     ),
 )
 EffectRegistry.register(

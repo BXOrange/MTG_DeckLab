@@ -649,8 +649,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **36.4%
-covered (12,683 / 34,811) as of 2026-08-31, PARSER_VERSION 133** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **36.5%
+covered (12,695 / 34,811) as of 2026-08-31, PARSER_VERSION 134** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -744,7 +744,14 @@ reanimator-token *connector* `segmenter._EXILE_THEN_COPY_SENTENCE_RE`
 ("Exile … from graveyard. [If you do,] create a token that's a copy of
 **that card**", feeding PAR-18's `CopyPermanentEffect(referent="previous")`;
 "you may exile" peel + untargeted-determiner `_EXILE_FROM_GRAVEYARD_RE`
-widen) [+1 — Ardyn, the Usurper]). **PAR-29 is closed** — every RULE 701
+widen) [+1 — Ardyn, the Usurper], 133–134 chip at `PAR-30`: 133 = "incubate
+X, where X is `<count>`" (`CreateTokenEffect.extra_counters` →
+`count_from_count_selector` / `count_from_trigger_event`) [+3], 134 =
+"earthbend X, where X is [twice] the number of `<count>`"
+(`EarthbendEffect.amount_from_count_selector` / `amount_multiplier`) + the
+"earthbend N, then untap **that land**" pronoun tail (`_TAP_PREVIOUS_
+SUBJECT_RE`, which also caught ~8 "…target creature. Untap that creature."
+cards) [+12]). **PAR-29 is closed** — every RULE 701
 keyword action has parser recognition + an engine primitive, and its three
 spun-off engine tickets (`ENG-31`/`ENG-32`/`ENG-33`) have all shipped. The
 residual per-card grammar is `PAR-30`.
