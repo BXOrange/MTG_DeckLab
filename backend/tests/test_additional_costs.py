@@ -175,9 +175,12 @@ class TestParserClaims:
         )
         assert not result.modeled
 
-    def test_permanent_never_claims_additional_cost_line(self):
-        # RULE 601.2b is a *spell* cost — a permanent printing this text
-        # (hypothetically) must not have it recognized as a spell cost.
+    def test_permanent_claims_recognized_additional_cost_line(self):
+        # RULE 601.2b additional costs apply to *any* spell, creature spells
+        # included — real cards print this (Demon of Catastrophes, Kinsbaile
+        # Aspirant, Lys Alana Dignitary). The "as an additional cost to cast
+        # this spell," wrapper is unambiguous, so it's recognized regardless
+        # of card type (PAR-29 Behold ungated it).
         card = Card(
             id="Permanent Test",
             name="Permanent Test",
@@ -188,6 +191,26 @@ class TestParserClaims:
             power=1,
             toughness=1,
             oracle_text="As an additional cost to cast this spell, sacrifice a creature.",
+        )
+        result = parse_oracle(card)
+        assert result.modeled, result.unclaimed
+        cost_spec = next(s for s in result.specs if s.additional_cost)
+        assert cost_spec.additional_cost == {"sacrifice": "creature"}
+
+    def test_permanent_still_fails_closed_on_unrecognized_additional_cost(self):
+        # Ungating the wrapper doesn't widen the closed cost vocabulary: a
+        # permanent with an out-of-vocabulary additional cost is still
+        # UNMODELED, exactly as a sorcery would be.
+        card = Card(
+            id="Permanent Test 2",
+            name="Permanent Test 2",
+            type_line="Creature — Bear",
+            mana_cost_string="{1}{G}",
+            converted_mana_cost=2,
+            is_creature=True,
+            power=1,
+            toughness=1,
+            oracle_text="As an additional cost to cast this spell, sacrifice two creatures.",
         )
         result = parse_oracle(card)
         assert not result.modeled

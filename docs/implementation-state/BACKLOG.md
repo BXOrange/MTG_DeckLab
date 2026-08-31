@@ -110,8 +110,7 @@ Plan-level sequencing lives in
     et al. are wrongly MODELED — the fix (fail-closed on "blight" in a
     cost, or the real payment path) will *reduce* the coverage count by
     ~5 until built. Time Travel (701.56, ~3 — suspend-
-    adjacent); Behold (701.4, ~6 — "behold a `<quality>`" additional
-    cost); Harness (701.64 — a monstrous-style marker designation, only
+    adjacent); Harness (701.64 — a monstrous-style marker designation, only
     ~3 cards), Heal (701.69 — remove marked damage, ~0 cache cards);
     the Avatar bending quartet — Airbend (701.65), Earthbend
     (701.66, ~18), Waterbend (701.67, ~11 — a "tap artifacts/creatures
@@ -169,6 +168,19 @@ Plan-level sequencing lives in
     primitive; exotic-body/targeted-payoff/alt-cast residue open above),
     Forage (PARSER_VERSION 119 — `ActivationCost.forage` +
     `RulesEngine.forage`; targeted-payoff/alt-cast residue open above),
+    Behold (PARSER_VERSION 120 — `ActivationCost.behold` + `RulesEngine.
+    behold` + `EventType.BEHELD`, a never-blocking additional cast cost;
+    the "or pay {N}" alternative is a documented simplification, same
+    precedent as `_ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE`. The "as an
+    additional cost to cast this spell," wrapper was ungated from
+    instants/sorceries in the same pass, so recognized additional costs on
+    real creature spells — Demon of Catastrophes, Kinsbaile Aspirant &c. —
+    model now too. **Residue open:** Molten Exhale's "cast as though it had
+    flash if you behold a dragon as an additional cost" (conditional-flash
+    fused with the additional cost); Elven Passage's "you may behold an
+    elf. If you do, untap that land." activated-ability body; the Champion
+    cycle's "behold a `<type>` and exile it" + LTB return; Celestial
+    Reunion's "behold 2 creatures of a chosen type"),
     Learn (PARSER_VERSION 117 —
     `RulesEngine.learn`, an optional discard-then-draw via the existing
     `request_choose_objects` chooser; the "Lesson from outside the game"

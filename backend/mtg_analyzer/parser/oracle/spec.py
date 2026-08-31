@@ -751,6 +751,13 @@ class AbilitySpec:
                 raise SpecValidationError(
                     "'additional_cost' pay_life must be a positive int or 'x'"
                 )
+        elif key == "behold":
+            # RULE 701.4a (PAR-29): "behold a `<type>` or pay {N}." — the
+            # value is the type word to reveal. The "or pay {N}" alternative
+            # is a documented simplification, not represented here (same as
+            # `_ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE`).
+            if not isinstance(value, str) or not value.strip():
+                raise SpecValidationError("'additional_cost' behold must be a non-empty type word")
         else:
             raise SpecValidationError(f"unknown additional_cost kind {key!r}")
 

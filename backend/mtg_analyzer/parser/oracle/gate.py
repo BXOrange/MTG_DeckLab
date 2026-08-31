@@ -1222,7 +1222,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (a designation-aware group trigger filter) are real new-primitive needs
 #: this batch found but did not build - flagged in BACKLOG.md rather than
 #: silently deferred.
-PARSER_VERSION = "119"
+PARSER_VERSION = "120"
 
 
 def parser_source_hash() -> str:

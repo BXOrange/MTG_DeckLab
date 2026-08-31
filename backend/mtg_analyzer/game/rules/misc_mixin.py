@@ -1807,6 +1807,46 @@ class MiscSystemsMixin:
             EventType.FORAGED, player_id=player.id, controller_id=player.id,
         ))
         return did
+    def behold(
+        self, player: Player, quality: str, source: Optional[GameObject] = None
+    ) -> bool:
+        """"Behold" (RULE 701.4a — Tarkir: Dragonstorm): ``player`` reveals a
+        permanent they control with ``quality``, or a card with ``quality``
+        from their hand. Returns whether a behold actually happened (a
+        matching object existed to reveal), firing `EventType.BEHELD` in
+        that case.
+
+        ``quality`` is a creature-type word for every real card that uses
+        this (dragon/elf/kithkin/merfolk), matched case-insensitively via
+        `continuous.has_subtype` against the printed type line — the same
+        substring approach the "tap N Elves you control" cost uses.
+
+        Beholding has no game-state effect of its own; it's the reveal that
+        matters at a real table. In this engine it's reached as an
+        *additional cast cost* ("behold a dragon or pay {N}") — see
+        `GameEngine._pay_additional_cast_cost` and the **documented
+        simplification** there (the "or pay {N}" alternative isn't modeled,
+        mirroring the existing `_ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE`
+        precedent): a spell casts whether or not the behold succeeds.
+        """
+        revealed: Optional[GameObject] = None
+        for obj in self.state.battlefield:
+            if obj.controller_id == player.id and continuous.has_subtype(obj, quality):
+                revealed = obj
+                break
+        if revealed is None:
+            for card_obj in player.hand:
+                if continuous.has_subtype(card_obj, quality):
+                    revealed = card_obj
+                    break
+        if revealed is None:
+            return False
+        self.state.fire_event(GameEvent(
+            EventType.BEHELD,
+            player_id=player.id, controller_id=player.id,
+            instance_id=revealed.instance_id, quality=quality,
+        ))
+        return True
     def _endure_make_token(self, player: Player, amount: int) -> None:
         """The token half of `endure` (RULE 701.63a) — an N/N white Spirit
         creature token."""

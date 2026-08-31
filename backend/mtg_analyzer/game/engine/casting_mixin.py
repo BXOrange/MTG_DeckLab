@@ -1684,6 +1684,10 @@ class CastingMixin:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             if player.life < amount:
                 return False
+        # RULE 701.4a (PAR-29): a `behold` additional cost never blocks
+        # casting — the "or pay {N}" alternative (the documented-dropped
+        # half) means a player with no matching permanent/hand card still
+        # gets to cast. `_pay_additional_cast_cost` reveals one if able.
         return True
     def _pay_additional_cast_cost(
         self,
@@ -1739,6 +1743,13 @@ class CastingMixin:
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             self.rules.lose_life(player, amount, cause="cost")
+        if cost.behold:
+            # RULE 701.4a (PAR-29): reveal a matching permanent/hand card if
+            # one exists. Non-blocking — `_can_pay_additional_cast_cost`
+            # never rejects a behold cost (the "or pay {N}" alternative is
+            # the documented-dropped half), so this is a best-effort reveal:
+            # a `behold` returning False just means nothing was revealed.
+            self.rules.behold(player, cost.behold, source=obj)
     def _exile_hand_card_candidate(
         self, player: Player, color: str, exclude: Optional[GameObject] = None
     ) -> Optional[GameObject]:

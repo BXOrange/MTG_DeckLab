@@ -649,8 +649,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **36.0%
-covered (12,541 / 34,811) as of 2026-08-31, PARSER_VERSION 119** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **36.1%
+covered (12,550 / 34,811) as of 2026-08-31, PARSER_VERSION 120** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -676,7 +676,16 @@ activation costs / `pay_cost_then` / a "whenever you collect evidence"
 trigger [+3], 119 was PAR-29's RULE 701.61 Forage — the same cost-family
 build (`ActivationCost.forage` bool, `RulesEngine.forage` auto-picking
 "exile 3 from graveyard" vs "sacrifice a Food", `EventType.FORAGED`,
-`effects.ForageEffect`, a "whenever you forage" trigger) [+3]).
+`effects.ForageEffect`, a "whenever you forage" trigger) [+3], 120 was
+PAR-29's RULE 701.4 Behold — `ActivationCost.behold` (the type word),
+`RulesEngine.behold` (reveal a matching permanent/hand card, fire
+`EventType.BEHELD`), wired into `_pay_additional_cast_cost` as a
+never-blocking additional cast cost with the "or pay {N}" alternative a
+documented simplification (same precedent as `_ADDITIONAL_COST_PAY_LIFE_OR_
+MANA_RE`); the "as an additional cost to cast this spell," wrapper was also
+ungated from instants/sorceries, so real creature spells that carry a
+recognized additional cost (Demon of Catastrophes, Kinsbaile Aspirant, …)
+model it now too [+9]).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in

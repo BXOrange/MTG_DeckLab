@@ -219,6 +219,17 @@ class EventType:
     #: …" (Corpseberry Cultivator/Euru, Acorn Scrounger). Fired even if
     #: neither option was possible (701.61b process-complete).
     FORAGED = "FORAGED"
+    #: A player beheld a quality (RULE 701.4a — revealed a permanent they
+    #: control with that quality, or a card with that quality from their
+    #: hand, most often as an additional cost to cast a spell) — fired once
+    #: by `RulesEngine.behold`, carrying ``player_id``/``controller_id``
+    #: (that player, the SCRY/SURVEIL player-subject convention),
+    #: ``quality`` (the type word) and ``instance_id`` (what was revealed).
+    #: Only fired when a behold actually happened (a matching object
+    #: existed); nothing in scope triggers on it yet, but the row keeps the
+    #: keyword-action family's "fire an event so a future trigger can see
+    #: it" convention.
+    BEHELD = "BEHELD"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
     #: The Ring tempted a player (RULE 701.51a, Tales of Middle-earth) —

@@ -304,6 +304,16 @@ class ActivationCost:
     #: (auto-picks between the two halves) from `_pay_activation_cost` /
     #: `_pay_player_cost`.
     forage: bool = False
+    #: RULE 701.4a (Behold, PAR-29 — Tarkir: Dragonstorm): "as an additional
+    #: cost to cast this spell, behold a `<type>` or pay {N}." — the type
+    #: word to reveal (a creature type for every real card). Charged by
+    #: `GameEngine._pay_additional_cast_cost` / `RulesEngine._pay_player_
+    #: cost` via `RulesEngine.behold`. **Documented simplification:** the
+    #: "or pay {N}" mana alternative isn't modeled (same precedent as
+    #: `segmenter._ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE`) — the behold is
+    #: attempted, and the spell casts whether or not it succeeds; it never
+    #: blocks casting.
+    behold: Optional[str] = None
     #: "Tap N untapped <type>s you control" (Birchlore Rangers, Heritage
     #: Druid) — ``(count, singular type word)``; taps *other* permanents
     #: instead of the source. Not limited by the tapped permanents' own
@@ -566,6 +576,7 @@ class ActivationCost:
             or self.exile_from_graveyard
             or self.collect_evidence
             or self.forage
+            or self.behold
             or self.tap_others
             or self.sacrifice_count
             or self.add_counters_cost
@@ -622,6 +633,8 @@ class ActivationCost:
             parts.append(f"Collect evidence {self.collect_evidence}")
         if self.forage:
             parts.append("Forage")
+        if self.behold:
+            parts.append(f"Behold a {self.behold}")
         if self.tap_others:
             count, subtype = self.tap_others
             parts.append(f"Tap {count} untapped {subtype}(s) you control")
@@ -672,6 +685,7 @@ class ActivationCost:
             "exile_from_graveyard": self.exile_from_graveyard,
             "collect_evidence": self.collect_evidence,
             "forage": self.forage,
+            "behold": self.behold,
             "tap_others": list(self.tap_others) if self.tap_others else None,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
@@ -752,6 +766,8 @@ def parse_activation_cost(
         parsed.collect_evidence = int(cost["collect_evidence"])
     if cost.get("forage"):
         parsed.forage = True
+    if cost.get("behold"):
+        parsed.behold = str(cost["behold"])
     if cost.get("tap_others"):
         count, subtype = cost["tap_others"]
         parsed.tap_others = (int(count), str(subtype))

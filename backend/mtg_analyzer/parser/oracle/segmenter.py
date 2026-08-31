@@ -268,6 +268,10 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # Acorn Scrounger). `RulesEngine.forage` fires `EventType.FORAGED`
     # per-player.
     (re.compile(r"^you forage$"), "FORAGED"),
+    # RULE 701.4b: "Whenever you behold …". No card in the current pool
+    # triggers on beholding, but the row keeps the keyword-action family's
+    # per-player `player_id` convention ready for one that does.
+    (re.compile(r"^you behold(?: an?\s+\w+)?$"), "BEHELD"),
 )
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
@@ -1291,6 +1295,18 @@ _ADDITIONAL_COST_PAY_LIFE_RE = re.compile(r"^pay\s+(x|\d+)\s+life$", re.IGNORECA
 _ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE = re.compile(
     r"^pay\s+(x|\d+)\s+life or pay\s+\{[^}]+\}$", re.IGNORECASE
 )
+#: RULE 701.4a (Behold, PAR-29 — Tarkir: Dragonstorm): "behold a `<type>`
+#: [or pay {N}]" as an additional cast cost (Caustic Exhale/Lys Alana
+#: Dignitary/Silvergill Mentor/Kinsbaile Aspirant). The type word is a
+#: creature type for every real card. **Documented simplification**: the
+#: "or pay {N}" mana alternative is dropped (same idiom as
+#: `_ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE` just above) — a spell is beheld
+#: for if a matching permanent/hand card exists and casts regardless. A
+#: trailing "and exile it." (the Champion cycle) deliberately fails this
+#: anchor, staying unclaimed.
+_ADDITIONAL_COST_BEHOLD_RE = re.compile(
+    r"^behold an?\s+(?P<q>[a-z][a-z'-]*)(?:\s+or pay\s+\{[^}]+\})?$", re.IGNORECASE
+)
 
 #: RULE 601.2f-adjacent: "If you control a commander, you may cast this
 #: spell without paying its mana cost." (Deadly Rollick/Deflecting Swat/
@@ -1582,6 +1598,9 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     if life_or_mana is not None:
         amount = life_or_mana.group(1)
         return {"pay_life": "x" if amount.lower() == "x" else int(amount)}
+    beh = _ADDITIONAL_COST_BEHOLD_RE.match(text)
+    if beh is not None:
+        return {"behold": beh.group("q").strip()}
     return None
 
 
@@ -3262,24 +3281,29 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
-    # RULE 601.2b/604.3 additional cost — instants/sorceries only, and
-    # checked before every other wrapper since it has neither a trigger word
-    # nor a colon (so it can't be mistaken for one of those shapes below).
-    if allow_spell_effect:
-        add_cost = _ADDITIONAL_COST_LINE_RE.match(raw)
-        if add_cost is not None:
-            cost = _additional_cost_dict(add_cost.group("cost"))
-            if cost is None:
-                return Segment(raw=raw)  # unrecognised cost shape → unclaimed
-            spec = AbilitySpec(
-                "spell_effect",
-                effects=[],
-                additional_cost=cost,
-                raw_text=raw,
-                parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
+    # RULE 601.2b/604.3 additional cost — checked before every other wrapper
+    # since it has neither a trigger word nor a colon (so it can't be
+    # mistaken for one of those shapes below). Not gated by
+    # ``allow_spell_effect``: the "as an additional cost to cast this spell,"
+    # wrapper is unambiguous and applies to a creature/other permanent spell
+    # just as much as an instant/sorcery (Kinsbaile Aspirant/Lys Alana
+    # Dignitary/Silvergill Mentor — Behold, PAR-29), and the spec it emits
+    # carries no bare imperative for the gate to guard against.
+    add_cost = _ADDITIONAL_COST_LINE_RE.match(raw)
+    if add_cost is not None:
+        cost = _additional_cost_dict(add_cost.group("cost"))
+        if cost is None:
+            return Segment(raw=raw)  # unrecognised cost shape → unclaimed
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            additional_cost=cost,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
 
+    if allow_spell_effect:
         # RULE 601.2f-adjacent condition-gated free-cast alternative cost —
         # "If you control a commander, you may cast this spell without
         # paying its mana cost." — its own standalone line, same treatment.

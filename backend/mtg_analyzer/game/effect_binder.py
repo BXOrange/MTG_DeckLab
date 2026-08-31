@@ -256,6 +256,9 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # "Whenever you forage, …" (RULE 701.61b, PAR-29) — `RulesEngine.forage`
     # fires `FORAGED` per-player.
     "FORAGED": "player_id",
+    # "Whenever you behold …" (RULE 701.4b, PAR-29) — `RulesEngine.behold`
+    # fires `BEHELD` per-player.
+    "BEHELD": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE
