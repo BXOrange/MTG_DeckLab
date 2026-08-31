@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.7% covered — 12,783 / 34,811 — as of 2026-08-31, PARSER_VERSION 138.**
+**36.8% covered — 12,810 / 34,811 — as of 2026-08-31, PARSER_VERSION 139.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -210,6 +210,25 @@ turn, it gains haste and `<X>`" — Furnace Reins / Loki's Scepter / Flayer
 of Loyalties), and after-tails (Goatnap's "if that creature is a Goat",
 Awaken the Sleeper's "if it's equipped", Bloody Betrayal's "create a Blood
 token" — that last blocked only on Blood tokens not parsing at all).
+
+139 = PAR-30 — the pre-daybound Innistrad **werewolf** day/night check
+(RULE 603.4 intervening-if). "At the beginning of each upkeep, if no
+spells were cast last turn, transform ~." (front → werewolf) and its
+mirror "…if a player cast 2 or more spells last turn, transform ~."
+(back → human). Two `parse_effect_body` leading-if handlers
+(`_WEREWOLF_NO_SPELLS_CONDITION_RE` / `_WEREWOLF_TWO_SPELLS_CONDITION_RE`)
+→ `ConditionalEffect`'s new `no_spells_cast_last_turn` /
+`two_or_more_spells_cast_last_turn` keys, each reading
+`GameState._last_turn_spell_count` — the previous turn's active player's
+final cast count, captured at turn rotation, the exact field
+`RulesEngine.apply_day_night_turn_check` (RULE 731.2a/2b) already uses for
+the daybound/nightbound successor mechanic; the condition never holds on
+turn 1 (`_last_turn_player_id is None`), matching that check's own turn-1
+no-op. Whitelisted in `spec._ALLOWED_CONDITION_KEYS`. +27 — the whole DFC
+werewolf cycle (Reckless Waif, Kruin Outlaw, Mayor of Avabruck, Mondronen
+Shaman, Village Messenger, Call of the Full Moon's Aura form, …), 0
+regressed. The legacy "deliberately deferred" negative test in
+`test_batch9_conditional_transform_family.py` flipped to a positive one.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

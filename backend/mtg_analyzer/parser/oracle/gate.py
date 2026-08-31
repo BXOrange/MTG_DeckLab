@@ -1378,7 +1378,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: over a now-multi-target `GainControlUntilEndOfTurnEffect` (`apply`
 #: iterates every chosen target). +6 (Enthralling Victor, Metallic Mastery,
 #: Mass Mutiny, Molten Primordial, Smelt-Ward Ignus, Wrangle), 0 regressed.
-PARSER_VERSION = "138"
+#: "139": PAR-30 — the pre-daybound Innistrad **werewolf** day/night check
+#: (RULE 603.4 intervening-if): "at the beginning of each upkeep, if no
+#: spells were cast last turn, transform ~." (front → werewolf) / "…if a
+#: player cast 2 or more spells last turn, transform ~." (back → human).
+#: Two `parse_effect_body` leading-if handlers → `ConditionalEffect`'s new
+#: `no_spells_cast_last_turn` / `two_or_more_spells_cast_last_turn` keys,
+#: reading `GameState._last_turn_spell_count` (the same field
+#: `apply_day_night_turn_check` / RULE 731.2 already use). +27 — the whole
+#: DFC werewolf cycle (Reckless Waif, Kruin Outlaw, Mayor of Avabruck, …),
+#: 0 regressed.
+PARSER_VERSION = "139"
 
 
 def parser_source_hash() -> str:

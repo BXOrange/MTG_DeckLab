@@ -649,8 +649,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **36.7%
-covered (12,783 / 34,811) as of 2026-08-31, PARSER_VERSION 138** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **36.8%
+covered (12,810 / 34,811) as of 2026-08-31, PARSER_VERSION 139** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -777,7 +777,14 @@ filter, and a new whole-clause "for each opponent, gain control of up to 1
 target creature that player controls …" reaches the `count_selector=
 "opponents"` shape over a now-multi-target `GainControlUntilEndOfTurnEffect`
 — Enthralling Victor, Metallic Mastery, Mass Mutiny, Molten Primordial &c.
-[+6]).
+[+6]),
+139 = the pre-daybound Innistrad **werewolf** day/night check (RULE 603.4
+intervening-if) — "at the beginning of each upkeep, if no spells were cast
+last turn, transform ~." / "…if a player cast 2 or more spells last turn,
+transform ~." → `ConditionalEffect`'s new `no_spells_cast_last_turn` /
+`two_or_more_spells_cast_last_turn` keys reading `GameState.
+_last_turn_spell_count` (the field RULE 731.2's daybound/nightbound check
+already uses); the whole 27-card DFC werewolf cycle [+27]).
 **PAR-29 is closed** — every RULE 701
 keyword action has parser recognition + an engine primitive, and its three
 spun-off engine tickets (`ENG-31`/`ENG-32`/`ENG-33`) have all shipped. The

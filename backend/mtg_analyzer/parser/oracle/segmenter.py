@@ -1142,6 +1142,24 @@ _CONTROLS_NONE_OF_TYPE_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: The pre-daybound Innistrad **werewolf** day/night check (RULE 603.4
+#: intervening-if — ~26 front faces + their backs): "if no spells were cast
+#: last turn, transform ~." (front → werewolf) and its mirror "if a player
+#: cast 2 or more spells last turn, transform ~." (back → human). Same
+#: "wrap the rest, tag the condition" idiom as the rows above, onto
+#: `effects.ConditionalEffect`'s ``"no_spells_cast_last_turn"`` /
+#: ``"two_or_more_spells_cast_last_turn"`` keys, which read
+#: `GameState._last_turn_spell_count` — the same field
+#: `RulesEngine.apply_day_night_turn_check` (RULE 731.2a/2b) already uses
+#: for the daybound/nightbound successor mechanic.
+_WEREWOLF_NO_SPELLS_CONDITION_RE = re.compile(
+    r"^if no spells were cast last turn,\s*(?P<rest>.+)$", re.IGNORECASE,
+)
+_WEREWOLF_TWO_SPELLS_CONDITION_RE = re.compile(
+    r"^if a player cast (?:2|two) or more spells last turn,\s*(?P<rest>.+)$",
+    re.IGNORECASE,
+)
+
 #: RULE 701.30d's "clash with an opponent. **if you win**, `<effect>`.
 #: **otherwise**, `<effect>`." branch (PAR-29) — same "wrap the rest, tag the
 #: condition" idiom as `_KICKED_CONDITION_RE`, onto `effects.
@@ -2144,6 +2162,23 @@ def parse_effect_body(
             )
             for e in inner
         ]
+
+    for _werewolf_re, _werewolf_key in (
+        (_WEREWOLF_NO_SPELLS_CONDITION_RE, "no_spells_cast_last_turn"),
+        (_WEREWOLF_TWO_SPELLS_CONDITION_RE, "two_or_more_spells_cast_last_turn"),
+    ):
+        _werewolf_m = _werewolf_re.match(body)
+        if _werewolf_m is not None:
+            inner = parse_effect_body(
+                _werewolf_m.group("rest"), self_subject=self_subject,
+                previous_subject=previous_subject, group_subject=group_subject,
+            )
+            if inner is None:
+                return None
+            return [
+                EffectSpec(e.type, dict(e.params), condition={_werewolf_key: True})
+                for e in inner
+            ]
 
     first_combat_phase = _FIRST_COMBAT_PHASE_CONDITION_RE.match(body)
     if first_combat_phase is not None:

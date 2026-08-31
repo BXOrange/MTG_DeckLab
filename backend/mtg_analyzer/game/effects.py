@@ -2273,6 +2273,25 @@ class ConditionalEffect(GameEffect):
             is_bearer = bearer_id is not None and bearer_id == source_id
             if not (is_bearer if is_ring_bearer else not is_bearer):
                 return False
+        no_spells_last_turn = self.condition.get("no_spells_cast_last_turn")
+        two_or_more_spells_last_turn = self.condition.get("two_or_more_spells_cast_last_turn")
+        if no_spells_last_turn or two_or_more_spells_last_turn:
+            # The pre-daybound Innistrad werewolf day/night check (RULE
+            # 603.4 intervening-if): "if no spells were cast last turn,
+            # transform ~." / "if a player cast 2 or more spells last turn,
+            # transform ~." Reads `GameState._last_turn_spell_count` — the
+            # previous turn's active player's final cast count, captured at
+            # turn rotation, the same field `RulesEngine.apply_day_night_
+            # turn_check` (RULE 731.2a/2b) uses for daybound/nightbound.
+            # No previous turn (turn 1) → the condition never holds, matching
+            # that check's own turn-1 no-op.
+            if context.state._last_turn_player_id is None:
+                return False
+            count = context.state._last_turn_spell_count
+            if no_spells_last_turn and count != 0:
+                return False
+            if two_or_more_spells_last_turn and count < 2:
+                return False
         creatures_died_this_turn_at_least = self.condition.get("creatures_died_this_turn_at_least")
         if creatures_died_this_turn_at_least is not None:
             # "if a creature died under your control this turn, <effect>."

@@ -98,6 +98,11 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # resolution stashed on `GameContext.clash_won` (or the firing
         # `CLASHED` event's own ``won``).
         "clash_won",
+        # PAR-30: the pre-daybound Innistrad werewolf day/night check
+        # (RULE 603.4 intervening-if) — "if no spells were cast last turn,
+        # transform ~." / "if a player cast 2 or more spells last turn,
+        # transform ~." Both read `GameState._last_turn_spell_count`.
+        "no_spells_cast_last_turn", "two_or_more_spells_cast_last_turn",
     }
 )
 
