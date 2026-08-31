@@ -9954,6 +9954,50 @@ class BlightEffect(GameEffect):
         context.engine.blight(player, self.amount, source=self.source)
 
 
+class EarthbendEffect(GameEffect):
+    """"Earthbend N." (RULE 701.66 — Avatar: The Last Airbender): a target
+    land you control becomes a 0/0 creature with haste that's still a land,
+    then gets N +1/+1 counters. `RulesEngine.earthbend` owns the procedure.
+
+    Targets a ``land_you_control`` (the reminder text's "target land you
+    control") unless ``previous_subject`` — "earthbend N, then <do something
+    to> that land" names the land an earlier clause of the same ability
+    already earthbended (`GameContext.previous_targets`), the pronoun idiom
+    `FightEffect`/`GoadEffect` use. ``amount`` may be the literal ``"x"``
+    sentinel `RulesEngine._substitute_x` resolves (int conversion deferred
+    to `apply`, as `EndureEffect` does).
+    """
+
+    def __init__(
+        self,
+        amount: Any = 1,
+        previous_subject: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.previous_subject = previous_subject
+        self.target_spec = (
+            None if previous_subject else TargetSpec(kind="land_you_control")
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.previous_subject:
+            lands = [
+                t for t in context.previous_targets
+                if getattr(t, "is_land", False) or getattr(t, "was_land", False)
+            ]
+        else:
+            lands = [t for t in (targets or []) if getattr(t, "instance_id", None) is not None]
+        if not lands:
+            return
+        try:
+            amount = int(self.amount)
+        except (TypeError, ValueError):
+            amount = 0  # unresolved "x" sentinel — nothing to add
+        context.engine.earthbend(lands[0], max(0, amount), source=self.source)
+
+
 class SacrificeSpecificEffect(GameEffect):
     """Sacrifice the exact permanents baked into this effect (RULE 701.17).
 
@@ -18069,6 +18113,17 @@ EffectRegistry.register(
     # you control (your choice). See `BlightEffect` / `RulesEngine.blight`.
     "blight",
     lambda p: BlightEffect(amount=p.get("amount", p.get("count", 1))),
+)
+EffectRegistry.register(
+    # "Earthbend N" (RULE 701.66, Avatar: The Last Airbender, PAR-29): a
+    # target land you control becomes a 0/0 creature with haste that's still
+    # a land, then gets N +1/+1 counters. See `EarthbendEffect` /
+    # `RulesEngine.earthbend`.
+    "earthbend",
+    lambda p: EarthbendEffect(
+        amount=p.get("amount", p.get("count", 1)),
+        previous_subject=bool(p.get("previous_subject")),
+    ),
 )
 EffectRegistry.register(
     # "Endure N" (RULE 701.63a, Bloomburrow, PAR-29): either N +1/+1

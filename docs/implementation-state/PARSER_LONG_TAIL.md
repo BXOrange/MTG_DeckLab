@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.1% covered — 12,558 / 34,811 — as of 2026-08-31, PARSER_VERSION 121.**
+**36.1% covered — 12,567 / 34,811 — as of 2026-08-31, PARSER_VERSION 122.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -61,7 +61,25 @@ first, documented simplification), `EventType.FORAGED`,
 `effects.ForageEffect`, `pay_cost_then` / bare / "whenever you forage"
 handlers. +3 (Bushy Bodyguard, Corpseberry Cultivator, Treetop Sentries);
 Curious Forager's *targeted* "when you do" payoff and Feed the Cycle's
-"forage or pay {B}" alt additional cast cost stay open.)
+"forage or pay {B}" alt additional cast cost stay open.
+120 = PAR-29's RULE 701.4 Behold — `ActivationCost.behold` + `RulesEngine.
+behold` (reveal a matching permanent/hand card, fire `EventType.BEHELD`),
+wired into `_pay_additional_cast_cost` as a never-blocking additional cast
+cost ("or pay {N}" alt dropped, documented). Also ungated the "as an
+additional cost to cast this spell," segmenter wrapper from instants/
+sorceries — real creature spells carry additional costs. +9.
+121 = PAR-29's RULE 701.68 Blight *cost* forms — `ActivationCost.blight` +
+`RulesEngine.blight(interactive=False)` (auto-pick highest-toughness),
+activated-cost + `_can/_pay_player_cost` + never-blocking additional-cast-
+cost wiring, plus `_PAY_COST_THEN_OR_ELSE_RE` → `PayCostThenEffect.
+else_effects` for "you may `<cost>`. if you don't, `<effect>`". Fixed the
+silent-drop-of-"Blight N"-from-a-cost-string bug. +8.
+122 = PAR-29's RULE 701.66 Earthbend — `RulesEngine.earthbend` parks two
+`rest_of_game` floating statics on the target land you control (layer-4
+`type_change` to a 0/0 creature still a land, layer-6 `grant_keyword`
+haste) then `add_counters` N +1/+1; `effects.EarthbendEffect`. Literal
+`earthbend N` only; the "return it tapped on death/exile" reminder clause
+is a documented simplification. +9.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

@@ -5560,6 +5560,17 @@ def _blight(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("blight", {"amount": int(m.group("n"))})]
 
 
+# "Earthbend N." (RULE 701.66, Avatar: The Last Airbender — "target land you
+# control becomes a 0/0 creature with haste that's still a land. Put N +1/+1
+# counters on it."). `RulesEngine.earthbend` / `effects.EarthbendEffect`
+# (registered as ``earthbend``). Only the literal ``earthbend N`` form; the
+# dynamic "earthbend X, where X is `<count>`" (Beifong's Bounty Hunters,
+# Bumi's Feast Lecture) and the "then untap that land" pronoun tail stay
+# UNMODELED, fail-closed.
+def _earthbend(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("earthbend", {"amount": int(m.group("n"))})]
+
+
 # "Support N." (RULE 701.41a) — put a +1/+1 counter on each of up to N
 # target creatures. Needs no effect of its own: it's the exact spec shape
 # `_add_counters_multi_target` already emits for "put a +1/+1 counter on
@@ -8004,6 +8015,13 @@ HANDLERS: list[EffectHandler] = [
         "blight",
         _c(r"blight (?P<n>\d+)"),
         _blight,
+    ),
+    # "earthbend N" (RULE 701.66, Avatar: TLA) — target land you control
+    # becomes a 0/0 haste creature that's still a land + N +1/+1 counters.
+    EffectHandler(
+        "earthbend",
+        _c(r"earthbend (?P<n>\d+)"),
+        _earthbend,
     ),
     # "support N" (RULE 701.41a) — +1/+1 counter on each of up to N target
     # creatures (rides the existing `add_counters` multi-target path).

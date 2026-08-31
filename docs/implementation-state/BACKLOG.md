@@ -114,8 +114,17 @@ Plan-level sequencing lives in
     haste" payoff can't resolve off-stack. Time Travel (701.56, ~3 — suspend-
     adjacent); Harness (701.64 — a monstrous-style marker designation, only
     ~3 cards), Heal (701.69 — remove marked damage, ~0 cache cards);
-    the Avatar bending quartet — Airbend (701.65), Earthbend
-    (701.66, ~18), Waterbend (701.67, ~11 — a "tap artifacts/creatures
+    the Avatar bending quartet — Airbend (701.65), **Earthbend — residue
+    only** (701.66; the literal `earthbend N` form + `RulesEngine.earthbend`
+    / `effects.EarthbendEffect` shipped at PARSER_VERSION 122, animating the
+    target land you control via two `rest_of_game` floating statics + N
+    +1/+1 counters; the "return it tapped on death/exile" reminder clause is
+    a documented simplification): the dynamic "earthbend X, where X is
+    `<count>`" (Beifong's Bounty Hunters "that creature's power", Bumi's
+    Feast Lecture "twice the number of foods"), the "earthbend N, then untap
+    that land" `previous_subject` pronoun tail (Avatar Kyoshi), and
+    "earthbend N. when you do, `<reflexive trigger>`" (Earth Rumble) stay
+    open, ~8 cards; Waterbend (701.67, ~11 — a "tap artifacts/creatures
     for generic mana" cost mechanic), Firebend; Detain's Lavinia
     mass-selector-with-mana-value-filter and a "with backup or vehicle"
     filter (Azorius Traffic Enforcement); a genuine if/else *effect*
@@ -198,7 +207,10 @@ Plan-level sequencing lives in
     none of it clash-specific), Blight (standalone verb form PARSER_VERSION
     111 + cost forms PARSER_VERSION 121 — `ActivationCost.blight` +
     `RulesEngine.blight(interactive=False)`; activated-body residue open
-    above), Exchange Control, Exchange Life Totals
+    above), Earthbend (literal `earthbend N` — PARSER_VERSION 122,
+    `RulesEngine.earthbend` / `effects.EarthbendEffect`; dynamic-X /
+    pronoun-tail / reflexive-trigger residue open above), Exchange Control,
+    Exchange Life Totals
     (the cross-target qualifier cycle stays open above) — plus
     engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
