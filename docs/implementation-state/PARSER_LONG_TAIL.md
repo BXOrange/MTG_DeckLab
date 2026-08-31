@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.0% covered — 12,875 / 34,811 — as of 2026-08-31, PARSER_VERSION 143.**
+**37.0% covered — 12,876 / 34,811 — as of 2026-09-01, PARSER_VERSION 143.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -301,10 +301,20 @@ already carried for `LoseLifeEffect.amount_from_trigger_event`. Deliberately
 anchored on the literal "that creature's power" so it only claims the
 dying-subject read; "its power" / "that creature's toughness" stay
 UNMODELED. +1, 0 regressed; verified end-to-end (a 5/5 dying earthbends the
-land by 5; a plain land dying doesn't fire the trigger). Still open in the
-cluster: **Earthshape** ("earthbend N. then each creature you control with
-power <= **that land's power** gains hexproof and indestructible until end
-of turn. you gain hexproof until end of turn").
+land by 5; a plain land dying doesn't fire the trigger).
+
+The Earthbend residue cluster's **last card, Earthshape**, is hand-authored
+(`ability_catalogue/entries_016.py`, no PARSER_VERSION bump) rather than
+parsed: the "power <= **that land's power**" threshold is a read of the
+just-earthbent land's power that no general handler warrants building for
+one Avatar-set singleton. Two documented simplifications — "that land's
+power" is modeled as the literal earthbend amount (3; a freshly-animated
+land is 0/0 + three +1/+1 counters = 3/3), carried by
+`PumpEffect.creature_filter`'s `max_power`, which this pass also taught to
+narrow the `selector`-group branch (not only the targeted one); and "You
+gain hexproof until end of turn" is dropped (player-level hexproof is
+deliberately unmodeled, same call as Veil of Summer in the Kinnan/M-K
+batch). **Earthbend residue is now closed** — its BACKLOG bullet deleted.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

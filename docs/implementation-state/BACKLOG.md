@@ -145,15 +145,6 @@ Plan-level sequencing lives in
     Waterbender Ascension (quest counters), Hama (alt-cast by
     waterbending), Aang's Iceberg (O-Ring clause).
 
-  - **Earthbend (RULE 701.66) residue.** One card left: **Earthshape** —
-    "earthbend N. then each creature you control with power <= **that land's
-    power** gains hexproof and indestructible until end of turn. you gain
-    hexproof until end of turn". Needs a `_GROUP` grant whose power
-    threshold is the just-earthbent land's power (a "that land" pronoun read
-    of `GameContext.previous_targets`, distinct from every existing literal/
-    count-selector threshold), plus a plain "you gain `<kw>` until end of
-    turn" player-subject grant.
-
   - **Airbend (RULE 701.65) residue.** "airbend that creature" trigger-
     subject pronoun (Monk Gyatso); "airbend … creature or **spell**"
     exiling off the stack (Aang, Swift Savior).

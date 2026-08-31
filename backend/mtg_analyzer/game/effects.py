@@ -13135,6 +13135,11 @@ class PumpEffect(GameEffect):
         #: sibling of `temp_keywords`. ``[{"name": str, "n": int}, ...]``.
         self.parametric_keywords = [dict(pk) for pk in (parametric_keywords or [])]
         self.selector = selector
+        #: The power/toughness/keyword quality filter — kept as an attribute
+        #: (not only folded into ``target_spec``) so the ``selector``-group
+        #: branch of `apply` can narrow its group too ("each creature you
+        #: control **with power N or less** gains `<kw>`", Earthshape).
+        self.creature_filter = creature_filter
         #: RULE 702.83a Exalted — "*that* creature gets +1/+1 until end of
         #: turn": pump whichever object the firing trigger event names
         #: (`GameContext.trigger_event["instance_id"]`), not the source and
@@ -13322,6 +13327,16 @@ class PumpEffect(GameEffect):
                         for s in self.subtypes
                     )
                 ]
+            if self.creature_filter:
+                # "each creature you control **with power N or less** gains
+                # `<kw>` until end of turn" (Earthshape, PAR-30) — the
+                # power/toughness/keyword quality filter this effect already
+                # accepts for its *targeted* branch, applied to a
+                # selector-gathered group too. `combat.matches_object_filter`
+                # is the same predicate `TargetSpec.creature_filter` uses.
+                from .combat import matches_object_filter  # avoid the import cycle
+
+                group = [o for o in group if matches_object_filter(o, self.creature_filter)]
             if self.per_recipient_controller_counter:
                 base_power, base_toughness = self.power, self.toughness
                 for obj in group:
