@@ -114,7 +114,14 @@ Plan-level sequencing lives in
     haste" payoff can't resolve off-stack. Time Travel (701.56, ~3 — suspend-
     adjacent); Harness (701.64 — a monstrous-style marker designation, only
     ~3 cards), Heal (701.69 — remove marked damage, ~0 cache cards);
-    the Avatar bending quartet — Airbend (701.65), **Earthbend — residue
+    the Avatar bending quartet — **Airbend — residue only** (701.65; the
+    targeted forms "airbend [up to N] target creature / nonland permanent"
+    shipped at PARSER_VERSION 123 — `ExileEffect.owner_play_permission_cost`
+    → `GameState.exile_cast_cost_override`, a fixed {2} alt cast cost from
+    exile; open: "airbend that creature" trigger-subject pronoun (Monk
+    Gyatso), "airbend ... creature or **spell**" exiling off the stack
+    (Aang, Swift Savior), and the "whenever you waterbend/earthbend/
+    firebend/airbend" bending-verb trigger row), **Earthbend — residue
     only** (701.66; the literal `earthbend N` form + `RulesEngine.earthbend`
     / `effects.EarthbendEffect` shipped at PARSER_VERSION 122, animating the
     target land you control via two `rest_of_game` floating statics + N
@@ -209,8 +216,10 @@ Plan-level sequencing lives in
     `RulesEngine.blight(interactive=False)`; activated-body residue open
     above), Earthbend (literal `earthbend N` — PARSER_VERSION 122,
     `RulesEngine.earthbend` / `effects.EarthbendEffect`; dynamic-X /
-    pronoun-tail / reflexive-trigger residue open above), Exchange Control,
-    Exchange Life Totals
+    pronoun-tail / reflexive-trigger residue open above), Airbend (targeted
+    forms — PARSER_VERSION 123, `ExileEffect.owner_play_permission_cost` /
+    `GameState.exile_cast_cost_override`; pronoun / off-stack-spell / verb-
+    trigger residue open above), Exchange Control, Exchange Life Totals
     (the cross-target qualifier cycle stays open above) — plus
     engine-action verbs with
     no oracle grammar (Activate/Cast/Play) and variant-subsystem ones

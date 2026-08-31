@@ -6161,6 +6161,7 @@ class ExileEffect(GameEffect):
         max_mana_value: Optional[int] = None,
         grant_owner_play_permission: bool = False,
         owner_play_permission_tax: Optional[int] = None,
+        owner_play_permission_cost: Optional[str] = None,
         trigger_event_key: Optional[str] = None,
         grant_free_cast_window: bool = False,
     ) -> None:
@@ -6198,6 +6199,13 @@ class ExileEffect(GameEffect):
         #: by `continuous.self_cost_reduction_for`'s new ``caster_id``
         #: param whenever/if it's ever actually cast.
         self.owner_play_permission_tax = owner_play_permission_tax
+        #: RULE 701.65 (Airbend, PAR-29): "…its owner may cast it for {2}
+        #: rather than its mana cost." — a *fixed* alternative cast cost
+        #: (a mana string) while exiled, stamped into `GameState.exile_
+        #: cast_cost_override` alongside the `grant_owner_play_permission`
+        #: grant. Distinct from `owner_play_permission_tax` (which *adds*
+        #: to the printed cost); mutually exclusive with it in practice.
+        self.owner_play_permission_cost = owner_play_permission_cost
         self.target_spec: Optional[TargetSpec] = None
         if self.selector is None and target_kind is not None and not self._trigger_subject_mode:
             self.target_spec = TargetSpec(
@@ -6257,6 +6265,10 @@ class ExileEffect(GameEffect):
                 context.engine.grant_free_cast_window_from_exile(target)
             if self.grant_owner_play_permission:
                 context.state.exile_cast_condition[target.instance_id] = (target.owner_id, {})
+                if self.owner_play_permission_cost:
+                    context.state.exile_cast_cost_override[target.instance_id] = (
+                        self.owner_play_permission_cost
+                    )
                 if self.owner_play_permission_tax:
                     from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
                     from ..parser.oracle.spec import EffectSpec
@@ -17124,6 +17136,7 @@ EffectRegistry.register(
         max_mana_value=p.get("max_mana_value"),
         grant_owner_play_permission=bool(p.get("grant_owner_play_permission", False)),
         owner_play_permission_tax=p.get("owner_play_permission_tax"),
+        owner_play_permission_cost=p.get("owner_play_permission_cost"),
         trigger_event_key=p.get("trigger_event_key"),
         grant_free_cast_window=bool(p.get("grant_free_cast_window", False)),
     ),

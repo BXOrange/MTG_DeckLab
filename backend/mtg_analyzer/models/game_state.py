@@ -439,6 +439,15 @@ class GameState:
         #: swept at cleanup since there's no turn window to expire.
         self.exile_cast_condition: dict[int, tuple[str, dict]] = {}
 
+        #: RULE 701.65 (Airbend, PAR-29): instance id → a *fixed* mana-cost
+        #: string ("{2}") the card's owner pays to cast it from exile
+        #: **instead of** its printed mana cost, for as long as it's exiled
+        #: under a matching `exile_cast_condition` grant. Read by
+        #: `GameEngine.effective_cast_cost`; like `exile_cast_condition`,
+        #: keyed by `instance_id` and never swept — a cast card becomes a
+        #: new object (RULE 400.7) so the stale entry is inert.
+        self.exile_cast_cost_override: dict[int, str] = {}
+
         #: RULE 702.94 Miracle (PAR-26) — instance ids of hand cards whose
         #: same-turn "cast for the miracle cost" window is currently open
         #: (the first card their controller drew this turn). Torn down at

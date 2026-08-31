@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.1% covered — 12,567 / 34,811 — as of 2026-08-31, PARSER_VERSION 122.**
+**36.1% covered — 12,570 / 34,811 — as of 2026-08-31, PARSER_VERSION 123.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -79,7 +79,15 @@ silent-drop-of-"Blight N"-from-a-cost-string bug. +8.
 `type_change` to a 0/0 creature still a land, layer-6 `grant_keyword`
 haste) then `add_counters` N +1/+1; `effects.EarthbendEffect`. Literal
 `earthbend N` only; the "return it tapped on death/exile" reminder clause
-is a documented simplification. +9.)
+is a documented simplification. +9.
+123 = PAR-29's RULE 701.65 Airbend — "airbend [up to N] target `<X>`" =
+exile it, its owner may cast it from exile for a fixed {2}. Reuses
+`ExileEffect.grant_owner_play_permission` (→ `GameState.exile_cast_
+condition`) plus a new `owner_play_permission_cost` → `GameState.exile_
+cast_cost_override`, a fixed alt cost `GameEngine.effective_cast_cost`
+substitutes like Flashback/Escape's graveyard cost. Targeted forms only —
+"airbend that creature" (trigger-subject pronoun) and "…creature or spell"
+(exile off the stack) stay open. +3.)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

@@ -650,7 +650,7 @@ on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
 (`scripts/import_bulk.py`), so coverage is measured against that: **36.1%
-covered (12,567 / 34,811) as of 2026-08-31, PARSER_VERSION 122** (parser-`MODELED` **or**
+covered (12,570 / 34,811) as of 2026-08-31, PARSER_VERSION 123** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -698,7 +698,11 @@ target land you control (a layer-4 `type_change` to a 0/0 creature that's
 still a land, a layer-6 `grant_keyword` haste) then `add_counters` N +1/+1;
 `effects.EarthbendEffect` targets `land_you_control`. Literal `earthbend N`
 only; the "return it tapped when it dies/is exiled" reminder clause is a
-documented simplification [+9]).
+documented simplification [+9], 123 was PAR-29's RULE 701.65 Airbend —
+"airbend [up to N] target `<X>`" exiles it and lets its owner cast it from
+exile for a fixed {2} (`ExileEffect.owner_play_permission_cost` →
+`GameState.exile_cast_cost_override`, a fixed alt cost `effective_cast_cost`
+substitutes like Flashback/Escape); targeted forms only [+3]).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in

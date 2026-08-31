@@ -5560,6 +5560,33 @@ def _blight(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("blight", {"amount": int(m.group("n"))})]
 
 
+# "Airbend [up to N] target `<X>`." (RULE 701.65, Avatar: The Last
+# Airbender — "Exile it. While it's exiled, its owner may cast it for {2}
+# rather than its mana cost."). Reuses `ExileEffect`'s existing
+# `grant_owner_play_permission` (→ `GameState.exile_cast_condition`) plus
+# the new `owner_play_permission_cost` ("{2}" → `GameState.exile_cast_cost_
+# override`, consulted by `GameEngine.effective_cast_cost`). Only the
+# targeted forms — "airbend that creature" (Monk Gyatso, a trigger-subject
+# pronoun) and "airbend ... creature or spell" (exile off the stack) stay
+# UNMODELED, fail-closed.
+_AIRBEND_RE = _c(
+    r"airbend (?:up to (?P<n>\d+) )?target (?P<what>nonland permanent|creature)s?"
+)
+
+
+def _airbend(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = "nonland_permanent" if m.group("what") == "nonland permanent" else "creature"
+    params: dict[str, Any] = {
+        "target_kind": kind,
+        "grant_owner_play_permission": True,
+        "owner_play_permission_cost": "{2}",
+    }
+    if m.group("n") is not None:
+        params["count"] = int(m.group("n"))
+        params["optional"] = True  # "up to N"
+    return [EffectSpec("exile", params)]
+
+
 # "Earthbend N." (RULE 701.66, Avatar: The Last Airbender — "target land you
 # control becomes a 0/0 creature with haste that's still a land. Put N +1/+1
 # counters on it."). `RulesEngine.earthbend` / `effects.EarthbendEffect`
@@ -8022,6 +8049,13 @@ HANDLERS: list[EffectHandler] = [
         "earthbend",
         _c(r"earthbend (?P<n>\d+)"),
         _earthbend,
+    ),
+    # "airbend [up to N] target <X>" (RULE 701.65, Avatar: TLA) — exile it,
+    # its owner may cast it from exile for {2}.
+    EffectHandler(
+        "airbend",
+        _AIRBEND_RE,
+        _airbend,
     ),
     # "support N" (RULE 701.41a) — +1/+1 counter on each of up to N target
     # creatures (rides the existing `add_counters` multi-target path).

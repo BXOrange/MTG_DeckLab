@@ -841,7 +841,15 @@ class CastingMixin:
             evoke_cost = self._evoke_cost(obj) or continuous.granted_evoke_cost_for(self.state, obj)
             if evoke_cost is not None:
                 return self._adjust_cost(evoke_cost, player, obj)
-        if obj in player.graveyard:
+        override = self.state.exile_cast_cost_override.get(obj.instance_id)
+        if override is not None and getattr(obj, "zone", None) == Zone.EXILE:
+            # RULE 701.65 (Airbend, PAR-29): "its owner may cast it for {2}
+            # rather than its mana cost." — a *fixed* alternative cost
+            # while the card sits in exile under an `exile_cast_condition`
+            # grant, substituted (not added) before the reduction/tax
+            # below, exactly like Flashback/Escape's own graveyard alt cost.
+            cost = ManaCost.parse(override)
+        elif obj in player.graveyard:
             keyword = self._graveyard_cast_keyword(obj)
             if keyword == "flashback":
                 alt_cost = self._flashback_cost(obj)
