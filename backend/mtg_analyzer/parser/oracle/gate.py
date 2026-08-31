@@ -1297,7 +1297,25 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: blocked on its own separate small connector/filter gap ("if you exiled
 #: a card this way", "non-aura enchantment card", "exile X target …") -
 #: PAR-30.
-PARSER_VERSION = "131"
+#: "132": ENG-33 completion — the reanimator-token *connector* the 4th
+#: primitive needed. `segmenter._EXILE_THEN_COPY_SENTENCE_RE` matches the
+#: whole two-sentence span "Exile [up to N] target <X> card from [a/your]
+#: graveyard. [If you do / If you exiled a card this way,] create a token
+#: that's a copy of that card[, except <tail>]." at `parse_effect_body`
+#: level (before the connector-split loop shatters it into a bare "if you
+#: do, create …" half), parsing the exile and the copy independently and
+#: requiring the exile to genuinely pick a graveyard card
+#: (`_announces_creature_target`) — the RULE 608.2 pronoun
+#: `CopyPermanentEffect(referent="previous")` reads back. The reflexive
+#: connector needs no `pending_choice` (the copy already no-ops on an empty
+#: `previous_targets`). "You may exile …" optionality is peeled and
+#: re-folded; `handlers._EXILE_FROM_GRAVEYARD_RE` now also accepts the
+#: untargeted "exile **a** creature card from your graveyard" determiner.
+#: +1 now (Ardyn, the Usurper); the rest of the cycle each still block on a
+#: *separate* filter/quantifier/trailing-sentence gap (non-aura enchantment
+#: filter, colour filter, "exile X target …", "It gains haste until end of
+#: turn." tail) — PAR-30. 0 regressed.
+PARSER_VERSION = "132"
 
 
 def parser_source_hash() -> str:

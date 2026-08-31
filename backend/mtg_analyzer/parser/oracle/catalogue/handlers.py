@@ -2481,8 +2481,14 @@ def _return_from_graveyard_shuffle_any(m: re.Match[str]) -> Optional[list[Effect
 #: `{TARGET}`-bearing handler does, even though this clause hand-rolls its
 #: own "target" grammar instead of embedding `TARGET` (the graveyard scope/
 #: type vocabulary predates that macro and has its own word lists).
+#: The determiner is ``target`` for the RULE 115 form (Deathrite Shaman) or a
+#: bare ``a``/``an`` for the untargeted reanimator-cycle antecedent ("you may
+#: exile a creature card from your graveyard. Create a token that's a copy of
+#: that card." — God-Pharaoh's Gift/Séance); both resolve to the same
+#: `graveyard_*` `EffectSpec`, the "target" nuance (redirect/"can't be
+#: targeted") being immaterial for a graveyard-card pick this grammar models.
 _EXILE_FROM_GRAVEYARD_RE = _c(
-    rf"exile (?P<up_to_one>{UP_TO_ONE})target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"exile (?P<up_to_one>{UP_TO_ONE})(?:target |an? )(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard"
 )
 

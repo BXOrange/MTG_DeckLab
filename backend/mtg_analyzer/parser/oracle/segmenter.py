@@ -1259,6 +1259,31 @@ _SACRIFICE_THEN_WHEN_YOU_DO_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: PAR-18/ENG-33: "Exile [up to N] target <X> card from [a/your] graveyard.
+#: [If you do / If you exiled a card this way,] create a token that's a copy
+#: of **that card**[, except <tail>]." — the reanimator-token cycle (Ardyn,
+#: Anikthea, Séance, God-Pharaoh's Gift, Sauron the Necromancer, Sin,
+#: Soul Separator &c.). Two sentences that are one instruction: the exiled
+#: card *is* the pronoun antecedent (RULE 608.2 — `GameContext.
+#: previous_targets`) the copy clause reads back, so — same
+#: `parse_effect_body`-level idiom as `_LOOK_TOP_SELECT_RE` /
+#: `_SACRIFICE_THEN_WHEN_YOU_DO_RE` — the whole span is matched here before
+#: the connector-split loop shatters it into a bare "if you do, create …"
+#: half no handler claims. The reflexive "if you do" / "if you exiled …
+#: this way" connector needs no `pending_choice`: `CopyPermanentEffect
+#: (referent="previous")` already no-ops when `previous_targets` is empty,
+#: which is exactly the state the connector gates on. Deliberately narrow —
+#: the ``after`` group is anchored on "create a … token that's a copy of
+#: that card" (an effect that is safe to run unconditionally because it
+#: self-gates on the antecedent), never a general reflexive-clause stripper.
+_EXILE_THEN_COPY_SENTENCE_RE = re.compile(
+    r"^(?P<before>(?:you may )?exile .+?graveyard[^.]*?)\.\s*"
+    r"(?:(?:if you do|if you exiled (?:a|up to \w+|\w+) cards?(?: this way)?)"
+    r"(?: this way)?,\s*)?"
+    r"(?P<after>create a token that'?s a copy of that card.*)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: RULE 601.2b/604.3's additional-cost line: "As an additional cost to cast
 #: this spell, <cost>." — instants/sorceries only (gated by
 #: ``allow_spell_effect`` at the call site below, same as a bare imperative).
@@ -2222,6 +2247,38 @@ def parse_effect_body(
         if before_specs is None or not any(spec.type == "sacrifice_self" for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
         return _with_after_tail(before_specs, sac_when_you_do.group("after"), group_subject=group_subject)
+
+    exile_then_copy = _EXILE_THEN_COPY_SENTENCE_RE.match(body)
+    if exile_then_copy is not None:
+        before_text = exile_then_copy.group("before").strip()
+        # "You may exile …" (God-Pharaoh's Gift, Séance) — the optionality
+        # lives on the exile; peel it and re-fold it as ``optional`` so the
+        # inner clause reaches `_exile_from_graveyard` (which has no "you
+        # may" grammar of its own).
+        optional_exile = bool(re.match(r"(?i)^you may ", before_text))
+        if optional_exile:
+            before_text = before_text[len("you may "):]
+        before_specs = parse_effect_body(
+            before_text, self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if before_specs is not None and optional_exile:
+            before_specs = [
+                EffectSpec(s.type, {**s.params, "optional": True}, condition=s.condition)
+                for s in before_specs
+            ]
+        # Fail closed unless the "before" half genuinely chose a graveyard
+        # card (`_announces_creature_target` recognises the `graveyard_*`
+        # target-kind prefix) — that pick is the pronoun `CopyPermanentEffect
+        # (referent="previous")` reads back (RULE 608.2).
+        if before_specs is None or not _announces_creature_target(before_specs):
+            return None
+        after_specs = parse_effect_body(
+            exile_then_copy.group("after"), previous_subject=True, group_subject=group_subject,
+        )
+        if after_specs is None or not any(s.type == "copy_permanent" for s in after_specs):
+            return None
+        return before_specs + after_specs
 
     direct = match_clause(
         body, self_subject=self_subject, previous_subject=previous_subject,

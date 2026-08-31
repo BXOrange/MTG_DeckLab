@@ -42,15 +42,17 @@ Plan-level sequencing lives in
 > have all shipped. See `Done_Backend.md`. The residual per-card grammar
 > is **PAR-30**.
 
-*(ENG-33, villainous-choice / vote option-body primitives, shipped at
-PARSER_VERSION 129 — three of its four named primitives are done: the
-targeted-player edict (`SacrificeEffect.target_kind="player"`), the
-uncapped/noncreature `free_cast_from_hand`, and "put a `<type>` card from
-your hand onto the battlefield". See `Done_Backend.md`. The fourth,
-"create a token that's a copy of that card", is PAR-18's existing
-`CopyPermanentEffect(referent="previous")`; the remaining parser work —
-the "except it's a 3/3 …" modifier grammar and the graveyard-exile clause
-that populates `previous_targets` — is a 12-SOLO cluster, PAR-30.)*
+*(ENG-33, villainous-choice / vote option-body primitives — **fully
+shipped** (v129 the three named primitives: targeted-player edict
+(`SacrificeEffect.target_kind="player"`), uncapped/noncreature
+`free_cast_from_hand`, "put a `<type>` card from your hand onto the
+battlefield"; v130 the "except it's a 3/3 …" copy-modifier grammar; v132
+the reanimator-token *connector* the fourth named primitive needed —
+`segmenter._EXILE_THEN_COPY_SENTENCE_RE`, "Exile … from graveyard. [If you
+do,] create a token that's a copy of **that card**", feeding PAR-18's
+existing `CopyPermanentEffect(referent="previous")`). See `Done_Backend.md`.
+The per-card residue of the reanimator-token cycle — each card blocked on
+its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
 
 ## PAR — Parser
 
@@ -114,21 +116,29 @@ that populates `previous_targets` — is a 12-SOLO cluster, PAR-30.)*
   - **Face a Villainous Choice (RULE 701.55) option bodies.** ENG-33
     (v129) shipped the targeted-player edict, uncapped/noncreature
     free-cast and put-`<type>`-from-hand bodies — Great Intelligence's Plan
-    and Dr. Eggman are MODELED. Still open: "you create a token that's a
-    copy of that card" (The Master). The "except it's [a] `<P/T>`
-    `<colour>` `<subtype>`" **tail** parses now (v130 —
-    `_COPY_EXCEPT_PT_RE`, `CopyPermanentEffect.set_colors`); each remaining
-    "copy of that card" cluster card is blocked on its *own* separate
-    connector/filter gap: **Anikthea** "non-aura enchantment card" filter,
-    **Ardyn / God-Pharaoh's Gift** "if you exiled a card this way," / "if
-    you do," reflexive connector, **Hour of Eternity** "exile X target
-    creature cards", **Offspring's Revenge** "target red, white, or black
-    creature card", **Back from the Brink** "…and pay its mana cost:"
-    activation cost. Also still open: "exile cards … until you exile a
-    nonland card, then cast it" (Ensnared by the Mara); "that creature
-    becomes a 1/1 and loses all abilities" (Hunted by The Family);
-    conditional/previous subjects — "each opponent who lost 3+ life this
-    turn" (Davros), "choose an opponent with the most life" (The Master).
+    and Dr. Eggman are MODELED. The "except it's [a] `<P/T>` `<colour>`
+    `<subtype>`" copy-**tail** parses (v130 — `_COPY_EXCEPT_PT_RE`,
+    `CopyPermanentEffect.set_colors`); the "Exile … from graveyard. [If you
+    do / if you exiled a card this way,] create a token that's a copy of
+    **that card**" two-sentence **connector** parses (v132 —
+    `segmenter._EXILE_THEN_COPY_SENTENCE_RE`; Ardyn, the Usurper MODELED).
+    Each remaining reanimator-token cluster card is blocked on its *own*
+    separate filter/quantifier/tail gap: **Anikthea** "non-aura enchantment
+    card" filter, **God-Pharaoh's Gift / Offspring's Revenge** "It gains
+    haste until end of turn." trailing sentence (a general "create token …
+    It gains haste" tail, ~60 SOLO cache-wide — its own PAR item, not
+    ENG-33), **Séance** "exile it at the beginning of the next end step."
+    trailing delayed trigger, **Hour of Eternity** "exile X target creature
+    cards", **Offspring's Revenge** "target red, white, or black creature
+    card" colour filter, **Sauron the Necromancer / Sin** "create a tapped
+    [and attacking] token", **Back from the Brink** "…and pay its mana
+    cost:" activation cost. Also still open: "you create a token that's a
+    copy of that card" as a *villainous option body* (The Master — needs
+    `previous_targets` threaded through `_apply_effect_specs`, plus its
+    "choose an opponent with the most life" subject); "exile cards … until
+    you exile a nonland card, then cast it" (Ensnared by the Mara); "that
+    creature becomes a 1/1 and loses all abilities" (Hunted by The Family);
+    "each opponent who lost 3+ life this turn" (Davros).
 
   - **Firebending (RULE ~702.189) grants — ENG-31 shipped (v128).** The
     parametric-keyword-grant primitive is done: "target creature / creatures

@@ -649,8 +649,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **36.3%
-covered (12,679 / 34,811) as of 2026-08-31, PARSER_VERSION 131** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **36.4%
+covered (12,680 / 34,811) as of 2026-08-31, PARSER_VERSION 132** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -739,10 +739,15 @@ the blocker; this shipped the *bodies* (base-P/T-set-with-duration via
 owner shuffles it into their library") plus the *mandatory* "as an
 additional cost to cast this spell, waterbend {N}" folded into
 `effective_cast_cost` [+52, incl. Slip Through Space, Biomass Mutation,
-Water Whip]). **PAR-29 is closed** — every RULE 701 keyword action has
-parser recognition + an engine primitive, and its three spun-off engine
-tickets (`ENG-31`/`ENG-32`/`ENG-33`) have all shipped. The residual
-per-card grammar is `PAR-30`.
+Water Whip]), 132 finished `ENG-33`'s 4th named primitive — the
+reanimator-token *connector* `segmenter._EXILE_THEN_COPY_SENTENCE_RE`
+("Exile … from graveyard. [If you do,] create a token that's a copy of
+**that card**", feeding PAR-18's `CopyPermanentEffect(referent="previous")`;
+"you may exile" peel + untargeted-determiner `_EXILE_FROM_GRAVEYARD_RE`
+widen) [+1 — Ardyn, the Usurper]). **PAR-29 is closed** — every RULE 701
+keyword action has parser recognition + an engine primitive, and its three
+spun-off engine tickets (`ENG-31`/`ENG-32`/`ENG-33`) have all shipped. The
+residual per-card grammar is `PAR-30`.
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in
