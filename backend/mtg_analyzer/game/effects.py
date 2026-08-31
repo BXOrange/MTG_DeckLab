@@ -9792,6 +9792,79 @@ class VoteEffect(GameEffect):
         )
 
 
+class FaceVillainousChoiceEffect(GameEffect):
+    """RULE 701.55: "`<player>` faces a villainous choice — `<A>`, or
+    `<B>`." Each facing player (resolved from ``subject``) chooses one of
+    the two options; that option's effects resolve **for that player**
+    (`RulesEngine.request_villainous_choice`, an APNAP sweep — the
+    `VoteEffect` sweep minus the tally).
+
+    ``subject`` — who faces it:
+
+    * ``"each_opponent"`` — every opponent of this effect's controller.
+    * ``"target"`` — a single targeted player (``targets[0]``).
+    * ``"trigger_target_player"`` — the player named by the triggering
+      event ("Whenever ~ deals combat damage to a player, **that player**
+      faces …").
+
+    ``option_a`` / ``option_b`` are serialized `EffectSpec` lists; a
+    ``sacrifice``/``discard``/``lose_life`` spec with no selector lands on
+    the facing player, a "you …" spec on the controller.
+    """
+
+    def __init__(
+        self,
+        option_a: Optional[list[dict[str, Any]]] = None,
+        option_b: Optional[list[dict[str, Any]]] = None,
+        subject: str = "each_opponent",
+        labels: Optional[list[str]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.option_a = list(option_a or [])
+        self.option_b = list(option_b or [])
+        self.subject = subject
+        self.labels = tuple(labels) if labels and len(labels) == 2 else ("A", "B")
+        self.target_spec = (
+            TargetSpec(kind="player") if subject == "target" else None
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None or not self.option_a or not self.option_b:
+            return
+        facing: list[Any] = []
+        if self.subject == "each_opponent":
+            start = context.state.active_player_index
+            n = len(context.state.players)
+            facing = [
+                context.state.players[(start + i) % n]
+                for i in range(n)
+                if not context.state.players[(start + i) % n].has_lost
+                and context.state.players[(start + i) % n].id != controller.id
+            ]
+        elif self.subject == "target":
+            facing = [t for t in (targets or []) if getattr(t, "id", None) is not None]
+        elif self.subject == "trigger_target_player":
+            ev = context.trigger_event
+            pid = (ev or {}).get("player_id") or (ev or {}).get("target_player_id")
+            if pid is not None:
+                try:
+                    facing = [context.state.player_by_id(pid)]
+                except (KeyError, ValueError):
+                    facing = []
+        if not facing:
+            return
+        context.engine.request_villainous_choice(
+            source=self.source,
+            controller_id=controller.id,
+            facing_ids=[p.id for p in facing],
+            option_a=self.option_a,
+            option_b=self.option_b,
+            labels=self.labels,
+        )
+
+
 class ExploreEffect(GameEffect):
     """RULE 701.44: "`<permanent>` explores." — reveal the top card of the
     exploring permanent's controller's library; a land goes to hand,
@@ -18171,6 +18244,18 @@ EffectRegistry.register(
     # you control (your choice). See `BlightEffect` / `RulesEngine.blight`.
     "blight",
     lambda p: BlightEffect(amount=p.get("amount", p.get("count", 1))),
+)
+EffectRegistry.register(
+    # "Face a villainous choice" (RULE 701.55, PAR-29): each facing player
+    # picks one of two option effect-lists, applied for them. See
+    # `FaceVillainousChoiceEffect` / `RulesEngine.request_villainous_choice`.
+    "face_villainous_choice",
+    lambda p: FaceVillainousChoiceEffect(
+        option_a=list(p.get("option_a", [])),
+        option_b=list(p.get("option_b", [])),
+        subject=str(p.get("subject", "each_opponent")),
+        labels=p.get("labels"),
+    ),
 )
 EffectRegistry.register(
     # "Vote" (RULE 701.38, PAR-29): an APNAP vote among `options`, then a

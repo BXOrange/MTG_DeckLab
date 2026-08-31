@@ -650,7 +650,7 @@ on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
 (`scripts/import_bulk.py`), so coverage is measured against that: **36.1%
-covered (12,576 / 34,811) as of 2026-08-31, PARSER_VERSION 125** (parser-`MODELED` **or**
+covered (12,578 / 34,811) as of 2026-08-31, PARSER_VERSION 126** (parser-`MODELED` **or**
 hand-`AUTHORED`; 106 was PAR-29's RULE 701.44 Explore primitive + handlers [+22],
 107 was PAR-29's RULE 701.36 Populate primitive + handler [+14], 108 was PAR-29's
 RULE 701.39 Bolster + RULE 701.41 Support [+25], 109 was PAR-29's RULE 701.60
@@ -711,7 +711,13 @@ and a **per-vote-scaling** ("`<body>` for each A vote") outcome handler;
 2-option only, 3+-option / permanent-vote / carried-subject bodies stay
 open [+5], 125 folded the distributive-singular "each creature you control
 gains `<X>` until end of turn" phrasing into the existing group-grant
-`_GROUP` selector [+1]).
+`_GROUP` selector [+1], 126 was PAR-29's RULE 701.55 Face a Villainous
+Choice — `RulesEngine.request_villainous_choice` (the Vote sweep minus the
+tally, each facing player applies their own pick), `effects.FaceVillainous
+ChoiceEffect`, `GameState._pending_villainous`; only cards whose both
+options parse [+2 — Damocles Base, The Dalek Emperor], the rest tracked in
+PAR-30. Also fixed a latent "you create a … token with `<kw>`" →
+`creators="each_player"` mis-tag bug).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped; open parser tickets are `PAR-*` in

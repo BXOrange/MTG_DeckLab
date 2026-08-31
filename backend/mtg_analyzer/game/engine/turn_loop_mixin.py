@@ -1205,6 +1205,11 @@ class TurnLoopMixin:
             # <B>." — the option id is the vote index; a decline/missing
             # answer defaults to option 0 (each player must vote).
             self.rules.resolve_vote_choice(None if declined else str(answer))
+        elif kind == "villainous_choice":
+            # RULE 701.55: "<player> faces a villainous choice — <A>, or
+            # <B>." — the option id is "0"/"1"; a decline/missing answer
+            # defaults to option A.
+            self.rules.resolve_villainous_choice(None if declined else str(answer))
         elif kind == "pay_energy_then":
             # RULE 122: "you may pay {E}{E}. If you do, <effect>." (Aether
             # Chaser) — "pay" spends the energy and resolves the follow-up,

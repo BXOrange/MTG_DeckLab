@@ -4102,8 +4102,11 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     # "**Each player** creates …" / "**each opponent** creates …" — everyone
     # gets their own ``count`` tokens under their own control, rather than
     # the effect's controller getting them all.
-    who = (m.groupdict().get("who") or "").strip()
-    if who:
+    who = (m.groupdict().get("who") or "").strip().lower()
+    if "each" in who:
+        # "**Each player** / **each opponent** creates …" — only the "each …"
+        # phrasings mean everyone; a captured "you" is the ordinary
+        # controller-scoped default, not a `creators` override.
         params["creators"] = "each_opponent" if "opponent" in who else "each_player"
     if m.groupdict().get("tapped"):  # RULE 110.5a — enters tapped, not tapped after
         params["tapped"] = True
@@ -5627,6 +5630,107 @@ def _vote_per_vote(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             "scale": 1,
         })
     return [EffectSpec("vote", {"options": options, "per_vote_specs": per_vote})]
+
+
+# "`<player>` faces a villainous choice — `<A>`, or `<B>`." (RULE 701.55,
+# PAR-29). `RulesEngine.request_villainous_choice` / `effects.FaceVillainous
+# ChoiceEffect` own the APNAP sweep (each facing player applies their own
+# pick). Each option is mini-parsed with the facing player as the target:
+# "they/that player `<verb>`" → a player-targeted `sacrifice`/`discard`/
+# `lose_life`, "you `<verb>`" stays controller-scoped. Only the options
+# both parse — cards whose option is "cast a spell without paying", "put a
+# permanent from hand", "create a copy of that card", "exile until …" &c.
+# stay UNMODELED (tracked in PAR-30).
+_VILLAINOUS_HEADER_RE = _c(
+    r"(?P<subj>each opponent|that player|that opponent|target opponent|target player|defending player) "
+    r"faces a villainous choice\s*[—-]\s*(?P<opts>.+)"
+)
+_VILLAINOUS_SUBJECTS: dict[str, str] = {
+    "each opponent": "each_opponent",
+    "target opponent": "target",
+    "target player": "target",
+    "that player": "trigger_target_player",
+    "that opponent": "trigger_target_player",
+    "defending player": "trigger_target_player",
+}
+_VILLAINOUS_SAC_WHAT: dict[str, str] = {
+    "creature": "creature", "nontoken creature": "nontoken_creature",
+    "artifact": "artifact", "permanent": "permanent", "land": "land",
+}
+_VILLAINOUS_SAC_RE = re.compile(
+    r"^(?:they|that player|that opponent) sacrifices? an? (?P<what>[a-z ]+?)"
+    r"(?: of their choice)?$",
+    re.IGNORECASE,
+)
+
+
+def _villainous_option_specs(body: str):
+    """One villainous-choice option → serialized specs, or ``None``.
+
+    A "you …" clause parses controller-scoped as-is. A "they/that player
+    `<verb>`" clause is retried as "target player `<verb>`" (the facing
+    player is the effect's target — `request_villainous_choice` applies
+    each option with ``targets=[facing]``); a bare edict ("they sacrifice
+    a creature of their choice") maps straight to a player-less
+    `sacrifice` spec.
+    """
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    body = body.strip().rstrip(".")
+    sac = _VILLAINOUS_SAC_RE.match(body)
+    if sac is not None:
+        what = _VILLAINOUS_SAC_WHAT.get(sac.group("what").strip().lower())
+        if what is None:
+            return None
+        return [{"type": "sacrifice", "params": {"what": what, "count": 1}}]
+    lowered = body.lower()
+    candidates: list[str] = []
+    if lowered.startswith("they "):
+        # "they lose 2 life" → "target player loses 2 life" (3rd-person-
+        # singular verb), tried *first* so the resolution binds to this
+        # effect's own `targets=[facing]` rather than a `selector=
+        # "event_player"` that won't be live once the choice is answered.
+        candidates.append(re.sub(
+            r"^they (lose|discard|exile|mill|shuffle|draw|gain)\b",
+            lambda mm: "target player " + mm.group(1) + "s",
+            body, count=1, flags=re.IGNORECASE,
+        ))
+    elif lowered.startswith(("that player ", "that opponent ")):
+        candidates.append(re.sub(
+            r"^that (?:player|opponent) ", "target player ", body, count=1,
+            flags=re.IGNORECASE,
+        ))
+    candidates.append(body)
+    _TRIGGER_SELECTORS = {"event_player", "event_controller", "defending_player", "triggering_player"}
+    for cand in candidates:
+        specs = parse_effect_body(cand)
+        if not specs:
+            continue
+        if any(s.params.get("selector") in _TRIGGER_SELECTORS for s in specs):
+            continue  # depends on a trigger event that won't be live at resolve time
+        if all(s.params.get("target_kind") in (None, "player") for s in specs):
+            return [s.to_dict() for s in specs]
+    return None
+
+
+def _face_villainous_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _VILLAINOUS_SUBJECTS.get(m.group("subj").lower())
+    if subject is None:
+        return None
+    opts = m.group("opts").strip()
+    # Split on ", or " — try each occurrence, accept the partition where
+    # both halves are modelable (option bodies can carry internal commas).
+    parts = [i for i in range(len(opts)) if opts[i:i + 5].lower() == ", or "]
+    for cut in parts:
+        a_specs = _villainous_option_specs(opts[:cut])
+        b_specs = _villainous_option_specs(opts[cut + 5:])
+        if a_specs and b_specs:
+            return [EffectSpec("face_villainous_choice", {
+                "subject": subject,
+                "option_a": a_specs,
+                "option_b": b_specs,
+            })]
+    return None
 
 
 # "Bolster N." (RULE 701.39a) — put N +1/+1 counters on a least-toughness
@@ -8151,6 +8255,13 @@ HANDLERS: list[EffectHandler] = [
         "vote_per_vote",
         _VOTE_HEADER_RE,
         _vote_per_vote,
+    ),
+    # "<player> faces a villainous choice — <A>, or <B>." (RULE 701.55,
+    # PAR-29) — each facing player applies their own pick.
+    EffectHandler(
+        "face_villainous_choice",
+        _VILLAINOUS_HEADER_RE,
+        _face_villainous_choice,
     ),
     # "incubate N" / "you incubate N" (RULE 701.53).
     EffectHandler(

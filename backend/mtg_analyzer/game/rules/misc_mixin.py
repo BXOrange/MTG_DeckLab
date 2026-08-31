@@ -682,6 +682,87 @@ class MiscSystemsMixin:
                         params[key] = params[key] * scale
                 scaled.append({"type": spec["type"], "params": params})
             self._apply_effect_specs(scaled, source, targets)
+    def request_villainous_choice(
+        self,
+        source: Optional[GameObject],
+        controller_id: str,
+        facing_ids: list[str],
+        option_a: list[dict[str, Any]],
+        option_b: list[dict[str, Any]],
+        labels: Optional[tuple[str, str]] = None,
+    ) -> None:
+        """RULE 701.55: "`<player>` faces a villainous choice — `<A>`, or
+        `<B>`." Each facing player in ``facing_ids`` (already resolved and
+        APNAP-ordered by `FaceVillainousChoiceEffect`) chooses one of the
+        two options and that option's effects resolve **for that player** —
+        applied with the facing player as the target, so an option's
+        `sacrifice`/`discard`/`lose_life` spec (no selector) lands on them.
+        A "you …" clause in an option stays scoped to ``controller_id``
+        (the effect's own controller default, since those specs carry no
+        target).
+
+        The `request_vote` sweep shape, minus the tally: each player
+        applies their own pick rather than everyone feeding one aggregate
+        outcome. RULE 701.55b's "if one option is impossible, they must
+        choose the other" is a **documented simplification** — both options
+        are always offered; an impossible pick simply does as little as
+        RULE 608.2b allows.
+        """
+        self._pending_villainous = {
+            "remaining_ids": list(facing_ids),
+            "option_a": [dict(d) for d in option_a],
+            "option_b": [dict(d) for d in option_b],
+            "labels": labels or ("Option A", "Option B"),
+            "source": source,
+            "controller_id": controller_id,
+        }
+        self._advance_villainous_choice()
+    def _advance_villainous_choice(self) -> None:
+        """Ask the next still-pending facing player in a
+        `request_villainous_choice` sweep, or clear it once done."""
+        pending = self._pending_villainous
+        if pending is None:
+            return
+        remaining: list[str] = pending["remaining_ids"]
+        la, lb = pending["labels"]
+        while remaining:
+            player_id = remaining.pop(0)
+            try:
+                player = self.state.player_by_id(player_id)
+            except (KeyError, ValueError):
+                continue
+            if player.has_lost:
+                continue
+            self.state.pending_choice = {
+                "kind": "villainous_choice",
+                "player_id": player.id,
+                "prompt": f"Schurkische Wahl: {la} / {lb}",
+                "options": [
+                    {"id": "0", "label": la},
+                    {"id": "1", "label": lb},
+                ],
+            }
+            return  # a real choice opened — resumed via resolve_villainous_choice
+        self._pending_villainous = None
+    def resolve_villainous_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `villainous_choice`: apply the chosen option's
+        effects for that facing player (a missing/unknown answer defaults to
+        option A, RULE 701.55b's "each player must choose"), then advance."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "villainous_choice":
+            raise ValueError("no pending villainous choice to resolve")
+        self.state.pending_choice = None
+        pending = self._pending_villainous
+        if pending is None:
+            return
+        try:
+            facing = self.state.player_by_id(choice["player_id"])
+        except (KeyError, ValueError):
+            facing = None
+        specs = pending["option_b"] if str(answer) == "1" else pending["option_a"]
+        if facing is not None:
+            self._apply_effect_specs(specs, pending["source"], targets=[facing])
+        self._advance_villainous_choice()
     def _apply_effect_specs(
         self,
         effect_specs: list[dict],

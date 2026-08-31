@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.1% covered — 12,576 / 34,811 — as of 2026-08-31, PARSER_VERSION 125.**
+**36.1% covered — 12,578 / 34,811 — as of 2026-08-31, PARSER_VERSION 126.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -102,7 +102,19 @@ untargetable-off-stack outcome bodies all stay open. +5.
 125 = PAR-29 residue: "each creature you control gains/gets `<X>` until end
 of turn" — the distributive-singular phrasing of the existing "creatures
 you control gain …" group grant (`_GROUP` / `_GROUP_SELECTORS`), +1
-(Moonveil Dragon).)
+(Moonveil Dragon).
+126 = PAR-29's RULE 701.55 Face a Villainous Choice — `RulesEngine.
+request_villainous_choice` (the `request_vote` APNAP sweep minus the
+tally, each facing player applies their own pick), `effects.FaceVillainous
+ChoiceEffect`, `GameState._pending_villainous`. `handlers._face_villainous
+_choice` mini-parses the two options (a "they/that player `<verb>`" clause
+retried as "target player `<verb>`" so it binds to `targets=[facing]`; a
+bare edict maps to a player-less `sacrifice`). Only cards whose *both*
+options parse: +2 (Damocles Base, The Dalek Emperor). The rest — "cast a
+spell without paying", "put a permanent from hand", "create a copy of that
+card", "exile until …", conditional/previous subjects — are PAR-30. Also
+fixed a latent bug: "**you** create a … token **with `<kw>`**" was
+mis-tagged `creators="each_player"` (the `who` group captured "you").)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

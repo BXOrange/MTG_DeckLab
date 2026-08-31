@@ -258,6 +258,16 @@ class RulesEngine(
         #: `_pending_all_decline_or`. See `request_vote`/`_advance_vote`/
         #: `resolve_vote_choice`/`_tally_and_apply_vote`.
         self._pending_vote: Optional[dict[str, Any]] = None
+        #: Backing state for a `request_villainous_choice` APNAP sweep (RULE
+        #: 701.55 — "`<player>` faces a villainous choice — `<A>`, or
+        #: `<B>`."): the still-to-ask facing-player ids and the two
+        #: serialized option effect-lists. Each facing player picks and
+        #: applies their *own* choice (unlike `_pending_vote`, which tallies
+        #: everyone's and applies one aggregate outcome). Chained one
+        #: `villainous_choice` choice at a time. See
+        #: `request_villainous_choice`/`_advance_villainous_choice`/
+        #: `resolve_villainous_choice`.
+        self._pending_villainous: Optional[dict[str, Any]] = None
         #: Backing state for a `name_card` `pending_choice` (Demonic
         #: Consultation's "choose a card name") — the follow-up effects the
         #: chosen name gets substituted into; see `request_name_card`/
