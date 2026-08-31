@@ -13484,6 +13484,35 @@ class CreateTokenEffect(GameEffect):
         #: many get made). Overrides ``count``/``count_selector`` when set.
         self.count_from_trigger_event = count_from_trigger_event
 
+    def _resolve_extra_counter_amount(self, context: GameContext) -> int:
+        """How many ``extra_counters`` to place on each created token.
+
+        A plain ``count`` is a literal; ``count_from_count_selector``
+        (`continuous.count_selector`, e.g. "Incubate X, where X is the
+        number of lands you control" — Glistening Dawn) and
+        ``count_from_trigger_event`` (the firing event's own field, e.g.
+        "…where X is that spell's mana value" — Chrome Host Seedshark) are
+        the dynamic PAR-30 forms, read fresh at resolve time and clamped to
+        `spec.MAX_EFFECT_MAGNITUDE` (a hostile board count can't wedge the
+        session)."""
+        ec = self.extra_counters or {}
+        from ..parser.oracle.spec import MAX_EFFECT_MAGNITUDE
+
+        if ec.get("count_from_trigger_event"):
+            event = context.trigger_event
+            raw = int((event or {}).get(str(ec["count_from_trigger_event"])) or 0)
+        elif ec.get("count_from_count_selector"):
+            from . import continuous  # function-scoped: avoid an import cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            raw = continuous.count_selector(
+                context.state, controller_id, str(ec["count_from_count_selector"]),
+                source=self.source,
+            )
+        else:
+            raw = int(ec.get("count", 1) or 0)
+        return max(0, min(int(raw), MAX_EFFECT_MAGNITUDE))
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..services.token_database import default_token_database, synthesize_token_card
 
@@ -13545,7 +13574,7 @@ class CreateTokenEffect(GameEffect):
                     token.tapped = True
             if self.extra_counters:
                 kind = str(self.extra_counters.get("kind", "+1/+1"))
-                amount = int(self.extra_counters.get("count", 1) or 0)
+                amount = self._resolve_extra_counter_amount(context)
                 if amount:
                     for token in made:
                         context.add_counters(token, amount, kind, source=self.source)

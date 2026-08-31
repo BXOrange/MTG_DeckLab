@@ -5700,6 +5700,43 @@ def _incubate(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: "Incubate X, where X is `<count>`." / "Incubate X twice, where X is
+#: `<count>`." (PAR-30) — the dynamic-amount sibling of `_incubate`. "Twice"
+#: makes two Incubator tokens (each with X counters), which is exactly
+#: `create_token`'s own ``count`` — one Incubator per repetition. The X
+#: vocabulary is a small closed map onto `continuous.count_selector` plus
+#: the firing spell's mana value (`CreateTokenEffect.extra_counters`'
+#: new ``count_from_count_selector`` / ``count_from_trigger_event`` keys).
+#: "…where X is its power" (Bloated Processor/Furnace Gremlin — a dying
+#: creature's own last-known power) and "…that many times" (Phyrexian
+#: Incubator — a search count) stay UNMODELED, fail-closed.
+_INCUBATE_X_SELECTORS: dict[str, str] = {
+    "the number of lands you control": "lands_you_control",
+    "the number of creature cards in your graveyard": "creature_cards_in_your_graveyard",
+}
+_INCUBATE_X_ALT = "|".join(re.escape(p) for p in _INCUBATE_X_SELECTORS)
+_INCUBATE_X_RE = _c(
+    r"(?:you )?incubate x(?: (?P<twice>twice))?, where x is "
+    r"(?:(?P<selector>" + _INCUBATE_X_ALT + r")|(?P<spell_mv>that spell'?s mana value))"
+)
+
+
+def _incubate_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    extra: dict[str, Any] = {"kind": "+1/+1"}
+    if m.group("spell_mv"):
+        extra["count_from_trigger_event"] = "mana_value"
+    else:
+        selector = _INCUBATE_X_SELECTORS.get(m.group("selector"))
+        if selector is None:
+            return None  # fail closed — an X phrasing we don't model
+        extra["count_from_count_selector"] = selector
+    return [EffectSpec("create_token", {
+        "count": 2 if m.group("twice") else 1,
+        "token_name": "Incubator",
+        "extra_counters": extra,
+    })]
+
+
 # "Clash with an opponent." / "Clash with defending player." (RULE 701.30,
 # PAR-29) — reveal the top card of your (and one opponent's) library;
 # `RulesEngine.clash` / `effects.ClashEffect` (registered as ``clash``) own
@@ -8512,6 +8549,15 @@ HANDLERS: list[EffectHandler] = [
         "face_villainous_choice",
         _VILLAINOUS_HEADER_RE,
         _face_villainous_choice,
+    ),
+    # "incubate X, where X is <count>" / "incubate X twice, where X is …"
+    # (PAR-30) — tried before the plain-N row below (its regex would not
+    # match "incubate x" anyway, but keep the dynamic form first by
+    # convention).
+    EffectHandler(
+        "incubate_x",
+        _INCUBATE_X_RE,
+        _incubate_x,
     ),
     # "incubate N" / "you incubate N" (RULE 701.53).
     EffectHandler(

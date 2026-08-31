@@ -190,12 +190,22 @@ its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
     subject pronoun (Monk Gyatso); "airbend … creature or **spell**"
     exiling off the stack (Aang, Swift Savior).
 
-  - **Incubate (RULE 701.53) dynamic amount.** "incubate X, where X is
-    `<count>`" (Bloated Processor, Chrome Host Seedshark, Sunfall, Blight
-    Titan — ~6); "incubate N twice" / "incubate N that many times"
-    (Glistening Dawn, Phyrexian Incubator). `create_token`'s
-    `extra_counters` (a static `{kind,count}` dict) needs a count-selector /
-    `"x"` sentinel / repeat count.
+  - **Incubate (RULE 701.53) dynamic amount — partly shipped (v133).**
+    Done: "incubate X, where X is `<board count>`" (Blight Titan, Glistening
+    Dawn) via `CreateTokenEffect.extra_counters`' new
+    `count_from_count_selector`; "…where X is that spell's mana value"
+    (Chrome Host Seedshark) via `count_from_trigger_event`; "incubate X
+    **twice**" via `create_token` `count=2`. Still open: "…where X is **its
+    power**" — a dying creature's own last-known power (Bloated Processor,
+    Furnace Gremlin); "…X is **its mana value**" of a just-exiled permanent
+    read by *its controller* (Excise the Imperfect); "X is the number of
+    creatures **exiled this way**" (Sunfall); "incubate N **that many
+    times**" / "incubate N **X times**" — a search/count-driven repeat
+    (Phyrexian Incubator, Progenitor Exarch). Plain "incubate N" cards
+    still blocked on unrelated surrounding grammar: Assimilate Essence
+    ("if they do, you incubate 2" reflexive), Tiller of Flesh (trigger
+    condition), Traumatic Revelation ("if you don't"), Searing Barb
+    ("if it's a creature, it can't block").
 
   - **Collect Evidence / Forage / Blight activated-body residue.** Exotic
     `{cost}, collect evidence N:` bodies (Hedge Whisperer land-animation,

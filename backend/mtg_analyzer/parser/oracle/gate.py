@@ -1315,7 +1315,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: *separate* filter/quantifier/trailing-sentence gap (non-aura enchantment
 #: filter, colour filter, "exile X target …", "It gains haste until end of
 #: turn." tail) — PAR-30. 0 regressed.
-PARSER_VERSION = "132"
+#: "133": PAR-30 — "Incubate X, where X is `<count>`" dynamic amount
+#: (`_incubate_x`/`_INCUBATE_X_RE`). `CreateTokenEffect.extra_counters`
+#: gained `count_from_count_selector` (a live `continuous.count_selector`
+#: read — "the number of lands you control" / "creature cards in your
+#: graveyard", the latter a new selector) and `count_from_trigger_event`
+#: ("that spell's mana value"); "incubate X **twice**" is just
+#: `create_token`'s own `count=2`. "…where X is its power" / "…that many
+#: times" stay UNMODELED, fail-closed. +3 (Glistening Dawn, Blight Titan,
+#: Chrome Host Seedshark), 0 regressed.
+PARSER_VERSION = "133"
 
 
 def parser_source_hash() -> str:

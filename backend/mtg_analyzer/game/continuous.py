@@ -1048,6 +1048,15 @@ def count_selector(
         except KeyError:
             player = None
         return len(player.graveyard) if player is not None else 0
+    if selector == "creature_cards_in_your_graveyard":
+        # "Incubate X, where X is the number of creature cards in your
+        # graveyard." (Blight Titan, PAR-30) — the creature-filtered sibling
+        # of ``cards_in_your_graveyard`` just above.
+        try:
+            player = state.player_by_id(controller_id) if controller_id else None
+        except KeyError:
+            player = None
+        return sum(1 for c in player.graveyard if c.card.is_creature) if player is not None else 0
     if selector == "cards_in_your_hand":
         # RULE 604.3 CDA beater — Maro/Psychosis Crawler/Soramaro's
         # "power and toughness are each equal to the number of cards in

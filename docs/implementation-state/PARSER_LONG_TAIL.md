@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.4% covered — 12,680 / 34,811 — as of 2026-08-31, PARSER_VERSION 132.**
+**36.4% covered — 12,683 / 34,811 — as of 2026-08-31, PARSER_VERSION 133.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -121,7 +121,17 @@ Documented simplification (no per-object add/remove choice): remove one
 time counter from each suspended card the player owns (opening the RULE
 702.62a free-cast window if it empties), add one to each Vanishing-style
 permanent they control. "time travel, then time travel" = two of them.
-+3 (All of History All at Once, Time Beetle, Wibbly-wobbly Timey-wimey).)
++3 (All of History All at Once, Time Beetle, Wibbly-wobbly Timey-wimey).
+128–132 = the ENG-31/33/32 engine-trail (parametric keyword grants;
+villainous/vote option bodies + the reanimator-token exile→copy connector;
+Waterbend bodies) — see `Done_Backend.md`.
+133 = PAR-30's "incubate X, where X is `<count>`" — `CreateTokenEffect.
+extra_counters` gained `count_from_count_selector` (a live `continuous.
+count_selector` read — lands you control, and a new
+`creature_cards_in_your_graveyard` selector) and `count_from_trigger_event`
+("that spell's mana value"); "incubate X twice" = `create_token` `count=2`.
+"…where X is its power" / "…that many times" stay UNMODELED. +3 (Glistening
+Dawn, Blight Titan, Chrome Host Seedshark).)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
