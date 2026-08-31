@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**36.1% covered — 12,575 / 34,811 — as of 2026-08-31, PARSER_VERSION 124.**
+**36.1% covered — 12,576 / 34,811 — as of 2026-08-31, PARSER_VERSION 125.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -98,7 +98,11 @@ sweep shape as `request_all_players_decline_or`), `effects.VoteEffect`,
 recursively `parse_effect_body`'d. 2-option only; 3+-option (Council
 Guardian), "vote for a permanent/card" (Council's Judgment), a carried
 per-player subject across "and" (Capital Punishment — fail-closed), and
-untargetable-off-stack outcome bodies all stay open. +5.)
+untargetable-off-stack outcome bodies all stay open. +5.
+125 = PAR-29 residue: "each creature you control gains/gets `<X>` until end
+of turn" — the distributive-singular phrasing of the existing "creatures
+you control gain …" group grant (`_GROUP` / `_GROUP_SELECTORS`), +1
+(Moonveil Dragon).)
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

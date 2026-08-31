@@ -121,3 +121,22 @@ def test_craterhoof_behemoth_end_to_end_pumps_the_whole_board():
     assert b.power == 5 and b.toughness == 5
     assert craterhoof.power == 8 and craterhoof.toughness == 8
     assert "trample" in a.granted_keywords
+
+
+def test_each_creature_you_control_distributive_group_grant():
+    # "Each creature you control gains X until end of turn." is the same
+    # group as "creatures you control", just worded per-creature
+    # (Avacyn and Griselbrand, Moonveil Dragon) — PAR-29 residue widening.
+    (spec,) = parse_effect_body(
+        "each creature you control gains indestructible until end of turn"
+    )
+    assert spec.type == "pump"
+    assert spec.params == {
+        "keywords": ["indestructible"],
+        "selector": "creatures_you_control",
+    }
+    (spec2,) = parse_effect_body(
+        "each creature you control gets +1/+1 until end of turn"
+    )
+    assert spec2.params["selector"] == "creatures_you_control"
+    assert spec2.params["power"] == 1 and spec2.params["toughness"] == 1

@@ -6003,7 +6003,8 @@ def _create_emblem(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: group_selector_objects` selector as each other (every creature not
 #: yours, the plain-English reading of either phrasing).
 _GROUP = (
-    r"(?P<group>other creatures you control|creatures you control|all creatures"
+    r"(?P<group>other creatures you control|each creature you control"
+    r"|creatures you control|all creatures"
     r"|creatures your opponents control|creatures you don'?t control"
     r"|permanents you control|elves you control|elf creatures you control"
     # PAR-19: "Attacking creatures get -3/-0 until end of turn." (Lethargy
@@ -6018,6 +6019,10 @@ _SUBJECT = (
 #: A matched ``group`` phrase → its `continuous.group_selector_objects` selector.
 _GROUP_SELECTORS: dict[str, str] = {
     "creatures you control": "creatures_you_control",
+    # The distributive-singular phrasing ("Each creature you control gains
+    # indestructible until end of turn." — Avacyn and Griselbrand) is the
+    # same group, just worded per-creature.
+    "each creature you control": "creatures_you_control",
     "other creatures you control": "other_creatures_you_control",
     "all creatures": "all_creatures",
     "creatures your opponents control": "creatures_opponents_control",
