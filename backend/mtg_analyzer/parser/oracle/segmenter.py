@@ -2372,8 +2372,15 @@ def parse_effect_body(
         if len(parts) > 1:
             collected: list[EffectSpec] = []
             ok = True
-            referent = False
-            referent_selector = False
+            # Seed the pronoun chain from the caller: a two-sentence wrapper
+            # (`_EXILE_THEN_COPY_SENTENCE_RE`, `_with_after_tail`) passes
+            # ``previous_subject=True`` for a span it already knows opens
+            # with a referent ("create a token that's a copy of that card.
+            # It gains haste …") — the *first* sub-part must inherit that,
+            # not restart from nothing. ``self_subject`` still isn't passed
+            # down (see this function's docstring).
+            referent = previous_subject
+            referent_selector = previous_selector
             for part in parts:
                 sub = parse_effect_body(
                     part, previous_subject=referent, previous_selector=referent_selector,
@@ -2453,6 +2460,16 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
     # as a param), so it's recognised by type here rather than by scanning
     # params like every other kind below.
     if last.type == "earthbend" and not last.params.get("previous_subject"):
+        return True
+    # "Create a token …. **It** gains haste until end of turn." (PAR-30 —
+    # God-Pharaoh's Gift, Harried Dronesmith, Molten Duplication, Mordor on
+    # the March): a create/copy clause makes an object the next clause's
+    # "it" points at, read at resolve time off `GameContext.created_objects`
+    # rather than `previous_targets` (`PumpEffect.previous_subject`'s own
+    # fallback). ``copy_permanent``/``become_copy`` included since the
+    # reanimator-token grammar routes "a token that's a copy of that card"
+    # through them.
+    if last.type in ("create_token", "copy_permanent", "become_copy"):
         return True
     values: list[Any] = []
     for value in last.params.values():

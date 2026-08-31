@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.0% covered — 12,879 / 34,811 — as of 2026-09-01, PARSER_VERSION 145.**
+**37.0% covered — 12,888 / 34,811 — as of 2026-09-01, PARSER_VERSION 146.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -349,6 +349,31 @@ own `spell_or_permanent` (Unsubstantiate's own "still on the stack" bounce).
 a {2} recast override; the same effect still exiles a battlefield creature).
 **The PAR-30 Airbend residue cluster is now closed** — its BACKLOG bullet
 deleted.
+
+146 = PAR-30 — the **"Create a token …. It gains haste until end of turn."
+tail.** Three small pieces: (a) `segmenter._announces_creature_target` now
+returns True for a `create_token`/`copy_permanent`/`become_copy` spec, so
+the connector-split loop offers "it" to the next clause;
+`PumpEffect.previous_subject` falls back to `GameContext.created_objects`
+when `previous_targets` is empty (a create clause has no RULE 115 target).
+(b) The connector-split loop seeds its pronoun chain from the caller's
+`previous_subject`/`previous_selector` — a two-sentence wrapper
+(`_EXILE_THEN_COPY_SENTENCE_RE`, `_with_after_tail`) passes
+`previous_subject=True` for a span it knows opens with a referent ("create a
+token that's a copy of that card. It gains haste …"), and the *first*
+sub-part must inherit it rather than restart from nothing. (c)
+`_DELAYED_SAC_EXILE_TAIL_RE` gained a `destroy` verb → a new
+`destroy_specific` effect (the destroy sibling of `sacrifice_specific`/
+`exile_specific`; goes through `RulesEngine.destroy`, so a shield/
+indestructible can still save it — Old Hob, Alleycat Blues' "Destroy it at
+the beginning of the next end step"). +9 (Harried Dronesmith, God-Pharaoh's
+Gift, Séance, Mordor on the March, Mardu Charm, Mardu Monument, Mogg Cannon,
+Rebellion of the Flamekin, Salt Road Skirmish), 0 regressed; verified
+end-to-end (Harried Dronesmith's ETB Thopter gains haste via
+`created_objects`). Residue not on "it gains haste": Molten Duplication
+(needs `{TARGET}` "artifact or creature **you control**" scoping — a shared
+macro), Old Hob's *other* ability ("target attacking creature **token**"
+filter), Artistic Process (a modal `choose 1 —` option body).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

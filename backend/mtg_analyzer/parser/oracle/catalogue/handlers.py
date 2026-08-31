@@ -6637,14 +6637,19 @@ def _tap_previous_subject(m: re.Match[str]) -> list[EffectSpec]:
 #: sets the segmenter's `previous_subject` flag, so gating would miss the
 #: majority of the cluster.
 _DELAYED_SAC_EXILE_TAIL_RE = _c(
-    r"(?:then )?(?P<verb>sacrifice|exile) "
+    r"(?:then )?(?P<verb>sacrifice|exile|destroy) "
     r"(?:it|that creature|that token|that permanent|that artifact|those tokens|them) "
     r"at the beginning of (?:the|your) next end step"
 )
+_DELAYED_TAIL_INNER = {
+    "sacrifice": "sacrifice_specific",
+    "exile": "exile_specific",
+    "destroy": "destroy_specific",  # Old Hob, Alleycat Blues
+}
 
 
 def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
-    inner = "sacrifice_specific" if m.group("verb").lower() == "sacrifice" else "exile_specific"
+    inner = _DELAYED_TAIL_INNER[m.group("verb").lower()]
     return [EffectSpec("create_delayed_trigger", {
         "step": "end",
         "scope": "any",

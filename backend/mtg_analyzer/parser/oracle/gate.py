@@ -1442,7 +1442,20 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `_post_exile` recast-permission riders apply. Mirrors `ReturnToHand
 #: Effect`'s own `spell_or_permanent`. +1; the Airbend residue cluster is
 #: now closed. 0 regressed.
-PARSER_VERSION = "145"
+#: "146": PAR-30 — the "Create a token …. **It** gains haste until end of
+#: turn." tail. Three small pieces: `segmenter._announces_creature_target`
+#: now recognises a `create_token`/`copy_permanent`/`become_copy` spec (the
+#: created object is the next clause's "it"); `PumpEffect.previous_subject`
+#: falls back to `GameContext.created_objects` when `previous_targets` is
+#: empty; the connector-split loop seeds its pronoun chain from the caller's
+#: `previous_subject`/`previous_selector` (a two-sentence wrapper passes
+#: `previous_subject=True` for a span it knows opens with a referent — the
+#: first sub-part must inherit it). Also `_DELAYED_SAC_EXILE_TAIL_RE` gained
+#: a `destroy` verb → new `destroy_specific` effect (Old Hob's "destroy it
+#: at the beginning of the next end step"). +9 (Harried Dronesmith,
+#: God-Pharaoh's Gift, Séance, Mordor on the March, Mardu Charm/Monument,
+#: Mogg Cannon, Rebellion of the Flamekin, Salt Road Skirmish), 0 regressed.
+PARSER_VERSION = "146"
 
 
 def parser_source_hash() -> str:

@@ -10403,6 +10403,34 @@ class ExileSpecificEffect(GameEffect):
                 context.engine.exile(obj)
 
 
+class DestroySpecificEffect(GameEffect):
+    """Destroy the exact permanents baked into this effect (RULE 701.7).
+
+    The destroy sibling of `SacrificeSpecificEffect`/`ExileSpecificEffect`,
+    for a *delayed* "destroy it at the beginning of the next end step" tail
+    (Old Hob, Alleycat Blues — "create a … token. … Destroy it at the
+    beginning of the next end step.") whose referent is `GameContext.
+    created_objects` / `previous_targets` (baked in by `CreateDelayedTrigger
+    Effect`'s ``capture`` handling, which special-cases any inner effect
+    exposing an ``.objects`` list). Unlike sacrifice, this goes through
+    `RulesEngine.destroy` — so a regeneration shield or indestructible could
+    still save the object, which is the printed wording's actual meaning.
+    Silently skips anything already gone (RULE 111.7)."""
+
+    def __init__(
+        self,
+        objects: list["GameObject"],
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.objects = objects
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for obj in list(self.objects):
+            if obj in context.state.battlefield:
+                context.engine.destroy(obj)
+
+
 class ReturnUncastExiledEffect(GameEffect):
     """The "…if it wasn't cast this way" tail every optional free-cast-from-
     exile window needs: Beseech the Mirror's "put the exiled card into your
@@ -13299,7 +13327,15 @@ class PumpEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.previous_subject:
-            chosen = list(context.previous_targets)
+            # "it gains haste until end of turn" (PAR-30) — "it" is whatever
+            # the *preceding* clause of this resolution chose (RULE 601.2c,
+            # `previous_targets`) or, when that clause created rather than
+            # targeted something ("create a token …. It gains haste …" —
+            # God-Pharaoh's Gift, Harried Dronesmith, Mordor on the March),
+            # what it *made* (`created_objects`).
+            chosen = list(context.previous_targets) or list(
+                getattr(context, "created_objects", [])
+            )
             for obj in chosen:
                 self._pump_one(obj)
             if chosen:
@@ -18201,6 +18237,14 @@ EffectRegistry.register(
     # Effect`'s own `capture='created_objects'`" idiom.
     "exile_specific",
     lambda p: ExileSpecificEffect(objects=[]),
+)
+EffectRegistry.register(
+    # "Destroy it at the beginning of the next end step." (Old Hob, Alleycat
+    # Blues-shaped) — the destroy sibling of `sacrifice_specific`/`exile_
+    # specific`, same "empty default, only ever populated by `CreateDelayed
+    # TriggerEffect`'s own `capture`" idiom.
+    "destroy_specific",
+    lambda p: DestroySpecificEffect(objects=[]),
 )
 EffectRegistry.register(
     # "When this Aura leaves the battlefield, that creature's controller

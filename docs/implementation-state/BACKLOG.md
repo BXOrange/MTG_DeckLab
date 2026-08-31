@@ -98,14 +98,13 @@ Plan-level sequencing lives in
   - **Face a Villainous Choice (RULE 701.55) + reanimator-token residue.**
     Each remaining reanimator-token cluster card blocks on its *own*
     filter/quantifier/tail gap: **Anikthea** "non-aura enchantment card"
-    filter; **God-Pharaoh's Gift / Offspring's Revenge** "It gains haste
-    until end of turn." after a *create-token* antecedent — needs
-    `GameContext.created_objects` (not `previous_targets`) threaded as the
-    "it" referent (the ~55-card "create token … It gains haste" SOLO
-    cluster, its own PAR item); **Hour of Eternity** "exile X target
-    creature cards"; **Offspring's Revenge** "target red, white, or black
-    creature card" colour filter; **Sauron the Necromancer / Sin** "create
-    a tapped [and attacking] token"; **Back from the Brink** "…and pay its
+    filter; **Hour of Eternity** "exile X target creature cards";
+    **Offspring's Revenge** "target red, white, or black creature card"
+    colour filter *and* its "It gains haste until end of turn." after a
+    create-token antecedent (the referent half shipped v146 — a
+    `create_token`/`copy_permanent` spec now announces the "it"; only the
+    colour filter is left); **Sauron the Necromancer / Sin** "create a
+    tapped [and attacking] token"; **Back from the Brink** "…and pay its
     mana cost:" activation cost. Villainous option bodies still open: "you
     create a token that's a copy of that card" (**The Master** — needs
     `previous_targets` threaded through `_apply_effect_specs` in the APNAP
@@ -144,15 +143,6 @@ Plan-level sequencing lives in
     (airbend a *spell*), Katara, Bending Prodigy ("her" pronoun),
     Waterbender Ascension (quest counters), Hama (alt-cast by
     waterbending), Aang's Iceberg (O-Ring clause).
-
-  - **"Create a token …. It gains haste until end of turn." tail (~55
-    SOLO cache-wide).** The singular-pronoun previous-subject pump family
-    resolves "it gains `<kw>` until end of turn" against `previous_targets`,
-    but a *create-token* antecedent leaves the pronoun pointing at
-    `GameContext.created_objects` instead — needs that threaded as the "it"
-    referent in `segmenter`'s connector-split loop (and `PumpEffect.
-    previous_subject` to fall back to it). Would also close the
-    God-Pharaoh's Gift / Offspring's Revenge reanimator-token members.
 
   - **Threaten / "it gains haste" tails residue.** Still open in the
     `gain_control_until_eot` family: the *targeted-opponent mass* form
