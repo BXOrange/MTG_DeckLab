@@ -75,9 +75,15 @@ Plan-level sequencing lives in
   `parser_probe.py`.
   - **Needs an engine primitive first:** Vote (701.38, ~28 — the voting subsystem,
     RULE 701.38a APNAP-order choice); Learn (701.48, ~16 — discard-may→draw, else Lesson from
-    outside the game); Incubate as a generic `incubate N` (701.53, ~25 —
-    Incubator DFC token with N +1/+1 counters; hand-authored per-card
-    only today); Face a Villainous Choice (701.55, ~11 — a forced modal
+    outside the game); **Incubate — dynamic amount only** (701.53; the literal
+    `incubate N` form is modeled at PARSER_VERSION 116, reusing the existing
+    Incubator DFC token + "{2}: Transform"): "incubate X, where X is
+    `<count>`" (Bloated Processor/Chrome Host Seedshark/Sunfall/Blight
+    Titan &c., ~6 cards) and "incubate N twice" / "incubate N that many
+    times" (Glistening Dawn, Phyrexian Incubator) need `create_token`'s
+    `extra_counters` to take a count-selector / `"x"` sentinel / a repeat
+    count — `extra_counters` is a static `{kind,count}` dict today);
+    Face a Villainous Choice (701.55, ~11 — a forced modal
     on an opponent); Collect Evidence (701.59, ~12 — additional cost:
     exile graveyard cards totalling mana value ≥ N); Forage (701.61, ~5);
     **Blight — cost forms
@@ -144,7 +150,9 @@ Plan-level sequencing lives in
     Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate,
     Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture,
     The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster,
-    Support, Suspect, Detain, Endure, Recruit, Clash (PARSER_VERSION 115 —
+    Support, Suspect, Detain, Endure, Recruit, Incubate (literal
+    `incubate N` — PARSER_VERSION 116, parser handler only onto the
+    pre-existing Incubator token; dynamic-amount forms open above), Clash (PARSER_VERSION 115 —
     `RulesEngine.clash` + `effects.ClashEffect` + the `clash_won`
     `ConditionalEffect` key + `EventType.CLASHED`/`WON_CLASH`; ~24 more
     cache clash cards stay UNMODELED on ordinary effect-grammar residue in

@@ -5404,6 +5404,25 @@ def _populate_x_times(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("populate", {"count": "x"})]
 
 
+# "Incubate N." (RULE 701.53, PAR-29) — create an Incubator token (a
+# power/toughness-less colourless artifact token) with N +1/+1 counters on
+# it. No new engine primitive: the `Incubator` catalogue entry
+# (`ability_catalogue/entries_008.py`) already binds "{2}: Transform this
+# token" (→ a 0/0 Phyrexian artifact creature) onto every token so named,
+# and `create_token`'s `extra_counters` places the counters — the exact
+# spec shape Glissa, Herald of Predation's hand-authored entry already
+# emits. "You incubate N" (a "when you do" continuation) is the same
+# action, "you" subject and all. The dynamic "incubate X, where X is …"
+# form needs `extra_counters` to take a count-selector/`"x"` sentinel — a
+# follow-up, tracked in BACKLOG.
+def _incubate(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("create_token", {
+        "count": 1,
+        "token_name": "Incubator",
+        "extra_counters": {"kind": "+1/+1", "count": int(m.group("n"))},
+    })]
+
+
 # "Clash with an opponent." / "Clash with defending player." (RULE 701.30,
 # PAR-29) — reveal the top card of your (and one opponent's) library;
 # `RulesEngine.clash` / `effects.ClashEffect` (registered as ``clash``) own
@@ -7840,6 +7859,12 @@ HANDLERS: list[EffectHandler] = [
         "clash",
         _c(r"clash with (?:an opponent|defending player)"),
         _clash,
+    ),
+    # "incubate N" / "you incubate N" (RULE 701.53).
+    EffectHandler(
+        "incubate",
+        _c(r"(?:you )?incubate (?P<n>\d+)"),
+        _incubate,
     ),
     # "bolster N" (RULE 701.39a) — N +1/+1 counters on a least-toughness
     # creature you control.
