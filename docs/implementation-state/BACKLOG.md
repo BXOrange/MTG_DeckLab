@@ -36,23 +36,11 @@ Plan-level sequencing lives in
 
 ## ENG — Game engine
 
-> ENG-31 (parametric keyword *grants*, PARSER_VERSION 128), ENG-33
-> (villainous / vote option bodies, 129) and ENG-32 (Waterbend, 131) —
-> the three engine primitives PAR-29's keyword-action handlers needed —
-> have all shipped. See `Done_Backend.md`. The residual per-card grammar
-> is **PAR-30**.
-
-*(ENG-33, villainous-choice / vote option-body primitives — **fully
-shipped** (v129 the three named primitives: targeted-player edict
-(`SacrificeEffect.target_kind="player"`), uncapped/noncreature
-`free_cast_from_hand`, "put a `<type>` card from your hand onto the
-battlefield"; v130 the "except it's a 3/3 …" copy-modifier grammar; v132
-the reanimator-token *connector* the fourth named primitive needed —
-`segmenter._EXILE_THEN_COPY_SENTENCE_RE`, "Exile … from graveyard. [If you
-do,] create a token that's a copy of **that card**", feeding PAR-18's
-existing `CopyPermanentEffect(referent="previous")`). See `Done_Backend.md`.
-The per-card residue of the reanimator-token cycle — each card blocked on
-its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
+> **(none open.)** ENG-31 (parametric keyword *grants*, PARSER_VERSION
+> 128), ENG-33 (villainous / vote option bodies, 129–132) and ENG-32
+> (Waterbend, 131) — the three engine primitives PAR-29's keyword-action
+> handlers needed — have all shipped; see `Done_Backend.md`. The residual
+> per-card grammar around them is **PAR-30**, under `## PAR` below.
 
 ## PAR — Parser
 
@@ -85,22 +73,16 @@ its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
   > keywords). The only open parser ticket below is `PAR-30` (`PAR-29`'s parser trail — `PAR-29` itself is closed, all 24 keyword actions now have recognition; see `Done_Backend.md`).
 
 - **PAR-30 · PAR-29's parser trail — remaining effect-body grammar for the
-  RULE 701 keyword actions.** `PAR-29` closed at PARSER_VERSION 127: every
-  RULE 701 keyword action now has parser recognition **and** an engine
-  primitive (Explore/Populate 106-107, Bolster/Support 108, Suspect 109,
-  Detain 110, Blight-verb 111, Endure 112, Recruit 113, residue-batch 114,
-  Clash 115, Incubate 116, Learn 117, Collect Evidence 118, Forage 119,
-  Behold 120, Blight-cost 121, Earthbend 122, Airbend 123, Vote 124,
-  Face a Villainous Choice 126, Time Travel 127; Firebending's printed-
-  keyword ATTACKS `{R}×N` mana ability is bound in `effect_binder.py`).
-  Full per-mechanic narrative in `Done_Backend.md`. What stays UNMODELED is
-  **not the keyword action** — it's the ordinary effect-/outcome-body
-  grammar around it, plus the **ENG-32** (Waterbend cost mechanic) engine
-  primitive. (**ENG-31**, parametric keyword *grants* — Firebend's grant
-  path — shipped at PARSER_VERSION 128; **ENG-33**, villainous / vote
-  option-body primitives — the targeted-player edict, uncapped/noncreature
-  free-cast, and put-`<type>`-from-hand — at 129. Both in
-  `Done_Backend.md`.) Cache-wide `parser_probe.py` SOLO counts.
+  RULE 701 keyword actions.** `PAR-29` and its three spun-off engine
+  tickets (`ENG-31` parametric keyword grants, `ENG-32` Waterbend cost,
+  `ENG-33` villainous/vote option-body primitives) are all closed — full
+  per-mechanic narrative in `Done_Backend.md`. What stays UNMODELED here is
+  **not the keyword action** — every one has recognition + an engine
+  primitive — it's the ordinary effect-/outcome-body grammar *around* it,
+  card by card. Open scope only below; cache-wide `parser_probe.py` SOLO
+  counts. Sub-cluster progress lands in `Done_Backend.md` /
+  `PARSER_LONG_TAIL.md` per PARSER_VERSION bump — keep this list to what is
+  *still* open.
 
   - **Vote (RULE 701.38) outcome bodies.** 3+-option votes (Council
     Guardian — WUBRG protection vote); "vote for a nonland permanent / a
@@ -113,64 +95,37 @@ its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
     Expropriate's extra-turn / gain-control per-vote outcome; Magister of
     Worth's mass-graveyard-return / "destroy all creatures other than ~".
 
-  - **Face a Villainous Choice (RULE 701.55) option bodies.** ENG-33
-    (v129) shipped the targeted-player edict, uncapped/noncreature
-    free-cast and put-`<type>`-from-hand bodies — Great Intelligence's Plan
-    and Dr. Eggman are MODELED. The "except it's [a] `<P/T>` `<colour>`
-    `<subtype>`" copy-**tail** parses (v130 — `_COPY_EXCEPT_PT_RE`,
-    `CopyPermanentEffect.set_colors`); the "Exile … from graveyard. [If you
-    do / if you exiled a card this way,] create a token that's a copy of
-    **that card**" two-sentence **connector** parses (v132 —
-    `segmenter._EXILE_THEN_COPY_SENTENCE_RE`; Ardyn, the Usurper MODELED).
-    Each remaining reanimator-token cluster card is blocked on its *own*
-    separate filter/quantifier/tail gap: **Anikthea** "non-aura enchantment
-    card" filter, **God-Pharaoh's Gift / Offspring's Revenge** "It gains
-    haste until end of turn." trailing sentence — v136 shipped the general
-    *singular-pronoun* previous-subject pump family ("it [also] gets +N/+N /
-    gains `<kw>` until end of turn", `_PUMP_PREV_SINGULAR_*_RE`) and the
-    connector-loop referent propagation, but a create-token antecedent still
-    needs `GameContext.created_objects` (not `previous_targets`) threaded as
-    the "it" referent — the ~55 remaining "create token … It gains haste"
-    SOLO cards, its own PAR item, not ENG-33 — , (**Séance**'s "exile it at
-    the beginning of the next end step." trailing delayed trigger is now
-    handled — v137, `_DELAYED_SAC_EXILE_TAIL_RE` → `create_delayed_trigger`
-    with `capture="previous_or_self"`; Séance stays UNMODELED only on its
-    remaining exile-return clause), **Hour of Eternity** "exile X target creature
-    cards", **Offspring's Revenge** "target red, white, or black creature
-    card" colour filter, **Sauron the Necromancer / Sin** "create a tapped
-    [and attacking] token", **Back from the Brink** "…and pay its mana
-    cost:" activation cost. Also still open: "you create a token that's a
-    copy of that card" as a *villainous option body* (The Master — needs
-    `previous_targets` threaded through `_apply_effect_specs`, plus its
-    "choose an opponent with the most life" subject); "exile cards … until
-    you exile a nonland card, then cast it" (Ensnared by the Mara); "that
-    creature becomes a 1/1 and loses all abilities" (Hunted by The Family);
-    "each opponent who lost 3+ life this turn" (Davros).
+  - **Face a Villainous Choice (RULE 701.55) + reanimator-token residue.**
+    Each remaining reanimator-token cluster card blocks on its *own*
+    filter/quantifier/tail gap: **Anikthea** "non-aura enchantment card"
+    filter; **God-Pharaoh's Gift / Offspring's Revenge** "It gains haste
+    until end of turn." after a *create-token* antecedent — needs
+    `GameContext.created_objects` (not `previous_targets`) threaded as the
+    "it" referent (the ~55-card "create token … It gains haste" SOLO
+    cluster, its own PAR item); **Hour of Eternity** "exile X target
+    creature cards"; **Offspring's Revenge** "target red, white, or black
+    creature card" colour filter; **Sauron the Necromancer / Sin** "create
+    a tapped [and attacking] token"; **Back from the Brink** "…and pay its
+    mana cost:" activation cost. Villainous option bodies still open: "you
+    create a token that's a copy of that card" (**The Master** — needs
+    `previous_targets` threaded through `_apply_effect_specs` in the APNAP
+    sweep, plus its "choose an opponent with the most life" subject);
+    "exile cards … until you exile a nonland card, then cast it" (Ensnared
+    by the Mara); "that creature becomes a 1/1 and loses all abilities"
+    (Hunted by The Family); "each opponent who lost 3+ life this turn"
+    (Davros).
 
-  - **Firebending (RULE ~702.189) grants — ENG-31 shipped (v128), residue
-    mostly closed (v135).** The parametric-keyword-grant primitive is done:
-    "target creature / creatures you control gain firebending N until end of
-    turn" (Fire Nation Palace/Attacks, Sozin's Comet). v135 closed **Iroh,
-    Dragon of the West** ("each creature you control **with a counter on it**
-    gains firebending N …" — new `creatures_you_control_with_a_counter` group
-    selector) and **Fire Nation Occupation** ("whenever you cast a spell
-    during an opponent's turn, …" — a "during an opponent's turn" qualifier
-    on `_CAST_SPELL_TRIGGER_PLAIN_RE` → the trigger's `not_controllers_turn`
-    gate). Still UNMODELED: **Fire Nation Cadets** ("~ has firebending N as
-    long as there's a lesson card in your graveyard") — needs a
-    self-keyword-grant static shape ("~ has `<keyword>` [as long as
-    `<cond>`]", not yet parsed at all) **and** a `static_conditions.py`
-    "a lesson card in your graveyard" condition. Also the "whenever you
-    waterbend / earthbend / firebend / airbend" bending-verb trigger row
-    (Avatar Aang) — still needs each bending primitive to fire an event.
+  - **Firebending (RULE ~702.189) grants residue.** **Fire Nation Cadets**
+    ("~ has firebending N as long as there's a lesson card in your
+    graveyard") — needs a self-keyword-grant static shape ("~ has
+    `<keyword>` [as long as `<cond>`]", not parsed at all today) **and** a
+    `static_conditions.py` "a lesson card in your graveyard" condition.
+    Also the "whenever you waterbend / earthbend / firebend / airbend"
+    bending-verb trigger row (Avatar Aang) — needs each bending primitive
+    to fire an event first.
 
-  - **Waterbend (RULE 701.67) residue — ENG-32 shipped (v131), 10/28
-    cards MODELED.** Done: the activated `waterbend {N}:` cost, base-P/T-
-    set-with-duration, bare "can't be blocked this turn", "enchanted
-    creature's owner shuffles it into their library", Yue's noncreature
-    free-cast (ENG-33), and the *mandatory* "as an additional cost to
-    cast this spell, waterbend {N}" (Water Whip, Benevolent River Spirit).
-    Still open, each its own gap: **"waterbend {X}"** additional cost
+  - **Waterbend (RULE 701.67) residue.** ~18 of 28 cards still UNMODELED,
+    each on its own gap: **"waterbend {X}"** additional cost
     (Crashing Wave, Foggy Swamp Visions, Waterbender's Restoration — needs
     the printed cost to trigger an {X} announcement it doesn't); **"you
     may waterbend {N}" + "if this spell's additional cost was paid"**
@@ -190,40 +145,52 @@ its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
     Waterbender Ascension (quest counters), Hama (alt-cast by
     waterbending), Aang's Iceberg (O-Ring clause).
 
-  - **Earthbend (RULE 701.66) residue — partly shipped (v134).** Done:
-    "earthbend X, where X is [twice] the number of `<board count>`"
-    (`EarthbendEffect.amount_from_count_selector` + `amount_multiplier` —
-    Rockalanche, The Boulder Ready to Rumble, Bumi's Feast Lecture); the
-    "earthbend N, then untap **that land**" `previous_subject` pronoun tail
-    (Avatar Kyoshi — `earthbend` now announces a land referent, new
-    `_TAP_PREVIOUS_SUBJECT_RE` for "tap/untap that land|permanent|artifact|
-    creature", which also closed ~8 unrelated "pump/attach/+1+1 target
-    creature. Untap that creature." cards). Still open: "earthbend X, where
-    X is **that creature's power**" — a dying creature's own last-known
-    power (Beifong's Bounty Hunters); "earthbend N. when you do,
-    `<reflexive trigger>`" (Earth Rumble); "earthbend N. then each creature
-    …" pronoun-to-that-land's-power (Earthshape).
+  - **Earthbend (RULE 701.66) residue.** Still open: "earthbend X, where X
+    is **that creature's power**" — a dying creature's own last-known power
+    (Beifong's Bounty Hunters); "earthbend N. when you do, `<reflexive
+    trigger>`" (Earth Rumble); "earthbend N. then each creature …"
+    pronoun-to-that-land's-power (Earthshape).
 
   - **Airbend (RULE 701.65) residue.** "airbend that creature" trigger-
     subject pronoun (Monk Gyatso); "airbend … creature or **spell**"
     exiling off the stack (Aang, Swift Savior).
 
-  - **Incubate (RULE 701.53) dynamic amount — partly shipped (v133).**
-    Done: "incubate X, where X is `<board count>`" (Blight Titan, Glistening
-    Dawn) via `CreateTokenEffect.extra_counters`' new
-    `count_from_count_selector`; "…where X is that spell's mana value"
-    (Chrome Host Seedshark) via `count_from_trigger_event`; "incubate X
-    **twice**" via `create_token` `count=2`. Still open: "…where X is **its
-    power**" — a dying creature's own last-known power (Bloated Processor,
-    Furnace Gremlin); "…X is **its mana value**" of a just-exiled permanent
-    read by *its controller* (Excise the Imperfect); "X is the number of
-    creatures **exiled this way**" (Sunfall); "incubate N **that many
-    times**" / "incubate N **X times**" — a search/count-driven repeat
-    (Phyrexian Incubator, Progenitor Exarch). Plain "incubate N" cards
-    still blocked on unrelated surrounding grammar: Assimilate Essence
-    ("if they do, you incubate 2" reflexive), Tiller of Flesh (trigger
-    condition), Traumatic Revelation ("if you don't"), Searing Barb
-    ("if it's a creature, it can't block").
+  - **"Create a token …. It gains haste until end of turn." tail (~55
+    SOLO cache-wide).** The singular-pronoun previous-subject pump family
+    resolves "it gains `<kw>` until end of turn" against `previous_targets`,
+    but a *create-token* antecedent leaves the pronoun pointing at
+    `GameContext.created_objects` instead — needs that threaded as the "it"
+    referent in `segmenter`'s connector-split loop (and `PumpEffect.
+    previous_subject` to fall back to it). Would also close the
+    God-Pharaoh's Gift / Offspring's Revenge reanimator-token members.
+
+  - **Threaten / "it gains haste" tails residue.** Still open in the
+    `gain_control_until_eot` family: the *targeted-opponent mass* form
+    ("gain control of all creatures target opponent controls until end of
+    turn. untap those creatures. they gain haste …" — Broadcast Takeover,
+    Call for Aid — needs a targeted-player-scoped mass selector); the
+    richer haste clause ("until end of turn, it gains haste and `<X>`" /
+    "it gains haste and `<kw>`" — Furnace Reins, Loki's Scepter, Flayer of
+    Loyalties, Firbolg Flutist); the multi-event O-Ring trigger forms
+    ("enters or transforms into ~" — Brutal Cathar; "enters and at the
+    beginning of your first main phase" — Crack in Time); the **old
+    two-sentence Oblivion Ring** templating ("exile another target nonland
+    permanent." + a separate "When ~ leaves the battlefield, return the
+    exiled card…"); and card-specific after-tails (Goatnap "if that
+    creature is a Goat", Awaken the Sleeper "if it's equipped", Driftgloom
+    Coyote / Food Coma).
+
+  - **Incubate (RULE 701.53) dynamic amount residue.** Still open: "…where
+    X is **its power**" — a dying creature's own last-known power (Bloated
+    Processor, Furnace Gremlin); "…X is **its mana value**" of a
+    just-exiled permanent read by *its controller* (Excise the Imperfect);
+    "X is the number of creatures **exiled this way**" (Sunfall);
+    "incubate N **that many times**" / "incubate N **X times**" — a
+    search/count-driven repeat (Phyrexian Incubator, Progenitor Exarch).
+    Plain "incubate N" cards blocked on unrelated surrounding grammar:
+    Assimilate Essence ("if they do, you incubate 2" reflexive), Tiller of
+    Flesh (trigger condition), Traumatic Revelation ("if you don't"),
+    Searing Barb ("if it's a creature, it can't block").
 
   - **Collect Evidence / Forage / Blight activated-body residue.** Exotic
     `{cost}, collect evidence N:` bodies (Hedge Whisperer land-animation,
@@ -240,20 +207,17 @@ its *own* separate filter/quantifier/trailing-sentence gap — is PAR-30.)*
     the Champion cycle ("behold a `<type>` and exile it" + LTB return),
     Celestial Reunion ("behold 2 creatures of a chosen type").
 
-  - **Clash (RULE 701.30) win-branch residue.** ~24 cache clash cards stay
-    UNMODELED on ordinary effect-grammar in their "if you win" branch —
-    "return ~ to hand", "those creatures gain `<keyword>`", "that player
-    `<verb>s`", "repeat this process", "protection from the color of your
-    choice" — none of it clash-specific. v136 closed the "if you win, that
-    creature gets +2/+2 …" singular-pronoun pump payoff (Fistful of Force)
-    via the shared `_PUMP_PREV_SINGULAR_*_RE` family; the rest each need a
-    distinct body handler (a "repeat this process" loop primitive, mass
-    "untap all Forests you control", "return this card to its owner's hand"
-    self-bounce as a split clause, "~ deals N damage to that creature's
-    controller", …). Also still open: making "clash with an opponent" a
-    *referent-transparent* interstitial in the connector-split loop so a
-    "`<main effect on target>`. clash. if you win, `<that creature …>`"
-    card keeps its pronoun chain across the clash sentence.
+  - **Clash (RULE 701.30) win-branch residue.** ~22 cache clash cards stay
+    UNMODELED on ordinary effect-grammar in their "if you win" branch, each
+    needing a distinct body handler: a "repeat this process" loop
+    primitive, mass "untap all Forests you control", "return this card to
+    its owner's hand" self-bounce as a split clause, "~ deals N damage to
+    that creature's controller", "that player `<verb>s`", "protection from
+    the color of your choice", … — none of it clash-specific. Also open:
+    making "clash with an opponent" a *referent-transparent* interstitial
+    in the connector-split loop so a "`<main effect on target>`. clash. if
+    you win, `<that creature …>`" card keeps its pronoun chain across the
+    clash sentence.
 
   - **Suspect (RULE 701.60) one-off shapes.** A genuine if/else *effect*
     primitive ("if `<cond>`, A. Otherwise, B." — two mutually exclusive
