@@ -1432,7 +1432,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Steadfast (each still blocked on its own other clauses). "airbend …
 #: creature or **spell**" (Aang, Swift Savior — exile off the stack) stays
 #: open. 0 regressed.
-PARSER_VERSION = "144"
+#: "145": PAR-30 (Airbend residue — cluster closed) — "airbend up to one
+#: other target creature **or spell**" (Aang, Swift Savior). `_AIRBEND_RE`
+#: gained an `or spell` tail → `target_kind="spell_or_creature"` (the
+#: MEC-43 Unsubstantiate targeting union) + a new `ExileEffect.spell_or_
+#: permanent` flag: a chosen target that is a live spell on the stack is
+#: pulled off it (`RulesEngine.move_spell_off_stack(item, "exile")`, RULE
+#: 400.1 — it never resolves) instead of `context.exile`, then the same
+#: `_post_exile` recast-permission riders apply. Mirrors `ReturnToHand
+#: Effect`'s own `spell_or_permanent`. +1; the Airbend residue cluster is
+#: now closed. 0 regressed.
+PARSER_VERSION = "145"
 
 
 def parser_source_hash() -> str:

@@ -40,8 +40,14 @@ def test_airbend_clause_forms():
         "owner_play_permission_cost": "{2}", "count": 2, "optional": True,
     }
 
-    # "creature or spell" (exile off the stack) stays unclaimed
-    assert match_clause("airbend up to 1 other target creature or spell") is None
+    # "creature or spell" — the airbend-a-spell form (v145)
+    cs = match_clause("airbend up to 1 other target creature or spell")
+    assert cs and cs[0].type == "exile"
+    assert cs[0].params["target_kind"] == "spell_or_creature"
+    assert cs[0].params["spell_or_permanent"] is True
+    assert cs[0].params["count"] == 1 and cs[0].params["optional"] is True
+    # "nonland permanent or spell" isn't a real template — fail closed
+    assert match_clause("airbend target nonland permanent or spell") is None
 
 
 def test_airbend_qualifier_forms_v144():
@@ -168,3 +174,66 @@ def test_airbend_trigger_subject_exiles_the_triggering_creature():
 
     assert ally not in state.battlefield and ally in p1.exile
     assert state.exile_cast_cost_override.get(ally.instance_id) == "{2}"
+
+
+def test_airbend_a_spell_pulls_it_off_the_stack_into_exile():
+    from mtg_analyzer.game.effect_binder import build_effects
+    from mtg_analyzer.models.game_state import StackItem
+    from mtg_analyzer.parser.oracle.spec import EffectSpec as ES
+
+    eng, state = _engine()
+    p2 = state.player_by_id("p2")
+
+    spell = GameObject(
+        Card(id="BOLT", name="Lightning Bolt", type_line="Instant", is_instant=True,
+             mana_cost_string="{R}", converted_mana_cost=1),
+        owner_id="p2", zone=Zone.STACK,
+    )
+    spell.controller_id = "p2"
+    state.stack.append(StackItem(kind="spell", controller_id="p2", obj=spell, targets=[]))
+
+    src = GameObject(Card(id="AANG", name="Aang, Swift Savior",
+                          type_line="Legendary Creature", is_creature=True,
+                          power=3, toughness=3), owner_id="p1", zone=Zone.BATTLEFIELD)
+    src.controller_id = "p1"
+
+    eff = build_effects([ES("exile", {
+        "target_kind": "spell_or_creature", "spell_or_permanent": True,
+        "grant_owner_play_permission": True, "owner_play_permission_cost": "{2}",
+        "count": 1, "optional": True,
+    })], src)[0]
+    eff.apply(eng.rules.context, [spell])
+
+    assert state.stack == []               # never resolves
+    assert spell in p2.exile
+    assert state.exile_cast_cost_override.get(spell.instance_id) == "{2}"
+    assert eng.effective_cast_cost(p2, spell).converted_mana_cost == 2
+
+
+def test_airbend_spell_or_creature_effect_also_handles_a_battlefield_creature():
+    from mtg_analyzer.game.effect_binder import build_effects
+    from mtg_analyzer.parser.oracle.spec import EffectSpec as ES
+
+    eng, state = _engine()
+    p2 = state.player_by_id("p2")
+    ox = GameObject(
+        Card(id="OX", name="Ox", type_line="Creature — Ox", is_creature=True,
+             power=4, toughness=4, mana_cost_string="{3}{G}", converted_mana_cost=4),
+        owner_id="p2", zone=Zone.BATTLEFIELD,
+    )
+    ox.controller_id = "p2"
+    state.add_to_battlefield(ox)
+    src = GameObject(Card(id="AANG2", name="Aang, Swift Savior",
+                          type_line="Legendary Creature", is_creature=True,
+                          power=3, toughness=3), owner_id="p1", zone=Zone.BATTLEFIELD)
+    src.controller_id = "p1"
+
+    eff = build_effects([ES("exile", {
+        "target_kind": "spell_or_creature", "spell_or_permanent": True,
+        "grant_owner_play_permission": True, "owner_play_permission_cost": "{2}",
+        "count": 1, "optional": True,
+    })], src)[0]
+    eff.apply(eng.rules.context, [ox])
+
+    assert ox not in state.battlefield and ox in p2.exile
+    assert state.exile_cast_cost_override.get(ox.instance_id) == "{2}"

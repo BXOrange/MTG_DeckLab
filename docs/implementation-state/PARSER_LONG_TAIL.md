@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.0% covered — 12,878 / 34,811 — as of 2026-09-01, PARSER_VERSION 144.**
+**37.0% covered — 12,879 / 34,811 — as of 2026-09-01, PARSER_VERSION 145.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -333,9 +333,22 @@ extracted into a shared `_post_exile` helper both branches call. +2 SOLO
 blocking Aang Airbending Master / Aang the Last Airbender / Appa Loyal Sky
 Bison / Appa Steadfast Guardian (each still UNMODELED on its *own* other
 clauses — experience-counter triggers, lesson-spell triggers, a modal
-choose, cast-from-exile — separate PAR-30 items). 0 regressed. Still open:
-**"airbend … creature or spell"** (Aang, Swift Savior — exiling a spell off
-the stack + owner-recast, a real new primitive).
+choose, cast-from-exile — separate PAR-30 items). 0 regressed.
+
+145 = PAR-30 — **Airbend residue, cluster closed.** "airbend up to one
+other target creature **or spell**" (Aang, Swift Savior). `_AIRBEND_RE`
+gained an `or spell` tail → `target_kind="spell_or_creature"` (the MEC-43
+Unsubstantiate targeting union — a `nonland permanent … or spell` shape
+fails closed, no real card prints it) + a new `ExileEffect.spell_or_
+permanent` flag: a chosen target that is a live spell on the stack is
+pulled off it via `RulesEngine.move_spell_off_stack(item, "exile")` (RULE
+400.1 — it never resolves) instead of `context.exile`, then the same
+`_post_exile` recast-permission riders apply. Mirrors `ReturnToHandEffect`'s
+own `spell_or_permanent` (Unsubstantiate's own "still on the stack" bounce).
++1; verified end-to-end (a Lightning Bolt on the stack is exiled off it with
+a {2} recast override; the same effect still exiles a battlefield creature).
+**The PAR-30 Airbend residue cluster is now closed** — its BACKLOG bullet
+deleted.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

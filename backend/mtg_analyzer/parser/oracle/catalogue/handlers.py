@@ -6094,16 +6094,32 @@ _AIRBEND_RE = _c(
     r"(?:(?P<other>other|another) )?"
     r"target (?P<what>nonland permanent|creature)s?"
     r"(?P<yc> you control)?"
+    r"(?P<orspell> or spell)?"
 )
 
 
 def _airbend(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     base = "nonland_permanent" if m.group("what") == "nonland permanent" else "creature"
-    if m.group("yc"):
+    params: dict[str, Any] = {
+        "grant_owner_play_permission": True,
+        "owner_play_permission_cost": "{2}",
+    }
+    if m.group("orspell"):
+        # "airbend up to one other target creature or spell" (Aang, Swift
+        # Savior) — airbending a *spell* exiles it off the stack (RULE
+        # 400.1, `RulesEngine.move_spell_off_stack`) and grants the same
+        # owner-recast-for-{2} permission. Reuses the MEC-43 `spell_or_
+        # creature` targeting union; `spell_or_permanent` tells `ExileEffect`
+        # to take the stack path when the chosen target is a live spell.
+        if base != "creature":
+            return None  # fail closed — only "creature or spell" is a real template
+        params["target_kind"] = "spell_or_creature"
+        params["spell_or_permanent"] = True
+    elif m.group("yc"):
         # "another target creature you control" → the source-excluding kind;
         # "target creature you control" → the plain one (which now *includes*
         # the source, per the cEDH-cube fix).
-        kind = (
+        params["target_kind"] = (
             "other_creature_you_control"
             if (base == "creature" and m.group("other"))
             else f"{base}_you_control"
@@ -6113,12 +6129,7 @@ def _airbend(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         # this engine's `targeting.py` already excludes the effect's own
         # source from a plain creature/permanent pick, and airbend's source
         # is usually a spell or an ETB'ing creature anyway.
-        kind = base
-    params: dict[str, Any] = {
-        "target_kind": kind,
-        "grant_owner_play_permission": True,
-        "owner_play_permission_cost": "{2}",
-    }
+        params["target_kind"] = base
     if m.group("any"):
         params["count"] = _AIRBEND_TARGET_CAP
         params["optional"] = True

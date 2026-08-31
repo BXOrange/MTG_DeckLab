@@ -6192,6 +6192,7 @@ class ExileEffect(GameEffect):
         owner_play_permission_cost: Optional[str] = None,
         trigger_event_key: Optional[str] = None,
         grant_free_cast_window: bool = False,
+        spell_or_permanent: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -6199,6 +6200,15 @@ class ExileEffect(GameEffect):
         self.filter = filter
         self.remember = remember
         self.track_exiled_with = track_exiled_with
+        #: "airbend up to one other target creature **or spell**" (Aang,
+        #: Swift Savior — RULE 701.65 applied to a spell). A chosen target
+        #: that is currently a spell on the stack is exiled *off the stack*
+        #: (RULE 400.1, `RulesEngine.move_spell_off_stack`) so it never
+        #: resolves, rather than through `context.exile` (a battlefield
+        #: move); the exiled card keeps its `instance_id`/`owner_id`, so the
+        #: `_post_exile` recast-permission riders apply unchanged. Mirrors
+        #: `ReturnToHandEffect`'s own `spell_or_permanent` (Unsubstantiate).
+        self.spell_or_permanent = spell_or_permanent
         #: "…copy it, and you may cast the copy without paying its mana
         #: cost." (MEC-43 round 4C, Mizzix's Mastery) — `grant_owner_play_
         #: permission`'s free-cast sibling: once the target is exiled,
@@ -6293,7 +6303,14 @@ class ExileEffect(GameEffect):
                 self.source.linked_exile_id = target.instance_id
             if self.track_exiled_with and self.source is not None:
                 self.source.exiled_with_ids.append(target.instance_id)
-            context.exile(target)
+            item = (
+                context.engine._stack_item_for(target)
+                if self.spell_or_permanent else None
+            )
+            if item is not None and item.obj is not None:
+                context.engine.move_spell_off_stack(item, "exile")
+            else:
+                context.exile(target)
             self._post_exile(context, target)
 
     def _post_exile(self, context: GameContext, target: "GameObject") -> None:
@@ -17517,6 +17534,7 @@ EffectRegistry.register(
         owner_play_permission_cost=p.get("owner_play_permission_cost"),
         trigger_event_key=p.get("trigger_event_key"),
         grant_free_cast_window=bool(p.get("grant_free_cast_window", False)),
+        spell_or_permanent=bool(p.get("spell_or_permanent", False)),
     ),
 )
 EffectRegistry.register(
