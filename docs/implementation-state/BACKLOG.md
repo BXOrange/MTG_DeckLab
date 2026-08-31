@@ -73,6 +73,18 @@ Plan-level sequencing lives in
   *not* a "keyword ability missing from a registry"; most belong under
   `MEC` once picked up. Solo-blocker counts are cache-wide from
   `parser_probe.py`.
+  **State (2026-08-31, PARSER_VERSION 125):** every keyword action with
+  meaningful cache yield is shipped (Explore, Populate, Bolster/Support,
+  Suspect, Detain, Blight, Endure, Recruit, Clash, Incubate, Learn,
+  Collect Evidence, Forage, Behold, Blight cost forms, Earthbend, Airbend,
+  Vote — see `Done_Backend.md`). What's left below is **not loop-sized**:
+  each remaining item is a multi-file general primitive (parametric
+  keyword *grants* for Firebend; an opponent-modal subsystem + edict-on-
+  target-player for Face a Villainous Choice; help-pay-on-an-arbitrary-
+  cost for Waterbend; suspend/exile time-counter plumbing for Time Travel)
+  yielding ~3-7 cards each — prioritize explicitly against the general
+  parser tail (top blockers there unlock 10-50× more per unit effort)
+  rather than grinding in order.
   - **Needs an engine primitive first:** **Vote — residue only** (701.38;
     the APNAP voting subsystem shipped at PARSER_VERSION 124 —
     `RulesEngine.request_vote` / `_tally_and_apply_vote`, `effects.Vote
