@@ -2101,7 +2101,12 @@ def _mill(m: re.Match[str]) -> list[EffectSpec]:
 
 def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in ("creature", "permanent", *_SINGLE_TYPE_PERMANENT_KINDS):
+    # ``nonland_permanent`` ("exile target nonland permanent" — Excise the
+    # Imperfect) is a real `targeting.legal_targets` kind (RULE 115.1c),
+    # just never previously reachable from the plain exile handler.
+    if kind is None or kind not in (
+        "creature", "permanent", "nonland_permanent", *_SINGLE_TYPE_PERMANENT_KINDS
+    ):
         return None
     return [EffectSpec("exile", {"target_kind": kind, **_optional_param(m)})]
 
@@ -5920,30 +5925,58 @@ def _incubate(m: re.Match[str]) -> list[EffectSpec]:
 #: "when ~ dies" trigger) reads the dying creature's own last-known power
 #: off the DIES event's snapshotted ``power`` field (RULE 400.7 / 603.6e),
 #: the same firing-event idiom `EarthbendEffect.amount_from_trigger_event`
-#: uses for "earthbend X, where X is that creature's power". "…that many
-#: times" (Phyrexian Incubator — a search count) stays UNMODELED,
-#: fail-closed.
+#: uses for "earthbend X, where X is that creature's power".
+#:
+#: "**Its controller** incubates X, where X is **its mana value**" (Excise
+#: the Imperfect — the "its" is the just-exiled previous target, already
+#: gone: RULE 608.2h last-known info) → `create_token`'s
+#: ``creators="previous_target_controller"`` + ``extra_counters``'
+#: ``count_from_subject="previous_subject_mana_value"``.
+#:
+#: "…where X is the number of creatures **exiled this way**" (Sunfall) →
+#: ``extra_counters``' ``count_from_context="objects_exiled_this_way"``
+#: (`GameContext`'s exile-count accumulator, sibling of
+#: `permanents_destroyed_this_way`).
+#:
+#: Still UNMODELED, fail-closed: "incubate N **that many times**"
+#: (Phyrexian Incubator — a search-result count across a `pending_choice`
+#: suspension) and "incubate N **X times**" reading a source's own
+#: ``x_paid`` (Progenitor Exarch, an {X}{X} creature — also blocked on its
+#: "transform target Incubator token" ability).
 _INCUBATE_X_SELECTORS: dict[str, str] = {
     "the number of lands you control": "lands_you_control",
     "the number of creature cards in your graveyard": "creature_cards_in_your_graveyard",
 }
 _INCUBATE_X_ALT = "|".join(re.escape(p) for p in _INCUBATE_X_SELECTORS)
 _INCUBATE_X_RE = _c(
-    r"(?:you )?incubate x(?: (?P<twice>twice))?, where x is "
+    r"(?:you |(?P<prev_ctrl>its controller ))?incubates? x(?: (?P<twice>twice))?, where x is "
     r"(?:(?P<selector>" + _INCUBATE_X_ALT + r")"
     r"|(?P<spell_mv>that spell'?s mana value)"
-    r"|(?P<its_power>its power))"
+    r"|(?P<its_power>its power)"
+    r"|(?P<its_mv>its mana value)"
+    r"|(?P<exiled_this_way>the number of creatures exiled this way))"
 )
 
 
 def _incubate_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     extra: dict[str, Any] = {"kind": "+1/+1"}
+    params: dict[str, Any] = {
+        "count": 2 if m.group("twice") else 1,
+        "token_name": "Incubator",
+    }
     if m.group("its_power"):
         # "when ~ dies, incubate X, where X is its power" — the DIES event
         # carries the dying object's ``power`` snapshotted before the move
         # (RULE 400.7); read it fresh at resolve time exactly like the
         # "that spell's mana value" branch reads the firing event.
         extra["count_from_trigger_event"] = "power"
+    elif m.group("its_mv"):
+        # "its controller incubates X, where X is its mana value" (Excise
+        # the Imperfect) — "its" = the just-exiled previous target (RULE
+        # 608.2h last-known info).
+        extra["count_from_subject"] = "previous_subject_mana_value"
+    elif m.group("exiled_this_way"):
+        extra["count_from_context"] = "objects_exiled_this_way"
     elif m.group("spell_mv"):
         extra["count_from_trigger_event"] = "mana_value"
     else:
@@ -5951,11 +5984,10 @@ def _incubate_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if selector is None:
             return None  # fail closed — an X phrasing we don't model
         extra["count_from_count_selector"] = selector
-    return [EffectSpec("create_token", {
-        "count": 2 if m.group("twice") else 1,
-        "token_name": "Incubator",
-        "extra_counters": extra,
-    })]
+    if m.group("prev_ctrl"):
+        params["creators"] = "previous_target_controller"
+    params["extra_counters"] = extra
+    return [EffectSpec("create_token", params)]
 
 
 # "Clash with an opponent." / "Clash with defending player." (RULE 701.30,

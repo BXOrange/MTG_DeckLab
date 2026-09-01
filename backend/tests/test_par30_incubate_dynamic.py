@@ -18,8 +18,22 @@
   `CreateTokenEffect.extra_counters`' existing `count_from_trigger_event`
   key — the same firing-event idiom `EarthbendEffect` uses for
   "earthbend X, where X is that creature's power".
+- "**Its controller** incubates X, where X is **its mana value**" (Excise
+  the Imperfect) — `create_token`'s new `creators="previous_target_
+  controller"` (the token's creator is whoever controlled the just-exiled
+  previous target) + `extra_counters`' new `count_from_subject=
+  "previous_subject_mana_value"` (RULE 608.2h last-known info — the
+  permanent is already gone). Also needed the plain exile handler to
+  accept `nonland_permanent` (a real `targeting` kind it never reached).
+- "…where X is the number of creatures **exiled this way**" (Sunfall) —
+  `extra_counters`' new `count_from_context="objects_exiled_this_way"`, a
+  new `GameContext` same-resolution accumulator (sibling of
+  `permanents_destroyed_this_way`) bumped by `context.exile`.
 
-"…that many times" (a search count) stays UNMODELED, fail-closed.
+Still UNMODELED, fail-closed, each a separate primitive: "incubate N
+**that many times**" (Phyrexian Incubator — a search-result count that
+must survive a `pending_choice` suspension) and "incubate N **X times**"
+reading a source's own `x_paid` (Progenitor Exarch).
 """
 
 from __future__ import annotations
@@ -108,8 +122,39 @@ def test_incubate_x_its_power_parses():
     }
 
 
+def test_incubate_x_its_controllers_mana_value_parses():
+    card = Card(id="exc", name="Excise the Imperfect", type_line="Instant",
+                is_instant=True, mana_cost_string="{1}{W}{B}",
+                oracle_text=("Exile target nonland permanent. Its controller "
+                             "incubates X, where X is its mana value."))
+    r = parse_oracle(card)
+    assert r.coverage != UNMODELED, r.unclaimed
+    types = [e.type for e in r.specs[0].effects]
+    assert types == ["exile", "create_token"]
+    tok = r.specs[0].effects[1].params
+    assert tok["creators"] == "previous_target_controller"
+    assert tok["extra_counters"] == {
+        "kind": "+1/+1", "count_from_subject": "previous_subject_mana_value",
+    }
+
+
+def test_incubate_x_creatures_exiled_this_way_parses():
+    card = Card(id="sf", name="Sunfall", type_line="Sorcery", is_sorcery=True,
+                mana_cost_string="{3}{W}{W}",
+                oracle_text=("Exile all creatures. Incubate X, where X is the "
+                             "number of creatures exiled this way."))
+    r = parse_oracle(card)
+    assert r.coverage != UNMODELED, r.unclaimed
+    types = [e.type for e in r.specs[0].effects]
+    assert types == ["exile", "create_token"]
+    assert r.specs[0].effects[1].params["extra_counters"] == {
+        "kind": "+1/+1", "count_from_context": "objects_exiled_this_way",
+    }
+
+
 def test_incubate_x_that_many_times_still_unmodeled():
-    # a search-driven repeat count is a different, unbuilt shape
+    # a search-result repeat count that must survive a pending_choice
+    # suspension is a different, unbuilt primitive
     card = Card(id="pi", name="Phyrexian Incubator", type_line="Artifact",
                 mana_cost_string="{4}",
                 oracle_text=("{3}, {T}, Sacrifice Phyrexian Incubator: Search your "
@@ -226,3 +271,100 @@ def test_incubate_x_its_power_zero_still_makes_the_incubator_token():
     tokens = [o for o in st.battlefield if getattr(o, "is_token", False)]
     assert len(tokens) == 1
     assert tokens[0].counters.get("+1/+1", 0) == 0
+
+
+def test_excise_the_imperfect_incubates_for_the_victims_controller_and_mv():
+    eng = _engine()
+    st = eng.state
+
+    victim = GameObject(
+        Card(id="OGRE", name="Ogre", type_line="Creature — Ogre", is_creature=True,
+             power=3, toughness=3, converted_mana_cost=4),
+        owner_id="p2", zone=Zone.BATTLEFIELD,
+    )
+    victim.controller_id = "p2"
+    st.add_to_battlefield(victim)
+
+    src = GameObject(Card(id="EXC", name="Excise the Imperfect", type_line="Instant",
+                          is_instant=True),
+                     owner_id="p1", zone=Zone.STACK)
+    src.controller_id = "p1"
+
+    from mtg_analyzer.game.effects import _apply_effects_partitioned
+    effects = build_effects([
+        EffectSpec("exile", {"target_kind": "nonland_permanent"}),
+        EffectSpec("create_token", {
+            "count": 1, "token_name": "Incubator",
+            "creators": "previous_target_controller",
+            "extra_counters": {"kind": "+1/+1",
+                               "count_from_subject": "previous_subject_mana_value"},
+        }),
+    ], src)
+    _apply_effects_partitioned(effects, eng.rules.context, [victim], None, source=src)
+
+    tokens = [o for o in st.battlefield if getattr(o, "is_token", False)]
+    assert len(tokens) == 1
+    assert tokens[0].controller_id == "p2"          # the victim's controller
+    assert tokens[0].counters.get("+1/+1") == 4     # the victim's mana value
+    assert victim not in st.battlefield
+
+
+def test_sunfall_incubates_for_the_number_of_creatures_it_exiled():
+    eng = _engine()
+    st = eng.state
+    for i, pid in enumerate(("p1", "p2", "p2")):
+        c = GameObject(Card(id=f"C{i}", name=f"Bear{i}", type_line="Creature — Bear",
+                            is_creature=True, power=2, toughness=2),
+                       owner_id=pid, zone=Zone.BATTLEFIELD)
+        c.controller_id = pid
+        st.add_to_battlefield(c)
+
+    src = GameObject(Card(id="SF", name="Sunfall", type_line="Sorcery", is_sorcery=True),
+                     owner_id="p1", zone=Zone.STACK)
+    src.controller_id = "p1"
+
+    from mtg_analyzer.game.effects import _apply_effects_partitioned
+    effects = build_effects([
+        EffectSpec("exile", {"selector": "all_creatures"}),
+        EffectSpec("create_token", {
+            "count": 1, "token_name": "Incubator",
+            "extra_counters": {"kind": "+1/+1",
+                               "count_from_context": "objects_exiled_this_way"},
+        }),
+    ], src)
+    _apply_effects_partitioned(effects, eng.rules.context, None, None, source=src)
+
+    assert not [o for o in st.battlefield if o.is_creature and not o.is_token]
+    tokens = [o for o in st.battlefield if getattr(o, "is_token", False)]
+    assert len(tokens) == 1
+    assert tokens[0].counters.get("+1/+1") == 3
+
+
+def test_objects_exiled_this_way_resets_between_resolutions():
+    # the accumulator must not leak from one _apply_effects_partitioned run
+    # into the next (Sunfall cast twice in a game shouldn't compound)
+    eng = _engine()
+    st = eng.state
+    src = GameObject(Card(id="SF2", name="Sunfall", type_line="Sorcery", is_sorcery=True),
+                     owner_id="p1", zone=Zone.STACK)
+    src.controller_id = "p1"
+
+    from mtg_analyzer.game.effects import _apply_effects_partitioned
+    for _ in range(2):
+        c = GameObject(Card(id="ZZ", name="Z", type_line="Creature — Bear",
+                            is_creature=True, power=1, toughness=1),
+                       owner_id="p1", zone=Zone.BATTLEFIELD)
+        c.controller_id = "p1"
+        st.add_to_battlefield(c)
+        effects = build_effects([
+            EffectSpec("exile", {"selector": "all_creatures"}),
+            EffectSpec("create_token", {
+                "count": 1, "token_name": "Incubator",
+                "extra_counters": {"kind": "+1/+1",
+                                   "count_from_context": "objects_exiled_this_way"},
+            }),
+        ], src)
+        _apply_effects_partitioned(effects, eng.rules.context, None, None, source=src)
+
+    tokens = [o for o in st.battlefield if getattr(o, "is_token", False)]
+    assert [t.counters.get("+1/+1") for t in tokens] == [1, 1]

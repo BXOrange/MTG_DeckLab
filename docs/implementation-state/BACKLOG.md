@@ -178,22 +178,27 @@ Plan-level sequencing lives in
     creature is a Goat", Awaken the Sleeper "if it's equipped", Driftgloom
     Coyote / Food Coma).
 
-  - **Incubate (RULE 701.53) dynamic amount residue.** "…where X is **its
-    power**" (a dying creature's own last-known power — Bloated Processor,
-    Furnace Gremlin) closed at PARSER_VERSION 160, reusing the DIES event's
-    RULE 400.7 power snapshot via `count_from_trigger_event`; see
-    `Done_Backend.md`. Still open, each a distinct unbuilt primitive:
-    "…X is **its mana value**" of a just-exiled permanent read by *its
-    controller* (Excise the Imperfect — needs a `previous_target_controller`
-    creator redirect + a subject mana-value read); "X is the number of
-    creatures **exiled this way**" (Sunfall — needs an exiled-this-way
-    per-resolution accumulator); "incubate N **that many times**" /
-    "incubate N **X times**" — a search/count-driven repeat (Phyrexian
-    Incubator, Progenitor Exarch).
-    Plain "incubate N" cards blocked on unrelated surrounding grammar:
-    Assimilate Essence ("if they do, you incubate 2" reflexive), Tiller of
-    Flesh (trigger condition), Traumatic Revelation ("if you don't"),
-    Searing Barb ("if it's a creature, it can't block").
+  - **Incubate (RULE 701.53) residue — the dynamic-amount grammar is
+    DONE.** "…where X is its power" (v160), "its controller incubates X,
+    where X is its mana value" + "…the number of creatures exiled this
+    way" (v162 — `creators="previous_target_controller"`, `count_from_
+    subject`, the `GameContext.objects_exiled_this_way` accumulator) all
+    shipped; see `Done_Backend.md`. What's left is **not** dynamic-amount
+    grammar — each is its own separate primitive:
+    - **Phyrexian Incubator** "incubate N **that many times**" — a
+      search-result count that must survive a `pending_choice` suspension
+      boundary (the search opens a choice; RULE 608.2 parks the rest of
+      the effect list; the count has to be threaded through the resume).
+    - **Progenitor Exarch** "incubate N **X times**" — the repeat count is
+      the source permanent's own `x_paid` ({X}{X} creature), not this
+      resolution's announced X; also blocked on its "{T}: transform target
+      Incubator token you control" activated ability.
+    - Plain "incubate N" cards blocked on unrelated surrounding grammar:
+      Assimilate Essence ("counter … unless its controller pays {N}. if
+      they do, …" reflexive), Tiller of Flesh ("whenever you cast a spell
+      that targets 1 or more permanents" trigger condition), Traumatic
+      Revelation ("if you don't, …" else-branch), Searing Barb ("if it's a
+      creature, it can't block this turn" on a damage target).
 
   - **Collect Evidence / Forage / Blight activated-body residue.** Exotic
     `{cost}, collect evidence N:` bodies (Hedge Whisperer land-animation,

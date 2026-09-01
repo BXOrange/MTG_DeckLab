@@ -141,6 +141,15 @@ class GameContext:
         #: `AddManaEffect`'s ``any_amount_from_context`` param.
         #: `_apply_effects_partitioned`'s own save/reset/restore idiom.
         self.permanents_destroyed_this_way: int = 0
+        #: "Exile all creatures. Incubate X, where X is the number of
+        #: creatures **exiled this way**." (Sunfall) — the exile sibling of
+        #: `permanents_destroyed_this_way`, bumped by `exile` below for
+        #: every object that actually left its zone this resolution
+        #: (a protection/hexproof no-op doesn't reach here — `context.exile`
+        #: is only called on objects the effect already resolved onto).
+        #: Read by `CreateTokenEffect.extra_counters`' ``count_from_context``
+        #: key. Same save/reset/restore idiom in `_apply_effects_partitioned`.
+        self.objects_exiled_this_way: int = 0
         #: RULE 701.30: whether this resolution's most recent `ClashEffect`
         #: won its clash (RULE 701.30d), or ``None`` if no clash has happened
         #: in it. Read by a following `ConditionalEffect(condition=
@@ -204,7 +213,15 @@ class GameContext:
         self.engine.regenerate(target)
 
     def exile(self, target: "GameObject") -> None:
+        from ..models.game_object import Zone
+
+        was_elsewhere = getattr(target, "zone", None) != Zone.EXILE
         self.engine.exile(target)
+        # `self.objects_exiled_this_way`'s bookkeeping (Sunfall) — count an
+        # object that genuinely moved *into* exile this resolution,
+        # mirroring `destroy`'s before/after check.
+        if was_elsewhere and getattr(target, "zone", None) == Zone.EXILE:
+            self.objects_exiled_this_way += 1
 
     def exile_until_duplicate_name(self, player: "Player") -> None:
         self.engine.exile_until_duplicate_name(player)
@@ -645,6 +662,40 @@ def _controller_of(source: Optional["GameObject"], context: GameContext) -> Opti
     return context.active_player
 
 
+def _characteristic_of_subject(
+    context: GameContext, source: Optional["GameObject"], spec: str
+) -> int:
+    """A ``"<who>_<char>"`` reading — a characteristic off an object the
+    calling effect does *not* itself RULE 115-target (`GainLifeEffect.
+    amount_from_subject`'s idiom, shared here with `CreateTokenEffect.
+    extra_counters`' ``count_from_subject``).
+
+    ``who`` ∈ ``self`` (the effect's own source), ``previous_subject`` (the
+    first entry of `GameContext.previous_targets` — usually already gone, so
+    this is RULE 608.2h last-known information), ``trigger_subject`` (the
+    object the firing event names by ``instance_id``). ``char`` ∈ ``power``
+    / ``toughness`` (derived, layer-engine values) / ``mana_value`` (read
+    off the printed card). Anything unrecognised → ``0``, fail-safe.
+    """
+    # ``char`` may be one word ("power"/"toughness") or two ("mana_value"),
+    # so match the known suffixes rather than splitting on the last "_".
+    char = "mana_value" if spec.endswith("_mana_value") else spec.rpartition("_")[2]
+    who = spec[: -(len(char) + 1)]
+    obj = None
+    if who == "self":
+        obj = source
+    elif who == "previous_subject":
+        prev = list(getattr(context, "previous_targets", []) or [])
+        obj = prev[0] if prev else None
+    elif who == "trigger_subject":
+        obj = context.state.find_object((context.trigger_event or {}).get("instance_id"))
+    if obj is None:
+        return 0
+    if char == "mana_value":
+        return int(getattr(getattr(obj, "card", None), "converted_mana_cost", 0) or 0)
+    return int(getattr(obj, char, 0) or 0)
+
+
 def _defending_player_of(source: Optional["GameObject"], context: GameContext) -> Optional["Player"]:
     """The player ``source`` (an attacking creature) is attacking (RULE 506.4),
     for a combat-math keyword's "defending player" clause (annihilator 702.86,
@@ -858,6 +909,7 @@ def _apply_effects_partitioned(
     created_objects: Optional[list[Any]] = None,
     life_lost_this_way: int = 0,
     permanents_destroyed_this_way: int = 0,
+    objects_exiled_this_way: int = 0,
     previous_selector: Optional[str] = None,
     stack_item: Optional[Any] = None,
 ) -> bool:
@@ -927,12 +979,14 @@ def _apply_effects_partitioned(
     outer_created = getattr(context, "created_objects", [])
     outer_life_lost = getattr(context, "life_lost_this_way", 0)
     outer_permanents_destroyed = getattr(context, "permanents_destroyed_this_way", 0)
+    outer_objects_exiled = getattr(context, "objects_exiled_this_way", 0)
     outer_previous_selector = getattr(context, "previous_selector", None)
     outer_clash_won = getattr(context, "clash_won", None)
     context.previous_targets = list(previous_targets or [])
     context.created_objects = list(created_objects or [])
     context.life_lost_this_way = life_lost_this_way
     context.permanents_destroyed_this_way = permanents_destroyed_this_way
+    context.objects_exiled_this_way = objects_exiled_this_way
     context.previous_selector = previous_selector
     context.clash_won = None
     try:
@@ -973,6 +1027,7 @@ def _apply_effects_partitioned(
                         "created_objects": list(context.created_objects),
                         "life_lost_this_way": context.life_lost_this_way,
                         "permanents_destroyed_this_way": context.permanents_destroyed_this_way,
+                        "objects_exiled_this_way": context.objects_exiled_this_way,
                         "previous_selector": context.previous_selector,
                         "stack_item": stack_item,
                     }
@@ -984,6 +1039,7 @@ def _apply_effects_partitioned(
         context.created_objects = outer_created
         context.life_lost_this_way = outer_life_lost
         context.permanents_destroyed_this_way = outer_permanents_destroyed
+        context.objects_exiled_this_way = outer_objects_exiled
         context.previous_selector = outer_previous_selector
         context.clash_won = outer_clash_won
 
@@ -4083,19 +4139,9 @@ class GainLifeEffect(GameEffect):
             return int(source_obj.toughness or 0) if source_obj is not None else 0
 
         def _from_subject() -> int:
-            spec = self.amount_from_subject or ""
-            who, _, char = spec.rpartition("_")
-            obj = None
-            if who == "self":
-                obj = self.source
-            elif who == "previous_subject":
-                prev = list(context.previous_targets)
-                obj = prev[0] if prev else None
-            elif who == "trigger_subject":
-                obj = context.state.find_object((context.trigger_event or {}).get("instance_id"))
-            if obj is None:
-                return 0
-            return int((getattr(obj, char, 0) or 0))
+            return _characteristic_of_subject(
+                context, self.source, self.amount_from_subject or ""
+            )
 
         def _from_count_selector() -> int:
             from . import continuous  # avoid the continuous↔effects import cycle
@@ -13737,7 +13783,9 @@ class CreateTokenEffect(GameEffect):
     is how a following clause says "**the tokens** are goaded".
     """
 
-    _CREATORS = frozenset({"you", "each_player", "each_opponent"})
+    _CREATORS = frozenset(
+        {"you", "each_player", "each_opponent", "previous_target_controller"}
+    )
 
     def __init__(
         self,
@@ -13832,20 +13880,38 @@ class CreateTokenEffect(GameEffect):
     def _resolve_extra_counter_amount(self, context: GameContext) -> int:
         """How many ``extra_counters`` to place on each created token.
 
-        A plain ``count`` is a literal; ``count_from_count_selector``
-        (`continuous.count_selector`, e.g. "Incubate X, where X is the
-        number of lands you control" — Glistening Dawn) and
-        ``count_from_trigger_event`` (the firing event's own field, e.g.
-        "…where X is that spell's mana value" — Chrome Host Seedshark) are
-        the dynamic PAR-30 forms, read fresh at resolve time and clamped to
-        `spec.MAX_EFFECT_MAGNITUDE` (a hostile board count can't wedge the
-        session)."""
+        A plain ``count`` is a literal; the dynamic PAR-30 forms, all read
+        fresh at resolve time and clamped to `spec.MAX_EFFECT_MAGNITUDE` (a
+        hostile board count can't wedge the session):
+
+        - ``count_from_count_selector`` — a `continuous.count_selector`
+          ("Incubate X, where X is the number of lands you control" —
+          Glistening Dawn).
+        - ``count_from_trigger_event`` — the firing event's own field
+          ("…where X is that spell's mana value" — Chrome Host Seedshark;
+          "…where X is its power" off a DIES event — Bloated Processor).
+        - ``count_from_context`` — a `GameContext` same-resolution
+          accumulator name; only ``"objects_exiled_this_way"`` today
+          ("Exile all creatures. Incubate X, where X is the number of
+          creatures exiled this way." — Sunfall).
+        - ``count_from_subject`` — a ``"<who>_<char>"`` string reading a
+          characteristic off an object this effect never targets itself
+          (`GainLifeEffect.amount_from_subject`'s idiom): ``who`` is
+          ``self`` / ``previous_subject`` / ``trigger_subject``, ``char``
+          is ``power`` / ``toughness`` / ``mana_value``. "Exile target
+          nonland permanent. Its controller incubates X, where X is its
+          mana value." — Excise the Imperfect (``previous_subject_mana_
+          value``; RULE 608.2h last-known info, the permanent is gone)."""
         ec = self.extra_counters or {}
         from ..parser.oracle.spec import MAX_EFFECT_MAGNITUDE
 
         if ec.get("count_from_trigger_event"):
             event = context.trigger_event
             raw = int((event or {}).get(str(ec["count_from_trigger_event"])) or 0)
+        elif ec.get("count_from_context"):
+            raw = int(getattr(context, str(ec["count_from_context"]), 0) or 0)
+        elif ec.get("count_from_subject"):
+            raw = _characteristic_of_subject(context, self.source, str(ec["count_from_subject"]))
         elif ec.get("count_from_count_selector"):
             from . import continuous  # function-scoped: avoid an import cycle
 
@@ -13910,6 +13976,15 @@ class CreateTokenEffect(GameEffect):
             creator_ids = [p.id for p in context.state.living_players()]
         elif self.creators == "each_opponent":
             creator_ids = [p.id for p in context.state.living_players() if p.id != controller_id]
+        elif self.creators == "previous_target_controller":
+            # "Exile target nonland permanent. **Its controller** incubates
+            # X…" (Excise the Imperfect) — the token's creator is whoever
+            # controlled the just-exiled permanent (its last-known
+            # controller, RULE 608.2h — it is already gone), not this
+            # spell's own controller. No previous target → nobody incubates.
+            prev = list(getattr(context, "previous_targets", []) or [])
+            owner = getattr(prev[0], "controller_id", None) if prev else None
+            creator_ids = [owner] if owner is not None else []
         else:
             creator_ids = [controller_id]
         for creator_id in creator_ids:

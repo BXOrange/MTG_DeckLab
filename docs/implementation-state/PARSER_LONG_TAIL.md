@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.6% covered — 13,073 / 34,811 — as of 2026-09-01, PARSER_VERSION 161.**
+**37.6% covered — 13,077 / 34,811 — as of 2026-09-01, PARSER_VERSION 162.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -631,6 +631,25 @@ turn (Heavenly Qilin, Duke Ulder Ravengard, Selfless Savior, Void
 Grafter, Blooming Stinger, …). 0 regressed. The no-"you control" form
 ("another target creature" — Arwen, Mortal Queen) stays UNMODELED: its
 `other_creature` kind is not engine-wired.
+
+162 = PAR-30 — the Incubate **dynamic-amount** residue, finished. Two
+shapes: (a) "Its controller incubates X, where X is **its mana value**"
+(Excise the Imperfect) — `CreateTokenEffect.creators` gained
+`"previous_target_controller"` (creator = whoever last controlled the
+just-exiled `previous_targets[0]`, RULE 608.2h) and `extra_counters` a
+`count_from_subject` reading a `"<who>_<char>"` string through a new
+shared `_characteristic_of_subject` helper (factored out of
+`GainLifeEffect._from_subject`, `char` now covers `mana_value`); the
+plain `_exile` handler also learned the real `nonland_permanent` kind
+(bonus: Anguished Unmaking, Utter End). (b) "…where X is the number of
+creatures **exiled this way**" (Sunfall) — new
+`GameContext.objects_exiled_this_way` accumulator, the exact sibling of
+`permanents_destroyed_this_way`, bumped by `context.exile` and read via
+`extra_counters`' new `count_from_context` key. +4, 0 regressed. Still
+UNMODELED (each its own primitive, not dynamic-amount grammar):
+"incubate N that many times" (Phyrexian Incubator — a search-result
+count across a `pending_choice` suspension) and "incubate N X times"
+reading a source's `x_paid` (Progenitor Exarch).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

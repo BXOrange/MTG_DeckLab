@@ -1610,7 +1610,21 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Ulder Ravengard, Selfless Savior, Void Grafter, …). 0 regressed. The
 #: no-"you control" form ("another target creature") stays UNMODELED — its
 #: `other_creature` kind is not engine-wired.
-PARSER_VERSION = "161"
+#: "162": PAR-30 — Incubate dynamic-amount residue. (a) "Its controller
+#: incubates X, where X is **its mana value**" (Excise the Imperfect) →
+#: `create_token`'s new ``creators="previous_target_controller"`` +
+#: ``extra_counters``' new ``count_from_subject`` (shared
+#: `_characteristic_of_subject` helper, now with a ``mana_value`` reading);
+#: the plain exile handler also learned the real `nonland_permanent`
+#: target kind (bonus: Anguished Unmaking, Utter End). (b) "…where X is
+#: the number of creatures **exiled this way**" (Sunfall) → new
+#: `GameContext.objects_exiled_this_way` accumulator (sibling of
+#: `permanents_destroyed_this_way`, bumped by `context.exile`) read via
+#: ``extra_counters``' new ``count_from_context`` key. +4, 0 regressed.
+#: Still UNMODELED: "incubate N that many times" (Phyrexian Incubator —
+#: search-result count across a `pending_choice` suspension) and
+#: "incubate N X times" reading a source's ``x_paid`` (Progenitor Exarch).
+PARSER_VERSION = "162"
 
 
 def parser_source_hash() -> str:
