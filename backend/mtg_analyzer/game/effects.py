@@ -3989,6 +3989,7 @@ class DestroyEffect(GameEffect):
         filter: Optional[dict[str, Any]] = None,
         can_be_regenerated: bool = True,
         color: Optional[str] = None,
+        colors: Optional[list[str]] = None,
         max_mana_value: Optional[int] = None,
         creature_filter: Optional[dict[str, Any]] = None,
         distinct_controllers: bool = False,
@@ -3997,6 +3998,11 @@ class DestroyEffect(GameEffect):
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "destroy target `<c1>` or `<c2>` creature" (Deathmark) —
+        #: `TargetSpec.colors`' OR narrowing, the multi-letter sibling of
+        #: ``color``'s single-letter form; checked at offer time by
+        #: `targeting._color_ok`.
+        self.colors = tuple(colors) if colors else None
         self.selector = selector if selector in _MASS_DESTROY_SELECTORS else None
         self.filter = filter
         self.can_be_regenerated = can_be_regenerated
@@ -4020,6 +4026,7 @@ class DestroyEffect(GameEffect):
         if self.selector is None and target_from_trigger_event is None:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, color=color,
+                colors=self.colors,
                 max_mana_value=max_mana_value, creature_filter=creature_filter,
                 distinct_controllers=distinct_controllers,
             )
@@ -6395,9 +6402,13 @@ class ExileEffect(GameEffect):
         trigger_event_key: Optional[str] = None,
         grant_free_cast_window: bool = False,
         spell_or_permanent: bool = False,
+        colors: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "exile target `<c1>` or `<c2>` permanent" (Celestial Purge) —
+        #: `TargetSpec.colors`' OR narrowing, offer-time (`_color_ok`).
+        self.colors = tuple(colors) if colors else None
         self.selector = selector if selector in _MASS_DESTROY_SELECTORS else None
         self.filter = filter
         self.remember = remember
@@ -6450,7 +6461,7 @@ class ExileEffect(GameEffect):
         if self.selector is None and target_kind is not None and not self._trigger_subject_mode:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter,
-                distinct_controllers=distinct_controllers,
+                distinct_controllers=distinct_controllers, colors=self.colors,
                 # "…permanent … with mana value N or less." (MEC-12, Skyclave
                 # Apparition) — the same target-offer-time cap `DestroyEffect`
                 # already threads (`targeting.TargetSpec.max_mana_value`).
@@ -17493,6 +17504,7 @@ EffectRegistry.register(
         filter=p.get("filter"),
         can_be_regenerated=bool(p.get("can_be_regenerated", True)),
         color=p.get("color"),
+        colors=p.get("colors"),
         max_mana_value=p.get("max_mana_value"),
         creature_filter=p.get("creature_filter"),
         distinct_controllers=bool(p.get("distinct_controllers", False)),
@@ -17911,6 +17923,7 @@ EffectRegistry.register(
         trigger_event_key=p.get("trigger_event_key"),
         grant_free_cast_window=bool(p.get("grant_free_cast_window", False)),
         spell_or_permanent=bool(p.get("spell_or_permanent", False)),
+        colors=p.get("colors"),
     ),
 )
 EffectRegistry.register(

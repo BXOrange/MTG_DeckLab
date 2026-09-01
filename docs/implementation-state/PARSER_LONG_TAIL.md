@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.6% covered — 13,106 / 34,811 — as of 2026-09-01, PARSER_VERSION 169.**
+**37.7% covered — 13,109 / 34,811 — as of 2026-09-01, PARSER_VERSION 170.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,18 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+170 = PAR-30 — the same colour-list target extended to removal:
+`_DESTROY_COLOR_ADJ_RE` widened to a "`<c1>` or `<c2>`" adjective + an
+optional "with `<kw>`" tail (Deathmark, Wallop); new
+`_EXILE_TARGET_TWO_COLOR_RE`/handler (Celestial Purge). `DestroyEffect` /
+`ExileEffect` gained a `colors` param threaded into their `TargetSpec`,
+mirroring `DestroyEffect.color`'s single-letter form. Same-colour-twice
+rejected. +3, 0 regressed. Still open in the cluster: damage tails
+(Combust "the damage can't be prevented"), return-from-graveyard (Crypt
+Angel, Dreams of the Dead), bounce (Escape Routes, Snow Hound),
+put-on-library (Hunting Drake), tap (Tidebinder Mage), and
+Offspring's Revenge's 3-colour list.
 
 169 = PAR-30 (villainous-choice / reanimator-token residue) — a
 colour-list creature target on the pump family. "target `<c1>` or

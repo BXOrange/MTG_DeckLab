@@ -1679,7 +1679,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: wired in `legal_targets`, unused by pump). Dedicated
 #: `_PUMP_TARGET_TWO_COLOR_RE`/handler, the `_DAMAGE_TARGET_TWO_COLOR_RE`
 #: sibling (the shared `TARGET` macro has no colour slot).
-PARSER_VERSION = "169"
+#: "170": PAR-30 — the same colour-list target extended to removal:
+#: `_DESTROY_COLOR_ADJ_RE` widened to a "`<c1>` or `<c2>`" adjective +
+#: an optional "with `<kw>`" tail (Deathmark, Wallop); new
+#: `_EXILE_TARGET_TWO_COLOR_RE`/handler (Celestial Purge). `DestroyEffect`
+#: / `ExileEffect` gained a `colors` param threaded into their
+#: `TargetSpec` (mirroring `DestroyEffect.color`'s single-letter form).
+PARSER_VERSION = "170"
 
 
 def parser_source_hash() -> str:

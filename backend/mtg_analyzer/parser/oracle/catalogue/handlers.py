@@ -1704,6 +1704,36 @@ def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("destroy", params)]
 
 
+#: "exile target `<c1>` or `<c2>` creature/permanent[ you don't control]"
+#: (Celestial Purge) — `TargetSpec.colors`' OR narrowing, the
+#: `_pump_target_two_color` / `_destroy_color_adj` sibling. The shared
+#: `TARGET` macro's fixed rows have no colour slot, so a dedicated row.
+_EXILE_TARGET_TWO_COLOR_RE = _c(
+    rf"exile target (?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) "
+    rf"(?P<noun>creature|permanent)(?P<yc> (?:you don't control|an opponent controls))?"
+)
+
+
+def _two_color_letters(m: re.Match[str]) -> Optional[list[str]]:
+    """A `(?P<c1>…) or (?P<c2>…)` colour pair → [W/U/B/R/G, …], or ``None``
+    (an unrecognised colour word, or the same colour twice)."""
+    colors = [resolve_color_word(m.group("c1")), resolve_color_word(m.group("c2"))]
+    if not all(colors) or colors[0] == colors[1]:
+        return None
+    return colors
+
+
+def _exile_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    colors = _two_color_letters(m)
+    if colors is None:
+        return None
+    noun = m.group("noun")
+    kind = "permanent" if noun == "permanent" else "creature"
+    if m.groupdict().get("yc"):
+        kind = "permanent_you_dont_control" if noun == "permanent" else "creature_you_dont_control"
+    return [EffectSpec("exile", {"target_kind": kind, "colors": colors})]
+
+
 def _destroy_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # "destroy target nonland permanent with mana value 3 or less"
     # (Abrupt Decay-shaped) — a target-offer-time mana-value cap
@@ -1839,18 +1869,35 @@ _DESTROY_COLOR_NOUN_KINDS: dict[str, str] = {
     "creature": "creature", "permanent": "permanent", "artifact": "permanent",
     "enchantment": "permanent", "land": "permanent",
 }
+#: A two-colour adjective list ("black or red") — `TargetSpec.colors`'
+#: OR narrowing, the multi-letter sibling of the single ``color`` form
+#: (Deathmark, Wallop). Only ever two colours on a real card in this shape.
 _DESTROY_COLOR_ADJ_RE = _c(
-    rf"destroy target (?:(?P<color>{COLOR_WORD_ALT}) )?"
+    rf"destroy target "
+    rf"(?:(?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) |(?P<color>{COLOR_WORD_ALT}) )?"
     rf"(?P<noun>{'|'.join(_DESTROY_COLOR_NOUN_KINDS)})"
+    rf"(?: with (?P<kw>{'|'.join(_CREATURE_FILTER_KEYWORD_WORDS)}))?"
     + IF_COLOR_SUFFIX
 )
 
 
-def _destroy_color_adj(m: re.Match[str]) -> list[EffectSpec]:
-    color = resolve_color_word(m.groupdict().get("color")) or resolve_color_word(m.groupdict().get("cond_color"))
+def _destroy_color_adj(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    gd = m.groupdict()
     params: dict = {"target_kind": _DESTROY_COLOR_NOUN_KINDS[m.group("noun")]}
-    if color:
-        params["color"] = color
+    if gd.get("c1") and gd.get("c2"):
+        colors = _two_color_letters(m)
+        if colors is None:
+            return None
+        params["colors"] = colors
+    else:
+        color = resolve_color_word(gd.get("color")) or resolve_color_word(gd.get("cond_color"))
+        if color:
+            params["color"] = color
+    kw = gd.get("kw")
+    if kw:
+        if params["target_kind"] != "creature":
+            return None
+        params["creature_filter"] = {"keyword": _CREATURE_FILTER_KEYWORD_WORDS[kw]}
     return [EffectSpec("destroy", params)]
 
 
@@ -8100,6 +8147,16 @@ HANDLERS: list[EffectHandler] = [
         _exile_creature_filter,
     ),
     # "exile target creature" / "exile target artifact"
+    # "exile target <c1> or <c2> creature/permanent[ you don't control]"
+    # (Celestial Purge) — `TargetSpec.colors` OR narrowing; a dedicated
+    # row since the shared `TARGET` macro carries no colour slot. Tried
+    # before the plain `exile` row (which its "<c> or <c>" prefix would
+    # otherwise leave unclaimed).
+    EffectHandler(
+        "exile_target_two_color",
+        _EXILE_TARGET_TWO_COLOR_RE,
+        _exile_target_two_color,
+    ),
     EffectHandler(
         "exile",
         _c(rf"exile {TARGET}"),

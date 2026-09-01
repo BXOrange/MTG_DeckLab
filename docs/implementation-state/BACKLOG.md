@@ -93,9 +93,10 @@ Plan-level sequencing lives in
     `count_selector="source_x_paid"`; the *exile* form still needs the
     "for each … this way" `count_from_context` scaling on the follow-up);
     **Offspring's Revenge** "target red, white, or black creature card"
-    colour filter (the 2-colour pump form — Weaver cycle — shipped v169
-    via `PumpEffect.colors`/`TargetSpec.colors`; this is a 3-colour list
-    on a graveyard-exile target) *and* its "It gains haste until end of
+    colour filter (the *2*-colour list shipped v169/v170 for pump /
+    destroy / exile via `PumpEffect`/`DestroyEffect`/`ExileEffect`
+    `colors` → `TargetSpec.colors`; this is a *3*-colour list on a
+    graveyard-exile target) *and* its "It gains haste until end of
     turn." after a create-token antecedent (the referent half shipped
     v146 — a `create_token`/`copy_permanent` spec now announces the "it"); **Sauron the Necromancer / Sin** "create a
     tapped [and attacking] token"; **Back from the Brink** "…and pay its
