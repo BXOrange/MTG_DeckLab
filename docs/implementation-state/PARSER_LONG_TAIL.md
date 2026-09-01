@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.2% covered — 13,284 / 34,811 — as of 2026-09-01, PARSER_VERSION 189.**
+**38.2% covered — 13,286 / 34,811 — as of 2026-09-01, PARSER_VERSION 190.**
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -681,6 +681,17 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+190 = PAR-30 "Tapped and attacking" — put-from-hand card filters.
+"with lesser power" (Shadowfax, Lord of Horses) →
+`PutFromHandOntoBattlefieldEffect.power_less_than_source`, a `max_power`
+cap vs the effect's source computed at `apply` time (no source power →
+`max_power = -1`, fail closed). "with mana value X or less … where X is
+the number of attacking creatures you control" (Kinscaer Sentry) →
+`max_mana_value_selector`, folded into `criteria["max_mana_value"]` via
+`continuous.count_selector` at `apply`; the bare "mana value X or less"
+with no "where X is …" fails closed. Fixed "mana value N or less" also
+accepted. +2 (Shadowfax, Kinscaer Sentry), 0 regressed.
 
 189 = PAR-30 "Tapped and attacking" — `_CREATED_ENTERS_ATTACKING_RE`
 gained two more "before" shapes. (1) A **bare token-name** subject:

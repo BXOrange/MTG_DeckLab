@@ -1026,7 +1026,13 @@ _PUT_FROM_HAND_TYPE_WORDS: frozenset[str] = frozenset(PERMANENT_TYPE_WORDS) | {
     "food", "treasure",
 }
 _PUT_FROM_HAND_RE = _c(
-    r"(?:you may )?put an? (?P<types>[a-z, ]+?) card from your hand onto the battlefield"
+    r"(?:you may )?put an? (?P<types>[a-z, ]+?) card"
+    # RULE 601.2c-style card filter between "card" and "from your hand":
+    # "with lesser power" (Shadowfax) — vs this effect's source; "with mana
+    # value N or less" (fixed) / "with mana value x or less" (dynamic, needs
+    # the trailing ", where X is …" clause below to resolve X).
+    r"(?P<filt> with lesser power| with mana value (?P<mv>\d+) or less| with mana value x or less)?"
+    r" from your hand onto the battlefield"
     # RULE 508.4: "…tapped and attacking" (Preeminent Captain, Kaalia of
     # the Vast) → `PutFromHandOntoBattlefieldEffect.attacking`. The trailing
     # "that player"/"that opponent" (Kaalia, The Vast Scrier) names the
@@ -1034,6 +1040,7 @@ _PUT_FROM_HAND_RE = _c(
     # attacking` derives that from the other attackers, so the phrase is
     # consumed, not re-modeled.
     r"(?P<tapped_attacking> tapped and attacking)?(?P<atk_defender> that (?:player|opponent))?"
+    r"(?P<xdef>, where x is the number of attacking creatures you control)?"
 )
 
 #: The main card types a "put a … card from your hand" clause can name; a
@@ -1079,7 +1086,19 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         criteria = {"type": segments if len(segments) > 1 else segments[0]}
     else:
         return None
-    params: dict = {"criteria": criteria, "count": 1}
+    filt = (m.groupdict().get("filt") or "").strip()
+    if filt == "with lesser power":
+        params_extra: dict = {"power_less_than_source": True}
+    elif m.groupdict().get("mv"):
+        criteria = {**criteria, "max_mana_value": int(m.group("mv"))}
+        params_extra = {}
+    elif filt == "with mana value x or less":
+        if not m.groupdict().get("xdef"):
+            return None  # unresolvable X → fail closed
+        params_extra = {"max_mana_value_selector": "attacking_creatures_you_control"}
+    else:
+        params_extra = {}
+    params: dict = {"criteria": criteria, "count": 1, **params_extra}
     if m.groupdict().get("tapped_attacking"):
         params["tapped"] = True
         params["attacking"] = True

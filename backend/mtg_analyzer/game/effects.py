@@ -16182,6 +16182,8 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         count: int = 1,
         tapped: bool = False,
         attacking: bool = False,
+        max_mana_value_selector: Optional[str] = None,
+        power_less_than_source: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -16193,6 +16195,15 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         #: ``"battlefield_attacking"`` search destination, which enters the
         #: card tapped and calls `RulesEngine.put_onto_battlefield_attacking`.
         self.attacking = attacking
+        #: "…creature card **with mana value X or less** … where X is the
+        #: number of attacking creatures you control." (Kinscaer Sentry) —
+        #: a `continuous.count_selector` name resolved at `apply` time and
+        #: folded into ``criteria`` as a `max_mana_value` cap.
+        self.max_mana_value_selector = max_mana_value_selector
+        #: "…creature card **with lesser power** …" (Shadowfax, Lord of
+        #: Horses) — strictly less printed power than this effect's source,
+        #: resolved at `apply` time into a `max_power` cap.
+        self.power_less_than_source = bool(power_less_than_source)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -16204,8 +16215,24 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
             destination = "battlefield_tapped"
         else:
             destination = "battlefield"
+        criteria = self.criteria
+        if self.max_mana_value_selector or self.power_less_than_source:
+            from . import continuous  # function-scoped: avoid an import cycle
+
+            criteria = dict(criteria) if isinstance(criteria, dict) else {}
+            if self.max_mana_value_selector:
+                controller_id = getattr(self.source, "controller_id", None)
+                criteria["max_mana_value"] = continuous.count_selector(
+                    context.state, controller_id, self.max_mana_value_selector,
+                    source=self.source,
+                )
+            if self.power_less_than_source:
+                src_power = getattr(self.source, "power", None)
+                # No power on the source → nothing has "lesser power" → an
+                # impossible cap (fail closed) rather than an open pick.
+                criteria["max_power"] = (src_power - 1) if src_power is not None else -1
         context.request_search(
-            player, self.criteria, destination, self.count, optional=True, zones=["hand"],
+            player, criteria, destination, self.count, optional=True, zones=["hand"],
         )
 
 
@@ -19139,6 +19166,8 @@ EffectRegistry.register(
         count=int(p.get("count", 1) or 1),
         tapped=bool(p.get("tapped", False)),
         attacking=bool(p.get("attacking", False)),
+        max_mana_value_selector=p.get("max_mana_value_selector"),
+        power_less_than_source=bool(p.get("power_less_than_source", False)),
     ),
 )
 EffectRegistry.register(

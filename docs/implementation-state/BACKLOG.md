@@ -120,13 +120,17 @@ Plan-level sequencing lives in
     [you] create … [tapped and attacking that opponent]"
     (`CreateTokenEffect.per_opponent`, v188), and a bare token-name
     subject / a `populate` "before" on `_CREATED_ENTERS_ATTACKING_RE`
-    (Kari Zev, Ghired — `PopulateEffect.tapped/attacking`, v189) all
-    shipped.** Left: the multi-clause Stangg / Living Laser bodies;
-    mana-value-cap put-from-hand / look-top filters (Shadowfax "with
-    lesser power", Kinscaer Sentry, Jet "with mana value X or less"); and,
-    on the defender-ref seam specifically, Kaalia of the Vast (`normalize`
-    doesn't fold the legendary short name "Kaalia" → `~`), Owlbear Cub /
-    The Vast Scrier (qualified triggers + multi-clause bodies).
+    (Kari Zev, Ghired — `PopulateEffect.tapped/attacking`, v189), and
+    put-from-hand card filters "with lesser power" / "with mana value X or
+    less, where X is …" (Shadowfax, Kinscaer Sentry —
+    `PutFromHandOntoBattlefieldEffect.power_less_than_source` /
+    `max_mana_value_selector`, v190) all shipped.** Left: the multi-clause
+    Stangg / Living Laser bodies; the same mana-value/power-cap filter on
+    the `look_top` route (Winota's "it gains indestructible until end of
+    turn" interpose, The Joiner of Cats' else-branch); and, on the
+    defender-ref seam specifically, Kaalia of the Vast (`normalize` doesn't
+    fold the legendary short name "Kaalia" → `~`), Owlbear Cub / The Vast
+    Scrier (qualified triggers + multi-clause bodies).
 
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The

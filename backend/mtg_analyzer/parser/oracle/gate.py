@@ -1841,7 +1841,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `tapped`/`attacking`, threaded to `RulesEngine.populate(enter_state=…)`
 #: — applied to the copy in the degenerate paths, carried on the
 #: `pending_choice` for the interactive 2+-token one. +2.
-PARSER_VERSION = "189"
+#: "190": PAR-30 "Tapped and attacking" — put-from-hand card filters:
+#: "with lesser power" (Shadowfax — `PutFromHandOntoBattlefieldEffect.
+#: power_less_than_source`, a `max_power` cap vs the source at resolve) and
+#: "with mana value X or less … where X is the number of attacking
+#: creatures you control" (Kinscaer Sentry — `max_mana_value_selector`,
+#: folded into `criteria["max_mana_value"]` via `continuous.count_selector`
+#: at resolve). Fixed "with mana value N or less" also accepted. +2.
+PARSER_VERSION = "190"
 
 
 def parser_source_hash() -> str:
