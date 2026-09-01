@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.4% covered — 13,005 / 34,811 — as of 2026-09-01, PARSER_VERSION 152.**
+**37.4% covered — 13,015 / 34,811 — as of 2026-09-01, PARSER_VERSION 153.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -493,6 +493,21 @@ info — the creature is usually gone by then). The ungated bare "you gain
 life equal to its power" fails closed. +14, 0 regressed; verified
 end-to-end (self power → +3; a destroyed creature's last-known toughness →
 +5).
+
+153 = PAR-30 — "**~ [also] deals N damage to that creature's controller**"
+(~22 SOLO — Consign to the Pit / Blur of Blades / Burn the Impure
+[previous-subject: "Destroy target creature. …"] · Battle Strain / Dingus
+Staff / Gimli [group/trigger: "Whenever a creature blocks/dies, …"] ·
+**Lash Out** [a clash card]). New `DealDamageEffect.recipient_subject`
+string (`"<who>_controller"`) — derives the recipient *player* from
+`GameContext.previous_targets` (RULE 608.2h last-known controller, since
+the creature is usually gone) or the firing event's own
+``instance_id``/``controller_id`` payload. No RULE 115 target of its own,
+so `target_spec` is `None` and `apply` short-circuits to a direct
+`deal_damage(player, …)`. Two gated parser rows (`previous_subject_only` /
+`group_subject_only`); "~ **also** deals" handled too (Blooming Blast).
++10, 0 regressed; verified end-to-end (both subject modes hit the right
+opponent for the right amount).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

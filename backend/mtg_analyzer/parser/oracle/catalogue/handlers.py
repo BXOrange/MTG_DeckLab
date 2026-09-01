@@ -296,6 +296,32 @@ def _damage_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("damage", {"amount": "x", "target_kind": kind, **_optional_param(m)})]
 
 
+#: "~ [also] deals N damage to **that creature's controller**" — the
+#: controller of a creature an earlier clause targeted ("Destroy target
+#: creature. ~ deals 2 damage to that creature's controller." — Consign to
+#: the Pit, Blur of Blades, Burn the Impure) or one a group/trigger subject
+#: names ("Whenever a creature blocks/dies, ~ deals N damage to that
+#: creature's controller." — Battle Strain, Dingus Staff, Gimli). ~22 SOLO.
+#: `DealDamageEffect.recipient_subject` derives the player; no RULE 115
+#: target of this effect's own.
+_DAMAGE_TO_SUBJECT_CONTROLLER_RE = _c(
+    r"(?:(?:~|it|this creature|this land|this permanent) )?(?:also )?deals? "
+    r"(?P<n>\d+) damage to that (?:creature|permanent)'?s controller"
+)
+
+
+def _damage_to_prev_subject_controller(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "amount": int(m.group("n")), "recipient_subject": "previous_subject_controller",
+    })]
+
+
+def _damage_to_trigger_subject_controller(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "amount": int(m.group("n")), "recipient_subject": "trigger_subject_controller",
+    })]
+
+
 #: RULE 702.33b's *override* kicked-conditional ("~ deals 2 damage to any
 #: target. If this spell was kicked, it deals 4 damage instead." — Burst
 #: Lightning/Roil Eruption/Shivan Fire-shaped), distinct from the *additive*
@@ -7240,6 +7266,18 @@ HANDLERS: list[EffectHandler] = [
         "damage_x",
         _c(rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? x damage to {TARGET}"),
         _damage_x,
+    ),
+    # "~ [also] deals N damage to that creature's controller" (~22 SOLO —
+    # Consign to the Pit / Battle Strain / Dingus Staff / …).
+    EffectHandler(
+        "damage_to_prev_subject_controller",
+        _DAMAGE_TO_SUBJECT_CONTROLLER_RE, _damage_to_prev_subject_controller,
+        previous_subject_only=True,
+    ),
+    EffectHandler(
+        "damage_to_trigger_subject_controller",
+        _DAMAGE_TO_SUBJECT_CONTROLLER_RE, _damage_to_trigger_subject_controller,
+        group_subject_only=True,
     ),
     # "~ deals 6 damage to each of up to two target creatures and/or
     # planeswalkers" (RULE 115.1a generalized to N>=2) — the full amount

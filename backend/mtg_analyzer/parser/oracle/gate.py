@@ -1521,7 +1521,19 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: ``trigger_subject_*`` (`group_subject_only`), "that creature's" after
 #: another clause → ``previous_subject_*`` (`previous_subject_only`, RULE
 #: 608.2h last-known info). +14, 0 regressed; verified end-to-end.
-PARSER_VERSION = "152"
+#: "153": PAR-30 — "**~ [also] deals N damage to that creature's
+#: controller**" (~22 SOLO — Consign to the Pit / Blur of Blades / Burn the
+#: Impure [previous-subject] · Battle Strain / Dingus Staff / Gimli
+#: [group/trigger subject] · **Lash Out** [a clash card]). New
+#: `DealDamageEffect.recipient_subject` string (`"<who>_controller"`) —
+#: derives the recipient player from `GameContext.previous_targets` (RULE
+#: 608.2h last-known controller) or the firing event's own
+#: ``instance_id``/``controller_id`` payload; no RULE 115 target of its own,
+#: so `target_spec` is `None` and `apply` short-circuits to a direct
+#: `deal_damage(player, …)`. Two gated parser rows
+#: (`previous_subject_only` / `group_subject_only`). +10, 0 regressed;
+#: verified end-to-end.
+PARSER_VERSION = "153"
 
 
 def parser_source_hash() -> str:

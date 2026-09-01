@@ -2773,9 +2773,23 @@ class DealDamageEffect(GameEffect):
         amount_from_count_selector: Optional[str] = None,
         amount_plus_count_selector: int = 0,
         amount_from_trigger_event: Optional[str] = None,
+        recipient_subject: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self._base_amount = amount
+        #: "~ deals N damage to **that creature's controller**" where "that
+        #: creature" is a creature an *earlier clause* targeted (PAR-30 —
+        #: "Destroy target creature. ~ deals 2 damage to that creature's
+        #: controller." — Consign to the Pit / Blur of Blades) or the one a
+        #: *group/trigger* subject names ("Whenever a creature blocks/dies,
+        #: ~ deals N damage to that creature's controller." — Battle Strain /
+        #: Dingus Staff). A ``"<who>_controller"`` string: ``previous_
+        #: subject_controller`` (`GameContext.previous_targets` — RULE
+        #: 608.2h last-known controller, since the creature is usually gone)
+        #: or ``trigger_subject_controller`` (the firing event's own
+        #: ``instance_id`` / ``controller_id`` payload). No RULE 115 target
+        #: of this effect's own.
+        self.recipient_subject = recipient_subject
         #: "Imodane deals that much damage to each opponent." — the event
         #: field name to read off `GameContext.trigger_event` at
         #: resolution, the same idiom `LoseLifeEffect.amount_from_trigger_
@@ -2855,7 +2869,8 @@ class DealDamageEffect(GameEffect):
         self.divided = divided
         self.double_at = double_at
         self.division: Optional[list[int]] = None
-        if self.selector is None:
+        self.target_spec = None
+        if self.selector is None and self.recipient_subject is None:
             # Damage targets "any target" by default (RULE 115.4); a card
             # that only hits creatures can narrow this to "creature".
             # ``optional`` is RULE 115.1a "up to one/N target(s)" — fewer
@@ -2949,6 +2964,34 @@ class DealDamageEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
             self._apply_selector(context)
+            return
+        if self.recipient_subject is not None:
+            who = self.recipient_subject.rpartition("_")[0]  # strip trailing "_controller"
+            obj = None
+            if who == "previous_subject":
+                prev = list(context.previous_targets)
+                obj = prev[0] if prev else None
+            elif who == "trigger_subject":
+                ev = context.trigger_event or {}
+                obj = context.state.find_object(ev.get("instance_id"))
+                # RULE 400.7: a dies/blocks event's object may already be
+                # gone — fall back to the controller id the event stamped.
+                if obj is None and ev.get("controller_id") is not None:
+                    try:
+                        player = context.state.player_by_id(ev["controller_id"])
+                    except (KeyError, ValueError):
+                        player = None
+                    if player is not None:
+                        context.deal_damage(player, int(self.amount), self.source)
+                    return
+            controller_id = getattr(obj, "controller_id", None)
+            if controller_id is not None:
+                try:
+                    player = context.state.player_by_id(controller_id)
+                except (KeyError, ValueError):
+                    player = None
+                if player is not None:
+                    context.deal_damage(player, int(self.amount), self.source)
             return
         chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
         if self.divided:
@@ -17190,6 +17233,7 @@ EffectRegistry.register(
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_plus_count_selector=int(p.get("amount_plus_count_selector", 0) or 0),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
+        recipient_subject=p.get("recipient_subject"),
     ),
 )
 EffectRegistry.register(
