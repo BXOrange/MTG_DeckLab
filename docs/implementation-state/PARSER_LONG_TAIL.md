@@ -13,9 +13,19 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.1% covered — 13,272 / 34,811 — as of 2026-09-01, PARSER_VERSION 186.**
+**38.1% covered — 13,280 / 34,811 — as of 2026-09-01, PARSER_VERSION 187.**
+(187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
+block` recognises its trigger wrapper via `segment_line` and carries the
+whole trigger dict through, instead of the narrow `_trigger_event`/
+`_trigger_condition` pair; a modal block driven by "attacks or blocks",
+"whenever you cast a noncreature spell", "at the beginning of your upkeep/
+combat", "your second spell each turn", … now parses. +8, 0 regressed —
+Elder Gargaroth, Ojutai Exemplars, Etherwrought Page, Cosmogrand Zenith,
+Ferocification, Appa. Residue is header-shape work — repeatable-mode
+Confluences, "if kicked … instead", "that hasn't been chosen this turn",
+haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~39.9% — 12,703 / 31,830 (PARSER_VERSION 186).**
+**Commander-legal slice: ~39.9% — 12,709 / 31,830 (PARSER_VERSION 187).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

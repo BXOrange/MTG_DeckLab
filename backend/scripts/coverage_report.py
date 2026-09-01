@@ -109,7 +109,10 @@ def main() -> None:
     fraction = (covered / total) if total else 1.0
 
     if cov_db:
-        cov_db.record_snapshot(total, covered, ranked[: args.top])
+        cov_db.record_snapshot(
+            total, covered, ranked[: args.top],
+            scope="commander" if args.commander_legal_only else "cache",
+        )
 
     scope = "Commander-legal coverage" if args.commander_legal_only else "Coverage"
     print(f"\n{scope}: {covered}/{total} = {fraction:.1%} covered "

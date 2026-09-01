@@ -128,6 +128,56 @@ def test_choose_two_triggered_ability_is_recognized():
     assert spec.modes["choose"] == 2
 
 
+def test_triggered_modal_accepts_any_trigger_segment_line_claims():
+    # RULE 603.1 wrapper on a modal block: `_split_triggered_modal_block`
+    # recognises the wrapper via `segment_line` (the same grammar an
+    # ordinary triggered ability uses), not the narrow generic
+    # `_trigger_event`/`_trigger_condition` pair — so a combined-event
+    # attack/block trigger and a typed cast-spell trigger both drive it.
+    gargaroth = Card(id="G", name="G", type_line="Creature — Beast",
+                     is_creature=True, power=6, toughness=6,
+                     oracle_text="Whenever this creature attacks or blocks, choose one —\n"
+                                 "• Create a 3/3 green Beast creature token.\n"
+                                 "• You gain 3 life.\n• Draw a card.")
+    r = parse_oracle(gargaroth)
+    assert r.coverage == MODELED
+    (spec,) = r.specs
+    assert spec.ability_kind == "triggered"
+    # combined "attacks or blocks" → event list, carried through verbatim
+    assert spec.trigger["event"] == ["ATTACKS", "BLOCKS"]
+    assert spec.modes["choose"] == 1 and len(spec.modes["options"]) == 3
+
+    # A typed cast-spell trigger — recognised only by `segment_line`'s
+    # dedicated `_CAST_SPELL_TRIGGER_*` regexes, never by the old generic
+    # `_trigger_event` — now also drives a modal block.
+    exemplars = Card(id="E", name="E", type_line="Creature — Human Monk",
+                     is_creature=True, power=3, toughness=2,
+                     oracle_text="Whenever you cast a noncreature spell, choose one —\n"
+                                 "• Tap target creature.\n"
+                                 "• You gain 2 life.\n• Draw a card.")
+    r2 = parse_oracle(exemplars)
+    assert r2.coverage == MODELED
+    (spec2,) = r2.specs
+    assert spec2.trigger["event"] == "SPELL_CAST"
+    assert spec2.trigger.get("spell_exclude_card_types") == ["creature"]
+
+
+def test_triggered_modal_binds_one_ability_per_event_in_a_list():
+    # A combined-event trigger becomes one `TriggeredAbility` per event, the
+    # same fan-out the binder does for a plain combined-event triggered
+    # ability — proves the full trigger dict (not just event+condition)
+    # reaches `effect_binder`'s triggered path.
+    card = Card(id="G2", name="G2", type_line="Creature — Beast",
+                is_creature=True, power=6, toughness=6,
+                oracle_text="Whenever this creature attacks or blocks, choose one —\n"
+                            "• You gain 3 life.\n• Draw a card.")
+    obj = GameObject(card=card, owner_id="p1", controller_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(obj)
+    triggered = [a for a in obj.triggered_abilities if isinstance(a, TriggeredAbility)]
+    assert len(triggered) == 2  # one for ATTACKS, one for BLOCKS
+    assert all(a.modes and len(a.modes) == 2 for a in triggered)
+
+
 def test_choose_one_still_defaults_choose_to_one():
     # Backward compatibility: the ordinary "choose one" shape carries no
     # explicit count and must keep defaulting to 1.

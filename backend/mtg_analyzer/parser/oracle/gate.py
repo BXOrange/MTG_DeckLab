@@ -50,8 +50,6 @@ from .segmenter import (
     Segment,
     _peel_optional,
     _TRIGGER_RE,
-    _trigger_condition,
-    _trigger_event,
     parse_effect_body,
     segment_line,
 )
@@ -1819,7 +1817,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `game/`. Keyword counters (RULE 122.1e), subsystem counters (age/time/
 #: level/loyalty/lore/rad/energy) and replacement counters (stun/shield)
 #: stay out — they'd half-model. Still a fail-closed whitelist.
-PARSER_VERSION = "186"
+#: "187": Bucket-A cleanup (Commander-legal tail) — `_split_triggered_modal_
+#: block` now recognises its trigger wrapper via `segment_line` (the exact
+#: grammar an ordinary triggered ability uses) and carries the *whole*
+#: trigger dict through, instead of the narrow generic `_trigger_event`/
+#: `_trigger_condition` pair. So a modal block driven by "attacks or blocks",
+#: "whenever you cast a noncreature spell", "at the beginning of your
+#: upkeep/combat", "whenever you cast your second spell each turn", … now
+#: parses (Elder Gargaroth, Ojutai Exemplars, Etherwrought Page, Cosmogrand
+#: Zenith, Ferocification, Appa Loyal Sky Bison, +2). +8, 0 regressed.
+PARSER_VERSION = "187"
 
 
 def parser_source_hash() -> str:
@@ -1931,22 +1938,29 @@ def _is_spell(card: Any) -> bool:
 
 
 def _split_triggered_modal_block(
-    lines: list[str], start: int
-) -> Optional[tuple[str, dict[str, Any], bool, int, list[str], int]]:
+    lines: list[str], start: int, provenance: ParserProvenance
+) -> Optional[tuple[dict[str, Any], bool, bool, int, list[str], int]]:
     """A permanent's modal *triggered* ability: "When ~ enters, choose 1 —"
     on one line, then two or more "• " mode lines (RULE 700.2 wrapped in a
     RULE 603.1 trigger) — the trigger-wrapped sibling of `split_modal_block`
-    (a modal *spell*'s bare header). Both a recognised trigger event/subject
-    scope (`_trigger_event`/`_trigger_condition`, the same grammar
-    `segment_line` uses for an ordinary triggered ability) and a modal
-    header are required; unlike a plain triggered ability's body, the modal
-    header's "effect" is the whole bullet block, not `trig.group("body")`
+    (a modal *spell*'s bare header). A recognised trigger wrapper and a modal
+    header are both required; unlike a plain triggered ability's body, the
+    modal header's "effect" is the whole bullet block, not `trig.group("body")`
     itself.
 
-    Returns ``(event, condition, or_both, or_more, choose, mode_bodies,
-    next_index)``, or ``None`` if ``lines[start]`` isn't this shape at all,
-    or ``choose`` exceeds the number of mode lines actually printed —
-    fail-closed, the caller falls back to ordinary per-line segmentation.
+    The trigger wrapper is recognised by segmenting ``"<wrapper>, draw a
+    card."`` as an ordinary triggered line and lifting its whole ``trigger``
+    dict — the *same* grammar `segment_line` uses, not the narrow generic
+    `_trigger_event`/`_trigger_condition` pair — so every cast-spell / damage
+    / nth-event / phase-step / combined-event trigger a plain triggered
+    ability would claim also drives a modal block (Elder Gargaroth, Ojutai
+    Exemplars, Etherwrought Page, Cosmogrand Zenith, …).
+
+    Returns ``(trigger, or_both, or_more, choose, mode_bodies, next_index)``,
+    or ``None`` if ``lines[start]`` isn't this shape at all, its wrapper
+    isn't a recognised trigger, or ``choose`` exceeds the number of mode
+    lines actually printed — fail-closed, the caller falls back to ordinary
+    per-line segmentation.
     """
     trig = _TRIGGER_RE.match(lines[start].strip())
     if trig is None:
@@ -1954,11 +1968,15 @@ def _split_triggered_modal_block(
     header = MODAL_HEADER_RE.match(trig.group("body").strip())
     if header is None:
         return None
-    event = _trigger_event(trig.group("cond"))
-    if event is None:
+    probe = segment_line(
+        lines[start].strip()[: trig.start("body")] + "draw a card.",
+        allow_spell_effect=False,
+        provenance=provenance,
+    )
+    if not probe.claimed or probe.spec is None or probe.spec.ability_kind != "triggered":
         return None
-    condition = _trigger_condition(trig.group("cond"))
-    if condition is None:
+    trigger = probe.spec.trigger
+    if not trigger or trigger.get("event") is None:
         return None
     collected = collect_mode_bodies(lines, start + 1)
     if collected is None:
@@ -1968,8 +1986,7 @@ def _split_triggered_modal_block(
     if choose < 1 or choose > len(mode_bodies):
         return None
     return (
-        event,
-        condition,
+        trigger,
         bool(header.group("or_both")),
         bool(header.group("or_more")),
         choose,
@@ -2298,8 +2315,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
 
     def _process_triggered_modal_block(
         header: str,
-        event: str,
-        condition: dict[str, Any],
+        trigger: dict[str, Any],
         or_both: bool,
         or_more: bool,
         choose: int,
@@ -2310,7 +2326,10 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # the battlefield, choose one — • Mode A. • Mode B.": the chosen
         # mode is picked interactively as the ability is put on the stack
         # (`game/rules_engine.py`'s `trigger_mode` choice), not at cast time
-        # like a modal spell.
+        # like a modal spell. `trigger` is the full dict `segment_line`
+        # produced for the wrapper (event may be a list, plus any
+        # filter/phase_relation/spell_* keys) — the binder's triggered path
+        # already spreads it (`effect_binder` ~L1583).
         parsed = _parse_mode_options(mode_bodies)
         if parsed is None:
             all_claimed = False
@@ -2321,7 +2340,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         effect_specs.append(AbilitySpec(
             "triggered",
             effects=[],
-            trigger={"event": event, "condition": condition},
+            trigger=trigger,
             modes={
                 "or_both": or_both,
                 "at_least": or_more,
@@ -2507,11 +2526,11 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 _process_modal_block(lines[i], or_both, or_more, choose, mode_bodies)
                 i = next_i
                 continue
-            trig_block = _split_triggered_modal_block(lines, i)
+            trig_block = _split_triggered_modal_block(lines, i, provenance)
             if trig_block is not None:
-                event, condition, or_both, or_more, choose, mode_bodies, next_i = trig_block
+                trigger, or_both, or_more, choose, mode_bodies, next_i = trig_block
                 _process_triggered_modal_block(
-                    lines[i], event, condition, or_both, or_more, choose, mode_bodies
+                    lines[i], trigger, or_both, or_more, choose, mode_bodies
                 )
                 i = next_i
                 continue
