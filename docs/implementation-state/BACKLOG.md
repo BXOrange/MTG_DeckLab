@@ -173,13 +173,18 @@ Plan-level sequencing lives in
     creature is a Goat", Awaken the Sleeper "if it's equipped", Driftgloom
     Coyote / Food Coma).
 
-  - **Incubate (RULE 701.53) dynamic amount residue.** Still open: "…where
-    X is **its power**" — a dying creature's own last-known power (Bloated
-    Processor, Furnace Gremlin); "…X is **its mana value**" of a
-    just-exiled permanent read by *its controller* (Excise the Imperfect);
-    "X is the number of creatures **exiled this way**" (Sunfall);
-    "incubate N **that many times**" / "incubate N **X times**" — a
-    search/count-driven repeat (Phyrexian Incubator, Progenitor Exarch).
+  - **Incubate (RULE 701.53) dynamic amount residue.** "…where X is **its
+    power**" (a dying creature's own last-known power — Bloated Processor,
+    Furnace Gremlin) closed at PARSER_VERSION 160, reusing the DIES event's
+    RULE 400.7 power snapshot via `count_from_trigger_event`; see
+    `Done_Backend.md`. Still open, each a distinct unbuilt primitive:
+    "…X is **its mana value**" of a just-exiled permanent read by *its
+    controller* (Excise the Imperfect — needs a `previous_target_controller`
+    creator redirect + a subject mana-value read); "X is the number of
+    creatures **exiled this way**" (Sunfall — needs an exiled-this-way
+    per-resolution accumulator); "incubate N **that many times**" /
+    "incubate N **X times**" — a search/count-driven repeat (Phyrexian
+    Incubator, Progenitor Exarch).
     Plain "incubate N" cards blocked on unrelated surrounding grammar:
     Assimilate Essence ("if they do, you incubate 2" reflexive), Tiller of
     Flesh (trigger condition), Traumatic Revelation ("if you don't"),

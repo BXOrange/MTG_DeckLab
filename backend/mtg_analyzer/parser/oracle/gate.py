@@ -1592,7 +1592,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Sangrophage, Heavyweight Demolisher, Electrozoa, Apocalypse Demon,
 #: Demonlord of Ashmouth, Morgul-Knife Wound's granted form). +8, 0
 #: regressed.
-PARSER_VERSION = "159"
+#: "160": PAR-30 — Incubate dynamic amount "…where X is **its power**"
+#: (`_INCUBATE_X_RE` / `_incubate_x`). A "when ~ dies" trigger; the dying
+#: creature's own last-known power is snapshotted on the DIES event
+#: (RULE 400.7), so it needs no engine change — reuses
+#: `CreateTokenEffect.extra_counters`' existing ``count_from_trigger_
+#: event`` key (the same firing-event idiom `EarthbendEffect` uses for
+#: "earthbend X, where X is that creature's power"). Bloated Processor,
+#: Furnace Gremlin. +2, 0 regressed. "…incubate N that many times"
+#: (a search-count repeat — Phyrexian Incubator) stays UNMODELED.
+PARSER_VERSION = "160"
 
 
 def parser_source_hash() -> str:

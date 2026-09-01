@@ -5913,9 +5913,13 @@ def _incubate(m: re.Match[str]) -> list[EffectSpec]:
 #: vocabulary is a small closed map onto `continuous.count_selector` plus
 #: the firing spell's mana value (`CreateTokenEffect.extra_counters`'
 #: new ``count_from_count_selector`` / ``count_from_trigger_event`` keys).
-#: "…where X is its power" (Bloated Processor/Furnace Gremlin — a dying
-#: creature's own last-known power) and "…that many times" (Phyrexian
-#: Incubator — a search count) stay UNMODELED, fail-closed.
+#: "…where X is **its power**" (Bloated Processor, Furnace Gremlin — a
+#: "when ~ dies" trigger) reads the dying creature's own last-known power
+#: off the DIES event's snapshotted ``power`` field (RULE 400.7 / 603.6e),
+#: the same firing-event idiom `EarthbendEffect.amount_from_trigger_event`
+#: uses for "earthbend X, where X is that creature's power". "…that many
+#: times" (Phyrexian Incubator — a search count) stays UNMODELED,
+#: fail-closed.
 _INCUBATE_X_SELECTORS: dict[str, str] = {
     "the number of lands you control": "lands_you_control",
     "the number of creature cards in your graveyard": "creature_cards_in_your_graveyard",
@@ -5923,13 +5927,21 @@ _INCUBATE_X_SELECTORS: dict[str, str] = {
 _INCUBATE_X_ALT = "|".join(re.escape(p) for p in _INCUBATE_X_SELECTORS)
 _INCUBATE_X_RE = _c(
     r"(?:you )?incubate x(?: (?P<twice>twice))?, where x is "
-    r"(?:(?P<selector>" + _INCUBATE_X_ALT + r")|(?P<spell_mv>that spell'?s mana value))"
+    r"(?:(?P<selector>" + _INCUBATE_X_ALT + r")"
+    r"|(?P<spell_mv>that spell'?s mana value)"
+    r"|(?P<its_power>its power))"
 )
 
 
 def _incubate_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     extra: dict[str, Any] = {"kind": "+1/+1"}
-    if m.group("spell_mv"):
+    if m.group("its_power"):
+        # "when ~ dies, incubate X, where X is its power" — the DIES event
+        # carries the dying object's ``power`` snapshotted before the move
+        # (RULE 400.7); read it fresh at resolve time exactly like the
+        # "that spell's mana value" branch reads the firing event.
+        extra["count_from_trigger_event"] = "power"
+    elif m.group("spell_mv"):
         extra["count_from_trigger_event"] = "mana_value"
     else:
         selector = _INCUBATE_X_SELECTORS.get(m.group("selector"))

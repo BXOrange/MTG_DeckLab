@@ -12,15 +12,21 @@
   (Chrome Host Seedshark). New `count_from_trigger_event` key.
 - "incubate X **twice**" — two Incubator tokens, each with X counters,
   which is just `create_token`'s own `count=2`.
+- "…where X is **its power**" (Bloated Processor, Furnace Gremlin) — a
+  "when ~ dies" trigger; the DIES event carries the dying creature's own
+  last-known `power` snapshot (RULE 400.7 / 603.6e), read via
+  `CreateTokenEffect.extra_counters`' existing `count_from_trigger_event`
+  key — the same firing-event idiom `EarthbendEffect` uses for
+  "earthbend X, where X is that creature's power".
 
-"…where X is its power" (a dying creature's own power) and "…that many
-times" (a search count) stay UNMODELED, fail-closed.
+"…that many times" (a search count) stays UNMODELED, fail-closed.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import build_effects
+from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects import GameContext
+from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -85,11 +91,30 @@ def test_incubate_x_that_spells_mana_value_parses():
     }
 
 
-def test_incubate_x_its_power_stays_unmodeled():
+def test_incubate_x_its_power_parses():
     card = Card(id="bp", name="Bloated Processor",
                 type_line="Creature — Phyrexian Insect", is_creature=True,
                 power=3, toughness=3, mana_cost_string="{3}{B}",
-                oracle_text="When Bloated Processor dies, incubate X, where X is its power.")
+                oracle_text=("Sacrifice another Phyrexian: Put a +1/+1 counter on "
+                             "this creature.\nWhen Bloated Processor dies, incubate "
+                             "X, where X is its power."))
+    r = parse_oracle(card)
+    assert r.coverage != UNMODELED, r.unclaimed
+    dies = next(s for s in r.specs
+                if s.trigger and s.trigger.get("event") == "DIES")
+    assert dies.effects[0].type == "create_token"
+    assert dies.effects[0].params["extra_counters"] == {
+        "kind": "+1/+1", "count_from_trigger_event": "power",
+    }
+
+
+def test_incubate_x_that_many_times_still_unmodeled():
+    # a search-driven repeat count is a different, unbuilt shape
+    card = Card(id="pi", name="Phyrexian Incubator", type_line="Artifact",
+                mana_cost_string="{4}",
+                oracle_text=("{3}, {T}, Sacrifice Phyrexian Incubator: Search your "
+                             "library for any number of Phyrexian cards, exile them, "
+                             "then incubate 2 that many times. Then shuffle."))
     assert parse_oracle(card).coverage == UNMODELED
 
 
@@ -150,3 +175,54 @@ def test_incubate_x_twice_makes_two_tokens_each_sized_to_the_count():
     tokens = [o for o in st.battlefield if getattr(o, "is_token", False)]
     assert len(tokens) == 2
     assert all(t.counters.get("+1/+1") == 4 for t in tokens)
+
+
+def test_incubate_x_its_power_reads_the_dies_events_last_known_power():
+    eng = _engine()
+    st = eng.state
+
+    proc = GameObject(
+        Card(id="BP", name="Bloated Processor",
+             type_line="Creature — Phyrexian Insect", is_creature=True,
+             power=3, toughness=3,
+             oracle_text=("Sacrifice another Phyrexian: Put a +1/+1 counter on this "
+                          "creature.\nWhen Bloated Processor dies, incubate X, where "
+                          "X is its power.")),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    proc.controller_id = "p1"
+    st.add_to_battlefield(proc)
+    bind_from_catalogue(proc)
+
+    # grew a counter while on the battlefield → last-known power is 4
+    proc.counters["+1/+1"] = 1
+    eng.recompute_continuous_effects()
+    assert proc.power == 4
+
+    eng.rules.destroy(proc)
+    eng.resolve_until_stable()
+
+    tokens = [o for o in st.battlefield if getattr(o, "is_token", False)]
+    assert len(tokens) == 1
+    assert tokens[0].counters.get("+1/+1") == 4
+
+
+def test_incubate_x_its_power_zero_still_makes_the_incubator_token():
+    # RULE 701.53a: Incubate X creates an Incubator token even when X is 0.
+    eng = _engine()
+    st = eng.state
+    src = GameObject(Card(id="Z", name="Zero", type_line="Creature — Wall",
+                          is_creature=True, power=0, toughness=4),
+                     owner_id="p1", zone=Zone.STACK)
+    src.controller_id = "p1"
+    ctx = GameContext(st, eng.rules)
+    ctx.trigger_event = GameEvent(EventType.DIES, power=0)
+
+    build_effects([EffectSpec("create_token", {
+        "count": 1, "token_name": "Incubator",
+        "extra_counters": {"kind": "+1/+1", "count_from_trigger_event": "power"},
+    })], src)[0].apply(ctx, None)
+
+    tokens = [o for o in st.battlefield if getattr(o, "is_token", False)]
+    assert len(tokens) == 1
+    assert tokens[0].counters.get("+1/+1", 0) == 0

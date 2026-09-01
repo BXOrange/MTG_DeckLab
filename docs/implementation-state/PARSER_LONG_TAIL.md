@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.5% covered — 13,040 / 34,811 — as of 2026-09-01, PARSER_VERSION 159.**
+**37.5% covered — 13,042 / 34,811 — as of 2026-09-01, PARSER_VERSION 160.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -604,6 +604,19 @@ Morgul-Knife Wound (granted form), Avatar of Discord. 0 regressed. Still
 open in this family: the "discard N cards **unless you discard a `<type>`
 card**" body (Alpharael) and follow-up "if ~ is destroyed this way …"
 clauses (Cosmic Horror).
+
+160 = PAR-30 — Incubate dynamic amount "…where X is **its power**"
+(`_INCUBATE_X_RE` / `_incubate_x`). A "when ~ dies" trigger; the dying
+creature's own last-known power is already snapshotted on the DIES event
+(`damage_death_mixin`, RULE 400.7), so no engine change — reuses
+`CreateTokenEffect.extra_counters`' existing `count_from_trigger_event`
+key, the same firing-event idiom `EarthbendEffect` uses for "earthbend X,
+where X is that creature's power" (v143). +2 — Bloated Processor, Furnace
+Gremlin. 0 regressed. Still open in the Incubate residue: "incubate N
+**that many times**" (Phyrexian Incubator — a search-count repeat),
+"where X is its **mana value**" of a just-exiled permanent read by *its
+controller* (Excise the Imperfect), "X is the number of creatures
+**exiled this way**" (Sunfall) — each a distinct unbuilt primitive.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
