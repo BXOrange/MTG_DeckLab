@@ -1542,7 +1542,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: cards) → new `DealDamageEffect` ``each_creature_blocking_source``
 #: selector (every battlefield creature whose `GameObject.blocking` names
 #: this ability's own source). +2, 0 regressed; verified end-to-end.
-PARSER_VERSION = "154"
+#: "155": PAR-30 — the Kicker-shaped **optional additional cast cost**
+#: primitive (RULE 601.2b): "as an additional cost to cast this spell,
+#: **you may** <waterbend {N}/blight N/behold X/sacrifice …>." →
+#: `AbilitySpec.additional_cost_optional` + `GameObject.additional_cost_
+#: paid`, a second `pay_additional` cast variant offered by
+#: `_offer_cast`; and "**if this spell's additional cost was paid**,
+#: `<effect>`." → `EffectSpec.condition`'s new ``"additional_cost_paid"``
+#: key (`ConditionalEffect`, the generic sibling of ``"bargained"``). The
+#: `<who>` flag half of the Waterbend residue's biggest cohesive cluster;
+#: per-card bodies (Ruinous Waterbending, Secret of Bloodbending, …) still
+#: open. 0 regressed.
+PARSER_VERSION = "155"
 
 
 def parser_source_hash() -> str:

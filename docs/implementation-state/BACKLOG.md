@@ -123,14 +123,23 @@ Plan-level sequencing lives in
     bending-verb trigger row (Avatar Aang) — needs each bending primitive
     to fire an event first.
 
-  - **Waterbend (RULE 701.67) residue.** ~18 of 28 cards still UNMODELED,
+  - **Waterbend (RULE 701.67) residue.** ~17 of 28 cards still UNMODELED,
     each on its own gap: **"waterbend {X}"** additional cost
     (Crashing Wave, Foggy Swamp Visions, Waterbender's Restoration — needs
-    the printed cost to trigger an {X} announcement it doesn't); **"you
-    may waterbend {N}" + "if this spell's additional cost was paid"**
-    (Katara Seeking Revenge, Ruinous Waterbending, Secret of Bloodbending,
-    Spirit Water Revival — a Kicker-shaped *optional additional cost paid*
-    tracker, unbuilt); **"discard a card unless you waterbend {N}"** body
+    the printed cost to trigger an {X} announcement it doesn't); the
+    Kicker-shaped *optional additional cost paid* tracker is **built**
+    (PARSER_VERSION 155 — `AbilitySpec.additional_cost_optional` +
+    `GameObject.additional_cost_paid`, a `pay_additional` cast variant,
+    the `"additional_cost_paid"` `EffectSpec.condition` key; see
+    `Done_Backend.md`), so what's left for **Katara Seeking Revenge /
+    Ruinous Waterbending / Secret of Bloodbending / Spirit Water Revival**
+    is each card's own *effect body*: Katara's "discard a card **unless**
+    `<its>` additional cost was paid" tail + "+1/+1 for each lesson card in
+    your graveyard"; Ruinous's "whenever a creature dies this turn, you
+    gain 1 life" delayed grant; Secret's "you control target opponent
+    during their next combat phase / turn" (Mindslaver-family); Spirit
+    Water's "if paid, `<effect>` **instead**" amount-override branch;
+    **"discard a card unless you waterbend {N}"** body
     (Waterbending Lesson); **Water Tribe Rallier**'s "look at the top N …
     reveal a creature card with power M or less … put the rest on the
     bottom in a random order" (a `look_top_select` reveal-filter variant);

@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.4% covered — 13,017 / 34,811 — as of 2026-09-01, PARSER_VERSION 154.**
+**37.4% covered — 13,018 / 34,811 — as of 2026-09-01, PARSER_VERSION 155.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -525,6 +525,26 @@ Ambitions "that spell's controller mills 4", Whirlpool Whelm "put that
 creature on top of its owner's library instead", Pulling Teeth /
 Pollen Lullaby "that player" cross-branch referent) are genuine singletons
 — hand-author candidates, no shared grammar left.
+
+155 = PAR-30 — the Kicker-shaped **optional additional cast cost**
+primitive (RULE 601.2b), the `<who>`-flag half of the Waterbend residue's
+biggest cohesive cluster. "as an additional cost to cast this spell, **you
+may** `<waterbend {N}/blight N/behold X/sacrifice …>`." →
+`AbilitySpec.additional_cost_optional`, a second `pay_additional` cast
+variant `game/engine/legal_actions_mixin._offer_cast` offers alongside the
+plain one (the same "alongside, never in place of" shape as evoke/
+help_pay), with `GameObject.additional_cost_paid` recording whether it was
+taken. "**if this spell's additional cost was paid**, `<effect>`." →
+`EffectSpec.condition`'s new ``"additional_cost_paid"`` key
+(`ConditionalEffect`, the generic sibling of ``"bargained"`` — additive
+"if paid, extra effect" only; the "…, `<effect>` instead" override shape
+stays unclaimed). Threaded `pay_additional` through `can_cast` /
+`effective_cast_cost` / `cast_spell` / `_cast_current_face` /
+`_auto_tap_for_cast_if_needed` / `_pay_additional_cast_cost` /
+`GameSession._dispatch_cast_spell`. +1 (Requiting Hex); the per-card bodies
+(Ruinous Waterbending, Secret of Bloodbending, Spirit Water Revival,
+Katara Seeking Revenge) still open, each its own effect-body grammar.
+0 regressed.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

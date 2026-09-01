@@ -1071,6 +1071,20 @@ _KICKED_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-30 / RULE 601.2b: "if this spell's additional cost was paid,
+#: `<effect>`." (Ruinous Waterbending, Secret of Bloodbending, Katara
+#: Seeking Revenge's ETB) — the generic optional-additional-cost sibling of
+#: `_KICKED_CONDITION_RE`, onto `EffectSpec.condition`'s
+#: ``"additional_cost_paid"`` key (`GameObject.additional_cost_paid`, set at
+#: cast time). Only the *additive* "if paid, <extra effect>" shape; the
+#: "…, <effect> instead" amount-override shape (Spirit Water Revival) fails
+#: `match_clause` on ``rest`` the same way the "if kicked … instead" shape
+#: does, so it stays unclaimed here too.
+_ADDITIONAL_COST_PAID_CONDITION_RE = re.compile(
+    r"^if (?:this spell's|the spell's|its|her|his|their) additional cost was paid,\s*(?P<rest>.+)$",
+    re.IGNORECASE,
+)
+
 #: RULE 603.4-style intervening-if keyed to a just-chosen *target*, rather
 #: than an announced-cost flag (The Ghoul, Gunslinger: "target player gets
 #: two rad counters. If that player is you, create a Treasure token.") —
@@ -1393,6 +1407,14 @@ _ADDITIONAL_COST_BLIGHT_RE = re.compile(
 _ADDITIONAL_COST_WATERBEND_RE = re.compile(
     r"^waterbend\s+\{(?P<n>\d+)\}$", re.IGNORECASE
 )
+#: PAR-30 / RULE 601.2b: the *optional* additional-cost prefix — "as an
+#: additional cost to cast this spell, **you may** <cost>." (Katara Seeking
+#: Revenge, Ruinous Waterbending, Burning Curiosity, Graven Archfiend, …).
+#: Stripped before `_additional_cost_dict`, and flagged onto
+#: `AbilitySpec.additional_cost_optional` so the cost is offered as its own
+#: cast variant (`game/engine/legal_actions_mixin._offer_cast`) and its
+#: being paid recorded on `GameObject.additional_cost_paid`.
+_ADDITIONAL_COST_OPTIONAL_PREFIX_RE = re.compile(r"^you may\s+(?P<cost>.+)$", re.IGNORECASE)
 
 #: RULE 601.2f-adjacent: "If you control a commander, you may cast this
 #: spell without paying its mana cost." (Deadly Rollick/Deflecting Swat/
@@ -2114,6 +2136,19 @@ def parse_effect_body(
                         params[key] = "kicker_x"
             results.append(EffectSpec(e.type, params, condition=condition))
         return results
+
+    add_paid = _ADDITIONAL_COST_PAID_CONDITION_RE.match(body)
+    if add_paid is not None:
+        inner = parse_effect_body(
+            add_paid.group("rest"), self_subject=self_subject, previous_subject=previous_subject,
+            group_subject=group_subject,
+        )
+        if inner is None:
+            return None
+        return [
+            EffectSpec(e.type, dict(e.params), condition={"additional_cost_paid": True})
+            for e in inner
+        ]
 
     target_is_you = _TARGET_IS_CONTROLLER_RE.match(body)
     if target_is_you is not None:
@@ -3503,13 +3538,22 @@ def segment_line(
     # carries no bare imperative for the gate to guard against.
     add_cost = _ADDITIONAL_COST_LINE_RE.match(raw)
     if add_cost is not None:
-        cost = _additional_cost_dict(add_cost.group("cost"))
+        cost_text = add_cost.group("cost")
+        # PAR-30 / RULE 601.2b: "you may <cost>" → an *optional* additional
+        # cost, offered as its own cast variant and recorded on
+        # `GameObject.additional_cost_paid`.
+        optional_m = _ADDITIONAL_COST_OPTIONAL_PREFIX_RE.match(cost_text.strip())
+        is_optional = optional_m is not None
+        if is_optional:
+            cost_text = optional_m.group("cost")
+        cost = _additional_cost_dict(cost_text)
         if cost is None:
             return Segment(raw=raw)  # unrecognised cost shape → unclaimed
         spec = AbilitySpec(
             "spell_effect",
             effects=[],
             additional_cost=cost,
+            additional_cost_optional=is_optional,
             raw_text=raw,
             parser=provenance,
         )

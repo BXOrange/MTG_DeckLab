@@ -2242,6 +2242,17 @@ class ConditionalEffect(GameEffect):
             was = bool(getattr(self.source, "bargained", False))
             if not (was if bargained else not was):
                 return False
+        additional_cost_paid = self.condition.get("additional_cost_paid")
+        if additional_cost_paid is not None:
+            # RULE 601.2b (PAR-30): "if this spell's additional cost was
+            # paid, <effect>." / "… unless <its> additional cost was paid."
+            # — the generic optional-additional-cost sibling of ``bargained``
+            # above, reading `GameObject.additional_cost_paid` (set at cast
+            # time by `GameEngine.cast_spell`). ``False`` is the "unless …
+            # paid" negative: the effect applies when it was *not* paid.
+            was = bool(getattr(self.source, "additional_cost_paid", False))
+            if not (was if additional_cost_paid else not was):
+                return False
         target_is_controller = self.condition.get("target_is_controller")
         if target_is_controller is not None:
             target = targets[0] if targets else None

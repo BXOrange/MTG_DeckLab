@@ -222,6 +222,7 @@ class LegalActionsMixin:
         evoke: bool = False,
         help_pay: bool = False,
         bestow: bool = False,
+        pay_additional: bool = False,
     ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
@@ -409,9 +410,24 @@ class LegalActionsMixin:
             # "offer-time face" treatment missing targets get above. A pending
             # "pay X life" isn't locked here since X isn't chosen until cast.
             additional_cost = getattr(obj, "additional_cast_cost", None)
+            add_optional = getattr(obj, "additional_cast_cost_optional", False)
             if additional_cost is not None and not additional_cost.is_free:
                 action["additional_cost_label"] = additional_cost.label()
-                if not self._can_pay_additional_cast_cost(player, obj, additional_cost, x=0):
+                # PAR-30: an *optional* "you may <…>." additional cost never
+                # locks the plain offer — this action is the "don't pay it"
+                # branch, and the "pay it" branch is a separate `_cast_action`
+                # (`pay_additional=True`, added by `_offer_cast`).
+                if add_optional:
+                    action["additional_cost_optional"] = True
+                    if pay_additional:
+                        action["pay_additional"] = True
+                        action["additional_cost_label"] = additional_cost.label()
+                elif not self._can_pay_additional_cast_cost(player, obj, additional_cost, x=0):
+                    action["locked"] = True
+                    action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
+                if add_optional and pay_additional and not self.can_cast(
+                    player, obj, pay_additional=True
+                ):
                     action["locked"] = True
                     action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
 
@@ -657,6 +673,19 @@ class LegalActionsMixin:
             and self.can_cast(player, obj, help_pay=True)
         ):
             actions.append(self._cast_action(player, obj, help_pay=True))
+        # PAR-30 / RULE 601.2b: an *optional* "as an additional cost to cast
+        # this spell, you may <waterbend {N}/…>." — a second, independent
+        # cast variant (``pay_additional``) alongside the plain one, offered
+        # only when actually payable, the same "alongside, never in place of"
+        # shape as evoke/help_pay above. Its being paid is recorded on
+        # `GameObject.additional_cost_paid` for a later
+        # "if this spell's additional cost was paid, <effect>." conditional.
+        if (
+            getattr(obj, "additional_cast_cost", None) is not None
+            and getattr(obj, "additional_cast_cost_optional", False)
+            and self.can_cast(player, obj, pay_additional=True)
+        ):
+            actions.append(self._cast_action(player, obj, pay_additional=True))
 
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
         """Every action ``player`` may legally take in the current state.

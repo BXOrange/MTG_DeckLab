@@ -103,6 +103,12 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # transform ~." / "if a player cast 2 or more spells last turn,
         # transform ~." Both read `GameState._last_turn_spell_count`.
         "no_spells_cast_last_turn", "two_or_more_spells_cast_last_turn",
+        # PAR-30 / RULE 601.2b: "if this spell's additional cost was paid,
+        # `<effect>`." / "… unless <its> additional cost was paid." — the
+        # generic optional-additional-cost sibling of ``bargained``, reading
+        # `GameObject.additional_cost_paid` (see that field). A bool; ``False``
+        # is the "unless … paid" negative.
+        "additional_cost_paid",
     }
 )
 
@@ -379,6 +385,14 @@ class AbilitySpec:
     #: `game/effect_binder.py`'s `attach_to_object`, which scans every spec
     #: for this field regardless of which one carries the "real" effects).
     additional_cost: Optional[dict[str, Any]] = None
+    #: PAR-30 / RULE 601.2b: whether the ``additional_cost`` above is
+    #: *optional* — "as an additional cost to cast this spell, **you may**
+    #: waterbend {N}." (Katara Seeking Revenge, Ruinous Waterbending, …).
+    #: An optional additional cost is offered as its own cast variant and,
+    #: when paid, sets `GameObject.additional_cost_paid` for a following
+    #: ``{"additional_cost_paid": …}`` `EffectSpec.condition`. Mandatory
+    #: (the default, ``False``) folds in unconditionally as before.
+    additional_cost_optional: bool = False
     #: RULE 702.8b/606.3: "you may cast this spell as though it had flash if
     #: <condition>" / "you may activate this permanent's loyalty abilities
     #: any time you could cast an instant if <condition>" (The Wandering
@@ -992,6 +1006,8 @@ class AbilitySpec:
                 raise SpecValidationError("'target_is_controller' condition must be a bool")
             if key == "clash_won" and not isinstance(value, bool):
                 raise SpecValidationError("'clash_won' condition must be a bool")
+            if key == "additional_cost_paid" and not isinstance(value, bool):
+                raise SpecValidationError("'additional_cost_paid' condition must be a bool")
             if key == "kicked_at_least":
                 if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                     raise SpecValidationError("'kicked_at_least' condition must be a positive int")
@@ -1021,6 +1037,7 @@ class AbilitySpec:
             "keyword": self.keyword,
             "modes": self._modes_to_dict(),
             "additional_cost": self.additional_cost,
+            "additional_cost_optional": self.additional_cost_optional,
             "conditional_flash": self.conditional_flash,
             "free_cast_condition": self.free_cast_condition,
             "optional": self.optional,
@@ -1066,6 +1083,7 @@ class AbilitySpec:
             keyword=data.get("keyword"),
             modes=cls._modes_from_dict(data.get("modes")),
             additional_cost=data.get("additional_cost"),
+            additional_cost_optional=bool(data.get("additional_cost_optional", False)),
             conditional_flash=data.get("conditional_flash"),
             free_cast_condition=data.get("free_cast_condition"),
             optional=bool(data.get("optional", False)),

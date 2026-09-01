@@ -902,6 +902,11 @@ class GameSession:
             # round-trips off the flag `_cast_action` stamps on the "cast
             # using …" offer, same as `evoke`.
             help_pay=bool(action.get("help_pay", False)),
+            # PAR-30: RULE 601.2b — an *optional* "you may waterbend {N}."
+            # additional cast cost, round-tripped off the flag `_cast_action`
+            # stamps on the "cast + pay it" offer (a separate action entry
+            # from the plain one), same as `evoke`/`help_pay`.
+            pay_additional=bool(action.get("pay_additional", False)),
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:

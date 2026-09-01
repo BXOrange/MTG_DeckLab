@@ -2598,6 +2598,12 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.additional_cost:
             spec.validate()
             obj.additional_cast_cost = parse_activation_cost(spec.additional_cost)
+            # PAR-30 / RULE 601.2b: "as an additional cost to cast this
+            # spell, **you may** waterbend {N}." — offered as its own cast
+            # variant, `GameObject.additional_cost_paid` recording whether it
+            # was taken (`game/engine/casting_mixin.py`).
+            if spec.additional_cost_optional:
+                obj.additional_cast_cost_optional = True
         if spec.conditional_flash:
             spec.validate()
             obj.conditional_flash = spec.conditional_flash

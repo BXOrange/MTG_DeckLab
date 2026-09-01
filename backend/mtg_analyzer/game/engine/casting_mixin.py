@@ -300,6 +300,7 @@ class CastingMixin:
         targets: Optional[list[Any]] = None,
         assume_mana_available: bool = False,
         help_pay: bool = False,
+        pay_additional: bool = False,
     ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
@@ -619,7 +620,7 @@ class CastingMixin:
             cost = self.effective_cast_cost(
                 player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                 mutate=mutate, entwine=entwine, evoke=evoke, exile_discount=exile_discount, targets=targets,
-                help_pay=help_pay,
+                help_pay=help_pay, pay_additional=pay_additional,
             )
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
             wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
@@ -775,6 +776,7 @@ class CastingMixin:
         exile_discount: int = 0,
         targets: Optional[list[Any]] = None,
         help_pay: bool = False,
+        pay_additional: bool = False,
     ) -> "ManaCost":
         """``obj``'s mana cost after static cost adjustments (RULE 601.2f/903.8).
 
@@ -889,9 +891,15 @@ class CastingMixin:
         # the spell's total here (not paid separately in
         # `_pay_additional_cast_cost`), so `can_cast`'s pool check and
         # `_auto_tap_for_cast_if_needed` both see it. Only the *mandatory*
-        # form reaches this; "you may waterbend {N}" is UNMODELED.
+        # form is folded unconditionally; the *optional* "you may waterbend
+        # {N}" form (PAR-30, `additional_cast_cost_optional`) only when the
+        # caller chose the `pay_additional` cast variant (`_offer_cast`).
         add_cost = getattr(obj, "additional_cast_cost", None)
-        if (add_cost is not None and add_cost.mana.symbols and face != "face_down"):
+        add_optional = getattr(obj, "additional_cast_cost_optional", False)
+        if (
+            add_cost is not None and add_cost.mana.symbols and face != "face_down"
+            and (not add_optional or pay_additional)
+        ):
             wb_mana = add_cost.mana.with_x(x) if add_cost.mana.has_variable else add_cost.mana
             cost = cost.add(wb_mana)
         if entwine:
@@ -1012,6 +1020,7 @@ class CastingMixin:
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         help_pay: bool = False,
+        pay_additional: bool = False,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -1125,6 +1134,7 @@ class CastingMixin:
                     target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                     mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                     sacrifice_choice=sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
+                    pay_additional=pay_additional,
                 )
             except Exception:
                 self.rules.restore_face(obj, snapshot)
@@ -1137,6 +1147,7 @@ class CastingMixin:
             target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
             mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
+            pay_additional=pay_additional,
         )
     def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
         """The `GameEffect`s a modal spell's chosen ``mode`` resolves with.
@@ -1318,6 +1329,7 @@ class CastingMixin:
         discard_choices: Optional[list[int]] = None,
         targets: Optional[list[Any]] = None,
         help_pay: bool = False,
+        pay_additional: bool = False,
     ) -> None:
         """"Automatisches Tappen": best-effort, silent mana top-up right
         before a real cast attempt — only when ``obj`` would already be
@@ -1358,19 +1370,20 @@ class CastingMixin:
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-            targets=targets, help_pay=help_pay,
+            targets=targets, help_pay=help_pay, pay_additional=pay_additional,
         ):
             return
         if not self.can_cast(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-            targets=targets, assume_mana_available=True, help_pay=help_pay,
+            targets=targets, assume_mana_available=True, help_pay=help_pay, pay_additional=pay_additional,
         ):
             return  # illegal for a reason other than mana — never auto-tap
         cost = self.effective_cast_cost(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
             entwine=entwine, evoke=evoke, exile_discount=exile_discount, targets=targets, help_pay=help_pay,
+            pay_additional=pay_additional,
         )
         try:
             self.auto_tap_for(player, cost=cost)
@@ -1399,6 +1412,7 @@ class CastingMixin:
         discard_choices: Optional[list[int]] = None,
         help_pay: bool = False,
         bestow: bool = False,
+        pay_additional: bool = False,
     ):
         """The common cast body, reading whatever `obj.card` currently is.
 
@@ -1441,13 +1455,13 @@ class CastingMixin:
                 player, obj, x, face=bestow_face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-                targets=targets, help_pay=help_pay,
+                targets=targets, help_pay=help_pay, pay_additional=pay_additional,
             )
             if not self.can_cast(
                 player, obj, x, face=bestow_face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-                targets=targets, help_pay=help_pay,
+                targets=targets, help_pay=help_pay, pay_additional=pay_additional,
             ):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 601.2c: a spell that requires a target can't be cast unless
@@ -1529,6 +1543,7 @@ class CastingMixin:
                 cost = self.effective_cast_cost(
                     player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
                     entwine=entwine, evoke=evoke, exile_discount=exile_discount, targets=targets,
+                    pay_additional=pay_additional,
                 )
                 if help_pay and self._help_pay_keyword(obj) is not None:
                     # RULE 702.51/702.66/702.126 (PAR-23): spend the minimum
@@ -1567,6 +1582,16 @@ class CastingMixin:
             self._pay_additional_cast_cost(
                 player, obj, getattr(obj, "additional_cast_cost", None), x,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+                pay_additional=pay_additional,
+            )
+            # RULE 601.2b (PAR-30): record whether the additional cost was
+            # paid — a *mandatory* one always (it was), an *optional* "you
+            # may <…>" one only when the caller chose the `pay_additional`
+            # cast variant (`_offer_cast`). Read by a following
+            # `ConditionalEffect(condition={"additional_cost_paid": …})`.
+            _add_cost = getattr(obj, "additional_cast_cost", None)
+            obj.additional_cost_paid = _add_cost is not None and (
+                not getattr(obj, "additional_cast_cost_optional", False) or pay_additional
             )
             # RULE 702.33b: record how many times Kicker was paid, so a
             # resolve-time effect that reads "if this spell was kicked" (a
@@ -1716,6 +1741,7 @@ class CastingMixin:
         x: int,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        pay_additional: bool = False,
     ) -> None:
         """Pay a spell's additional cast cost (RULE 601.2b), assumed already
         checked payable by `_can_pay_additional_cast_cost`/`can_cast` (with
@@ -1734,6 +1760,12 @@ class CastingMixin:
         fallback.
         """
         if cost is None:
+            return
+        # RULE 601.2b (PAR-30): an *optional* "you may <…>." additional cost
+        # the caster declined (no `pay_additional`) is paid nothing at all —
+        # its mana portion is already gated out of `effective_cast_cost`, and
+        # its non-mana portion (sacrifice/discard/…) must not fire here.
+        if getattr(obj, "additional_cast_cost_optional", False) and not pay_additional:
             return
         obj.sacrificed_cost_mana_value = None
         if cost.sacrifice:

@@ -133,6 +133,16 @@ class GameObject:
         #: spell was cast — if so, `RulesEngine.resolve_top_of_stack` returns
         #: it to hand instead of the graveyard, then clears this flag.
         self.buyback_paid: bool = False
+        #: RULE 601.2b (PAR-30): whether a spell's *optional* "as an
+        #: additional cost to cast this spell, you may <…>." clause was paid
+        #: when this spell was cast — read by a following
+        #: `ConditionalEffect(condition={"additional_cost_paid": …})` for
+        #: "if this spell's additional cost was paid, <effect>." /
+        #: "… unless <its> additional cost was paid." (Katara Seeking
+        #: Revenge, Ruinous Waterbending, …). Kicker's own ``buyback_paid``/
+        #: ``kicker_count`` shape for a different optional additional cost.
+        #: A *mandatory* additional cost sets it True too (it was paid).
+        self.additional_cost_paid: bool = False
         #: RULE 202.1/601.2h: how much mana was actually *spent* casting this
         #: spell — the converted value of the cost that was paid, 0 for a
         #: free/alternative-{0} cast. Reassigned on every cast (like
@@ -1158,6 +1168,7 @@ class GameObject:
         self.kicker_count = 0
         self.kicker_x_paid = 0
         self.buyback_paid = False
+        self.additional_cost_paid = False
         self.mana_spent_to_cast = 0
         self.was_cast = False
         self.cast_outside_sorcery_speed = False
