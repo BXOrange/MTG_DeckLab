@@ -1871,7 +1871,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: threads impulsive_look → `ImpulsiveLookEffect` → `request_impulsive_look`
 #: → `resolve_impulsive_look_choice`, which adds `temp_keywords` to the
 #: placed card (RULE 514.2). +2.
-PARSER_VERSION = "193"
+#: "194": `normalize` folds a comma-less legendary's **given name** — the
+#: single word before " of " in "Kaalia of the Vast" → `~` — where it's a
+#: genuine self-reference. Context-gated (`_fold_given_name_prefix`,
+#: `_PREFIX_TYPE_BEFORE`/`_PREFIX_TYPE_AFTER`) so a name that doubles as a
+#: creature type / keyword ("another **Cleric** you control", "a **Knight**
+#: creature token", "gains **fear** until end of turn") keeps that reading.
+#: +5 (Kaalia of the Vast, Karlov of the Ghost Council, Beregond of the
+#: Guard, Braulios of Pheres Band, Sorin of House Markov).
+PARSER_VERSION = "194"
 
 
 def parser_source_hash() -> str:
