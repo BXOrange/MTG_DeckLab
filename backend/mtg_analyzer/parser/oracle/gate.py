@@ -1826,7 +1826,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: upkeep/combat", "whenever you cast your second spell each turn", … now
 #: parses (Elder Gargaroth, Ojutai Exemplars, Etherwrought Page, Cosmogrand
 #: Zenith, Ferocification, Appa Loyal Sky Bison, +2). +8, 0 regressed.
-PARSER_VERSION = "187"
+#: "188": PAR-30 "Tapped and attacking" — the per-opponent distributive
+#: "**for each opponent**, [you] create a … token[ that's tapped and
+#: attacking that opponent]" (Endless Foot Assault, Stampede Surfer). New
+#: `CreateTokenEffect.per_opponent`: the controller makes one token per
+#: opponent, and with `attacking` each token is put into combat against a
+#: *distinct* opponent (RULE 508.4a per token). Parser: a leading
+#: `for each opponent, ` group on the inline `create_token` row. +2.
+PARSER_VERSION = "188"
 
 
 def parser_source_hash() -> str:

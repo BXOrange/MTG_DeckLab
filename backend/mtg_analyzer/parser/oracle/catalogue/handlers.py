@@ -4838,6 +4838,12 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         # phrasings mean everyone; a captured "you" is the ordinary
         # controller-scoped default, not a `creators` override.
         params["creators"] = "each_opponent" if "opponent" in who else "each_player"
+    if m.groupdict().get("per_opp"):
+        # "**For each opponent**, [you] create a … token[ that's tapped and
+        # attacking that opponent]." (Endless Foot Assault, Stampede Surfer)
+        # — the controller makes one token per opponent; with `attacking`
+        # each is put into combat against a distinct opponent.
+        params["per_opponent"] = True
     if m.groupdict().get("tapped"):  # RULE 110.5a — enters tapped, not tapped after
         params["tapped"] = True
     if m.groupdict().get("tapped_attacking"):  # RULE 508.4 — enters tapped and attacking
@@ -10426,7 +10432,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "create_token",
         _c(
-            rf"(?:(?P<who>you|each player|each opponent) )?creates? {COUNT} "
+            rf"(?P<per_opp>for each opponent, )?(?:(?P<who>you|each player|each opponent) )?creates? {COUNT} "
             rf"(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
             rf"(?P<mid>[a-z ]*?)creature tokens?"
             # ``0-9`` in the keyword capture is ENG-31's "… token with

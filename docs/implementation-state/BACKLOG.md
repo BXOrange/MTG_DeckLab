@@ -116,16 +116,17 @@ Plan-level sequencing lives in
     …" / look-top / "at end of combat" delayed-tail (v179) + the trailing
     "that player / that opponent" defender ref on all four routes, plus
     "~ attacks a player / an opponent" / "you attack a player" trigger
-    recognition (v185) all shipped.** Left: a bare-name token subject
-    ("Ragavan enters tapped and attacking" — Kari Zev); `populate` as the
-    created thing (Ghired); the multi-clause Stangg / Living Laser bodies;
-    mana-value-cap put-from-hand / look-top filters (Shadowfax "with
-    lesser power", Kinscaer Sentry, Jet "with mana value X or less"); and,
-    on the defender-ref seam specifically, Kaalia of the Vast (`normalize`
-    doesn't fold the legendary short name "Kaalia" → `~`), Owlbear Cub /
-    The Vast Scrier (qualified triggers + multi-clause bodies) and the
-    per-opponent distributive "for each opponent, create … attacking that
-    player" (Endless Foot Assault, Stampede Surfer).
+    recognition (v185), plus the per-opponent distributive "for each
+    opponent, [you] create … [tapped and attacking that opponent]"
+    (`CreateTokenEffect.per_opponent`, v188) all shipped.** Left: a
+    bare-name token subject ("Ragavan enters tapped and attacking" — Kari
+    Zev); `populate` as the created thing (Ghired, Life Finds a Way); the
+    multi-clause Stangg / Living Laser bodies; mana-value-cap put-from-hand
+    / look-top filters (Shadowfax "with lesser power", Kinscaer Sentry,
+    Jet "with mana value X or less"); and, on the defender-ref seam
+    specifically, Kaalia of the Vast (`normalize` doesn't fold the
+    legendary short name "Kaalia" → `~`), Owlbear Cub / The Vast Scrier
+    (qualified triggers + multi-clause bodies).
 
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The

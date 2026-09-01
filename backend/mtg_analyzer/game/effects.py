@@ -14119,6 +14119,7 @@ class CreateTokenEffect(GameEffect):
         grant_self_anthem: Optional[dict[str, Any]] = None,
         is_artifact: bool = False,
         parametric_keywords: Optional[list[dict[str, Any]]] = None,
+        per_opponent: bool = False,
     ) -> None:
         super().__init__(source)
         #: "…colorless Construct **artifact** creature token…" — see
@@ -14155,6 +14156,14 @@ class CreateTokenEffect(GameEffect):
         self.parametric_keywords = [dict(pk) for pk in (parametric_keywords or [])]
         self.count_selector = count_selector
         self.creators = creators if creators in self._CREATORS else "you"
+        #: "**For each opponent**, [you] create a … token[ that's tapped and
+        #: attacking that opponent]." (Endless Foot Assault, Stampede Surfer)
+        #: — the effect's own controller makes one token *per opponent*, and
+        #: when ``attacking`` each token is put into combat attacking a
+        #: *distinct* opponent (RULE 508.4a's defender choice made per token
+        #: rather than by the shared auto-pick). Distinct from
+        #: ``creators="each_opponent"`` (there each opponent makes their own).
+        self.per_opponent = bool(per_opponent)
         self.tapped = bool(tapped)
         #: "…create a … token that's **tapped and attacking**." (RULE 508.4 —
         #: Captain's Claws, Basri Ket, Anim Pakal, the "whenever ~ attacks,
@@ -14287,9 +14296,26 @@ class CreateTokenEffect(GameEffect):
         if self.count_from_trigger_event:
             event = context.trigger_event
             count = int((event or {}).get(self.count_from_trigger_event) or 0)
+        # "For each opponent, [you] create …" — one token apiece, all under
+        # this effect's controller; when ``attacking`` each is paired with a
+        # distinct opponent as its defender below.
+        per_opp_defenders: list[str] = []
+        if self.per_opponent:
+            opponents = [
+                p.id for p in context.state.living_players() if p.id != controller_id
+            ]
+            if not opponents:
+                return
+            # ``self.count`` tokens *per* opponent (usually 1); the defender
+            # list repeats each opponent that many times so token i still
+            # lines up with an opponent in the ``attacking`` zip below.
+            per_opp_defenders = [o for o in opponents for _ in range(max(1, self.count))]
+            count = len(per_opp_defenders)
         if count <= 0:
             return
-        if self.creators == "each_player":
+        if self.per_opponent:
+            creator_ids = [controller_id]
+        elif self.creators == "each_player":
             creator_ids = [p.id for p in context.state.living_players()]
         elif self.creators == "each_opponent":
             creator_ids = [p.id for p in context.state.living_players() if p.id != controller_id]
@@ -14309,7 +14335,16 @@ class CreateTokenEffect(GameEffect):
             if self.tapped:
                 for token in made:
                     token.tapped = True
-            if self.attacking:
+            if self.attacking and self.per_opponent:
+                # RULE 508.4a per token: token i attacks opponent i.
+                for token, opp_id in zip(made, per_opp_defenders):
+                    opp = context.state.player_by_id(opp_id)
+                    context.engine.put_onto_battlefield_attacking(
+                        token,
+                        defender={"kind": "player", "id": opp_id,
+                                  "label": getattr(opp, "name", opp_id)},
+                    )
+            elif self.attacking:
                 for token in made:
                     context.engine.put_onto_battlefield_attacking(token)
             if self.extra_counters:
@@ -19651,6 +19686,7 @@ EffectRegistry.register(
         grant_self_anthem=p.get("grant_self_anthem"),
         is_artifact=bool(p.get("is_artifact", False)),
         parametric_keywords=p.get("parametric_keywords"),
+        per_opponent=bool(p.get("per_opponent", False)),
     ),
 )
 EffectRegistry.register(

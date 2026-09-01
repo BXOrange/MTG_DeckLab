@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.1% covered — 13,280 / 34,811 — as of 2026-09-01, PARSER_VERSION 187.**
+**38.2% covered — 13,282 / 34,811 — as of 2026-09-01, PARSER_VERSION 188.**
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -681,6 +681,18 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+188 = **38.2%.** PAR-30 "Tapped and attacking" — the per-opponent
+distributive "**for each opponent**, [you] create a … token[ that's
+tapped and attacking that opponent]" (Endless Foot Assault, Stampede
+Surfer). New `CreateTokenEffect.per_opponent`: the effect's controller
+makes one token per opponent, and with `attacking` each token is put into
+combat against a *distinct* opponent (RULE 508.4a's defender choice made
+per token, not by the shared auto-pick — verified in a 3-player game).
+Parser: a leading `for each opponent,` group on the inline `create_token`
+row; also generalises to the non-attacking "for each opponent, create …"
+count (those cards stay blocked on other clauses — villain subtype, vote
+bodies). +2, 0 regressed.
 
 186 = **38.1%.** `_NAMED_COUNTER_KINDS` — the "put a `<kind>` counter on
 X" whitelist — widened from {spore, burden, quest} with 26 more pure
