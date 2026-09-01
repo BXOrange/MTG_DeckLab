@@ -1768,7 +1768,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `effect_binder`'s new `controls_none_of_type` predicate (a live
 #: battlefield scan, excluding the just-left permanent per RULE 603.6a).
 #: +11.
-PARSER_VERSION = "180"
+#: "181": "This spell costs {N} less to cast **if it targets a
+#: `<criteria>`**." (RULE 601.2f — Ajani's Response / Knockout Blow /
+#: Depower cycle). `cost_reduction` gained `reduce_if_targets` (a criteria
+#: dict); `continuous.self_cost_reduction_for` takes the caster's chosen
+#: targets and applies the discount only when one matches
+#: (`_obj_matches_target_criteria`); `_adjust_cost`/`effective_cast_cost`
+#: thread `targets`; `combat.matches_object_filter` grew a `tapped` key.
+#: Recognised criteria: card type + tapped / attacking / blocking /
+#: colour. +15.
+PARSER_VERSION = "181"
 
 
 def parser_source_hash() -> str:

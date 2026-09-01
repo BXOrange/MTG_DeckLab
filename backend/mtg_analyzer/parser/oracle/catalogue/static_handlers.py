@@ -382,6 +382,45 @@ _SELF_COST_REDUCTION_IF_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: "…if it targets a `<criteria>`." (Ajani's Response / Knockout Blow /
+#: Depower cycle) — a RULE 601.2f discount gated on the spell's own chosen
+#: target rather than on board state, so it emits ``reduce_if_targets`` (a
+#: criteria dict `continuous._obj_matches_target_criteria` checks) instead
+#: of ``active_if``. Only the recognised permanent qualifiers below.
+_TARGETS_CRITERIA_RE = re.compile(
+    r"it targets an? "
+    r"(?P<tapped>tapped )?"
+    r"(?P<combat>attacking |blocking )?"
+    r"(?P<color>white |blue |black |red |green )?"
+    r"(?P<head>creature|permanent|artifact|enchantment|land)$",
+    re.IGNORECASE,
+)
+_COLOR_WORD_TO_LETTER = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+}
+
+
+def _targets_reduction_criteria(cond: str) -> "dict | None":
+    """"it targets a `<criteria>`" → a criteria dict, or ``None`` (fail-closed
+    for any shape not in the small recognised vocabulary — a spell target,
+    a mana-value cap, "a creature card", a subtype, "you don't control", …)."""
+    m = _TARGETS_CRITERIA_RE.fullmatch(cond.strip())
+    if m is None:
+        return None
+    head = m.group("head").lower()
+    crit: dict = {}
+    if head != "permanent":
+        crit["card_type"] = head
+    if m.group("tapped"):
+        crit["tapped"] = True
+    combat = (m.group("combat") or "").strip().lower()
+    if combat in ("attacking", "blocking"):
+        crit[combat] = True
+    color = (m.group("color") or "").strip().lower()
+    if color:
+        crit["color"] = _COLOR_WORD_TO_LETTER[color]
+    return crit or None
+
 # "Each player can't cast more than N spell(s) each turn."  (RULE 601-area
 # prohibition, Eidolon of Rhetoric/Rule of Law/Archon of Emeria) — a flat,
 # unscoped per-player-per-turn cast cap; ``normalize`` already folds a
@@ -2738,7 +2777,17 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _SELF_COST_REDUCTION_IF_RE.fullmatch(text)
     if m is not None:
-        condition = static_condition(m.group("cond"))
+        cond_text = m.group("cond")
+        target_crit = _targets_reduction_criteria(cond_text)
+        if target_crit is not None:
+            return [
+                EffectSpec(
+                    "cost_reduction",
+                    {"affects": "self", "generic": int(m.group("n")),
+                     "reduce_if_targets": target_crit},
+                )
+            ]
+        condition = static_condition(cond_text)
         if condition is None:
             return None  # fail-closed — an unrecognised condition clause
         return [

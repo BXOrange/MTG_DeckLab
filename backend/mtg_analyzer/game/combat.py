@@ -508,6 +508,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # Righteousness) — RULE 509.1 blocker status and the either-of pair,
         # the siblings of the ``attacking`` boolean above.
         "blocking", "attacking_or_blocking",
+        # "…if it targets a tapped creature" (RULE 601.2f cost reduction).
+        "tapped",
         "even_mana_value",
         # "a black or red source"/"a source of the chosen colour"/"a creature
         # of the chosen type" (MEC-30 — Greater Realm of Preservation/Story
@@ -609,6 +611,11 @@ def matches_object_filter(
     if filt.get("attacking_or_blocking") and not (
         getattr(obj, "attacking", False) or _is_blocking
     ):
+        return False
+    # "…if it targets a **tapped** creature" (Ajani's Response / the
+    # cost-less-if-it-targets cycle) — RULE 601.2f cost reduction gated on
+    # the chosen target's tap state, a boolean flag like `attacking` above.
+    if filt.get("tapped") is not None and bool(getattr(obj, "tapped", False)) != bool(filt["tapped"]):
         return False
     # "Equip commander {N}" (RULE 702.6e, Commander's Plate, MEC-43) — the
     # target of this Equip cost must be a commander (RULE 903.4).

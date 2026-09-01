@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.9% covered — 13,176 / 34,811 — as of 2026-09-01, PARSER_VERSION 180.**
+**37.9% covered — 13,191 / 34,811 — as of 2026-09-01, PARSER_VERSION 181.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,25 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+181 = "This spell costs {N} less to cast **if it targets a `<criteria>`**."
+(RULE 601.2f — Ajani's Response, Knockout Blow, Depower, Fantastic Bounce,
+Luminous Rebuke, …; 28 SOLO cache-wide). A discount gated on the spell's
+own *chosen target* rather than on board state, so `_SELF_COST_REDUCTION_
+IF_RE`'s handler emits `cost_reduction` with a `reduce_if_targets`
+criteria dict (tried before the board-condition `active_if` path). Engine:
+`continuous.self_cost_reduction_for` gained a `targets` parameter — the
+caster's already-chosen targets (RULE 601.2c precedes 601.2f); the
+discount applies only when one matches (`_obj_matches_target_criteria` →
+`combat.matches_object_filter`, which grew a `tapped` key). `_adjust_cost`
+/ `effective_cast_cost` thread it through; `targets is None` (every
+offer-time / can-cast caller) treats the discount as available so
+affordability isn't understated, the same best-case treatment `help_pay`
+/ kicker get. Recognised criteria: a card type (creature / permanent /
+artifact / enchantment / land) plus an optional tapped / attacking /
+blocking / colour qualifier. +15, 0 regressed. Still open: a *spell*
+target ("a blue spell" — Mystical Dispute), a mana-value cap, "a creature
+token", "you don't control", a subtype, "a legendary creature".
 
 180 = "When you control no `<basic land type>`, sacrifice ~." (RULE 603.8
 state trigger — Bog Serpent, Sea Serpent, Dandân, Island Fish Jasconius,

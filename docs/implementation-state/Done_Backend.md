@@ -2190,6 +2190,12 @@ is in the rules-engine categories below them.
 - **What:** `self_cost_reduction_for` now honours an `active_if` gate; `count_selector` gained `multicolored_permanents_you_control`; a general "if `<condition>`" recognizer for a spell's own cost-reduction clause was added. Hand-authored for Ghostfire Slice specifically since `segmenter.allow_spell_effect` has no static-ability shape for a true instant/sorcery to emit through yet.
 - **Files:** `game/continuous.py`, `parser/oracle/catalogue/static_handlers.py`, `game/ability_catalogue.py`
 
+### "Costs {N} less to cast if it targets a `<criteria>`" (RULE 601.2f, PARSER_VERSION 181)
+
+- **What:** the Ajani's Response / Knockout Blow / Depower cycle (28 SOLO). Unlike Ghostfire Slice's board-state `active_if`, this discount is gated on the spell's own *chosen target*. `cost_reduction` gained a `reduce_if_targets` param (a criteria dict); `continuous.self_cost_reduction_for` gained a `targets` parameter and applies the discount only when one resolved target matches (`_obj_matches_target_criteria` → `combat.matches_object_filter`, which grew a `tapped` boolean key). `game/engine/casting_mixin.py`'s `_adjust_cost` / `effective_cast_cost` thread `targets` through (RULE 601.2c precedes 601.2f, so the real cast knows them); `targets is None` at every offer-time caller treats the discount as available (best case, so affordability isn't understated — same as `help_pay`/kicker). Parser: `static_handlers._targets_reduction_criteria` recognises "it targets a `<card type>`" plus an optional tapped / attacking / blocking / colour qualifier, tried before the board-condition path.
+- **Files:** `game/continuous.py`, `game/effects.py` (`cost_reduction` factory), `game/engine/casting_mixin.py`, `game/combat.py`, `parser/oracle/catalogue/static_handlers.py`. `tests/test_par30_cost_less_if_it_targets.py`.
+- **Still open:** a *spell* target ("a blue spell" — Mystical Dispute), a mana-value cap, "a creature token", "you don't control", a creature subtype, "a legendary creature".
+
 ### Eye of Ugin: "colorless" search criterion + spell-subtype cost filter (Casting & Costs)
 
 - **What:** `models.card_query`'s `color` key gained a `"colorless"` special case (empty colour-identity check, search-only); `continuous.cost_reduction_for` gained a `spell_subtype` filter (a creature subtype, orthogonal to `spell_type`), composed by AND with `spell_color="colorless"`. Hand-authored (the combined shape is a singleton).

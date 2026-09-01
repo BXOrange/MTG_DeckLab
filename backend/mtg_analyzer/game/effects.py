@@ -20497,6 +20497,13 @@ EffectRegistry.register(
             # ``"cost"`` layer. Needed for Tithe Taker's "**during your
             # turn**, spells your opponents cast cost {1} more…".
             **({"active_if": p["active_if"]} if p.get("active_if") else {}),
+            # "This spell costs {N} less to cast **if it targets a
+            # `<criteria>`**." (Ajani's Response / Knockout Blow cycle) — a
+            # criteria dict checked against the spell's chosen targets at
+            # cast time (RULE 601.2c precedes 601.2f), by `continuous.
+            # _obj_matches_target_criteria`; only meaningful with
+            # ``affects="self"``.
+            **({"reduce_if_targets": p["reduce_if_targets"]} if p.get("reduce_if_targets") else {}),
             # "Each spell that would cost less than N mana to cast costs N
             # mana to cast instead." (Trinisphere) — a floor rather than a
             # delta, read separately by `continuous.cost_floor_for` (not

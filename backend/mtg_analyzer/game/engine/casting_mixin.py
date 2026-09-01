@@ -870,7 +870,7 @@ class CastingMixin:
             # restriction` above/`ActivationCost.spend_only_chosen_color`).
             x_color = getattr(obj, "x_spend_color_restriction", None)
             cost = cost.with_x_colored(x, x_color) if x_color else cost.with_x(x)
-        cost = self._adjust_cost(cost, player, obj)
+        cost = self._adjust_cost(cost, player, obj, targets=targets)
         tax = self.commander_tax(player, obj)
         if tax:
             cost = cost.increase_generic(tax)
@@ -949,16 +949,24 @@ class CastingMixin:
         if obj.is_commander and obj in player.command:
             return 2 * player.commander_casts.get(obj.instance_id, 0)
         return 0
-    def _adjust_cost(self, cost: "ManaCost", player: Player, obj: Optional[GameObject] = None) -> "ManaCost":
+    def _adjust_cost(
+        self, cost: "ManaCost", player: Player, obj: Optional[GameObject] = None,
+        targets: Optional[list[Any]] = None,
+    ) -> "ManaCost":
         """Apply the net static generic adjustment (reduce or increase).
 
         ``obj``, when given, also folds in a Delve/Affinity-shaped reduction
         printed on the card itself (`continuous.self_cost_reduction_for`) —
         distinct from a battlefield permanent's "your spells cost less".
+        ``targets`` (the caster's already-chosen targets, RULE 601.2c
+        precedes 601.2f) lets a "costs {N} less if it targets a `<criteria>`"
+        static resolve; ``None`` at every offer-time caller (best case).
         """
         reduction, _ = continuous.cost_reduction_for(self.state, player, obj)
         if obj is not None:
-            self_reduction, _ = continuous.self_cost_reduction_for(obj, self.state, caster_id=player.id)
+            self_reduction, _ = continuous.self_cost_reduction_for(
+                obj, self.state, caster_id=player.id, targets=targets,
+            )
             reduction += self_reduction
         if reduction > 0:
             cost = cost.reduce_generic(reduction)

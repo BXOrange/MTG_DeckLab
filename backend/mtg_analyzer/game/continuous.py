@@ -2812,8 +2812,29 @@ def cost_floor_for(state: "GameState", player: "Player", obj: Optional["GameObje
     return floor
 
 
+def _obj_matches_target_criteria(target: Any, criteria: dict[str, Any], state: "GameState") -> bool:
+    """Whether a resolved spell target matches a `reduce_if_targets` criteria
+    dict (RULE 601.2f "if it targets a `<criteria>`"). ``target`` may be a
+    `GameObject` or an instance-id/descriptor; a player target never matches
+    (every printed criterion in this cycle names a permanent)."""
+    from . import combat  # function-scoped: combat imports this module
+
+    obj = target
+    if not hasattr(obj, "instance_id"):
+        iid = target.get("instance_id") if isinstance(target, dict) else target
+        obj = state.find_object(iid) if iid is not None else None
+    if obj is None or not hasattr(obj, "card"):
+        return False
+    card_type = criteria.get("card_type")
+    if card_type and card_type.lower() not in obj.card.type_line.lower():
+        return False
+    rest = {k: v for k, v in criteria.items() if k != "card_type"}
+    return combat.matches_object_filter(obj, rest) if rest else True
+
+
 def self_cost_reduction_for(
-    obj: "GameObject", state: "GameState", caster_id: Optional[str] = None
+    obj: "GameObject", state: "GameState", caster_id: Optional[str] = None,
+    targets: Optional[list[Any]] = None,
 ) -> tuple[int, list[dict[str, Any]]]:
     """Net generic-mana reduction from a "cost" static printed on ``obj``
     itself (Delve/Affinity-shaped: "This spell costs {1} less to cast for
@@ -2847,6 +2868,19 @@ def self_cost_reduction_for(
         active_if = ability.params.get("active_if")
         if active_if and not static_conditions.condition_holds(active_if, state, obj, controller_id):
             continue
+        # RULE 601.2f: "This spell costs {N} less to cast **if it targets a
+        # `<criteria>`**." (Ajani's Response / Knockout Blow cycle) — the
+        # discount only applies once the spell's targets are known and at
+        # least one matches. ``targets is None`` is the offer-time /
+        # can-cast probe (targets not chosen yet): treat the discount as
+        # available so affordability isn't understated, the same best-case
+        # treatment `help_pay`/kicker get.
+        reduce_if_targets = ability.params.get("reduce_if_targets")
+        if reduce_if_targets and targets is not None:
+            if not any(
+                _obj_matches_target_criteria(t, reduce_if_targets, state) for t in targets
+            ):
+                continue
         except_same = ability.params.get("except_same_controller_as")
         if except_same is not None and caster_id == except_same:
             continue
