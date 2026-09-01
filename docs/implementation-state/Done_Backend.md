@@ -3756,6 +3756,12 @@ is in the rules-engine categories below them.
   - **Files:** `game/effects.py`, `game/effect_binder.py`, `game/rules_engine.py`.
   - **Bug fixed:** `StaticAbility(affects="self")` reads `ability.source`, not the permanent whose `static_effects` list it lives on — constructing one with no explicit `source=` silently affects nothing; hit twice (Enduring Vitality, Machine God's Effigy) before fixed both places. `EnterAsCopyReplacement`'s `ability_kind` must be `"enter_replacement"`, not `"static"`, or the ETB choice is never offered. `GameContext.change_target`'s wrapper was initially missing the new `redirect_to_source` parameter.
 
+### "Return it to the battlefield under its owner's/your control" — direct oracle-text route (PARSER_VERSION 184)
+
+- **What:** `ReturnSelfToBattlefieldEffect` (built above for the delayed-trigger shape only — Nezahal's own "exile ~, return it tapped … at the beginning of the next end step") gained `under_your_control` and `extra_counters` params, and a new `_RETURN_SELF_TO_BATTLEFIELD_RE` parser handler reaches it directly (no delay) from two real shapes: a *granted* DIES-trigger continuation via `_quoted_ability_grant_effects` — "target creature gains 'When this creature dies, return it to the battlefield tapped under its owner's control with a +1/+1 counter on it.'" (Feign Death, Undying Malice; the outer `_GRANT_QUOTED_ABILITY_UNTIL_EOT_RE` wrapper already existed, only the inner trigger body was unrecognised) — and a plain "exile ~, then return it to the battlefield under its owner's control" blink chain (Flicker of Fate, Aethergeode Miner, Changing Loyalty, Flickering Spirit, Fungal Fortitude, Planar Incision).
+- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`. `tests/test_par30_return_self_to_battlefield.py`.
+- **Still open:** Demonic Gifts' compound "gets +2/+0 **and** gains '…'" wrapper (a different outer shape); "face down"/"flipped"/"transformed" destinations (Ashcloud Phoenix, Homura, Loyal Cathar); riders after the return ("…and you create a treasure token", a following "It deals 1 damage…" sentence).
+
 ### Ojer cEDH Batch: New General Primitives (MEC-12)
 
 - **What:** Closed 26/28 previously-unmodeled cards (49/77 -> 75/77) in `Ojer cEDH`, mostly via new general parser/engine primitives (each below) plus hand-authored singleton entries (Manabarbs, Karn the Great Creator, Ojer Axonil, Cemetery Gatekeeper, Powerbalance, others).

@@ -1793,7 +1793,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `effective_cast_cost`) was already complete. +9 — Aerial Formation,
 #: Ajani's Presence, Blinding Flare, Colossal Heroics, Consign to Dust,
 #: Cruel Feeding, Desperate Stand, Kiora's Dismissal, Rouse the Mob.
-PARSER_VERSION = "183"
+#: "184": "Return it to the battlefield [tapped] under its owner's/your
+#: control[ with a +1/+1 counter on it]." (RULE 400.7 self-recursion) — new
+#: `_RETURN_SELF_TO_BATTLEFIELD_RE` reaches the pre-existing `ReturnSelfTo
+#: BattlefieldEffect` (gained `under_your_control`/`extra_counters`) from
+#: two shapes: a granted DIES-trigger continuation via
+#: `_quoted_ability_grant_effects` (Feign Death, Undying Malice) and a
+#: plain "exile ~, then return it to the battlefield under its owner's
+#: control" blink chain (Flicker of Fate, Aethergeode Miner, Changing
+#: Loyalty, Flickering Spirit, Fungal Fortitude, Planar Incision). +8.
+PARSER_VERSION = "184"
 
 
 def parser_source_hash() -> str:

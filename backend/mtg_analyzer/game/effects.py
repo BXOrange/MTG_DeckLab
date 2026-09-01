@@ -13157,16 +13157,36 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
     since.
     """
 
-    def __init__(self, tapped: bool = False, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, tapped: bool = False, source: Optional["GameObject"] = None,
+        under_your_control: bool = False, extra_counters: Optional[dict[str, Any]] = None,
+    ) -> None:
         super().__init__(source)
         self.tapped = tapped
+        #: "...under **your** control." (Ashcloud Phoenix-adjacent) — the
+        #: rarer sibling of RULE 400.7's own default "under its owner's
+        #: control."
+        self.under_your_control = under_your_control
+        #: "...with a +1/+1 counter on it." (Feign Death) — the same
+        #: ``{"kind", "count"}`` shape `request_search`'s own
+        #: ``extra_counters`` uses, put on the object right after it lands.
+        self.extra_counters = dict(extra_counters) if extra_counters else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
+        controller_id = None
+        if self.under_your_control:
+            player = _controller_of(self.source, context)
+            controller_id = player.id if player is not None else None
         context.return_from_graveyard(
-            self.source, "battlefield_tapped" if self.tapped else "battlefield"
+            self.source, "battlefield_tapped" if self.tapped else "battlefield",
+            controller_id=controller_id,
         )
+        if self.extra_counters:
+            kind = str(self.extra_counters.get("kind", "+1/+1"))
+            count = int(self.extra_counters.get("count", 1) or 1)
+            context.add_counters(self.source, count, kind, source=self.source)
 
 
 class RevealTopThenLandBattlefieldOrDrawEffect(GameEffect):
@@ -17990,7 +18010,11 @@ EffectRegistry.register(
     # "Return it to the battlefield [tapped] under its owner's control."
     # (Nezahal, Primal Tide's own delayed-trigger half)
     "return_self_to_battlefield",
-    lambda p: ReturnSelfToBattlefieldEffect(tapped=bool(p.get("tapped", False))),
+    lambda p: ReturnSelfToBattlefieldEffect(
+        tapped=bool(p.get("tapped", False)),
+        under_your_control=bool(p.get("under_your_control", False)),
+        extra_counters=p.get("extra_counters"),
+    ),
 )
 EffectRegistry.register(
     # "…reveal the top card of your library. If it's a land card, put it

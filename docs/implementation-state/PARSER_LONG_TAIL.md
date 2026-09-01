@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.9% covered — 13,210 / 34,811 — as of 2026-09-01, PARSER_VERSION 183.**
+**38.0% covered — 13,218 / 34,811 — as of 2026-09-01, PARSER_VERSION 184.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,25 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+184 = **38.0% crossed.** "Return it to the battlefield [tapped] under its
+owner's / your control[ with a +1/+1 counter on it]." (RULE 400.7
+self-recursion, the "it"-pronoun continuation of a dies trigger or an
+exile-then-return blink chain). New `_RETURN_SELF_TO_BATTLEFIELD_RE`
+reaches the pre-existing `ReturnSelfToBattlefieldEffect` (gained
+`under_your_control` / `extra_counters`) from two real shapes: a granted
+DIES-trigger continuation via `_quoted_ability_grant_effects` (Feign
+Death, Undying Malice — the "target creature gains '…'" quoted-grant
+wrapper already existed; only the *inner* trigger body was unrecognised)
+and a plain "exile ~, then return it to the battlefield under its owner's
+control" blink chain (Flicker of Fate, Aethergeode Miner, Changing
+Loyalty, Flickering Spirit, Fungal Fortitude, Planar Incision). +8, 0
+regressed. Still open: Demonic Gifts' compound "gets +2/+0 **and** gains
+'…'" wrapper (a different outer shape `_GRANT_QUOTED_ABILITY_UNTIL_EOT_RE`
+doesn't match), a "face down" / "flipped" / "transformed" destination
+variant (Ashcloud Phoenix, Homura, Loyal Cathar), and riders after the
+return ("…and you create a treasure token", "then create a … token
+attached to it", a following "It deals 1 damage…" sentence).
 
 183 = Strive (MEC-4) recognition, one-line fix.
 `normalize._strip_unregistered_keyword_labels` removes the "Strive —"

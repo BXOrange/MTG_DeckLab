@@ -4505,6 +4505,30 @@ def _return_self_from_graveyard(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("return_self_from_graveyard", {"tapped": bool(m.group("tapped"))})]
 
 
+#: "When ~ dies, return it to the battlefield [tapped] under its owner's/
+#: your control[ with a +1/+1 counter on it]." (RULE 400.7 self-recursion,
+#: the "it"-pronoun continuation of a dies trigger — the Feign Death /
+#: Demonic Gifts / Ashcloud Phoenix-adjacent cycle). `_SELF_SUBJECT`'s bare
+#: "it" the same ungated way `_tap_self` reads it — this row only ever
+#: fires when the clause literally opens "return it/~/this creature …".
+_RETURN_SELF_TO_BATTLEFIELD_RE = _c(
+    rf"return {_SELF_SUBJECT} to the battlefield(?P<tapped> tapped)? under "
+    r"(?P<whose>its owner'?s|your) control"
+    r"(?: with an? \+(?P<cn>\d+)/\+(?P<cn2>\d+) counter on it)?"
+)
+
+
+def _return_self_to_battlefield(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {"tapped": bool(m.group("tapped"))}
+    if m.group("whose").lower() == "your":
+        params["under_your_control"] = True
+    if m.groupdict().get("cn"):
+        if m.group("cn") != m.group("cn2"):
+            return None  # not a real +N/+N counter kind — fail closed
+        params["extra_counters"] = {"kind": f"+{m.group('cn')}/+{m.group('cn2')}", "count": 1}
+    return [EffectSpec("return_self_to_battlefield", params)]
+
+
 def _become_prepared(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("become_prepared", {})]
 
@@ -9233,6 +9257,14 @@ HANDLERS: list[EffectHandler] = [
         "return_self_from_graveyard",
         _RETURN_SELF_FROM_GRAVEYARD_RE,
         _return_self_from_graveyard,
+    ),
+    # "When ~ dies, return it to the battlefield [tapped] under its
+    # owner's/your control[ with a +1/+1 counter on it]." (Demonic Gifts /
+    # Feign Death / Abnormal Endurance cycle).
+    EffectHandler(
+        "return_self_to_battlefield",
+        _RETURN_SELF_TO_BATTLEFIELD_RE,
+        _return_self_to_battlefield,
     ),
     # "~ becomes prepared" / "it becomes prepared" / "this permanent"/
     # "this creature becomes prepared" (RULE 722.3a) — a preparation card's
