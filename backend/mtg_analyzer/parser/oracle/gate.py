@@ -1879,7 +1879,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: creature token", "gains **fear** until end of turn") keeps that reading.
 #: +5 (Kaalia of the Vast, Karlov of the Ghost Council, Beregond of the
 #: Guard, Braulios of Pheres Band, Sorin of House Markov).
-PARSER_VERSION = "194"
+#: "195": PAR-30 "copy of a named card" — **The Joiner of Cats**. New
+#: `create_token_copy_of_named` spec / `CreateNamedCardTokenEffect` makes a
+#: token whose copiable values come from a real card resolved by name from
+#: the cache (`services.card_lookup`); the handler
+#: (`_CREATE_NAMED_CARD_TOKEN_RE` + `_NAMED_CARD_SHAPE_RE`) only fires on a
+#: proper-noun name, never "enchanted creature"/"chosen permanent". Plus
+#: `impulsive_look` gains `miss_effect_specs` — the `_LOOK_TOP_PUT_ATTACKING_
+#: RE` "if you don't put a card onto the battlefield this way, `<body>`."
+#: else-branch, run in `resolve_impulsive_look_choice` /
+#: `request_impulsive_look` when nothing is placed. +1.
+PARSER_VERSION = "195"
 
 
 def parser_source_hash() -> str:

@@ -534,6 +534,47 @@ def _copy_permanent_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("copy_permanent", params)]
 
 
+#: "create a token that's [a] [tapped and attacking] copy of `<a specific
+#: named real card>`" (The Joiner of Cats' "…a tapped and attacking copy of
+#: Lurrus of the Dream-Den" — the else-branch of its `impulsive_look`). The
+#: copied card is neither a RULE 115 target, a pronoun antecedent nor this
+#: ability's own source — it's a fixed card *named in the text*, resolved
+#: from the cache by `CreateNamedCardTokenEffect`. The name group rejects
+#: the target/pronoun leading words the rows above own, so this only ever
+#: fires on a genuine proper-noun card name.
+_CREATE_NAMED_CARD_TOKEN_RE = _c(
+    r"create a token that'?s (?:an? )?"
+    r"(?P<ta>tapped and attacking |tapped |attacking )?copy of "
+    r"(?!(?:target|that|it|the|this|each|another|a|an|any|one|those|your|"
+    r"enchanted|equipped|up|chosen|exiled)\b)"
+    r"(?P<name>[a-z][a-z0-9 ,'.\-]+?)"
+    r"(?:, except (?P<except_tail>it isn'?t legendary))?"
+)
+
+#: A card name is only trusted in this narrow spot when it *looks* like a
+#: proper name — a legendary's "`<given>`, `<title>`" / "`<given>` of `<place>`"
+#: shape, or a hyphenated/possessive name — never a bare two plain words
+#: ("enchanted creature", "target artifact" the lookahead above already
+#: rules out; "chosen permanent" it doesn't). Fail-closed: better UNMODELED
+#: than a token copy of a card that doesn't exist.
+_NAMED_CARD_SHAPE_RE = re.compile(r" of | the |,|'|[a-z]-[a-z]")
+
+
+def _create_named_card_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    name = (m.group("name") or "").strip().rstrip(".")
+    if len(name) < 3 or not _NAMED_CARD_SHAPE_RE.search(name):
+        return None
+    ta = (m.groupdict().get("ta") or "").strip()
+    params: dict = {"card_name": name}
+    if "tapped" in ta:
+        params["tapped"] = True
+    if "attacking" in ta:
+        params["attacking"] = True
+    if m.groupdict().get("except_tail"):
+        params["not_legendary"] = True
+    return [EffectSpec("create_token_copy_of_named", params)]
+
+
 def _damage_each_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _multi_target_params(m)
     if params is None:
@@ -8037,6 +8078,15 @@ HANDLERS: list[EffectHandler] = [
         _COPY_PERMANENT_PREVIOUS_RE,
         _copy_permanent_previous,
         previous_subject_only=True,
+    ),
+    # "create a token that's a [tapped and attacking] copy of <named real
+    # card>" (The Joiner of Cats' Lurrus else-branch) — after the target /
+    # pronoun rows so those keep their forms; the name group already
+    # excludes their leading words.
+    EffectHandler(
+        "create_token_copy_of_named",
+        _CREATE_NAMED_CARD_TOKEN_RE,
+        _create_named_card_token,
     ),
     # Tried before the plain `damage` row below, whose `TARGET` alternation
     # has no two-colour-OR creature filter of its own.

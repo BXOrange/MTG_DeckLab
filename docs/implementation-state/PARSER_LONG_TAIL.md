@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.2% covered — 13,299 / 34,811 — as of 2026-09-01, PARSER_VERSION 193.**
+**38.2% covered — 13,305 / 34,811 — as of 2026-09-01, PARSER_VERSION 195.**
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -681,6 +681,33 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+195 = PAR-30 "create a token that's a copy of `<named card>`" body
+singletons — **The Joiner of Cats**. New `create_token_copy_of_named` spec
+/ `CreateNamedCardTokenEffect`: the token's copiable values come from a
+real card resolved by name from the cache (`services.card_lookup.
+card_by_name` — a `game/`-safe singleton, deliberately *not* in
+`card_database.py` whose bytes are hashed into the cache schema
+fingerprint). `_CREATE_NAMED_CARD_TOKEN_RE` + `_NAMED_CARD_SHAPE_RE` only
+fire on a proper-noun name (" of "/","/"'"/word-internal hyphen), never
+"enchanted creature"/"chosen permanent". Plus `impulsive_look` gains
+`miss_effect_specs` — the `_LOOK_TOP_PUT_ATTACKING_RE` "if you don't put a
+card onto the battlefield this way, `<body>`." else-branch, run in
+`resolve_impulsive_look_choice` (declined) / `request_impulsive_look`
+(nothing eligible) via `_apply_effect_specs`, source kept off
+`state.pending_choice` on `_pending_impulsive_look` (same split
+`_pending_name_card` uses). +1.
+
+194 = `normalize` folds a comma-less legendary's **given name** — the
+single word before " of " in "Kaalia of the Vast" → `~` — where it's a
+genuine self-reference. `_fold_given_name_prefix` is context-gated
+(`_PREFIX_TYPE_BEFORE`/`_PREFIX_TYPE_AFTER`) so a name that also reads as a
+creature type or keyword keeps that meaning: "another **Cleric** you
+control" (tribal filter), "a … **Knight** creature token" (token subtype),
+"gains **fear** until end of turn" (keyword) all stay unfolded. Only a
+single-word pre-" of " span folds, so "Ghost Council of Orzhova" is
+untouched. +5 (Kaalia of the Vast, Karlov of the Ghost Council, Beregond
+of the Guard, Braulios of Pheres Band, Sorin of House Markov).
 
 193 = PAR-30 "Tapped and attacking" trail — closes the **Winota, Joiner of
 Forces / A-Winota** family and the RULE 508.3a batch-attack trigger. Two

@@ -1482,6 +1482,8 @@ class SearchMixin:
         miss_destination: str = "graveyard",
         optional: bool = True,
         hit_grant_keywords: Optional[list[str]] = None,
+        miss_effect_specs: Optional[list[dict]] = None,
+        source: Optional[GameObject] = None,
     ) -> None:
         """"Look at the top N cards, take one matching ``criteria``, put the
         rest into ``miss_destination``" (Grisly Salvage/Commune with the
@@ -1514,11 +1516,18 @@ class SearchMixin:
                 # bottomed in reveal order; `_bottom_remaining` already
                 # does exactly this for `dig_until`'s own rest destination.
                 self._bottom_remaining(player, [o.instance_id for o in peeled])
-                return
-            for obj in peeled:
-                player.remove_from_zone(obj, Zone.EXILE)
-                self._put_searched_card(player, obj, miss_destination)
+            else:
+                for obj in peeled:
+                    player.remove_from_zone(obj, Zone.EXILE)
+                    self._put_searched_card(player, obj, miss_destination)
+            # "If you don't put a card onto the battlefield this way, <body>."
+            # (The Joiner of Cats) — nothing eligible counts as "didn't".
+            self._apply_effect_specs(list(miss_effect_specs or []), source)
             return
+        self._pending_impulsive_look = {
+            "source": source,
+            "miss_effect_specs": [dict(d) for d in (miss_effect_specs or [])],
+        }
         self.state.pending_choice = {
             "kind": "impulsive_look",
             "player_id": player.id,
@@ -1547,6 +1556,8 @@ class SearchMixin:
             raise ValueError("no pending impulsive-look choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
         self.state.pending_choice = None
+        pending_else = self._pending_impulsive_look
+        self._pending_impulsive_look = None
 
         chosen_id: Optional[int] = None
         if instance_id is not None:
@@ -1565,6 +1576,7 @@ class SearchMixin:
                 self._put_searched_card(player, hit, choice["hit_destination"])
                 self._apply_impulsive_look_hit_grants(hit, choice.get("hit_grant_keywords"))
             self._bottom_remaining(player, miss_ids)
+            self._apply_impulsive_look_miss_branch(chosen_id, pending_else)
             return
         for obj in exiled:
             is_hit = obj.instance_id == chosen_id
@@ -1573,6 +1585,21 @@ class SearchMixin:
             self._put_searched_card(player, obj, destination)
             if is_hit:
                 self._apply_impulsive_look_hit_grants(obj, choice.get("hit_grant_keywords"))
+        self._apply_impulsive_look_miss_branch(chosen_id, pending_else)
+
+    def _apply_impulsive_look_miss_branch(
+        self, chosen_id: Optional[int], pending_else: Optional[dict]
+    ) -> None:
+        """"If you don't put a card onto the battlefield this way, <body>."
+        (The Joiner of Cats) — run the else-branch specs when the look placed
+        nothing (the player declined; the nothing-eligible case is handled
+        inline in `request_impulsive_look`)."""
+        if chosen_id is not None or not pending_else:
+            return
+        self._apply_effect_specs(
+            list(pending_else.get("miss_effect_specs") or []),
+            pending_else.get("source"),
+        )
 
     def _apply_impulsive_look_hit_grants(
         self, obj: "GameObject", keywords: Optional[list[str]]

@@ -1414,6 +1414,11 @@ _LOOK_TOP_PUT_ATTACKING_RE = re.compile(
     # validated against `_LOOK_TOP_HIT_GRANT_KEYWORDS`, fail-closed.
     r"(?:it gains (?P<hitkw>[a-z, ]+?(?: and [a-z ]+?)?) until end of turn\.\s*)?"
     r"put the rest(?: of the cards)? on the bottom of your library in a random order\.?"
+    # optional else-branch: "if you don't put a card onto the battlefield
+    # this way, <body>." (The Joiner of Cats) → `miss_effect_specs`. Runs to
+    # end of string (no real card has both an else-branch and a trailing
+    # sentence), so the `after` tail below can't also steal it.
+    r"(?:\s*if you don'?t put a card onto the battlefield this way, (?P<elsebody>.+?)\.?\s*$)?"
     r"(?:\s*(?P<after>.+))?$",
     re.IGNORECASE | re.DOTALL,
 )
@@ -2532,6 +2537,12 @@ def parse_effect_body(
                 if not slugs:
                     return None
                 params["hit_grant_keywords"] = slugs
+            elsebody = (look_put_atk.group("elsebody") or "").strip()
+            if elsebody:
+                else_specs = parse_effect_body(elsebody)
+                if else_specs is None:
+                    return None  # else-branch didn't parse — fail closed
+                params["miss_effect_specs"] = [s.to_dict() for s in else_specs]
             spec = EffectSpec("impulsive_look", params)
             return _with_after_tail(
                 [spec], look_put_atk.group("after"), group_subject=group_subject

@@ -516,10 +516,13 @@ class GameContext:
         miss_destination: str = "graveyard",
         optional: bool = True,
         hit_grant_keywords: Optional[list[str]] = None,
+        miss_effect_specs: Optional[list[dict]] = None,
+        source: Optional["GameObject"] = None,
     ) -> None:
         self.engine.request_impulsive_look(
             player, count, criteria, hit_destination, miss_destination, optional,
             hit_grant_keywords=hit_grant_keywords,
+            miss_effect_specs=miss_effect_specs, source=source,
         )
 
     def exile_with_play_permission(
@@ -14108,6 +14111,63 @@ class ManifestDreadEffect(GameEffect):
             context.request_manifest_dread(player)
 
 
+class CreateNamedCardTokenEffect(GameEffect):
+    """"Create a token that's a copy of `<a specific named real card>`" (RULE
+    111.5 / 707.2 — The Joiner of Cats' "a … copy of **Lurrus of the
+    Dream-Den**"). Unlike `CopyPermanentEffect` (copies a permanent already
+    on the battlefield) or `CreateTokenEffect` (synthesises a vanilla token
+    from inline stats / the token catalogue), the copiable values come from
+    a real card resolved by name out of the card cache
+    (`services.card_database.default_card_database`), so the token has that
+    card's actual abilities.
+
+    ``card_name`` is clamped parser data (a string, never code). If the name
+    doesn't resolve — an offline/empty cache — the effect is a no-op rather
+    than raising: the token simply isn't created (RULE 608.2b, "as much as
+    possible")."""
+
+    def __init__(
+        self,
+        card_name: str = "",
+        count: int = 1,
+        tapped: bool = False,
+        attacking: bool = False,
+        not_legendary: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.card_name = card_name
+        # clamped like any effect magnitude (`spec._clamp_params` doesn't
+        # reach a nested `miss_effect_specs` entry's own params).
+        self.count = max(1, min(int(count), 100))
+        self.enter_tapped = bool(tapped)
+        self.enter_attacking = bool(attacking)
+        self.not_legendary = bool(not_legendary)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if not self.card_name:
+            return
+        from ..services.card_lookup import card_by_name
+
+        card = card_by_name(self.card_name)
+        if card is None:
+            return
+        if self.not_legendary:
+            card = card.as_copy(not_legendary=True)
+        controller_id = (
+            self.source.controller_id if self.source is not None
+            else context.active_player.id
+        )
+        made = context.create_token(controller_id, card, self.count) or []
+        if self.enter_tapped:
+            for token in made:
+                token.tapped = True
+        if self.enter_attacking:
+            for token in made:
+                context.engine.put_onto_battlefield_attacking(token)
+        context.created_objects.extend(made)
+
+
 class CreateTokenEffect(GameEffect):
     """Create one or more token permanents (RULE 111.5 / 701.6).
 
@@ -15193,6 +15253,7 @@ class ImpulsiveLookEffect(GameEffect):
         player: Any = None,
         source: Optional["GameObject"] = None,
         hit_grant_keywords: Optional[list[str]] = None,
+        miss_effect_specs: Optional[list[dict]] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -15204,6 +15265,10 @@ class ImpulsiveLookEffect(GameEffect):
         #: "It gains <keyword> until end of turn." interpose (Winota, Joiner
         #: of Forces) — temp_keywords granted to the placed card, RULE 514.2.
         self.hit_grant_keywords = list(hit_grant_keywords or [])
+        #: "If you don't put a card onto the battlefield this way, <body>."
+        #: (The Joiner of Cats) — serialized `EffectSpec` dicts applied when
+        #: the look places nothing (declined, or nothing eligible).
+        self.miss_effect_specs = list(miss_effect_specs or [])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
@@ -15211,6 +15276,8 @@ class ImpulsiveLookEffect(GameEffect):
             player, self.count, self.criteria,
             self.hit_destination, self.miss_destination, self.optional,
             hit_grant_keywords=self.hit_grant_keywords or None,
+            miss_effect_specs=self.miss_effect_specs or None,
+            source=self.source,
         )
 
 
@@ -19782,6 +19849,18 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Create a token that's a copy of <a specific named real card>"
+    # (The Joiner of Cats). The name is clamped parser data.
+    "create_token_copy_of_named",
+    lambda p: CreateNamedCardTokenEffect(
+        card_name=str(p.get("card_name", "")),
+        count=int(p.get("count", 1)),
+        tapped=bool(p.get("tapped", False)),
+        attacking=bool(p.get("attacking", False)),
+        not_legendary=bool(p.get("not_legendary", False)),
+    ),
+)
+EffectRegistry.register(
     "pay_life_equal_to_opponents_combat_damaged_draw_that_many",
     lambda p: PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect(),
 )
@@ -19856,6 +19935,7 @@ EffectRegistry.register(
         miss_destination=p.get("miss_destination", "graveyard"),
         optional=p.get("optional", True),
         hit_grant_keywords=p.get("hit_grant_keywords"),
+        miss_effect_specs=p.get("miss_effect_specs"),
     ),
 )
 EffectRegistry.register(

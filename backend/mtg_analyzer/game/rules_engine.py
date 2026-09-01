@@ -283,6 +283,13 @@ class RulesEngine(
         #: chosen name gets substituted into; see `request_name_card`/
         #: `resolve_name_card_choice`.
         self._pending_name_card: Optional[dict[str, Any]] = None
+        #: Backing state for an `impulsive_look` `pending_choice` whose clause
+        #: carries an else-branch ("If you don't put a card onto the
+        #: battlefield this way, <body>." — The Joiner of Cats): the source
+        #: object + serialized `EffectSpec` dicts, kept off `state.pending_
+        #: choice` (non-serializable), the same split `_pending_name_card`
+        #: uses. See `request_impulsive_look`/`resolve_impulsive_look_choice`.
+        self._pending_impulsive_look: Optional[dict[str, Any]] = None
         #: Backing state for a `pay_energy_then` `pending_choice` (Aether
         #: Chaser-shaped "you may pay {E}{E}. If you do, …") — see
         #: `request_pay_energy_then`/`resolve_pay_energy_then_choice`.
