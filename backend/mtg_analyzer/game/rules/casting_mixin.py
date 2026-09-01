@@ -1481,6 +1481,7 @@ class CastingResolutionMixin:
         if land is not None and player is not None and land in player.hand:
             player.remove_from_zone(land, Zone.HAND)
             player.add_to_zone(land, Zone.GRAVEYARD)
+            self._note_discarded(player.id)
             self.state.fire_event(
                 GameEvent(
                     EventType.DISCARD_CARD, player_id=player.id, instance_id=land.instance_id,

@@ -725,6 +725,16 @@ class GameState:
         #: on every successful draw, the same shape `spells_cast_this_turn`
         #: uses for `cast_limit`.
         self.cards_drawn_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: Cards discarded by each player *this turn* (RULE 701.8 — "create a
+        #: token that's a copy of ~ for each card you've discarded this
+        #: turn", Living Laser; "draw a card for each card you've discarded
+        #: this turn", Change of Fortune). Same shape/reset as `cards_drawn_
+        #: this_turn` above — zeroed for the incoming active player in
+        #: `GameEngine.begin_turn`, bumped at every `DISCARD_CARD` fire site
+        #: (`RulesEngine.discard`/`discard_specific`, the Pitch-cost discard);
+        #: read by `continuous.count_selector`'s ``"cards_discarded_this_
+        #: turn"``.
+        self.cards_discarded_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: The *specific objects* drawn by each player this turn (Sylvan
         #: Library, MEC-40 — "choose two cards in your hand drawn this
         #: turn"), unlike `cards_drawn_this_turn`'s own plain count above:

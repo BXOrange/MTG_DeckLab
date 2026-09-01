@@ -14513,6 +14513,7 @@ class CopyPermanentEffect(GameEffect):
         target_kind: Optional[str] = "creature",
         count_if_kicked: Optional[int] = None,
         count_from_trigger_event: Optional[str] = None,
+        count_selector: Optional[str] = None,
         haste: bool = False,
         tapped: bool = False,
         attacking: bool = False,
@@ -14600,6 +14601,11 @@ class CopyPermanentEffect(GameEffect):
         #: firing's own payload" idiom `CreateTokenEffect.count_from_
         #: trigger_event` uses. Overrides ``count`` when set.
         self.count_from_trigger_event = count_from_trigger_event
+        #: "…create a token that's a copy of ~ **for each card you've
+        #: discarded this turn**." (Living Laser) — a `continuous.count_
+        #: selector` name resolved at `apply`, overriding ``count`` (like
+        #: ``count_from_trigger_event``, but off live state not the event).
+        self.count_selector = count_selector
         self.target = target
         #: ``target_kind="attached_permanent"`` (Mirrormind Crown-shaped
         #: "…copies of **equipped** creature") is a third self-acting mode
@@ -14671,6 +14677,12 @@ class CopyPermanentEffect(GameEffect):
         if self.count_from_trigger_event:
             event = context.trigger_event
             count = int((event or {}).get(self.count_from_trigger_event) or 0)
+        if self.count_selector:
+            from . import continuous  # function-scoped: avoid an import cycle
+
+            count = continuous.count_selector(
+                context.state, controller_id, self.count_selector, source=self.source
+            )
         if count > 0:
             made = context.copy_permanent(
                 controller_id, target, count,
@@ -16261,6 +16273,54 @@ class LoseGameTriggerDamagedPlayerEffect(GameEffect):
 _PERMANENT_TYPE_WORDS: frozenset[str] = frozenset(
     {"artifact", "creature", "enchantment", "land", "planeswalker", "battle"}
 )
+
+
+def _printed_main_types(card: Any) -> set[str]:
+    """The lowercased main-type words on a printed type line (before the em
+    dash), for a card *not* on the battlefield (so `GameObject.type_words`'
+    always-on "permanent" doesn't apply)."""
+    head = str(getattr(card, "type_line", "") or "").partition("—")[0]
+    return {w for w in head.strip().lower().split() if w}
+
+
+class RandomGraveyardExileCopyLoopEffect(GameEffect):
+    """"Exile a permanent card from your graveyard at random, then create a
+    tapped token that's a copy of that card. If the exiled card is a land
+    card, repeat this process." (Sin, Spira's Punishment) — RULE 706
+    randomization + RULE 707.2 token copy, looped while each exiled card is
+    a land (so it terminates the moment a non-land is hit, or the graveyard
+    runs out of permanent cards)."""
+
+    #: A graveyard can't realistically hold this many permanent cards; a
+    #: hard stop regardless, so a modeling slip can't spin forever.
+    MAX_ITER = 200
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        for _ in range(self.MAX_ITER):
+            pool = [
+                o for o in list(player.graveyard)
+                if _printed_main_types(o.card) & _PERMANENT_TYPE_WORDS
+            ]
+            if not pool:
+                return
+            chosen = context.engine.random_choice(pool)
+            player.remove_from_zone(chosen, Zone.GRAVEYARD)
+            player.add_to_zone(chosen, Zone.EXILE)
+            context.state.fire_event(
+                GameEvent(
+                    EventType.EXILE, player_id=player.id, object=chosen.name,
+                    from_zone="graveyard",
+                )
+            )
+            made = context.engine.create_token(player.id, chosen.card, 1) or []
+            for tok in made:
+                tok.tapped = True
+            context.created_objects.extend(made)
+            if "land" not in _printed_main_types(chosen.card):
+                return
 
 
 class PutFromHandOntoBattlefieldEffect(GameEffect):
@@ -19294,6 +19354,13 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Exile a permanent card from your graveyard at random, then create a
+    # tapped token that's a copy of that card. If the exiled card is a land
+    # card, repeat this process." (Sin, Spira's Punishment)
+    "random_graveyard_exile_copy_loop",
+    lambda p: RandomGraveyardExileCopyLoopEffect(),
+)
+EffectRegistry.register(
     "take_extra_turn",
     lambda p: TakeExtraTurnEffect(count=int(p.get("count", 1) or 1)),
 )
@@ -19888,6 +19955,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "creature"),
         count_if_kicked=p.get("count_if_kicked"),
         count_from_trigger_event=p.get("count_from_trigger_event"),
+        count_selector=p.get("count_selector"),
         haste=bool(p.get("haste", False)),
         tapped=bool(p.get("tapped", False)),
         attacking=bool(p.get("attacking", False)),

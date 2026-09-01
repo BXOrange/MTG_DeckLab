@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.2% covered — 13,306 / 34,811 — as of 2026-09-01, PARSER_VERSION 196.**
+**38.2% covered — 13,308 / 34,811 — as of 2026-09-01, PARSER_VERSION 198.**
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -681,6 +681,35 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+198 = PAR-30 "create a token that's a copy of `<named card>`" body
+singletons — **Sin, Spira's Punishment**. New self-contained
+`RandomGraveyardExileCopyLoopEffect` / `random_graveyard_exile_copy_loop`
+— "exile a permanent card from your graveyard at random, then create a
+tapped token that's a copy of that card. if the exiled card is a land
+card, repeat this process." (RULE 706 `RulesEngine.random_choice` over
+the graveyard's permanent cards + RULE 707.2 `create_token` off the
+exiled card, looped while each exiled card is a land; `MAX_ITER` hard
+stop). The "enters or attacks" trigger already parsed
+(`_SELF_MULTI_EVENT_RE`). +1.
+
+197 = PAR-30 "create a token that's a copy of `<named card>`" body
+singletons — **Living Laser**. New `GameState.cards_discarded_this_turn`
+(bumped at every `DISCARD_CARD` fire site via `RulesEngine.
+_note_discarded` — the plain `discard`, `discard_specific`, and the Pitch
+additional-cost discard; reset for the incoming active player in
+`begin_turn`, exactly like `cards_drawn_this_turn`) +
+`continuous.count_selector("cards_discarded_this_turn")` +
+`CopyPermanentEffect.count_selector` (overrides `count`, resolved off
+live state at `apply`). `_COPY_SELF_FOR_EACH_RE` handler: "for each card
+you've discarded this turn, create a token that's a copy of ~[, except
+the token isn't legendary]" → `copy_permanent` with `target_kind=None` /
+`referent="source"` + the selector. The trailing "the tokens enter
+tapped and attacking" (`_CREATED_ENTERS_ATTACKING_RE`) and "exile the
+tokens at the beginning of the next end step" (`_DELAYED_SAC_EXILE_TAIL_
+RE`) already parsed. The `cards_discarded_this_turn` selector also opens
+Change of Fortune / Astonishing Spider-Man territory (still blocked on
+their own "when you do" reflexive shapes). +1.
 
 196 = PAR-30 "create a token that's a copy of `<named card>`" body
 singletons — **The Vast Scrier**. `request_search` /

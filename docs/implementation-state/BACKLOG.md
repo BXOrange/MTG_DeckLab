@@ -110,20 +110,18 @@ Plan-level sequencing lives in
     parametric-keyword-grant static + the v156 `subtype_in_graveyard`
     condition; see `Done_Backend.md`.)
 
-  - **`create a token that's a copy of …` body singletons** (the RULE
+  - **`create a token that's a copy of …` body singletons** — the RULE
     508.4 "tapped and attacking" mechanic + every parser route into it is
-    **done**, v177–v196; Kaalia of the Vast / The Joiner of Cats / The Vast
-    Scrier closed at v194–v196 — see `Done_Backend.md`. These cards' T&A
-    clause parses, their *other* clauses don't):
-    - **Stangg, Echo Warrior** — named token + "for each Aura/Equipment
-      attached to X, create a copy attached to Y" + delayed sac-all.
-    - **Living Laser** — "for each card you've discarded this turn, create
-      a copy of ~ except non-legendary" (`cards_discarded_this_turn`
-      count-selector on a self-copy + group T&A stamp + delayed exile).
-    - **Sin, Spira's Punishment** — "exile a permanent card from your
-      graveyard at random, then create a tapped token that's a copy of
-      that card. if the exiled card is a land card, repeat this process."
-      (random-graveyard-exile → `referent="previous"` copy → loop).
+    **done** (v177–v198); Kaalia of the Vast / The Joiner of Cats / The
+    Vast Scrier / Living Laser / Sin, Spira's Punishment closed at
+    v194–v198 (see `Done_Backend.md`). One left:
+    - **Stangg, Echo Warrior** — the named token + "it enters tapped and
+      attacking" parse fine; blocked on "for each Aura and Equipment
+      attached to Stangg, create a token that's a copy of it **attached
+      to Stangg Twin**" — a copy-each-attachment-then-reattach-elsewhere
+      primitive with no other card needing it, plus a "sacrifice all
+      tokens created this way at the beginning of the next end step"
+      group delayed sac. A hand-author candidate.
 
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The

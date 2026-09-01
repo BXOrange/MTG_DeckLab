@@ -810,6 +810,15 @@ def count_selector(
         if controller_id is None:
             return 0
         return state.spells_cast_this_turn.get(controller_id, 0)
+    if selector == "cards_discarded_this_turn":
+        # "…for each card you've discarded this turn." (Living Laser's
+        # self-copy count; Change of Fortune / Astonishing Spider-Man's
+        # "draw a card for each card you've discarded this turn") —
+        # `GameState.cards_discarded_this_turn`, bumped at every
+        # `DISCARD_CARD` fire site (`RulesEngine._note_discarded`).
+        if controller_id is None:
+            return 0
+        return state.cards_discarded_this_turn.get(controller_id, 0)
     if selector == "opponents_dealt_combat_damage_this_turn":
         # "...where X is the number of opponents that were dealt combat
         # damage this turn." (Tymna the Weaver, MEC-42) — unlike `GameState.

@@ -1898,7 +1898,22 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: reminder "if it has any 'whenever ~ attacks' triggers, those trigger"
 #: (a no-op — `put_onto_battlefield_attacking` re-fires ATTACKS already).
 #: +1.
-PARSER_VERSION = "196"
+#: "197": PAR-30 "copy of a named card" body singletons — **Living Laser**.
+#: New `GameState.cards_discarded_this_turn` (bumped at every `DISCARD_CARD`
+#: fire site via `RulesEngine._note_discarded`, reset like `cards_drawn_
+#: this_turn`) + `continuous.count_selector("cards_discarded_this_turn")` +
+#: `CopyPermanentEffect.count_selector`; `_COPY_SELF_FOR_EACH_RE` handler
+#: ("for each card you've discarded this turn, create a token that's a copy
+#: of ~[, except the token isn't legendary]"). The "…enter tapped and
+#: attacking" / "exile the tokens at the next end step" tails already
+#: parsed. +1.
+#: "198": PAR-30 "copy of a named card" body singletons — **Sin, Spira's
+#: Punishment**. New self-contained `RandomGraveyardExileCopyLoopEffect` /
+#: `random_graveyard_exile_copy_loop` — "exile a permanent card from your
+#: graveyard at random, then create a tapped token that's a copy of that
+#: card. if the exiled card is a land card, repeat this process." (RULE 706
+#: `RulesEngine.random_choice` + RULE 707.2 copy, land-keyed loop). +1.
+PARSER_VERSION = "198"
 
 
 def parser_source_hash() -> str:

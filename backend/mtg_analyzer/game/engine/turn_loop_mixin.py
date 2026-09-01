@@ -239,6 +239,7 @@ class TurnLoopMixin:
         self.state.combats_this_turn = 0
         self.state.cards_drawn_this_turn[active.id] = 0
         self.state.cards_drawn_this_turn_ids[active.id] = []
+        self.state.cards_discarded_this_turn[active.id] = 0
         self.state.life_gained_this_turn[active.id] = 0
         # RULE 120.3 history ("dealt combat damage by ~ *this turn*", Hope of
         # Ghirapur) — game-wide, not per active player: last turn's combat

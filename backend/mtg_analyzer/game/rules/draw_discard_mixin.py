@@ -408,6 +408,13 @@ class DrawDiscardMixin:
         obj.miracle_armed = True
         self.state.miracle_armed_ids.add(obj.instance_id)
 
+    def _note_discarded(self, player_id: str, n: int = 1) -> None:
+        """Bump `GameState.cards_discarded_this_turn` — called at every
+        `DISCARD_CARD` fire site so "for each card you've discarded this
+        turn" (Living Laser, Change of Fortune) counts every route."""
+        counts = self.state.cards_discarded_this_turn
+        counts[player_id] = counts.get(player_id, 0) + max(0, n)
+
     def discard(self, player: Player, count: int = 1) -> None:
         """Non-interactive discard: cost payment (`GameEngine._pay_activation_
         cost`/`_pay_additional_cast_cost`, ward, RULE 514.3 cleanup) pays a
@@ -425,6 +432,7 @@ class DrawDiscardMixin:
                 player.graveyard.append(obj)
                 self._flag_commander_zone_choice(obj)  # RULE 903.9a
             discarded += 1
+            self._note_discarded(player.id)
             self.state.fire_event(
                 GameEvent(
                     EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
@@ -524,6 +532,7 @@ class DrawDiscardMixin:
             player.remove_from_zone(obj, Zone.HAND)
             player.add_to_zone(obj, Zone.GRAVEYARD)
             self._flag_commander_zone_choice(obj)  # RULE 903.9a
+        self._note_discarded(player.id)
         self.state.fire_event(
             GameEvent(
                 EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,

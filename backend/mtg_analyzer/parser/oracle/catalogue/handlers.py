@@ -560,6 +560,54 @@ _CREATE_NAMED_CARD_TOKEN_RE = _c(
 _NAMED_CARD_SHAPE_RE = re.compile(r" of | the |,|'|[a-z]-[a-z]")
 
 
+#: "for each `<count>`, create a token that's a copy of ~[, except the
+#: token isn't legendary]" (Living Laser — "for each card you've discarded
+#: this turn, create a token that's a copy of Living Laser, except the
+#: token isn't legendary"). The copied object is the ability's own source
+#: (``target_kind=None`` / ``referent="source"``), the count comes from a
+#: `continuous.count_selector`. Deliberately just the one selector phrase
+#: seen so far; anything else fails the clause closed.
+_COPY_SELF_FOR_EACH_SELECTORS: dict[str, str] = {
+    "card you've discarded this turn": "cards_discarded_this_turn",
+}
+_COPY_SELF_FOR_EACH_RE = _c(
+    r"for each (?P<sel>card you'?ve discarded this turn), "
+    r"create a token that'?s a copy of ~"
+    r"(?:, except (?:the token|it) (?P<not_legendary>isn'?t legendary))?"
+)
+
+
+#: "Exile a permanent card from your graveyard at random, then create a
+#: tapped token that's a copy of that card. If the exiled card is a land
+#: card, repeat this process." (Sin, Spira's Punishment) — one fixed
+#: phrasing → the self-contained `random_graveyard_exile_copy_loop` effect
+#: (RULE 706 randomization + RULE 707.2 copy in a land-keyed loop).
+_RANDOM_GY_EXILE_COPY_LOOP_RE = _c(
+    r"exile a permanent card from your graveyard at random, then create a "
+    r"tapped token that'?s a copy of that card\. if the exiled card is a "
+    r"land card, repeat this process"
+)
+
+
+def _random_gy_exile_copy_loop(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("random_graveyard_exile_copy_loop", {})]
+
+
+def _copy_self_for_each(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    selector = _COPY_SELF_FOR_EACH_SELECTORS.get(m.group("sel").replace("'", "'"))
+    if selector is None:
+        # normalize may keep a curly apostrophe — retry with it straightened
+        selector = _COPY_SELF_FOR_EACH_SELECTORS.get(
+            m.group("sel").replace("’", "'")
+        )
+    if selector is None:
+        return None
+    params: dict = {"target_kind": None, "referent": "source", "count_selector": selector}
+    if m.groupdict().get("not_legendary"):
+        params["not_legendary"] = True
+    return [EffectSpec("copy_permanent", params)]
+
+
 def _create_named_card_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     name = (m.group("name") or "").strip().rstrip(".")
     if len(name) < 3 or not _NAMED_CARD_SHAPE_RE.search(name):
@@ -8103,6 +8151,22 @@ HANDLERS: list[EffectHandler] = [
         "create_token_copy_of_named",
         _CREATE_NAMED_CARD_TOKEN_RE,
         _create_named_card_token,
+    ),
+    # "for each card you've discarded this turn, create a token that's a
+    # copy of ~[, except the token isn't legendary]" (Living Laser) — a
+    # self-copy scaled by a `continuous.count_selector`.
+    EffectHandler(
+        "copy_self_for_each",
+        _COPY_SELF_FOR_EACH_RE,
+        _copy_self_for_each,
+    ),
+    # "Exile a permanent card from your graveyard at random, then create a
+    # tapped token that's a copy of that card. If the exiled card is a land
+    # card, repeat this process." (Sin, Spira's Punishment)
+    EffectHandler(
+        "random_graveyard_exile_copy_loop",
+        _RANDOM_GY_EXILE_COPY_LOOP_RE,
+        _random_gy_exile_copy_loop,
     ),
     # Tried before the plain `damage` row below, whose `TARGET` alternation
     # has no two-colour-OR creature filter of its own.
