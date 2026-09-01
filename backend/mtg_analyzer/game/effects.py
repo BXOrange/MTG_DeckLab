@@ -3935,12 +3935,26 @@ class GainLifeEffect(GameEffect):
         amount_from_target_power: bool = False,
         recipient: Optional[str] = None,
         amount_from_trigger_source_toughness: bool = False,
+        amount_from_subject: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.count_selector = count_selector
+        #: "You gain life equal to `<its / that creature's>` `<power /
+        #: toughness>`" where the creature isn't a RULE 115 target of *this*
+        #: effect (PAR-30, ~36 SOLO). A ``"<who>_<char>"`` string:
+        #: ``self_power``/``self_toughness`` ("When ~ dies, you gain life
+        #: equal to its power" — Bottle Golems), ``previous_subject_power``/
+        #: ``previous_subject_toughness`` ("Destroy target creature. …you
+        #: gain life equal to that creature's toughness" — Weed Strangle, a
+        #: clash card; RULE 608.2h last-known info, since the creature is
+        #: usually gone), ``trigger_subject_power``/``trigger_subject_
+        #: toughness`` ("Whenever a creature you control enters, you gain
+        #: life equal to its toughness" — Angelic Chorus; reads the firing
+        #: event's own ``instance_id``).
+        self.amount_from_subject = amount_from_subject
         #: "Whenever a creature you control deals combat damage to a
         #: player, you gain life equal to that creature's toughness." (Ikra
         #: Shidiqi, the Usurper, MEC-43) — "that creature" is the *source*
@@ -4001,6 +4015,21 @@ class GainLifeEffect(GameEffect):
             source_obj = context.state.find_object(event.get("source_id"))
             return int(source_obj.toughness or 0) if source_obj is not None else 0
 
+        def _from_subject() -> int:
+            spec = self.amount_from_subject or ""
+            who, _, char = spec.rpartition("_")
+            obj = None
+            if who == "self":
+                obj = self.source
+            elif who == "previous_subject":
+                prev = list(context.previous_targets)
+                obj = prev[0] if prev else None
+            elif who == "trigger_subject":
+                obj = context.state.find_object((context.trigger_event or {}).get("instance_id"))
+            if obj is None:
+                return 0
+            return int((getattr(obj, char, 0) or 0))
+
         def _from_count_selector() -> int:
             from . import continuous  # avoid the continuous↔effects import cycle
 
@@ -4016,6 +4045,7 @@ class GainLifeEffect(GameEffect):
                     lambda: int(subject.power or 0) if subject is not None else 0,
                 ),
                 (self.amount_from_trigger_source_toughness, _from_trigger_source_toughness),
+                (bool(self.amount_from_subject), _from_subject),
                 (
                     # "You gain life equal to the life lost this way." (Gray
                     # Merchant of Asphodel-shaped RULE 119 drain) — a
@@ -17249,6 +17279,7 @@ EffectRegistry.register(
         amount_from_trigger_source_toughness=bool(
             p.get("amount_from_trigger_source_toughness", False)
         ),
+        amount_from_subject=p.get("amount_from_subject"),
     ),
 )
 EffectRegistry.register(

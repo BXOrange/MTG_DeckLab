@@ -1358,6 +1358,34 @@ def _gain_life_lost_this_way(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("gain_life", {"count_selector": "life_lost_this_way"})]
 
 
+#: "You gain life equal to `<its / that creature's>` `<power / toughness>`."
+#: (~36 SOLO — Bottle Golems / Angelic Chorus / Weed Strangle [a clash
+#: card] / Brightmare / …). The creature isn't a RULE 115 target of the
+#: gain-life effect itself; `GainLifeEffect.amount_from_subject` names which
+#: object + characteristic. Three gated handlers, one per pronoun subject:
+#: "its" on a bare-`~` trigger → ``self_*``; "its" on a group trigger
+#: ("a creature you control enters" — the firing creature) →
+#: ``trigger_subject_*``; "that creature's" after another clause →
+#: ``previous_subject_*`` (RULE 608.2h last-known info — the creature is
+#: usually gone by then).
+_GAIN_LIFE_EQ_ITS_RE = _c(r"you (?:may )?gain life equal to its (?P<char>power|toughness)")
+_GAIN_LIFE_EQ_THAT_RE = _c(
+    r"you (?:may )?gain life equal to that (?:creature|permanent)'?s (?P<char>power|toughness)"
+)
+
+
+def _gain_life_eq_its_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {"amount_from_subject": f"self_{m.group('char')}"})]
+
+
+def _gain_life_eq_its_group(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {"amount_from_subject": f"trigger_subject_{m.group('char')}"})]
+
+
+def _gain_life_eq_that_prev(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {"amount_from_subject": f"previous_subject_{m.group('char')}"})]
+
+
 #: "Whenever a player casts a spell, they lose 1 life for each spell
 #: they've cast this turn." (Rug of Smothering) — the caster's own running
 #: `GameState.spells_cast_this_turn` count (`LoseLifeEffect.
@@ -7489,6 +7517,20 @@ HANDLERS: list[EffectHandler] = [
     # RULE 119's "drain" idiom trailing sentence — "You gain life equal to
     # the life lost this way." (Gray Merchant of Asphodel-shaped).
     EffectHandler("gain_life_lost_this_way", _GAIN_LIFE_LOST_THIS_WAY_RE, _gain_life_lost_this_way),
+    # "You gain life equal to <its / that creature's> <power / toughness>"
+    # (~36 SOLO — Bottle Golems / Angelic Chorus / Weed Strangle [clash] / …).
+    EffectHandler(
+        "gain_life_eq_its_self", _GAIN_LIFE_EQ_ITS_RE, _gain_life_eq_its_self,
+        self_subject_only=True,
+    ),
+    EffectHandler(
+        "gain_life_eq_its_group", _GAIN_LIFE_EQ_ITS_RE, _gain_life_eq_its_group,
+        group_subject_only=True,
+    ),
+    EffectHandler(
+        "gain_life_eq_that_prev", _GAIN_LIFE_EQ_THAT_RE, _gain_life_eq_that_prev,
+        previous_subject_only=True,
+    ),
     # Tried before the plain `lose_life` row below (its own bare
     # `{NUMBER} life` would otherwise stop right after the digit, leaving
     # "for each spell they've cast this turn" unconsumed).

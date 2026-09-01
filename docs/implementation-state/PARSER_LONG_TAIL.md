@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.3% covered — 12,991 / 34,811 — as of 2026-09-01, PARSER_VERSION 151.**
+**37.4% covered — 13,005 / 34,811 — as of 2026-09-01, PARSER_VERSION 152.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -477,6 +477,22 @@ Palani, Foster, Evolutionary Leap, Madcap Experiment, Audacious Reshapers,
 Spinner of Souls, The Regalia, Vivien Nature's Avenger, Yuna's Whistle),
 0 regressed; verified end-to-end (dig past two nonlands, Forest onto the
 battlefield, the rest bottomed).
+
+152 = PAR-30 — "**you gain life equal to `<its / that creature's>` `<power /
+toughness>`**" (~36 SOLO — Bottle Golems / Angelic Chorus / **Weed
+Strangle** [a clash card] / Brightmare / Tribute to Hunger / Consuming
+Vapors / …). The creature isn't a RULE 115 target of the gain-life effect
+itself, so a new `GainLifeEffect.amount_from_subject` string (`"<who>_
+<char>"`) names the object + characteristic. Three gated parser rows, one
+per pronoun subject: "its" on a bare-`~` trigger → ``self_*``
+(`self_subject_only`); "its" on a group trigger ("a creature you control
+enters" — the firing creature) → ``trigger_subject_*``
+(`group_subject_only`); "that creature's" after another clause →
+``previous_subject_*`` (`previous_subject_only`, RULE 608.2h last-known
+info — the creature is usually gone by then). The ungated bare "you gain
+life equal to its power" fails closed. +14, 0 regressed; verified
+end-to-end (self power → +3; a destroyed creature's last-known toughness →
++5).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

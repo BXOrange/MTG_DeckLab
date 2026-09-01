@@ -1512,7 +1512,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Lookout — `dig_until` has no tapped-entry mode). +9 (Recross the Paths
 #: [a clash card], Atla Palani, Foster, Evolutionary Leap, Madcap
 #: Experiment, Audacious Reshapers, …). 0 regressed.
-PARSER_VERSION = "151"
+#: "152": PAR-30 — "**you gain life equal to `<its / that creature's>`
+#: `<power / toughness>`**" (~36 SOLO — Bottle Golems / Angelic Chorus /
+#: **Weed Strangle** [a clash card] / Brightmare / Tribute to Hunger / …).
+#: New `GainLifeEffect.amount_from_subject` string param naming the object +
+#: characteristic; three gated parser rows — "its" on a bare-`~` trigger →
+#: ``self_*`` (`self_subject_only`), "its" on a group trigger →
+#: ``trigger_subject_*`` (`group_subject_only`), "that creature's" after
+#: another clause → ``previous_subject_*`` (`previous_subject_only`, RULE
+#: 608.2h last-known info). +14, 0 regressed; verified end-to-end.
+PARSER_VERSION = "152"
 
 
 def parser_source_hash() -> str:
