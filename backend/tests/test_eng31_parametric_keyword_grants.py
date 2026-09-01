@@ -85,6 +85,38 @@ def test_real_firebending_grant_cards_modeled():
         assert parse_oracle(c).modeled, (name, parse_oracle(c).unclaimed)
 
 
+def test_self_parametric_grant_clause_parses():
+    # PAR-30 (PARSER_VERSION 157): "~ has firebending N" — the self-scoped
+    # static grant, ENG-31's group/pump/token siblings' missing fourth form.
+    from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
+    assert static_effect_specs("~ has firebending 2") == [
+        EffectSpec("grant_keyword", {
+            "affects": "self",
+            "parametric_keywords": [{"name": "firebending", "n": 2}],
+        })
+    ]
+    # a plain flag self-grant is unchanged (regression guard)
+    assert static_effect_specs("~ has flying") == [
+        EffectSpec("grant_keyword", {"affects": "self", "keywords": ["flying"]})
+    ]
+    # a non-grantable numbered keyword still fails closed
+    assert static_effect_specs("~ has renown 2") is None
+
+
+def test_fire_nation_cadets_modeled():
+    c = Card(id="fnc", name="Fire Nation Cadets", type_line="Creature — Human Soldier",
+             is_creature=True, power=2, toughness=1, mana_cost_string="{1}{R}",
+             oracle_text=(
+                 "This creature has firebending 2 as long as there's a Lesson "
+                 "card in your graveyard.\n{2}: This creature gets +1/+0 until "
+                 "end of turn."))
+    res = parse_oracle(c)
+    assert res.modeled, res.unclaimed
+    grant = [s for s in res.effect_specs if s.ability_kind == "static"][0].effects[0]
+    assert grant.params["parametric_keywords"] == [{"name": "firebending", "n": 2}]
+    assert grant.params["active_if"] == {"kind": "subtype_in_graveyard", "subtype": "lesson"}
+
+
 # --- execute ---------------------------------------------------------------------
 
 

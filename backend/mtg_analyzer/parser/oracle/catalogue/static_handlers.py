@@ -55,7 +55,11 @@ import re
 from typing import Any, Callable, NamedTuple, Optional
 
 from ..spec import EffectSpec, ParserProvenance
-from .handlers import ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER
+from .handlers import (
+    ONCE_PER_TURN_MARKER,
+    SORCERY_SPEED_MARKER,
+    _split_keywords_with_parametric,
+)
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, DEVOTION, count_of, devotion_selector
 
@@ -2433,7 +2437,12 @@ _ANTHEM_DEVOTION_SELF_RE = re.compile(
     rf"~ gets? \+x/\+x, where x is {DEVOTION}", re.IGNORECASE,
 )
 _SELF_GRANT_RE = re.compile(
-    r"~ has (?P<kw>[a-z][a-z, ]*?)"
+    # ``0-9`` in the keyword capture is ENG-31's parametric self-grant ("~
+    # has firebending 2 as long as there's a lesson card in your graveyard"
+    # — Fire Nation Cadets); `_split_keywords_with_parametric` splits a
+    # "<name> N" entry off into ``parametric_keywords`` and fail-closes on
+    # any other numbered keyword.
+    r"~ has (?P<kw>[a-z][a-z, 0-9]*?)"
     r"(?: and (?P<perm>can (?:attack|block)[a-z0-9 ']*))?",
     re.IGNORECASE,
 )
@@ -3017,10 +3026,25 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _SELF_GRANT_RE.fullmatch(text)
     if m is not None:
-        keywords = _flag_keywords(m.group("kw"))
+        kw_text = m.group("kw")
+        keywords = _flag_keywords(kw_text)
+        parametric: list[dict[str, object]] = []
         if keywords is None:
+            # ENG-31: "~ has firebending N …" (Fire Nation Cadets) — only
+            # reached when `_flag_keywords` fails, so the ordinary
+            # landwalk/flag path is untouched.
+            split = _split_keywords_with_parametric(kw_text)
+            if split is None:
+                return None
+            keywords, parametric = split
+        if not keywords and not parametric:
             return None
-        specs = [EffectSpec("grant_keyword", {"keywords": keywords, "affects": "self"})]
+        params: dict[str, Any] = {"affects": "self"}
+        if keywords:
+            params["keywords"] = keywords
+        if parametric:
+            params["parametric_keywords"] = parametric
+        specs = [EffectSpec("grant_keyword", params)]
         tail = _self_permission_spec(m)
         if tail is False:
             return None

@@ -114,16 +114,12 @@ Plan-level sequencing lives in
     (Hunted by The Family); "each opponent who lost 3+ life this turn"
     (Davros).
 
-  - **Firebending (RULE ~702.189) grants residue.** **Fire Nation Cadets**
-    ("~ has firebending N as long as there's a lesson card in your
-    graveyard") — the `static_conditions.py` `subtype_in_graveyard`
-    condition is **built** (PARSER_VERSION 156; see `Done_Backend.md`), so
-    all that's left is the self parametric-keyword-grant static shape ("~
-    has `<keyword N>` [as long as `<cond>`]", not parsed at all today —
-    ENG-31 built the *group* grant, not the self one).
-    Also the "whenever you waterbend / earthbend / firebend / airbend"
-    bending-verb trigger row (Avatar Aang) — needs each bending primitive
-    to fire an event first.
+  - **Firebending (RULE ~702.189) grants residue.** Only the "whenever you
+    waterbend / earthbend / firebend / airbend" bending-verb trigger row
+    (Avatar Aang) is left — needs each bending primitive to fire an event
+    first. (Fire Nation Cadets closed at PARSER_VERSION 157 — the self
+    parametric-keyword-grant static + the v156 `subtype_in_graveyard`
+    condition; see `Done_Backend.md`.)
 
   - **Waterbend (RULE 701.67) residue.** ~17 of 28 cards still UNMODELED,
     each on its own gap: **"waterbend {X}"** additional cost

@@ -1563,7 +1563,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Learn, First-Time Flyer, Platypus-Bear, Walltop Sentries); Fire Nation
 #: Cadets still blocked on the "~ has firebending N" self parametric-grant.
 #: 0 regressed.
-PARSER_VERSION = "156"
+#: "157": PAR-30 — the **self** parametric-keyword grant static ("~ has
+#: firebending N [as long as `<cond>`]", Fire Nation Cadets). ENG-31 built
+#: the group/pump/token parametric grants but not the self one;
+#: `static_handlers._SELF_GRANT_RE`'s keyword capture widened to accept a
+#: trailing digit and routed through `_split_keywords_with_parametric`
+#: (only when `_flag_keywords` fails, so the landwalk/flag path is
+#: untouched) → `grant_keyword {affects: self, parametric_keywords: [...]}`,
+#: which the existing ENG-31 layer-6 machinery already applies. Closes the
+#: last lesson-card residue card. 0 regressed.
+PARSER_VERSION = "157"
 
 
 def parser_source_hash() -> str:

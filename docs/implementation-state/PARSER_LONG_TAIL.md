@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.4% covered — 13,024 / 34,811 — as of 2026-09-01, PARSER_VERSION 156.**
+**37.4% covered — 13,025 / 34,811 — as of 2026-09-01, PARSER_VERSION 157.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -559,6 +559,18 @@ Learn, First-Time Flyer, Platypus-Bear, Walltop Sentries (Lesson), plus
 Murasa Behemoth ("land card in your graveyard") and Dawnhand Eulogist
 ("Elf card in your graveyard"). Fire Nation Cadets still blocked on the
 "~ has firebending N" self parametric-keyword grant. 0 regressed.
+
+157 = PAR-30 — the **self** parametric-keyword grant static ("~ has
+firebending N [as long as `<cond>`]", Fire Nation Cadets), closing the
+last lesson-card residue card. ENG-31 shipped the group/pump/token
+parametric grants but not the self one; `static_handlers._SELF_GRANT_RE`'s
+keyword capture widened to accept a trailing digit and routed through
+`_split_keywords_with_parametric` — but only when `_flag_keywords` fails
+first, so the ordinary landwalk/flag self-grant path is byte-identical.
+Emits `grant_keyword {affects: "self", parametric_keywords: [...]}`, which
+`continuous._apply_layer_6_ability`'s existing ENG-31 branch already
+applies (and re-synthesizes firebending's ATTACKS add-{R}×N mana ability
+off). +1, 0 regressed.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
