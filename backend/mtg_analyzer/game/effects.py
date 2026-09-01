@@ -2673,7 +2673,12 @@ _DAMAGE_SELECTORS: frozenset[str] = frozenset(
      # all, since it fires once per step globally; "them" is whoever's
      # step it is, read live off `GameState.active_player` at resolution
      # time (unchanged since the trigger fired moments earlier).
-     "active_player"}
+     "active_player",
+     # "Whenever ~ becomes blocked, … ~ deals N damage to each creature
+     # blocking it." (Fire Juggler-shaped) — every battlefield creature
+     # whose `GameObject.blocking` names this effect's own source (the
+     # attacker). Read live at resolution (combat is still in progress).
+     "each_creature_blocking_source"}
 )
 
 
@@ -3095,6 +3100,14 @@ class DealDamageEffect(GameEffect):
             player = context.state.active_player
             if player is not None:
                 context.deal_damage(player, amount, self.source)
+            return
+        if self.selector == "each_creature_blocking_source":
+            src_id = getattr(self.source, "instance_id", None)
+            if src_id is None:
+                return
+            for obj in list(context.state.battlefield):
+                if obj.is_creature and getattr(obj, "blocking", None) == src_id:
+                    context.deal_damage(obj, amount, self.source)
             return
         if self.selector == "event_player":
             # "whenever a player casts a spell, ~ deals 2 damage to that
@@ -11015,11 +11028,14 @@ _TAP_SELECTORS: frozenset[str] = frozenset(
 def _is_valid_tap_selector(selector: Optional[str]) -> bool:
     if selector in _TAP_SELECTORS:
         return True
-    # "…untap it and all Samurai you control." (Godo, Bandit Warlord) —
-    # `continuous.group_selector_objects`'s own subtype-scoped branch
-    # already handles any such name; this just widens the whitelist to
-    # admit it rather than growing `_TAP_SELECTORS` one subtype at a time.
-    return bool(selector) and selector.startswith("creatures_you_control_of_type_")
+    # "…untap it and all Samurai you control." (Godo, Bandit Warlord) /
+    # "Untap all Forests you control." (Woodland Guidance) —
+    # `continuous.group_selector_objects`'s own subtype-scoped branches
+    # already handle any such name; this just widens the whitelist to admit
+    # them rather than growing `_TAP_SELECTORS` one subtype at a time.
+    return bool(selector) and selector.startswith(
+        ("creatures_you_control_of_type_", "lands_you_control_of_type_")
+    )
 
 
 class TapEffect(GameEffect):

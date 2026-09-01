@@ -398,6 +398,16 @@ def group_selector_objects(
         ]
     elif affects == "lands_you_control":
         result = [o for o in battlefield if o.is_land and o.controller_id == controller_id]
+    elif affects.startswith("lands_you_control_of_type_"):
+        # "Untap all Forests you control." (Woodland Guidance — RULE 205.3i
+        # land subtypes), the land sibling of ``creatures_you_control_of_
+        # type_<x>`` just above.
+        land_subtype = affects[len("lands_you_control_of_type_"):]
+        result = [
+            o for o in battlefield
+            if o.is_land and o.controller_id == controller_id
+            and land_subtype in o.card.type_line.lower()
+        ]
     elif affects == "commander_creatures_you_own":
         # "Commander creatures you own have '<ability>'." (Acolyte of
         # Bahamut/Agent of the Iron Throne/Candlekeep Sage-shaped) —

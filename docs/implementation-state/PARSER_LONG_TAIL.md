@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.4% covered — 13,015 / 34,811 — as of 2026-09-01, PARSER_VERSION 153.**
+**37.4% covered — 13,017 / 34,811 — as of 2026-09-01, PARSER_VERSION 154.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -508,6 +508,23 @@ so `target_spec` is `None` and `apply` short-circuits to a direct
 `group_subject_only`); "~ **also** deals" handled too (Blooming Blast).
 +10, 0 regressed; verified end-to-end (both subject modes hit the right
 opponent for the right amount).
+
+154 = PAR-30 — two small clash win-branch bodies; **the general-family
+seam in the clash residue is worked out** now. "untap all `<basic land
+subtype>` you control" (Woodland Guidance) → a new
+`continuous.group_selector_objects` ``lands_you_control_of_type_<x>``
+branch (the land sibling of the existing ``creatures_you_control_of_type_
+<x>``) + a one-line `_is_valid_tap_selector` whitelist widen. "~ deals N
+damage to each creature blocking it" (Fire Juggler, 4 cards) → a new
+`DealDamageEffect` ``each_creature_blocking_source`` selector — every
+battlefield creature whose `GameObject.blocking` names this ability's own
+source (read live, combat still in progress). +2, 0 regressed; verified
+end-to-end. The last ~7 clash cards (Hoarder's Greed "repeat this
+process", Captivating Glance "gain control of enchanted creature", Broken
+Ambitions "that spell's controller mills 4", Whirlpool Whelm "put that
+creature on top of its owner's library instead", Pulling Teeth /
+Pollen Lullaby "that player" cross-branch referent) are genuine singletons
+— hand-author candidates, no shared grammar left.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

@@ -1533,7 +1533,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `deal_damage(player, …)`. Two gated parser rows
 #: (`previous_subject_only` / `group_subject_only`). +10, 0 regressed;
 #: verified end-to-end.
-PARSER_VERSION = "153"
+#: "154": PAR-30 — two small clash win-branch bodies, no general family
+#: left in the residue. "**untap all `<basic land subtype>` you control**"
+#: (Woodland Guidance) → new `continuous.group_selector_objects`
+#: ``lands_you_control_of_type_<x>`` branch + `_is_valid_tap_selector`
+#: widen (the land sibling of ``creatures_you_control_of_type_<x>``);
+#: "**~ deals N damage to each creature blocking it**" (Fire Juggler, 4
+#: cards) → new `DealDamageEffect` ``each_creature_blocking_source``
+#: selector (every battlefield creature whose `GameObject.blocking` names
+#: this ability's own source). +2, 0 regressed; verified end-to-end.
+PARSER_VERSION = "154"
 
 
 def parser_source_hash() -> str:

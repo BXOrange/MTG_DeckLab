@@ -7267,6 +7267,16 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? x damage to {TARGET}"),
         _damage_x,
     ),
+    # "~ deals N damage to each creature blocking it" (Fire Juggler-shaped,
+    # 4 cards) — `DealDamageEffect`'s `each_creature_blocking_source`
+    # selector; "it" is the attacker (this ability's own source).
+    EffectHandler(
+        "damage_each_blocker",
+        _c(r"(?:~ )?deals? (?P<n>\d+) damage to each creature blocking (?:it|~)"),
+        lambda m: [EffectSpec("damage", {
+            "amount": int(m.group("n")), "selector": "each_creature_blocking_source",
+        })],
+    ),
     # "~ [also] deals N damage to that creature's controller" (~22 SOLO —
     # Consign to the Pit / Battle Strain / Dingus Staff / …).
     EffectHandler(
@@ -7891,6 +7901,20 @@ HANDLERS: list[EffectHandler] = [
             r"|each (?P<other_each>other) creature you control)"
         ),
         _tap_selector,
+    ),
+    # "untap all Forests you control" (Woodland Guidance — RULE 205.3i land
+    # subtype), the land sibling of `tap_selector`. `continuous.group_
+    # selector_objects`' `lands_you_control_of_type_<x>` branch does the work.
+    EffectHandler(
+        "tap_lands_of_type",
+        _c(r"(?P<verb>tap|untap) all (?P<sub>forests|mountains|islands|swamps|plains) you control"),
+        lambda m: [EffectSpec("tap", {
+            "selector": "lands_you_control_of_type_" + {
+                "forests": "forest", "mountains": "mountain", "islands": "island",
+                "swamps": "swamp", "plains": "plains",
+            }[m.group("sub").lower()],
+            "untap": m.group("verb").lower() == "untap",
+        })],
     ),
     # "untap all attacking creatures" / "untap each attacking creature"
     # (Karlach, Fury of Avernus/Hexplate Wallbreaker) — tried above `tap_self`
