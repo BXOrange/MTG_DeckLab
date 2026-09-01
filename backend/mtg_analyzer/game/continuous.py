@@ -1076,6 +1076,22 @@ def count_selector(
         except KeyError:
             player = None
         return sum(1 for c in player.graveyard if c.card.is_creature) if player is not None else 0
+    if selector.endswith("_cards_in_your_graveyard"):
+        # PAR-30: "for each `<subtype>` card in your graveyard" (Katara,
+        # Seeking Revenge — "+1/+1 for each lesson card in your graveyard").
+        # A live type-line scan (main type or subtype), the same convention
+        # `static_conditions.subtype_in_graveyard` /
+        # `effects.ConditionalEffect`'s `graveyard_has_type` use. The
+        # `creature_cards_in_your_graveyard` branch above stays its own row
+        # (`Card.is_creature` rather than a "creature" substring).
+        word = selector[: -len("_cards_in_your_graveyard")].replace("_", " ")
+        try:
+            player = state.player_by_id(controller_id) if controller_id else None
+        except KeyError:
+            player = None
+        if player is None or not word:
+            return 0
+        return sum(1 for c in player.graveyard if word in c.card.type_line.lower())
     if selector == "cards_in_your_hand":
         # RULE 604.3 CDA beater — Maro/Psychosis Crawler/Soramaro's
         # "power and toughness are each equal to the number of cards in

@@ -1572,7 +1572,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: untouched) → `grant_keyword {affects: self, parametric_keywords: [...]}`,
 #: which the existing ENG-31 layer-6 machinery already applies. Closes the
 #: last lesson-card residue card. 0 regressed.
-PARSER_VERSION = "157"
+#: "158": PAR-30 — Katara, Seeking Revenge's two remaining clauses.
+#: "**~ gets +P/+T for each `<subtype>` card in your graveyard**" → a self
+#: `anthem` scaled by `continuous.count_selector`'s new
+#: ``<subtype>_cards_in_your_graveyard`` prefix (a live type-line scan,
+#: sibling of `subtype_in_graveyard`); "**`<effect>` unless `<its>`
+#: additional cost was paid**" → the negative, suffix form of v155's
+#: `additional_cost_paid` `EffectSpec.condition` (checked after the
+#: connector split so it binds to its own clause only). Closes Katara. +1,
+#: 0 regressed.
+PARSER_VERSION = "158"
 
 
 def parser_source_hash() -> str:

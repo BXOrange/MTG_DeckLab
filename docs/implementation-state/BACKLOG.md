@@ -129,14 +129,16 @@ Plan-level sequencing lives in
     (PARSER_VERSION 155 — `AbilitySpec.additional_cost_optional` +
     `GameObject.additional_cost_paid`, a `pay_additional` cast variant,
     the `"additional_cost_paid"` `EffectSpec.condition` key; see
-    `Done_Backend.md`), so what's left for **Katara Seeking Revenge /
-    Ruinous Waterbending / Secret of Bloodbending / Spirit Water Revival**
-    is each card's own *effect body*: Katara's "discard a card **unless**
-    `<its>` additional cost was paid" tail + "+1/+1 for each lesson card in
-    your graveyard"; Ruinous's "whenever a creature dies this turn, you
+    `Done_Backend.md`), so what's left for **Ruinous Waterbending /
+    Secret of Bloodbending / Spirit Water Revival** is each card's own
+    *effect body*: Ruinous's "whenever a creature dies this turn, you
     gain 1 life" delayed grant; Secret's "you control target opponent
     during their next combat phase / turn" (Mindslaver-family); Spirit
-    Water's "if paid, `<effect>` **instead**" amount-override branch;
+    Water's "if paid, `<effect>` **instead**" amount-override branch.
+    (**Katara Seeking Revenge** closed at PARSER_VERSION 158 — the
+    "+P/+T for each `<subtype>` card in graveyard" self-anthem +
+    count-selector, and the "unless `<its>` additional cost was paid"
+    suffix condition; see `Done_Backend.md`.)
     **"discard a card unless you waterbend {N}"** body
     (Waterbending Lesson); **Water Tribe Rallier**'s "look at the top N …
     reveal a creature card with power M or less … put the rest on the

@@ -2436,6 +2436,16 @@ _SELF_ANTHEM_RE = re.compile(
 _ANTHEM_DEVOTION_SELF_RE = re.compile(
     rf"~ gets? \+x/\+x, where x is {DEVOTION}", re.IGNORECASE,
 )
+#: PAR-30: "~ gets +P/+T for each `<subtype>` card in your graveyard"
+#: (Katara, Seeking Revenge — "+1/+1 for each lesson card in your
+#: graveyard"). A standing self-anthem whose per-unit +P/+T scales by
+#: `continuous.count_selector`'s `<subtype>_cards_in_your_graveyard` prefix
+#: (a live type-line scan). Bounded to a single subtype word so it stays
+#: fail-closed for any other "for each" quantity.
+_SELF_ANTHEM_FOR_EACH_GY_SUBTYPE_RE = re.compile(
+    r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<sub>[a-z][a-z-]+) card in your graveyard",
+    re.IGNORECASE,
+)
 _SELF_GRANT_RE = re.compile(
     # ``0-9`` in the keyword capture is ENG-31's parametric self-grant ("~
     # has firebending 2 as long as there's a lesson card in your graveyard"
@@ -2987,6 +2997,19 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # scoped anthem whose amount is `continuous.count_selector`'s
     # `devotion_to_<key>` vocabulary, tried before `_SELF_ANTHEM_RE`
     # (fixed-digit only) since "x" would never match that row's ``\d+``.
+    # PAR-30: "~ gets +P/+T for each `<subtype>` card in your graveyard"
+    # (Katara, Seeking Revenge). Tried before `_SELF_ANTHEM_RE` since that
+    # row's `[+-]\d+/[+-]\d+` would claim the "+1/+1" prefix and drop the
+    # "for each …" scaling.
+    m = _SELF_ANTHEM_FOR_EACH_GY_SUBTYPE_RE.fullmatch(text)
+    if m is not None:
+        selector = f"{m.group('sub').lower()}_cards_in_your_graveyard"
+        return [EffectSpec("anthem", {
+            "affects": "self",
+            "power": int(m.group("p")), "toughness": int(m.group("t")),
+            "power_count": selector, "toughness_count": selector,
+        })]
+
     m = _ANTHEM_DEVOTION_SELF_RE.fullmatch(text)
     if m is not None:
         selector = devotion_selector(m)

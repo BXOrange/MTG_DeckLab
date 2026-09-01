@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.4% covered — 13,025 / 34,811 — as of 2026-09-01, PARSER_VERSION 157.**
+**37.4% covered — 13,032 / 34,811 — as of 2026-09-01, PARSER_VERSION 158.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -571,6 +571,22 @@ Emits `grant_keyword {affects: "self", parametric_keywords: [...]}`, which
 `continuous._apply_layer_6_ability`'s existing ENG-31 branch already
 applies (and re-synthesizes firebending's ATTACKS add-{R}×N mana ability
 off). +1, 0 regressed.
+
+158 = PAR-30 — Katara, Seeking Revenge's two remaining clauses, both
+riding primitives from the last three versions. "**~ gets +P/+T for each
+`<subtype>` card in your graveyard**" → a self `anthem` scaled by
+`continuous.count_selector`'s new `<subtype>_cards_in_your_graveyard`
+prefix (a live type-line scan, the sibling of v156's
+`subtype_in_graveyard`); the explicit `creature_cards_in_your_graveyard`
+row stays its own `Card.is_creature` check. "**`<effect>` unless `<its>`
+additional cost was paid**" → the negative, *suffix* form of v155's
+`additional_cost_paid` `EffectSpec.condition`, checked *after* the
+connector split so it binds to only its own clause ("draw a card, then
+discard a card unless her additional cost was paid" → the draw stays
+unconditional). +7 — Katara plus every "gets +X/+X for each `<type>` card
+in your graveyard" beater the count-selector unlocked (Knight of the
+Reliquary, Fiend Artisan, Liliana's Elite, Salvage Slasher, Wight of the
+Reliquary, Madame Hydra Reanimated). 0 regressed.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

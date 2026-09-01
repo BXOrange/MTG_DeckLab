@@ -1085,6 +1085,16 @@ _ADDITIONAL_COST_PAID_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-30 / RULE 601.2b: the *negative, suffix* sibling — "`<effect>` unless
+#: `<its>` additional cost was paid." (Katara, Seeking Revenge — "draw a
+#: card, then discard a card **unless her additional cost was paid**."):
+#: the effect body applies only when the optional cost was *not* paid, so
+#: each spec is tagged ``condition={"additional_cost_paid": False}``.
+_ADDITIONAL_COST_NOT_PAID_SUFFIX_RE = re.compile(
+    r"^(?P<rest>.+?) unless (?:this spell's|the spell's|its|her|his|their) additional cost was paid$",
+    re.IGNORECASE,
+)
+
 #: RULE 603.4-style intervening-if keyed to a just-chosen *target*, rather
 #: than an announced-cost flag (The Ghoul, Gunslinger: "target player gets
 #: two rad counters. If that player is you, create a Treasure token.") —
@@ -2487,6 +2497,23 @@ def parse_effect_body(
                 referent_selector = _announces_group_selector(sub)
             if ok:
                 return collected
+
+    # PAR-30: "`<effect>` unless `<its>` additional cost was paid." — checked
+    # *after* the connector split so it binds to only its own clause (in
+    # "draw a card, then discard a card unless her additional cost was
+    # paid", the split hands this just "discard a card unless …"), not to
+    # every clause of a compound body.
+    add_not_paid = _ADDITIONAL_COST_NOT_PAID_SUFFIX_RE.match(body)
+    if add_not_paid is not None:
+        inner = parse_effect_body(
+            add_not_paid.group("rest"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if inner is not None:
+            return [
+                EffectSpec(e.type, dict(e.params), condition={"additional_cost_paid": False})
+                for e in inner
+            ]
     return None
 
 
