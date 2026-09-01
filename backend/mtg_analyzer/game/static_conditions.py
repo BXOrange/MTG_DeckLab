@@ -119,6 +119,14 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "life_at_most",
         "cards_in_hand_at_least",
         "cards_in_hand_at_most",
+        # PAR-30: "as long as there's a `<subtype>` card in your graveyard"
+        # (the Avatar: TLA "Lesson" cards — Aang A Lot to Learn, Fire Nation
+        # Cadets, First-Time Flyer, Platypus-Bear). + ``subtype`` (a
+        # lowercase word matched against each graveyard card's type line,
+        # the same `graveyard_has_type` `EffectSpec.condition` uses) and an
+        # optional ``min`` (default 1). The always-active-player "you" read,
+        # like every other resource row here.
+        "subtype_in_graveyard",
         "drawn_cards_at_least",  # + ``amount`` — "…you've drawn N cards this turn"
         # "…you've cast an instant or sorcery spell this turn" (PAR-10) —
         # `GameState.cast_instant_or_sorcery_this_turn`, reset for *every*
@@ -437,6 +445,21 @@ def condition_holds(
     if kind == "cast_instant_or_sorcery_this_turn":
         cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
         return bool(cast.get(controller_id, False))
+    if kind == "subtype_in_graveyard":
+        # PAR-30: "as long as there's a `<subtype>` card in your graveyard."
+        # A live scan of the controller's graveyard for a card whose type
+        # line carries the named word (main type or subtype) — the same
+        # convention `effects.ConditionalEffect`'s `graveyard_has_type`
+        # branch uses, just as an `active_if` static gate.
+        word = str(condition.get("subtype", "")).lower()
+        if not word:
+            return False
+        minimum = int(condition.get("min", 1) or 1)
+        hits = sum(
+            1 for obj in getattr(player, "graveyard", [])
+            if word in obj.card.type_line.lower()
+        )
+        return hits >= minimum
     if kind == "card_types_in_graveyard_at_least":
         # RULE 702.137's "Delirium" — count *distinct printed card types*
         # among cards in your graveyard (Dragon's Rage Channeler/Winter,
@@ -552,6 +575,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return f"solange ≥{condition.get('amount', 0)} Karten gezogen"
     if kind == "card_types_in_graveyard_at_least":
         return f"Delirium (≥{condition.get('amount', 0)} Kartentypen im Friedhof)"
+    if kind == "subtype_in_graveyard":
+        return f"solange ≥{condition.get('min', 1)} {condition.get('subtype', '')}-Karte im Friedhof"
     if kind.startswith("life_"):
         return f"solange Leben {'≥' if kind.endswith('least') else '≤'}{condition.get('amount', 0)}"
     if kind.startswith("cards_in_hand_"):

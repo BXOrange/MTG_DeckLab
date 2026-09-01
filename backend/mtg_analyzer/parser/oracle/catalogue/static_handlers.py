@@ -2139,6 +2139,11 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # already routes here).
     (re.compile(r"there are (?P<n>\d+) or more card types among cards in your graveyard", re.I),
      lambda m: {"kind": "card_types_in_graveyard_at_least", "amount": int(m.group("n"))}),
+    # PAR-30: "as long as there's a `<subtype>` card in your graveyard" (the
+    # Avatar: TLA "Lesson" cards). Bounded to a single subtype word so it
+    # can't swallow a longer "N or more <x> cards" phrasing (handled above).
+    (re.compile(r"there(?:'s| is| are) an? (?P<sub>[a-z][a-z-]+) card in your graveyard", re.I),
+     lambda m: {"kind": "subtype_in_graveyard", "subtype": m.group("sub").lower()}),
     # -- The controller's own resources.
     (re.compile(r"you have (?P<n>\d+) or more life", re.I),
      lambda m: {"kind": "life_at_least", "amount": int(m.group("n"))}),

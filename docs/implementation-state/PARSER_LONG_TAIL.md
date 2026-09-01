@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.4% covered — 13,018 / 34,811 — as of 2026-09-01, PARSER_VERSION 155.**
+**37.4% covered — 13,024 / 34,811 — as of 2026-09-01, PARSER_VERSION 156.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -545,6 +545,20 @@ stays unclaimed). Threaded `pay_additional` through `can_cast` /
 (Ruinous Waterbending, Secret of Bloodbending, Spirit Water Revival,
 Katara Seeking Revenge) still open, each its own effect-body grammar.
 0 regressed.
+
+156 = PAR-30 — "**as long as there's a `<subtype>` card in your
+graveyard**" (the Avatar: TLA "Lesson" cards), a `static_conditions.py`
+`active_if` gate that crossed the Waterbend/Firebend residue. New
+`subtype_in_graveyard` kind (a live type-line scan of the controller's
+graveyard, `+ subtype + min`; `_STATIC_CONDITION_RES` row) plus its
+trigger intervening-if sibling "**if there's a `<subtype>` card in your
+graveyard, `<effect>`**" → `ConditionalEffect`'s already-built (but never
+parser-wired) `graveyard_has_type` key
+(`segmenter._GRAVEYARD_HAS_SUBTYPE_CONDITION_RE`). +6 — Aang A Lot to
+Learn, First-Time Flyer, Platypus-Bear, Walltop Sentries (Lesson), plus
+Murasa Behemoth ("land card in your graveyard") and Dawnhand Eulogist
+("Elf card in your graveyard"). Fire Nation Cadets still blocked on the
+"~ has firebending N" self parametric-keyword grant. 0 regressed.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

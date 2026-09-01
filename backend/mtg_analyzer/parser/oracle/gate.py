@@ -1553,7 +1553,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `<who>` flag half of the Waterbend residue's biggest cohesive cluster;
 #: per-card bodies (Ruinous Waterbending, Secret of Bloodbending, …) still
 #: open. 0 regressed.
-PARSER_VERSION = "155"
+#: "156": PAR-30 — "**as long as there's a `<subtype>` card in your
+#: graveyard**" (the Avatar: TLA "Lesson" cards) → a new
+#: `static_conditions.subtype_in_graveyard` `active_if` kind
+#: (`_STATIC_CONDITION_RES` row), plus its trigger intervening-if sibling
+#: "**if there's a `<subtype>` card in your graveyard, `<effect>`**" →
+#: `ConditionalEffect`'s already-built ``graveyard_has_type`` key
+#: (`segmenter._GRAVEYARD_HAS_SUBTYPE_CONDITION_RE`). +4 (Aang A Lot to
+#: Learn, First-Time Flyer, Platypus-Bear, Walltop Sentries); Fire Nation
+#: Cadets still blocked on the "~ has firebending N" self parametric-grant.
+#: 0 regressed.
+PARSER_VERSION = "156"
 
 
 def parser_source_hash() -> str:

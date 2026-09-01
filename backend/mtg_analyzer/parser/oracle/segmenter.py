@@ -1164,6 +1164,17 @@ _CONTROLS_NONE_OF_TYPE_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-30: "if there's a `<subtype>` card in your graveyard, `<effect>`."
+#: (Walltop Sentries — "when ~ dies, if there's a lesson card in your
+#: graveyard, you gain 2 life.") — the trigger intervening-if sibling of
+#: the `subtype_in_graveyard` static gate, onto `ConditionalEffect`'s
+#: already-built ``"graveyard_has_type"`` key (a live type-line scan). One
+#: subtype word, so it can't swallow a "N or more cards" count phrasing.
+_GRAVEYARD_HAS_SUBTYPE_CONDITION_RE = re.compile(
+    r"^if there(?:'s| is| are) an? (?P<sub>[a-z][a-z-]+) card in your graveyard,\s*(?P<rest>.+)$",
+    re.IGNORECASE,
+)
+
 #: The pre-daybound Innistrad **werewolf** day/night check (RULE 603.4
 #: intervening-if — ~26 front faces + their backs): "if no spells were cast
 #: last turn, transform ~." (front → werewolf) and its mirror "if a player
@@ -2224,6 +2235,20 @@ def parse_effect_body(
                 e.type, dict(e.params),
                 condition={"controls_none_of_type": controls_none.group("type").lower()},
             )
+            for e in inner
+        ]
+
+    gy_subtype = _GRAVEYARD_HAS_SUBTYPE_CONDITION_RE.match(body)
+    if gy_subtype is not None:
+        inner = parse_effect_body(
+            gy_subtype.group("rest"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if inner is None:
+            return None
+        return [
+            EffectSpec(e.type, dict(e.params),
+                       condition={"graveyard_has_type": gy_subtype.group("sub").lower()})
             for e in inner
         ]
 

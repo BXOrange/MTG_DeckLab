@@ -150,6 +150,87 @@ def test_life_and_hand_conditions():
         {"kind": "cards_in_hand_at_most", "amount": 0}, eng.state, obj, "p1")
 
 
+def _put_in_graveyard(state, card, owner="p1"):
+    obj = GameObject(card, owner_id=owner, zone=Zone.GRAVEYARD)
+    state.player_by_id(owner).graveyard.append(obj)
+    return obj
+
+
+def test_subtype_in_graveyard_condition():
+    # PAR-30: "as long as there's a `<subtype>` card in your graveyard."
+    eng = _engine()
+    obj = _put(eng.state, _creature("Bear"))
+    cond = {"kind": "subtype_in_graveyard", "subtype": "lesson"}
+    assert not static_conditions.condition_holds(cond, eng.state, obj, "p1")
+
+    _put_in_graveyard(eng.state, Card(id="L1", name="Environmental Sciences",
+                                      type_line="Sorcery — Lesson", is_sorcery=True))
+    assert static_conditions.condition_holds(cond, eng.state, obj, "p1")
+    # a Lesson in the *opponent's* graveyard doesn't count ("your")
+    eng.state.player_by_id("p1").graveyard.clear()
+    _put_in_graveyard(eng.state, Card(id="L2", name="Teachings of the Kirin",
+                                      type_line="Enchantment — Lesson"), owner="p2")
+    assert not static_conditions.condition_holds(cond, eng.state, obj, "p1")
+
+
+def test_subtype_in_graveyard_honours_min_and_fails_closed():
+    eng = _engine()
+    obj = _put(eng.state, _creature("Bear"))
+    _put_in_graveyard(eng.state, Card(id="L1", name="A", type_line="Sorcery — Lesson", is_sorcery=True))
+    assert static_conditions.condition_holds(
+        {"kind": "subtype_in_graveyard", "subtype": "lesson", "min": 1}, eng.state, obj, "p1")
+    assert not static_conditions.condition_holds(
+        {"kind": "subtype_in_graveyard", "subtype": "lesson", "min": 2}, eng.state, obj, "p1")
+    # empty subtype → False, never a crash
+    assert not static_conditions.condition_holds(
+        {"kind": "subtype_in_graveyard", "subtype": ""}, eng.state, obj, "p1")
+
+
+def test_subtype_in_graveyard_parser_row():
+    from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_condition
+    assert static_condition("there's a lesson card in your graveyard") == {
+        "kind": "subtype_in_graveyard", "subtype": "lesson"}
+    assert static_condition("there is a land card in your graveyard") == {
+        "kind": "subtype_in_graveyard", "subtype": "land"}
+
+
+def test_first_time_flyer_anthem_tracks_the_graveyard_live():
+    card = _creature(
+        "First-Time Flyer",
+        "Flying\nThis creature gets +1/+1 as long as there's a Lesson card in your graveyard.",
+        type_line="Creature — Bird", keywords=["Flying"],
+    )
+    _modeled(card)
+    eng = _engine()
+    obj = _put(eng.state, card)
+    continuous.recompute(eng.state)
+    assert (obj.power, obj.toughness) == (2, 2)
+
+    _put_in_graveyard(eng.state, Card(id="L1", name="Lesson One",
+                                      type_line="Sorcery — Lesson", is_sorcery=True))
+    continuous.recompute(eng.state)
+    assert (obj.power, obj.toughness) == (3, 3)
+
+    eng.state.player_by_id("p1").graveyard.clear()
+    continuous.recompute(eng.state)
+    assert (obj.power, obj.toughness) == (2, 2)
+
+
+def test_graveyard_has_subtype_intervening_if_on_a_trigger():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+    specs = parse_effect_body(
+        "if there's a lesson card in your graveyard, you gain 2 life"
+    )
+    assert specs and specs[0].condition == {"graveyard_has_type": "lesson"}
+
+    card = _creature(
+        "Walltop Sentries",
+        "When this creature dies, if there's a Lesson card in your graveyard, you gain 2 life.",
+        type_line="Creature — Wall",
+    )
+    _modeled(card)
+
+
 def test_legacy_gate_params_translate_into_the_same_vocabulary():
     # The three pre-existing gates keep their spelling in every shipped spec;
     # they must produce the same conditions rather than a second code path.
