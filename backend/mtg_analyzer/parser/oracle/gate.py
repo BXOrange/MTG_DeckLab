@@ -1736,7 +1736,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `disable_damage_prevention` effect, previously hand-authored-only
 #: (Flaring Pain, Impractical Joke, Unstable Footing, Pyrewood Gearhulk,
 #: A-Ready to Rumble). +6.
-PARSER_VERSION = "176"
+#: "177": PAR-30 — "create a … creature token that's/are **tapped and
+#: attacking**" (RULE 508.4). New `RulesEngine.put_onto_battlefield_
+#: attacking` primitive (attack flags + auto-defender + ATTACKS event);
+#: `CreateTokenEffect.attacking`; the inline-token regexes
+#: (`_TOKEN_TAPPED_ATTACKING` suffix on the plain / "that many" / "create x
+#: … where x" rows). +10 — Captain's Claws, Hanweir Garrison, Hero of
+#: Bladehold, Skyknight Vanguard, Mardu Ascendancy, Militia's Pride, &c.
+PARSER_VERSION = "177"
 
 
 def parser_source_hash() -> str:

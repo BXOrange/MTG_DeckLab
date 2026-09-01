@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.7% covered — 13,130 / 34,811 — as of 2026-09-01, PARSER_VERSION 176.**
+**37.7% covered — 13,140 / 34,811 — as of 2026-09-01, PARSER_VERSION 177.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,23 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+177 = PAR-30 — **"create a … creature token that's / are tapped and
+attacking"** (RULE 508.4 — Captain's Claws, Hanweir Garrison, Hero of
+Bladehold, the "whenever ~ attacks, make a token" family). New
+`RulesEngine.put_onto_battlefield_attacking` primitive: sets the attack
+flags, auto-assigns RULE 508.4a's defender (the rest of the combat's
+target if unambiguous, else the sole/first opponent), fires an `ATTACKS`
+event; the token isn't *declared* so it never taps for the attack and
+summoning sickness is irrelevant. `CreateTokenEffect.attacking` calls it
+per made token; the ``tapped`` half stays the caller's job. Parser: a
+shared `_TOKEN_TAPPED_ATTACKING` optional suffix on the plain inline-token
+row, the "that many" row and the "create x … where x is" row. +10, 0
+regressed. Still open in the cluster: "put a card … onto the battlefield
+tapped and attacking" (Winota, Arthur — a different effect class), "the
+token enters tapped and attacking" as its own sentence, and the
+copy-token variant ("create a tapped and attacking token that's a copy of
+…" — Calamity, Altaïr).
 
 176 = PAR-30 — RULE 615.6 **"the damage can't be prevented"**. Two
 shapes: a rider on one damage instance (`_DAMAGE_TARGET_TWO_COLOR_RE`

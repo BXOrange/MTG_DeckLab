@@ -14090,6 +14090,7 @@ class CreateTokenEffect(GameEffect):
         count_selector: Optional[str] = None,
         creators: str = "you",
         tapped: bool = False,
+        attacking: bool = False,
         legendary: bool = False,
         pt_from_trigger_event: Optional[str] = None,
         pt_from_count_selector: Optional[str] = None,
@@ -14135,6 +14136,12 @@ class CreateTokenEffect(GameEffect):
         self.count_selector = count_selector
         self.creators = creators if creators in self._CREATORS else "you"
         self.tapped = bool(tapped)
+        #: "…create a … token that's **tapped and attacking**." (RULE 508.4 —
+        #: Captain's Claws, Basri Ket, Anim Pakal, the "whenever ~ attacks,
+        #: make a token" family). ``tapped`` above handles the tap; this puts
+        #: the fresh token into the current combat via `RulesEngine.put_onto_
+        #: battlefield_attacking` right after it enters.
+        self.attacking = bool(attacking)
         self.legendary = bool(legendary)
         #: "…create an Incubator token with two +1/+1 counters on it…"
         #: (Glissa, Herald of Predation's Incubate) — ``{"kind": "+1/+1",
@@ -14282,6 +14289,9 @@ class CreateTokenEffect(GameEffect):
             if self.tapped:
                 for token in made:
                     token.tapped = True
+            if self.attacking:
+                for token in made:
+                    context.engine.put_onto_battlefield_attacking(token)
             if self.extra_counters:
                 kind = str(self.extra_counters.get("kind", "+1/+1"))
                 amount = self._resolve_extra_counter_amount(context)
@@ -19575,6 +19585,7 @@ EffectRegistry.register(
         count_selector=p.get("count_selector"),
         creators=p.get("creators", "you"),
         tapped=bool(p.get("tapped", False)),
+        attacking=bool(p.get("attacking", False)),
         legendary=bool(p.get("legendary", False)),
         pt_from_trigger_event=p.get("pt_from_trigger_event"),
         pt_from_count_selector=p.get("pt_from_count_selector"),

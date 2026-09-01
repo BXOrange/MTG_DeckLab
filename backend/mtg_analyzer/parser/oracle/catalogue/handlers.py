@@ -4712,6 +4712,16 @@ def _split_keywords_with_parametric(
     return flags, parametric
 
 
+#: "…token that's tapped and attacking" / "…tokens that are tapped and
+#: attacking" (RULE 508.4 — Captain's Claws, Basri Ket, Anim Pakal, the
+#: whole "whenever ~ attacks, make a token" family). An optional suffix on
+#: the inline-token regexes; `CreateTokenEffect` handles the tap + the
+#: `RulesEngine.put_onto_battlefield_attacking` call.
+_TOKEN_TAPPED_ATTACKING = (
+    r"(?P<tapped_attacking> that'?s tapped and attacking| that are tapped and attacking)?"
+)
+
+
 def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     """The shared ``create_token`` params for the inline-stats creature-token
     grammar (``p``/``t``/``mid``/``kw``/``n``/``tapped``/``legendary``/``who``
@@ -4752,6 +4762,9 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         params["creators"] = "each_opponent" if "opponent" in who else "each_player"
     if m.groupdict().get("tapped"):  # RULE 110.5a — enters tapped, not tapped after
         params["tapped"] = True
+    if m.groupdict().get("tapped_attacking"):  # RULE 508.4 — enters tapped and attacking
+        params["tapped"] = True
+        params["attacking"] = True
     return params
 
 
@@ -4775,6 +4788,7 @@ _CREATE_TOKEN_THAT_MANY_RE = _c(
     r"(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
     r"(?P<mid>[a-z ]*?)creature tokens?"
     r"(?: with (?P<kw>[a-z, ]+))?"
+    + _TOKEN_TAPPED_ATTACKING
 )
 
 
@@ -4788,6 +4802,9 @@ def _create_token_that_many(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })
     if m.groupdict().get("tapped"):
         params["tapped"] = True
+    if m.groupdict().get("tapped_attacking"):  # RULE 508.4
+        params["tapped"] = True
+        params["attacking"] = True
     if m.groupdict().get("legendary"):
         params["legendary"] = True
     return [EffectSpec("create_token", params)]
@@ -4843,7 +4860,7 @@ def _create_token_for_each(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _CREATE_TOKEN_XX_WHERE_RE = _c(
     r"create x (?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
     r"(?P<mid>[a-z ]*?)creature tokens?"
-    rf"(?: with (?P<kw>[a-z, ]+))?, where x is {DEVOTION}"
+    rf"(?: with (?P<kw>[a-z, ]+))?" + _TOKEN_TAPPED_ATTACKING + rf", where x is {DEVOTION}"
 )
 
 
@@ -4854,6 +4871,9 @@ def _create_token_xx_where(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     selector = devotion_selector(m)
     if selector is None:
         return None
+    if m.groupdict().get("tapped_attacking"):  # RULE 508.4
+        params["tapped"] = True
+        params["attacking"] = True
     return [EffectSpec("create_token", {
         **params, "power": int(m.group("p")), "toughness": int(m.group("t")),
         "count_selector": selector,
@@ -10308,6 +10328,7 @@ HANDLERS: list[EffectHandler] = [
             # ``0-9`` in the keyword capture is ENG-31's "… token with
             # firebending N" (Fire Nation Attacks/Occupation).
             rf"(?: with (?P<kw>[a-z0-9, ]+))?"
+            + _TOKEN_TAPPED_ATTACKING
         ),
         _create_token,
     ),

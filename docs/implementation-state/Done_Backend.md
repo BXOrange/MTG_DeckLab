@@ -1831,6 +1831,12 @@ is in the rules-engine categories below them.
 
 ## Combat
 
+### Put onto the battlefield attacking (RULE 508.4) — PAR-30, v177
+
+- **What:** `RulesEngine.put_onto_battlefield_attacking(obj, defender=None)` — an already-on-the-battlefield creature is placed into the current combat *attacking* without being declared: no tap for the attack (RULE 508.4), summoning sickness is irrelevant (it never "attacked"), an `ATTACKS` event fires so "whenever ~ attacks" / battalion triggers still see it. RULE 508.4a's defender choice is auto-made — the defender the rest of the combat is attacking if that's unambiguous, else the controller's sole/first opponent. The shared primitive behind "create a … token that's tapped **and attacking**" (`CreateTokenEffect.attacking`, v177 — Captain's Claws, Hanweir Garrison, Hero of Bladehold, +10) and, when wired, "put a card … onto the battlefield tapped and attacking".
+- **Files:** `game/rules/misc_mixin.py`, `game/effects.py` (`CreateTokenEffect`), `parser/oracle/catalogue/handlers.py` (`_TOKEN_TAPPED_ATTACKING` suffix). `tests/test_par30_token_tapped_and_attacking.py`.
+- **Still open:** the put-from-hand/library effect classes (Winota, Arthur), "the token enters tapped and attacking" as its own sentence, and the copy-token variant — all reuse this same primitive, just need their own parser routing.
+
 ### M2 combat-math keywords and hexproof
 
 - **What:** Annihilator (702.86), Afflict (702.130), and Bushido (702.45) synthesized as real `TriggeredAbility` objects at bind time so they go through the normal stack/priority pipeline; needed a new `EventType.BECOMES_BLOCKED` fired once per attacker. Hexproof (702.11b) now actually gates targeting via `targeting._targetable_by`, excluding a hexproof permanent from an opponent's target options only.

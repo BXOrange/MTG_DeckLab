@@ -1492,6 +1492,60 @@ class MiscSystemsMixin:
 
         self.apply_replacements(event, on_resolved=_finish)
         return result
+    def put_onto_battlefield_attacking(
+        self, obj: GameObject, defender: Optional[dict[str, Any]] = None
+    ) -> None:
+        """RULE 508.4: an already-on-the-battlefield creature is put into
+        combat *attacking* without having been declared — it doesn't tap for
+        the attack (RULE 508.4) and summoning sickness doesn't stop it (it
+        never "attacked"). RULE 508.4a: the effect's controller chooses which
+        defender it attacks; with one obvious defender — the common
+        two-player combat, or whatever the rest of this combat is already
+        attacking — that choice is auto-made here. Fires an `ATTACKS` event
+        so "whenever ~ attacks" / battalion-style triggers still see it.
+
+        This is the shared primitive behind "create a … token that's tapped
+        **and attacking**" and "put a card … onto the battlefield tapped
+        **and attacking**" (RULE 508.4) — the ``tapped`` half is applied
+        separately by the caller.
+        """
+        if not obj.is_creature:
+            return
+        if defender is None:
+            # Attack whoever the rest of this combat is attacking, if that's
+            # unambiguous; otherwise the controller's sole/first opponent.
+            player_defenders = {
+                (o.combat_defender or {}).get("id")
+                for o in self.state.battlefield
+                if o is not obj and getattr(o, "attacking", False)
+                and (o.combat_defender or {}).get("kind") == "player"
+            }
+            opponents = [
+                p for p in self.state.living_players() if p.id != obj.controller_id
+            ]
+            target_id = player_defenders.pop() if len(player_defenders) == 1 else None
+            if target_id is None and opponents:
+                target_id = opponents[0].id
+            if target_id is not None:
+                try:
+                    dp = self.state.player_by_id(target_id)
+                except (KeyError, ValueError):
+                    dp = None
+                if dp is not None:
+                    defender = {"kind": "player", "id": dp.id, "label": dp.name}
+        obj.attacking = True
+        obj.attacked_this_turn = True
+        obj.combat_defender = defender
+        self.state.fire_event(
+            GameEvent(
+                EventType.ATTACKS,
+                attacker=obj.name,
+                player_id=obj.controller_id,
+                instance_id=obj.instance_id,
+                object_types=sorted(obj.type_words),
+                defending_player_id=(defender or {}).get("id"),
+            )
+        )
     def advance_sagas(self, player: Player) -> None:
         """Add a lore counter to each Saga ``player`` controls (RULE 714.3c).
 
