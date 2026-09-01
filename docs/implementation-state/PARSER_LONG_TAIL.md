@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.0% covered — 12,893 / 34,811 — as of 2026-09-01, PARSER_VERSION 147.**
+**37.1% covered — 12,914 / 34,811 — as of 2026-09-01, PARSER_VERSION 148.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -403,6 +403,23 @@ enchantments your opponents control" (Spring Cleaning), "untap all Forests
 you control" (Woodland Guidance), "gain control of enchanted creature"
 (Captivating Glance), "doesn't untap during … next untap step" (Entangling
 Trap, Pollen Lullaby), and more.
+
+148 = PAR-30 — **"{X}-scaled damage" handler + Clash batch 2.** The bigger
+half is a general win: `_damage_x` claims "~ deals **x** damage to
+`<target>`" (digit-free, so it never competes with the `NUMBER`-based
+`damage` row) and emits `EffectSpec("damage", {"amount": "x"})` — the `"x"`
+sentinel `RulesEngine._substitute_x` already rewrites off the spell/
+ability's announced {X} at resolution. No handler for it existed at all.
+**+20 classic X-burn cards** (Blaze, Devil's Play, Fanning the Flames,
+Volcanic Geyser, Cinder Elemental, Heat Ray, Pain Kami, Goblin Dynamo,
+Knollspine Invocation, Latulla, Flameblast Dragon, Arcbound Javelineer,
+Ballista Squad, …) **plus Titan's Revenge** (a clash card that was blocked
+on its pre-clash "~ deals X damage to any target" clause). Verified
+end-to-end: `_substitute_x` sets `amount=4`, a 3/3 dies, a player loses 5
+to X=5. Also `_DESTROY_ALL_RE` gained an optional " your opponents control"
+scope → new `opponents_enchantments`/`opponents_artifacts` selectors in
+`_mass_selector_objects` (a scope on any other noun fails closed) — Spring
+Cleaning's clash win-branch. +21 total, 0 regressed.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

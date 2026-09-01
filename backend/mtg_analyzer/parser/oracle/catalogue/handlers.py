@@ -289,6 +289,13 @@ def _damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("damage", {"amount": int(m.group("n")), "target_kind": kind, **_optional_param(m)})]
 
 
+def _damage_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None:
+        return None
+    return [EffectSpec("damage", {"amount": "x", "target_kind": kind, **_optional_param(m)})]
+
+
 #: RULE 702.33b's *override* kicked-conditional ("~ deals 2 damage to any
 #: target. If this spell was kicked, it deals 4 damage instead." — Burst
 #: Lightning/Roil Eruption/Shivan Fire-shaped), distinct from the *additive*
@@ -1867,13 +1874,28 @@ def _mass_destroy_filter_dict(m: re.Match[str]) -> Optional[dict]:
 
 _DESTROY_ALL_RE = _c(
     rf"destroy (?:all (?P<noun>{'|'.join(_MASS_DESTROY_NOUNS)})"
-    rf"|each (?P<noun_sg>{'|'.join(_MASS_DESTROY_NOUNS_SINGULAR)})){_MASS_DESTROY_FILTER}"
+    rf"|each (?P<noun_sg>{'|'.join(_MASS_DESTROY_NOUNS_SINGULAR)}))"
+    rf"(?P<opp> your opponents control)?{_MASS_DESTROY_FILTER}"
 )
 
+#: "Destroy all enchantments **your opponents control**." (Spring Cleaning)
+#: — the opponent-scoped `_mass_selector_objects` sibling exists only for
+#: artifacts/enchantments so far (no card needs "destroy all lands your
+#: opponents control" &c. yet), so an ``opp`` scope on any other noun
+#: fails closed.
+_DESTROY_ALL_OPP_SELECTORS = {
+    "all_enchantments": "opponents_enchantments",
+    "all_artifacts": "opponents_artifacts",
+}
 
-def _destroy_all(m: re.Match[str]) -> list[EffectSpec]:
+
+def _destroy_all(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     noun = m.groupdict().get("noun")
     selector = _MASS_DESTROY_NOUNS[noun] if noun else _MASS_DESTROY_NOUNS_SINGULAR[m.group("noun_sg")]
+    if m.groupdict().get("opp"):
+        selector = _DESTROY_ALL_OPP_SELECTORS.get(selector)
+        if selector is None:
+            return None
     params: dict = {"selector": selector}
     filt = _mass_destroy_filter_dict(m)
     if filt:
@@ -7054,6 +7076,16 @@ HANDLERS: list[EffectHandler] = [
         "damage",
         _c(rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to {TARGET}"),
         _damage,
+    ),
+    # "~ deals X damage to any target." (Blaze/Devil's Play/Fanning the
+    # Flames, and every "{X}{R}, {T}, Sacrifice ~: it deals X damage …"
+    # activated ability) — the {X}-scaled sibling, emitting the ``"x"``
+    # sentinel `RulesEngine._substitute_x` rewrites off the spell/ability's
+    # announced {X}. Digit-free, so no overlap with the `NUMBER` row above.
+    EffectHandler(
+        "damage_x",
+        _c(rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? x damage to {TARGET}"),
+        _damage_x,
     ),
     # "~ deals 6 damage to each of up to two target creatures and/or
     # planeswalkers" (RULE 115.1a generalized to N>=2) — the full amount

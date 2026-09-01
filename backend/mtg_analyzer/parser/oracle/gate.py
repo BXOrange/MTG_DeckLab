@@ -1466,7 +1466,19 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Gilt-Leaf Ambush); `_PUMP_PREV_SINGULAR_PT_RE` accepts "gets **an
 #: additional** +N/+N" (Fistful of Force). +5, 0 regressed. ~18 clash cards
 #: remain, each on a distinct win-branch body handler.
-PARSER_VERSION = "147"
+#: "148": PAR-30 — "{X}-scaled damage" handler + Clash batch 2. `_damage_x`
+#: ("~ deals **x** damage to `<target>`", digit-free so no overlap with the
+#: `NUMBER` `damage` row) emits `EffectSpec("damage", {"amount": "x"})` —
+#: the `"x"` sentinel `RulesEngine._substitute_x` already rewrites off the
+#: spell/ability's announced {X}. +20 classic X-burn spells/abilities
+#: (Blaze, Devil's Play, Fanning the Flames, Volcanic Geyser, Cinder
+#: Elemental, Heat Ray, Pain Kami, Goblin Dynamo, …) **plus** Titan's
+#: Revenge (a clash card blocked on its pre-clash "~ deals X damage to any
+#: target" clause). Also `_DESTROY_ALL_RE` gained an optional " your
+#: opponents control" scope → `opponents_enchantments`/`opponents_artifacts`
+#: (`_mass_selector_objects`) — Spring Cleaning's clash win-branch. +21
+#: total, 0 regressed.
+PARSER_VERSION = "148"
 
 
 def parser_source_hash() -> str:

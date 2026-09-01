@@ -3655,6 +3655,11 @@ _MASS_DESTROY_SELECTORS: frozenset[str] = frozenset(
         # scope, since no other card here needs "opponents' creatures"
         # alone yet.
         "opponents_creatures",
+        # "Destroy all enchantments your opponents control." (Spring
+        # Cleaning — a clash win-branch) and the artifact sibling. The
+        # opponent-scoped versions of ``all_enchantments``/``all_artifacts``,
+        # keyed the same "opponents_<type>" way as ``opponents_creatures``.
+        "opponents_enchantments", "opponents_artifacts",
         # "exile all other permanents you control." (MEC-43 round 4D,
         # Worldgorger Dragon) — mandatory and unqualified by type, unlike
         # `ExileAnyNumberYouControlEffect`'s own "any number" *choice* among
@@ -3702,6 +3707,14 @@ def _mass_selector_objects(
         result = [
             o for o in battlefield
             if o.is_creature and controller_id is not None and o.controller_id != controller_id
+        ]
+    elif selector in ("opponents_enchantments", "opponents_artifacts"):
+        controller_id = getattr(source, "controller_id", None)
+        want = "is_enchantment" if selector.endswith("enchantments") else "is_artifact"
+        result = [
+            o for o in battlefield
+            if getattr(o.card, want, False)
+            and controller_id is not None and o.controller_id != controller_id
         ]
     elif selector == "other_permanents_you_control":
         # "exile all other permanents you control." (MEC-43 round 4D,

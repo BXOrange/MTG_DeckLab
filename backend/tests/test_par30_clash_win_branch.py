@@ -82,10 +82,22 @@ def test_pump_prev_singular_accepts_an_additional():
     assert "trample" in got[0].params.get("keywords", [])
 
 
+def test_destroy_all_opponents_enchantments():
+    got = match_clause("destroy all enchantments your opponents control")
+    assert got == [__import__(
+        "mtg_analyzer.parser.oracle.spec", fromlist=["EffectSpec"]
+    ).EffectSpec("destroy", {"selector": "opponents_enchantments"})]
+    # a scope on a noun with no opponent-scoped selector fails closed
+    assert match_clause("destroy all lands your opponents control") is None
+
+
 def test_real_clash_cards_modeled():
     for name, tl, text in [
         ("Sylvan Echoes", "Enchantment",
          "Whenever you clash and win, you may draw a card."),
+        ("Spring Cleaning", "Sorcery",
+         "Destroy target enchantment. Clash with an opponent. If you win, "
+         "destroy all enchantments your opponents control."),
         ("Ringskipper", "Creature — Merfolk Rogue",
          "When Ringskipper dies, clash with an opponent. If you win, return "
          "this card to its owner's hand."),
@@ -103,6 +115,7 @@ def test_real_clash_cards_modeled():
     ]:
         c = Card(id=name[:5], name=name, type_line=tl,
                  is_creature="Creature" in tl, is_instant=tl == "Instant",
+                 is_sorcery=tl == "Sorcery", mana_cost_string="{2}{W}",
                  power=1 if "Creature" in tl else None,
                  toughness=1 if "Creature" in tl else None,
                  oracle_text=text)

@@ -187,26 +187,26 @@ Plan-level sequencing lives in
     the Champion cycle ("behold a `<type>` and exile it" + LTB return),
     Celestial Reunion ("behold 2 creatures of a chosen type").
 
-  - **Clash (RULE 701.30) win-branch residue.** ~18 cache clash cards stay
+  - **Clash (RULE 701.30) win-branch residue.** ~16 cache clash cards stay
     UNMODELED on ordinary effect-grammar in their "if you win" branch (or on
     their *first*, pre-clash clause), each needing a distinct body handler
-    — none of it clash-specific. Batch 1 (v147) closed 5 (Sylvan Echoes,
-    Marvo, Ringskipper, Gilt-Leaf Ambush, Fistful of Force) and made the
-    connector-split loop treat a bare `clash` spec as referent-transparent.
-    Still open: a "repeat this process" loop primitive (Hoarder's Greed);
-    mass "untap all Forests you control" (Woodland Guidance); "~ deals N
-    damage to that creature's controller / each creature blocking it" (Lash
-    Out, Fire Juggler); "you gain life equal to that creature's toughness"
-    (Weed Strangle); "that player discards N" / "target player discards N.
-    otherwise, that player discards a card" (Pulling Teeth); "protection
-    from the color of your choice" first clause (Redeem the Lost); "~ deals
-    X damage to any target" first clause (Titan's Revenge); reveal-until-
-    land first clause (Recross the Paths); "gain control of enchanted
-    creature" (Captivating Glance); "creatures that player controls don't
-    untap during their next untap step" (Pollen Lullaby, Entangling Trap);
-    "destroy all enchantments your opponents control" (Spring Cleaning);
-    "mills N cards" (Broken Ambitions); "put that creature on top of its
-    owner's library instead" (Whirlpool Whelm); and a few more.
+    — none of it clash-specific. Batch 1 (v147) closed 5 + made a bare
+    `clash` spec referent-transparent in the connector-split loop; batch 2
+    (v148) closed Titan's Revenge (via a new general "{X}-scaled damage"
+    handler) and Spring Cleaning (via an "your opponents control" scope on
+    `_DESTROY_ALL_RE`). Still open: a "repeat this process" loop primitive
+    (Hoarder's Greed); mass "untap all Forests you control" (Woodland
+    Guidance); "~ deals N damage to that creature's controller / each
+    creature blocking it" (Lash Out, Fire Juggler); "you gain life equal to
+    that creature's toughness" (Weed Strangle); "that player discards N" /
+    "target player discards N. otherwise, that player discards a card"
+    (Pulling Teeth); "protection from the color of your choice" first clause
+    (Redeem the Lost); reveal-until-land first clause (Recross the Paths);
+    "gain control of enchanted creature" (Captivating Glance); "creatures
+    that player controls don't untap during their next untap step" (Pollen
+    Lullaby, Entangling Trap); "mills N cards" (Broken Ambitions); "put that
+    creature on top of its owner's library instead" (Whirlpool Whelm); and
+    a few more.
 
   - **Suspect (RULE 701.60) one-off shapes.** A genuine if/else *effect*
     primitive ("if `<cond>`, A. Otherwise, B." — two mutually exclusive
