@@ -1913,7 +1913,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: graveyard at random, then create a tapped token that's a copy of that
 #: card. if the exiled card is a land card, repeat this process." (RULE 706
 #: `RulesEngine.random_choice` + RULE 707.2 copy, land-keyed loop). +1.
-PARSER_VERSION = "198"
+#: "199": PAR-30 "Threaten / 'it gains haste' tails residue" — the
+#: `gain_control_until_eot` restatement tail (`_GAIN_CONTROL_HASTE_TAIL_RE`)
+#: now recurses a *richer*-than-bare-haste grant sentence ("untap it. it
+#: gains trample and haste until end of turn" — Traitorous Blood; "…haste
+#: and myriad…" — Firbolg Flutist) through `parse_effect_body` with
+#: ``previous_subject`` on, so the existing `pump(previous_subject=True)`
+#: keyword-grant handler claims it (no second RULE 115 target). +2.
+PARSER_VERSION = "199"
 
 
 def parser_source_hash() -> str:

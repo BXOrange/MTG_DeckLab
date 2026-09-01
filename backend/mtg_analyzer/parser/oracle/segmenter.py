@@ -1447,22 +1447,33 @@ _LOOK_TOP_HIT_GRANT_KEYWORDS: dict[str, str] = {
 #: previous clause" idiom as `_NO_REGEN_SENTENCE_RE` just above, not a
 #: second effect: `effects.GainControlUntilEndOfTurnEffect` (built for the
 #: hand-authored Zealous Conscripts) already untaps and grants haste as
-#: *part of* the control change itself, so this tail is reprinting what the
-#: single `gain_control_until_eot` effect (`catalogue.handlers.
-#: _gain_control_eot`) the "before" half produces already does — it's
-#: absorbed here rather than re-modeled as its own untap/haste effect,
-#: which would double up RULE 115 targeting onto the same creature
-#: (`GainControlUntilEndOfTurnEffect`'s own docstring). Requires the "gain
-#: control" clause to be the immediately preceding sentence (anchored on
-#: "until end of turn" right before the period) so this can't misfire onto
-#: an unrelated creature-choosing clause followed by an unrelated genuine
+#: *part of* the control change itself, so a bare "it gains haste until end
+#: of turn." restatement is reprinting what the single `gain_control_until_
+#: eot` effect (`catalogue.handlers._gain_control_eot`) already does — it's
+#: absorbed here rather than re-modeled.
+#:
+#: The ``grant`` group generalises that tail to the *richer* restatements
+#: real cards pair with a threaten ("untap it. **it gains trample and haste
+#: until end of turn.**" — Traitorous Blood; "…**it gains haste and myriad
+#: until end of turn.**" — Firbolg Flutist): whatever is not the bare-haste
+#: form recurses back through `parse_effect_body` with ``previous_subject``
+#: on, so the existing `_prev_subject_singular … gains <kw> until end of
+#: turn` handler (→ `pump(previous_subject=True)`, writing `temp_keywords`
+#: on the just-controlled creature) claims it — no second RULE 115 target,
+#: it reads `GameContext.previous_targets`. Requires the "gain control"
+#: clause to be the immediately preceding sentence (anchored on "until end
+#: of turn" right before the period) so this can't misfire onto an
+#: unrelated creature-choosing clause followed by an unrelated genuine
 #: untap effect.
 _GAIN_CONTROL_HASTE_TAIL_RE = re.compile(
     r"^(?P<before>gain control of (?:another )?target .+? until end of turn)\.\s*"
     r"untap (?:that creature|that permanent|that artifact|it)[.,]?\s*(?:and\s+)?"
-    r"(?:it|they) gains? haste until end of turn"
+    r"(?P<grant>(?:it|they) gains? [a-z, ]*?haste[a-z, ]*? until end of turn)"
     r"(?:[.,]\s*(?:and\s+)?(?P<after>.+))?$",
     re.IGNORECASE | re.DOTALL,
+)
+_GAIN_CONTROL_BARE_HASTE_RE = re.compile(
+    r"^(?:it|they) gains? haste until end of turn$", re.IGNORECASE
 )
 
 #: "Sacrifice it. **When you do,** `<effect>`." (RULE 603.3's "when you do"
@@ -2613,9 +2624,20 @@ def parse_effect_body(
             spec.type == "gain_control_until_eot" for spec in before_specs
         ):
             return None  # fail closed — the tail only makes sense after that clause
+        prev = _announces_creature_target(before_specs)
+        grant_text = (gain_control_tail.group("grant") or "").strip()
+        grant_specs: list[EffectSpec] = []
+        if grant_text and not _GAIN_CONTROL_BARE_HASTE_RE.match(grant_text):
+            # A *richer* restatement than bare haste ("it gains trample and
+            # haste until end of turn") — model the extra grant against the
+            # just-controlled creature (`previous_subject`), fail closed if
+            # it isn't something we can represent.
+            grant_specs = parse_effect_body(grant_text, previous_subject=prev) or []
+            if not grant_specs:
+                return None
         return _with_after_tail(
-            before_specs, gain_control_tail.group("after"),
-            previous_subject=_announces_creature_target(before_specs), group_subject=group_subject,
+            before_specs + grant_specs, gain_control_tail.group("after"),
+            previous_subject=prev, group_subject=group_subject,
         )
 
     sac_when_you_do = _SACRIFICE_THEN_WHEN_YOU_DO_RE.match(body)
