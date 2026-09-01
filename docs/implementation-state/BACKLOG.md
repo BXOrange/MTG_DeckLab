@@ -110,20 +110,24 @@ Plan-level sequencing lives in
     parametric-keyword-grant static + the v156 `subtype_in_graveyard`
     condition; see `Done_Backend.md`.)
 
-  - **"Tapped and attacking" (RULE 508.4) residue.** The primitive
-    (`put_onto_battlefield_attacking`), all four routes, the defender ref,
-    the "attacks a player" triggers, the per-opponent distributive, the
-    bare-name/`populate` `_CREATED_ENTERS_ATTACKING_RE` subjects, the
-    put-from-hand card filters, the delayed "return it to hand" tail, the
-    "attacks a player who controls N+ lands" qualified trigger, the
-    `look_top` "it gains `<keyword>` until end of turn" interpose (Winota /
-    A-Winota) and the RULE 508.3a batch-attack trigger ("one or more
-    `<filter>` creatures you control attack" → `PLAYER_ATTACKED` +
-    `group_filter`) all shipped (v177–v193, see `Done_Backend.md`). Left:
-    the multi-clause Stangg / Living Laser bodies; an `impulsive_look`
-    else-branch "if you don't put a card … this way, `<X>`" (The Joiner of
-    Cats, The Vast Scrier); Kaalia of the Vast (`normalize` doesn't fold
-    the legendary short name "Kaalia" → `~`).
+  - **`create a token that's a copy of …` body singletons** (the RULE
+    508.4 "tapped and attacking" mechanic + every parser route into it is
+    **done**, v177–v193 — see `Done_Backend.md`; these cards' T&A clause
+    parses, their *other* clauses don't):
+    - **Stangg, Echo Warrior** — named token + "for each Aura/Equipment
+      attached to X, create a copy attached to Y" + delayed sac-all.
+    - **Living Laser** — "for each card you've discarded this turn, create
+      a copy of ~ except non-legendary" (`cards_discarded_this_turn`
+      count-selector on a self-copy + group T&A stamp + delayed exile).
+    - **The Joiner of Cats** / **Sin, Spira's Punishment** — "a token
+      that's a copy of `<named card>`" / "of that randomly-exiled
+      graveyard card": needs a real-card (not synthesized-vanilla) token
+      EffectSpec.
+    - **The Vast Scrier** — "if it has any 'whenever ~ attacks' triggers,
+      those trigger" reflexive clause + an `impulsive_look` "if you don't
+      put a card this way, scry 2" else-branch.
+    - **Kaalia of the Vast** — `normalize` doesn't fold the legendary short
+      name "Kaalia" → `~` (cross-cutting, affects every legendary).
 
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The
