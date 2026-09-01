@@ -1833,7 +1833,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: opponent, and with `attacking` each token is put into combat against a
 #: *distinct* opponent (RULE 508.4a per token). Parser: a leading
 #: `for each opponent, ` group on the inline `create_token` row. +2.
-PARSER_VERSION = "188"
+#: "189": PAR-30 "Tapped and attacking" — `_CREATED_ENTERS_ATTACKING_RE`
+#: gained a **bare token-name** subject ("create Ragavan, …. Ragavan enters
+#: tapped and attacking." — Kari Zev; the name only binds a spec whose
+#: `token_name` matches it) and a **`populate`** "before" ("populate. That
+#: token enters tapped and attacking." — Ghired). `PopulateEffect` gained
+#: `tapped`/`attacking`, threaded to `RulesEngine.populate(enter_state=…)`
+#: — applied to the copy in the degenerate paths, carried on the
+#: `pending_choice` for the interactive 2+-token one. +2.
+PARSER_VERSION = "189"
 
 
 def parser_source_hash() -> str:

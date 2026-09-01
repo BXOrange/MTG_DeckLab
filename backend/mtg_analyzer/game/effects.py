@@ -10472,9 +10472,18 @@ class PopulateEffect(GameEffect):
     one's.
     """
 
-    def __init__(self, source: Optional["GameObject"] = None, count: Any = 1) -> None:
+    def __init__(
+        self, source: Optional["GameObject"] = None, count: Any = 1,
+        tapped: bool = False, attacking: bool = False,
+    ) -> None:
         super().__init__(source)
         self.count = count if not isinstance(count, int) else max(1, count)
+        #: "…populate. **That token enters tapped and attacking.**" (Ghired,
+        #: Conclave Exile — RULE 508.4). Carried to `RulesEngine.populate` as
+        #: an ``enter_state`` dict so the copy is tapped/put-into-combat the
+        #: instant it enters, including on the interactive 2+-token path.
+        self.enter_tapped = bool(tapped)
+        self.enter_attacking = bool(attacking)
 
     #: A resumed continuation's own remaining-repeat count — never set by a
     #: parsed `EffectSpec`, only by this class re-scheduling its own
@@ -10490,12 +10499,18 @@ class PopulateEffect(GameEffect):
         if player is None:
             return
         state = context.state
+        enter_state = (
+            {"tapped": self.enter_tapped, "attacking": self.enter_attacking}
+            if (self.enter_tapped or self.enter_attacking) else None
+        )
         for i in range(count):
             before = getattr(state, "pending_choice", None)
-            context.engine.populate(player)
+            context.engine.populate(player, enter_state=enter_state)
             opened = getattr(state, "pending_choice", None)
             if opened is not None and opened is not before and i + 1 < count:
                 remainder = PopulateEffect(source=self.source)
+                remainder.enter_tapped = self.enter_tapped
+                remainder.enter_attacking = self.enter_attacking
                 remainder._remaining_count = count - i - 1
                 state.deferred_effects.append(
                     {
@@ -19202,7 +19217,11 @@ EffectRegistry.register(
     # that's a copy of a creature token you control (nothing if you control
     # none). See `PopulateEffect` / `RulesEngine.populate`.
     "populate",
-    lambda p: PopulateEffect(count=p.get("count", 1)),
+    lambda p: PopulateEffect(
+        count=p.get("count", 1),
+        tapped=bool(p.get("tapped", False)),
+        attacking=bool(p.get("attacking", False)),
+    ),
 )
 EffectRegistry.register(
     # RULE 701.39 (bolster, PAR-29): put N +1/+1 counters on a least-

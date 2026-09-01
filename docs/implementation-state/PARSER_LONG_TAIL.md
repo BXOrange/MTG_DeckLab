@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.2% covered — 13,282 / 34,811 — as of 2026-09-01, PARSER_VERSION 188.**
+**38.2% covered — 13,284 / 34,811 — as of 2026-09-01, PARSER_VERSION 189.**
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -681,6 +681,17 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+189 = PAR-30 "Tapped and attacking" — `_CREATED_ENTERS_ATTACKING_RE`
+gained two more "before" shapes. (1) A **bare token-name** subject:
+"create Ragavan, …. **Ragavan** enters tapped and attacking." (Kari Zev)
+— the name only binds a spec whose ``token_name`` matches it, so a
+non-matching name fails closed. (2) A **`populate`** before: "populate.
+**That token** enters tapped and attacking." (Ghired, Conclave Exile) —
+`PopulateEffect` gained ``tapped``/``attacking``, threaded to
+`RulesEngine.populate(enter_state=…)` and applied to the copy in the
+degenerate 0/1-token paths, carried on the `pending_choice` for the
+interactive 2+-token one. +2 (Kari Zev, Ghired), 0 regressed.
 
 188 = **38.2%.** PAR-30 "Tapped and attacking" — the per-opponent
 distributive "**for each opponent**, [you] create a … token[ that's

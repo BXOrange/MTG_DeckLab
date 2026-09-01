@@ -1296,7 +1296,12 @@ _NO_REGEN_SENTENCE_RE = re.compile(
 #: are the created-token pronoun here (not a RULE 115 target).
 _CREATED_ENTERS_ATTACKING_RE = re.compile(
     r"^(?P<before>.+?)\.\s*"
-    r"(?:the tokens?|that token|those tokens|it|they) enters?"
+    # subject: a pronoun for the just-made token/tokens, or the token's own
+    # name (Kari Zev — "create Ragavan, …. Ragavan enters tapped and
+    # attacking."). The name form is only honoured when it matches the
+    # ``token_name`` of a spec the "before" half produced (handler below).
+    r"(?:the tokens?|that token|those tokens|it|they"
+    r"|(?P<name_subj>[a-z][a-z]+(?:\s[a-z]+){0,2})) enters?"
     r" tapped and attacking"
     # "that player"/"that opponent" (Echoing Assault) — the defender the
     # source is already attacking, derived engine-side, consumed here.
@@ -2452,18 +2457,30 @@ def parse_effect_body(
             enters_atk.group("before"), self_subject=self_subject,
             previous_subject=previous_subject, group_subject=group_subject,
         )
+        name_subj = (enters_atk.group("name_subj") or "").strip().lower()
+        # ``create_named_legendary_token`` emits a plain ``create_token``
+        # spec (with ``token_name``/``legendary``), so it's covered here too.
+        _STAMPABLE = ("create_token", "copy_permanent", "populate")
         if before_specs is not None:
             for i in range(len(before_specs) - 1, -1, -1):
-                if before_specs[i].type in ("create_token", "copy_permanent"):
-                    flagged = dict(before_specs[i].params)
-                    flagged["tapped"] = True
-                    flagged["attacking"] = True
-                    before_specs[i] = EffectSpec(
-                        before_specs[i].type, flagged, condition=before_specs[i].condition
-                    )
-                    return _with_after_tail(
-                        before_specs, enters_atk.group("after"), group_subject=group_subject
-                    )
+                if before_specs[i].type not in _STAMPABLE:
+                    continue
+                # A bare-name subject only binds the spec that actually made
+                # a token by that name (RULE 700 — no other referent). A
+                # pronoun subject binds the last token-maker, as before.
+                if name_subj:
+                    tok_name = str(before_specs[i].params.get("token_name") or "").lower()
+                    if tok_name != name_subj:
+                        continue
+                flagged = dict(before_specs[i].params)
+                flagged["tapped"] = True
+                flagged["attacking"] = True
+                before_specs[i] = EffectSpec(
+                    before_specs[i].type, flagged, condition=before_specs[i].condition
+                )
+                return _with_after_tail(
+                    before_specs, enters_atk.group("after"), group_subject=group_subject
+                )
         # regex matched but nothing stampable — fall through, fail closed
 
     no_regen = _NO_REGEN_SENTENCE_RE.match(body)

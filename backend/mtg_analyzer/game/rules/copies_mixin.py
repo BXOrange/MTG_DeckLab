@@ -180,7 +180,23 @@ class CopiesMixin:
                 set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
             )
         return self.create_token(controller_id, copiable, count)
-    def populate(self, player: Player) -> list[GameObject]:
+    def _apply_populate_enter_state(
+        self, tokens: list[GameObject], enter_state: Optional[dict]
+    ) -> None:
+        """RULE 508.4 / 110.5a rider on a populate: "…That token enters
+        tapped and attacking." (Ghired, Conclave Exile). Applied to the copy
+        the moment it enters, so nothing sees it untapped/non-attacking."""
+        if not enter_state:
+            return
+        for tok in tokens:
+            if enter_state.get("tapped"):
+                tok.tapped = True
+            if enter_state.get("attacking"):
+                self.put_onto_battlefield_attacking(tok)
+
+    def populate(
+        self, player: Player, enter_state: Optional[dict] = None
+    ) -> list[GameObject]:
         """"Populate" (RULE 701.36a): put a token onto the battlefield that's
         a copy of a creature token ``player`` controls. RULE 701.36b — if
         they control no creature tokens, populate does nothing.
@@ -192,6 +208,11 @@ class CopiesMixin:
         she controls" is the controller's own free choice). The copy is
         itself a token, made via `copy_permanent`, so it binds its own
         abilities and follows the RULE 704.5d token lifecycle.
+
+        ``enter_state`` (``{"tapped": bool, "attacking": bool}``) is a
+        trailing "That token enters tapped and attacking" rider — applied to
+        the copy here in the degenerate paths, carried on the
+        ``pending_choice`` for the interactive one (`resolve_populate_choice`).
         """
         tokens = [
             obj
@@ -203,7 +224,9 @@ class CopiesMixin:
         if not tokens:
             return []
         if len(tokens) == 1:
-            return self.copy_permanent(player.id, tokens[0])
+            made = self.copy_permanent(player.id, tokens[0])
+            self._apply_populate_enter_state(made, enter_state)
+            return made
         self.state.pending_choice = {
             "kind": "populate",
             "player_id": player.id,
@@ -212,6 +235,7 @@ class CopiesMixin:
                 {"id": str(obj.instance_id), "label": obj.name, "instance_id": obj.instance_id}
                 for obj in tokens
             ],
+            **({"enter_state": dict(enter_state)} if enter_state else {}),
         }
         return []
     def resolve_populate_choice(self, instance_id: Optional[int]) -> None:
@@ -228,7 +252,8 @@ class CopiesMixin:
         chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
         chosen = self._object_by_instance_id(chosen_id) if chosen_id is not None else None
         if chosen is not None:
-            self.copy_permanent(player.id, chosen)
+            made = self.copy_permanent(player.id, chosen)
+            self._apply_populate_enter_state(made, choice.get("enter_state"))
         self.check_state_based_actions()
     def copy_spell(
         self,
