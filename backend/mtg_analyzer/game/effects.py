@@ -7508,9 +7508,18 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         selector: Optional[str] = None,
         creature_filter: Optional[dict] = None,
         count_selector: Optional[str] = None,
+        mass_of_target_player: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Gain control of all creatures/artifacts **target opponent**
+        #: controls until end of turn." (Call for Aid, Ashiok Sculptor of
+        #: Fears, Tezzeret Master of Metal) — a RULE 115 *player* target
+        #: (``target_kind="opponent"``), then every permanent of the named
+        #: kind that one player controls. Distinct from ``selector=
+        #: "opponents_creatures"`` (Broadcast Takeover — *all* opponents, no
+        #: target). Value is a bare type word: ``"creature"`` / ``"artifact"``.
+        self.mass_of_target_player = mass_of_target_player
         #: "Untap **all creatures** and gain control of them until end of
         #: turn." (Insurrection) — the untargeted RULE 601.2c mass sibling
         #: of the single-target form above, same ``_mass_selector_objects``
@@ -7556,12 +7565,26 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         if controller is None:
             return
         if self.selector is not None:
-            for obj in _mass_selector_objects(context, self.selector, None):
+            for obj in _mass_selector_objects(context, self.selector, None, source=self.source):
                 self._take(context, obj, controller)
             context.recompute()
             return
         chosen = list(targets or ([self.target] if self.target is not None else []))
         if not chosen:
+            return
+        if self.mass_of_target_player:
+            player = chosen[0]
+            pid = getattr(player, "id", player)
+            want_creature = self.mass_of_target_player == "creature"
+            for obj in list(context.state.permanents()):
+                if obj.controller_id != pid:
+                    continue
+                if want_creature and not obj.is_creature:
+                    continue
+                if self.mass_of_target_player == "artifact" and not obj.card.is_artifact:
+                    continue
+                self._take(context, obj, controller)
+            context.recompute()
             return
         # RULE 601.2c: a `count_selector` requirement ("for each opponent,
         # gain control of up to 1 target creature that player controls")
@@ -18635,6 +18658,7 @@ EffectRegistry.register(
         haste=bool(p.get("haste", True)), max_mana_value=p.get("max_mana_value"),
         selector=p.get("selector"), creature_filter=p.get("creature_filter"),
         count_selector=p.get("count_selector"),
+        mass_of_target_player=p.get("mass_of_target_player"),
     ),
 )
 EffectRegistry.register("return_linked_exile", lambda p: ReturnLinkedExileEffect())

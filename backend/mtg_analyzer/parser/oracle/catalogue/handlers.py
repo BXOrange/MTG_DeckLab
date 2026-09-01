@@ -3744,6 +3744,43 @@ def _gain_control_eot_per_opponent(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: PAR-30 "Threaten … tails residue" — the *opponent-scoped mass* threaten,
+#: the other end from `_GAIN_CONTROL_ALL_RE`'s "all creatures": "Gain
+#: control of all <type> [your opponents / target opponent] control[s] until
+#: end of turn. Untap them. They gain haste until end of turn." (Broadcast
+#: Takeover — artifacts, all opponents; Call for Aid — creatures, one
+#: targeted opponent). A whole-body match like its siblings above; the
+#: untap/haste restatement is the same "the effect already does this" tail.
+_GAIN_CONTROL_MASS_EOT_RE = _c(
+    r"gain control of all (?P<mtype>creatures|artifacts|nonland permanents|permanents) "
+    r"(?P<who>your opponents control|target opponent controls) until end of turn\.\s*"
+    r"untap (?:them|those creatures|those permanents|those artifacts)\.\s*"
+    r"they gain haste until end of turn"
+)
+
+_MASS_OPPONENT_SELECTORS: dict[str, str] = {
+    "creatures": "opponents_creatures",
+    "artifacts": "opponents_artifacts",
+}
+
+
+def _gain_control_mass_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    mtype = m.group("mtype")
+    if m.group("who") == "target opponent controls":
+        # One RULE 115 opponent target, then every creature/artifact that
+        # player controls (`GainControlUntilEndOfTurnEffect.mass_of_target_
+        # player`). Only the two real printed type words.
+        if mtype not in ("creatures", "artifacts"):
+            return None
+        return [EffectSpec("gain_control_until_eot", {
+            "target_kind": "opponent", "mass_of_target_player": mtype[:-1],
+        })]
+    sel = _MASS_OPPONENT_SELECTORS.get(mtype)
+    if sel is None:
+        return None  # "permanents" — no `opponents_permanents` selector, fail closed
+    return [EffectSpec("gain_control_until_eot", {"selector": sel})]
+
+
 #: "Whenever a player casts an instant or sorcery spell, that player
 #: copies it and may choose new targets for the copy [until end of turn]."
 #: (Bonus Round) — RULE 603.1's "it"/"that player" both name the *firing
@@ -7835,6 +7872,65 @@ _PUMP_PREV_SINGULAR_KW_RE = _c(
     rf"{_PREV_SUBJECT_SINGULAR}(?: also)? gains? (?P<kw>[a-z][a-z, ]*?) until end of turn"
 )
 
+#: PAR-30 "Threaten / 'it gains haste' tails residue" — the *rich* leading-
+#: "until end of turn, it …" restatement a threaten clause pairs with,
+#: beyond a bare keyword grant (`segmenter._GAIN_CONTROL_HASTE_TAIL_RE`
+#: recurses this whole sentence here with ``previous_subject`` on):
+#:   * "…it gains haste and '<quoted ability>'" (Furnace Reins, Shackles of
+#:     Treachery) — reuses `static_handlers._quoted_ability_grant_effects`
+#:     wrapped in `grant_until(previous_subject=True)`;
+#:   * "…it becomes a <subtype> in addition to its other types and gains
+#:     haste" (Loki's Scepter) — a layer-4 `type_change` add-subtype grant;
+#:   * "…it has base power and toughness N/N and gains <kws>" (Flayer of
+#:     Loyalties) — a layer-7b `pt_set` grant + the residual keyword list.
+#: The redundant "haste" is dropped (the `gain_control_until_eot` effect
+#: already grants it as part of the control change).
+_GAIN_CONTROL_RICH_PREV_GRANT_RE = _c(
+    r"until end of turn, (?:it|they) (?:"
+    r"gains? haste and \"(?P<quoted>.+)\""
+    r"|becomes? an? (?P<subtype>[a-z][a-z]+) in addition to its other types and gains? haste"
+    r"|has base power and toughness (?P<bp>\d+)/(?P<bt>\d+) and gains? (?P<kw>[a-z0-9, ]+)"
+    r")"
+)
+
+
+def _gain_control_rich_prev_grant(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.group("quoted"):
+        from .static_handlers import _quoted_ability_grant_effects  # local: module cycle
+
+        grant = _quoted_ability_grant_effects(m.group("quoted"))
+        if grant is None:
+            return None
+        params = {k: v for k, v in grant.params.items() if k != "affects"}
+        return [EffectSpec("grant_until", {
+            "static": {"type": grant.type, "params": params},
+            "duration": "end_of_turn", "target_kind": None, "previous_subject": True,
+        })]
+    if m.group("subtype"):
+        return [EffectSpec("grant_until", {
+            "static": {"type": "type_change",
+                       "params": {"add_subtypes": [m.group("subtype").capitalize()]}},
+            "duration": "end_of_turn", "target_kind": None, "previous_subject": True,
+        })]
+    split = _split_keywords_with_parametric(m.group("kw"))
+    if split is None:
+        return None
+    flags, parametric = split
+    flags = [f for f in flags if f != "haste"]
+    out: list[EffectSpec] = [EffectSpec("grant_until", {
+        "static": {"type": "pt_set",
+                   "params": {"power": int(m.group("bp")), "toughness": int(m.group("bt"))}},
+        "duration": "end_of_turn", "target_kind": None, "previous_subject": True,
+    })]
+    if flags or parametric:
+        pump_params: dict = {"previous_subject": True}
+        if flags:
+            pump_params["keywords"] = flags
+        if parametric:
+            pump_params["parametric_keywords"] = parametric
+        out.append(EffectSpec("pump", pump_params))
+    return out
+
 
 #: MEC-28: "They gain first strike until end of turn." (Karlach, Fury of
 #: Avernus's own trailing sentence, following "untap all attacking
@@ -9221,6 +9317,14 @@ HANDLERS: list[EffectHandler] = [
         _GAIN_CONTROL_EOT_PER_OPPONENT_RE,
         _gain_control_eot_per_opponent,
     ),
+    # "Gain control of all <type> [your opponents / target opponent]
+    # control[s] until end of turn. Untap them. They gain haste …"
+    # (Broadcast Takeover, Call for Aid) — the opponent-scoped mass threaten.
+    EffectHandler(
+        "gain_control_mass_eot",
+        _GAIN_CONTROL_MASS_EOT_RE,
+        _gain_control_mass_eot,
+    ),
     # "that player copies it and may choose new targets for the copy [until
     # end of turn]" (Bonus Round's own trigger body).
     EffectHandler(
@@ -9840,6 +9944,15 @@ HANDLERS: list[EffectHandler] = [
         "pump_previous_targets_kw",
         _PUMP_PREVIOUS_TARGETS_KW_RE,
         _pump_previous_targets_kw,
+        previous_subject_only=True,
+    ),
+    # PAR-30 "Threaten … tails residue" — the *rich* leading-"until end of
+    # turn, it …" restatement (quoted ability / becomes-subtype / base P/T),
+    # tried before the plain pronoun-pump rows so its longer shape wins.
+    EffectHandler(
+        "gain_control_rich_prev_grant",
+        _GAIN_CONTROL_RICH_PREV_GRANT_RE,
+        _gain_control_rich_prev_grant,
         previous_subject_only=True,
     ),
     # PAR-30: the singular-pronoun siblings — "it [also] gets +N/+N …" /

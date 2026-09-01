@@ -1920,7 +1920,22 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: and myriad…" — Firbolg Flutist) through `parse_effect_body` with
 #: ``previous_subject`` on, so the existing `pump(previous_subject=True)`
 #: keyword-grant handler claims it (no second RULE 115 target). +2.
-PARSER_VERSION = "199"
+#: "200": PAR-30 threaten residue — the *leading* "until end of turn, it …"
+#: rich restatements: "it gains haste and '<quoted ability>'" (Furnace
+#: Reins — `_gain_control_rich_prev_grant` → `grant_until(previous_
+#: subject=True)` over `_quoted_ability_grant_effects`), "it becomes a
+#: <subtype> in addition to its other types and gains haste" (Loki's
+#: Scepter — `type_change` add-subtype), "it has base power and toughness
+#: N/N and gains <kws>" (`pt_set` + residual `pump`). `_DAMAGE_TRIGGER_RE`
+#: also now accepts "…to a player or battle" (RULE 310, documented
+#: simplification). Plus the *opponent-scoped mass* threaten
+#: (`_GAIN_CONTROL_MASS_EOT_RE`): "gain control of all <type> [your
+#: opponents / target opponent] control[s] until end of turn. untap them.
+#: they gain haste …" — `selector="opponents_artifacts"` (Broadcast
+#: Takeover) or `GainControlUntilEndOfTurnEffect.mass_of_target_player`
+#: (one RULE 115 opponent target, then all their creatures/artifacts).
+#: +5 (incl. Beamtown Beatstick / Archpriest of Shadows bycatch).
+PARSER_VERSION = "200"
 
 
 def parser_source_hash() -> str:

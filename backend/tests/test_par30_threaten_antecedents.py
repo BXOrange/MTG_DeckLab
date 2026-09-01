@@ -224,3 +224,210 @@ def test_execute_rich_tail_grants_extra_keyword_until_eot():
     granted = {k.lower() for k in victim.granted_keywords}
     assert "haste" in granted
     assert "trample" in granted
+
+
+# --- v200: leading "until end of turn, it …" rich restatements --------------
+
+
+def test_rich_prev_grant_quoted_ability():
+    specs = parse_effect_body(
+        "gain control of target creature until end of turn. untap that creature. "
+        'until end of turn, it gains haste and "whenever ~ deals combat damage '
+        'to a player or battle, create a treasure token."'
+    )
+    assert specs is not None
+    gu = next(s for s in specs if s.type == "grant_until")
+    assert gu.params["previous_subject"] is True
+    assert gu.params["static"]["type"] == "grant_triggered_ability"
+    assert "affects" not in gu.params["static"]["params"]
+
+
+def test_rich_prev_grant_becomes_subtype():
+    specs = parse_effect_body(
+        "gain control of target creature until end of turn. untap that creature. "
+        "until end of turn, it becomes a villain in addition to its other types "
+        "and gains haste."
+    )
+    assert specs is not None
+    gu = next(s for s in specs if s.type == "grant_until")
+    assert gu.params["static"]["type"] == "type_change"
+    assert gu.params["static"]["params"]["add_subtypes"] == ["Villain"]
+
+
+def test_rich_prev_grant_base_pt_plus_keywords():
+    specs = parse_effect_body(
+        "gain control of target creature until end of turn. untap that creature. "
+        "until end of turn, it has base power and toughness 10/10 and gains "
+        "trample, annihilator 2, and haste."
+    )
+    assert specs is not None
+    gu = next(s for s in specs if s.type == "grant_until")
+    assert gu.params["static"]["type"] == "pt_set"
+    assert gu.params["static"]["params"] == {"power": 10, "toughness": 10}
+    pump = next(s for s in specs if s.type == "pump")
+    assert pump.params["keywords"] == ["trample"]  # haste dropped (already granted)
+    assert pump.params["parametric_keywords"] == [{"name": "annihilator", "n": 2}]
+
+
+def test_end_to_end_furnace_reins_and_lokis_scepter_modeled():
+    for name, tl, text in [
+        ("Furnace Reins", "Sorcery",
+         'Gain control of target creature until end of turn. Untap that '
+         'creature. Until end of turn, it gains haste and "Whenever this '
+         'creature deals combat damage to a player or battle, create a '
+         'Treasure token."'),
+        ("Loki's Scepter", "Artifact",
+         "When Loki's Scepter enters, gain control of target creature until "
+         "end of turn. Untap that creature. Until end of turn, it becomes a "
+         "Villain in addition to its other types and gains haste.\n"
+         "{T}: Add one mana of any color."),
+    ]:
+        c = Card(id=name[:6], name=name, type_line=tl, oracle_text=text,
+                 is_sorcery="Sorcery" in tl, keywords=[])
+        assert parse_oracle(c).modeled is True, name
+
+
+def test_execute_rich_prev_grant_becomes_subtype_and_base_pt():
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0,
+    )
+    st = eng.state
+    victim = GameObject(
+        Card(id="V", name="V", type_line="Creature — Ox", is_creature=True,
+             power=3, toughness=3),
+        owner_id="p2", zone=Zone.BATTLEFIELD,
+    )
+    victim.controller_id = "p2"
+    st.add_to_battlefield(victim)
+    src = GameObject(
+        Card(id="FL", name="Flayer", type_line="Sorcery", is_sorcery=True),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    src.controller_id = "p1"
+    st.add_to_battlefield(src)
+
+    specs = parse_effect_body(
+        "gain control of target creature until end of turn. untap that creature. "
+        "until end of turn, it has base power and toughness 10/10 and gains "
+        "trample, and haste."
+    )
+    effects = build_effects(specs, source=src)
+    _apply_effects_partitioned(
+        effects, GameContext(st, eng.rules), [victim], None, source=src
+    )
+    eng.recompute_continuous_effects()
+    assert victim.controller_id == "p1"
+    assert (victim.power, victim.toughness) == (10, 10)
+    assert "trample" in {k.lower() for k in victim.granted_keywords}
+
+
+# --- v200: opponent-scoped mass threaten ----------------------------------
+
+
+def test_mass_all_artifacts_your_opponents_control():
+    specs = parse_effect_body(
+        "gain control of all artifacts your opponents control until end of turn. "
+        "untap them. they gain haste until end of turn."
+    )
+    assert specs is not None
+    assert _gc_spec(specs).params == {"selector": "opponents_artifacts"}
+
+
+def test_mass_all_creatures_target_opponent_controls():
+    specs = parse_effect_body(
+        "gain control of all creatures target opponent controls until end of turn. "
+        "untap those creatures. they gain haste until end of turn."
+    )
+    assert specs is not None
+    p = _gc_spec(specs).params
+    assert p["target_kind"] == "opponent"
+    assert p["mass_of_target_player"] == "creature"
+
+
+def test_mass_permanents_word_fails_closed():
+    # "all permanents your opponents control" — no `opponents_permanents`
+    # mass selector, so the whole clause must stay unclaimed
+    assert parse_effect_body(
+        "gain control of all permanents your opponents control until end of turn. "
+        "untap them. they gain haste until end of turn."
+    ) is None
+
+
+def test_execute_mass_your_opponents_artifacts():
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", []), ("p3", "C", [])],
+        starting_life=20, starting_hand=0,
+    )
+    st = eng.state
+
+    def put(pid, name, tl):
+        o = GameObject(
+            Card(id=name, name=name, type_line=tl, is_creature="Creature" in tl,
+                 power=2 if "Creature" in tl else None,
+                 toughness=2 if "Creature" in tl else None),
+            owner_id=pid, zone=Zone.BATTLEFIELD,
+        )
+        o.controller_id = pid
+        st.add_to_battlefield(o)
+        return o
+
+    a2 = put("p2", "A2", "Artifact")
+    a3 = put("p3", "A3", "Artifact")
+    c2 = put("p2", "C2", "Creature — Bear")
+    src = GameObject(
+        Card(id="BT", name="Broadcast Takeover", type_line="Sorcery", is_sorcery=True),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    src.controller_id = "p1"
+    st.add_to_battlefield(src)
+
+    specs = parse_effect_body(
+        "gain control of all artifacts your opponents control until end of turn. "
+        "untap them. they gain haste until end of turn."
+    )
+    _apply_effects_partitioned(
+        build_effects(specs, source=src), GameContext(st, eng.rules), [], None, source=src
+    )
+    eng.recompute_continuous_effects()
+    assert a2.controller_id == "p1"
+    assert a3.controller_id == "p1"
+    assert c2.controller_id == "p2"  # creatures untouched
+
+
+def test_execute_mass_target_opponent_creatures_only():
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", []), ("p3", "C", [])],
+        starting_life=20, starting_hand=0,
+    )
+    st = eng.state
+
+    def bear(pid, name):
+        o = GameObject(
+            Card(id=name, name=name, type_line="Creature — Bear", is_creature=True,
+                 power=2, toughness=2),
+            owner_id=pid, zone=Zone.BATTLEFIELD,
+        )
+        o.controller_id = pid
+        st.add_to_battlefield(o)
+        return o
+
+    c2, c3 = bear("p2", "C2"), bear("p3", "C3")
+    src = GameObject(
+        Card(id="CA", name="Call for Aid", type_line="Sorcery", is_sorcery=True),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    src.controller_id = "p1"
+    st.add_to_battlefield(src)
+
+    specs = parse_effect_body(
+        "gain control of all creatures target opponent controls until end of turn. "
+        "untap those creatures. they gain haste until end of turn."
+    )
+    _apply_effects_partitioned(
+        build_effects(specs, source=src), GameContext(st, eng.rules),
+        [st.player_by_id("p2")], None, source=src,
+    )
+    eng.recompute_continuous_effects()
+    assert c2.controller_id == "p1"
+    assert c3.controller_id == "p3"  # a different opponent's creatures untouched
+    assert "haste" in {k.lower() for k in c2.granted_keywords}
