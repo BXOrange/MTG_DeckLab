@@ -1236,6 +1236,12 @@ is in the rules-engine categories below them.
 - **Files:** `game/rules_engine.py`
 - **Bug fixed:** A permanent's own "when this dies"/"leaves the battlefield" trigger was structurally unreachable, since trigger collection only scanned the live battlefield at the moment the event fired and the object had already been removed first.
 
+### "When you control no `<basic land type>`, sacrifice ~." (RULE 603.8 state trigger — PARSER_VERSION 180)
+
+- **What:** the original colour-gated creature cycle (Bog Serpent, Sea Serpent, Dandân, Island Fish Jasconius, Barbarian Outcast, Gorilla Pack, …; 11 SOLO). `segmenter._CONTROL_NONE_SACRIFICE_RE` emits an `AbilitySpec("triggered", trigger={"event": "LEAVES_BATTLEFIELD", "controls_none_of_type": "<subtype>"})`; `effect_binder._trigger_condition` grew a `controls_none_of_type` predicate — a live scan of the ability's controller's battlefield for a permanent whose printed subtype line names that basic land type, **excluding the permanent named by the firing event's `instance_id`** (RULE 603.6a: `LEAVES_BATTLEFIELD` fires while the leaving object is still on the battlefield, so the check is "will you control none once this leave completes").
+- **Files:** `parser/oracle/segmenter.py`, `game/effect_binder.py`. `tests/test_par30_control_none_sacrifice_trigger.py`.
+- **Why this shape:** no general RULE 603.8 state-trigger subsystem exists; this reuses the same "gate an ordinary event on a live state read" pattern `source_counters_at_least` (Nine Lives) documented, since the only way the count reaches zero is a land leaving. The ETB edge (casting the creature while already controlling none) is a documented simplification.
+
 ### Modal triggered abilities (RULE 700.2 wrapped in RULE 603)
 
 - **What:** "When ~ enters, choose one —" on a permanent now parses and binds (previously only a modal spell's header worked). Mode selection is resolved as a new interactive `trigger_mode` `pending_choice` opened as the ability is placed on the stack, before the existing target/"you may" checks run against the chosen mode's own effects.

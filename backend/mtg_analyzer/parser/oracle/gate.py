@@ -1762,7 +1762,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: attacking"`; `CopyPermanentEffect` gained `tapped`/`attacking`. +18 —
 #: Geist of Saint Traft, Crumbling Colossus, the Basilisk morph cycle,
 #: Serpentine/Stone-Tongue Basilisk, Ohran Viper, &c.
-PARSER_VERSION = "179"
+#: "180": "When you control no `<basic land type>`, sacrifice ~." (RULE
+#: 603.8 state trigger — Bog Serpent / Sea Serpent / Dandân cycle).
+#: `_CONTROL_NONE_SACRIFICE_RE` → a `LEAVES_BATTLEFIELD` trigger gated by
+#: `effect_binder`'s new `controls_none_of_type` predicate (a live
+#: battlefield scan, excluding the just-left permanent per RULE 603.6a).
+#: +11.
+PARSER_VERSION = "180"
 
 
 def parser_source_hash() -> str:

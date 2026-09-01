@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.8% covered — 13,165 / 34,811 — as of 2026-09-01, PARSER_VERSION 179.**
+**37.9% covered — 13,176 / 34,811 — as of 2026-09-01, PARSER_VERSION 180.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,20 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+180 = "When you control no `<basic land type>`, sacrifice ~." (RULE 603.8
+state trigger — Bog Serpent, Sea Serpent, Dandân, Island Fish Jasconius,
+the original colour-gated creature cycle; 11 SOLO). Not a RULE 701
+keyword-action body, but the same "residual trigger grammar" shape PAR-30
+keeps turning up. `_CONTROL_NONE_SACRIFICE_RE` emits a
+`LEAVES_BATTLEFIELD` trigger; the state check is `effect_binder`'s new
+`controls_none_of_type` predicate — a live scan of the controller's
+battlefield for that printed land subtype, **excluding the just-left
+permanent** (RULE 603.6a: LEAVES_BATTLEFIELD fires while the leaving
+object is still on the battlefield). Same "gate an ordinary event on a
+state read rather than build a state-trigger subsystem" rationale as
+`source_counters_at_least`. The ETB edge (playing the creature while you
+already control none) is a documented simplification. +11, 0 regressed.
 
 179 = PAR-30 — "tapped and attacking" cluster, batch 3, and a
 higher-yield bycatch. `_DELAYED_SAC_EXILE_TAIL_RE` gained an **"at end of

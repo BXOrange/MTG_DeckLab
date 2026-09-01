@@ -1212,6 +1212,40 @@ def _trigger_condition(
 
         predicates.append(_source_counters_at_least_ok)
 
+    # "When you control no Swamps, sacrifice ~." (RULE 603.8 state trigger —
+    # Bog Serpent / Sea Serpent / Dandân cycle). A `LEAVES_BATTLEFIELD`
+    # trigger gated on the ability's controller currently controlling zero
+    # permanents of the named printed land subtype — the same live
+    # battlefield scan `effects.ConditionalEffect`'s own
+    # ``controls_none_of_type`` gate uses, and the same "gate an ordinary
+    # event on a state read rather than build a state-trigger subsystem"
+    # rationale as `source_counters_at_least` just above.
+    controls_none_of_type = trigger.get("controls_none_of_type")
+    if controls_none_of_type is not None:
+        controller_id = getattr(source, "controller_id", None)
+        subtype_word = str(controls_none_of_type).lower()
+
+        def _controls_none_ok(
+            event: Any, context: Any, cid=controller_id, w=subtype_word,
+        ) -> bool:
+            state = getattr(context, "state", None)
+            if state is None:
+                return False
+            # RULE 603.6a "look back in time": LEAVES_BATTLEFIELD fires while
+            # the leaving permanent is *still* on the battlefield, so the
+            # object that just left is excluded here — the check is "will
+            # the controller control none of that type once this leave
+            # completes".
+            leaving_id = event.get("instance_id")
+            return not any(
+                o.instance_id != leaving_id
+                and o.controller_id == cid
+                and w in o.card.type_line.partition("—")[2].strip().lower().split()
+                for o in state.battlefield
+            )
+
+        predicates.append(_controls_none_ok)
+
     # PAR-28 / RULE 702.169c Solved / 702.178a Max Speed on a *triggered*
     # ability: "[Ability text]. This ability triggers only if [condition]."
     # The same whitelisted `static_conditions` dict a static's `active_if`

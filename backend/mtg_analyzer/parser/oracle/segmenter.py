@@ -562,6 +562,26 @@ _SACRIFICE_TYPE_TRIGGER_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: "When you control no `<basic land type>`, sacrifice ~." (RULE 603.8
+#: state trigger — Bog Serpent, Sea Serpent, Dandân, the original
+#: colour-gated creature cycle; 11 SOLO). Modeled as a `LEAVES_BATTLEFIELD`
+#: trigger gated by a live "the controller now controls none of that
+#: printed land subtype" check (`effect_binder`'s new ``controls_none_of_
+#: type`` trigger predicate) — the same "gate an ordinary event on a state
+#: read" idiom `source_counters_at_least` uses instead of a general
+#: state-trigger subsystem. The ETB edge (playing the creature while you
+#: already control none) is a documented simplification — not modeled.
+_BASIC_LAND_TYPE_SINGULAR: dict[str, str] = {
+    "swamps": "swamp", "swamp": "swamp", "islands": "island", "island": "island",
+    "plains": "plains", "mountains": "mountain", "mountain": "mountain",
+    "forests": "forest", "forest": "forest",
+}
+_CONTROL_NONE_SACRIFICE_RE = re.compile(
+    r"^when you control no (?P<type>swamps?|islands?|plains|mountains?|forests?),\s*"
+    r"(?P<body>sacrifice (?:~|this \w+))\.?$",
+    re.IGNORECASE | re.S,
+)
+
 #: RULE 702.19a's own declare-attackers-time choice, spelled out in full
 #: (Scryfall still tags these ``keywords: ['Exert']`` even though there's
 #: no bare reminder-text keyword line to match — `combat.has(obj, "exert")`
@@ -3258,6 +3278,24 @@ def segment_line(
                 "event": "SACRIFICE",
                 "condition": {"subject": "you"},
                 "sacrifice_type": sacrifice_trig.group("type").lower(),
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    control_none_sac = _CONTROL_NONE_SACRIFICE_RE.match(raw)
+    if control_none_sac is not None:
+        effects = parse_effect_body(control_none_sac.group("body"), self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        land_type = _BASIC_LAND_TYPE_SINGULAR[control_none_sac.group("type").lower()]
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "LEAVES_BATTLEFIELD",
+                "controls_none_of_type": land_type,
             },
             raw_text=raw,
             parser=provenance,
