@@ -93,7 +93,8 @@ Plan-level sequencing lives in
     "the Ring tempts you" outcome bodies (Path of the Animist/Enigma,
     Galadriel); "you choose how each player votes" (Illusion of Choice);
     Expropriate's extra-turn / gain-control per-vote outcome; Magister of
-    Worth's mass-graveyard-return / "destroy all creatures other than ~".
+    Worth's mass-graveyard-return branch (its "destroy all creatures other
+    than ~" branch is done, v163).
 
   - **Face a Villainous Choice (RULE 701.55) + reanimator-token residue.**
     Each remaining reanimator-token cluster card blocks on its *own*

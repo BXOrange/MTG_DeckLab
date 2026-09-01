@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.6% covered — 13,077 / 34,811 — as of 2026-09-01, PARSER_VERSION 162.**
+**37.6% covered — 13,078 / 34,811 — as of 2026-09-01, PARSER_VERSION 163.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -650,6 +650,15 @@ UNMODELED (each its own primitive, not dynamic-amount grammar):
 "incubate N that many times" (Phyrexian Incubator — a search-result
 count across a `pending_choice` suspension) and "incubate N X times"
 reading a source's `x_paid` (Progenitor Exarch).
+
+163 = PAR-30 (Vote residue, one point per loop) — self-excluding mass
+destroy. New `all_other_creatures` / `other_creatures_you_control`
+selectors (`effects._mass_selector_objects`, RULE 400's "other");
+`_DESTROY_ALL_OTHER_RE` claims "destroy all other creatures[ you
+control]" / "…all creatures other than ~" / "…except [for] ~" + an
+optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
+the "destroy all creatures other than ~" branch of Magister of Worth's
+vote body (card still blocked on its other branch).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

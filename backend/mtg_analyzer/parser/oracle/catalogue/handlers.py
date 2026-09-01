@@ -1980,6 +1980,31 @@ def _destroy_all_no_regen(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("destroy", params)]
 
 
+#: "Destroy all other creatures." / "…all creatures other than ~" / "…all
+#: creatures except [for] ~" — a self-excluding mass wipe (RULE 400's
+#: "other"), reaching the new `all_other_creatures` /
+#: `other_creatures_you_control` (`effects._mass_selector_objects`)
+#: selectors. Whole-body match (both sentences, like
+#: `_DESTROY_ALL_NO_REGEN_RE`) so an optional "they/those creatures can't
+#: be regenerated" tail is claimed here rather than fail-closing the split.
+#: Novablast Wurm, Mageta the Lion, Magister of Worth's vote branch.
+_DESTROY_ALL_OTHER_RE = _c(
+    r"destroy all (?:other creatures(?P<you_control> you control)?"
+    r"|creatures (?:other than|except(?: for)?) ~)"
+    r"(?P<no_regen>\.? (?:those creatures|they) can'?t be regenerated)?"
+)
+
+
+def _destroy_all_other(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {
+        "selector": "other_creatures_you_control" if m.group("you_control")
+        else "all_other_creatures",
+    }
+    if m.group("no_regen"):
+        params["can_be_regenerated"] = False
+    return [EffectSpec("destroy", params)]
+
+
 _EXILE_ALL_RE = _c(rf"exile all (?P<noun>{'|'.join(_MASS_DESTROY_NOUNS)})")
 
 
@@ -7811,6 +7836,15 @@ HANDLERS: list[EffectHandler] = [
         "destroy_all_no_regen",
         _DESTROY_ALL_NO_REGEN_RE,
         _destroy_all_no_regen,
+    ),
+    # "destroy all other creatures[ you control]" / "…creatures other than
+    # ~" — the self-excluding wipe, before the plain `destroy_all` (whose
+    # ``all creatures`` noun row would otherwise consume the prefix and
+    # then fail the fullmatch on the trailing "other than ~").
+    EffectHandler(
+        "destroy_all_other",
+        _DESTROY_ALL_OTHER_RE,
+        _destroy_all_other,
     ),
     # "destroy all creatures[.]" / "destroy all artifacts with mana value 3
     # or less." (RULE 601.2c untargeted mass board wipe — Damnation/Citywide

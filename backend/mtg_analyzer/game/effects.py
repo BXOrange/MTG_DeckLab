@@ -3790,6 +3790,13 @@ _MASS_DESTROY_SELECTORS: frozenset[str] = frozenset(
         # there's no decision here at all, so it belongs with the plain
         # `_MASS_DESTROY_SELECTORS` board-wipe family instead.
         "other_permanents_you_control",
+        # "Destroy all other creatures." / "…all creatures other than ~" /
+        # "…all creatures except for ~" (Novablast Wurm, Magister of Worth's
+        # vote branch, Mageta the Lion) — RULE 400's "other" = every
+        # creature except this effect's own source, whoever controls it;
+        # and the controller-scoped sibling "destroy all other creatures
+        # you control" (Desolation Giant).
+        "all_other_creatures", "other_creatures_you_control",
     }
 )
 
@@ -3848,6 +3855,19 @@ def _mass_selector_objects(
         result = [
             o for o in battlefield
             if o is not source and controller_id is not None and o.controller_id == controller_id
+        ]
+    elif selector == "all_other_creatures":
+        # RULE 400: "other" excludes this effect's own source, regardless
+        # of who controls it (Novablast Wurm, Mageta the Lion).
+        result = [o for o in battlefield if o.is_creature and o is not source]
+    elif selector == "other_creatures_you_control":
+        # "destroy all other creatures you control." (Desolation Giant) —
+        # ``all_other_creatures`` narrowed to the source's own controller.
+        controller_id = getattr(source, "controller_id", None)
+        result = [
+            o for o in battlefield
+            if o.is_creature and o is not source
+            and controller_id is not None and o.controller_id == controller_id
         ]
     else:
         result = []

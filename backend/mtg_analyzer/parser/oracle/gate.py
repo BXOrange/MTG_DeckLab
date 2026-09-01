@@ -1624,7 +1624,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Still UNMODELED: "incubate N that many times" (Phyrexian Incubator —
 #: search-result count across a `pending_choice` suspension) and
 #: "incubate N X times" reading a source's ``x_paid`` (Progenitor Exarch).
-PARSER_VERSION = "162"
+#: "163": PAR-30 (Vote residue) — self-excluding mass destroy. New
+#: `all_other_creatures` / `other_creatures_you_control` selectors on
+#: `effects._mass_selector_objects`; `_DESTROY_ALL_OTHER_RE` claims
+#: "destroy all other creatures[ you control]" / "…all creatures other
+#: than ~" / "…except [for] ~" (+ optional "can't be regenerated" tail).
+#: +1 (Novablast Wurm); also closes Magister of Worth's "destroy all
+#: creatures other than ~" vote-branch gap (card still blocked on its
+#: other branch). 0 regressed.
+PARSER_VERSION = "163"
 
 
 def parser_source_hash() -> str:

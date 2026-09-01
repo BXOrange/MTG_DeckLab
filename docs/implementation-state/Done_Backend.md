@@ -634,7 +634,9 @@ is in the rules-engine categories below them.
 ### Mass "Destroy/Exile All X" Board Wipes
 
 - **What:** `DestroyEffect`/`ExileEffect` gained a `selector` (`all_creatures`/`all_artifacts`/`all_enchantments`/`all_permanents`/`all_planeswalkers`) plus an optional filter (`min_toughness`/`min_mana_value`/`max_mana_value`), and `DestroyEffect.can_be_regenerated=False` for "can't be regenerated" wipes (skips the replacement pass entirely). Wired into Austere Command/Farewell's modal modes and a combined `each_creature_and_player` selector for Volcanic Fallout.
-- **Files:** `game/effects.py`
+- **Self-excluding wipe (PAR-30, v163):** `all_other_creatures` (RULE 400's "other" — every creature but this effect's own source, whoever controls it) and `other_creatures_you_control` (that, narrowed to the source's controller — Desolation Giant) selectors. Parser `_DESTROY_ALL_OTHER_RE` claims "destroy all other creatures[ you control]" / "…all creatures other than ~" / "…except [for] ~", with an optional "they/those creatures can't be regenerated" tail matched in the same whole-body pass. +1 (Novablast Wurm); also closes the "destroy all creatures other than ~" gap in Magister of Worth's condemnation vote branch (card still blocked on its grace branch's mass graveyard-reanimation).
+- **Files:** `game/effects.py` (`_MASS_DESTROY_SELECTORS`, `_mass_selector_objects`), `parser/oracle/catalogue/handlers.py`
+- **Tests:** `tests/test_par30_destroy_all_other.py` (each phrasing → the right selector; the regen tail; plain "destroy all creatures" still includes the source; execute: `all_other_creatures` spares only the source, `other_creatures_you_control` also spares opponents' creatures).
 
 ### New One-Shot Effect Batch (Wyleth Equip)
 
