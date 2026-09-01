@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.6% covered — 13,078 / 34,811 — as of 2026-09-01, PARSER_VERSION 163.**
+**37.6% covered — 13,080 / 34,811 — as of 2026-09-01, PARSER_VERSION 164.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,20 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+164 = PAR-30 (Vote residue) — Living Death mass graveyard recursion.
+`ReturnFromGraveyardEffect.players` ("you" / "each_player") — a mass,
+untargeted return over every matching graveyard card, run through the
+existing `_apply_one` (ETB prohibition, owner control, riders);
+`_MASS_RETURN_GRAVEYARD_RE` claims "[each player returns / you return]
+all/each creature card[s] from [their/your] graveyard to the
+battlefield/hand". `_vote_majority`'s "a targeted branch can't resolve
+off-stack" guard narrowed to spare a `players`-scoped (untargeted)
+branch. +2 (Empty the Catacombs; Magister of Worth — both vote branches
+now modeled, combined with v163's destroy branch). Still open in this
+cluster: riders on the returned cards (Pyrrhic Revival's -1/-1 counter,
+Storm of Souls' "each is a 1/1 Spirit"), and "…that weren't put there
+this way" (Bringer of the Last Gift).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

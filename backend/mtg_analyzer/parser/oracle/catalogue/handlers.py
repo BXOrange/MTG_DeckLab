@@ -2634,6 +2634,33 @@ def _return_from_graveyard_shuffle_any(m: re.Match[str]) -> Optional[list[Effect
     })]
 
 
+#: Living Death family — "[each player returns / you return / return] all
+#: [or each] creature card[s] from [their / your / its owner's] graveyard
+#: to the battlefield [or their/your hand]". A mass, untargeted recursion
+#: over every matching graveyard card (`ReturnFromGraveyardEffect.players`
+#: = ``"you"`` / ``"each_player"``). Deliberately only the plain creature-
+#: card shape both branches of a will-of-the-council vote and the classic
+#: reanimation sweeps use — Magister of Worth (its grace branch), Empty
+#: the Catacombs, Storm of Souls, Finale of Eternity. Riders on the
+#: returned cards (a -1/-1 counter, "each is a 1/1 Spirit") stay
+#: fail-closed.
+_MASS_RETURN_GRAVEYARD_RE = _c(
+    r"(?:(?P<each>each player returns)|you return|return) "
+    r"(?:all|each) creature cards? from "
+    r"(?:their|your|its owner'?s) graveyards? to "
+    r"(?P<dest>the battlefield|their hand|your hand)"
+)
+
+
+def _mass_return_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+    dest = m.group("dest")
+    return [EffectSpec("return_from_graveyard", {
+        "target_kind": "graveyard_creature",
+        "destination": "battlefield" if dest == "the battlefield" else "hand",
+        "players": "each_player" if m.group("each") else "you",
+    })]
+
+
 #: "exile [up to one] target [type] card from [scope] graveyard" (RULE
 #: 701.5a) — the Deathrite Shaman/Scavenging Ooze/Lion Sash graveyard-hate
 #: family; almost always "a graveyard" in practice, but the same scope
@@ -6066,8 +6093,15 @@ def _vote_majority(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     y_specs = parse_effect_body(mm.group("y").strip())
     if not x_specs or not y_specs:
         return None
-    if any(s.params.get("target_kind") for s in (*x_specs, *y_specs)):
-        return None  # a targeted branch can't resolve off-stack — see `_pay_cost_then_general`
+    if any(
+        s.params.get("target_kind") and not s.params.get("players")
+        for s in (*x_specs, *y_specs)
+    ):
+        # A *targeted* branch can't resolve off-stack (see
+        # `_pay_cost_then_general`); a mass `players`-scoped return
+        # (`target_kind` there is just the card filter, not a RULE 115
+        # choice) is fine.
+        return None
     lowered = [o.lower() for o in options]
     idx_a = lowered.index(a)
     majority: list[Optional[list[dict]]] = [None, None]
@@ -8146,6 +8180,14 @@ HANDLERS: list[EffectHandler] = [
         "return_from_graveyard",
         _RETURN_FROM_GRAVEYARD_RE,
         _return_from_graveyard,
+    ),
+    # Living Death family — "each player returns / you return all creature
+    # cards from [their/your] graveyard to the battlefield / hand" — a
+    # mass, untargeted recursion (`ReturnFromGraveyardEffect.players`).
+    EffectHandler(
+        "mass_return_graveyard",
+        _MASS_RETURN_GRAVEYARD_RE,
+        _mass_return_graveyard,
     ),
     EffectHandler(
         "return_from_graveyard_owner_control",

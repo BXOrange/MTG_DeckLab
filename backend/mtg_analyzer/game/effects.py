@@ -8834,9 +8834,18 @@ class ReturnFromGraveyardEffect(GameEffect):
         max_mana_value: Optional[int] = None,
         tapped: bool = False,
         trigger_subject_key: Optional[str] = None,
+        players: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: Living Death family — "[each player / you] return[s] all/each
+        #: creature card from [their / your] graveyard to the battlefield /
+        #: hand". A mass, untargeted return over every matching card in the
+        #: named graveyard(s); bypasses ``target_spec`` entirely and runs
+        #: each card through the same `_apply_one` (ETB prohibition, owner
+        #: control, riders). ``"you"`` = this effect's controller's
+        #: graveyard; ``"each_player"`` = every living player's.
+        self.players = players if players in ("you", "each_player") else None
         self.destination = destination if destination in self._DESTINATIONS else "battlefield"
         self.under_your_control = under_your_control
         #: "It gains haste." (Puppeteer Clique-shaped reanimate-and-exile) —
@@ -8942,6 +8951,25 @@ class ReturnFromGraveyardEffect(GameEffect):
                 context.lose_life(player, int(mv))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.players is not None:
+            # Living Death mass return — every matching card in the named
+            # graveyard(s), no target choice. Snapshot per player first
+            # (``_apply_one`` mutates the graveyard as it goes).
+            if self.players == "you":
+                ctrl = _controller_of(self.source, context)
+                players = [ctrl] if ctrl is not None else []
+            else:
+                players = list(context.state.living_players())
+            kind = getattr(self.target_spec, "kind", "graveyard_creature")
+            want_creature = "creature" in (kind or "")
+            for player in players:
+                cards = [
+                    o for o in list(player.graveyard)
+                    if not want_creature or o.card.is_creature
+                ]
+                for card in cards:
+                    self._apply_one(context, card)
+            return
         if self._self_enchant_mode:
             target_id = getattr(self.source, "reanimate_target_id", None)
             target = context.state.find_object(target_id) if target_id is not None else None
@@ -18290,6 +18318,7 @@ EffectRegistry.register(
         haste=bool(p.get("haste", False)),
         tapped=bool(p.get("tapped", False)),
         trigger_subject_key=p.get("trigger_subject_key"),
+        players=p.get("players"),
     ),
 )
 EffectRegistry.register(

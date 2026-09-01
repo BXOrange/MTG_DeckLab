@@ -92,9 +92,8 @@ Plan-level sequencing lives in
     Punishment — deliberately fail-closed); "planeswalk / chaos ensues" and
     "the Ring tempts you" outcome bodies (Path of the Animist/Enigma,
     Galadriel); "you choose how each player votes" (Illusion of Choice);
-    Expropriate's extra-turn / gain-control per-vote outcome; Magister of
-    Worth's mass-graveyard-return branch (its "destroy all creatures other
-    than ~" branch is done, v163).
+    Expropriate's extra-turn / gain-control per-vote outcome. (Magister of
+    Worth done, v163–164.)
 
   - **Face a Villainous Choice (RULE 701.55) + reanimator-token residue.**
     Each remaining reanimator-token cluster card blocks on its *own*

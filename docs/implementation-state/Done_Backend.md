@@ -977,6 +977,7 @@ is in the rules-engine categories below them.
 
 - **What:** `ReturnFromGraveyardEffect` gained a mana-value filter (constructor param, regex capture group, and a `targeting.py` check reusing `destroy_mv`'s `TargetSpec.max_mana_value`) — reaches 102 real cache cards printing "return target `<type>` card with mana value N or less from `<scope>` graveyard" (Sun Titan, Unearth, and others), most already closing outright.
 - **Files:** `game/effects.py`, `game/targeting.py`, `parser/oracle/catalogue/handlers.py`
+- **Living Death mass recursion (PAR-30, v164):** `ReturnFromGraveyardEffect.players` (`"you"` / `"each_player"`) — a mass, untargeted return over every matching graveyard card, run through the same `_apply_one` (ETB prohibition/redirect, owner-control, haste/tapped riders) as a single target. Parser `_MASS_RETURN_GRAVEYARD_RE` claims "[each player returns / you return / return] all/each creature card[s] from [their/your/its owner's] graveyard to the battlefield/hand". `_vote_majority`'s "a targeted branch can't resolve off-stack" guard was narrowed to spare a `players`-scoped branch (its `target_kind` is just the card filter, not a RULE 115 choice). +2 (Empty the Catacombs; Magister of Worth, whose two vote branches are now both modeled — combined with v163's `all_other_creatures`). Riders on the returned cards (a -1/-1 counter, "each is a 1/1 Spirit") stay fail-closed. Tests: `tests/test_par30_mass_return_graveyard.py`.
 
 ### Assassin's Trophy: unscoped permanent target + controller-redirected search (Targeting)
 

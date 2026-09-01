@@ -1632,7 +1632,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: +1 (Novablast Wurm); also closes Magister of Worth's "destroy all
 #: creatures other than ~" vote-branch gap (card still blocked on its
 #: other branch). 0 regressed.
-PARSER_VERSION = "163"
+#: "164": PAR-30 (Vote residue) — Living Death mass graveyard recursion.
+#: `ReturnFromGraveyardEffect.players` ("you" / "each_player") — a mass
+#: untargeted return over every matching graveyard card; `_MASS_RETURN_
+#: GRAVEYARD_RE` claims "[each player returns / you return] all/each
+#: creature card[s] from [their/your] graveyard to the battlefield/hand".
+#: `_vote_majority`'s off-stack guard narrowed to spare a `players`-scoped
+#: (untargeted) branch. +2 (Empty the Catacombs; Magister of Worth, now
+#: both vote branches modeled). 0 regressed.
+PARSER_VERSION = "164"
 
 
 def parser_source_hash() -> str:
