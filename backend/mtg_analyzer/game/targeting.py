@@ -1462,6 +1462,10 @@ def legal_targets(
             if type_filter(o)
             and (not spec.subtype or spec.subtype in o.card.type_line.lower())
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+            # "exile target red, white, or black creature card from your
+            # graveyard" (Offspring's Revenge) — the same `_color_ok` colour
+            # narrowing the battlefield-object branches apply (RULE 105).
+            and _color_ok(spec, o.colors)
             and o is not source
         ]
     if kind in ("spell", "spell_you_dont_control"):

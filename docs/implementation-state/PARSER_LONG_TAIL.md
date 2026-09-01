@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.7% covered — 13,112 / 34,811 — as of 2026-09-01, PARSER_VERSION 171.**
+**37.7% covered — 13,123 / 34,811 — as of 2026-09-01, PARSER_VERSION 174.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,27 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+174 = PAR-30 — the colour-list target reaches the **graveyard** zone, and
+"it gains `<kw>` until your next turn" on a **previous-clause subject**.
+`_color_word_list` is the N-colour generalization of `_two_color_letters`
+(≥3 colours: "red, white, or black"); `_EXILE_FROM_GRAVEYARD_RE` gained an
+optional `(?P<colors>…)` group → `exile` spec's `colors` → the
+`ExileEffect` `TargetSpec.colors` already threaded at v170. `targeting.
+legal_targets`' graveyard-card branch gained the `_color_ok` call every
+battlefield branch already had. New `grant_until_previous` handler
+(`_GRANT_UNTIL_PREVIOUS_RE`, `previous_subject_only`) — "It gains haste
+until your next turn." binding "it" to the just-created token copy, the
+`_lockdown` / `_return_to_hand_previous` idiom. +2 — Offspring's Revenge
+(exile RWB graveyard creature → 1/1 copy token → haste), Bond of Revival.
+0 regressed.
+
+172-173 = PAR-30 v172 (colour-list `TapEffect.colors` + `_TAP_TWO_COLOR_
+RE` → Tidebinder Mage; compound `_RETURN_SELF_AND_TWO_COLOR_RE` → Snow
+Hound, +2) landed folded into the MEC-46 v173 commit (the two batches
+were interleaved across `effects.py`/`handlers.py`/`gate.py`); MEC-46
+itself is the RULE 701.38 vote-outcome-body primitives (see
+`Done_Backend.md` "Vote"), +6.
 
 171 = PAR-30 — the colour-list target extended to bounce / put-on-
 library / graveyard-recursion. `ReturnToHandEffect` /

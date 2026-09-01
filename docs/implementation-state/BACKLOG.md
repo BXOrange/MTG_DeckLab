@@ -92,14 +92,7 @@ Plan-level sequencing lives in
     card body>`" (the `return_from_graveyard` X-count form landed v168 —
     `count_selector="source_x_paid"`; the *exile* form still needs the
     "for each … this way" `count_from_context` scaling on the follow-up);
-    **Offspring's Revenge** "target red, white, or black creature card"
-    colour filter (the *2*-colour list shipped v169–v171 for pump /
-    destroy / exile / bounce / put-on-library / graveyard-return via a
-    `colors` → `TargetSpec.colors` param on each effect; this is a
-    *3*-colour list on a graveyard-exile target) *and* its "It gains
-    haste until end of
-    turn." after a create-token antecedent (the referent half shipped
-    v146 — a `create_token`/`copy_permanent` spec now announces the "it"); **Sauron the Necromancer / Sin** "create a
+    **Sauron the Necromancer / Sin** "create a
     tapped [and attacking] token"; **Back from the Brink** "…and pay its
     mana cost:" activation cost. Villainous option bodies still open: "you
     create a token that's a copy of that card" (**The Master** — needs

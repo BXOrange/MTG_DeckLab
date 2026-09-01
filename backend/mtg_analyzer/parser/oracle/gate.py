@@ -1716,7 +1716,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `AddCountersEffect.ring_bearer`), and a phase-trigger intervening-if
 #: `_ANOTHER_SUBTYPE_ENTERED_IF_RE` → `static_conditions`'
 #: `another_subtype_entered_this_turn` trigger `active_if`. +6.
-PARSER_VERSION = "173"
+#: "174": PAR-30 — colour-list target on a graveyard-card exile. New
+#: `_color_word_list` (N-colour generalization of `_two_color_letters`);
+#: `_EXILE_FROM_GRAVEYARD_RE` gained an optional `(?P<colors>…)` group →
+#: `exile` spec's `colors` → `TargetSpec.colors`, honoured in
+#: `targeting.legal_targets`' graveyard-card branch (the `_color_ok` call
+#: every battlefield branch already had). Closes Offspring's Revenge. +1.
+PARSER_VERSION = "174"
 
 
 def parser_source_hash() -> str:

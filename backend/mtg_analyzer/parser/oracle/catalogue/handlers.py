@@ -1723,6 +1723,29 @@ def _two_color_letters(m: re.Match[str]) -> Optional[list[str]]:
     return colors
 
 
+#: An open-ended colour list — "red, white, or black", "white or blue",
+#: "red, white, black, or green" — the N-colour generalization of a
+#: `(?P<c1>…) or (?P<c2>…)` pair. Matched as one `(?P<colors>…)` group; hand
+#: the raw text to `_color_word_list` to get the WUBRG letters.
+_COLOR_WORD_LIST_INNER = (
+    rf"(?:{COLOR_WORD_ALT})(?:,? (?:or )?(?:{COLOR_WORD_ALT}))+"
+)
+
+
+def _color_word_list(text: Optional[str]) -> Optional[list[str]]:
+    """"red, white, or black" → ``["R", "W", "B"]`` (order preserved), or
+    ``None`` for an empty/unrecognised list or a repeated colour. The
+    N-colour sibling of `_two_color_letters` — used where a `TargetSpec`
+    colour narrowing may name three or more colours (Offspring's Revenge)."""
+    if not text:
+        return None
+    words = re.findall(COLOR_WORD_ALT, text)
+    letters = [resolve_color_word(w) for w in words]
+    if len(letters) < 2 or not all(letters) or len(set(letters)) != len(letters):
+        return None
+    return letters
+
+
 def _exile_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     colors = _two_color_letters(m)
     if colors is None:
@@ -2849,7 +2872,9 @@ def _mass_return_graveyard(m: re.Match[str]) -> list[EffectSpec]:
 #: `graveyard_*` `EffectSpec`, the "target" nuance (redirect/"can't be
 #: targeted") being immaterial for a graveyard-card pick this grammar models.
 _EXILE_FROM_GRAVEYARD_RE = _c(
-    rf"exile (?P<up_to_one>{UP_TO_ONE})(?:target |an? )(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"exile (?P<up_to_one>{UP_TO_ONE})(?:target |an? )"
+    rf"(?:(?P<colors>{_COLOR_WORD_LIST_INNER}) )?"
+    rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard"
 )
 
@@ -2858,7 +2883,16 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
     if kind is None:
         return None
-    return [EffectSpec("exile", {"target_kind": kind, **_optional_param(m)})]
+    params: dict = {"target_kind": kind, **_optional_param(m)}
+    #: "exile target red, white, or black creature card from your graveyard"
+    #: (Offspring's Revenge) — `TargetSpec.colors`' OR narrowing on a
+    #: graveyard-card target, the N-colour sibling of `_exile_target_two_color`.
+    colors = _color_word_list(m.groupdict().get("colors"))
+    if colors:
+        params["colors"] = colors
+    elif m.groupdict().get("colors"):
+        return None  # a colour list we couldn't resolve — fail closed
+    return [EffectSpec("exile", params)]
 
 
 #: "exile target player's graveyard." (Bojuka Bog) / "exile all cards from
@@ -5770,6 +5804,34 @@ def _cant_attack_or_block_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("grant_until", {
         "static": {"type": "grant_keyword", "params": {"keywords": [flag]}},
         "duration": duration, "target_kind": kind,
+    })]
+
+
+#: "It gains haste until your next turn." (Offspring's Revenge) — the
+#: previous-subject sibling of the `_SUBJECT`-anchored `grant_until` row
+#: below: the "it" is whatever the preceding clause created/targeted (here,
+#: the just-made token copy), so it rides `EffectHandler.previous_subject_
+#: only` + `previous_subject: True` exactly like `_lockdown` /
+#: `_return_to_hand_previous`, not a fresh `TargetSpec`.
+_GRANT_UNTIL_PREVIOUS_RE = _c(
+    rf"{_THEN}{_PREVIOUS_SUBJECT} gains? (?P<kw>[a-z, ]+?) "
+    r"(?P<dur>until (?:your next turn|the end of combat|end of combat|"
+    r"the beginning of the next end step))"
+)
+
+
+def _grant_until_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None
+    duration = _GRANT_DURATIONS.get(m.group("dur").strip().lower())
+    if duration is None:
+        return None
+    return [EffectSpec("grant_until", {
+        "static": {"type": "grant_keyword", "params": {"keywords": keywords}},
+        "duration": duration,
+        "previous_subject": True,
+        "target_kind": None,
     })]
 
 
@@ -9600,6 +9662,15 @@ HANDLERS: list[EffectHandler] = [
             r"the beginning of the next end step))"
         ),
         _grant_until,
+    ),
+    # The same grant on a *previous* clause's subject ("It gains haste until
+    # your next turn." — Offspring's Revenge). Ordered after the `_SUBJECT`
+    # row: that one's `_SUBJECT` never matches a bare "it", so no collision.
+    EffectHandler(
+        "grant_until_previous",
+        _GRANT_UNTIL_PREVIOUS_RE,
+        _grant_until_previous,
+        previous_subject_only=True,
     ),
     # PAR-13: the P/T sibling of the row above — "target creature gets
     # -4/-0 until your next turn"/"creatures your opponents control get
