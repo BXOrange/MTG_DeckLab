@@ -1425,6 +1425,18 @@ def legal_targets(
             and o.attached_to is not None
             and _targetable_by(o, source)
         ]
+    if kind == "equipment_attached_to_source":
+        # "destroy target Equipment attached to **it**" — "it" is this
+        # ability's own source (Shackles of Treachery's granted trigger:
+        # the creature it handed the quoted ability to).
+        src_id = getattr(source, "instance_id", None)
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if "equipment" in o.card.type_line.lower()
+            and src_id is not None and o.attached_to == src_id
+            and _targetable_by(o, source)
+        ]
     if kind == "equipment_you_control":
         return [
             {"instance_id": o.instance_id, "name": o.name}

@@ -7557,9 +7557,15 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         creature_filter: Optional[dict] = None,
         count_selector: Optional[str] = None,
         mass_of_target_player: Optional[str] = None,
+        mark_no_sacrifice: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "You can't sacrifice those creatures this turn." (Call for Aid) —
+        #: stamp `GameObject.cant_be_sacrificed_this_turn` on every creature
+        #: this effect takes control of, so the anti-abuse rider needs no
+        #: separate "which objects" plumbing.
+        self.mark_no_sacrifice = mark_no_sacrifice
         #: "Gain control of all creatures/artifacts **target opponent**
         #: controls until end of turn." (Call for Aid, Ashiok Sculptor of
         #: Fears, Tezzeret Master of Metal) — a RULE 115 *player* target
@@ -7607,6 +7613,8 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         context.set_tapped(target, tapped=False)
         if self.haste:
             target.temp_keywords.add("haste")
+        if self.mark_no_sacrifice:
+            target.cant_be_sacrificed_this_turn = True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         controller = _controller_of(self.source, context)
@@ -7640,6 +7648,29 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         for target in chosen:
             self._take(context, target, controller)
         context.recompute()
+
+
+class PreventAttackingPlayerThisTurnEffect(GameEffect):
+    """"You can't attack that player this turn." (Call for Aid) — RULE
+    508.1a, for the rest of the turn. "That player" is this effect's own
+    shared RULE 115 target (no `target_spec` of its own — it reads the
+    ability's `targets` list, which a `target_groups=None` ability passes
+    whole to every sub-effect, the same idiom `ConditionalEffect` uses);
+    "you" is the ability's controller. Records the ``(you, them)`` pair on
+    `GameState.no_attack_pairs_this_turn`, swept at cleanup.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        target = (targets or [None])[0]
+        them_id = getattr(target, "id", None)
+        if controller is None or them_id is None:
+            return
+        context.state.no_attack_pairs_this_turn.add((controller.id, them_id))
 
 
 class GainControlBySourceEffect(GameEffect):
@@ -18707,7 +18738,18 @@ EffectRegistry.register(
         selector=p.get("selector"), creature_filter=p.get("creature_filter"),
         count_selector=p.get("count_selector"),
         mass_of_target_player=p.get("mass_of_target_player"),
+        mark_no_sacrifice=bool(p.get("mark_no_sacrifice", False)),
     ),
+)
+EffectRegistry.register(
+    # "You can't attack that player this turn." (Call for Aid) — "that
+    # player" is this effect's own shared RULE 115 target (the opponent
+    # whose creatures were taken); "you" is the ability's controller. Bars
+    # the pair in `GameState.no_attack_pairs_this_turn` for the rest of the
+    # turn; no `target_spec` of its own (it reads `targets[0]`, the same
+    # "no target_spec, sees the shared list" idiom `ConditionalEffect` uses).
+    "prevent_attacking_player_this_turn",
+    lambda p: PreventAttackingPlayerThisTurnEffect(),
 )
 EffectRegistry.register("return_linked_exile", lambda p: ReturnLinkedExileEffect())
 EffectRegistry.register("return_all_exiled_with", lambda p: ReturnAllExiledWithEffect())

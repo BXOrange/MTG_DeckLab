@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.3% covered — 13,329 / 34,811 — as of 2026-09-01, PARSER_VERSION 202.**
+**38.4% covered — 13,352 / 34,811 — as of 2026-09-01, PARSER_VERSION 204.**
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -681,6 +681,38 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+204 = PAR-30 (Threaten / O-Ring trailing items, bullet fully closed) — the
+last two singletons. **Call for Aid**: the two anti-abuse riders on the
+mass gain-control body — "you can't sacrifice those creatures this turn"
+(`GainControlUntilEndOfTurnEffect.mark_no_sacrifice` → `GameObject.cant_be_
+sacrificed_this_turn`, checked at every sacrifice candidate site, cleared
+at cleanup) and "you can't attack that player this turn" (new
+`PreventAttackingPlayerThisTurnEffect` → `GameState.no_attack_pairs_this_
+turn`, enforced in `GameEngine._can_attack` against the assigned defender).
+**Shackles of Treachery**: `_DAMAGE_TRIGGER_RE` now accepts a bare "deals
+damage" (whole "to <recipient>" clause optional; empty filter = any damage
+instance), plus a new `equipment_attached_to_source` target kind +
+`_destroy_equipment_attached_to_it` handler for the granted quoted
+trigger's "destroy target Equipment attached to it". +2.
+
+203 = PAR-30 (Threaten / O-Ring trailing items) — three of the five. **"When
+you cast this spell, `<effect>`."** (RULE 601.2i) —
+`_CAST_THIS_SPELL_TRIGGER_RE` → `trigger={"event": "SPELL_CAST",
+"condition": {"subject": "self"}}`, body `self_subject`; the engine side
+was already MEC-43 (`_collect_self_cast_triggers` +
+`TriggeredAbility.functions_from_stack`). +15 (Flayer of Loyalties, the
+Emerge/Emrakul-brood cycle, Artisan of Kozilek, Decimator of the
+Provinces, World Breaker, Desolation Twin …). **"enters or transforms into
+~"** (Brutal Cathar) — new `EventType.TRANSFORMED` fired by
+`RulesEngine.transform_permanent` after the flip + rebind;
+`_SELF_MULTI_EVENT_RE` accepts "transforms into ~" as a verb slot → the
+existing event-list shape. +5 (Huntmaster of the Fells, Ulrich of the
+Krallenhorde, Ashling Rekindled, Brigid Clachan's Heart). **"when ~ enters
+and at the beginning of your first main phase"** (Crack in Time) —
+`_ENTERS_AND_MAIN_PHASE_RE` → self `ENTERS_BATTLEFIELD` + controller-scoped
+`STEP_BEGIN` (`{"step":"main1"}`, `phase_relation="you"`) + O-Ring
+LEAVES_BATTLEFIELD return. +1.
 
 202 = PAR-30 (Threaten / O-Ring residue, closed) — the *old two-sentence*
 Oblivion Ring templating: `_return_exiled_card` claims a standalone

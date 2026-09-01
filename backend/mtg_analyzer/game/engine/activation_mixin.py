@@ -782,6 +782,8 @@ class ActivationMixin:
             obj
             for obj in self.state.permanents_controlled_by(player.id)
             if self._matches_sacrifice_type(obj, what)
+            # "You can't sacrifice those creatures this turn." (Call for Aid)
+            and not obj.cant_be_sacrificed_this_turn
         ]
         if chosen_id is not None:
             return next((o for o in candidates if o.instance_id == chosen_id), None)
@@ -814,6 +816,7 @@ class ActivationMixin:
             obj
             for obj in self.state.permanents_controlled_by(player.id)
             if self._matches_sacrifice_type(obj, cost.sacrifice)
+            and not obj.cant_be_sacrificed_this_turn
         ]
         return {
             "options": [{"instance_id": o.instance_id, "name": o.name} for o in candidates]

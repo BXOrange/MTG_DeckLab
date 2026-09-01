@@ -1026,6 +1026,11 @@ class GameObject:
         #: than an evasion grant on the attacker, read directly by
         #: `GameEngine.can_block` and cleared at cleanup (RULE 514.2).
         self.temp_cant_block: bool = False
+        #: "You can't sacrifice those creatures this turn." (Call for Aid —
+        #: an anti-abuse rider on a mass threaten). Checked by
+        #: `RulesEngine.sacrifice` / `GameEngine._sacrifice_candidate`;
+        #: cleared at cleanup (RULE 514.2) alongside `temp_keywords`.
+        self.cant_be_sacrificed_this_turn: bool = False
         #: "~ can't be blocked by creatures with power 2 or less **this
         #: turn**" (Cavern Stomper/Tower of Coireall) — the resolve-time
         #: sibling of `_combat_restrictions`, in the same

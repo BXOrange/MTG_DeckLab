@@ -515,6 +515,8 @@ class DamageDeathMixin:
             obj
             for obj in self.state.permanents_controlled_by(player.id)
             if _matches_permanent_type(obj, what)
+            # "You can't sacrifice those creatures this turn." (Call for Aid)
+            and not obj.cant_be_sacrificed_this_turn
         ]
         if count == "all_but_one":
             count = max(0, len(candidates) - 1)

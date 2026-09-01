@@ -781,6 +781,9 @@ class TurnLoopMixin:
             if obj.temp_cant_block:
                 obj.temp_cant_block = False
                 ended_effects = True
+            if obj.cant_be_sacrificed_this_turn:
+                obj.cant_be_sacrificed_this_turn = False  # Call for Aid rider
+                ended_effects = True
             if obj.temp_combat_restrictions:
                 obj.temp_combat_restrictions.clear()
                 ended_effects = True
@@ -825,6 +828,9 @@ class TurnLoopMixin:
         # when it lapses (`game/durations.py`).
         if durations.sweep(self.state, "cleanup"):
             ended_effects = True
+        # "You can't attack that player this turn." (Call for Aid) — RULE
+        # 514.2, a state-level "this turn" bar rather than a per-object one.
+        self.state.no_attack_pairs_this_turn.clear()
         if ended_effects:
             self.recompute_continuous_effects()  # re-derive P/T sans the pumps
         # RULE 514.2 analogue: an unused (or partially-spent) turn-scoped

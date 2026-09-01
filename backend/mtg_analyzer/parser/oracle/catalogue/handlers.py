@@ -1880,6 +1880,19 @@ def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("destroy", params)]
 
 
+#: "destroy target Equipment attached to it" — Shackles of Treachery's own
+#: granted quoted trigger ("whenever this creature deals damage, …"), where
+#: "it" is the granted-to creature, i.e. this ability's source
+#: (`targeting.legal_targets`' new ``equipment_attached_to_source`` kind).
+_DESTROY_EQUIPMENT_ATTACHED_TO_IT_RE = _c(
+    r"destroy target equipment attached to it"
+)
+
+
+def _destroy_equipment_attached_to_it(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("destroy", {"target_kind": "equipment_attached_to_source"})]
+
+
 #: "exile target `<c1>` or `<c2>` creature/permanent[ you don't control]"
 #: (Celestial Purge) — `TargetSpec.colors`' OR narrowing, the
 #: `_pump_target_two_color` / `_destroy_color_adj` sibling. The shared
@@ -3749,32 +3762,56 @@ def _gain_control_eot_per_opponent(m: re.Match[str]) -> list[EffectSpec]:
 #: control of all <type> [your opponents / target opponent] control[s] until
 #: end of turn. Untap them. They gain haste until end of turn." (Broadcast
 #: Takeover — artifacts, all opponents; Call for Aid — creatures, one
-#: targeted opponent). A whole-body match like its siblings above; the
-#: untap/haste restatement is the same "the effect already does this" tail.
+#: targeted opponent, + the two anti-abuse riders below). A whole-body
+#: match like its siblings above; the untap/haste restatement is the same
+#: "the effect already does this" tail.
 _GAIN_CONTROL_MASS_EOT_RE = _c(
     r"gain control of all (?P<mtype>creatures|artifacts|nonland permanents|permanents) "
     r"(?P<who>your opponents control|target opponent controls) until end of turn\.\s*"
     r"untap (?:them|those creatures|those permanents|those artifacts)\.\s*"
     r"they gain haste until end of turn"
+    r"(?P<riders>(?:\.\s*you can'?t [^.]+)*)\.?"
 )
 
 _MASS_OPPONENT_SELECTORS: dict[str, str] = {
     "creatures": "opponents_creatures",
     "artifacts": "opponents_artifacts",
 }
+_MASS_NO_SAC_RE = re.compile(
+    r"you can'?t sacrifice (?:those creatures|them) this turn", re.IGNORECASE
+)
+_MASS_NO_ATTACK_RE = re.compile(
+    r"you can'?t attack that player this turn", re.IGNORECASE
+)
 
 
 def _gain_control_mass_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     mtype = m.group("mtype")
+    riders = (m.groupdict().get("riders") or "").strip()
+    no_sac = bool(_MASS_NO_SAC_RE.search(riders))
+    no_attack = bool(_MASS_NO_ATTACK_RE.search(riders))
+    # Fail closed if a rider sentence is present that isn't one of the two
+    # we model (RULE never-half-model).
+    leftover = _MASS_NO_SAC_RE.sub("", _MASS_NO_ATTACK_RE.sub("", riders))
+    if re.sub(r"[.\s]", "", leftover):
+        return None
+
     if m.group("who") == "target opponent controls":
         # One RULE 115 opponent target, then every creature/artifact that
         # player controls (`GainControlUntilEndOfTurnEffect.mass_of_target_
         # player`). Only the two real printed type words.
         if mtype not in ("creatures", "artifacts"):
             return None
-        return [EffectSpec("gain_control_until_eot", {
-            "target_kind": "opponent", "mass_of_target_player": mtype[:-1],
-        })]
+        params: dict = {"target_kind": "opponent", "mass_of_target_player": mtype[:-1]}
+        if no_sac:
+            params["mark_no_sacrifice"] = True
+        out = [EffectSpec("gain_control_until_eot", params)]
+        if no_attack:
+            out.append(EffectSpec("prevent_attacking_player_this_turn", {}))
+        return out
+
+    if no_sac or no_attack:
+        return None  # the riders name "that player" — only the targeted form
     sel = _MASS_OPPONENT_SELECTORS.get(mtype)
     if sel is None:
         return None  # "permanents" — no `opponents_permanents` selector, fail closed
@@ -8795,6 +8832,13 @@ HANDLERS: list[EffectHandler] = [
         "destroy",
         _c(rf"destroy {TARGET}" + IF_COLOR_SUFFIX),
         _destroy,
+    ),
+    # "destroy target Equipment attached to it" (Shackles of Treachery's
+    # granted quoted trigger — "it" is the ability's own source).
+    EffectHandler(
+        "destroy_equipment_attached_to_it",
+        _DESTROY_EQUIPMENT_ATTACHED_TO_IT_RE,
+        _destroy_equipment_attached_to_it,
     ),
     # "destroy two target creatures" / "destroy up to two target artifacts
     # and/or enchantments" (RULE 115.1a generalized to N>=2 — Curtains'

@@ -770,6 +770,16 @@ class CombatMixin:
             # "~ can't attack unless <condition>." — the parameterized
             # sibling of that flag (`GameObject.combat_restrictions`).
             and self._attack_conditions_ok(obj, player, defending_player)
+            # "You can't attack that player this turn." (Call for Aid) —
+            # RULE 508.1a, a player-pair bar. Only enforced once a defender
+            # is actually assigned (offer-time, with `defending_player`
+            # None, stays permissive — the player may still have another
+            # legal opponent to swing at).
+            and not (
+                defending_player is not None
+                and (player.id, getattr(defending_player, "id", None))
+                in self.state.no_attack_pairs_this_turn
+            )
         )
     def _attack_conditions_ok(
         self, obj: GameObject, player: Player, defending_player: Optional[Player]

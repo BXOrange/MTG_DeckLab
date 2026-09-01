@@ -735,6 +735,13 @@ class GameState:
         #: read by `continuous.count_selector`'s ``"cards_discarded_this_
         #: turn"``.
         self.cards_discarded_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: "You can't attack that player this turn." (Call for Aid) —
+        #: ``(attacker_player_id, defending_player_id)`` pairs barred from
+        #: combat for the rest of this turn (RULE 508.1a). Checked by
+        #: `GameEngine._can_attack` against the *assigned* defender only
+        #: (offer-time, with no defender yet, stays permissive); cleared at
+        #: cleanup (RULE 514.2).
+        self.no_attack_pairs_this_turn: set[tuple[str, str]] = set()
         #: The *specific objects* drawn by each player this turn (Sylvan
         #: Library, MEC-40 — "choose two cards in your hand drawn this
         #: turn"), unlike `cards_drawn_this_turn`'s own plain count above:

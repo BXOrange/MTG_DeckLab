@@ -1979,7 +1979,20 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Time — `_ENTERS_AND_MAIN_PHASE_RE`): one self `ENTERS_BATTLEFIELD` spec +
 #: one controller-scoped `STEP_BEGIN` (`filter={"step":"main1"}`,
 #: `phase_relation="you"`) + the O-Ring companion LEAVES_BATTLEFIELD return.
-PARSER_VERSION = "203"
+#: "204": PAR-30 (Threaten / O-Ring trailing items — closed) — the last two
+#: singletons. **Call for Aid**: the mass gain-control body's two
+#: anti-abuse riders — "you can't sacrifice those creatures this turn"
+#: (`GainControlUntilEndOfTurnEffect.mark_no_sacrifice` → `GameObject.cant_
+#: be_sacrificed_this_turn`, checked at every sacrifice candidate site,
+#: cleared at cleanup) and "you can't attack that player this turn" (new
+#: `PreventAttackingPlayerThisTurnEffect` → `GameState.no_attack_pairs_
+#: this_turn`, enforced in `GameEngine._can_attack` against the assigned
+#: defender). **Shackles of Treachery**: `_DAMAGE_TRIGGER_RE` now accepts a
+#: bare "deals damage" (no "to a …" — any damage instance, empty filter),
+#: and a new `equipment_attached_to_source` target kind + `_destroy_
+#: equipment_attached_to_it` handler cover the granted quoted trigger's
+#: "destroy target Equipment attached to it". +2.
+PARSER_VERSION = "204"
 
 
 def parser_source_hash() -> str:

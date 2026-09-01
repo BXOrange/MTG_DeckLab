@@ -718,12 +718,15 @@ _DAMAGE_TRIGGER_RE = re.compile(
     r"|(?P<article>another|an|a) (?P<goaded>goaded )?(?P<type>"
     + "|".join(_GROUP_TYPE_WORDS) + r")"
     r"(?P<yours> you control)?"
-    r") deals (?P<combat>combat )?damage to (?:an?|1 of your) (?P<recipient>player|opponent|creature)s?"
     # RULE 310: "…to a player or battle" (Furnace Reins-shaped) — the battle
     # case rides the same ``{"is_player": true}`` DAMAGE filter (a documented
     # simplification: the far commoner player-damage firing is exact; battle
-    # damage as an extra trigger source isn't separately modelled).
-    r"(?: or battle)?,"
+    # damage as an extra trigger source isn't separately modelled). The whole
+    # "to <recipient>" is optional: a bare "deals damage" (Shackles of
+    # Treachery's granted trigger) matches *any* damage instance, so the
+    # dispatch below omits the ``is_player`` key entirely in that case.
+    r") deals (?P<combat>combat )?damage"
+    r"(?: to (?:an?|1 of your) (?P<recipient>player|opponent|creature)s?(?: or battle)?)?,"
     r"\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
@@ -3538,9 +3541,11 @@ def segment_line(
         # the "yours" narrowing is a separate question this filter's
         # ``is_player`` key doesn't express, and no shipped card's behaviour
         # differs on it, so both spell it the same way.
-        damage_filter: dict[str, Any] = {
-            "is_player": damage_trig.group("recipient") in ("player", "opponent")
-        }
+        damage_filter: dict[str, Any] = {}
+        if damage_trig.group("recipient"):
+            damage_filter["is_player"] = (
+                damage_trig.group("recipient") in ("player", "opponent")
+            )
         if damage_trig.group("combat"):
             damage_filter["combat"] = True
         if damage_trig.group("self"):

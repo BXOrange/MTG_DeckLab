@@ -146,40 +146,6 @@ Plan-level sequencing lives in
       Bending Prodigy — "her" pronoun; Waterbender Ascension — quest
       counters; Hama — alt-cast by waterbending; Aang's Iceberg — O-Ring).
 
-  - **Threaten / O-Ring trailing items — the `gain_control_until_eot` /
-    exile-until-leaves grammar residue is DONE (PARSER_VERSION 199–202, see
-    `Done_Backend.md`).** The rich restatement tails (extra keywords, quoted
-    granted ability, "becomes a `<subtype>`", base P/T — Firbolg Flutist,
-    Traitorous Blood, Furnace Reins, Loki's Scepter), the opponent-scoped
-    mass form (Broadcast Takeover, + `mass_of_target_player`), the
-    card-specific conditional after-tails (Goatnap, Awaken the Sleeper,
-    Driftgloom Coyote) and the old two-sentence Oblivion Ring templating
-    (Oblivion Ring, Journey to Nowhere, Faceless Butcher, Fiend Hunter,
-    Petravark, Petradon, Slithery Stalker, …) all shipped. What's left is
-    one distinct primitive per card, not loose parser ends:
-    - **"When you cast this spell, `<effect>`."** — a `SPELL_CAST`
-      self-trigger that resolves *above* the spell on the stack (RULE
-      601.2i). ~61 SOLO cache cards (Abundant Maw, Artisan of Kozilek,
-      Bruna the Fading Light, Decimator of the Provinces, the Emrakul-brood
-      "cast" cycle …) — its own MEC-scale ticket, not a threaten item;
-      Flayer of Loyalties (whose threaten body already parses at v200) is
-      one of them.
-    - **Brutal Cathar** — "whenever ~ enters **or transforms into** ~": no
-      `TRANSFORMED` engine event yet to bind the second half to
-      (`game/ability_catalogue/entries_008.py` notes the gap).
-    - **Crack in Time** — "when ~ enters **and at the beginning of your
-      first main phase**": a compound ETB + phase-step trigger; the
-      existing compound-trigger recognizer is hardcoded to planeswalk +
-      upkeep.
-    - **Call for Aid** — the mass gain-control body parses (v200,
-      `mass_of_target_player`), but its two anti-abuse riders ("you can't
-      attack that player this turn" / "you can't sacrifice those creatures
-      this turn") have no primitive; 1 cache card.
-    - **Shackles of Treachery** — quoted "whenever ~ deals damage, destroy
-      target Equipment attached to it": the quoted-ability sub-parser
-      recognises neither a bare "deals damage" trigger nor an "Equipment
-      attached to it" target; 1 cache card.
-
   - **Incubate (RULE 701.53) residue — the dynamic-amount grammar is
     DONE.** "…where X is its power" (v160), "its controller incubates X,
     where X is its mana value" + "…the number of creatures exiled this
