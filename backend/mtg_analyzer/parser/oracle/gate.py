@@ -1955,7 +1955,31 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Journey to Nowhere, Faceless Butcher, Fiend Hunter, Petravark, Petradon,
 #: Slithery Stalker, The Princess Takes Flight, Eldrazi Displacer,
 #: Driftgloom Coyote).
-PARSER_VERSION = "202"
+#: "203": PAR-30 (Threaten / O-Ring trailing items) — RULE 601.2i "When you
+#: cast this spell, `<effect>`." recognizer (`_CAST_THIS_SPELL_TRIGGER_RE`
+#: in `segmenter`) → `AbilitySpec("triggered", …, trigger={"event":
+#: "SPELL_CAST", "condition": {"subject": "self"}})`. The engine side is
+#: MEC-43 (`RulesEngine._collect_self_cast_triggers` +
+#: `TriggeredAbility.functions_from_stack`, both keyed off exactly that
+#: shape) — only the parser recognizer was missing. Body parsed
+#: ``self_subject`` so a bare "it" means this spell. +15 (Flayer of
+#: Loyalties, the Emerge/Emrakul-brood cycle — Elder Deep-Fiend, Vexing
+#: Scuttler, Wretched Gryff …, Artisan of Kozilek, Decimator of the
+#: Provinces, World Breaker, Desolation Twin). Also the "enters **or
+#: transforms into** ~" compound trigger (Brutal Cathar): new
+#: `EventType.TRANSFORMED` (fired by `RulesEngine.transform_permanent`
+#: after the flip + rebind), `_SELF_MULTI_EVENT_RE` accepts "transforms
+#: into ~" as a verb slot → the existing `event`-list-of-two shape (one
+#: `TriggeredAbility` per event, `_SUBJECT_EVENT_KEYS`' default self
+#: scoping matches TRANSFORMED's `instance_id`; the face-name gate is
+#: implicit — the ability only exists on the object while it's that face).
+#: +5 more (Huntmaster of the Fells, Ulrich of the Krallenhorde, Ashling
+#: Rekindled, Brigid Clachan's Heart). Also the compound "when ~ enters
+#: **and at the beginning of your first main phase**" trigger (Crack in
+#: Time — `_ENTERS_AND_MAIN_PHASE_RE`): one self `ENTERS_BATTLEFIELD` spec +
+#: one controller-scoped `STEP_BEGIN` (`filter={"step":"main1"}`,
+#: `phase_relation="you"`) + the O-Ring companion LEAVES_BATTLEFIELD return.
+PARSER_VERSION = "203"
 
 
 def parser_source_hash() -> str:

@@ -372,6 +372,16 @@ class EventType:
     #: 603.1's ordinary self/group subject scoping. Not fired by RULE 708.9's
     #: "reveal it as it changes zones" — that's a reveal, not a turn-face-up.
     TURNED_FACE_UP = "TURNED_FACE_UP"
+    #: RULE 712.8: a double-faced permanent just **transformed** to its
+    #: other face — carries the (already-flipped) permanent's ``instance_
+    #: id``/``controller_id``/``object_types`` and ``face_name`` (the name
+    #: of the face it transformed *into*), so "whenever ~ transforms into
+    #: `<name>`, …" (Brutal Cathar, the front-face-gated werewolf trigger
+    #: family) rides RULE 603.1's ordinary self-subject scoping plus a name
+    #: match. Fired by `RulesEngine.transform_permanent` after the flip +
+    #: rebind, both for an explicit `transform` effect and for a day/night
+    #: forced transform (`_transform_mismatched_daynight_permanents`).
+    TRANSFORMED = "TRANSFORMED"
     #: RULE 702.112b: a creature just became renowned (its Renown N ability
     #: fired for the first, only time) — carries ``instance_id``, so a
     #: card's own separate "when this creature becomes renowned, …" trigger

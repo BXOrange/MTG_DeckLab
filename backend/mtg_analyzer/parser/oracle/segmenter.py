@@ -133,11 +133,39 @@ _VERB_ALT = "|".join(re.escape(verb) for verb, _ in _TRIGGER_VERBS)
 #: bind_ability` builds one `TriggeredAbility` per listed event, each with
 #: its own freshly-bound effects (never sharing effect instances across the
 #: two abilities).
+#: RULE 712.8: "transforms into ~" is a self-subject firing condition with
+#: no bare-verb spelling — it always names the face transformed *into* (a
+#: DFC front face, folded to "~" by `normalize`). The `TRANSFORMED` engine
+#: event (fired by `RulesEngine.transform_permanent`) carries the object's
+#: own `instance_id`, so `_SUBJECT_EVENT_KEYS`' default self scoping matches
+#: it exactly like `ENTERS_BATTLEFIELD`; the face-name gate is implicit —
+#: the trigger only *exists* on the object while it's that face (abilities
+#: are rebound per face).
+_MULTI_EVENT_VERB_ALT = _VERB_ALT + r"|transforms into ~"
+_MULTI_EVENT_EXTRA = {"transforms into ~": "TRANSFORMED"}
 _SELF_MULTI_EVENT_RE = re.compile(
     r"^(?:~|this (?:creature|artifact|enchantment|land|permanent|equipment))\s+"
-    rf"(?P<v1>{_VERB_ALT})(?:\s+the\s+battlefield)?"
+    rf"(?P<v1>{_MULTI_EVENT_VERB_ALT})(?:\s+the\s+battlefield)?"
     r"\s+or\s+"
-    rf"(?P<v2>{_VERB_ALT})(?:\s+the\s+battlefield)?$"
+    rf"(?P<v2>{_MULTI_EVENT_VERB_ALT})(?:\s+the\s+battlefield)?$"
+)
+
+
+def _multi_event_name(token: str) -> str:
+    return _MULTI_EVENT_EXTRA.get(token.lower(), _VERB_EVENTS.get(token.lower(), ""))
+
+
+#: "When ~ enters **and at the beginning of your first main phase**, …"
+#: (Crack in Time — a Vanishing enchantment that re-exiles each of its own
+#: upcoming main phases). Two firing conditions with *different* triggers:
+#: a self-subject `ENTERS_BATTLEFIELD` and a controller-scoped `STEP_BEGIN`
+#: filtered to the precombat main step — handled the same one-spec-per-event
+#: way as `_VARIANT_TRIGGER_CONDITIONS`' compound plane template, since the
+#: phase half's `{"step": …}` filter can't ride the enters half's payload.
+_ENTERS_AND_MAIN_PHASE_RE = re.compile(
+    r"^(?:~|this (?:creature|artifact|enchantment|permanent))\s+enters"
+    r" and at the beginning of your (?:first main phase|precombat main phase)$",
+    re.IGNORECASE,
 )
 
 #: RULE 9's casual-variant trigger conditions — the fixed phrasings a plane
@@ -420,6 +448,20 @@ _CAST_SPELL_TRIGGER_PLAIN_RE = re.compile(
     # matching engine gate, so it's deliberately left out (fail-closed).
     r"(?P<opp_turn> during an opponent'?s turn)?,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
+)
+
+#: RULE 601.2i: "When you cast this spell, `<effect>`." — a self-referential
+#: cast trigger, meant to fire *while its own spell is still on the stack*
+#: (it resolves above the spell). The engine side is done (MEC-43):
+#: `RulesEngine._collect_self_cast_triggers` scans stack items for a
+#: `SPELL_CAST` trigger scoped ``{"subject": "self"}`` and
+#: `effect_binder.bind_ability` sets `TriggeredAbility.functions_from_stack`
+#: off exactly that shape — only the parser recognizer was missing. The
+#: Emrakul-brood "cast" cycle, Bringer cycle, Distended Mindbender &c.; the
+#: body is parsed ``self_subject`` so a bare "it"/"copy it" means this
+#: spell.
+_CAST_THIS_SPELL_TRIGGER_RE = re.compile(
+    r"^when you cast this spell,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
 )
 
 #: RULE 601.2h's "free spell" hate: "Whenever a player casts a spell, if no
@@ -3270,6 +3312,22 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    cast_this_spell_trig = _CAST_THIS_SPELL_TRIGGER_RE.match(raw)
+    if cast_this_spell_trig is not None:
+        body, optional = _peel_optional(cast_this_spell_trig.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={"event": "SPELL_CAST", "condition": {"subject": "self"}},
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     draw_trig_plain = _DRAW_TRIGGER_PLAIN_RE.match(raw)
     if draw_trig_plain is not None:
         subj = draw_trig_plain.group("subj").lower()
@@ -4167,6 +4225,47 @@ def segment_line(
             )
             return Segment(raw=raw, spec=spec, claimed=True)
 
+        enters_and_phase = _ENTERS_AND_MAIN_PHASE_RE.match(cond_text.strip())
+        if enters_and_phase is not None:
+            body, optional = _peel_optional(trig.group("body"))
+            effects = parse_effect_body(body, self_subject=True)
+            if effects is None:
+                return Segment(raw=raw)
+            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+            eap_limit = limit or body_limit
+            eap_specs: list[AbilitySpec] = []
+            for trig_dict in (
+                {"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+                {"event": "STEP_BEGIN", "filter": {"step": "main1"},
+                 "phase_relation": "you"},
+            ):
+                if eap_limit:
+                    trig_dict["limit"] = True
+                eap_specs.append(AbilitySpec(
+                    "triggered",
+                    effects=[EffectSpec(e.type, dict(e.params), condition=e.condition)
+                             for e in effects],
+                    trigger=trig_dict,
+                    optional=optional,
+                    raw_text=raw,
+                    parser=provenance,
+                ))
+            # O-Ring body ("exile … until ~ leaves") wants a companion
+            # LEAVES_BATTLEFIELD return, exactly as the single-trigger path
+            # below synthesizes it.
+            if any(e.type == "exile" and e.params.get("until_source_leaves")
+                   for e in effects):
+                eap_specs.append(AbilitySpec(
+                    "triggered",
+                    effects=[EffectSpec("return_linked_exile", {})],
+                    trigger={"event": "LEAVES_BATTLEFIELD", "condition": {"subject": "self"}},
+                    raw_text=raw,
+                    parser=provenance,
+                ))
+            return Segment(
+                raw=raw, spec=eap_specs[0], extra_specs=eap_specs[1:], claimed=True,
+            )
+
         variant_event = _variant_trigger_event(cond_text)
         if variant_event is not None:
             body, optional = _peel_optional(trig.group("body"))
@@ -4255,7 +4354,9 @@ def segment_line(
             condition: Optional[dict[str, Any]] = {"subject": "self"}
             defender_lands_min = int(atk_lands.group("n"))
         elif multi is not None:
-            event = [_VERB_EVENTS[multi.group("v1")], _VERB_EVENTS[multi.group("v2")]]
+            event = [_multi_event_name(multi.group("v1")), _multi_event_name(multi.group("v2"))]
+            if not all(event):
+                return Segment(raw=raw)  # an unrecognised verb → fail closed
             condition = {"subject": "self"}
         else:
             event = _trigger_event(cond_text)

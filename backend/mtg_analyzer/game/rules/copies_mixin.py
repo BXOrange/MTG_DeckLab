@@ -509,6 +509,20 @@ class CopiesMixin:
         obj.intrinsic_keywords = set()
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
+        # RULE 712.8: "whenever ~ transforms into <name>, …" (Brutal Cathar).
+        # Fired after the flip + rebind so the freshly-bound trigger is
+        # already attached and the payload names the *new* face.
+        if obj in self.state.battlefield:
+            self.state.fire_event(
+                GameEvent(
+                    EventType.TRANSFORMED,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    controller_id=obj.controller_id,
+                    object_types=sorted(obj.type_words),
+                    face_name=obj.name,
+                )
+            )
         return True
     def turn_face_down(self, obj: GameObject, kind: str) -> None:
         """Turn ``obj`` face down as ``kind`` (RULE 708.2 — ``"morph"``/
