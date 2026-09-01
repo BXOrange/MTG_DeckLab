@@ -2260,12 +2260,21 @@ def _sacrifice_self(m: re.Match[str]) -> list[EffectSpec]:
 #:   cost; `parse_activation_cost` would quietly drop the multiplier.
 #: * "discard a card **at random**" — the engine's `discard` auto-picks and
 #:   has no random mode, so claiming it would misrepresent the card.
+#: * "discard a **`<type>`** card" (Body Snatcher's "discard a creature
+#:   card") — `parse_activation_cost` returns a *free* cost for a typed
+#:   discard, which would read as "pay nothing".
 #: * "sacrifice **four** creatures" — `ActivationCost.sacrifice` is one
 #:   permanent.
+#:
+#: "discard **N** cards" (a plain count — Avatar of Discord's "discard 2
+#: cards", Skull of Orm) *is* included: `parse_activation_cost` reads the
+#: count correctly and `_pay_player_cost` honours `cost.discard` as a
+#: number.
 _UNLESS_COST = (
     r"(?:pay (?:\{[^{}]+\})+"
     r"|pay \d+ life"
     r"|discard a card"
+    r"|discard (?:\d+|two|three|four) cards"
     r"|sacrifice (?:a|another) (?:creature|permanent|artifact|enchantment|land))"
 )
 _SACRIFICE_UNLESS_PAY_RE = _c(
@@ -2290,6 +2299,38 @@ _DESTROY_UNLESS_PAY_RE = _c(
 
 def _destroy_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("destroy_unless_pay", {"cost": m.group("cost")})]
+
+
+#: "Tap ~ unless you pay `<cost>`." / "Exile ~ unless you pay `<cost>`." —
+#: the tap/exile consequence siblings of `_SACRIFICE_UNLESS_PAY_RE` (RULE
+#: 118.3 "unless" payment). Carnophage/Sangrophage/Heavyweight Demolisher
+#: ("tap ~ unless you pay `<mana/life/energy>`"), Body Snatcher/Demonlord of
+#: Ashmouth ("exile it unless you sacrifice another creature"). Modeled via
+#: `pay_cost_then` with an empty pay-branch and the tap/exile in
+#: ``else_effects`` — paying costs the resource and nothing happens, else
+#: the source is tapped/exiled. Same closed `_UNLESS_COST` vocabulary as
+#: the sacrifice/destroy handlers, widened here with "pay {e}" (already
+#: covered by the mana alternation) — nothing extra needed.
+_TAP_UNLESS_PAY_RE = _c(
+    rf"tap {_SELF_SUBJECT} unless you (?P<cost>{_UNLESS_COST})"
+)
+_EXILE_UNLESS_PAY_RE = _c(
+    rf"exile {_SELF_SUBJECT} unless you (?P<cost>{_UNLESS_COST})"
+)
+
+
+def _tap_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pay_cost_then", {
+        "cost": m.group("cost"), "effects": [],
+        "else_effects": [{"type": "tap", "params": {"target_kind": None}}],
+    })]
+
+
+def _exile_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pay_cost_then", {
+        "cost": m.group("cost"), "effects": [],
+        "else_effects": [{"type": "exile", "params": {"target_kind": None}}],
+    })]
 
 
 #: "Exile ~."/"Exile this card." (Teferi's Protection/Mnemonic Betrayal's
@@ -7843,6 +7884,20 @@ HANDLERS: list[EffectHandler] = [
         "exile_all",
         _EXILE_ALL_RE,
         _exile_all,
+    ),
+    # "tap/exile ~ unless you pay <cost>" — the tap/exile consequence
+    # siblings of `sacrifice_unless_pay` below, registered *before* the
+    # plain `tap_self`/`exile_self` handlers (whose regex is a prefix of
+    # these) so the "unless you pay" half isn't silently dropped.
+    EffectHandler(
+        "pay_cost_then",
+        _TAP_UNLESS_PAY_RE,
+        _tap_unless_pay,
+    ),
+    EffectHandler(
+        "pay_cost_then",
+        _EXILE_UNLESS_PAY_RE,
+        _exile_unless_pay,
     ),
     # "exile ~" / "exile this card" — the self form (Teferi's Protection/
     # Mnemonic Betrayal's trailing self-exile).

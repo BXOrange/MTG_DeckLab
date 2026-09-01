@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.4% covered — 13,032 / 34,811 — as of 2026-09-01, PARSER_VERSION 158.**
+**37.5% covered — 13,040 / 34,811 — as of 2026-09-01, PARSER_VERSION 159.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -587,6 +587,23 @@ unconditional). +7 — Katara plus every "gets +X/+X for each `<type>` card
 in your graveyard" beater the count-selector unlocked (Knight of the
 Reliquary, Fiend Artisan, Liliana's Elite, Salvage Slasher, Wight of the
 Reliquary, Madame Hydra Reanimated). 0 regressed.
+
+159 = PAR-30 — the "**`<consequence>` unless you pay `<cost>`**" family
+(62 cards / 56 SOLO cache-wide). (a) `_UNLESS_COST` — the closed cost
+vocabulary `_SACRIFICE_UNLESS_PAY_RE` / `_DESTROY_UNLESS_PAY_RE` share —
+gains "discard N cards" (a plain count `parse_activation_cost` /
+`_pay_player_cost` already honour); "discard a `<type>` card" (silently
+free) and "at random" stay excluded. (b) New `_TAP_UNLESS_PAY_RE` /
+`_EXILE_UNLESS_PAY_RE` — the tap/exile consequence siblings — modeled with
+no new effect at all: `pay_cost_then` with an empty pay-branch and the
+tap/exile spec in `else_effects` (paying costs the resource, declining
+taps/exiles the source). Registered before `tap_self`/`exile_self` so the
+"unless" half isn't dropped. +8 — Carnophage, Sangrophage, Heavyweight
+Demolisher, Electrozoa, Apocalypse Demon, Demonlord of Ashmouth,
+Morgul-Knife Wound (granted form), Avatar of Discord. 0 regressed. Still
+open in this family: the "discard N cards **unless you discard a `<type>`
+card**" body (Alpharael) and follow-up "if ~ is destroyed this way …"
+clauses (Cosmic Horror).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

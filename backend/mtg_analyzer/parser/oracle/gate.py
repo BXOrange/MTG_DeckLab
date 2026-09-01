@@ -1581,7 +1581,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `additional_cost_paid` `EffectSpec.condition` (checked after the
 #: connector split so it binds to its own clause only). Closes Katara. +1,
 #: 0 regressed.
-PARSER_VERSION = "158"
+#: "159": PAR-30 — the "unless you pay `<cost>`" family. (a) `_UNLESS_COST`
+#: (the closed cost vocabulary shared by `_SACRIFICE_UNLESS_PAY_RE` /
+#: `_DESTROY_UNLESS_PAY_RE`) gains "**discard N cards**" (a plain count —
+#: Avatar of Discord); the typed ("discard a creature card" → silently
+#: free) and "at random" variants stay excluded. (b) New
+#: `_TAP_UNLESS_PAY_RE` / `_EXILE_UNLESS_PAY_RE` — the tap/exile
+#: consequence siblings, modeled via `pay_cost_then` with an empty
+#: pay-branch and the tap/exile in ``else_effects`` (Carnophage,
+#: Sangrophage, Heavyweight Demolisher, Electrozoa, Apocalypse Demon,
+#: Demonlord of Ashmouth, Morgul-Knife Wound's granted form). +8, 0
+#: regressed.
+PARSER_VERSION = "159"
 
 
 def parser_source_hash() -> str:
