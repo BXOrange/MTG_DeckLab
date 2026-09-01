@@ -1490,7 +1490,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: gap. **+51** — the whole tap-and-freeze tempo family (Frost Lynx, Frost
 #: Titan, Dungeon Geists, Nebelgast Herald, Kor Hookmaster, Barl's Cage,
 #: Chandra's Revolution, …) plus Entangling Trap (a clash card). 0 regressed.
-PARSER_VERSION = "149"
+#: "150": PAR-30 — "gains **protection from the color of your choice** until
+#: end of turn" (RULE 702.16 — Gods Willing / Emerge Unscathed / Feat of
+#: Resistance / Redeem the Lost [a clash card]). Engine primitive is Mother
+#: of Runes' `GrantProtectionEffect` / `RulesEngine.grant_protection_choice`
+#: (the interactive `grant_protection_color` pick → `temp_protections`);
+#: only this phrasing's parser recognition was missing. `GrantProtection
+#: Effect` gained a self (`target_kind=None`) and a `previous_subject` mode
+#: ("~ gains …" / "put a counter on target creature you control. **it**
+#: gains …"). +17 (the Sejiri/Shelter cycle, Stave Off, Center Soul, …),
+#: 0 regressed.
+PARSER_VERSION = "150"
 
 
 def parser_source_hash() -> str:

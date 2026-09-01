@@ -6688,6 +6688,35 @@ def _skip_untap_self(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("skip_next_untap", {"target_kind": None})]
 
 
+#: "[`<TARGET>` / ~ / it] gains protection from the color of your choice
+#: until end of turn." (Gods Willing / Emerge Unscathed / Jareth / Feat of
+#: Resistance — RULE 702.16, ~27 SOLO). The engine primitive
+#: (`effects.GrantProtectionEffect` / `RulesEngine.grant_protection_choice`
+#: — the interactive `grant_protection_color` pick, `temp_protections`,
+#: cleared at cleanup) is Mother of Runes'; only the parser recognition of
+#: this exact phrasing was missing.
+_PROT_CHOICE_SUFFIX = r" gains? protection from the colou?r of your choice until end of turn"
+_GRANT_PROT_CHOICE_TARGET_RE = _c(rf"{TARGET}{_PROT_CHOICE_SUFFIX}")
+_GRANT_PROT_CHOICE_SELF_RE = _c(rf"{_SELF_SUBJECT}{_PROT_CHOICE_SUFFIX}")
+_GRANT_PROT_CHOICE_PREV_RE = _c(rf"it{_PROT_CHOICE_SUFFIX}")
+_GRANT_PROT_CHOICE_KINDS = frozenset({"creature", "creature_you_control", "permanent_you_control"})
+
+
+def _grant_prot_choice_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in _GRANT_PROT_CHOICE_KINDS:
+        return None
+    return [EffectSpec("grant_protection", {"target_kind": kind})]
+
+
+def _grant_prot_choice_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("grant_protection", {"target_kind": None})]
+
+
+def _grant_prot_choice_prev(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("grant_protection", {"previous_subject": True})]
+
+
 #: PAR-30 — the single biggest RULE 701-trail sub-cluster (~100 SOLO cache
 #: cards): a trailing "[Then] sacrifice / exile <it / that creature / that
 #: token / them / those tokens> at the beginning of [the/your] next end
@@ -8561,6 +8590,20 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "skip_next_untap_self", _SKIP_UNTAP_SELF_RE, _skip_untap_self,
         self_subject_only=True,
+    ),
+    # "[TARGET / ~ / it] gains protection from the color of your choice
+    # until end of turn" (RULE 702.16 — Gods Willing, Jareth, Feat of
+    # Resistance &c.; the engine primitive is Mother of Runes').
+    EffectHandler(
+        "grant_prot_choice_target", _GRANT_PROT_CHOICE_TARGET_RE, _grant_prot_choice_target,
+    ),
+    EffectHandler(
+        "grant_prot_choice_self", _GRANT_PROT_CHOICE_SELF_RE, _grant_prot_choice_self,
+        self_subject_only=True,
+    ),
+    EffectHandler(
+        "grant_prot_choice_prev", _GRANT_PROT_CHOICE_PREV_RE, _grant_prot_choice_prev,
+        previous_subject_only=True,
     ),
     # PAR-30: "[Then] sacrifice/exile <it/that creature/that token/them/
     # those tokens> at the beginning of [the/your] next end step." — the

@@ -10835,25 +10835,38 @@ class GrantProtectionEffect(GameEffect):
 
     def __init__(
         self,
-        target_kind: str = "creature_you_control",
+        target_kind: Optional[str] = "creature_you_control",
         allow_colorless: bool = False,
+        previous_subject: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.allow_colorless = allow_colorless
-        self.target_spec = TargetSpec(kind=target_kind)
+        #: "~ gains protection from the color of your choice until end of
+        #: turn" (Jareth, Cartel Aristocrat, …) — no RULE 115 target, act on
+        #: this effect's own source.
+        self.previous_subject = previous_subject
+        self.target_spec = (
+            TargetSpec(kind=target_kind)
+            if target_kind is not None and not previous_subject else None
+        )
 
     def target_polarity(self) -> Optional[str]:
         return "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = targets[0] if targets else None
-        if target is None:
-            return
         controller = _controller_of(self.source, context)
         if controller is None:
             return
-        context.engine.grant_protection_choice(target, controller, self.allow_colorless)
+        if self.previous_subject:
+            recipients = list(context.previous_targets)
+        elif self.target_spec is None:
+            recipients = [self.source] if self.source is not None else []
+        else:
+            recipients = [targets[0]] if targets else []
+        for target in recipients:
+            if target is not None:
+                context.engine.grant_protection_choice(target, controller, self.allow_colorless)
 
 
 class GrantCantBeTargetOfSpellColorEffect(GameEffect):
@@ -18717,8 +18730,9 @@ EffectRegistry.register(
 EffectRegistry.register(
     "grant_protection",
     lambda p: GrantProtectionEffect(
-        target_kind=p.get("target_kind", "creature_you_control"),
+        target_kind=p["target_kind"] if "target_kind" in p else "creature_you_control",
         allow_colorless=bool(p.get("allow_colorless", False)),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(

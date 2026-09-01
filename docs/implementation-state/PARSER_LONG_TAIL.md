@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.2% covered — 12,965 / 34,811 — as of 2026-09-01, PARSER_VERSION 149.**
+**37.3% covered — 12,982 / 34,811 — as of 2026-09-01, PARSER_VERSION 150.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -442,6 +442,21 @@ Ojutai's Breath, …) plus Entangling Trap. 0 regressed; verified end-to-end
 (the flag survives to the untap step, which skips the creature and clears
 it). A stale negative test in `test_mec19_becomes_target_family.py` (Frost
 Titan asserted UNMODELED) flipped to positive.
+
+150 = PAR-30 — "gains **protection from the color of your choice** until end
+of turn" (RULE 702.16 — Gods Willing / Emerge Unscathed / Feat of
+Resistance / **Redeem the Lost** [a clash card], ~27 SOLO). The engine
+primitive is Mother of Runes' `GrantProtectionEffect` /
+`RulesEngine.grant_protection_choice` (the interactive `grant_protection_
+color` pick → `temp_protections`, cleared at cleanup) — only this exact
+phrasing's parser recognition was missing. `GrantProtectionEffect` gained
+a self (`target_kind=None`, "~ gains …" — Jareth/Cartel Aristocrat) and a
+`previous_subject` mode ("put a +1/+1 counter on target creature you
+control. **it** gains …" — Feat of Resistance). +17 (the Sejiri Shelter/
+Sejiri Steppe/Shelter/Stave Off cycle, Center Soul, Emerge Unscathed,
+Blessed Breath, Moonlit Strider, the Master-cycle Thornscape/Stormscape,
+…), 0 regressed; verified end-to-end (the color pick lands in
+`temp_protections`).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
