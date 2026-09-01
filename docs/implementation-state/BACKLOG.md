@@ -84,17 +84,18 @@ Plan-level sequencing lives in
   `PARSER_LONG_TAIL.md` per PARSER_VERSION bump — keep this list to what is
   *still* open.
 
-  - **Vote (RULE 701.38) outcome bodies.** 3+-option votes (Council
-    Guardian — WUBRG protection vote); "vote for a nonland permanent / a
-    graveyard card" then "exile/return each with the most votes" (Council's
-    Judgment, Custodi Squire — a *targeted-tally* shape, no named options);
-    "planeswalk / chaos ensues" and
-    "the Ring tempts you" outcome bodies (Path of the Animist/Enigma,
-    Galadriel); "you choose how each player votes" (Illusion of Choice);
-    Expropriate's gain-control per-vote outcome (its extra-turn per-vote
-    half can't scale by tally — `take_extra_turn` has no count param).
-    (Magister of Worth done v163–164; Plea for Power + the plain
-    "take an extra turn after this one" body done v166.)
+  - **Vote (RULE 701.38) outcome bodies — remainder is primitive-blocked.**
+    3+-option votes (Council Guardian — WUBRG protection vote; needs a
+    per-winning-option outcome mode + an indefinite protection-from-colour
+    grant); "vote for a nonland permanent / a graveyard card" then
+    "exile/return each with the most votes" (Council's Judgment, Custodi
+    Squire — a *targeted-tally* shape, no named options, votes over board
+    objects); "the Ring tempts you" outcome body (Galadriel — no ring
+    primitive); "you choose how each player votes" (Illusion of Choice —
+    forced vote); Expropriate's gain-control per-vote outcome. Done so
+    far: Magister of Worth v163–164; Plea for Power + plain "take an extra
+    turn after this one" v166; "planeswalk" / "chaos ensues" bodies (Path
+    of the Animist/Enigma) v167.
 
   - **Face a Villainous Choice (RULE 701.55) + reanimator-token residue.**
     Each remaining reanimator-token cluster card blocks on its *own*

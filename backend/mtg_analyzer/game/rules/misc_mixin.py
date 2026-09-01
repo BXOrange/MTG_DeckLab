@@ -1537,19 +1537,30 @@ class MiscSystemsMixin:
         """
         face = self.random_choice(list(variants.PLANAR_DIE_FACES))
         if face == "chaos":
-            plane = variants.active_plane(self.state)
-            self.state.fire_event(
-                GameEvent(
-                    EventType.CHAOS_ENSUED,
-                    player_id=player.id,
-                    controller_id=player.id,
-                    instance_id=plane.instance_id if plane is not None else None,
-                    plane=plane.name if plane is not None else None,
-                )
-            )
+            self.trigger_chaos(player)
         elif face == "planeswalk":
             self.planeswalk(player)
         return face
+
+    def trigger_chaos(self, player: Player) -> None:
+        """RULE 901.13: "chaos ensues" — fire `CHAOS_ENSUED` for the
+        face-up plane so its chaos-triggered ability goes on the stack.
+        Factored out of `roll_planar_die` so a card that says "chaos
+        ensues" outright (Path of the Animist/Enigma's vote outcome) can
+        reach it too. A no-op with no active plane (outside a Planechase
+        game there is no chaos ability to put on the stack)."""
+        plane = variants.active_plane(self.state)
+        if plane is None:
+            return
+        self.state.fire_event(
+            GameEvent(
+                EventType.CHAOS_ENSUED,
+                player_id=player.id,
+                controller_id=player.id,
+                instance_id=plane.instance_id,
+                plane=plane.name,
+            )
+        )
     def set_scheme_in_motion(self, player: Player) -> Optional[GameObject]:
         """RULE 904.7: the archenemy turns the top card of their scheme deck
         face up and it "is set in motion" — its triggered ability fires.

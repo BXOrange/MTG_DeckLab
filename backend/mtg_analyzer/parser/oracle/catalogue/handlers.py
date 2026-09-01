@@ -6075,6 +6075,23 @@ def _clash(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("clash", {})]
 
 
+# "Planeswalk." (RULE 901.10) / "Chaos ensues." (RULE 901.13) — the two
+# outcome bodies of Path of the Animist / Path of the Enigma's "each
+# player votes for planeswalk or chaos" vote (reached through
+# `_vote_majority`'s `parse_effect_body`), and "planeswalk" as a
+# standalone body (Plain Walker). `effects.PlaneswalkEffect` /
+# `ChaosEnsuesEffect` wrap `RulesEngine.planeswalk` / `trigger_chaos`;
+# both no-op outside a Planechase game. Fullmatch-only, so "planeswalk to
+# <plane>" (Seek Bolas's Counsel) and "you may planeswalk" (TARDIS) stay
+# UNMODELED, fail-closed — those cards are blocked on other clauses too.
+def _planeswalk(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("planeswalk", {})]
+
+
+def _chaos_ensues(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("chaos_ensues", {})]
+
+
 # "Starting with you, each player votes for `<A>` or `<B>`. If `<A>` gets
 # more votes, `<X>`. If `<B>` gets more votes or the vote is tied, `<Y>`."
 # (RULE 701.38, PAR-29). `RulesEngine.request_vote` / `effects.VoteEffect`
@@ -9379,6 +9396,10 @@ HANDLERS: list[EffectHandler] = [
         _c(r"clash with (?:an opponent|defending player)"),
         _clash,
     ),
+    # "planeswalk" / "chaos ensues" (RULE 901.10 / 901.13) — Planechase
+    # vote outcome bodies (Path of the Animist/Enigma) + standalone.
+    EffectHandler("planeswalk", _c(r"planeswalk"), _planeswalk),
+    EffectHandler("chaos_ensues", _c(r"chaos ensues"), _chaos_ensues),
     # "take an extra turn after this one" (RULE 500.7) — plain Time Walk body.
     EffectHandler(
         "take_extra_turn",

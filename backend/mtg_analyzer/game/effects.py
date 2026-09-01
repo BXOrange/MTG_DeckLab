@@ -2814,6 +2814,32 @@ class ClashEffect(GameEffect):
         )
 
 
+class PlaneswalkEffect(GameEffect):
+    """"Planeswalk." (RULE 901.10) — this effect's controller planeswalks
+    (`RulesEngine.planeswalk`): the face-up plane goes to the bottom of the
+    planar deck and the next turns face up. The plain outcome body of Path
+    of the Animist / Path of the Enigma's "planeswalk or chaos" vote, and a
+    standalone body (Plain Walker). A no-op outside a Planechase game
+    (`planeswalk` returns ``None``)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.engine.planeswalk(player)
+
+
+class ChaosEnsuesEffect(GameEffect):
+    """"Chaos ensues." (RULE 901.13) — fire `CHAOS_ENSUED` for the face-up
+    plane so its chaos-triggered ability goes on the stack
+    (`RulesEngine.trigger_chaos`). The tie / minority outcome body of the
+    same "planeswalk or chaos" vote. A no-op with no active plane."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.engine.trigger_chaos(player)
+
+
 class DealDamageEffect(GameEffect):
     """Deal ``amount`` damage to a target player or creature — or, with
     ``selector`` set, to *every* object/player a closed vocabulary names
@@ -19437,6 +19463,10 @@ EffectRegistry.register(
     "clash",
     lambda p: ClashEffect(with_opponent=p.get("with_opponent", True)),
 )
+# RULE 901.10 / 901.13 — "planeswalk" / "chaos ensues" outcome bodies
+# (Path of the Animist/Enigma's vote; Plain Walker). No params.
+EffectRegistry.register("planeswalk", lambda p: PlaneswalkEffect())
+EffectRegistry.register("chaos_ensues", lambda p: ChaosEnsuesEffect())
 EffectRegistry.register(
     "return_from_graveyard_transformed", lambda p: ReturnFromGraveyardTransformedEffect()
 )

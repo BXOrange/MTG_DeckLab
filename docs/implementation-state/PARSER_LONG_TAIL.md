@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.6% covered — 13,094 / 34,811 — as of 2026-09-01, PARSER_VERSION 166.**
+**37.6% covered — 13,096 / 34,811 — as of 2026-09-01, PARSER_VERSION 167.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,15 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+167 = PAR-30 (Vote residue) — "planeswalk" / "chaos ensues" outcome
+bodies. Two new no-param effect types (`effects.PlaneswalkEffect` /
+`ChaosEnsuesEffect`) wrapping `RulesEngine.planeswalk` (RULE 901.10) and
+the new `RulesEngine.trigger_chaos` (RULE 901.13, factored out of
+`roll_planar_die`, now a genuine no-op with no active plane). Closes Path
+of the Animist / Path of the Enigma through `_vote_majority`'s body
+parse. Fullmatch-only: "planeswalk to <plane>" (Seek Bolas's Counsel),
+"you may planeswalk" (TARDIS) stay UNMODELED. +2, 0 regressed.
 
 166 = PAR-30 (Vote residue) — plain "take an extra turn after this one"
 effect-body handler, wired to the pre-existing `take_extra_turn` effect

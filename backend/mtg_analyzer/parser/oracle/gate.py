@@ -1655,7 +1655,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: other extra-turn cards ("skip the untap step of that turn", "…you lose
 #: the game", "…for each coin that comes up heads") don't fullmatch and
 #: stay their own tickets.
-PARSER_VERSION = "166"
+#: "167": PAR-30 (Vote residue) — "planeswalk" / "chaos ensues" outcome
+#: bodies. Two new no-param effect types (`effects.PlaneswalkEffect` /
+#: `ChaosEnsuesEffect`) wrapping `RulesEngine.planeswalk` / the new
+#: `trigger_chaos` (factored out of `roll_planar_die`). Closes Path of
+#: the Animist / Path of the Enigma (through `_vote_majority`'s body
+#: parse) + Plain Walker's standalone "planeswalk" body. Fullmatch-only:
+#: "planeswalk to <plane>" / "you may planeswalk" stay UNMODELED. +3.
+PARSER_VERSION = "167"
 
 
 def parser_source_hash() -> str:
