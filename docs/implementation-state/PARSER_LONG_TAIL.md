@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.6% covered — 13,099 / 34,811 — as of 2026-09-01, PARSER_VERSION 168.**
+**37.6% covered — 13,106 / 34,811 — as of 2026-09-01, PARSER_VERSION 169.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,19 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+169 = PAR-30 (villainous-choice / reanimator-token residue) — a
+colour-list creature target on the pump family. "target `<c1>` or
+`<c2>` creature gets +N/+M / gains `<kw>` until end of turn" — the
+Weaver cycle (Hate/Rage/Sky/Might/Spirit Weaver, Sootstoke Kindler,
+Wilderness Hypnotist). `PumpEffect` gained a `colors` param threaded
+into its `TargetSpec`; `TargetSpec.colors` + `targeting._color_ok` were
+already wired into `legal_targets`, just never reached from a pump. New
+`_PUMP_TARGET_TWO_COLOR_RE`/handler, the `_DAMAGE_TARGET_TWO_COLOR_RE`
+sibling (the shared `TARGET` macro carries no colour slot). +7, 0
+regressed. (Offspring's Revenge — the reanimator-token card with the
+same "red, white, or black" filter — stays UNMODELED on its 3-colour
+list + its own copy/haste tail.)
 
 168 = PAR-30 (reanimator-token residue) — "return [up to] X target
 `<type>` cards from [scope] graveyard to your hand / the battlefield"

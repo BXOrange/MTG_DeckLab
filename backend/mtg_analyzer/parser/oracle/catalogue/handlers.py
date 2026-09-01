@@ -5174,6 +5174,42 @@ def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", params)]
 
 
+#: "target `<c1>` or `<c2>` creature gets +N/+M [and gains `<kw>`] / gains
+#: `<kw>` until end of turn" — the Weaver cycle (Hate/Rage/Sky/Might/
+#: Spirit Weaver, Sootstoke Kindler, Wilderness Hypnotist). `TargetSpec.
+#: colors`' OR narrowing (`_DAMAGE_TARGET_TWO_COLOR_RE`'s pump sibling);
+#: the shared `TARGET` macro's fixed rows carry no colour slot, so a
+#: dedicated row like Rending Volley's. Only ever two colours on a real
+#: card in this shape.
+#: P/T delta ("+1/+0" / "-2/-0", ASCII or unicode minus) — inlined rather
+#: than `_PT_DELTA` (defined later in this file).
+_PUMP_TARGET_TWO_COLOR_RE = _c(
+    rf"target (?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) creature "
+    r"(?:gets? (?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)(?: and gains? (?P<kw>[a-z, ]+?))?"
+    r"|gains? (?P<kw2>[a-z, ]+?))"
+    r" until end of turn"
+)
+
+
+def _pump_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    colors = [resolve_color_word(m.group("c1")), resolve_color_word(m.group("c2"))]
+    if not all(colors) or colors[0] == colors[1]:
+        return None
+    params: dict = {"target_kind": "creature", "colors": colors}
+    if m.groupdict().get("p") is not None:
+        params["power"] = _signed_int(m.group("p"))
+        params["toughness"] = _signed_int(m.group("t"))
+    kw = m.groupdict().get("kw") or m.groupdict().get("kw2")
+    if kw:
+        kws = _token_keywords(kw)
+        if kws is None:
+            return None  # a non-flag granted ability → fail-closed
+        params["keywords"] = kws
+    if "power" not in params and "keywords" not in params:
+        return None
+    return [EffectSpec("pump", params)]
+
+
 # RULE 701.10/11 "double"/"triple `<creature>`'s power and toughness [until
 # end of turn]" — a `PumpEffect.self_multiplier` recipient-relative pump
 # (each recipient's own current power/toughness, not a flat/shared amount),
@@ -8944,6 +8980,14 @@ HANDLERS: list[EffectHandler] = [
         "attacks_this_turn_if_able",
         _ATTACKS_TURN_IF_ABLE_RE,
         _attacks_turn_if_able,
+    ),
+    # "target <c1> or <c2> creature gets +N/+M / gains <kw> until end of
+    # turn" (the Weaver cycle) — `TargetSpec.colors` OR narrowing; a
+    # dedicated row since the shared `TARGET` macro has no colour slot.
+    EffectHandler(
+        "pump_target_two_color",
+        _PUMP_TARGET_TWO_COLOR_RE,
+        _pump_target_two_color,
     ),
     # "target creature gets +3/+3 until end of turn" / "gets -2/-2 …" /
     # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …" /

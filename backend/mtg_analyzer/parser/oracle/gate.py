@@ -1670,7 +1670,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Mist / Change of Plans idiom); `ReturnFromGraveyardEffect` gained a
 #: `count_selector` param + a matching multi-target apply branch. New
 #: `_RETURN_FROM_GRAVEYARD_X_RE`/handler.
-PARSER_VERSION = "168"
+#: "169": PAR-30 (villainous-choice / reanimator-token residue) — a
+#: colour-list creature target on the pump family: "target `<c1>` or
+#: `<c2>` creature gets +N/+M / gains `<kw>` until end of turn" (the
+#: Weaver cycle — Hate/Rage/Sky/Might/Spirit Weaver, Sootstoke Kindler,
+#: Wilderness Hypnotist). `PumpEffect` gained a `colors` param threaded
+#: into its `TargetSpec` (`TargetSpec.colors` + `_color_ok` were already
+#: wired in `legal_targets`, unused by pump). Dedicated
+#: `_PUMP_TARGET_TWO_COLOR_RE`/handler, the `_DAMAGE_TARGET_TWO_COLOR_RE`
+#: sibling (the shared `TARGET` macro has no colour slot).
+PARSER_VERSION = "169"
 
 
 def parser_source_hash() -> str:

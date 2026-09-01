@@ -13485,8 +13485,13 @@ class PumpEffect(GameEffect):
         trigger_subject: bool = False,
         self_multiplier: Optional[int] = None,
         parametric_keywords: Optional[list[dict[str, Any]]] = None,
+        colors: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
+        #: "target `<c1>` or `<c2>` creature gets/gains … until end of
+        #: turn" (the Weaver cycle) — `TargetSpec.colors`' OR narrowing,
+        #: checked at offer time by `targeting._color_ok`. WUBRG letters.
+        self.colors = tuple(colors) if colors else None
         self.power = power
         self.toughness = toughness
         self.keywords = list(keywords or [])
@@ -13577,7 +13582,7 @@ class PumpEffect(GameEffect):
             # stated boost independently.
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
-                creature_filter=creature_filter,
+                creature_filter=creature_filter, colors=self.colors,
             )
 
     def target_polarity(self) -> Optional[str]:
@@ -19264,6 +19269,7 @@ EffectRegistry.register(
         subtypes=p.get("subtypes"),
         self_multiplier=p.get("self_multiplier"),
         parametric_keywords=p.get("parametric_keywords"),
+        colors=p.get("colors"),
     ),
 )
 EffectRegistry.register(

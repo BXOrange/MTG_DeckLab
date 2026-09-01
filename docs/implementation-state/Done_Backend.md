@@ -1033,6 +1033,7 @@ is in the rules-engine categories below them.
 
 - **What:** `TargetSpec.colors` (OR of 2+ WUBRG letters) + shared `_color_ok` helper replacing inline per-branch colour checks across `legal_targets`; `DealDamageEffect(colors=[...])` for Rending Volley's "target white or blue creature."
 - **Files:** `game/targeting.py`, `game/effects.py`.
+- **Pump family (PAR-30, v169):** `PumpEffect` gained a `colors` param threaded into its `TargetSpec` — the field and `_color_ok` were already wired into `legal_targets`, just never reached from a pump. Dedicated parser row `_PUMP_TARGET_TWO_COLOR_RE` / `_pump_target_two_color` ("target `<c1>` or `<c2>` creature gets +N/+M / gains `<kw>` until end of turn", flag keywords only, same-colour-twice rejected) — the `_DAMAGE_TARGET_TWO_COLOR_RE` sibling, a standalone row because the shared `TARGET` macro's fixed rows carry no colour slot. +7 (the Weaver cycle: Hate/Rage/Sky/Might/Spirit Weaver, Sootstoke Kindler, Wilderness Hypnotist). Offspring's Revenge's "red, white, or black" (3-colour) list + its copy/haste tail stay UNMODELED. `tests/test_par30_pump_two_color_target.py`.
 
 ### Linked-Exile Tracking (`remember` on Exile/Search)
 
