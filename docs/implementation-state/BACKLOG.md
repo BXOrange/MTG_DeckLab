@@ -278,42 +278,7 @@ Plan-level sequencing lives in
 
 ## MEC — Game mechanics
 
-- **MEC-46 · Vote (RULE 701.38) outcome bodies that need new primitives.**
-  Split out of `PAR-30` once its parser-reachable vote grammar was
-  exhausted (majority/per-vote branches, carried subjects, `take_extra_turn`
-  / `planeswalk` / `chaos_ensues` bodies — all shipped v163–167, see
-  `Done_Backend.md` "Vote (RULE 701.38)"). Each remaining shape is an
-  engine primitive plus its oracle handler(s) plus a `PARSER_VERSION` bump,
-  one per batch:
-  - **Per-winning-option outcome mode** — `request_vote` gains a third
-    outcome shape beside `majority_specs` / `per_vote_specs`: a
-    `winner_specs` list applied for *every* option tied-for-most (not just
-    a sole leader). Needs an **indefinite "gains protection from
-    `<colour>`"** grant generated at resolution (a RULE 611 continuous
-    effect keyed to the source, no duration — distinct from the until-EOT
-    `pump`/`grant_until` paths). Closes **Council Guardian**.
-  - **Targeted-tally vote** — voting over board / graveyard *objects*
-    rather than named options ("each player votes for a nonland permanent
-    you don't control" / "…an artifact, creature, or enchantment card in
-    your graveyard"), then "exile / return to hand each permanent/card
-    with the most votes or tied for most votes". A new `pending_choice`
-    shape (each voter picks an object) + a tally-to-object resolution.
-    Closes **Council's Judgment**, **Custodi Squire**.
-  - **Forced vote** — "you choose how each player votes this turn"
-    (`request_vote` already carries a `# RULE 701.38f` no-op note for
-    this). The caster answers every seat's `vote` choice. Closes
-    **Illusion of Choice**; narrows Grudge Keeper / Erestor.
-  - **Expropriate** — per-vote "choose a permanent owned by the voter and
-    gain control of it" outcome (a per-voter targeted gain-control), plus
-    a `take_extra_turn` that repeats per time-vote (a count-aware
-    `extra_turns` push — `_vote_per_vote` currently fail-closes on a
-    `take_extra_turn` body for exactly this reason).
-  - **Galadriel, Elven-Queen** — mostly parser residue, not primitive-
-    blocked: the `the_ring_tempts_you` effect type already exists; what's
-    missing is its bare-body handler and a "your ring-bearer" selector for
-    the "+1/+1 counter on your ring-bearer" tail, both inside a majority
-    branch.
-
+> **(none open.)**
 > **Permanent non-goals** (never to be built, not gaps): Stickers (RULE
 > 123) and Attractions (RULE 717) — `gate.parse_oracle` classifies mentions
 > of the former `NEVER_SUPPORTED`, a verdict kept out of both the coverage

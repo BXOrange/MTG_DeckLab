@@ -55,10 +55,12 @@ def test_vote_per_vote_parse():
 
 
 def test_vote_adversarial_rejects():
-    # 3+ options and permanent-votes still fail closed
+    # MEC-46 modeled the 3+-option colour-protection vote (Council Guardian)
+    # and the "vote for a permanent/card" object votes; an unrecognised
+    # outcome body still fails closed.
     assert match_clause(
-        "starting with you, each player votes for blue, black, red, or green. "
-        "~ gains protection from each color with the most votes or tied for most votes."
+        "starting with you, each player votes for chaos, order, or entropy. "
+        "the universe ends in the way with the most votes."
     ) is None
 
 

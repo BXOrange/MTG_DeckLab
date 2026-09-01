@@ -75,6 +75,8 @@ const CHOICE_ICONS = {
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
   scry: '🔮', surveil: '🕵️', opening_hand_battlefield: '🌅', dredge: '⚰️',
   explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️', recruit: '🎖️',
+  // RULE 701.38 vote / RULE 701.55 villainous choice (MEC-46 / ENG-33).
+  vote: '🗳️', vote_object: '🗳️', villainous_choice: '😈',
 };
 
 /**
@@ -1584,7 +1586,13 @@ export function createGameBoardView(opts = {}) {
         ? triggerOrderHtml(pending)
         : pending.kind === 'scry' || pending.kind === 'surveil'
           ? lookTopChoiceHtml(pending)
-          : simpleChoiceButtonsHtml(pending);
+          // MEC-46: a "vote for one of these objects" ballot (Council's
+          // Judgment / Custodi Squire) — options carry a `card_id`, so the
+          // same face-thumbnail renderer scry/surveil use reads far better
+          // than bare name buttons.
+          : pending.kind === 'vote_object'
+            ? lookTopChoiceHtml(pending)
+            : simpleChoiceButtonsHtml(pending);
     const asideLabel = aside ? '⤢ Entscheidung einblenden' : '⤡ Zur Seite schieben';
 
     return `

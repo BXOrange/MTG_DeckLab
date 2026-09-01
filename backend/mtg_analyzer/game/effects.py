@@ -10147,7 +10147,13 @@ class VoteEffect(GameEffect):
       is tied").
     * ``per_vote_specs`` — ``[{"option": i, "effects": [...], "scale": k}]``:
       each entry's ``count``/``amount`` params are multiplied by ``k`` ×
-      option ``i``'s vote total ("… for each `<option>` vote").
+      option ``i``'s vote total ("… for each `<option>` vote"). MEC-46: an
+      entry may instead be ``{"option": i, "per_voter_gain_control": true}``
+      (Expropriate's per-money-vote gain-control).
+    * ``winner_specs`` (MEC-46) — like ``majority_specs`` but applied for
+      *every* option tied for most votes, not only a sole leader ("~ gains
+      protection from each color with the most votes or tied for most
+      votes" — Council Guardian).
 
     A bare "you"-subject effect — no target, no pronoun. The vote outcome
     is applied with this effect's own controller as the target ("you").
@@ -10159,6 +10165,7 @@ class VoteEffect(GameEffect):
         majority_specs: Optional[list[list[dict[str, Any]]]] = None,
         tie_index: Optional[int] = None,
         per_vote_specs: Optional[list[dict[str, Any]]] = None,
+        winner_specs: Optional[list[Optional[list[dict[str, Any]]]]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -10166,6 +10173,7 @@ class VoteEffect(GameEffect):
         self.majority_specs = majority_specs
         self.tie_index = tie_index
         self.per_vote_specs = per_vote_specs
+        self.winner_specs = winner_specs
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -10178,6 +10186,108 @@ class VoteEffect(GameEffect):
             majority_specs=self.majority_specs,
             tie_index=self.tie_index,
             per_vote_specs=self.per_vote_specs,
+            winner_specs=self.winner_specs,
+        )
+
+
+class SetForcedVoterEffect(GameEffect):
+    """RULE 701.38f (MEC-46): "You choose how each player votes this turn."
+    (Illusion of Choice) — a bare "you"-subject effect that marks this
+    effect's controller as the answerer of every `vote` / `vote_object`
+    choice for the rest of the turn. `RulesEngine._advance_vote` /
+    `_advance_object_vote` redirect each ballot's `pending_choice` to this
+    player while `GameState.forced_vote_controller_id` is set; it clears at
+    cleanup (RULE 514.2, `GameEngine._step_cleanup`) like every other "this
+    turn" marker.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.state.forced_vote_controller_id = player.id
+
+
+class ExpropriateGainControlEffect(GameEffect):
+    """MEC-46 (Expropriate): the continuation of "for each money vote,
+    choose a permanent owned by the voter and gain control of it".
+
+    Carries the *remaining* voter ids in ``voter_ids`` and re-enters
+    `RulesEngine._advance_expropriate_gain_control`, which opens one
+    `choose_objects` (``action="gain_control"``) pick for the next voter
+    and chains another copy of this effect for the rest — so the whole
+    queue lives in serialized `pending_choice` data and survives the undo
+    snapshots `GameState` takes.
+    """
+
+    def __init__(
+        self, voter_ids: Optional[list[str]] = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.voter_ids = [str(v) for v in (voter_ids or [])]
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None or not self.voter_ids:
+            return
+        context.engine._advance_expropriate_gain_control(
+            self.source, controller.id, list(self.voter_ids)
+        )
+
+
+class ObjectVoteEffect(GameEffect):
+    """MEC-46 (RULE 701.38): "Starting with you, each player votes for `<an
+    object>`. `<verb>` each `<object>` with the most votes or tied for most
+    votes." — the tally-over-objects vote (`RulesEngine.request_object_
+    vote`), distinct from `VoteEffect`'s tally-over-named-options.
+
+    ``pool`` picks the candidate set:
+
+    * ``"nonland_permanents_opponents"`` — every nonland permanent this
+      effect's controller doesn't control (Council's Judgment).
+    * ``"graveyard_cards"`` — cards in this controller's graveyard whose
+      type is in ``card_types`` (Custodi Squire — artifact/creature/
+      enchantment).
+
+    ``outcome`` is ``"exile"`` or ``"return_to_hand"``.
+    """
+
+    def __init__(
+        self,
+        pool: str = "nonland_permanents_opponents",
+        outcome: str = "exile",
+        card_types: Optional[list[str]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.pool = pool
+        self.outcome = outcome
+        self.card_types = [str(t).lower() for t in (card_types or [])]
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        if self.pool == "graveyard_cards":
+            candidates = [
+                o for o in controller.graveyard
+                if not self.card_types
+                or any(t in o.type_words for t in self.card_types)
+            ]
+            prompt = "Abstimmung: Karte aus dem Friedhof"
+        else:
+            candidates = [
+                o for o in context.state.permanents()
+                if not o.is_land and o.controller_id != controller.id
+            ]
+            prompt = "Abstimmung: bleibender Nichtland-Permanent"
+        if not candidates:
+            return
+        context.engine.request_object_vote(
+            source=self.source,
+            controller_id=controller.id,
+            candidates=candidates,
+            outcome=self.outcome,
+            prompt=prompt,
         )
 
 
@@ -11276,9 +11386,13 @@ class TapEffect(GameEffect):
         creature_filter: Optional[dict] = None,
         subtypes: Optional[list[str]] = None,
         choose_tap_or_untap: bool = False,
+        colors: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "tap target `<c1>` or `<c2>` creature an opponent controls"
+        #: (Tidebinder Mage) — `TargetSpec.colors`' OR narrowing.
+        self.colors = tuple(colors) if colors else None
         self.untap = untap
         #: "You may tap **or untap** target permanent." (Derevi, Empyrial
         #: Tactician, MEC-42) — a real choice at resolution, layered on top
@@ -11316,7 +11430,7 @@ class TapEffect(GameEffect):
         self.target_spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
-                creature_filter=creature_filter,
+                creature_filter=creature_filter, colors=self.colors,
             )
             if target_kind is not None and not self._attached_mode
             and not self._trigger_subject_mode and self.selector is None and not previous_subject
@@ -12342,9 +12456,14 @@ class AddCountersEffect(GameEffect):
         amount_if_trigger_subject_subtype_value: Optional[int] = None,
         creature_filter: Optional[dict] = None,
         count_selector: Optional[str] = None,
+        ring_bearer: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: MEC-46 (Galadriel, Elven-Queen): "put a +1/+1 counter on your
+        #: Ring-bearer" — no RULE 115 target, resolved fresh against
+        #: `continuous.ring_bearer_of` for this effect's controller.
+        self.ring_bearer = ring_bearer
         #: MEC-27: "put X +1/+1 counters on ~, where X is the number of
         #: `<noun phrase>` you control." — `subgrammars.DEVOTION`'s wider
         #: RULE 613.7c reading, previously wired into damage/lose_life only.
@@ -12440,6 +12559,14 @@ class AddCountersEffect(GameEffect):
         if self.x_multiplier is not None:
             x_paid = getattr(self.source, "x_paid", 0) or 0
             self.amount = self.x_multiplier * x_paid
+        if self.ring_bearer:
+            from .continuous import ring_bearer_of  # avoid the continuous↔effects cycle
+
+            controller = _controller_of(self.source, context)
+            bearer = ring_bearer_of(context.state, controller) if controller is not None else None
+            if bearer is not None:
+                context.add_counters(bearer, self.amount, self.kind, source=self.source)
+            return
         if self.trigger_subject_key:
             if self.trigger_subject_key == "remembered":
                 # The deferred sibling of the live-event read below — see
@@ -12664,6 +12791,7 @@ class GrantUntilEffect(GameEffect):
         count: int = 1,
         condition: Optional[dict[str, Any]] = None,
         previous_subject: bool = False,
+        self_subject: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -12674,9 +12802,13 @@ class GrantUntilEffect(GameEffect):
         #: ("Tap target land. It doesn't untap … for as long as ~ remains
         #: tapped.") instead of declaring a target of this effect's own.
         self.previous_subject = previous_subject
+        #: MEC-46: apply to this effect's own source, no RULE 115 target
+        #: ("~ gains protection from each color …" — Council Guardian,
+        #: resolved through the vote's `winner_specs` with no duration).
+        self.self_subject = self_subject
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional, count=count)
-            if target_kind is not None and not previous_subject
+            if target_kind is not None and not previous_subject and not self_subject
             else None
         )
 
@@ -12723,15 +12855,18 @@ class GrantUntilEffect(GameEffect):
             # merely lies dormant and can come back on.
             ability.duration = "for_as_long_as"
             ability.duration_data["condition"] = dict(self.condition)
-        if self.target_spec is not None or self.previous_subject:
+        if self.target_spec is not None or self.previous_subject or self.self_subject:
             # A targeted grant applies to exactly the permanents chosen —
             # `affects="objects"` reads the ids off the ability. With
             # ``previous_subject`` the referent is instead whatever the
             # *previous clause* of this same ability targeted ("Tap target
             # land. **It** doesn't untap … for as long as ~ remains tapped."),
             # the same `GameContext.previous_targets` pronoun `FightEffect`
-            # and `GoadEffect` use.
-            if self.previous_subject:
+            # and `GoadEffect` use. ``self_subject`` (MEC-46) is this
+            # ability's own source.
+            if self.self_subject:
+                chosen = [self.source] if self.source is not None else []
+            elif self.previous_subject:
                 chosen = list(context.previous_targets)
             else:
                 chosen = list(targets or [])[: self.target_spec.effective_count]
@@ -18990,7 +19125,35 @@ EffectRegistry.register(
         majority_specs=p.get("majority_specs"),
         tie_index=p.get("tie_index"),
         per_vote_specs=p.get("per_vote_specs"),
+        winner_specs=p.get("winner_specs"),
     ),
+)
+EffectRegistry.register(
+    # RULE 701.38f (MEC-46): "You choose how each player votes this turn."
+    # (Illusion of Choice). See `SetForcedVoterEffect`.
+    "set_forced_voter",
+    lambda p: SetForcedVoterEffect(),
+)
+EffectRegistry.register(
+    # MEC-46 (RULE 701.38): "each player votes for a nonland permanent you
+    # don't control" / "…a card in your graveyard", then "exile / return
+    # each `<object>` with the most votes or tied for most votes". See
+    # `ObjectVoteEffect` / `RulesEngine.request_object_vote`. Closes
+    # Council's Judgment, Custodi Squire.
+    "vote_object",
+    lambda p: ObjectVoteEffect(
+        pool=str(p.get("pool", "nonland_permanents_opponents")),
+        outcome=str(p.get("outcome", "exile")),
+        card_types=list(p.get("card_types", [])),
+    ),
+)
+EffectRegistry.register(
+    # MEC-46 (Expropriate): the per-money-vote gain-control continuation —
+    # never emitted by a parser handler directly, only chained by
+    # `RulesEngine._advance_expropriate_gain_control` as a `choose_objects`
+    # ``then_specs`` entry. See `ExpropriateGainControlEffect`.
+    "expropriate_gain_control",
+    lambda p: ExpropriateGainControlEffect(voter_ids=list(p.get("voter_ids", []))),
 )
 EffectRegistry.register(
     # "Earthbend N" (RULE 701.66, Avatar: The Last Airbender, PAR-29): a
@@ -19093,6 +19256,7 @@ EffectRegistry.register(
         creature_filter=p.get("creature_filter"),
         subtypes=p.get("subtypes"),
         choose_tap_or_untap=bool(p.get("choose_tap_or_untap", False)),
+        colors=p.get("colors"),
     ),
 )
 EffectRegistry.register(
@@ -19290,6 +19454,7 @@ EffectRegistry.register(
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_if_trigger_subject_subtype=p.get("amount_if_trigger_subject_subtype"),
         amount_if_trigger_subject_subtype_value=p.get("amount_if_trigger_subject_subtype_value"),
+        ring_bearer=bool(p.get("ring_bearer", False)),
     ),
 )
 EffectRegistry.register(
@@ -20812,6 +20977,7 @@ EffectRegistry.register(
         count=int(p.get("count", 1) or 1),
         condition=p.get("condition"),
         previous_subject=bool(p.get("previous_subject", False)),
+        self_subject=bool(p.get("self_subject", False)),
     ),
 )
 EffectRegistry.register(

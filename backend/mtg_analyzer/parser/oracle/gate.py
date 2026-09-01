@@ -1691,7 +1691,32 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `colors` param → `TargetSpec.colors`; three dedicated
 #: `_RETURN_*_TWO_COLOR_RE` handlers (Escape Routes, Hunting Drake, Crypt
 #: Angel). Same `_two_color_letters` helper, same-colour-twice rejected.
-PARSER_VERSION = "171"
+#: "172": PAR-30 — colour-list target: `TapEffect` gained `colors` +
+#: `_TAP_TWO_COLOR_RE` ("tap target `<c1>` or `<c2>` creature[ an
+#: opponent controls]" — Tidebinder Mage, its "doesn't untap for as long
+#: as you control ~" tail already rides the pronoun); new compound
+#: `_RETURN_SELF_AND_TWO_COLOR_RE` ("return ~ and target `<c1>` or `<c2>`
+#: creature[ you control] to their owner's hand" → two `return_to_hand`
+#: specs — Snow Hound). +2.
+#: "173": MEC-46 — RULE 701.38 vote outcome bodies that needed new
+#: engine primitives. Four handlers on the shared `_VOTE_HEADER_RE`:
+#: `_vote_winner_protection` ("~ gains protection from each color with the
+#: most votes or tied for most votes" → `request_vote(winner_specs=...)`
+#: + an indefinite RULE 611 self-scoped `grant_protection_static` per
+#: leading colour — Council Guardian); `_vote_object` ("vote for a nonland
+#: permanent you don't control / a card in your graveyard, exile / return
+#: each most-voted" → new `vote_object` spec / `ObjectVoteEffect` /
+#: `request_object_vote` / `vote_object` pending_choice — Council's
+#: Judgment, Custodi Squire); `_vote_expropriate` (count-aware
+#: `take_extra_turn` per time vote + `per_voter_gain_control` per money
+#: vote — Expropriate); `_forced_vote` ("you choose how each player votes
+#: this turn" → `set_forced_voter` / `GameState.forced_vote_controller_id`
+#: — Illusion of Choice). Plus Galadriel, Elven-Queen: `_add_counters_
+#: ring_bearer` ("put a +1/+1 counter on your Ring-bearer" →
+#: `AddCountersEffect.ring_bearer`), and a phase-trigger intervening-if
+#: `_ANOTHER_SUBTYPE_ENTERED_IF_RE` → `static_conditions`'
+#: `another_subtype_entered_this_turn` trigger `active_if`. +6.
+PARSER_VERSION = "173"
 
 
 def parser_source_hash() -> str:

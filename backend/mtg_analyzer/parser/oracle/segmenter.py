@@ -810,6 +810,18 @@ _PHASE_DAMAGE_TO_THEM_RE = re.compile(
     r"^(?:~|it) deals (?P<n>\d+) damage to them\.?\s*$", re.IGNORECASE,
 )
 
+#: MEC-46 (Galadriel, Elven-Queen) — the RULE 603.4 intervening-if a phase
+#: trigger's body can lead with: "if another `<subtype>` entered the
+#: battlefield under your control this turn, `<rest>`." Peeled off the body
+#: and attached as the trigger's own ``active_if`` (`static_conditions`'
+#: ``another_subtype_entered_this_turn`` kind — a live battlefield scan, no
+#: new per-turn tracker), so the trigger only fires while it holds.
+_ANOTHER_SUBTYPE_ENTERED_IF_RE = re.compile(
+    r"^if another (?P<sub>[a-z][a-z-]+) entered the battlefield "
+    r"under your control this turn,\s*(?P<rest>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 _PHASE_TRIGGER_RE = re.compile(
     r"^at the beginning of (?:"
     # "each player's upkeep" reads exactly like "each upkeep" to this engine
@@ -3802,6 +3814,16 @@ def segment_line(
         else:
             relation = None
         body, optional = _peel_optional(phase_trig.group("body"))
+        # MEC-46: peel a leading "if another <subtype> entered … this turn,"
+        # RULE 603.4 intervening-if into the trigger's own `active_if`.
+        phase_active_if: Optional[dict[str, Any]] = None
+        entered_if = _ANOTHER_SUBTYPE_ENTERED_IF_RE.match(body)
+        if entered_if is not None:
+            phase_active_if = {
+                "kind": "another_subtype_entered_this_turn",
+                "subtype": entered_if.group("sub").lower(),
+            }
+            body = entered_if.group("rest").strip()
         if relation is None:
             them_damage = _PHASE_DAMAGE_TO_THEM_RE.match(body)
             if them_damage is not None:
@@ -3817,6 +3839,8 @@ def segment_line(
         trigger: dict[str, Any] = {"event": "STEP_BEGIN", "filter": {"step": step}}
         if relation is not None:
             trigger["phase_relation"] = relation
+        if phase_active_if is not None:
+            trigger["active_if"] = phase_active_if
         spec = AbilitySpec(
             "triggered",
             effects=effects,

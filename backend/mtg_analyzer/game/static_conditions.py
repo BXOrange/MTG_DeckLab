@@ -127,6 +127,15 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # optional ``min`` (default 1). The always-active-player "you" read,
         # like every other resource row here.
         "subtype_in_graveyard",
+        # MEC-46: "if another `<subtype>` entered the battlefield under your
+        # control this turn" (Galadriel, Elven-Queen's RULE 603.4
+        # intervening-if). + ``subtype`` — a live scan of the controller's
+        # battlefield for a permanent other than the source whose type line
+        # carries the word and that entered this turn (`GameObject.
+        # turn_entered == state.turn_number`, the same read
+        # `condition_query.entered_this_turn` makes). No per-turn tracker
+        # needed — the per-object entry flag already exists.
+        "another_subtype_entered_this_turn",  # + ``subtype``
         "drawn_cards_at_least",  # + ``amount`` — "…you've drawn N cards this turn"
         # "…you've cast an instant or sorcery spell this turn" (PAR-10) —
         # `GameState.cast_instant_or_sorcery_this_turn`, reset for *every*
@@ -460,6 +469,24 @@ def condition_holds(
             if word in obj.card.type_line.lower()
         )
         return hits >= minimum
+    if kind == "another_subtype_entered_this_turn":
+        # MEC-46 (Galadriel): a permanent other than the source, controlled
+        # by "you", carrying the named type word, that entered this turn.
+        word = str(condition.get("subtype", "")).lower()
+        if not word:
+            return False
+        src_id = getattr(source, "instance_id", None)
+        turn = getattr(state, "turn_number", None)
+        for obj in state.permanents():
+            if obj.instance_id == src_id:
+                continue
+            if getattr(obj, "controller_id", None) != controller_id:
+                continue
+            if getattr(obj, "turn_entered", None) != turn:
+                continue
+            if word in obj.card.type_line.lower():
+                return True
+        return False
     if kind == "card_types_in_graveyard_at_least":
         # RULE 702.137's "Delirium" — count *distinct printed card types*
         # among cards in your graveyard (Dragon's Rage Channeler/Winter,
@@ -577,6 +604,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return f"Delirium (≥{condition.get('amount', 0)} Kartentypen im Friedhof)"
     if kind == "subtype_in_graveyard":
         return f"solange ≥{condition.get('min', 1)} {condition.get('subtype', '')}-Karte im Friedhof"
+    if kind == "another_subtype_entered_this_turn":
+        return f"falls diesen Zug ein weiterer {condition.get('subtype', '')} ins Spiel kam"
     if kind.startswith("life_"):
         return f"solange Leben {'≥' if kind.endswith('least') else '≤'}{condition.get('amount', 0)}"
     if kind.startswith("cards_in_hand_"):

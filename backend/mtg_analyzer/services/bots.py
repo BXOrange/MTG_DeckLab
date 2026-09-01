@@ -53,6 +53,7 @@ with no human in it at all).
 from __future__ import annotations
 
 import logging
+import random
 from typing import TYPE_CHECKING, Any, Optional
 
 from mtg_analyzer.services.game_session import GameActionError, GameSession
@@ -106,6 +107,11 @@ class Bot:
         #: 702.111b menace, a cast whose targets it picked badly) gives up
         #: on that offer instead of retrying it until the action cap.
         self._failed: set[tuple] = set()
+        #: MEC-46: a RULE 701.38 vote has no "safe default" the way a "you
+        #: may" prompt does — every option is a real, deliberate choice.
+        #: A bot with no evaluation picks one at random, but seeded off its
+        #: own id so a bot-vs-bot table still replays identically.
+        self._vote_rng = random.Random(hash(self.player_id) & 0xFFFFFFFF)
 
     # -- The dispatcher ------------------------------------------------
 
@@ -151,7 +157,15 @@ class Bot:
         Declining is the choice that changes least, which is what a bot
         with no judgement should prefer — and, for the many "you may …"
         prompts, the one that can't cost it anything.
+
+        MEC-46 exception: a RULE 701.38 vote (`vote` / `vote_object`) never
+        offers a decline and has no least-change option, so the bot picks
+        one of the offered options at random (`self._vote_rng`, seeded off
+        its id — a bot-vs-bot table still replays the same).
         """
+        kind = (view.get("pending_choice") or {}).get("kind")
+        if kind in ("vote", "vote_object") and answers:
+            return self._vote_rng.choice(answers)
         decline = next((a for a in answers if a["type"] == "decline"), None)
         return decline or answers[0]
 

@@ -2205,6 +2205,28 @@ def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("tap", {"target_kind": kind, "untap": untap, **_optional_param(m)})]
 
 
+#: "tap target `<c1>` or `<c2>` creature[ an opponent controls]"
+#: (Tidebinder Mage) — `TargetSpec.colors`' OR narrowing, the
+#: `_pump_target_two_color` / `_destroy_color_adj` idiom (the shared
+#: `TARGET` macro carries no colour slot). Tidebinder's "…doesn't untap
+#: for as long as you control ~" tail rides the pronoun as its own
+#: `previous_subject` clause, so only the tap itself is this row's job.
+_TAP_TWO_COLOR_RE = _c(
+    rf"(?P<verb>tap|untap) target (?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) "
+    rf"creature(?P<yc> (?:an opponent controls|you don't control))?"
+)
+
+
+def _tap_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    colors = _two_color_letters(m)
+    if colors is None:
+        return None
+    kind = "creature_you_dont_control" if m.groupdict().get("yc") else "creature"
+    return [EffectSpec("tap", {
+        "target_kind": kind, "untap": m.group("verb").lower() == "untap", "colors": colors,
+    })]
+
+
 #: "tap N target creatures" / "untap up to two target lands" (RULE 115.1a
 #: generalized to N>=2, Snap-shaped — `TapEffect.count` already supported
 #: this; only the grammar was missing). Restricted to the same
@@ -2485,6 +2507,30 @@ def _return_to_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: whatever zone it's in.
 def _return_self_to_hand(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("return_to_hand", {"target_kind": None})]
+
+
+#: "return ~ and target `<c1>` or `<c2>` creature[ you control] to their
+#: owner's hand" (Snow Hound) — a compound bounce: two `return_to_hand`
+#: specs in printed order (RULE 608.2), the self one (`target_kind=None`)
+#: then the RULE 115 colour-narrowed target. Same "two sequenced specs
+#: rather than one effect expressing both recipients" idiom
+#: `_tap_self_and_subtype` uses.
+_RETURN_SELF_AND_TWO_COLOR_RE = _c(
+    rf"return (?P<self>~|this creature) and target "
+    rf"(?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) creature(?P<yc> you control)? "
+    rf"to (?:its|their) owner'?s hand"
+)
+
+
+def _return_self_and_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    colors = _two_color_letters(m)
+    if colors is None:
+        return None
+    kind = "creature_you_control" if m.groupdict().get("yc") else "creature"
+    return [
+        EffectSpec("return_to_hand", {"target_kind": None}),
+        EffectSpec("return_to_hand", {"target_kind": kind, "colors": colors}),
+    ]
 
 
 #: "return two target creatures to their owners' hands" (RULE 115.1a
@@ -4986,6 +5032,22 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return _add_counters_target_params(m, params)
 
 
+# MEC-46 (Galadriel, Elven-Queen) — "[you ]put a +1/+1 counter on your
+# Ring-bearer": no RULE 115 target, resolved against `continuous.
+# ring_bearer_of` at resolution (`AddCountersEffect.ring_bearer`).
+_ADD_COUNTERS_RING_BEARER_RE = _c(
+    rf"(?:you )?put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on your ring-bearer"
+)
+
+
+def _add_counters_ring_bearer(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_counters", {
+        "count": count_of(m.group("n")),
+        "kind": _counter_sign(m.group("ckind")),
+        "ring_bearer": True,
+    })]
+
+
 # "put a +1/+1 counter on target suspected creature you control" (RULE
 # 701.60, PAR-29 — Deadly Complication) — the one adjective-qualified TARGET
 # phrase `subgrammars.TARGET`'s own alternation doesn't carry (unlike
@@ -6396,6 +6458,125 @@ def _vote_per_vote(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             "scale": 1,
         })
     return [EffectSpec("vote", {"options": options, "per_vote_specs": per_vote})]
+
+
+# MEC-46 — "each player votes for `<colours>`. This creature gains
+# protection from each color with the most votes or tied for most votes."
+# (Council Guardian). Each option that ties for most votes contributes an
+# indefinite (RULE 611, no duration) self-scoped "protection from
+# `<colour>`" grant, carried in the vote's `winner_specs`.
+_VOTE_WINNER_PROTECTION_BODY_RE = re.compile(
+    r"^(?:this creature|~|it) gains protection from each color "
+    r"with the most votes or tied for most votes\.?$",
+    re.IGNORECASE,
+)
+_VOTE_COLOUR_WORDS = {"white", "blue", "black", "red", "green"}
+
+
+def _vote_winner_protection(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    options = _split_vote_options(m.group("opts"))
+    if len(options) < 2 or not all(o.lower() in _VOTE_COLOUR_WORDS for o in options):
+        return None
+    if _VOTE_WINNER_PROTECTION_BODY_RE.match(m.group("rest").strip()) is None:
+        return None
+    winner_specs = [
+        [{
+            "type": "grant_until",
+            "params": {
+                "static": {
+                    "type": "grant_protection_static",
+                    "params": {"protections": [opt.lower()]},
+                },
+                "duration": "rest_of_game",
+                "self_subject": True,
+            },
+        }]
+        for opt in options
+    ]
+    return [EffectSpec("vote", {"options": options, "winner_specs": winner_specs})]
+
+
+# MEC-46 — the tally-over-objects vote (`ObjectVoteEffect` /
+# `RulesEngine.request_object_vote`): "each player votes for a nonland
+# permanent you don't control. Exile each permanent with the most votes or
+# tied for most votes." (Council's Judgment) / "…an artifact, creature, or
+# enchantment card in your graveyard. Return each card … to your hand."
+# (Custodi Squire). The vote is over board / graveyard *objects*, not
+# named options.
+_VOTE_OBJECT_PERMANENT_RE = re.compile(
+    r"^a nonland permanent you don't control\.\s+"
+    r"exile each permanent with the most votes or tied for most votes\.?$",
+    re.IGNORECASE,
+)
+_VOTE_OBJECT_GRAVEYARD_RE = re.compile(
+    r"^an? (?P<types>[a-z, ]+?) card in your graveyard\.\s+"
+    r"return each card with the most votes or tied for most votes to your hand\.?$",
+    re.IGNORECASE,
+)
+_VOTE_OBJECT_CARD_TYPES = {"artifact", "creature", "enchantment", "land", "planeswalker"}
+
+
+def _vote_object(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    full = f"{m.group('opts').strip()}. {m.group('rest').strip()}"
+    if _VOTE_OBJECT_PERMANENT_RE.match(full) is not None:
+        return [EffectSpec("vote_object", {
+            "pool": "nonland_permanents_opponents", "outcome": "exile",
+        })]
+    grave = _VOTE_OBJECT_GRAVEYARD_RE.match(full)
+    if grave is not None:
+        raw = re.split(r",\s*(?:or\s+)?|\s+or\s+", grave.group("types").strip())
+        types = [t.strip().lower() for t in raw if t.strip()]
+        if not types or any(t not in _VOTE_OBJECT_CARD_TYPES for t in types):
+            return None
+        return [EffectSpec("vote_object", {
+            "pool": "graveyard_cards", "outcome": "return_to_hand", "card_types": types,
+        })]
+    return None
+
+
+# MEC-46 — Expropriate's "For each time vote, take an extra turn after this
+# one. For each money vote, choose a permanent owned by the voter and gain
+# control of it. Exile Expropriate." The time body scales `take_extra_turn`
+# by the number of time votes; the money body is a per-*ballot* gain-control
+# (`VoteEffect.per_vote_specs`' ``per_voter_gain_control`` shape). The
+# normalizer has already turned "one" → "1" and the card name → "~".
+_VOTE_EXPROPRIATE_RE = re.compile(
+    r"^for each (?P<a>time|money) vote, take an extra turn after this (?:one|1)\.\s+"
+    r"for each (?P<b>time|money) vote, choose a permanent owned by the voter "
+    r"and gain control of it\.\s+exile ~\.?$",
+    re.IGNORECASE,
+)
+
+
+def _vote_expropriate(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    options = _split_vote_options(m.group("opts"))
+    if {o.lower() for o in options} != {"time", "money"}:
+        return None
+    mm = _VOTE_EXPROPRIATE_RE.match(m.group("rest").strip())
+    if mm is None or mm.group("a").lower() != "time" or mm.group("b").lower() != "money":
+        return None
+    lowered = [o.lower() for o in options]
+    return [
+        EffectSpec("vote", {
+            "options": options,
+            "per_vote_specs": [
+                {
+                    "option": lowered.index("time"),
+                    "effects": [{"type": "take_extra_turn", "params": {"count": 1}}],
+                    "scale": 1,
+                },
+                {"option": lowered.index("money"), "per_voter_gain_control": True},
+            ],
+        }),
+        EffectSpec("exile", {"target_kind": None}),
+    ]
+
+
+# MEC-46 (RULE 701.38f) — "You choose how each player votes this turn."
+# (Illusion of Choice). `SetForcedVoterEffect` marks the caster as the
+# answerer of every seat's ballot for the rest of the turn.
+def _forced_vote(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("set_forced_voter", {})]
 
 
 # "`<player>` faces a villainous choice — `<A>`, or `<B>`." (RULE 701.55,
@@ -8280,6 +8461,14 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"sacrifice {_SELF_SUBJECT}"),
         _sacrifice_self,
     ),
+    # "tap target <c1> or <c2> creature[ an opponent controls]" (Tidebinder
+    # Mage) — colour-list tap; tried before the plain `tap` row (its
+    # "<c> or <c>" prefix isn't a TARGET row).
+    EffectHandler(
+        "tap_two_color",
+        _TAP_TWO_COLOR_RE,
+        _tap_two_color,
+    ),
     # "tap target creature" / "untap target permanent"
     EffectHandler(
         "tap",
@@ -8368,6 +8557,15 @@ HANDLERS: list[EffectHandler] = [
         "return_self_to_hand",
         _c(rf"return (?:{_SELF_SUBJECT}|this card) to its owner's hand"),
         _return_self_to_hand,
+    ),
+    # "return ~ and target <c1> or <c2> creature[ you control] to their
+    # owner's hand" (Snow Hound) — compound self+target bounce; before the
+    # colour-list and plain rows (its "return ~ and target …" would else be
+    # left unclaimed).
+    EffectHandler(
+        "return_self_and_two_color",
+        _RETURN_SELF_AND_TWO_COLOR_RE,
+        _return_self_and_two_color,
     ),
     # "return target <c1> or <c2> creature[ you control] to its owner's
     # hand" (Escape Routes) — colour-list bounce; tried before the plain
@@ -8953,6 +9151,14 @@ HANDLERS: list[EffectHandler] = [
         "add_counters_suspected_target",
         _c(rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on target suspected creature you control"),
         _add_counters_suspected_target,
+    ),
+    # MEC-46 (Galadriel) — "put a +1/+1 counter on your Ring-bearer" —
+    # before the plain `add_counters` row (whose `TARGET` alternation has
+    # no "your ring-bearer" phrase).
+    EffectHandler(
+        "add_counters_ring_bearer",
+        _ADD_COUNTERS_RING_BEARER_RE,
+        _add_counters_ring_bearer,
     ),
     # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" /
     # "… on ~"/"this creature" (Walking Ballista's "{4}: Put a +1/+1 counter
@@ -9626,6 +9832,32 @@ HANDLERS: list[EffectHandler] = [
         _VOTE_HEADER_RE,
         _vote_majority,
     ),
+    # MEC-46 — "each player votes for <colours>. ~ gains protection from
+    # each color with the most votes or tied for most votes." (Council
+    # Guardian). Before the per-vote form since that one fail-closes on a
+    # 3+-option vote anyway.
+    EffectHandler(
+        "vote_winner_protection",
+        _VOTE_HEADER_RE,
+        _vote_winner_protection,
+    ),
+    # MEC-46 — "each player votes for a nonland permanent you don't control
+    # / a card in your graveyard. Exile / return each <object> …" (Council's
+    # Judgment, Custodi Squire) — a tally over objects.
+    EffectHandler(
+        "vote_object",
+        _VOTE_HEADER_RE,
+        _vote_object,
+    ),
+    # MEC-46 — Expropriate: "For each time vote, take an extra turn … . For
+    # each money vote, choose a permanent owned by the voter and gain
+    # control of it. Exile ~." Before the generic per-vote form (whose
+    # "<body> for each <opt> vote" order is the reverse of Expropriate's).
+    EffectHandler(
+        "vote_expropriate",
+        _VOTE_HEADER_RE,
+        _vote_expropriate,
+    ),
     # "starting with you, each player votes for A or B. <body1> for each A
     # vote[ and <body2> for each B vote]." (RULE 701.38, PAR-29) — the
     # per-vote scaling form.
@@ -9633,6 +9865,13 @@ HANDLERS: list[EffectHandler] = [
         "vote_per_vote",
         _VOTE_HEADER_RE,
         _vote_per_vote,
+    ),
+    # MEC-46 (RULE 701.38f) — "You choose how each player votes this turn."
+    # (Illusion of Choice).
+    EffectHandler(
+        "forced_vote",
+        _c(r"you choose how each player votes this turn"),
+        _forced_vote,
     ),
     # "<player> faces a villainous choice — <A>, or <B>." (RULE 701.55,
     # PAR-29) — each facing player applies their own pick.
