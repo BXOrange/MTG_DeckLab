@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.7% covered — 13,124 / 34,811 — as of 2026-09-01, PARSER_VERSION 175.**
+**37.7% covered — 13,130 / 34,811 — as of 2026-09-01, PARSER_VERSION 176.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,17 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+176 = PAR-30 — RULE 615.6 **"the damage can't be prevented"**. Two
+shapes: a rider on one damage instance (`_DAMAGE_TARGET_TWO_COLOR_RE`
+gained an optional "…the/that damage can't be prevented" tail →
+`DealDamageEffect.unpreventable`, which flips `GameState.damage_prevention_
+disabled` for the span of that one `apply()` only — Combust); and the
+standalone turn-scoped clause (new `_DISABLE_DAMAGE_PREVENTION_RE` →
+`disable_damage_prevention`, the effect that already existed for
+hand-authored Insult // Injury but had no oracle-text route). +6 — Combust,
+Flaring Pain, Impractical Joke, Unstable Footing, Pyrewood Gearhulk,
+A-Ready to Rumble. 0 regressed. Closes the colour-list cluster tail.
 
 175 = PAR-30 — a **combat-state** tail on the destroy-colour-adjective
 target. `_DESTROY_COLOR_ADJ_RE` gained an optional "…that's attacking or

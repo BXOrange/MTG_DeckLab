@@ -2872,9 +2872,18 @@ class DealDamageEffect(GameEffect):
         amount_plus_count_selector: int = 0,
         amount_from_trigger_event: Optional[str] = None,
         recipient_subject: Optional[str] = None,
+        unpreventable: bool = False,
     ) -> None:
         super().__init__(source)
         self._base_amount = amount
+        #: "The damage can't be prevented." (Combust, RULE 615.6) — this one
+        #: instance ignores prevention shields. Implemented by flipping the
+        #: same turn-scoped `GameState.damage_prevention_disabled` flag
+        #: `disable_damage_prevention_this_turn` sets (`_run_replacement_
+        #: loop` reads it to drop every ``prevents_damage`` effect), but only
+        #: for the span of this `apply()` so it doesn't leak to unrelated
+        #: later damage.
+        self.unpreventable = unpreventable
         #: "~ deals N damage to **that creature's controller**" where "that
         #: creature" is a creature an *earlier clause* targeted (PAR-30 —
         #: "Destroy target creature. ~ deals 2 damage to that creature's
@@ -3060,6 +3069,20 @@ class DealDamageEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if not self.unpreventable:
+            self._apply_impl(context, targets)
+            return
+        # RULE 615.6: for the span of this one effect, no prevention shield
+        # applies — flip the flag `_run_replacement_loop` checks, then
+        # restore it so unrelated later damage this turn is unaffected.
+        prior = context.state.damage_prevention_disabled
+        context.state.damage_prevention_disabled = True
+        try:
+            self._apply_impl(context, targets)
+        finally:
+            context.state.damage_prevention_disabled = prior
+
+    def _apply_impl(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
             self._apply_selector(context)
             return
@@ -17603,6 +17626,7 @@ EffectRegistry.register(
         amount_plus_count_selector=int(p.get("amount_plus_count_selector", 0) or 0),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
         recipient_subject=p.get("recipient_subject"),
+        unpreventable=bool(p.get("unpreventable", False)),
     ),
 )
 EffectRegistry.register(

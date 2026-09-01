@@ -1728,7 +1728,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `combat.matches_object_filter` gained `blocking` / `attacking_or_
 #: blocking` keys (the siblings of the pre-existing `attacking`). Closes
 #: Surge of Righteousness. +1.
-PARSER_VERSION = "175"
+#: "176": PAR-30 — RULE 615.6 "the damage can't be prevented" recognition.
+#: `DealDamageEffect` gained an `unpreventable` flag (flips `GameState.
+#: damage_prevention_disabled` for the span of one `apply()`); the
+#: two-colour damage-target regex folds in the rider (Combust). New
+#: standalone `_DISABLE_DAMAGE_PREVENTION_RE` → the pre-existing
+#: `disable_damage_prevention` effect, previously hand-authored-only
+#: (Flaring Pain, Impractical Joke, Unstable Footing, Pyrewood Gearhulk,
+#: A-Ready to Rumble). +6.
+PARSER_VERSION = "176"
 
 
 def parser_source_hash() -> str:

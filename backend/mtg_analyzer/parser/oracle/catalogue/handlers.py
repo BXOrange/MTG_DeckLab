@@ -710,6 +710,10 @@ _SELECTOR_WORD_MAP: dict[str, str] = {
 _DAMAGE_TARGET_TWO_COLOR_RE = _c(
     rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to target "
     rf"(?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) creature"
+    # "The damage can't be prevented." (Combust, RULE 615.6) — an optional
+    # rider on this one damage instance, folded in the way
+    # `_destroy_non_creature` folds "it can't be regenerated".
+    rf"(?P<unpreventable>\. (?:the|that) damage can'?t be prevented)?"
 )
 
 
@@ -717,9 +721,12 @@ def _damage_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     colors = [resolve_color_word(m.group("c1")), resolve_color_word(m.group("c2"))]
     if not all(colors):
         return None
-    return [EffectSpec("damage", {
+    params: dict = {
         "amount": int(m.group("n")), "target_kind": "creature", "colors": colors,
-    })]
+    }
+    if m.groupdict().get("unpreventable"):
+        params["unpreventable"] = True
+    return [EffectSpec("damage", params)]
 
 
 def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
@@ -5914,6 +5921,19 @@ def _proliferate(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("proliferate", {})]
 
 
+#: "Damage can't be prevented this turn." (RULE 615.6 — Flaring Pain, the
+#: back half of Insult // Injury, Fear Fire Foes) — untargeted, turn-scoped;
+#: `DisableDamagePreventionEffect` / `RulesEngine.disable_damage_prevention_
+#: this_turn` already existed for hand-authored cards, this is the first
+#: oracle-text route to it. The bare word "damage" only (a leading "combat"
+#: is a narrower, static, combat-only shape this effect doesn't model).
+_DISABLE_DAMAGE_PREVENTION_RE = _c(r"damage can'?t be prevented this turn")
+
+
+def _disable_damage_prevention(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("disable_damage_prevention", {})]
+
+
 #: "proliferate twice" (Contagion Engine/Agent Frank Horrigan/Ezuri, Stalker
 #: of Spheres) / "proliferate N times" (War of the Spark's Saga chapter —
 #: normalize.py folds spelled-out numbers to digits, but not "twice", so
@@ -10185,6 +10205,12 @@ HANDLERS: list[EffectHandler] = [
         "proliferate",
         _c(r"proliferate"),
         _proliferate,
+    ),
+    # "Damage can't be prevented this turn." (RULE 615.6)
+    EffectHandler(
+        "disable_damage_prevention",
+        _DISABLE_DAMAGE_PREVENTION_RE,
+        _disable_damage_prevention,
     ),
     # "remove all counters from all permanents" (RULE 122 — Oblivion Stone/
     # Aether Snap/Thief of Blood-shaped).
