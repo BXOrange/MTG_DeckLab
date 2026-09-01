@@ -1752,7 +1752,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: attacking` → new `"battlefield_attacking"` search destination (enters
 #: tapped, then `put_onto_battlefield_attacking`). +7 — Preeminent Captain,
 #: Goblin Lackey, Warren Instigator, Mindwrack Liege, Didgeridoo, &c.
-PARSER_VERSION = "178"
+#: "179": PAR-30 — "tapped and attacking" cluster, batch 3.
+#: `_DELAYED_SAC_EXILE_TAIL_RE` gained an "at end of combat" timing
+#: (→ `create_delayed_trigger` step `"end_combat"`) + "the token[s]"
+#: subject; new `_CREATED_ENTERS_ATTACKING_RE` segmenter idiom ("Create
+#: <token>. The token[s] enter[s] tapped and attacking." stamps the
+#: preceding `create_token`/`copy_permanent`); new `_LOOK_TOP_PUT_
+#: ATTACKING_RE` → `impulsive_look` with `hit_destination="battlefield_
+#: attacking"`; `CopyPermanentEffect` gained `tapped`/`attacking`. +18 —
+#: Geist of Saint Traft, Crumbling Colossus, the Basilisk morph cycle,
+#: Serpentine/Stone-Tongue Basilisk, Ohran Viper, &c.
+PARSER_VERSION = "179"
 
 
 def parser_source_hash() -> str:

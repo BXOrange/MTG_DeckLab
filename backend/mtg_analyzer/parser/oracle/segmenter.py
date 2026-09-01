@@ -1259,6 +1259,21 @@ _NO_REGEN_SENTENCE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: "Create <a token / a token copy>. **The token[s] enter[s] tapped and
+#: attacking.**" (RULE 508.4 — Ghired, Kari Zev, Stangg, Living Laser) — a
+#: trailing sentence that retroactively describes how the just-created
+#: token(s) entered, the same `_NO_REGEN_SENTENCE_RE` idiom: split it off,
+#: parse "before" independently, then stamp ``tapped``/``attacking`` onto
+#: the last `create_token`/`copy_permanent` spec it produced. "It"/"they"
+#: are the created-token pronoun here (not a RULE 115 target).
+_CREATED_ENTERS_ATTACKING_RE = re.compile(
+    r"^(?P<before>.+?)\.\s*"
+    r"(?:the tokens?|that token|those tokens|it|they) enters?"
+    r" tapped and attacking"
+    r"(?:\.\s*(?P<after>.+))?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: "Look at the top N cards of your library. Put M of them into your hand
 #: and the rest `<destination>`." (Anticipate/Dig Through Time/Diabolic
 #: Vision/Ancestral Memories-shaped — the single biggest template blocker
@@ -1296,6 +1311,23 @@ _LOOK_TOP_SELECT_DESTINATIONS: dict[str, tuple[str, Optional[str]]] = {
     "on top of your library in any order": ("library_top", "any"),
     "into your graveyard": ("graveyard", None),
 }
+
+#: "Look at the top N cards of your library. You may put a [<subtype>]
+#: creature card from among them onto the battlefield tapped and attacking.
+#: Put the rest [of the cards] on the bottom of your library in a random
+#: order." (RULE 508.4 — Arthur, Marigold Knight; Owlbear Cub; The Joiner
+#: of Cats). Emitted as an `impulsive_look` with
+#: ``hit_destination="battlefield_attacking"`` — the search destination
+#: `_put_searched_card` grew for the put-from-hand form (v178), which
+#: enters the card tapped and calls `put_onto_battlefield_attacking`.
+_LOOK_TOP_PUT_ATTACKING_RE = re.compile(
+    r"^look at the top (?P<n>\d+) cards? of your library\.\s*"
+    r"you may put an? (?P<filter>[a-z, ]+?) card from among them "
+    r"onto the battlefield tapped and attacking\.\s*"
+    r"put the rest(?: of the cards)? on the bottom of your library in a random order\.?"
+    r"(?:\s*(?P<after>.+))?$",
+    re.IGNORECASE | re.DOTALL,
+)
 
 #: "Gain control of target creature until end of turn. **Untap that
 #: creature. It gains haste until end of turn.**" (Act of Treason/Claim the
@@ -2351,6 +2383,51 @@ def parse_effect_body(
             },
         )
         return _with_after_tail([spec], look_top_select.group("after"), group_subject=group_subject)
+
+    look_put_atk = _LOOK_TOP_PUT_ATTACKING_RE.match(body)
+    if look_put_atk is not None:
+        words = look_put_atk.group("filter").split()
+        criteria: Optional[dict] = None
+        if words == ["creature"]:
+            criteria = {"type": "creature"}
+        elif len(words) == 2 and words[1] == "creature":
+            # "human creature card" / "cat creature card" — a creature
+            # subtype filter (a substring match on the type line).
+            criteria = {"type": words[0]}
+        if criteria is not None:
+            spec = EffectSpec(
+                "impulsive_look",
+                {
+                    "count": int(look_put_atk.group("n")),
+                    "criteria": criteria,
+                    "hit_destination": "battlefield_attacking",
+                    "miss_destination": "library_bottom_random",
+                    "optional": True,
+                },
+            )
+            return _with_after_tail(
+                [spec], look_put_atk.group("after"), group_subject=group_subject
+            )
+
+    enters_atk = _CREATED_ENTERS_ATTACKING_RE.match(body)
+    if enters_atk is not None:
+        before_specs = parse_effect_body(
+            enters_atk.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if before_specs is not None:
+            for i in range(len(before_specs) - 1, -1, -1):
+                if before_specs[i].type in ("create_token", "copy_permanent"):
+                    flagged = dict(before_specs[i].params)
+                    flagged["tapped"] = True
+                    flagged["attacking"] = True
+                    before_specs[i] = EffectSpec(
+                        before_specs[i].type, flagged, condition=before_specs[i].condition
+                    )
+                    return _with_after_tail(
+                        before_specs, enters_atk.group("after"), group_subject=group_subject
+                    )
+        # regex matched but nothing stampable — fall through, fail closed
 
     no_regen = _NO_REGEN_SENTENCE_RE.match(body)
     if no_regen is not None:

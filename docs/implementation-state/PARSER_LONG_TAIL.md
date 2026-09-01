@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.8% covered — 13,147 / 34,811 — as of 2026-09-01, PARSER_VERSION 178.**
+**37.8% covered — 13,165 / 34,811 — as of 2026-09-01, PARSER_VERSION 179.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,25 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+179 = PAR-30 — "tapped and attacking" cluster, batch 3, and a
+higher-yield bycatch. `_DELAYED_SAC_EXILE_TAIL_RE` gained an **"at end of
+combat"** timing (→ `create_delayed_trigger` step `"end_combat"`, which
+`_fire_delayed_triggers` already fires) and "the token[s]" as a subject —
+that tail rides on every "tapped and attacking" token card *and* on
+Crumbling Colossus / the whole Basilisk morph cycle / Ohran Viper, which
+is where most of the +18 came from. New `_CREATED_ENTERS_ATTACKING_RE`
+segmenter idiom ("Create a token. The token[s] enter[s] tapped and
+attacking." stamps `tapped`/`attacking` onto the preceding `create_token`
+/ `copy_permanent`, the `_NO_REGEN_SENTENCE_RE` idiom); new
+`_LOOK_TOP_PUT_ATTACKING_RE` → `impulsive_look` with
+`hit_destination="battlefield_attacking"`; `CopyPermanentEffect` gained
+`tapped`/`attacking`. +18 — Geist of Saint Traft, Crumbling Colossus,
+Serpentine / Stone-Tongue / Lowland Basilisk, Ohran Viper, Fog Elemental,
+Geist / Invocation of Saint Traft, &c. 0 regressed. Still open in the
+cluster: a bare-name token subject ("Ragavan enters …" — Kari Zev),
+`populate` as the created-thing (Ghired), and the multi-clause Stangg /
+Living Laser bodies.
 
 178 = PAR-30 — **"put a `<filter>` creature card from your hand onto the
 battlefield [tapped and attacking]"** (RULE 508.4, the put-from-zone half

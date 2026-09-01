@@ -110,19 +110,17 @@ Plan-level sequencing lives in
     parametric-keyword-grant static + the v156 `subtype_in_graveyard`
     condition; see `Done_Backend.md`.)
 
-  - **"Tapped and attacking" (RULE 508.4) residue — the engine primitive
-    (`RulesEngine.put_onto_battlefield_attacking`), the `create_token`
-    route (v177 +10) and the `put_from_hand` route (v178 +7) shipped.**
-    Left: the *library* "look at the top N … put a creature card … onto
-    the battlefield tapped and attacking" shape (Winota, Arthur, Jet,
-    Owlbear Cub, Doors of Durin) — a dig/impulsive-look destination;
-    "the token enters tapped and attacking" as its own sentence (a
-    created-objects pronoun back-reference); the copy-token variant
-    ("create a tapped and attacking token that's a copy of …" — Calamity,
-    Altaïr); a trailing "that opponent" / "defending player" defender ref
-    (Kaalia, Hans Eriksson); and mana-value-cap put-from-hand filters
-    (Shadowfax "with lesser power", Kinscaer Sentry "with mana value X or
-    less").
+  - **"Tapped and attacking" (RULE 508.4) residue — the primitive
+    (`RulesEngine.put_onto_battlefield_attacking`) + the `create_token`
+    (v177), `put_from_hand` (v178), `copy_permanent` / "the token enters
+    …" / look-top / "at end of combat" delayed-tail (v179) routes all
+    shipped.** Left: a bare-name token subject ("Ragavan enters tapped
+    and attacking" — Kari Zev); `populate` as the created thing (Ghired);
+    the multi-clause Stangg / Living Laser bodies; a trailing "that
+    opponent" / "defending player" defender ref (Kaalia, Hans Eriksson,
+    Owlbear Cub); and mana-value-cap put-from-hand / look-top filters
+    (Shadowfax "with lesser power", Kinscaer Sentry, Jet "with mana value
+    X or less").
 
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The

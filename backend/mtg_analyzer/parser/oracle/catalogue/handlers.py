@@ -7556,8 +7556,11 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: majority of the cluster.
 _DELAYED_SAC_EXILE_TAIL_RE = _c(
     r"(?:then )?(?P<verb>sacrifice|exile|destroy) "
-    r"(?:it|that creature|that token|that permanent|that artifact|those tokens|them) "
-    r"at the beginning of (?:the|your) next end step"
+    r"(?:it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way) "
+    # "at end of combat" (Kari Zev, Calamity, every "tapped and attacking"
+    # token) fires at the `end_combat` step, "the/your next end step" at the
+    # ordinary `end` step (RULE 603.7).
+    r"(?P<when>at the beginning of (?:the|your) next end step|at end of combat)"
 )
 _DELAYED_TAIL_INNER = {
     "sacrifice": "sacrifice_specific",
@@ -7568,8 +7571,9 @@ _DELAYED_TAIL_INNER = {
 
 def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
     inner = _DELAYED_TAIL_INNER[m.group("verb").lower()]
+    step = "end_combat" if m.group("when").lower() == "at end of combat" else "end"
     return [EffectSpec("create_delayed_trigger", {
-        "step": "end",
+        "step": step,
         "scope": "any",
         "capture": "previous_or_self",
         "effects": [{"type": inner, "params": {}}],

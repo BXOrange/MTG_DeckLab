@@ -14350,6 +14350,8 @@ class CopyPermanentEffect(GameEffect):
         count_if_kicked: Optional[int] = None,
         count_from_trigger_event: Optional[str] = None,
         haste: bool = False,
+        tapped: bool = False,
+        attacking: bool = False,
         add_types: Optional[list[str]] = None,
         add_subtypes: Optional[list[str]] = None,
         not_legendary: bool = False,
@@ -14415,6 +14417,13 @@ class CopyPermanentEffect(GameEffect):
         #: keyword granted alongside a copy goes here instead, applied the
         #: same ``temp_keywords`` way.
         self.extra_temp_keywords = list(extra_temp_keywords or [])
+        #: "…create a **tapped and attacking** token that's a copy of …" /
+        #: "…the token enters tapped and attacking." (RULE 508.4 — Calamity,
+        #: Ghired, Stangg). ``tapped`` is applied to each made token; when
+        #: ``attacking``, each is then put into combat via `RulesEngine.
+        #: put_onto_battlefield_attacking`.
+        self.enter_tapped = bool(tapped)
+        self.enter_attacking = bool(attacking)
         # RULE 702.33b's *override* kicked-conditional ("Create a token
         # that's a copy of target creature. If this spell was kicked,
         # create five of those tokens instead." — Rite of Replication) —
@@ -14471,6 +14480,7 @@ class CopyPermanentEffect(GameEffect):
                 for kw in self.extra_temp_keywords:
                     for obj in made:
                         obj.temp_keywords.add(kw)
+                self._apply_enter_state(context, made)
             return
         target = (targets[0] if targets else None) or self.target
         if self._attached_mode:
@@ -14516,6 +14526,17 @@ class CopyPermanentEffect(GameEffect):
             for kw in self.extra_temp_keywords:
                 for obj in made:
                     obj.temp_keywords.add(kw)
+            self._apply_enter_state(context, made)
+
+    def _apply_enter_state(self, context: GameContext, made: list[Any]) -> None:
+        """RULE 508.4: a "tapped and attacking" token copy — tap it as it's
+        made, then put it into the current combat."""
+        if self.enter_tapped:
+            for obj in made:
+                obj.tapped = True
+        if self.enter_attacking:
+            for obj in made:
+                context.engine.put_onto_battlefield_attacking(obj)
 
 
 class EnterAsCopyReplacement(GameEffect):
@@ -19625,6 +19646,8 @@ EffectRegistry.register(
         count_if_kicked=p.get("count_if_kicked"),
         count_from_trigger_event=p.get("count_from_trigger_event"),
         haste=bool(p.get("haste", False)),
+        tapped=bool(p.get("tapped", False)),
+        attacking=bool(p.get("attacking", False)),
         add_types=p.get("add_types"),
         add_subtypes=p.get("add_subtypes"),
         not_legendary=bool(p.get("not_legendary", False)),
