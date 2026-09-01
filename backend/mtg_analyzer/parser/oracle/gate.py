@@ -1935,7 +1935,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Takeover) or `GainControlUntilEndOfTurnEffect.mass_of_target_player`
 #: (one RULE 115 opponent target, then all their creatures/artifacts).
 #: +5 (incl. Beamtown Beatstick / Archpriest of Shadows bycatch).
-PARSER_VERSION = "200"
+#: "201": PAR-30 threaten residue — the two card-specific conditional
+#: after-tails: "if that creature is a <subtype>, it also gets +N/+M until
+#: end of turn" (Goatnap) and "if it's equipped, you may destroy all
+#: Equipment attached to that creature" (Awaken the Sleeper), each a
+#: `ConditionalEffect` gated on new `previous_target_*` keys
+#: (`previous_target_has_subtype` / `_is_equipped` / `_power_at_most`)
+#: reading `GameContext.previous_targets`; the destroy runs over a new
+#: `equipment_attached_to_previous` mass selector. +2.
+PARSER_VERSION = "201"
 
 
 def parser_source_hash() -> str:

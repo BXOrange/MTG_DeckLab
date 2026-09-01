@@ -431,3 +431,89 @@ def test_execute_mass_target_opponent_creatures_only():
     assert c2.controller_id == "p1"
     assert c3.controller_id == "p3"  # a different opponent's creatures untouched
     assert "haste" in {k.lower() for k in c2.granted_keywords}
+
+
+# --- v201: card-specific conditional after-tails --------------------------
+
+
+def test_goatnap_subtype_conditional_tail_parse():
+    specs = parse_effect_body(
+        "gain control of target creature until end of turn. untap that creature. "
+        "it gains haste until end of turn. if that creature is a goat, it also "
+        "gets +3/+0 until end of turn."
+    )
+    assert specs is not None
+    pump = next(s for s in specs if s.type == "pump")
+    assert pump.params == {"power": 3, "toughness": 0, "previous_subject": True}
+    assert pump.condition == {"previous_target_has_subtype": "goat"}
+
+
+def test_awaken_equipped_conditional_tail_parse():
+    specs = parse_effect_body(
+        "gain control of target creature until end of turn. untap that creature. "
+        "it gains haste until end of turn. if it's equipped, you may destroy all "
+        "equipment attached to that creature."
+    )
+    assert specs is not None
+    dst = next(s for s in specs if s.type == "destroy")
+    assert dst.params == {"selector": "equipment_attached_to_previous"}
+    assert dst.condition == {"previous_target_is_equipped": True}
+
+
+def test_end_to_end_goatnap_awaken_modeled():
+    for name, text in [
+        ("Goatnap", "Gain control of target creature until end of turn. Untap "
+         "that creature. It gains haste until end of turn. If that creature is "
+         "a Goat, it also gets +3/+0 until end of turn."),
+        ("Awaken the Sleeper", "Gain control of target creature until end of "
+         "turn. Untap that creature. It gains haste until end of turn. If it's "
+         "equipped, you may destroy all Equipment attached to that creature."),
+    ]:
+        c = Card(id=name[:6], name=name, type_line="Sorcery", is_sorcery=True,
+                 oracle_text=text)
+        assert parse_oracle(c).modeled is True, name
+
+
+def test_execute_goatnap_conditional_pump_only_when_goat():
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0,
+    )
+    st = eng.state
+
+    def creat(name, subtypes):
+        o = GameObject(
+            Card(id=name, name=name, type_line="Creature — " + subtypes,
+                 is_creature=True, power=2, toughness=2),
+            owner_id="p2", zone=Zone.BATTLEFIELD,
+        )
+        o.controller_id = "p2"
+        st.add_to_battlefield(o)
+        return o
+
+    goat = creat("G", "Goat")
+    ox = creat("O", "Ox")
+    src = GameObject(
+        Card(id="GN", name="Goatnap", type_line="Sorcery", is_sorcery=True),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    src.controller_id = "p1"
+    st.add_to_battlefield(src)
+
+    specs = parse_effect_body(
+        "gain control of target creature until end of turn. untap that creature. "
+        "it gains haste until end of turn. if that creature is a goat, it also "
+        "gets +3/+0 until end of turn."
+    )
+    # on the Goat: +3/+0 applies
+    _apply_effects_partitioned(
+        build_effects(specs, source=src), GameContext(st, eng.rules), [goat], None, source=src
+    )
+    eng.recompute_continuous_effects()
+    assert (goat.power, goat.toughness) == (5, 2)
+    # on the Ox: control + haste, but no pump
+    _apply_effects_partitioned(
+        build_effects(specs, source=src), GameContext(st, eng.rules), [ox], None, source=src
+    )
+    eng.recompute_continuous_effects()
+    assert ox.controller_id == "p1"
+    assert (ox.power, ox.toughness) == (2, 2)

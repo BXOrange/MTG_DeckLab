@@ -2671,6 +2671,35 @@ class ConditionalEffect(GameEffect):
                     outcome = ev.get("won")
             if outcome is None or bool(outcome) != bool(clash_won):
                 return False
+        # PAR-30 "Threaten … tails residue" — a card-specific after-tail on a
+        # threaten clause, gated on the creature the *previous* clause chose
+        # (`GameContext.previous_targets`, the same referent
+        # `PumpEffect.previous_subject` / `GrantUntilEffect.previous_subject`
+        # read): "if that creature is a Goat, it also gets +3/+0 …" (Goatnap),
+        # "if it's equipped, you may destroy all Equipment attached to that
+        # creature." (Awaken the Sleeper).
+        prev_subtype = self.condition.get("previous_target_has_subtype")
+        prev_power_at_most = self.condition.get("previous_target_power_at_most")
+        prev_equipped = self.condition.get("previous_target_is_equipped")
+        if prev_subtype is not None or prev_power_at_most is not None or prev_equipped is not None:
+            prev = context.previous_targets[0] if context.previous_targets else None
+            if prev is None or not hasattr(prev, "instance_id"):
+                return False
+            if prev_subtype is not None:
+                from . import combat  # local: avoid the combat<->effects cycle
+
+                if not combat.matches_object_filter(prev, {"subtype": str(prev_subtype)}):
+                    return False
+            if prev_power_at_most is not None and (prev.power or 0) > int(prev_power_at_most):
+                return False
+            if prev_equipped is not None:
+                is_equipped = any(
+                    o.attached_to == prev.instance_id
+                    and "equipment" in (o.card.type_line or "").lower()
+                    for o in context.state.battlefield
+                )
+                if bool(is_equipped) != bool(prev_equipped):
+                    return False
         return True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -3825,6 +3854,14 @@ _MASS_DESTROY_SELECTORS: frozenset[str] = frozenset(
     {
         "all_creatures", "all_artifacts", "all_enchantments", "all_permanents",
         "all_planeswalkers", "all_lands",
+        # "destroy all Equipment attached to that creature." (Awaken the
+        # Sleeper's after-tail — "that creature" is the threaten clause's
+        # chosen target, `GameContext.previous_targets`). The printed "you
+        # may" isn't offered as an interactive choice (documented
+        # simplification — it's the opponent's Equipment about to help a
+        # creature leaving your control; a `previous_target_is_equipped`
+        # `ConditionalEffect` gate already skips the clause when empty).
+        "equipment_attached_to_previous",
         # "return all nonland permanents with mana value X or less to their
         # owners' hands." (Displacement Wave) — `ReturnToHandEffect`'s own
         # mass-bounce sibling of the destroy/exile board wipes above.
@@ -3890,6 +3927,17 @@ def _mass_selector_objects(
         result = [o for o in battlefield if o.card.is_land]
     elif selector == "all_nonland_permanents":
         result = [o for o in battlefield if not o.card.is_land]
+    elif selector == "equipment_attached_to_previous":
+        # "destroy all Equipment attached to that creature." (Awaken the
+        # Sleeper's own after-tail) — "that creature" is the threaten
+        # clause's chosen target (`GameContext.previous_targets`).
+        prev = context.previous_targets[0] if context.previous_targets else None
+        pid = getattr(prev, "instance_id", None)
+        result = [
+            o for o in battlefield
+            if pid is not None and o.attached_to == pid
+            and "equipment" in (o.card.type_line or "").lower()
+        ]
     elif selector == "opponents_creatures":
         controller_id = getattr(source, "controller_id", None)
         result = [

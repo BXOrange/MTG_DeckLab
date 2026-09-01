@@ -7932,6 +7932,40 @@ def _gain_control_rich_prev_grant(m: re.Match[str]) -> Optional[list[EffectSpec]
     return out
 
 
+#: PAR-30 "Threaten … tails residue" — the two card-specific conditional
+#: after-tails a threaten clause carries, each gated on the creature the
+#: threaten just chose (`ConditionalEffect`'s `previous_target_*` keys,
+#: reading `GameContext.previous_targets`):
+#:   * "if that creature is a <subtype>, it also gets +N/+M until end of
+#:     turn" (Goatnap — "if that creature is a Goat, it also gets +3/+0");
+#:   * "if it's equipped, you may destroy all Equipment attached to that
+#:     creature" (Awaken the Sleeper — the "you may" isn't offered as an
+#:     interactive choice, see `_MASS_DESTROY_SELECTORS`).
+_IF_PREV_SUBTYPE_PUMP_RE = _c(
+    r"if (?:that creature|it) is an? (?P<sub>[a-z][a-z-]+), "
+    r"(?:it|that creature) (?:also )?gets (?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+) until end of turn"
+)
+
+
+def _if_prev_subtype_pump(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pump", {
+        "power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t")),
+        "previous_subject": True,
+    }, condition={"previous_target_has_subtype": m.group("sub")})]
+
+
+_IF_PREV_EQUIPPED_DESTROY_RE = _c(
+    r"if (?:it'?s|that creature is) equipped, (?:you may )?destroy all equipment "
+    r"attached to (?:it|that creature)"
+)
+
+
+def _if_prev_equipped_destroy(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("destroy", {
+        "selector": "equipment_attached_to_previous",
+    }, condition={"previous_target_is_equipped": True})]
+
+
 #: MEC-28: "They gain first strike until end of turn." (Karlach, Fury of
 #: Avernus's own trailing sentence, following "untap all attacking
 #: creatures.") — the *mass-selector* sibling of the row above: "they" isn't
@@ -9953,6 +9987,21 @@ HANDLERS: list[EffectHandler] = [
         "gain_control_rich_prev_grant",
         _GAIN_CONTROL_RICH_PREV_GRANT_RE,
         _gain_control_rich_prev_grant,
+        previous_subject_only=True,
+    ),
+    # PAR-30 "Threaten … tails residue" — card-specific conditional
+    # after-tails gated on the just-controlled creature (Goatnap "if that
+    # creature is a Goat …", Awaken the Sleeper "if it's equipped …").
+    EffectHandler(
+        "if_prev_subtype_pump",
+        _IF_PREV_SUBTYPE_PUMP_RE,
+        _if_prev_subtype_pump,
+        previous_subject_only=True,
+    ),
+    EffectHandler(
+        "if_prev_equipped_destroy",
+        _IF_PREV_EQUIPPED_DESTROY_RE,
+        _if_prev_equipped_destroy,
         previous_subject_only=True,
     ),
     # PAR-30: the singular-pronoun siblings — "it [also] gets +N/+N …" /
