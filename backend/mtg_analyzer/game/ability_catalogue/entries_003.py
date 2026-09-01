@@ -1578,3 +1578,62 @@ def _mirrormade() -> list[AbilitySpec]:
 register("Mirrormade", _mirrormade)
 
 
+
+def _stangg_echo_warrior() -> list[AbilitySpec]:
+    """Whenever Stangg attacks, create Stangg Twin, a legendary 3/4 red and
+    green Human Warrior creature token. It enters tapped and attacking. For
+    each Aura and Equipment attached to Stangg, create a token that's a copy
+    of it attached to Stangg Twin. Sacrifice all tokens created this way at
+    the beginning of the next end step.
+
+    -- Stangg, Echo Warrior. Hand-authored rather than parsed: (1)
+    `normalize` folds the token name "Stangg Twin" -> "~ Twin" (it contains
+    the card's own given name), which no `create_token` handler can read;
+    (2) "for each Aura and Equipment attached to X, create a token that's a
+    copy of it **attached to Stangg Twin**" is a copy-each-attachment-and-
+    reattach-elsewhere shape with no other card in the pool needing it, so
+    it stays a bespoke effect (`effects.CopyAttachmentsOntoLastCreatedEffect`,
+    reaching for `GameContext.created_objects[-1]` -- the token the first
+    clause just made -- the same "whatever the previous effect made"
+    referent `LivingWeaponEffect` uses). The delayed "sacrifice all tokens
+    created this way" is `create_delayed_trigger`'s existing
+    ``capture="created_objects"`` (Kiki-Jiki's template), which grabs the
+    whole `created_objects` list -- Stangg Twin plus every attachment copy.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("create_token", {
+                    "token_name": "Stangg Twin",
+                    "legendary": True,
+                    "power": 3,
+                    "toughness": 4,
+                    "colors": ["R", "G"],
+                    "subtypes": ["Human", "Warrior"],
+                    "tapped": True,
+                    "attacking": True,
+                }),
+                EffectSpec("copy_attachments_onto_last_created", {}),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end",
+                    "scope": "any",
+                    "capture": "created_objects",
+                    "effects": [{"type": "sacrifice_specific", "params": {}}],
+                    "description": "Stangg: erzeugte Tokens opfern",
+                }),
+            ],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text=(
+                "whenever ~ attacks, create ~ twin, a legendary 3/4 red and "
+                "green human warrior creature token. it enters tapped and "
+                "attacking. for each aura and equipment attached to ~, create "
+                "a token that's a copy of it attached to ~ twin. sacrifice "
+                "all tokens created this way at the beginning of the next end "
+                "step."
+            ),
+        ),
+    ]
+
+
+register("Stangg, Echo Warrior", _stangg_echo_warrior)

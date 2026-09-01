@@ -13576,6 +13576,42 @@ class LivingWeaponEffect(GameEffect):
             context.engine.attach_to_target(self.source, tokens[0])
 
 
+class CopyAttachmentsOntoLastCreatedEffect(GameEffect):
+    """"For each Aura and Equipment attached to ~, create a token that's a
+    copy of it attached to `<the token this ability just created>`."
+    (Stangg, Echo Warrior — the copies go onto the "Stangg Twin" token the
+    preceding `create_token` clause made.)
+
+    The host is `GameContext.created_objects[-1]` — the most recently
+    created object this resolution, the same "whatever the previous effect
+    just made" referent `LivingWeaponEffect` reaches for. Each copy is
+    itself appended to `created_objects`, so a following "sacrifice all
+    tokens created this way" delayed trigger catches them too."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None:
+            return
+        made_so_far = list(getattr(context, "created_objects", []) or [])
+        host = made_so_far[-1] if made_so_far else None
+        if host is None:
+            return
+        attachments = [
+            o for o in list(context.state.battlefield)
+            if getattr(o, "attached_to", None) == src.instance_id
+            and (
+                "aura" in str(getattr(o.card, "type_line", "")).lower()
+                or "equipment" in str(getattr(o.card, "type_line", "")).lower()
+            )
+        ]
+        controller_id = getattr(src, "controller_id", None) or context.active_player.id
+        for att in attachments:
+            copies = context.engine.create_token(controller_id, att.card, 1) or []
+            for copy in copies:
+                context.engine.attach_to_target(copy, host)
+            context.created_objects.extend(copies)
+
+
 class ClassLevelEffect(GameEffect):
     """Set a Class's class level (RULE 716.2c) — the effect of activating one
     of its "Level N: <cost>" abilities, not the cost itself (mirrors how
@@ -19926,6 +19962,12 @@ EffectRegistry.register(
         parametric_keywords=p.get("parametric_keywords"),
         per_opponent=bool(p.get("per_opponent", False)),
     ),
+)
+EffectRegistry.register(
+    # "For each Aura and Equipment attached to ~, create a token that's a
+    # copy of it attached to <the token just created>." (Stangg, Echo Warrior)
+    "copy_attachments_onto_last_created",
+    lambda p: CopyAttachmentsOntoLastCreatedEffect(),
 )
 EffectRegistry.register(
     # "Create a token that's a copy of <a specific named real card>"

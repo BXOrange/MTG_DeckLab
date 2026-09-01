@@ -110,19 +110,6 @@ Plan-level sequencing lives in
     parametric-keyword-grant static + the v156 `subtype_in_graveyard`
     condition; see `Done_Backend.md`.)
 
-  - **`create a token that's a copy of …` body singletons** — the RULE
-    508.4 "tapped and attacking" mechanic + every parser route into it is
-    **done** (v177–v198); Kaalia of the Vast / The Joiner of Cats / The
-    Vast Scrier / Living Laser / Sin, Spira's Punishment closed at
-    v194–v198 (see `Done_Backend.md`). One left:
-    - **Stangg, Echo Warrior** — the named token + "it enters tapped and
-      attacking" parse fine; blocked on "for each Aura and Equipment
-      attached to Stangg, create a token that's a copy of it **attached
-      to Stangg Twin**" — a copy-each-attachment-then-reattach-elsewhere
-      primitive with no other card needing it, plus a "sacrifice all
-      tokens created this way at the beginning of the next end step"
-      group delayed sac. A hand-author candidate.
-
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The
     optional-additional-cost-paid tracker (v155), the `subtype_in_graveyard`
