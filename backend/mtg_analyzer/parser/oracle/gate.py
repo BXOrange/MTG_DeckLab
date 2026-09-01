@@ -1811,7 +1811,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: attackers, so the phrase is consumed rather than re-modeled. Kaalia of
 #: the Vast, The Vast Scrier, Owlbear Cub, Seraphic Greatsword, Soaring
 #: Lightbringer.
-PARSER_VERSION = "185"
+#: "186": PAR-30 — `_NAMED_COUNTER_KINDS` widened from {spore,burden,quest}
+#: with 26 more pure card-text-driven counter kinds (charge, oil, storage,
+#: ki, verse, page, plan, soul, fuse, depletion, flood, bounty, brick,
+#: study, plague, doom, growth, point, infection, hatchling, pressure,
+#: slime, tide, ice, flame, hour) — each verified to have no reader in
+#: `game/`. Keyword counters (RULE 122.1e), subsystem counters (age/time/
+#: level/loyalty/lore/rad/energy) and replacement counters (stun/shield)
+#: stay out — they'd half-model. Still a fail-closed whitelist.
+PARSER_VERSION = "186"
 
 
 def parser_source_hash() -> str:

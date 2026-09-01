@@ -5238,17 +5238,31 @@ def _add_counters_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 #: RULE 122.1's *named* (non-P/T) counter kinds this grammar recognizes for
-#: the plain "put a `<kind>` counter on X" shape — deliberately small,
-#: extended as a real card needs one (fail-closed for anything else via the
-#: alternation below, same discipline `_CREATURE_FILTER_KEYWORD_WORDS`
-#: uses). Kept as a wholly separate row from `_add_counters`'s own
-#: `[+\-−]1/[+\-−]1` `ckind` group rather than widening that regex's
-#: alternation — `_add_counters`'s builder maps *any* non-`-`-prefixed
-#: match to `"+1/+1"`, so a shared group would have silently mis-typed
-#: "spore" as a P/T counter. `AddCountersEffect.kind` is already a free
-#: string (RULE 122.1a — any permanent, any named counter type), so no
-#: engine change is needed, only this narrower parser recognition.
-_NAMED_COUNTER_KINDS: frozenset[str] = frozenset({"spore", "burden", "quest"})
+#: the plain "put a `<kind>` counter on X" shape. Kept as a wholly separate
+#: row from `_add_counters`'s own `[+\-−]1/[+\-−]1` `ckind` group rather
+#: than widening that regex's alternation — `_add_counters`'s builder maps
+#: *any* non-`-`-prefixed match to `"+1/+1"`, so a shared group would have
+#: silently mis-typed "spore" as a P/T counter. `AddCountersEffect.kind` is
+#: already a free string (RULE 122.1a — any permanent, any named counter
+#: type), so no engine change is needed, only this parser recognition.
+#:
+#: Still an explicit fail-closed whitelist (not a bare `[a-z-]+`) because
+#: three counter families need *more* than a generic `obj.counters[kind]`
+#: bump and would half-model if they slipped through here: RULE 122.1e
+#: **keyword counters** (`flying`/`indestructible`/`menace`/… — the layer
+#: engine has no keyword-counter reader), the **subsystem** counters the
+#: engine keys off by name (`age` cumulative-upkeep, `time` vanishing/
+#: fading, `level` leveler, `loyalty` planeswalker, `lore` Saga, `rad`,
+#: `energy`), and the **replacement-carrying** ones (`stun` skip-untap,
+#: `shield`). Every kind listed here was checked to have no reader anywhere
+#: in `game/` — it's a pure card-text-driven count tracker.
+_NAMED_COUNTER_KINDS: frozenset[str] = frozenset({
+    "spore", "burden", "quest",
+    "charge", "oil", "storage", "verse", "ki", "page", "plan", "soul",
+    "fuse", "depletion", "flood", "bounty", "brick", "study", "plague",
+    "doom", "growth", "point", "infection", "hatchling", "pressure",
+    "slime", "tide", "ice", "flame", "hour",
+})
 _ADD_NAMED_COUNTER_RE = _c(
     rf"put {COUNT} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
     rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"

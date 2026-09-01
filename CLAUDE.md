@@ -413,11 +413,18 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 38.0% (13,219 / 34,811) as of 2026-09-01, PARSER_VERSION 185**
+**Coverage: 38.1% (13,272 / 34,811) as of 2026-09-01, PARSER_VERSION 186**
 (parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
-before trusting this number. The per-version changelog and the long-tail
+before trusting this number. The **Commander-legal** slice — the subset
+that matters for Goldfisch/Deck-Analyzer — is ~39.9% (12,703 / 31,830);
+measure it with `scripts/coverage_report.py --commander-legal-only`
+(records a separate `…-commander` snapshot row) and segment the
+still-UNMODELED remainder by *cause* (wrapper re-measure / recurring
+template → `PAR-*` / set-specific → `PAR-*` / missing primitive → `MEC-*` /
+bespoke hand-authoring tail) with the read-only
+`scripts/commander_tail_report.py`. The per-version changelog and the long-tail
 strategy (recurring lessons, worked samples) are in
 `docs/implementation-state/PARSER_LONG_TAIL.md`; open parser tickets are
 `PAR-*` in `BACKLOG.md`. **Stickers (RULE 123) are a permanent project

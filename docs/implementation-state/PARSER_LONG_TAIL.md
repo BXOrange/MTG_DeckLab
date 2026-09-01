@@ -13,7 +13,19 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.0% covered — 13,219 / 34,811 — as of 2026-09-01, PARSER_VERSION 185.**
+**38.1% covered — 13,272 / 34,811 — as of 2026-09-01, PARSER_VERSION 186.**
+
+**Commander-legal slice: ~39.9% — 12,703 / 31,830 (PARSER_VERSION 186).**
+This is the subset the product actually plays; `coverage_report.py
+--commander-legal-only` measures it and records a separate `<v>-commander`
+snapshot row, and `scripts/commander_tail_report.py` (read-only) segments
+the ~19k still-UNMODELED Commander-legal cards by *cause* — wrapper
+re-measure (A), recurring template → `PAR-*` (B), set-specific → `PAR-*`
+(C), missing engine primitive → `MEC-*` (D), bespoke hand-authoring tail →
+PAR-12 (E). First wave of derived tickets: `PAR-31…PAR-53`, `MEC-47…MEC-49`
+in `BACKLOG.md`. Goal is literal 100% of that slice (minus the RULE 123
+sticker non-goal); expect E to stay several thousand one-card entries after
+every generalisable cluster is closed.
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +671,23 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+186 = **38.1%.** `_NAMED_COUNTER_KINDS` — the "put a `<kind>` counter on
+X" whitelist — widened from {spore, burden, quest} with 26 more pure
+card-text-driven counter kinds (charge, oil, storage, ki, verse, page,
+plan, soul, fuse, depletion, flood, bounty, brick, study, plague, doom,
+growth, point, infection, hatchling, pressure, slime, tide, ice, flame,
+hour). Each was checked to have *no* reader anywhere in `game/`, so the
+generic free-string `AddCountersEffect.kind` path models it completely.
+Deliberately still a fail-closed frozenset, not a bare `[a-z-]+`: RULE
+122.1e **keyword counters** (flying / indestructible / menace / …) have no
+layer-engine reader, the **subsystem** counters (age / time / level /
+loyalty / lore / rad / energy) are keyed off by name, and **stun / shield**
+carry a replacement — all four would half-model if they slipped through.
++53, 0 regressed (charge-counter storage lands, mana batteries, Coretapper,
+Firemind's Research, Long-Range Sensor — closing the counter-body gap left
+by ITER 24's "you attack a player" trigger recognition).
+`tests/test_par30_named_counter_kinds_widened.py`.
 
 185 = "tapped and attacking **that player / that opponent**" trailing
 defender ref (RULE 508.1). The put-from-hand (`_PUT_FROM_HAND_RE`),
