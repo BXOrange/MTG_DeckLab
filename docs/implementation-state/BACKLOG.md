@@ -162,9 +162,14 @@ Plan-level sequencing lives in
     ("gain control of all creatures target opponent controls until end of
     turn. untap those creatures. they gain haste …" — Broadcast Takeover,
     Call for Aid — needs a targeted-player-scoped mass selector); the
-    richer haste clause ("until end of turn, it gains haste and `<X>`" /
-    "it gains haste and `<kw>`" — Furnace Reins, Loki's Scepter, Flayer of
-    Loyalties, Firbolg Flutist); the multi-event O-Ring trigger forms
+    richer haste clause — now only the *quoted granted-ability* form
+    ("it gains haste and \"whenever ~ deals combat damage …\"" — Furnace
+    Reins, Loki's Scepter, Flayer of Loyalties): the plain second-keyword
+    form ("gains haste and myriad until end of turn") and the "**another
+    target creature you control**" selector both parse as of
+    PARSER_VERSION 161 (see `Done_Backend.md`); Firbolg Flutist is still
+    blocked on its own gain-control-then-untap tail; the multi-event O-Ring
+    trigger forms
     ("enters or transforms into ~" — Brutal Cathar; "enters and at the
     beginning of your first main phase" — Crack in Time); the **old
     two-sentence Oblivion Ring** templating ("exile another target nonland

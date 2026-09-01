@@ -902,6 +902,8 @@ is in the rules-engine categories below them.
 
 - **Bug fixed:** `creature_you_control` had been wrongly excluding the ability's own source, so Mother of Runes couldn't target herself and a Karoo land couldn't bounce itself; a new `other_creature_you_control` kind now does the real exclusion, leaving the plain kind correct.
 - **Files:** `game/targeting.py`
+- **Parser wiring (PAR-30, PARSER_VERSION 161):** the engine kind was fully wired (exclusion, "you control" scoping, German label) but no `subgrammars._TARGET_ROWS` row emitted it, so every card printing "**another target creature you control** gains `<kw>` until end of turn" (Heavenly Qilin, Duke Ulder Ravengard, Selfless Savior, Void Grafter, Blooming Stinger, …) sat UNMODELED on the target phrase alone. Added the row (above the plain "target creature you control" row so the longer phrase wins) + `handlers._pump_target`'s pumpable-kind allowlist gained `other_creature_you_control`. Reaches every `TARGET`-embedding handler, not just pump. +31 real cache cards, 0 regressed. The no-"you control" form ("another target creature" — Arwen, Mortal Queen) stays UNMODELED: its `other_creature` kind is not engine-wired.
+- **Tests:** `tests/test_par30_another_target_creature.py` (parse: single/two-keyword forms + no-"you control" fail-closed + real cards; execute: `legal_targets` excludes the source and an opponent's creature, and the pump lands on the friendly non-source creature).
 
 ### Two independently-chosen targets in one clause
 

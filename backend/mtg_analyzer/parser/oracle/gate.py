@@ -1601,7 +1601,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "earthbend X, where X is that creature's power"). Bloated Processor,
 #: Furnace Gremlin. +2, 0 regressed. "…incubate N that many times"
 #: (a search-count repeat — Phyrexian Incubator) stays UNMODELED.
-PARSER_VERSION = "160"
+#: "161": PAR-30 — the shared `TARGET` macro gains a "**another target
+#: creature you control**" row (RULE 109.5), routed to the engine's
+#: existing `other_creature_you_control` kind (source excluded, "you
+#: control" scoped, already fully wired in `targeting.py`); `_pump_target`
+#: adds it to its pumpable-kind allowlist. +31 — mostly ETB / combat
+#: triggers granting a keyword until end of turn (Heavenly Qilin, Duke
+#: Ulder Ravengard, Selfless Savior, Void Grafter, …). 0 regressed. The
+#: no-"you control" form ("another target creature") stays UNMODELED — its
+#: `other_creature` kind is not engine-wired.
+PARSER_VERSION = "161"
 
 
 def parser_source_hash() -> str:

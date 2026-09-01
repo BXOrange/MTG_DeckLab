@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.5% covered — 13,042 / 34,811 — as of 2026-09-01, PARSER_VERSION 160.**
+**37.6% covered — 13,073 / 34,811 — as of 2026-09-01, PARSER_VERSION 161.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -617,6 +617,20 @@ Gremlin. 0 regressed. Still open in the Incubate residue: "incubate N
 "where X is its **mana value**" of a just-exiled permanent read by *its
 controller* (Excise the Imperfect), "X is the number of creatures
 **exiled this way**" (Sunfall) — each a distinct unbuilt primitive.
+
+161 = PAR-30 — the shared `TARGET` macro (`catalogue/subgrammars.py`
+`_TARGET_ROWS`) gains a **"another target creature you control"** row
+(RULE 109.5 — the ability's own source is excluded). The engine's
+`other_creature_you_control` kind (`targeting.py`) already did the
+exclusion, the "you control" scoping and its German label; the row just
+routes the printed phrase there, and `_pump_target` adds the kind to its
+pumpable-kind allowlist. Reaches every `TARGET`-embedding handler (pump,
+damage, counters, …), not just the pump family that motivated it. +31 —
+mostly ETB / combat-trigger creatures granting a keyword until end of
+turn (Heavenly Qilin, Duke Ulder Ravengard, Selfless Savior, Void
+Grafter, Blooming Stinger, …). 0 regressed. The no-"you control" form
+("another target creature" — Arwen, Mortal Queen) stays UNMODELED: its
+`other_creature` kind is not engine-wired.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

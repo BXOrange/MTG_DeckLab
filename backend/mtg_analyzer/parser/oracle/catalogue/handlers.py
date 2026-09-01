@@ -5034,11 +5034,14 @@ def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str
         return ("attached_permanent", None)  # "enchanted creature gains …" (Aura activated ability)
     kind = resolve_target_kind(m.group("target"))
     # The controller-scoped creature kinds are as pumpable as a bare
-    # "target creature" — `targeting.legal_targets` resolves all four, and a
-    # pump doesn't care *whose* creature it lands on. Anything else (a
-    # player, a spell) has no P/T to modify, so it stays fail-closed.
+    # "target creature" — `targeting.legal_targets` resolves them all, and a
+    # pump doesn't care *whose* creature it lands on (`other_creature_you_
+    # control` is RULE 109.5 "another target creature you control", source
+    # excluded). Anything else (a player, a spell) has no P/T to modify, so
+    # it stays fail-closed.
     if kind not in (
-        "creature", "permanent", "creature_you_control", "creature_you_dont_control"
+        "creature", "permanent", "creature_you_control", "creature_you_dont_control",
+        "other_creature_you_control",
     ):
         return None
     return (kind, None)
