@@ -111,16 +111,18 @@ Plan-level sequencing lives in
     condition; see `Done_Backend.md`.)
 
   - **"Tapped and attacking" (RULE 508.4) residue — the engine primitive
-    (`RulesEngine.put_onto_battlefield_attacking`) and the `create_token`
-    route shipped v177 (+10).** Left: the *put-from-zone* effect classes
-    ("look at the top N … put a creature card … onto the battlefield tapped
-    and attacking" — Winota, Arthur, Doors of Durin; "put a creature card
-    from your hand onto the battlefield tapped and attacking" — Arni
-    Metalbrow), which need each `Put*OntoBattlefieldEffect` to grow an
-    `attacking` flag; "the token enters tapped and attacking" as its own
-    sentence (a created-objects pronoun back-reference); and the copy-token
-    variant ("create a tapped and attacking token that's a copy of …" —
-    Calamity, Altaïr, A-Thousand-Faced Shadow).
+    (`RulesEngine.put_onto_battlefield_attacking`), the `create_token`
+    route (v177 +10) and the `put_from_hand` route (v178 +7) shipped.**
+    Left: the *library* "look at the top N … put a creature card … onto
+    the battlefield tapped and attacking" shape (Winota, Arthur, Jet,
+    Owlbear Cub, Doors of Durin) — a dig/impulsive-look destination;
+    "the token enters tapped and attacking" as its own sentence (a
+    created-objects pronoun back-reference); the copy-token variant
+    ("create a tapped and attacking token that's a copy of …" — Calamity,
+    Altaïr); a trailing "that opponent" / "defending player" defender ref
+    (Kaalia, Hans Eriksson); and mana-value-cap put-from-hand filters
+    (Shadowfax "with lesser power", Kinscaer Sentry "with mana value X or
+    less").
 
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The

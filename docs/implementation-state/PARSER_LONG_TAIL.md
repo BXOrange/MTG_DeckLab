@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.7% covered — 13,140 / 34,811 — as of 2026-09-01, PARSER_VERSION 177.**
+**37.8% covered — 13,147 / 34,811 — as of 2026-09-01, PARSER_VERSION 178.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,23 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+178 = PAR-30 — **"put a `<filter>` creature card from your hand onto the
+battlefield [tapped and attacking]"** (RULE 508.4, the put-from-zone half
+of v177's cluster). `_put_from_hand` gained a creature-subtype filter
+("Soldier creature card" → `{"type": "soldier"}`, "Angel, Demon, or Dragon
+creature card" → an OR list) and a colour filter ("blue or red creature
+card" → `{"color": [...]}` — nothing's type line contains "blue"), plus
+an optional "…tapped and attacking" tail. Derived qualities with no clean
+`card_query` key ("historic", "multicolored") fail closed.
+`PutFromHandOntoBattlefieldEffect.attacking` routes through a new
+`"battlefield_attacking"` search destination (enters tapped, then
+`put_onto_battlefield_attacking`). +7 — Preeminent Captain, Goblin Lackey,
+Warren Instigator, Mindwrack Liege, Didgeridoo, Dramatic Entrance,
+Firebrand Ranger. 0 regressed. Still open: the *library* "look at the top
+N … put one onto the battlefield tapped and attacking" shape (Winota,
+Arthur, Jet), a trailing "that opponent" defender ref (Kaalia), and
+mana-value-cap filters (Shadowfax, Kinscaer Sentry).
 
 177 = PAR-30 — **"create a … creature token that's / are tapped and
 attacking"** (RULE 508.4 — Captain's Claws, Hanweir Garrison, Hero of

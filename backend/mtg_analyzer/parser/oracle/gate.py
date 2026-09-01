@@ -1743,7 +1743,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (`_TOKEN_TAPPED_ATTACKING` suffix on the plain / "that many" / "create x
 #: … where x" rows). +10 — Captain's Claws, Hanweir Garrison, Hero of
 #: Bladehold, Skyknight Vanguard, Mardu Ascendancy, Militia's Pride, &c.
-PARSER_VERSION = "177"
+#: "178": PAR-30 — "put a `<filter>` creature card from your hand onto the
+#: battlefield [tapped and attacking]". `_put_from_hand` gained a
+#: creature-subtype filter ("Soldier creature card" → `{"type": …}`,
+#: "Angel, Demon, or Dragon creature card" → list) and a colour filter
+#: ("blue or red creature card" → `{"color": […]}`), + an optional
+#: "…tapped and attacking" tail. `PutFromHandOntoBattlefieldEffect.
+#: attacking` → new `"battlefield_attacking"` search destination (enters
+#: tapped, then `put_onto_battlefield_attacking`). +7 — Preeminent Captain,
+#: Goblin Lackey, Warren Instigator, Mindwrack Liege, Didgeridoo, &c.
+PARSER_VERSION = "178"
 
 
 def parser_source_hash() -> str:

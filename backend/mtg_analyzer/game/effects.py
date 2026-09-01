@@ -16090,18 +16090,29 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         criteria: Any = "",
         count: int = 1,
         tapped: bool = False,
+        attacking: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.criteria = criteria
         self.count = count
         self.tapped = tapped
+        #: "…onto the battlefield tapped **and attacking**." (RULE 508.4 —
+        #: Preeminent Captain, Kaalia of the Vast). Routes to the
+        #: ``"battlefield_attacking"`` search destination, which enters the
+        #: card tapped and calls `RulesEngine.put_onto_battlefield_attacking`.
+        self.attacking = attacking
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
             return
-        destination = "battlefield_tapped" if self.tapped else "battlefield"
+        if self.attacking:
+            destination = "battlefield_attacking"
+        elif self.tapped:
+            destination = "battlefield_tapped"
+        else:
+            destination = "battlefield"
         context.request_search(
             player, self.criteria, destination, self.count, optional=True, zones=["hand"],
         )
@@ -19032,6 +19043,7 @@ EffectRegistry.register(
         criteria=p.get("criteria", p.get("type", "")),
         count=int(p.get("count", 1) or 1),
         tapped=bool(p.get("tapped", False)),
+        attacking=bool(p.get("attacking", False)),
     ),
 )
 EffectRegistry.register(

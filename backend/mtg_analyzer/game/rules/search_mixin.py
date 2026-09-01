@@ -1390,9 +1390,9 @@ class SearchMixin:
         self, player: Player, obj: GameObject, destination: str,
         chooser_id: Optional[str] = None,
     ) -> None:
-        if destination in ("battlefield", "battlefield_tapped"):
+        if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
             obj.summoning_sick = True
-            obj.tapped = destination == "battlefield_tapped"
+            obj.tapped = destination != "battlefield"
             self.state.add_to_battlefield(obj)
             self.state.fire_event(
                 GameEvent(
@@ -1403,6 +1403,11 @@ class SearchMixin:
                     object_types=sorted(obj.type_words),
                 )
             )
+            if destination == "battlefield_attacking":
+                # RULE 508.4: "…onto the battlefield tapped **and attacking**"
+                # (Preeminent Captain, Kaalia of the Vast). The tap is set
+                # above; this puts it into the current combat.
+                self.put_onto_battlefield_attacking(obj)
         elif destination == "library_bottom":
             obj.zone = Zone.LIBRARY
             player.library.insert(0, obj)  # bottom (index 0 — see Player.library)

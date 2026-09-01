@@ -1027,18 +1027,59 @@ _PUT_FROM_HAND_TYPE_WORDS: frozenset[str] = frozenset(PERMANENT_TYPE_WORDS) | {
 }
 _PUT_FROM_HAND_RE = _c(
     r"(?:you may )?put an? (?P<types>[a-z, ]+?) card from your hand onto the battlefield"
+    # RULE 508.4: "…tapped and attacking" (Preeminent Captain, Kaalia of
+    # the Vast) → `PutFromHandOntoBattlefieldEffect.attacking`.
+    r"(?P<tapped_attacking> tapped and attacking)?"
+)
+
+#: The main card types a "put a … card from your hand" clause can name; a
+#: two-word segment ending in one of these ("dragon creature") makes the
+#: leading word a *subtype* filter.
+_PUT_FROM_HAND_MAIN_TYPES: frozenset[str] = frozenset(
+    {"creature", "artifact", "enchantment", "land", "planeswalker", "permanent"}
 )
 
 
 def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    words = [
-        w.strip() for w in re.split(r",\s*or\s+|,\s*|\s+or\s+", m.group("types"))
-        if w.strip()
+    segments = [
+        s.strip() for s in re.split(r",\s*or\s+|,\s*|\s+or\s+", m.group("types"))
+        if s.strip()
     ]
-    if not words or any(w not in _PUT_FROM_HAND_TYPE_WORDS for w in words):
+    if not segments:
         return None
-    crit = words if len(words) > 1 else words[0]
-    return [EffectSpec("put_from_hand_onto_battlefield", {"criteria": {"type": crit}, "count": 1})]
+    last = segments[-1].split()
+    if (
+        len(last) == 2
+        and last[1] in _PUT_FROM_HAND_MAIN_TYPES
+        and all(len(s.split()) == 1 for s in segments[:-1])
+    ):
+        # "soldier creature card" / "angel, demon, or dragon creature card"
+        # — the leading words are creature subtypes (an OR), the trailing
+        # main type is implied by them. `card_query` treats a ``type`` list
+        # as an OR substring match, which is exactly a subtype filter here.
+        qualifiers = segments[:-1] + [last[0]]
+        colours = [resolve_color_word(w) for w in qualifiers]
+        if all(colours):
+            # "blue or red creature card" (Mindwrack Liege) — a colour
+            # filter, not a subtype: nothing's type line contains "blue".
+            criteria: dict = {"color": colours if len(colours) > 1 else colours[0]}
+        elif any(
+            w in ("multicolored", "monocolored", "colorless", "historic",
+                  "nonlegendary", "nontoken", "nonbasic")
+            for w in qualifiers
+        ):
+            return None  # a derived quality with no clean `card_query` key — fail closed
+        else:
+            criteria = {"type": qualifiers if len(qualifiers) > 1 else qualifiers[0]}
+    elif all(s in _PUT_FROM_HAND_TYPE_WORDS for s in segments):
+        criteria = {"type": segments if len(segments) > 1 else segments[0]}
+    else:
+        return None
+    params: dict = {"criteria": criteria, "count": 1}
+    if m.groupdict().get("tapped_attacking"):
+        params["tapped"] = True
+        params["attacking"] = True
+    return [EffectSpec("put_from_hand_onto_battlefield", params)]
 
 
 #: RULE 119/701.8's "Target opponent/player reveals their hand. You choose
