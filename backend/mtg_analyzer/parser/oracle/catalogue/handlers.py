@@ -6717,6 +6717,64 @@ def _grant_prot_choice_prev(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("grant_protection", {"previous_subject": True})]
 
 
+#: "Reveal cards from the top of your library until you reveal a `<land /
+#: creature / artifact / enchantment / nonland / basic land>` card. Put that
+#: card `<onto the battlefield / into your hand>` and the rest `<on the
+#: bottom of your library in a random order / into your graveyard / shuffle
+#: into your library>`." (Recross the Paths, Clifftop Lookout, Atla Palani,
+#: Bloodline Pretender-cycle, ~40 real cards.) `RulesEngine.dig_until` /
+#: `effects.DigUntilEffect` — the generalized cascade dig — is the engine
+#: primitive; this is its "reveal until a *type* predicate" recognition.
+#: **Documented simplification**: "in any order" is modeled as the engine's
+#: only bottoming mode, a *random* order — the player doesn't get to choose
+#: the sequence of the bottomed cards.
+_DIG_UNTIL_PRED = {
+    "a land": {"type": "land"},
+    "a basic land": {"type": "land", "basic": True},
+    "a creature": {"type": "creature"},
+    "an artifact": {"type": "artifact"},
+    "an enchantment": {"type": "enchantment"},
+    "a nonland": {"without_type": "land"},
+    "a nonartifact, nonland": {"without_type": ["artifact", "land"]},
+}
+_DIG_UNTIL_HIT = {
+    "onto the battlefield": "battlefield",
+    "into your hand": "hand",
+}
+#: The "…and the rest `<somewhere>`" tail — matched as a whole phrase
+#: (`re.search` inside the leftover) so the many "put all other cards
+#: revealed this way" / "the rest" / ", then shuffle" connector spellings
+#: don't each need a row.
+_DIG_UNTIL_REST_RES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"bottom of your library in (?:a random|any) order", re.I), "library_bottom_random"),
+    (re.compile(r"shuffle .*?into your library", re.I), "library_shuffled"),
+    (re.compile(r"(?:cards? .*?)?into your graveyard", re.I), "graveyard"),
+]
+_REVEAL_UNTIL_TYPE_RE = _c(
+    r"reveal cards from the top of your library until you reveal "
+    rf"(?P<pred>{'|'.join(map(re.escape, _DIG_UNTIL_PRED))}) card\. "
+    rf"put that card (?P<hit>{'|'.join(map(re.escape, _DIG_UNTIL_HIT))})"
+    r"(?P<rest>.+)"
+)
+
+
+def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    tail = m.group("rest")
+    # "put that card onto the battlefield **tapped**" (Clifftop Lookout) —
+    # `dig_until`'s `_place_dig_hit` has no tapped-entry mode, and a land
+    # entering tapped vs untapped is a real difference; fail closed.
+    if re.match(r"(?i)^\s*tapped\b", tail):
+        return None
+    rest_dest = next((d for rx, d in _DIG_UNTIL_REST_RES if rx.search(tail)), None)
+    if rest_dest is None:
+        return None
+    return [EffectSpec("dig_until", {
+        "criteria": dict(_DIG_UNTIL_PRED[m.group("pred")]),
+        "hit_destination": _DIG_UNTIL_HIT[m.group("hit")],
+        "rest_destination": rest_dest,
+    })]
+
+
 #: PAR-30 — the single biggest RULE 701-trail sub-cluster (~100 SOLO cache
 #: cards): a trailing "[Then] sacrifice / exile <it / that creature / that
 #: token / them / those tokens> at the beginning of [the/your] next end
@@ -8605,6 +8663,11 @@ HANDLERS: list[EffectHandler] = [
         "grant_prot_choice_prev", _GRANT_PROT_CHOICE_PREV_RE, _grant_prot_choice_prev,
         previous_subject_only=True,
     ),
+    # "Reveal cards from the top of your library until you reveal a <type>
+    # card. Put that card <onto the battlefield / into your hand> and the
+    # rest <bottom / graveyard / shuffle>." (Recross the Paths, Clifftop
+    # Lookout, Atla Palani, … — `RulesEngine.dig_until`).
+    EffectHandler("reveal_until_type", _REVEAL_UNTIL_TYPE_RE, _reveal_until_type),
     # PAR-30: "[Then] sacrifice/exile <it/that creature/that token/them/
     # those tokens> at the beginning of [the/your] next end step." — the
     # RULE 603.7 delayed-trigger tail on every "create a token …, exile it"

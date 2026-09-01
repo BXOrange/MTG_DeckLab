@@ -187,7 +187,7 @@ Plan-level sequencing lives in
     the Champion cycle ("behold a `<type>` and exile it" + LTB return),
     Celestial Reunion ("behold 2 creatures of a chosen type").
 
-  - **Clash (RULE 701.30) win-branch residue.** ~13 cache clash cards stay
+  - **Clash (RULE 701.30) win-branch residue.** ~12 cache clash cards stay
     UNMODELED on ordinary effect-grammar in their "if you win" branch (or on
     their *first*, pre-clash clause), each needing a distinct body handler
     — none of it clash-specific. Batch 1 (v147) closed 5 + made a bare
@@ -195,8 +195,9 @@ Plan-level sequencing lives in
     (v148) closed Titan's Revenge + Spring Cleaning; batch 3 (v149) closed
     Entangling Trap (via the new general `skip_next_untap` family, +51);
     batch 4 (v150) closed Redeem the Lost (via the "protection from the
-    color of your choice" parser handler onto Mother of Runes' existing
-    engine primitive, +17). Still open: a "repeat this process" loop primitive
+    color of your choice" family, +17); batch 5 (v151) closed Recross the
+    Paths (via the "reveal from top until a <type> card" `dig_until`
+    handler family, +9). Still open: a "repeat this process" loop primitive
     (Hoarder's Greed); mass "untap all Forests you control" (Woodland
     Guidance); "~ deals N damage to that creature's controller / each
     creature blocking it" (Lash Out, Fire Juggler); "you gain life equal to

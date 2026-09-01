@@ -1500,7 +1500,19 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: ("~ gains …" / "put a counter on target creature you control. **it**
 #: gains …"). +17 (the Sejiri/Shelter cycle, Stave Off, Center Soul, …),
 #: 0 regressed.
-PARSER_VERSION = "150"
+#: "151": PAR-30 — "**reveal cards from the top of your library until you
+#: reveal a `<type>` card. put that card `<onto the battlefield / into your
+#: hand>` and the rest `<bottom / graveyard / shuffle>`**". The engine
+#: primitive is `RulesEngine.dig_until` / `effects.DigUntilEffect` (the
+#: generalized cascade dig, predicate + both destinations parameterized) —
+#: only the "reveal until a *type* predicate" recognition was missing.
+#: `_REVEAL_UNTIL_TYPE_RE` + a `_DIG_UNTIL_REST_RES` search over the many
+#: "put all other cards revealed this way …" / ", then shuffle …" tail
+#: spellings. Fails closed on "onto the battlefield **tapped**" (Clifftop
+#: Lookout — `dig_until` has no tapped-entry mode). +9 (Recross the Paths
+#: [a clash card], Atla Palani, Foster, Evolutionary Leap, Madcap
+#: Experiment, Audacious Reshapers, …). 0 regressed.
+PARSER_VERSION = "151"
 
 
 def parser_source_hash() -> str:

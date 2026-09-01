@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.3% covered — 12,982 / 34,811 — as of 2026-09-01, PARSER_VERSION 150.**
+**37.3% covered — 12,991 / 34,811 — as of 2026-09-01, PARSER_VERSION 151.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -457,6 +457,26 @@ Sejiri Steppe/Shelter/Stave Off cycle, Center Soul, Emerge Unscathed,
 Blessed Breath, Moonlit Strider, the Master-cycle Thornscape/Stormscape,
 …), 0 regressed; verified end-to-end (the color pick lands in
 `temp_protections`).
+
+151 = PAR-30 — "**reveal cards from the top of your library until you
+reveal a `<type>` card. put that card `<onto the battlefield / into your
+hand>` and the rest `<bottom / graveyard / shuffle>`**" (~64 SOLU;
+**Recross the Paths** is a clash card). Engine primitive is
+`RulesEngine.dig_until` / `effects.DigUntilEffect` — the generalized
+cascade dig, predicate + both destinations parameterized — so only the
+"reveal until a *type* predicate" recognition was missing. `_REVEAL_UNTIL_
+TYPE_RE` + a `_DIG_UNTIL_REST_RES` `re.search` over the many "put all other
+cards revealed this way …" / ", then shuffle …" tail spellings (rather
+than a row per phrasing). Predicates: a land / basic land / creature /
+artifact / enchantment / nonland / nonartifact-nonland card. **Fails
+closed** on "onto the battlefield **tapped**" (Clifftop Lookout —
+`dig_until` has no tapped-entry mode; a land entering tapped vs untapped is
+a real difference). **Documented simplification**: "in any order" → the
+engine's only bottoming mode, a *random* order. +9 (Recross the Paths, Atla
+Palani, Foster, Evolutionary Leap, Madcap Experiment, Audacious Reshapers,
+Spinner of Souls, The Regalia, Vivien Nature's Avenger, Yuna's Whistle),
+0 regressed; verified end-to-end (dig past two nonlands, Forest onto the
+battlefield, the rest bottomed).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
