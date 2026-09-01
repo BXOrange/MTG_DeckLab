@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.6% covered — 13,081 / 34,811 — as of 2026-09-01, PARSER_VERSION 165.**
+**37.6% covered — 13,094 / 34,811 — as of 2026-09-01, PARSER_VERSION 166.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,19 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+166 = PAR-30 (Vote residue) — plain "take an extra turn after this one"
+effect-body handler, wired to the pre-existing `take_extra_turn` effect
+type (`effects.TakeExtraTurnEffect` / `GameState.extra_turns`), which
+nothing in the parser emitted before. Closes the modelable half of Plea
+for Power's vote outcome plus a wide temporal spill (Time Walk, Temporal
+Manipulation/Mastery/Trespass, Capture of Jingzhou, Part the Waterveil,
+Alrund's Epiphany, Timestream Navigator, Time Sieve, Teferi Timebender,
+…) — +13. `_vote_per_vote` fail-closes on a `take_extra_turn` body (no
+int `count`/`amount` to scale by the tally — Expropriate). Riders that
+stay their own tickets: "skip the untap step of that turn" (Savor the
+Moment), "…you lose the game" (Last Chance), "…for each coin that comes
+up heads" (Ral Zarek). 0 regressed.
 
 165 = PAR-30 (Vote residue) — `_vote_per_vote` now carries a leading
 "each player / each opponent" subject off segment 0 onto a subject-less

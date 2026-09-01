@@ -5947,6 +5947,27 @@ def _populate_x_times(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("populate", {"count": "x"})]
 
 
+# "Take an extra turn after this one." (RULE 500.7, PAR-30) — the plain
+# Time Walk / Temporal Manipulation / Capture of Jingzhou body, and the
+# modelable half of Plea for Power's vote outcome. `effects.TakeExtraTurn
+# Effect` (registered ``take_extra_turn``) queues the effect's controller
+# onto `GameState.extra_turns`; `GameEngine.begin_turn` takes it right
+# after the current turn. No target, no pronoun subject. "one" normalises
+# to "1"; a leading "you " (Mu Yanling) is the same controller-scoped
+# action. Riders the segmenter splits off stay UNMODELED, fail-closed:
+# "skip the untap step of that turn" (Savor the Moment), "during that
+# turn, damage can't be prevented" (Alchemist's Gambit), "at the beginning
+# of that turn's end step, you lose the game" (Last Chance). "…for each
+# coin that comes up heads" / "…if an opponent cast a blue spell this
+# turn" don't fullmatch this row either — those keep their own count /
+# condition and are their own tickets.
+_TAKE_EXTRA_TURN_RE = _c(r"(?:you )?take an extra turn after this 1")
+
+
+def _take_extra_turn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("take_extra_turn", {})]
+
+
 # "Incubate N." (RULE 701.53, PAR-29) — create an Incubator token (a
 # power/toughness-less colourless artifact token) with N +1/+1 counters on
 # it. No new engine primitive: the `Incubator` catalogue entry
@@ -6183,6 +6204,13 @@ def _vote_per_vote(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if not body_specs:
             return None
         if any(s.params.get("target_kind") for s in body_specs):
+            return None
+        # `_tally_and_apply_vote`'s per-vote branch scales an int
+        # ``count``/``amount`` by the option's vote total. An effect with
+        # no such param can't scale — "take an extra turn … for each time
+        # vote" (Expropriate) would resolve once, not N times — so
+        # fail-closed rather than half-model it.
+        if any(s.type == "take_extra_turn" for s in body_specs):
             return None
         per_vote.append({
             "option": lowered.index(opt),
@@ -9350,6 +9378,12 @@ HANDLERS: list[EffectHandler] = [
         "clash",
         _c(r"clash with (?:an opponent|defending player)"),
         _clash,
+    ),
+    # "take an extra turn after this one" (RULE 500.7) — plain Time Walk body.
+    EffectHandler(
+        "take_extra_turn",
+        _TAKE_EXTRA_TURN_RE,
+        _take_extra_turn,
     ),
     # "starting with you, each player votes for A or B. if A gets more
     # votes, X. if B gets more votes or the vote is tied, Y." (RULE 701.38,

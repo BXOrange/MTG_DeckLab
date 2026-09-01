@@ -1645,7 +1645,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: later segment split from it by a bare "and" (Capital Punishment —
 #: "each opponent sacrifices … for each death vote and discards a card for
 #: each taxes vote"). +1, 0 regressed.
-PARSER_VERSION = "165"
+#: "166": PAR-30 (Vote residue) — plain "take an extra turn after this one"
+#: effect-body handler → the pre-existing ``take_extra_turn`` effect type
+#: (`effects.TakeExtraTurnEffect` / `GameState.extra_turns`). Nothing in
+#: the parser emitted it before. Closes the modelable half of Plea for
+#: Power's vote outcome ("if time gets more votes, take an extra turn …")
+#: plus a wide spill of Time Walk / Temporal Manipulation / Capture of
+#: Jingzhou / Part the Waterveil / Timestream Navigator &c. Riders on
+#: other extra-turn cards ("skip the untap step of that turn", "…you lose
+#: the game", "…for each coin that comes up heads") don't fullmatch and
+#: stay their own tickets.
+PARSER_VERSION = "166"
 
 
 def parser_source_hash() -> str:

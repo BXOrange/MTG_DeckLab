@@ -91,8 +91,10 @@ Plan-level sequencing lives in
     "planeswalk / chaos ensues" and
     "the Ring tempts you" outcome bodies (Path of the Animist/Enigma,
     Galadriel); "you choose how each player votes" (Illusion of Choice);
-    Expropriate's extra-turn / gain-control per-vote outcome. (Magister of
-    Worth done, v163–164.)
+    Expropriate's gain-control per-vote outcome (its extra-turn per-vote
+    half can't scale by tally — `take_extra_turn` has no count param).
+    (Magister of Worth done v163–164; Plea for Power + the plain
+    "take an extra turn after this one" body done v166.)
 
   - **Face a Villainous Choice (RULE 701.55) + reanimator-token residue.**
     Each remaining reanimator-token cluster card blocks on its *own*
