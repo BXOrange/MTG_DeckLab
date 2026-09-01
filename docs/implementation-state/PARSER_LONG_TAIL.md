@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.2% covered — 13,294 / 34,811 — as of 2026-09-01, PARSER_VERSION 191.**
+**38.2% covered — 13,295 / 34,811 — as of 2026-09-01, PARSER_VERSION 192.**
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -681,6 +681,15 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+192 = PAR-30 "Tapped and attacking" trail — the qualified attack trigger
+"whenever ~ attacks **a player who controls N or more lands**" (Owlbear
+Cub). New `_ATTACKS_DEFENDER_LANDS_RE` keeps it a `{"subject": "self"}`
+ATTACKS trigger carrying a `defender_controls_lands_at_least` key, gated
+in `effect_binder._trigger_condition` off the ATTACKS event's
+`defending_player_id` (the same "gate an ordinary event on a live state
+read rather than a state-trigger subsystem" idiom as `controls_none_of_
+type`). +1.
 
 191 = PAR-30 "Tapped and attacking" trail — `_DELAYED_SAC_EXILE_TAIL_RE`
 gained a **"return `<it / that creature>` to (your | its owner's) hand"**

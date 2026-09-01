@@ -1856,7 +1856,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: of turn / at end of combat: Alora, Merry Thief; Ilharg; Zara; and the
 #: "when ~ attacks or blocks, return it … at end of combat" Phantom-Whelp
 #: cycle. +8.
-PARSER_VERSION = "191"
+#: "192": PAR-30 "Tapped and attacking" trail — the qualified attack
+#: trigger "whenever ~ attacks **a player who controls N or more lands**"
+#: (Owlbear Cub). New `_ATTACKS_DEFENDER_LANDS_RE` keeps it a
+#: `{"subject": "self"}` ATTACKS trigger with a `defender_controls_lands_
+#: at_least` key, gated in `effect_binder._trigger_condition` off the
+#: ATTACKS event's `defending_player_id` (same "gate an event on a live
+#: state read" idiom as `controls_none_of_type`). +1.
+PARSER_VERSION = "192"
 
 
 def parser_source_hash() -> str:

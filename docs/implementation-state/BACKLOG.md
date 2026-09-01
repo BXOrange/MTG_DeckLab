@@ -114,15 +114,14 @@ Plan-level sequencing lives in
     (`put_onto_battlefield_attacking`), all four routes, the defender ref,
     the "attacks a player" triggers, the per-opponent distributive, the
     bare-name/`populate` `_CREATED_ENTERS_ATTACKING_RE` subjects, the
-    put-from-hand card filters and the delayed "return it to hand" tail all
-    shipped (v177–v191, see `Done_Backend.md`). Left: the multi-clause
-    Stangg / Living Laser bodies; the `look_top` route's mana-value/power
-    filter + a mid-clause "it gains indestructible until end of turn"
-    interpose (Winota) and an else-branch "if you don't put a card … this
-    way, `<X>`" (The Joiner of Cats, The Vast Scrier); Kaalia of the Vast
-    (`normalize` doesn't fold the legendary short name "Kaalia" → `~`);
-    Owlbear Cub (an "attacks a player who controls N+ lands" qualified
-    trigger).
+    put-from-hand card filters, the delayed "return it to hand" tail and
+    the "attacks a player who controls N+ lands" qualified trigger all
+    shipped (v177–v192, see `Done_Backend.md`). Left: the multi-clause
+    Stangg / Living Laser bodies; a `look_top` mid-clause "it gains
+    indestructible until end of turn" interpose (Winota) and an else-branch
+    "if you don't put a card … this way, `<X>`" (The Joiner of Cats, The
+    Vast Scrier); Kaalia of the Vast (`normalize` doesn't fold the
+    legendary short name "Kaalia" → `~`).
 
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The

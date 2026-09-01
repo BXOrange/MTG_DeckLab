@@ -884,6 +884,16 @@ _SELF_SUBJECT_RE = re.compile(
     r"(?:\s+an?\s+(?:player|opponent))?(?:\s+alone)?$"
 )
 
+#: RULE 508.1 with a *defender-property* qualifier: "~ attacks a player who
+#: controls N or more lands" (Owlbear Cub). Still a `{"subject": "self"}`
+#: ATTACKS trigger, but gated on the defending player's land count via
+#: `effect_binder`'s `defender_controls_lands_at_least` predicate (the
+#: ATTACKS event carries `defending_player_id`) — the same "gate an
+#: ordinary event on a state read" idiom as `controls_none_of_type`.
+_ATTACKS_DEFENDER_LANDS_RE = re.compile(
+    r"^(?:~|this creature) attacks a player who controls (?P<n>\d+) or more lands$"
+)
+
 #: RULE 303.4/301.5's "enchanted/equipped creature" trigger subject (Acquired
 #: Mutation's "whenever enchanted creature attacks", a Sword's "whenever
 #: equipped creature deals combat damage to a player" — the latter still
@@ -4090,10 +4100,16 @@ def segment_line(
                 extra_specs=player_specs[1:],
                 claimed=True,
             )
+        defender_lands_min: Optional[int] = None
+        atk_lands = _ATTACKS_DEFENDER_LANDS_RE.match(cond_text.strip())
         multi = _SELF_MULTI_EVENT_RE.match(cond_text.strip())
-        if multi is not None:
-            event: "str | list[str]" = [_VERB_EVENTS[multi.group("v1")], _VERB_EVENTS[multi.group("v2")]]
+        if atk_lands is not None:
+            event: "str | list[str]" = "ATTACKS"
             condition: Optional[dict[str, Any]] = {"subject": "self"}
+            defender_lands_min = int(atk_lands.group("n"))
+        elif multi is not None:
+            event = [_VERB_EVENTS[multi.group("v1")], _VERB_EVENTS[multi.group("v2")]]
+            condition = {"subject": "self"}
         else:
             event = _trigger_event(cond_text)
             if event is None:
@@ -4126,6 +4142,8 @@ def segment_line(
                 "event": event,
                 "condition": condition,
                 **({"limit": True} if limit else {}),
+                **({"defender_controls_lands_at_least": defender_lands_min}
+                   if defender_lands_min else {}),
             },
             optional=optional,
             raw_text=raw,

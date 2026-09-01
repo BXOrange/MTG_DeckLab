@@ -1246,6 +1246,32 @@ def _trigger_condition(
 
         predicates.append(_controls_none_ok)
 
+    # "Whenever ~ attacks a player who controls N or more lands, …" (Owlbear
+    # Cub — RULE 508.1). Gate the ordinary `ATTACKS` event on the *defending*
+    # player's land count, read live off the event's ``defending_player_id``.
+    # Same "gate an event on a state read rather than a state-trigger
+    # subsystem" rationale as `controls_none_of_type` just above.
+    defender_lands_min = trigger.get("defender_controls_lands_at_least")
+    if defender_lands_min is not None:
+        want_lands = int(defender_lands_min)
+
+        def _defender_lands_ok(
+            event: Any, context: Any, want=want_lands,
+        ) -> bool:
+            state = getattr(context, "state", None)
+            did = (event or {}).get("defending_player_id")
+            if state is None or did is None:
+                return False
+            n = sum(
+                1 for o in state.battlefield
+                if o.controller_id == did
+                and (getattr(o, "is_land", False)
+                     or "land" in o.card.type_line.partition("—")[0].lower().split())
+            )
+            return n >= want
+
+        predicates.append(_defender_lands_ok)
+
     # PAR-28 / RULE 702.169c Solved / 702.178a Max Speed on a *triggered*
     # ability: "[Ability text]. This ability triggers only if [condition]."
     # The same whitelisted `static_conditions` dict a static's `active_if`
