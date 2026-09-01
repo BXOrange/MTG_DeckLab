@@ -1900,6 +1900,10 @@ _DESTROY_COLOR_ADJ_RE = _c(
     rf"(?:(?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) |(?P<color>{COLOR_WORD_ALT}) )?"
     rf"(?P<noun>{'|'.join(_DESTROY_COLOR_NOUN_KINDS)})"
     rf"(?: with (?P<kw>{'|'.join(_CREATURE_FILTER_KEYWORD_WORDS)}))?"
+    # "…that's attacking or blocking" (Surge of Righteousness) — RULE 506.4
+    # attacker / RULE 509.1 blocker status, a `creature_filter` boolean the
+    # same offer-time way `attacking` already is.
+    rf"(?: that'?s (?P<combat_state>attacking or blocking|attacking|blocking))?"
     + IF_COLOR_SUFFIX
 )
 
@@ -1921,6 +1925,15 @@ def _destroy_color_adj(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if params["target_kind"] != "creature":
             return None
         params["creature_filter"] = {"keyword": _CREATURE_FILTER_KEYWORD_WORDS[kw]}
+    combat_state = gd.get("combat_state")
+    if combat_state:
+        if params["target_kind"] != "creature":
+            return None
+        key = {
+            "attacking or blocking": "attacking_or_blocking",
+            "attacking": "attacking", "blocking": "blocking",
+        }[combat_state]
+        params.setdefault("creature_filter", {})[key] = True
     return [EffectSpec("destroy", params)]
 
 

@@ -1722,7 +1722,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `exile` spec's `colors` → `TargetSpec.colors`, honoured in
 #: `targeting.legal_targets`' graveyard-card branch (the `_color_ok` call
 #: every battlefield branch already had). Closes Offspring's Revenge. +1.
-PARSER_VERSION = "174"
+#: "175": PAR-30 — a combat-state tail on the destroy-colour-adjective
+#: handler. `_DESTROY_COLOR_ADJ_RE` gained an optional "…that's attacking
+#: or blocking / attacking / blocking" → `creature_filter` boolean;
+#: `combat.matches_object_filter` gained `blocking` / `attacking_or_
+#: blocking` keys (the siblings of the pre-existing `attacking`). Closes
+#: Surge of Righteousness. +1.
+PARSER_VERSION = "175"
 
 
 def parser_source_hash() -> str:

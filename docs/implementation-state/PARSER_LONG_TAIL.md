@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.7% covered — 13,123 / 34,811 — as of 2026-09-01, PARSER_VERSION 174.**
+**37.7% covered — 13,124 / 34,811 — as of 2026-09-01, PARSER_VERSION 175.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,15 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+175 = PAR-30 — a **combat-state** tail on the destroy-colour-adjective
+target. `_DESTROY_COLOR_ADJ_RE` gained an optional "…that's attacking or
+blocking / attacking / blocking" group → a `creature_filter` boolean;
+`combat.matches_object_filter` gained `blocking` / `attacking_or_blocking`
+keys (the siblings of the pre-existing `attacking`, checked via
+`blocking_attacker_ids`). +1 — Surge of Righteousness. 0 regressed.
+Gideon's Defeat also uses "that's attacking or blocking" but stays
+UNMODELED on its "if it was a Gideon planeswalker" conditional tail.
 
 174 = PAR-30 — the colour-list target reaches the **graveyard** zone, and
 "it gains `<kw>` until your next turn" on a **previous-clause subject**.

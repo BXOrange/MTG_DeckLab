@@ -504,6 +504,10 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "keyword", "keyword_any", "without_keyword",
         "subtype", "subtype_any", "without_subtype", "color", "without_color",
         "card_type", "without_card_type", "power_vs_reference", "attacking",
+        # "…that's blocking" / "…that's attacking or blocking" (Surge of
+        # Righteousness) — RULE 509.1 blocker status and the either-of pair,
+        # the siblings of the ``attacking`` boolean above.
+        "blocking", "attacking_or_blocking",
         "even_mana_value",
         # "a black or red source"/"a source of the chosen colour"/"a creature
         # of the chosen type" (MEC-30 — Greater Realm of Preservation/Story
@@ -595,6 +599,16 @@ def matches_object_filter(
     # composing with the subtype/"you control" filters above rather than
     # a bespoke target kind.
     if filt.get("attacking") and not getattr(obj, "attacking", False):
+        return False
+    # "…that's blocking" / "…that's attacking or blocking" (Surge of
+    # Righteousness) — RULE 509.1: a creature is blocking once it has been
+    # assigned to an attacker (`blocking`/`additional_blocking`).
+    _is_blocking = bool(blocking_attacker_ids(obj))
+    if filt.get("blocking") and not _is_blocking:
+        return False
+    if filt.get("attacking_or_blocking") and not (
+        getattr(obj, "attacking", False) or _is_blocking
+    ):
         return False
     # "Equip commander {N}" (RULE 702.6e, Commander's Plate, MEC-43) — the
     # target of this Equip cost must be a commander (RULE 903.4).
