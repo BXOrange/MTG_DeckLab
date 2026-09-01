@@ -1786,7 +1786,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (via a threaded `caster_id`). +10 — Grow Extra Arms, Mystical Dispute,
 #: Out of Air, Price of Fame, Run Over, Savage Stomp, Swampsnare Trap,
 #: This Town Ain't Big Enough, Hunter's Mark, Mascot Interception.
-PARSER_VERSION = "182"
+#: "183": Strive (MEC-4) recognition when `normalize` has already stripped
+#: the "Strive —" label (Scryfall lists it in `keywords` but it's not a
+#: registered RULE 701/702 keyword). `_STRIVE_LINE_RE`'s prefix is now
+#: optional — one-line fix, the engine (`obj.strive_cost` /
+#: `effective_cast_cost`) was already complete. +9 — Aerial Formation,
+#: Ajani's Presence, Blinding Flare, Colossal Heroics, Consign to Dust,
+#: Cruel Feeding, Desperate Stand, Kiora's Dismissal, Rouse the Mob.
+PARSER_VERSION = "183"
 
 
 def parser_source_hash() -> str:

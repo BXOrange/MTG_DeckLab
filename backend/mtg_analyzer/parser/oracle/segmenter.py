@@ -1558,7 +1558,11 @@ _CONDITIONAL_FLASH_IF_TARGETS_COMMANDER_RE = re.compile(
 #: numbered catalogue. ``<cost>`` is a run of brace-delimited symbols, same
 #: shape `_STRIVE_COST_RE` (`parser/oracle/spec.py`) validates.
 _STRIVE_LINE_RE = re.compile(
-    r"^strive\s*[—-]\s*this spell costs (?P<cost>(?:\{[^{}]+\})+) more to cast "
+    # `normalize._strip_unregistered_keyword_labels` removes the "Strive —"
+    # label before this runs (Scryfall lists "Strive" in the card's
+    # ``keywords`` but it's not a registered RULE 701/702 keyword), so the
+    # prefix is optional here — the sentence is unambiguous on its own.
+    r"^(?:strive\s*[—-]\s*)?this spell costs (?P<cost>(?:\{[^{}]+\})+) more to cast "
     r"for each target beyond the first\.?\s*$",
     re.IGNORECASE,
 )

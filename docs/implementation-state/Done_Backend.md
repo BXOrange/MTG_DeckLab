@@ -2099,6 +2099,7 @@ is in the rules-engine categories below them.
 - **What:** `AbilitySpec.strive_cost` rides as its own field (Strive isn't a numbered RULE 702 keyword); `effective_cast_cost` adds one full copy of the cost per target beyond the first.
 - **Files:** `game/effect_binder.py`, `game/game_engine.py`, `parser/oracle/segmenter.py`
 - **Why:** Lands with zero cards reaching full MODELED — every real Strive card also needs a still-unmodeled "any number of target creatures" targeting family (PAR-15), so the cost math is proven but no whole card clears the gate yet.
+- **PARSER_VERSION 183 — the last mile:** `normalize._strip_unregistered_keyword_labels` (the 400+-label strip) removes "Strive —" before the segmenter sees the line, so `_STRIVE_LINE_RE`'s mandatory "Strive —" prefix never matched the normalized "This spell costs {cost} more to cast for each target beyond the first." — made optional (one line). +9: Aerial Formation, Ajani's Presence, Blinding Flare, Colossal Heroics, Consign to Dust, Cruel Feeding, Desperate Stand, Kiora's Dismissal, Rouse the Mob. `tests/test_par30_strive_prefix_optional.py`.
 
 ### Compound "Activate only as a sorcery and only if `<condition>`" (PAR-10)
 

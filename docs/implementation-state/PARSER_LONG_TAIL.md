@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.9% covered — 13,201 / 34,811 — as of 2026-09-01, PARSER_VERSION 182.**
+**37.9% covered — 13,210 / 34,811 — as of 2026-09-01, PARSER_VERSION 183.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,20 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+183 = Strive (MEC-4) recognition, one-line fix.
+`normalize._strip_unregistered_keyword_labels` removes the "Strive —"
+label before the segmenter runs (Scryfall lists "Strive" in the card's
+`keywords` array but it is not a registered RULE 701/702 keyword), so
+`_STRIVE_LINE_RE` never matched the stripped "This spell costs {cost}
+more to cast for each target beyond the first." — its "Strive —" prefix
+is now optional. The engine half (`AbilitySpec.strive_cost` →
+`obj.strive_cost` → `effective_cast_cost` adds the cost per target beyond
+the first) was already complete and tested. +9 — Aerial Formation,
+Ajani's Presence, Blinding Flare, Colossal Heroics, Consign to Dust,
+Cruel Feeding, Desperate Stand, Kiora's Dismissal, Rouse the Mob. A good
+reminder to check the *normalized* clause, not the printed one, when a
+handler "should" match.
 
 182 = PAR-30 — the `reduce_if_targets` criteria vocabulary widened.
 `_targets_reduction_criteria` now parses the phrase word by word: a bare
