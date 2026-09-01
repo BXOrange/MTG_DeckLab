@@ -894,6 +894,37 @@ _ATTACKS_DEFENDER_LANDS_RE = re.compile(
     r"^(?:~|this creature) attacks a player who controls (?P<n>\d+) or more lands$"
 )
 
+#: RULE 508.3a's batch attack trigger: "whenever **one or more** [<filter>]
+#: creatures you control attack[ a player], …" (Winota / A-Winota, Angelic
+#: Guardian, Ancestor Dragon, Alibou, …). Fires once per combat, not per
+#: attacker — the engine's `EventType.PLAYER_ATTACKED` aggregate already has
+#: exactly that shape (one firing per (attacking player, defender) group),
+#: so this maps onto ``{"subject": "you"}`` with an optional ``group_filter``
+#: the binder checks against the live attacking group (`effect_binder.
+#: _subject_condition`). The ``<filter>`` is parsed by
+#: `_batch_attack_group_filter` — bare, a negated creature subtype
+#: ("non-Human"/"non-Toy"), or a main type ("artifact") — anything else
+#: (RULE 701.48 "modified", "suspected") fails the match closed.
+_BATCH_ATTACK_TRIGGER_RE = re.compile(
+    r"^(?:1|one) or more (?P<filt>[a-z][a-z-]*(?:\s[a-z][a-z-]*)?\s)?"
+    r"creatures you control attack(?: a player)?$"
+)
+
+
+def _batch_attack_group_filter(filt: Optional[str]) -> Optional[dict[str, Any]]:
+    """The optional ``<filter>`` before "creatures you control attack" in a
+    `_BATCH_ATTACK_TRIGGER_RE` match → a ``group_filter`` dict (empty for the
+    bare form), or ``None`` to fail the whole trigger match closed for an
+    un-modelled qualifier ("modified", "suspected")."""
+    f = (filt or "").strip().lower()
+    if not f:
+        return {}
+    if f.startswith("non-") and f[4:].isalpha():
+        return {"excluded_subtypes": [f[4:]]}
+    if f in _GROUP_TYPE_WORDS:
+        return {"type": f}
+    return None
+
 #: RULE 303.4/301.5's "enchanted/equipped creature" trigger subject (Acquired
 #: Mutation's "whenever enchanted creature attacks", a Sword's "whenever
 #: equipped creature deals combat damage to a player" — the latter still
@@ -919,6 +950,10 @@ _ATTACHED_SUBJECT_RE = re.compile(
 #: creature you control attacks".
 _GROUP_SUBJECT_RE = re.compile(
     r"^(?P<article>another|an|a)\s+(?P<nonland>nonland\s+)?"
+    # "a **non-Human** creature you control attacks" (Winota) — a negated
+    # creature subtype on the acting object, `effect_binder._build_group_ok`'s
+    # ``excluded_subtypes`` (checked against the event's live subtypes).
+    r"(?P<negsub>non-[a-z]+\s+)?"
     r"(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
     r"(?P<you_a> you control)?"
     rf"\s+(?:{_VERB_ALT})"
@@ -1360,22 +1395,46 @@ _LOOK_TOP_SELECT_DESTINATIONS: dict[str, tuple[str, Optional[str]]] = {
 
 #: "Look at the top N cards of your library. You may put a [<subtype>]
 #: creature card from among them onto the battlefield tapped and attacking.
-#: Put the rest [of the cards] on the bottom of your library in a random
-#: order." (RULE 508.4 — Arthur, Marigold Knight; Owlbear Cub; The Joiner
-#: of Cats). Emitted as an `impulsive_look` with
+#: [It gains <keyword> until end of turn.] Put the rest [of the cards] on
+#: the bottom of your library in a random order." (RULE 508.4 — Arthur,
+#: Marigold Knight; Owlbear Cub; The Joiner of Cats; **Winota, Joiner of
+#: Forces / A-Winota** carry the mid-clause "It gains indestructible until
+#: end of turn." interpose — v193). Emitted as an `impulsive_look` with
 #: ``hit_destination="battlefield_attacking"`` — the search destination
 #: `_put_searched_card` grew for the put-from-hand form (v178), which
-#: enters the card tapped and calls `put_onto_battlefield_attacking`.
+#: enters the card tapped and calls `put_onto_battlefield_attacking`; the
+#: interpose adds ``hit_grant_keywords`` (temp_keywords on the placed card).
 _LOOK_TOP_PUT_ATTACKING_RE = re.compile(
     r"^look at the top (?P<n>\d+) cards? of your library\.\s*"
     r"you may put an? (?P<filter>[a-z, ]+?) card from among them "
     # trailing "that player"/"that opponent" (Owlbear Cub) names the defender
     # the source is already attacking — derived engine-side, so consumed here.
     r"onto the battlefield tapped and attacking(?: that (?:player|opponent))?\.\s*"
+    # optional "It gains <kw>[ and <kw>] until end of turn." (Winota) —
+    # validated against `_LOOK_TOP_HIT_GRANT_KEYWORDS`, fail-closed.
+    r"(?:it gains (?P<hitkw>[a-z, ]+?(?: and [a-z ]+?)?) until end of turn\.\s*)?"
     r"put the rest(?: of the cards)? on the bottom of your library in a random order\.?"
     r"(?:\s*(?P<after>.+))?$",
     re.IGNORECASE | re.DOTALL,
 )
+
+#: Keyword-grant tokens the ``look_top`` "It gains <kw> until end of turn."
+#: interpose (Winota, Joiner of Forces) may name → engine ``temp_keywords``
+#: slugs (RULE 514.2 cleanup). Deliberately the small combat-relevant set;
+#: anything outside it fails the clause match closed.
+_LOOK_TOP_HIT_GRANT_KEYWORDS: dict[str, str] = {
+    "indestructible": "indestructible",
+    "haste": "haste",
+    "trample": "trample",
+    "flying": "flying",
+    "vigilance": "vigilance",
+    "lifelink": "lifelink",
+    "deathtouch": "deathtouch",
+    "menace": "menace",
+    "first strike": "first_strike",
+    "double strike": "double_strike",
+    "hexproof": "hexproof",
+}
 
 #: "Gain control of target creature until end of turn. **Untap that
 #: creature. It gains haste until end of turn.**" (Act of Treason/Claim the
@@ -2133,6 +2192,12 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             # ``object_types`` (`effect_binder._build_group_ok`'s
             # ``want_nonland``), the same shape ``nontoken`` already uses.
             out["nonland"] = True
+        if m.group("negsub"):
+            # "a **non-Human** creature you control attacks" (Winota) — a
+            # negated creature subtype, `_build_group_ok`'s
+            # ``excluded_subtypes`` (the mirror of the positive ``subtypes``
+            # tribal filter below).
+            out["excluded_subtypes"] = [m.group("negsub").strip()[4:]]
         return out
     # Only reached once the exact main-type vocabulary above has already
     # failed to match — a genuine tribal filter ("another nontoken Zombie
@@ -2447,16 +2512,27 @@ def parse_effect_body(
             # subtype filter (a substring match on the type line).
             criteria = {"type": words[0]}
         if criteria is not None:
-            spec = EffectSpec(
-                "impulsive_look",
-                {
-                    "count": int(look_put_atk.group("n")),
-                    "criteria": criteria,
-                    "hit_destination": "battlefield_attacking",
-                    "miss_destination": "library_bottom_random",
-                    "optional": True,
-                },
-            )
+            params: dict[str, Any] = {
+                "count": int(look_put_atk.group("n")),
+                "criteria": criteria,
+                "hit_destination": "battlefield_attacking",
+                "miss_destination": "library_bottom_random",
+                "optional": True,
+            }
+            hitkw_raw = (look_put_atk.group("hitkw") or "").strip()
+            if hitkw_raw:
+                slugs: list[str] = []
+                for tok in re.split(r",|\band\b", hitkw_raw):
+                    tok = tok.strip()
+                    if not tok:
+                        continue
+                    if tok not in _LOOK_TOP_HIT_GRANT_KEYWORDS:
+                        return None  # unknown keyword — fail closed
+                    slugs.append(_LOOK_TOP_HIT_GRANT_KEYWORDS[tok])
+                if not slugs:
+                    return None
+                params["hit_grant_keywords"] = slugs
+            spec = EffectSpec("impulsive_look", params)
             return _with_after_tail(
                 [spec], look_put_atk.group("after"), group_subject=group_subject
             )
@@ -4020,6 +4096,38 @@ def segment_line(
         limit = limit_suffix_m is not None
         if limit_suffix_m is not None:
             cond_text = limit_suffix_m.group("base")
+
+        # RULE 508.3a batch attack: "one or more [<filter>] creatures you
+        # control attack" → a single `PLAYER_ATTACKED` (once-per-combat)
+        # trigger with an optional group filter (`_subject_condition`).
+        batch_atk = _BATCH_ATTACK_TRIGGER_RE.match(cond_text.strip())
+        if batch_atk is not None:
+            group_filter = _batch_attack_group_filter(batch_atk.group("filt"))
+            if group_filter is None:
+                return Segment(raw=raw)  # un-modelled qualifier → unclaimed
+            body, optional = _peel_optional(trig.group("body"))
+            effects = parse_effect_body(body, group_subject=True)
+            if effects is None:
+                return Segment(raw=raw)
+            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+            limit = limit or body_limit
+            condition = {"subject": "you"}
+            if group_filter:
+                condition["group_filter"] = group_filter
+            spec = AbilitySpec(
+                "triggered",
+                effects=effects,
+                trigger={
+                    "event": "PLAYER_ATTACKED",
+                    "condition": condition,
+                    **({"limit": True} if limit else {}),
+                },
+                optional=optional,
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
         variant_event = _variant_trigger_event(cond_text)
         if variant_event is not None:
             body, optional = _peel_optional(trig.group("body"))

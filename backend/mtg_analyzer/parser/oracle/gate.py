@@ -1863,7 +1863,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: at_least` key, gated in `effect_binder._trigger_condition` off the
 #: ATTACKS event's `defending_player_id` (same "gate an event on a live
 #: state read" idiom as `controls_none_of_type`). +1.
-PARSER_VERSION = "192"
+#: "193": PAR-30 "Tapped and attacking" trail — the `look_top` mid-clause
+#: "It gains <keyword> until end of turn." interpose between "…tapped and
+#: attacking." and "Put the rest…" (**Winota, Joiner of Forces / A-Winota**).
+#: `_LOOK_TOP_PUT_ATTACKING_RE` grew an optional group validated against
+#: `_LOOK_TOP_HIT_GRANT_KEYWORDS` (fail-closed); `hit_grant_keywords`
+#: threads impulsive_look → `ImpulsiveLookEffect` → `request_impulsive_look`
+#: → `resolve_impulsive_look_choice`, which adds `temp_keywords` to the
+#: placed card (RULE 514.2). +2.
+PARSER_VERSION = "193"
 
 
 def parser_source_hash() -> str:

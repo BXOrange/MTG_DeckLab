@@ -350,10 +350,23 @@ def _subject_condition(
         controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(
             trigger.get("event"), "controller_id"
         )
+        # RULE 508.3a batch attack: "one or more <filter> creatures you
+        # control attack" — the `PLAYER_ATTACKED` aggregate carries only the
+        # attacking player, so the ``<filter>`` (a negated creature subtype
+        # or a main type, `segmenter._batch_attack_group_filter`) is checked
+        # against the live attacking group, which is still on the battlefield
+        # when triggers are put on the stack (RULE 508.3).
+        group_filter = condition.get("group_filter") or None
 
-        def _you_ok(event: Any, context: Any, src=source, key=controller_key) -> bool:
+        def _you_ok(
+            event: Any, context: Any, src=source, key=controller_key, gf=group_filter
+        ) -> bool:
             actor = event.get(key)
-            return actor is not None and actor == getattr(src, "controller_id", None)
+            if actor is None or actor != getattr(src, "controller_id", None):
+                return False
+            if gf is None:
+                return True
+            return _any_attacking_matches(context, actor, gf)
 
         return _you_ok
 
@@ -459,6 +472,11 @@ def _build_group_ok(
     type_word = condition.get("type")
     subtypes = condition.get("subtypes")
     nontoken = bool(condition.get("nontoken"))
+    # "a **non-Human** creature you control attacks" (Winota) — the negated
+    # mirror of ``subtypes``: the acting object must NOT have any of these
+    # creature subtypes. Read off the event's live subtypes (ATTACKS keeps
+    # the object on the battlefield, RULE 508.3), fail-closed if unknowable.
+    excluded_subtypes = [s.lower() for s in condition.get("excluded_subtypes") or []]
     # RULE 701.15b: a *designation* filter on the acting object rather than a
     # characteristic — "whenever a **goaded** creature attacks" (Vengeful
     # Ancestor), "whenever a **goaded attacking or blocking** creature dies"
@@ -530,6 +548,7 @@ def _build_group_ok(
         cid=controller_id,
         tword=type_word,
         stypes=subtypes,
+        excl_stypes=excluded_subtypes,
         want_nontoken=nontoken,
         you=wants_you,
         not_you=wants_not_you,
@@ -597,6 +616,17 @@ def _build_group_ok(
                 event_subtypes = _card_subtypes(obj.card) if obj is not None else None
             if not event_subtypes or not any(s in event_subtypes for s in stypes):
                 return False
+        if excl_stypes:
+            event_subtypes = event.get("subtypes")
+            if event_subtypes is None and event_instance is not None:
+                state = getattr(context, "state", None)
+                obj = state.find_object(event_instance) if state is not None else None
+                event_subtypes = _card_subtypes(obj.card) if obj is not None else None
+            if event_subtypes is None:
+                return False  # can't confirm the negation — fail closed
+            lowered = {str(s).lower() for s in event_subtypes}
+            if any(e in lowered for e in excl_stypes):
+                return False
         if want_nonbasic:
             if event_instance is None:
                 return False
@@ -656,6 +686,34 @@ def _card_subtypes(card: Any) -> list[str]:
     """Lowercase subtype words after a printed type line's em dash."""
     type_line = str(getattr(card, "type_line", "") or "")
     return type_line.partition("—")[2].strip().lower().split()
+
+
+def _any_attacking_matches(
+    context: Any, controller_id: Any, group_filter: dict[str, Any]
+) -> bool:
+    """RULE 508.3a: does ``controller_id`` have at least one *currently
+    attacking* creature matching ``group_filter`` (`segmenter.
+    _batch_attack_group_filter`'s ``{"excluded_subtypes": [...]}`` /
+    ``{"type": ...}`` shape)? — the live check for a batch attack trigger
+    whose `PLAYER_ATTACKED` aggregate names only the attacking player."""
+    state = getattr(context, "state", None)
+    if state is None:
+        return False
+    excluded = [s.lower() for s in group_filter.get("excluded_subtypes") or []]
+    want_type = group_filter.get("type")
+    for obj in state.battlefield:
+        if not getattr(obj, "attacking", False):
+            continue
+        if getattr(obj, "controller_id", None) != controller_id:
+            continue
+        if want_type and want_type not in {t.lower() for t in getattr(obj, "type_words", ())}:
+            continue
+        if excluded:
+            obj_subs = {s.lower() for s in _card_subtypes(getattr(obj, "card", None))}
+            if any(e in obj_subs for e in excluded):
+                continue
+        return True
+    return False
 
 
 def _trigger_condition(

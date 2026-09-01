@@ -1481,6 +1481,7 @@ class SearchMixin:
         hit_destination: str = "hand",
         miss_destination: str = "graveyard",
         optional: bool = True,
+        hit_grant_keywords: Optional[list[str]] = None,
     ) -> None:
         """"Look at the top N cards, take one matching ``criteria``, put the
         rest into ``miss_destination``" (Grisly Salvage/Commune with the
@@ -1524,6 +1525,7 @@ class SearchMixin:
             "optional": optional,
             "hit_destination": hit_destination,
             "miss_destination": miss_destination,
+            "hit_grant_keywords": list(hit_grant_keywords or []),
             "description": f"Von den obersten {len(peeled)} Karten: {card_query.describe(criteria)}",
             "prompt": f"Eine passende Karte ({card_query.describe(criteria)}) auf die Hand nehmen?",
             "eligible": [{"instance_id": o.instance_id, "name": o.name} for o in eligible],
@@ -1561,12 +1563,27 @@ class SearchMixin:
                 hit = next(o for o in exiled if o.instance_id == chosen_id)
                 player.remove_from_zone(hit, Zone.EXILE)
                 self._put_searched_card(player, hit, choice["hit_destination"])
+                self._apply_impulsive_look_hit_grants(hit, choice.get("hit_grant_keywords"))
             self._bottom_remaining(player, miss_ids)
             return
         for obj in exiled:
-            destination = choice["hit_destination"] if obj.instance_id == chosen_id else choice["miss_destination"]
+            is_hit = obj.instance_id == chosen_id
+            destination = choice["hit_destination"] if is_hit else choice["miss_destination"]
             player.remove_from_zone(obj, Zone.EXILE)
             self._put_searched_card(player, obj, destination)
+            if is_hit:
+                self._apply_impulsive_look_hit_grants(obj, choice.get("hit_grant_keywords"))
+
+    def _apply_impulsive_look_hit_grants(
+        self, obj: "GameObject", keywords: Optional[list[str]]
+    ) -> None:
+        """RULE 514.2 — "It gains <keyword> until end of turn." on the card an
+        `impulsive_look` places onto the battlefield (Winota, Joiner of
+        Forces). A no-op unless the card actually landed on the battlefield."""
+        if not keywords or obj not in self.state.battlefield:
+            return
+        for kw in keywords:
+            obj.temp_keywords.add(kw)
     def _grant_temp_play_permission(
         self,
         obj: GameObject,

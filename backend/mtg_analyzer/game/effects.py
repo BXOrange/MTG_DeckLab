@@ -515,9 +515,11 @@ class GameContext:
         hit_destination: str = "hand",
         miss_destination: str = "graveyard",
         optional: bool = True,
+        hit_grant_keywords: Optional[list[str]] = None,
     ) -> None:
         self.engine.request_impulsive_look(
-            player, count, criteria, hit_destination, miss_destination, optional
+            player, count, criteria, hit_destination, miss_destination, optional,
+            hit_grant_keywords=hit_grant_keywords,
         )
 
     def exile_with_play_permission(
@@ -15190,6 +15192,7 @@ class ImpulsiveLookEffect(GameEffect):
         optional: bool = True,
         player: Any = None,
         source: Optional["GameObject"] = None,
+        hit_grant_keywords: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -15198,12 +15201,16 @@ class ImpulsiveLookEffect(GameEffect):
         self.miss_destination = miss_destination
         self.optional = optional
         self.player = player
+        #: "It gains <keyword> until end of turn." interpose (Winota, Joiner
+        #: of Forces) — temp_keywords granted to the placed card, RULE 514.2.
+        self.hit_grant_keywords = list(hit_grant_keywords or [])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
         context.impulsive_look(
             player, self.count, self.criteria,
             self.hit_destination, self.miss_destination, self.optional,
+            hit_grant_keywords=self.hit_grant_keywords or None,
         )
 
 
@@ -19848,6 +19855,7 @@ EffectRegistry.register(
         hit_destination=p.get("hit_destination", "hand"),
         miss_destination=p.get("miss_destination", "graveyard"),
         optional=p.get("optional", True),
+        hit_grant_keywords=p.get("hit_grant_keywords"),
     ),
 )
 EffectRegistry.register(

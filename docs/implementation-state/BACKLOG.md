@@ -114,14 +114,16 @@ Plan-level sequencing lives in
     (`put_onto_battlefield_attacking`), all four routes, the defender ref,
     the "attacks a player" triggers, the per-opponent distributive, the
     bare-name/`populate` `_CREATED_ENTERS_ATTACKING_RE` subjects, the
-    put-from-hand card filters, the delayed "return it to hand" tail and
-    the "attacks a player who controls N+ lands" qualified trigger all
-    shipped (v177–v192, see `Done_Backend.md`). Left: the multi-clause
-    Stangg / Living Laser bodies; a `look_top` mid-clause "it gains
-    indestructible until end of turn" interpose (Winota) and an else-branch
-    "if you don't put a card … this way, `<X>`" (The Joiner of Cats, The
-    Vast Scrier); Kaalia of the Vast (`normalize` doesn't fold the
-    legendary short name "Kaalia" → `~`).
+    put-from-hand card filters, the delayed "return it to hand" tail, the
+    "attacks a player who controls N+ lands" qualified trigger, the
+    `look_top` "it gains `<keyword>` until end of turn" interpose (Winota /
+    A-Winota) and the RULE 508.3a batch-attack trigger ("one or more
+    `<filter>` creatures you control attack" → `PLAYER_ATTACKED` +
+    `group_filter`) all shipped (v177–v193, see `Done_Backend.md`). Left:
+    the multi-clause Stangg / Living Laser bodies; an `impulsive_look`
+    else-branch "if you don't put a card … this way, `<X>`" (The Joiner of
+    Cats, The Vast Scrier); Kaalia of the Vast (`normalize` doesn't fold
+    the legendary short name "Kaalia" → `~`).
 
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The

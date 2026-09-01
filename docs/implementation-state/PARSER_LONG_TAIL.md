@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.2% covered — 13,295 / 34,811 — as of 2026-09-01, PARSER_VERSION 192.**
+**38.2% covered — 13,299 / 34,811 — as of 2026-09-01, PARSER_VERSION 193.**
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -681,6 +681,25 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+193 = PAR-30 "Tapped and attacking" trail — closes the **Winota, Joiner of
+Forces / A-Winota** family and the RULE 508.3a batch-attack trigger. Two
+pieces: (a) the `look_top` "…onto the battlefield tapped and attacking."
+mid-clause **"It gains <keyword> until end of turn."** interpose —
+`_LOOK_TOP_PUT_ATTACKING_RE` grew an optional group validated against
+`_LOOK_TOP_HIT_GRANT_KEYWORDS` (fail-closed), threaded as
+`hit_grant_keywords` through `impulsive_look` → `ImpulsiveLookEffect` →
+`request_impulsive_look` → `resolve_impulsive_look_choice`, which adds
+`temp_keywords` to the placed card (RULE 514.2). (b) "whenever **one or
+more** [<filter>] creatures you control attack[ a player], …" →
+`_BATCH_ATTACK_TRIGGER_RE` maps onto the existing once-per-combat
+`EventType.PLAYER_ATTACKED` aggregate with an optional `group_filter`
+(`_batch_attack_group_filter`: bare, a negated creature subtype, or a
+main type — "modified"/"suspected" fail closed) that
+`effect_binder._any_attacking_matches` checks against the live attacking
+group; plus a negated-creature-subtype ("non-Human") option on
+`_GROUP_SUBJECT_RE` → `_build_group_ok`'s new `excluded_subtypes`. +4
+(Winota, A-Winota, Dollmaker's Shop, Requiem Angel).
 
 192 = PAR-30 "Tapped and attacking" trail — the qualified attack trigger
 "whenever ~ attacks **a player who controls N or more lands**" (Owlbear
