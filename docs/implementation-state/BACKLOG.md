@@ -187,31 +187,32 @@ Plan-level sequencing lives in
     the Champion cycle ("behold a `<type>` and exile it" + LTB return),
     Celestial Reunion ("behold 2 creatures of a chosen type").
 
-  - **Clash (RULE 701.30) win-branch residue.** ~7 cache clash cards (all genuine singletons — hand-author candidates) stay
-    UNMODELED on ordinary effect-grammar in their "if you win" branch (or on
-    their *first*, pre-clash clause), each needing a distinct body handler
-    — none of it clash-specific. Batch 1 (v147) closed 5 + made a bare
-    `clash` spec referent-transparent in the connector-split loop; batch 2
-    (v148) closed Titan's Revenge + Spring Cleaning; batch 3 (v149) closed
-    Entangling Trap (via the new general `skip_next_untap` family, +51);
-    batch 4 (v150) closed Redeem the Lost (via the "protection from the
-    color of your choice" family, +17); batch 5 (v151) closed Recross the
-    Paths (via the `dig_until` "reveal from top until a <type> card"
-    family, +9); batch 6 (v152) closed Weed Strangle ("gain life equal to <its/that
-    creature's> <power/toughness>", +14); batch 7 (v153) closed Lash Out
-    ("~ deals N damage to that creature's controller", +10); batch 8 (v154)
-    closed Woodland Guidance + Fire Juggler. The general-family seam is now
-    worked out — the rest are singletons to **hand-author**: a "repeat this process" loop primitive
-    (Hoarder's Greed); "~ deals N damage to that creature's controller / each
-    creature blocking it" (Lash Out, Fire Juggler); "that player discards N" /
-    "target player discards N. otherwise, that player discards a card"
-    (Pulling Teeth); "protection from the color of your choice" first clause
-    (Redeem the Lost); reveal-until-land first clause (Recross the Paths);
-    "gain control of enchanted creature" (Captivating Glance); "creatures
-    that player controls don't untap during their next untap step" (Pollen
-    Lullaby — needs the "that player" clash-opponent referent); "mills N cards" (Broken Ambitions); "put that
-    creature on top of its owner's library instead" (Whirlpool Whelm); and
-    a few more.
+  - **Clash (RULE 701.30) win-branch residue — parser grammar is DONE; 6
+    primitive-blocked singletons remain.** Eight batches (v147–v154) worked
+    the whole "if you win, `<body>`" seam and, along the way, unlocked **7
+    general effect families** that a clash card merely sat inside (X-damage
+    `_damage_x` +20; `skip_next_untap` "doesn't untap during its
+    controller's next untap step" +51; `grant_protection` "from the colour
+    of your choice" +17; `dig_until` "reveal from top until a `<type>`
+    card" +9; `opponents_enchantments`/`_artifacts` destroy-all scope +1;
+    `GainLifeEffect.amount_from_subject` "gain life equal to `<its / that
+    creature's>` `<power/toughness>`" +14; `DealDamageEffect.recipient_
+    subject` "deals N to that creature's controller" +10 — ~+124 total).
+    The 6 cards left each need a **genuinely new engine primitive**, not
+    parser grammar — file them as MEC-shaped work, not a parser section:
+    **Hoarder's Greed** — a repeat-this-whole-process loop (the process is
+    "lose 2 life, draw 2, clash"); **Broken Ambitions** — "counter target
+    spell unless its controller pays `{X}`" (X = the counter spell's own
+    announced X) *and* "that spell's controller mills 4" (`MillEffect`
+    needs a `previous_subject_controller` recipient, the sibling of the
+    damage/life-gain ones just shipped); **Whirlpool Whelm** — a bounce
+    whose destination is *overridden* ("put that creature on top of its
+    owner's library **instead**") on a win; **Captivating Glance** — an
+    indefinite "gain control of enchanted creature" (a permanent
+    control-change of an Aura's own host, no existing effect); **Pulling
+    Teeth** / **Pollen Lullaby** — a "that player" referent carried from
+    the clash win-branch's own target/opponent into the "otherwise" branch
+    (or, for Pollen Lullaby, from the clashed opponent).
 
   - **Suspect (RULE 701.60) one-off shapes.** A genuine if/else *effect*
     primitive ("if `<cond>`, A. Otherwise, B." — two mutually exclusive
