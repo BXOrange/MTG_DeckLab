@@ -1478,7 +1478,19 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: opponents control" scope → `opponents_enchantments`/`opponents_artifacts`
 #: (`_mass_selector_objects`) — Spring Cleaning's clash win-branch. +21
 #: total, 0 regressed.
-PARSER_VERSION = "148"
+#: "149": PAR-30 — "**doesn't untap during its controller's next untap
+#: step**". New `SkipNextUntapEffect` (`skip_next_untap`) sets `GameObject.
+#: skip_next_untap` — RULE 702.19b's own one-time flag, already consumed and
+#: cleared in `_step_untap` (built for exert). A pure rider: "Tap X. It
+#: doesn't untap …" is the ordinary `[tap, skip_next_untap{previous_
+#: subject}]` sequence. Three subject shapes (`target`/prev-subject/self).
+#: Also widened `_tap`'s allowed target kinds to the controller-scoped
+#: creature kinds so "tap target creature **an opponent controls**"
+#: (Chillbringer/Berg Strider &c.) parses at all — that was a standalone
+#: gap. **+51** — the whole tap-and-freeze tempo family (Frost Lynx, Frost
+#: Titan, Dungeon Geists, Nebelgast Herald, Kor Hookmaster, Barl's Cage,
+#: Chandra's Revolution, …) plus Entangling Trap (a clash card). 0 regressed.
+PARSER_VERSION = "149"
 
 
 def parser_source_hash() -> str:

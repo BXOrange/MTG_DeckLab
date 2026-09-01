@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.1% covered — 12,914 / 34,811 — as of 2026-09-01, PARSER_VERSION 148.**
+**37.2% covered — 12,965 / 34,811 — as of 2026-09-01, PARSER_VERSION 149.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -420,6 +420,28 @@ to X=5. Also `_DESTROY_ALL_RE` gained an optional " your opponents control"
 scope → new `opponents_enchantments`/`opponents_artifacts` selectors in
 `_mass_selector_objects` (a scope on any other noun fails closed) — Spring
 Cleaning's clash win-branch. +21 total, 0 regressed.
+
+149 = PAR-30 — **"doesn't untap during its controller's next untap step"**,
+another big general family (~95 SOLO) that a clash card (Entangling Trap)
+sits inside. New `SkipNextUntapEffect` (`skip_next_untap`) sets
+`GameObject.skip_next_untap` — RULE 702.19b's *own* one-time flag, already
+consumed and cleared in `GameEngine._step_untap` (built for exert), so no
+engine plumbing beyond the effect itself. A pure rider — it taps nothing —
+so "Tap X. It doesn't untap …" is the ordinary two-clause `[tap,
+skip_next_untap{previous_subject}]` sequence, "it" off `previous_targets`.
+Three subject shapes (`target <perm>` / `it`·`that <perm>` prev-subject /
+`~` self). **Also a standalone fix:** `_tap`'s allowed target kinds never
+included the controller-scoped creature kinds, so "tap target creature **an
+opponent controls**" (Chillbringer, Berg Strider, half the tempo family)
+didn't parse at all — widened to `creature_you_control` /
+`creature_you_dont_control` / `other_creature_you_control`. **+51** — the
+whole tap-and-freeze tempo family (Frost Lynx, Frost Titan, Frost Trickster,
+Dungeon Geists, Nebelgast Herald, Niblis of Frost, Kor Hookmaster, Kor
+Entanglers, Barl's Cage, Chandra's Revolution, Hands of Binding, Blustersquall,
+Ojutai's Breath, …) plus Entangling Trap. 0 regressed; verified end-to-end
+(the flag survives to the untap step, which skips the creature and clears
+it). A stale negative test in `test_mec19_becomes_target_family.py` (Frost
+Titan asserted UNMODELED) flipped to positive.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

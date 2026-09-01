@@ -187,14 +187,15 @@ Plan-level sequencing lives in
     the Champion cycle ("behold a `<type>` and exile it" + LTB return),
     Celestial Reunion ("behold 2 creatures of a chosen type").
 
-  - **Clash (RULE 701.30) win-branch residue.** ~16 cache clash cards stay
+  - **Clash (RULE 701.30) win-branch residue.** ~14 cache clash cards stay
     UNMODELED on ordinary effect-grammar in their "if you win" branch (or on
     their *first*, pre-clash clause), each needing a distinct body handler
     — none of it clash-specific. Batch 1 (v147) closed 5 + made a bare
     `clash` spec referent-transparent in the connector-split loop; batch 2
-    (v148) closed Titan's Revenge (via a new general "{X}-scaled damage"
-    handler) and Spring Cleaning (via an "your opponents control" scope on
-    `_DESTROY_ALL_RE`). Still open: a "repeat this process" loop primitive
+    (v148) closed Titan's Revenge + Spring Cleaning; batch 3 (v149) closed
+    Entangling Trap (via the new general `skip_next_untap` "doesn't untap
+    during its controller's next untap step" family, +51 cache-wide).
+    Still open: a "repeat this process" loop primitive
     (Hoarder's Greed); mass "untap all Forests you control" (Woodland
     Guidance); "~ deals N damage to that creature's controller / each
     creature blocking it" (Lash Out, Fire Juggler); "you gain life equal to
@@ -204,7 +205,7 @@ Plan-level sequencing lives in
     (Redeem the Lost); reveal-until-land first clause (Recross the Paths);
     "gain control of enchanted creature" (Captivating Glance); "creatures
     that player controls don't untap during their next untap step" (Pollen
-    Lullaby, Entangling Trap); "mills N cards" (Broken Ambitions); "put that
+    Lullaby — needs the "that player" clash-opponent referent); "mills N cards" (Broken Ambitions); "put that
     creature on top of its owner's library instead" (Whirlpool Whelm); and
     a few more.
 

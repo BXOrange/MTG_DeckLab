@@ -2055,11 +2055,20 @@ def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _exile_multi_target = _multi_target_builder("exile", allow_spell=True)
 
 
+#: The target kinds "tap/untap target X" accepts — the plain permanent
+#: types plus the controller-scoped creature kinds ("tap target creature
+#: **an opponent controls**", Chillbringer/Berg Strider &c.; `legal_targets`
+#: resolves all three).
+_TAP_TARGET_KINDS = (
+    "creature", "permanent", "legendary_permanent", "forest",
+    "creature_you_control", "creature_you_dont_control", "other_creature_you_control",
+    *_SINGLE_TYPE_PERMANENT_KINDS,
+)
+
+
 def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in (
-        "creature", "permanent", "legendary_permanent", "forest", *_SINGLE_TYPE_PERMANENT_KINDS,
-    ):
+    if kind is None or kind not in _TAP_TARGET_KINDS:
         return None
     untap = m.group("verb").lower() == "untap"
     return [EffectSpec("tap", {"target_kind": kind, "untap": untap, **_optional_param(m)})]
@@ -6649,6 +6658,36 @@ def _tap_previous_subject(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("tap", {"previous_subject": True, "untap": m.group("verb").lower() == "untap"})]
 
 
+#: "[That / target / ~] `<permanent>` doesn't untap during
+#: [its controller's / your / the player's] next untap step." — Barl's Cage
+#: and the ~95-card "Tap X. It doesn't untap …" tempo family (Chillbringer,
+#: Berg Strider, the Frost Lynx cycle, Entangling Trap / Pollen Lullaby
+#: clash payoffs, …). `SkipNextUntapEffect` sets `GameObject.
+#: skip_next_untap`, RULE 702.19b's own one-time flag. Three subject shapes,
+#: routed by the same `_PERMANENT_NOUN`/`~`/pronoun split every other
+#: family here uses.
+_DONT_UNTAP_SUFFIX = (
+    r" doesn'?t untap during (?:its controller'?s|your|the player'?s) next untap step"
+)
+_SKIP_UNTAP_TARGET_RE = _c(rf"target (?P<what>creature|artifact|land|permanent){_DONT_UNTAP_SUFFIX}")
+_SKIP_UNTAP_PREV_RE = _c(rf"(?:it|that (?:creature|artifact|land|permanent)){_DONT_UNTAP_SUFFIX}")
+_SKIP_UNTAP_SELF_RE = _c(rf"(?:~|this (?:creature|artifact|permanent)){_DONT_UNTAP_SUFFIX}")
+
+
+def _skip_untap_target(m: re.Match[str]) -> list[EffectSpec]:
+    what = m.group("what")
+    kind = "creature" if what == "creature" else what
+    return [EffectSpec("skip_next_untap", {"target_kind": kind})]
+
+
+def _skip_untap_prev(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("skip_next_untap", {"previous_subject": True})]
+
+
+def _skip_untap_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("skip_next_untap", {"target_kind": None})]
+
+
 #: PAR-30 — the single biggest RULE 701-trail sub-cluster (~100 SOLO cache
 #: cards): a trailing "[Then] sacrifice / exile <it / that creature / that
 #: token / them / those tokens> at the beginning of [the/your] next end
@@ -8511,6 +8550,17 @@ HANDLERS: list[EffectHandler] = [
         _TAP_PREVIOUS_SUBJECT_RE,
         _tap_previous_subject,
         previous_subject_only=True,
+    ),
+    # "target/that/~ <permanent> doesn't untap during … next untap step"
+    # (Barl's Cage + the ~95-card "Tap X. It doesn't untap …" family).
+    EffectHandler("skip_next_untap_target", _SKIP_UNTAP_TARGET_RE, _skip_untap_target),
+    EffectHandler(
+        "skip_next_untap_prev", _SKIP_UNTAP_PREV_RE, _skip_untap_prev,
+        previous_subject_only=True,
+    ),
+    EffectHandler(
+        "skip_next_untap_self", _SKIP_UNTAP_SELF_RE, _skip_untap_self,
+        self_subject_only=True,
     ),
     # PAR-30: "[Then] sacrifice/exile <it/that creature/that token/them/
     # those tokens> at the beginning of [the/your] next end step." — the

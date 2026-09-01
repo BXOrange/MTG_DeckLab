@@ -11092,6 +11092,51 @@ class TapEffect(GameEffect):
                 context.set_tapped(target, tapped=not self.untap)
 
 
+class SkipNextUntapEffect(GameEffect):
+    """"[That / target] `<permanent>` doesn't untap during its controller's
+    next untap step." (Barl's Cage, and the ~95-card "Tap target creature.
+    It doesn't untap …" tempo family — Chillbringer, Berg Strider, the Frost
+    Lynx cycle, Pollen Lullaby's clash payoff, …).
+
+    Sets `GameObject.skip_next_untap` — the exact one-time flag RULE 702.19b
+    exert already uses, consumed and cleared in `GameEngine._step_untap`.
+    A pure rider: it does *not* tap anything, so "Tap X. It doesn't untap …"
+    is the ordinary two-clause `[tap, skip_next_untap{previous_subject}]`
+    sequence, "it" resolved off `GameContext.previous_targets`.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = "creature",
+        previous_subject: bool = False,
+        optional: bool = False,
+        creature_filter: Optional[dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.previous_subject = previous_subject
+        self.target_spec = (
+            TargetSpec(kind=target_kind, optional=optional, creature_filter=creature_filter)
+            if target_kind is not None and not previous_subject else None
+        )
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.previous_subject:
+            objs = list(context.previous_targets)
+        elif self.target_spec is None:
+            objs = [self.target or self.source]
+        else:
+            objs = list(targets or ([self.target] if self.target is not None else []))
+        for obj in objs:
+            if obj is not None and obj in context.state.battlefield:
+                obj.skip_next_untap = True
+
+
 #: MEC-28: which effect types' own `selector` `_apply_effects_partitioned`
 #: tracks into `GameContext.previous_selector` for a following "they" clause
 #: — see that function's docstring. `TapEffect`-only today, matching
@@ -18715,6 +18760,20 @@ EffectRegistry.register(
         creature_filter=p.get("creature_filter"),
         subtypes=p.get("subtypes"),
         choose_tap_or_untap=bool(p.get("choose_tap_or_untap", False)),
+    ),
+)
+EffectRegistry.register(
+    # "[Target / that] permanent doesn't untap during its controller's next
+    # untap step." (Barl's Cage + the ~95-card "Tap X. It doesn't untap …"
+    # tempo family) — sets `GameObject.skip_next_untap` (RULE 702.19b's
+    # own one-time flag).
+    "skip_next_untap",
+    lambda p: SkipNextUntapEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "creature") if "target_kind" in p else "creature",
+        previous_subject=bool(p.get("previous_subject", False)),
+        optional=bool(p.get("optional", False)),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(
