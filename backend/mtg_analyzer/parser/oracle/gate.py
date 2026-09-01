@@ -1802,7 +1802,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: plain "exile ~, then return it to the battlefield under its owner's
 #: control" blink chain (Flicker of Fate, Aethergeode Miner, Changing
 #: Loyalty, Flickering Spirit, Fungal Fortitude, Planar Incision). +8.
-PARSER_VERSION = "184"
+#: "185": PAR-30 — "tapped and attacking **that player/that opponent**"
+#: trailing defender ref on the put-from-hand (`_PUT_FROM_HAND_RE`), look-top
+#: (`_LOOK_TOP_PUT_ATTACKING_RE`), inline-create-token (`_TOKEN_TAPPED_
+#: ATTACKING`) and "the token enters …" (`_CREATED_ENTERS_ATTACKING_RE`)
+#: routes. The named defender is the one the source is already attacking,
+#: which `RulesEngine.put_onto_battlefield_attacking` derives from the other
+#: attackers, so the phrase is consumed rather than re-modeled. Kaalia of
+#: the Vast, The Vast Scrier, Owlbear Cub, Seraphic Greatsword, Soaring
+#: Lightbringer.
+PARSER_VERSION = "185"
 
 
 def parser_source_hash() -> str:

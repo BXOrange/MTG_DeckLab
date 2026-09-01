@@ -239,11 +239,14 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # the_ring_tempts_you` once the Ring-bearer choice is settled.
     (re.compile(r"^the ring tempts you$"), "RING_TEMPTED"),
     # RULE 506.4's "whenever you attack, …" (MEC-28, Karlach, Fury of
-    # Avernus-shaped) — deliberately just the bare form; "whenever you
-    # attack with `<qualifier>`" (a much bigger, still-unbuilt family —
+    # Avernus-shaped) — the bare form and "whenever you attack **a player**"
+    # (Soaring Lightbringer), which only names the defender kind the
+    # PLAYER_ATTACKED event doesn't refine (RULE 508.1 — an attack is always
+    # at a player or their planeswalker). "whenever you attack with
+    # `<qualifier>`" (a much bigger, still-unbuilt family —
     # `parser_probe.py blocked "^whenever you attack\\b"`, 97+ SOLO cards)
-    # needs its own count/filter grammar and is out of this ticket's scope.
-    (re.compile(r"^you attack$"), "PLAYER_ATTACKED"),
+    # needs its own count/filter grammar and is out of scope.
+    (re.compile(r"^you attack(?: a player)?$"), "PLAYER_ATTACKED"),
     # RULE 603.1's "whenever one or more creatures you control deal combat
     # damage to a player, …" (Professional Face-Breaker-shaped Treasure
     # payoffs) — the bare (no power-threshold) sibling of the hand-
@@ -873,7 +876,12 @@ _PHASE_TRIGGER_RE = re.compile(
 #: reminder text (chapter I already covers it).
 _SELF_SUBJECT_RE = re.compile(
     r"^(?:~|this (?:creature|artifact|enchantment|land|permanent|equipment|class))\s+"
-    rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
+    rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?"
+    # RULE 508.1: "~ attacks **a player**"/"**an opponent**" — the defender
+    # kind scopes nothing the bare ATTACKS event doesn't already carry (a
+    # real attacker can only ever attack a player or their planeswalker), so
+    # it's consumed for subject classification, not turned into a predicate.
+    r"(?:\s+an?\s+(?:player|opponent))?(?:\s+alone)?$"
 )
 
 #: RULE 303.4/301.5's "enchanted/equipped creature" trigger subject (Acquired
@@ -1290,6 +1298,9 @@ _CREATED_ENTERS_ATTACKING_RE = re.compile(
     r"^(?P<before>.+?)\.\s*"
     r"(?:the tokens?|that token|those tokens|it|they) enters?"
     r" tapped and attacking"
+    # "that player"/"that opponent" (Echoing Assault) — the defender the
+    # source is already attacking, derived engine-side, consumed here.
+    r"(?: that (?:player|opponent))?"
     r"(?:\.\s*(?P<after>.+))?$",
     re.IGNORECASE | re.DOTALL,
 )
@@ -1343,7 +1354,9 @@ _LOOK_TOP_SELECT_DESTINATIONS: dict[str, tuple[str, Optional[str]]] = {
 _LOOK_TOP_PUT_ATTACKING_RE = re.compile(
     r"^look at the top (?P<n>\d+) cards? of your library\.\s*"
     r"you may put an? (?P<filter>[a-z, ]+?) card from among them "
-    r"onto the battlefield tapped and attacking\.\s*"
+    # trailing "that player"/"that opponent" (Owlbear Cub) names the defender
+    # the source is already attacking — derived engine-side, so consumed here.
+    r"onto the battlefield tapped and attacking(?: that (?:player|opponent))?\.\s*"
     r"put the rest(?: of the cards)? on the bottom of your library in a random order\.?"
     r"(?:\s*(?P<after>.+))?$",
     re.IGNORECASE | re.DOTALL,

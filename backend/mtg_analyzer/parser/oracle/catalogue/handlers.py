@@ -1028,8 +1028,12 @@ _PUT_FROM_HAND_TYPE_WORDS: frozenset[str] = frozenset(PERMANENT_TYPE_WORDS) | {
 _PUT_FROM_HAND_RE = _c(
     r"(?:you may )?put an? (?P<types>[a-z, ]+?) card from your hand onto the battlefield"
     # RULE 508.4: "…tapped and attacking" (Preeminent Captain, Kaalia of
-    # the Vast) → `PutFromHandOntoBattlefieldEffect.attacking`.
-    r"(?P<tapped_attacking> tapped and attacking)?"
+    # the Vast) → `PutFromHandOntoBattlefieldEffect.attacking`. The trailing
+    # "that player"/"that opponent" (Kaalia, The Vast Scrier) names the
+    # defender the source is already attacking — `put_onto_battlefield_
+    # attacking` derives that from the other attackers, so the phrase is
+    # consumed, not re-modeled.
+    r"(?P<tapped_attacking> tapped and attacking)?(?P<atk_defender> that (?:player|opponent))?"
 )
 
 #: The main card types a "put a … card from your hand" clause can name; a
@@ -4784,6 +4788,15 @@ def _split_keywords_with_parametric(
 #: `RulesEngine.put_onto_battlefield_attacking` call.
 _TOKEN_TAPPED_ATTACKING = (
     r"(?P<tapped_attacking> that'?s tapped and attacking| that are tapped and attacking)?"
+    # RULE 508.4: a trailing "that player"/"that opponent" names the defender
+    # the source is already attacking (Seraphic Greatsword, Soaring
+    # Lightbringer) — `put_onto_battlefield_attacking` derives it from the
+    # other attackers, so this is consumed rather than re-modeled. The
+    # per-opponent distributive form ("for each opponent, create … attacking
+    # that player") isn't reached here — the connector loop leaves that
+    # "for each opponent, " prefix on the clause and the create-token rows
+    # never fullmatch it.
+    r"(?P<atk_defender> that (?:player|opponent))?"
 )
 
 

@@ -113,14 +113,19 @@ Plan-level sequencing lives in
   - **"Tapped and attacking" (RULE 508.4) residue — the primitive
     (`RulesEngine.put_onto_battlefield_attacking`) + the `create_token`
     (v177), `put_from_hand` (v178), `copy_permanent` / "the token enters
-    …" / look-top / "at end of combat" delayed-tail (v179) routes all
-    shipped.** Left: a bare-name token subject ("Ragavan enters tapped
-    and attacking" — Kari Zev); `populate` as the created thing (Ghired);
-    the multi-clause Stangg / Living Laser bodies; a trailing "that
-    opponent" / "defending player" defender ref (Kaalia, Hans Eriksson,
-    Owlbear Cub); and mana-value-cap put-from-hand / look-top filters
-    (Shadowfax "with lesser power", Kinscaer Sentry, Jet "with mana value
-    X or less").
+    …" / look-top / "at end of combat" delayed-tail (v179) + the trailing
+    "that player / that opponent" defender ref on all four routes, plus
+    "~ attacks a player / an opponent" / "you attack a player" trigger
+    recognition (v185) all shipped.** Left: a bare-name token subject
+    ("Ragavan enters tapped and attacking" — Kari Zev); `populate` as the
+    created thing (Ghired); the multi-clause Stangg / Living Laser bodies;
+    mana-value-cap put-from-hand / look-top filters (Shadowfax "with
+    lesser power", Kinscaer Sentry, Jet "with mana value X or less"); and,
+    on the defender-ref seam specifically, Kaalia of the Vast (`normalize`
+    doesn't fold the legendary short name "Kaalia" → `~`), Owlbear Cub /
+    The Vast Scrier (qualified triggers + multi-clause bodies) and the
+    per-opponent distributive "for each opponent, create … attacking that
+    player" (Endless Foot Assault, Stampede Surfer).
 
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The

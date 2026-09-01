@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.0% covered — 13,218 / 34,811 — as of 2026-09-01, PARSER_VERSION 184.**
+**38.0% covered — 13,219 / 34,811 — as of 2026-09-01, PARSER_VERSION 185.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,23 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+185 = "tapped and attacking **that player / that opponent**" trailing
+defender ref (RULE 508.1). The put-from-hand (`_PUT_FROM_HAND_RE`),
+look-top (`_LOOK_TOP_PUT_ATTACKING_RE`), inline-create-token
+(`_TOKEN_TAPPED_ATTACKING`) and "the token enters …"
+(`_CREATED_ENTERS_ATTACKING_RE`) routes gained an optional trailing "that
+player"/"that opponent" — the named defender is the one the source is
+already attacking, which `RulesEngine.put_onto_battlefield_attacking`
+derives from the other attackers, so it's consumed, not re-modeled.
+Alongside it `_SELF_SUBJECT_RE` and the `PLAYER_ATTACKED` row accept "~
+attacks a player / an opponent" and "you attack a player" (the defender
+kind refines nothing the bare event doesn't already carry). +1 (Soaring
+Lightbringer), 0 regressed. Still open on this seam: Kaalia of the Vast
+(normalize doesn't fold the legendary short name "Kaalia" → `~`), Owlbear
+Cub / The Vast Scrier (qualified triggers + multi-clause bodies), the
+per-opponent distributive "for each opponent, create … attacking that
+player" (Endless Foot Assault, Stampede Surfer).
 
 184 = **38.0% crossed.** "Return it to the battlefield [tapped] under its
 owner's / your control[ with a +1/+1 counter on it]." (RULE 400.7
