@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.0% covered — 12,888 / 34,811 — as of 2026-09-01, PARSER_VERSION 146.**
+**37.0% covered — 12,893 / 34,811 — as of 2026-09-01, PARSER_VERSION 147.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -374,6 +374,35 @@ end-to-end (Harried Dronesmith's ETB Thopter gains haste via
 (needs `{TARGET}` "artifact or creature **you control**" scoping — a shared
 macro), Old Hob's *other* ability ("target attacking creature **token**"
 filter), Artistic Process (a modal `choose 1 —` option body).
+
+147 = PAR-30 — **Clash (RULE 701.30) win-branch residue, batch 1** of an
+ongoing section (~23 cards, each win-branch body its own effect grammar).
+Five small pieces: (a) "you clash and win" joins "you win a clash" as a
+`WON_CLASH` trigger phrasing (Sylvan Echoes). (b) `_FREE_CAST_FROM_HAND_RE`
+accepts "…spell **from your hand** with mana value N or less…" word order,
+not only the Expertise-cycle "…with mana value N or less from your hand…"
+(Marvo, Deep Operative). (c) `return_self_to_hand` accepts "return **this
+card** to its owner's hand" (Ringskipper — a "when ~ dies" clash-win body,
+source in the graveyard; scoped to that handler, not the shared
+`_SELF_SUBJECT` macro). (d) the connector-split loop treats a bare `clash`
+spec as a **referent-transparent interstitial** — it neither targets nor
+creates, so "create 2 tokens. clash with an opponent. if you win, **those
+creatures** gain deathtouch …" (Gilt-Leaf Ambush) carries its pronoun chain
+across the clash sentence instead of having it cleared. (e)
+`_PUMP_PREV_SINGULAR_PT_RE` accepts "gets **an additional** +N/+N" (Fistful
+of Force). +5 (Sylvan Echoes, Marvo, Ringskipper, Gilt-Leaf Ambush, Fistful
+of Force), 0 regressed. Still open in the section — each on a distinct
+win-branch body: self-bounce cards blocked on their *first* clause (Titan's
+Revenge's "~ deals X damage to any target", Redeem the Lost's "protection
+from the color of your choice", Recross the Paths' reveal-until-land);
+"that player discards N" (Pulling Teeth), "you gain life equal to that
+creature's toughness" (Weed Strangle), "~ deals N damage to that creature's
+controller" (Lash Out), "~ deals N damage to each creature blocking it"
+(Fire Juggler), "repeat this process" (Hoarder's Greed), "destroy all
+enchantments your opponents control" (Spring Cleaning), "untap all Forests
+you control" (Woodland Guidance), "gain control of enchanted creature"
+(Captivating Glance), "doesn't untap during … next untap step" (Entangling
+Trap, Pollen Lullaby), and more.
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

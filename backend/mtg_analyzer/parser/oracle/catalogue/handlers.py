@@ -951,8 +951,14 @@ _FREE_CAST_FROM_HAND_RE = _c(
     # noncreature spell without paying"): the "with mana value N or less"
     # cap and the "noncreature" qualifier are both optional — an uncapped
     # `free_cast_from_hand` offers every nonland hand card.
+    # "with mana value N or less" and "from your hand" appear in either
+    # order — "…spell with mana value N or less from your hand…" (the
+    # Expertise cycle) and "…spell from your hand with mana value N or
+    # less…" (Marvo, Deep Operative). Two positions for the cap, read back
+    # by `_free_cast_from_hand` as ``n`` or ``n_after``.
     rf"(?:you may )?cast an? (?P<noncreature>noncreature )?spell"
-    rf"(?: with mana value {COUNT_X} or less)? from your hand "
+    rf"(?: with mana value {COUNT_X} or less)? from your hand"
+    rf"(?: with mana value (?P<n_after>a|an|x|\d+) or less)? "
     rf"without paying its mana cost(?P<selector>, where x is the number of attacking creatures)?"
 )
 
@@ -961,10 +967,11 @@ def _free_cast_from_hand(m: re.Match[str]) -> list[EffectSpec]:
     params: dict = {}
     if m.groupdict().get("noncreature"):
         params["noncreature_only"] = True
+    cap = m.groupdict().get("n") or m.groupdict().get("n_after")
     if m.group("selector"):
         params["max_mana_value_selector"] = "attacking_creatures"
-    elif m.groupdict().get("n") is not None:
-        params["max_mana_value"] = count_or_x_of(m.group("n"))
+    elif cap is not None:
+        params["max_mana_value"] = count_or_x_of(cap)
     return [EffectSpec("free_cast_from_hand", params)]
 
 
@@ -6717,7 +6724,7 @@ def _pump_previous_targets_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: clause actually bound the pronoun.
 _PREV_SUBJECT_SINGULAR = r"(?:it|that creature|that permanent|that artifact|that token)"
 _PUMP_PREV_SINGULAR_PT_RE = _c(
-    rf"{_PREV_SUBJECT_SINGULAR}(?: also)? gets? (?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
+    rf"{_PREV_SUBJECT_SINGULAR}(?: also)? gets? (?:an additional )?(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
     r"(?: and gains? (?P<kw>[a-z][a-z, ]*?))? until end of turn"
 )
 _PUMP_PREV_SINGULAR_KW_RE = _c(
@@ -7687,8 +7694,12 @@ HANDLERS: list[EffectHandler] = [
     # alternative to compete with but would otherwise have first claim on
     # the surrounding phrase.
     EffectHandler(
+        # "return **this card** to its owner's hand" (Ringskipper — a
+        # "when ~ dies" clash-win body, so the source is in the graveyard;
+        # `RulesEngine.return_to_hand` moves it from whatever zone it's in).
+        # Scoped here rather than widening the shared `_SELF_SUBJECT` macro.
         "return_self_to_hand",
-        _c(rf"return {_SELF_SUBJECT} to its owner's hand"),
+        _c(rf"return (?:{_SELF_SUBJECT}|this card) to its owner's hand"),
         _return_self_to_hand,
     ),
     # "return target creature to its owner's hand" / "return a land you

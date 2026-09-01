@@ -254,12 +254,14 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
      "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"),
     # RULE 701.30: "Whenever you clash, …" (Entangling Trap/Rebellion of the
     # Flamekin) and its favourable-outcome sibling "Whenever you win a
-    # clash, …" (Marvo, Deep Operative). `EventType.CLASHED` /
-    # `EventType.WON_CLASH` fire from `RulesEngine.clash`; the
-    # `CLASHED`/`WON_CLASH` split (mirroring `LIFE_GAIN`/`LIFE_GAINED`)
-    # means "win a clash" needs no event ``filter``.
+    # clash, …" (Marvo, Deep Operative) / "Whenever you clash and win, …"
+    # (Sylvan Echoes — the same WON_CLASH condition, just phrased as the
+    # procedure plus its result). `EventType.CLASHED` / `EventType.WON_CLASH`
+    # fire from `RulesEngine.clash`; the `CLASHED`/`WON_CLASH` split
+    # (mirroring `LIFE_GAIN`/`LIFE_GAINED`) means "win a clash" needs no
+    # event ``filter``.
     (re.compile(r"^you clash$"), "CLASHED"),
-    (re.compile(r"^you win a clash$"), "WON_CLASH"),
+    (re.compile(r"^you (?:win a clash|clash and win)$"), "WON_CLASH"),
     # RULE 701.59b: "Whenever you collect evidence, …" (Evidence Examiner/
     # Surveillance Monitor). `RulesEngine.collect_evidence` fires
     # `EventType.COLLECTED_EVIDENCE` per-player, same `player_id` convention.
@@ -2390,6 +2392,7 @@ def parse_effect_body(
                     ok = False
                     break
                 collected.extend(sub)
+                prev_referent, prev_referent_selector = referent, referent_selector
                 # RULE 601.2c: what the clause just parsed *chose* is what
                 # the next one's "it"/"that creature"/"those creatures" can
                 # point at (`handlers.EffectHandler.previous_subject_only`,
@@ -2398,6 +2401,14 @@ def parse_effect_body(
                 # unclaimed — rather than letting it drift onto some earlier
                 # clause's pick, which is the ambiguity this gate exists for.
                 referent = _announces_creature_target(sub)
+                # PAR-30: "clash with an opponent" is a *referent-transparent*
+                # interstitial — it neither targets nor creates, so a card
+                # like Gilt-Leaf Ambush ("create 2 tokens. clash with an
+                # opponent. if you win, those creatures gain deathtouch …")
+                # must carry the pronoun chain across the clash sentence
+                # rather than have it cleared here.
+                if not referent and sub and all(s.type == "clash" for s in sub):
+                    referent, referent_selector = prev_referent, prev_referent_selector
                 # PAR-30: a clause that itself *consumed* the pronoun ("untap
                 # that creature", "it gains haste until end of turn") keeps the
                 # referent chain alive for the clause after it rather than

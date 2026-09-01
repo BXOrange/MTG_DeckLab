@@ -1455,7 +1455,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: at the beginning of the next end step"). +9 (Harried Dronesmith,
 #: God-Pharaoh's Gift, Séance, Mordor on the March, Mardu Charm/Monument,
 #: Mogg Cannon, Rebellion of the Flamekin, Salt Road Skirmish), 0 regressed.
-PARSER_VERSION = "146"
+#: "147": PAR-30 — Clash (RULE 701.30) win-branch residue, batch 1. Five
+#: small pieces: "you clash and win" as a WON_CLASH trigger phrasing
+#: (Sylvan Echoes); `_FREE_CAST_FROM_HAND_RE` accepts "…spell from your hand
+#: with mana value N or less…" word order (Marvo, Deep Operative);
+#: `return_self_to_hand` accepts "return **this card** to its owner's hand"
+#: (Ringskipper); the connector-split loop treats a bare `clash` spec as a
+#: **referent-transparent** interstitial, so "create 2 tokens. clash. if you
+#: win, **those creatures** gain deathtouch …" keeps its pronoun chain
+#: (Gilt-Leaf Ambush); `_PUMP_PREV_SINGULAR_PT_RE` accepts "gets **an
+#: additional** +N/+N" (Fistful of Force). +5, 0 regressed. ~18 clash cards
+#: remain, each on a distinct win-branch body handler.
+PARSER_VERSION = "147"
 
 
 def parser_source_hash() -> str:
