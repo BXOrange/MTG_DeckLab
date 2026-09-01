@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.6% covered — 13,080 / 34,811 — as of 2026-09-01, PARSER_VERSION 164.**
+**37.6% covered — 13,081 / 34,811 — as of 2026-09-01, PARSER_VERSION 165.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,14 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+165 = PAR-30 (Vote residue) — `_vote_per_vote` now carries a leading
+"each player / each opponent" subject off segment 0 onto a subject-less
+later segment it's split from by a bare "and" (Capital Punishment: "each
+opponent sacrifices … for each death vote **and** discards a card for
+each taxes vote" — the discards clause is still each opponent's). "you"
+stays fine as its own segment subject; a later segment naming a
+*different* scoped subject still fails closed. +1.
 
 164 = PAR-30 (Vote residue) — Living Death mass graveyard recursion.
 `ReturnFromGraveyardEffect.players` ("you" / "each_player") — a mass,

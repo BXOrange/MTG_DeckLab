@@ -6143,21 +6143,40 @@ def _vote_per_vote(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # not modeled, fail-closed.
     if segments[-1].end() != len(rest):
         return None
+    # A later segment split on a bare "and" can silently lose a per-player
+    # subject carried from the first ("each opponent sacrifices … *and*
+    # discards a card for each taxes vote" — the "discards" clause is still
+    # each opponent's, Capital Punishment). Lift the leading "each player /
+    # each opponent" off segment 0 and prepend it to any subject-less
+    # later segment so both scope the same way.
+    #: the leading "each player / each opponent" of segment 0, to carry
+    #: onto a subject-less later segment (Capital Punishment)
+    _CARRY_SUBJ_RE = re.compile(r"^(each (?:player|opponent))\s+", re.IGNORECASE)
+    #: any explicit subject a later segment might already carry — "you" is
+    #: always the caster and resolves fine on its own, so it's included
+    #: here only to *stop* the carry, not to trip the fail-closed guard
+    _HAS_SUBJ_RE = re.compile(
+        r"^(?:you|each (?:player|opponent)|target|that player)\b", re.IGNORECASE
+    )
+    #: a later segment's own *scoped* per-player subject (not "you")
+    _SCOPED_SUBJ_RE = re.compile(
+        r"^(?:each (?:player|opponent)|target|that player)\b", re.IGNORECASE
+    )
+    _first_subj = _CARRY_SUBJ_RE.match(segments[0].group("body").strip())
+    carried_subject = _first_subj.group(1) if _first_subj else None
+
     per_vote: list[dict] = []
     for i, seg in enumerate(segments):
         opt = seg.group("opt").lower()
         if opt not in lowered:
             return None
         body = seg.group("body").strip()
-        # A later segment split on a bare "and" can silently lose a subject
-        # carried from the first ("each opponent sacrifices … *and* discards
-        # a card for each taxes vote" — the "discards" clause is still each
-        # opponent's). Only the first segment may name a per-player subject;
-        # fail-closed otherwise rather than mis-scoping it to the caster.
-        if i > 0 and re.match(r"^(?:each (?:player|opponent)|target|that player)\b", body):
-            return None
-        if i == 0 and len(segments) > 1 and re.match(
-            r"^(?:each (?:player|opponent)|target|that player)\b", body
+        if i > 0 and carried_subject and not _HAS_SUBJ_RE.match(body):
+            body = f"{carried_subject} {body}"
+        # A later segment naming its own scoped per-player subject other
+        # than the carried one isn't a shared-subject shape — fail-closed.
+        if i > 0 and _SCOPED_SUBJ_RE.match(body) and not (
+            carried_subject and body.lower().startswith(carried_subject.lower())
         ):
             return None
         body_specs = parse_effect_body(body)

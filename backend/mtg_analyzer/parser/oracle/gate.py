@@ -1640,7 +1640,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `_vote_majority`'s off-stack guard narrowed to spare a `players`-scoped
 #: (untargeted) branch. +2 (Empty the Catacombs; Magister of Worth, now
 #: both vote branches modeled). 0 regressed.
-PARSER_VERSION = "164"
+#: "165": PAR-30 (Vote residue) — `_vote_per_vote` carries a leading
+#: "each player / each opponent" subject off segment 0 onto a subject-less
+#: later segment split from it by a bare "and" (Capital Punishment —
+#: "each opponent sacrifices … for each death vote and discards a card for
+#: each taxes vote"). +1, 0 regressed.
+PARSER_VERSION = "165"
 
 
 def parser_source_hash() -> str:

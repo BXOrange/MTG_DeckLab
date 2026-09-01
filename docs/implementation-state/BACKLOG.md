@@ -88,8 +88,7 @@ Plan-level sequencing lives in
     Guardian — WUBRG protection vote); "vote for a nonland permanent / a
     graveyard card" then "exile/return each with the most votes" (Council's
     Judgment, Custodi Squire — a *targeted-tally* shape, no named options);
-    a per-player subject carried across "and" in a per-vote body (Capital
-    Punishment — deliberately fail-closed); "planeswalk / chaos ensues" and
+    "planeswalk / chaos ensues" and
     "the Ring tempts you" outcome bodies (Path of the Animist/Enigma,
     Galadriel); "you choose how each player votes" (Illusion of Choice);
     Expropriate's extra-turn / gain-control per-vote outcome. (Magister of

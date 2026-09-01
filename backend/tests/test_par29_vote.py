@@ -55,16 +55,27 @@ def test_vote_per_vote_parse():
 
 
 def test_vote_adversarial_rejects():
-    # 3+ options, permanent-vote, and a carried per-player subject all fail closed
+    # 3+ options and permanent-votes still fail closed
     assert match_clause(
         "starting with you, each player votes for blue, black, red, or green. "
         "~ gains protection from each color with the most votes or tied for most votes."
     ) is None
-    assert match_clause(
+
+
+def test_vote_per_vote_carries_a_shared_subject_across_and():
+    # Capital Punishment — "each opponent" scopes both the "for each death
+    # vote" sacrifice and the subject-less "discards a card for each taxes
+    # vote" clause it's split from by a bare "and".
+    r = match_clause(
         "starting with you, each player votes for death or taxes. "
         "each opponent sacrifices a creature of their choice for each death vote "
         "and discards a card for each taxes vote."
-    ) is None
+    )
+    assert r and r[0].type == "vote"
+    pv = r[0].params["per_vote_specs"]
+    assert pv[0]["effects"][0]["params"]["selector"] == "each_opponent"
+    assert pv[1]["effects"][0]["type"] == "discard"
+    assert pv[1]["effects"][0]["params"]["scope"] == "each_opponent"
 
 
 def test_real_vote_cards_modeled():
@@ -82,6 +93,12 @@ def test_real_vote_cards_modeled():
     ]:
         c = Card(id=name[:3], name=name, type_line="Artifact", oracle_text=text)
         assert parse_oracle(c).modeled, (name, parse_oracle(c).unclaimed)
+
+    cp = Card(id="cp", name="Capital Punishment", type_line="Sorcery", is_sorcery=True,
+              oracle_text=("Starting with you, each player votes for death or taxes. "
+                           "Each opponent sacrifices a creature of their choice for "
+                           "each death vote and discards a card for each taxes vote."))
+    assert parse_oracle(cp).modeled, parse_oracle(cp).unclaimed
 
 
 # --- execute -------------------------------------------------------------------
@@ -164,3 +181,41 @@ def test_per_vote_scales_by_tally():
     eng.recompute_continuous_effects()
     assert src.counters.get("+1/+1") == 2   # 1 * 2 strength votes
     assert p1.life == 20                    # 2 * 0 numbers votes -> nothing
+
+
+def test_capital_punishment_scopes_the_carried_subject_to_each_opponent():
+    # both players vote "death" -> death 2, taxes 0. Each opponent (just p2)
+    # sacrifices a creature per death vote; p2 has exactly 2, so both go with
+    # no interactive pick. Proves the "and discards…" clause's *parse* carry
+    # (asserted above) reaches an each-opponent-scoped sacrifice end to end.
+    eng = _engine()
+    st = eng.state
+    src = GameObject(Card(id="cp", name="Capital Punishment", type_line="Sorcery",
+                          is_sorcery=True),
+                     owner_id="p1", zone=Zone.STACK)
+    src.controller_id = "p1"
+    for i in range(2):
+        c = GameObject(Card(id=f"o{i}", name=f"Ox{i}", type_line="Creature — Ox",
+                            is_creature=True, power=2, toughness=2),
+                       owner_id="p2", zone=Zone.BATTLEFIELD)
+        c.controller_id = "p2"
+        st.add_to_battlefield(c)
+    mine = GameObject(Card(id="me", name="Mine", type_line="Creature — Bear",
+                           is_creature=True, power=2, toughness=2),
+                      owner_id="p1", zone=Zone.BATTLEFIELD)
+    mine.controller_id = "p1"
+    st.add_to_battlefield(mine)
+
+    pv = match_clause(
+        "starting with you, each player votes for death or taxes. "
+        "each opponent sacrifices a creature of their choice for each death vote "
+        "and discards a card for each taxes vote."
+    )[0].params["per_vote_specs"]
+    eng.rules.request_vote(source=src, controller_id="p1", options=["death", "taxes"],
+                           per_vote_specs=pv)
+    eng.resolve_pending_choice("0")   # p1 -> death
+    eng.resolve_pending_choice("0")   # p2 -> death   => death 2
+
+    assert not [o for o in st.battlefield
+                if o.is_creature and o.controller_id == "p2"]   # both sacrificed
+    assert mine in st.battlefield                               # not the caster's
