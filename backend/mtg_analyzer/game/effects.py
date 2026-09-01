@@ -10850,6 +10850,34 @@ class DestroySpecificEffect(GameEffect):
                 context.engine.destroy(obj)
 
 
+class ReturnSpecificToHandEffect(GameEffect):
+    """Return the exact permanents baked into this effect to their owners'
+    hands (RULE 608.2 / 400.7).
+
+    The hand-return sibling of `SacrificeSpecificEffect`/`ExileSpecificEffect`
+    /`DestroySpecificEffect`, for a *delayed* "return that creature to its
+    owner's hand at the beginning of the next end step" tail (Ilharg, the
+    Raze-Boar; Zara, Renegade Recruiter; Alora, Merry Thief — a "put a
+    creature onto the battlefield / make it unblockable, then bounce it end
+    of turn" loan). Referent baked in by `CreateDelayedTriggerEffect`'s
+    ``capture`` handling, which special-cases any inner effect exposing an
+    ``.objects`` list. Silently skips anything that already left the
+    battlefield (RULE 111.7 / a token that ceased to exist)."""
+
+    def __init__(
+        self,
+        objects: list["GameObject"],
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.objects = objects
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for obj in list(self.objects):
+            if obj in context.state.battlefield:
+                context.engine.return_to_hand(obj)
+
+
 class ReturnUncastExiledEffect(GameEffect):
     """The "…if it wasn't cast this way" tail every optional free-cast-from-
     exile window needs: Beseech the Mirror's "put the exiled card into your
@@ -18934,6 +18962,15 @@ EffectRegistry.register(
     # TriggerEffect`'s own `capture`" idiom.
     "destroy_specific",
     lambda p: DestroySpecificEffect(objects=[]),
+)
+EffectRegistry.register(
+    # "Return that creature to its owner's hand at the beginning of the next
+    # end step." (Ilharg, Zara, Alora — a put-onto-battlefield/unblockable
+    # loan that's bounced end of turn). Same "empty default, only ever
+    # populated by `CreateDelayedTriggerEffect`'s `capture`" idiom as the
+    # sacrifice/exile/destroy siblings above.
+    "return_specific_to_hand",
+    lambda p: ReturnSpecificToHandEffect(objects=[]),
 )
 EffectRegistry.register(
     # "When this Aura leaves the battlefield, that creature's controller

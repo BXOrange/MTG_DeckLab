@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.2% covered — 13,286 / 34,811 — as of 2026-09-01, PARSER_VERSION 190.**
+**38.2% covered — 13,294 / 34,811 — as of 2026-09-01, PARSER_VERSION 191.**
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -681,6 +681,18 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+191 = PAR-30 "Tapped and attacking" trail — `_DELAYED_SAC_EXILE_TAIL_RE`
+gained a **"return `<it / that creature>` to (your | its owner's) hand"**
+verb alongside sacrifice/exile/destroy → `create_delayed_trigger` with a
+new `return_specific_to_hand` inner (`ReturnSpecificToHandEffect`, the
+same `.objects` bake-in via `capture="previous_or_self"` the sacrifice
+sibling uses). A loan bounced end of turn / at end of combat — broader
+than the tapped-and-attacking seam it was found on: +8 (Alora, Merry
+Thief; the "when ~ attacks or blocks, return it … at end of combat"
+Phantom Whelp / Windscouter / Quicksilver Behemoth / Wall of Junk cycle;
+The Locust God; Dragon Mask), 0 regressed. Ilharg and Zara stay blocked
+on their own other clauses.
 
 190 = PAR-30 "Tapped and attacking" — put-from-hand card filters.
 "with lesser power" (Shadowfax, Lord of Horses) →

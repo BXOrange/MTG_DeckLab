@@ -1848,7 +1848,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: creatures you control" (Kinscaer Sentry — `max_mana_value_selector`,
 #: folded into `criteria["max_mana_value"]` via `continuous.count_selector`
 #: at resolve). Fixed "with mana value N or less" also accepted. +2.
-PARSER_VERSION = "190"
+#: "191": PAR-30 "Tapped and attacking" trail — `_DELAYED_SAC_EXILE_TAIL_RE`
+#: gained a **"return `<it/that creature>` to (your|its owner's) hand"** verb
+#: alongside sacrifice/exile/destroy → `create_delayed_trigger` with a new
+#: `return_specific_to_hand` inner (`ReturnSpecificToHandEffect`, same
+#: `.objects` bake-in via `capture="previous_or_self"`). A loan bounced end
+#: of turn / at end of combat: Alora, Merry Thief; Ilharg; Zara; and the
+#: "when ~ attacks or blocks, return it … at end of combat" Phantom-Whelp
+#: cycle. +8.
+PARSER_VERSION = "191"
 
 
 def parser_source_hash() -> str:

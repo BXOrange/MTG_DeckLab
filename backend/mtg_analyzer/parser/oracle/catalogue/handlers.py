@@ -7631,8 +7631,14 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: sets the segmenter's `previous_subject` flag, so gating would miss the
 #: majority of the cluster.
 _DELAYED_SAC_EXILE_TAIL_RE = _c(
-    r"(?:then )?(?P<verb>sacrifice|exile|destroy) "
-    r"(?:it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way) "
+    r"(?:then )?(?:"
+    r"(?P<verb>sacrifice|exile|destroy) "
+    r"(?:it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way)"
+    # "Return that creature to its owner's hand" (Ilharg, Zara, Alora) — a
+    # loan bounced end of turn; the object is the same `previous_or_self`
+    # referent the sacrifice/exile forms use.
+    r"|(?P<verb_return>return) (?:it|that creature|that token|that permanent) to (?:your|its owner'?s) hand"
+    r") "
     # "at end of combat" (Kari Zev, Calamity, every "tapped and attacking"
     # token) fires at the `end_combat` step, "the/your next end step" at the
     # ordinary `end` step (RULE 603.7).
@@ -7642,11 +7648,13 @@ _DELAYED_TAIL_INNER = {
     "sacrifice": "sacrifice_specific",
     "exile": "exile_specific",
     "destroy": "destroy_specific",  # Old Hob, Alleycat Blues
+    "return": "return_specific_to_hand",  # Ilharg, Zara, Alora
 }
 
 
 def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
-    inner = _DELAYED_TAIL_INNER[m.group("verb").lower()]
+    verb = (m.groupdict().get("verb") or m.groupdict().get("verb_return") or "").lower()
+    inner = _DELAYED_TAIL_INNER[verb]
     step = "end_combat" if m.group("when").lower() == "at end of combat" else "end"
     return [EffectSpec("create_delayed_trigger", {
         "step": step,

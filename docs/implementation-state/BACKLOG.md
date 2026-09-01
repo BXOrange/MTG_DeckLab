@@ -110,27 +110,19 @@ Plan-level sequencing lives in
     parametric-keyword-grant static + the v156 `subtype_in_graveyard`
     condition; see `Done_Backend.md`.)
 
-  - **"Tapped and attacking" (RULE 508.4) residue — the primitive
-    (`RulesEngine.put_onto_battlefield_attacking`) + the `create_token`
-    (v177), `put_from_hand` (v178), `copy_permanent` / "the token enters
-    …" / look-top / "at end of combat" delayed-tail (v179) + the trailing
-    "that player / that opponent" defender ref on all four routes, plus
-    "~ attacks a player / an opponent" / "you attack a player" trigger
-    recognition (v185), the per-opponent distributive "for each opponent,
-    [you] create … [tapped and attacking that opponent]"
-    (`CreateTokenEffect.per_opponent`, v188), and a bare token-name
-    subject / a `populate` "before" on `_CREATED_ENTERS_ATTACKING_RE`
-    (Kari Zev, Ghired — `PopulateEffect.tapped/attacking`, v189), and
-    put-from-hand card filters "with lesser power" / "with mana value X or
-    less, where X is …" (Shadowfax, Kinscaer Sentry —
-    `PutFromHandOntoBattlefieldEffect.power_less_than_source` /
-    `max_mana_value_selector`, v190) all shipped.** Left: the multi-clause
-    Stangg / Living Laser bodies; the same mana-value/power-cap filter on
-    the `look_top` route (Winota's "it gains indestructible until end of
-    turn" interpose, The Joiner of Cats' else-branch); and, on the
-    defender-ref seam specifically, Kaalia of the Vast (`normalize` doesn't
-    fold the legendary short name "Kaalia" → `~`), Owlbear Cub / The Vast
-    Scrier (qualified triggers + multi-clause bodies).
+  - **"Tapped and attacking" (RULE 508.4) residue.** The primitive
+    (`put_onto_battlefield_attacking`), all four routes, the defender ref,
+    the "attacks a player" triggers, the per-opponent distributive, the
+    bare-name/`populate` `_CREATED_ENTERS_ATTACKING_RE` subjects, the
+    put-from-hand card filters and the delayed "return it to hand" tail all
+    shipped (v177–v191, see `Done_Backend.md`). Left: the multi-clause
+    Stangg / Living Laser bodies; the `look_top` route's mana-value/power
+    filter + a mid-clause "it gains indestructible until end of turn"
+    interpose (Winota) and an else-branch "if you don't put a card … this
+    way, `<X>`" (The Joiner of Cats, The Vast Scrier); Kaalia of the Vast
+    (`normalize` doesn't fold the legendary short name "Kaalia" → `~`);
+    Owlbear Cub (an "attacks a player who controls N+ lands" qualified
+    trigger).
 
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The
