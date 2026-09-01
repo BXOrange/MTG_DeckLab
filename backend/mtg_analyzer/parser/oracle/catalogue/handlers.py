@@ -1082,6 +1082,14 @@ _PUT_FROM_HAND_RE = _c(
     # consumed, not re-modeled.
     r"(?P<tapped_attacking> tapped and attacking)?(?P<atk_defender> that (?:player|opponent))?"
     r"(?P<xdef>, where x is the number of attacking creatures you control)?"
+    # The Vast Scrier's two trailing sentences: (1) a reminder that the
+    # placed creature's own "whenever ~ attacks" triggers fire — the engine
+    # already re-fires ATTACKS via `put_onto_battlefield_attacking`, so this
+    # is consumed as a no-op; (2) "if you don't put a card … this way,
+    # <body>." → `miss_effect_specs` (via `request_search`'s
+    # ``then_specs_if_none``).
+    r"(?:\. if it has any \"whenever ~ attacks\" triggers,? those trigger)?"
+    r"(?:\. if you don'?t put a card onto the battlefield this way, (?P<elsebody>.+?))?"
 )
 
 #: The main card types a "put a … card from your hand" clause can name; a
@@ -1143,6 +1151,14 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get("tapped_attacking"):
         params["tapped"] = True
         params["attacking"] = True
+    elsebody = (m.groupdict().get("elsebody") or "").strip().rstrip(".")
+    if elsebody:
+        from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+        else_specs = parse_effect_body(elsebody)
+        if else_specs is None:
+            return None  # else-branch didn't parse — fail closed
+        params["miss_effect_specs"] = [s.to_dict() for s in else_specs]
     return [EffectSpec("put_from_hand_onto_battlefield", params)]
 
 

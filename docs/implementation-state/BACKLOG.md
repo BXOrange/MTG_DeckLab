@@ -112,9 +112,9 @@ Plan-level sequencing lives in
 
   - **`create a token that's a copy of …` body singletons** (the RULE
     508.4 "tapped and attacking" mechanic + every parser route into it is
-    **done**, v177–v195; The Joiner of Cats and Kaalia of the Vast closed
-    at v194/v195 — see `Done_Backend.md`. These cards' T&A clause parses,
-    their *other* clauses don't):
+    **done**, v177–v196; Kaalia of the Vast / The Joiner of Cats / The Vast
+    Scrier closed at v194–v196 — see `Done_Backend.md`. These cards' T&A
+    clause parses, their *other* clauses don't):
     - **Stangg, Echo Warrior** — named token + "for each Aura/Equipment
       attached to X, create a copy attached to Y" + delayed sac-all.
     - **Living Laser** — "for each card you've discarded this turn, create
@@ -124,9 +124,6 @@ Plan-level sequencing lives in
       graveyard at random, then create a tapped token that's a copy of
       that card. if the exiled card is a land card, repeat this process."
       (random-graveyard-exile → `referent="previous"` copy → loop).
-    - **The Vast Scrier** — "if it has any 'whenever ~ attacks' triggers,
-      those trigger" reflexive clause + a `scry 2` else-branch on the
-      put-from-hand route.
 
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The

@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.2% covered — 13,305 / 34,811 — as of 2026-09-01, PARSER_VERSION 195.**
+**38.2% covered — 13,306 / 34,811 — as of 2026-09-01, PARSER_VERSION 196.**
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -681,6 +681,18 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+196 = PAR-30 "create a token that's a copy of `<named card>`" body
+singletons — **The Vast Scrier**. `request_search` /
+`PutFromHandOntoBattlefieldEffect` gain `then_specs_if_none`: "if you
+don't put a card onto the battlefield this way, `<body>`." (`scry 2`)
+runs `<body>` when the from-hand pick places nothing — declined in
+`resolve_search_choice`, or nothing eligible in `request_search` (both
+paths carry the serialized specs + a `then_source_id` on the search
+`pending_choice`). `_PUT_FROM_HAND_RE` also consumes the reminder
+sentence "if it has any 'whenever ~ attacks' triggers, those trigger"
+as a no-op — `put_onto_battlefield_attacking` already re-fires ATTACKS
+for the placed creature. +1.
 
 195 = PAR-30 "create a token that's a copy of `<named card>`" body
 singletons — **The Joiner of Cats**. New `create_token_copy_of_named` spec

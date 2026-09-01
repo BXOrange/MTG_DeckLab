@@ -1889,7 +1889,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: RE` "if you don't put a card onto the battlefield this way, `<body>`."
 #: else-branch, run in `resolve_impulsive_look_choice` /
 #: `request_impulsive_look` when nothing is placed. +1.
-PARSER_VERSION = "195"
+#: "196": PAR-30 "copy of a named card" body singletons — **The Vast
+#: Scrier**. `request_search` / `PutFromHandOntoBattlefieldEffect` gain
+#: `then_specs_if_none` — "if you don't put a card onto the battlefield
+#: this way, `<body>`." (here `scry 2`) runs `<body>` when the from-hand
+#: pick places nothing (declined in `resolve_search_choice`, or nothing
+#: eligible in `request_search`). `_PUT_FROM_HAND_RE` also consumes the
+#: reminder "if it has any 'whenever ~ attacks' triggers, those trigger"
+#: (a no-op — `put_onto_battlefield_attacking` re-fires ATTACKS already).
+#: +1.
+PARSER_VERSION = "196"
 
 
 def parser_source_hash() -> str:

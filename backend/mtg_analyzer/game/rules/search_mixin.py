@@ -737,6 +737,8 @@ class SearchMixin:
         total_mana_value_budget: Optional[int] = None,
         chooser: Optional[Player] = None,
         share_land_type: bool = False,
+        then_specs_if_none: Optional[list[dict]] = None,
+        source: Optional[GameObject] = None,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -854,6 +856,9 @@ class SearchMixin:
         if not eligible or count <= 0:
             if "library" in zones and not exile_rest:
                 self.shuffle_library(player)
+            # "…if you don't put a card … this way, <body>." (The Vast
+            # Scrier) — nothing eligible counts as "didn't".
+            self._apply_effect_specs(list(then_specs_if_none or []), source)
             return
         self.state.pending_choice = self._search_choice(
             player, criteria, destination, count, optional, found=[],
@@ -864,6 +869,8 @@ class SearchMixin:
             total_mana_value_budget=total_mana_value_budget,
             chooser=chooser,
             share_land_type=share_land_type,
+            then_specs_if_none=then_specs_if_none,
+            then_source_id=getattr(source, "instance_id", None),
         )
 
     def request_intuition(
@@ -1131,6 +1138,8 @@ class SearchMixin:
                 spent_mana_value=spent_mana_value,
                 chooser=self.state.player_by_id(chooser_id),
                 share_land_type=share_land_type,
+                then_specs_if_none=choice.get("then_specs_if_none"),
+                then_source_id=choice.get("then_source_id"),
             )
             return
 
@@ -1146,6 +1155,13 @@ class SearchMixin:
             remember_source_id=choice.get("remember_source_id"),
             chooser_id=chooser_id,
         )
+        # "…if you don't put a card … this way, <body>." (The Vast Scrier) —
+        # the search finished and nothing was picked.
+        if not found and choice.get("then_specs_if_none"):
+            self._apply_effect_specs(
+                list(choice["then_specs_if_none"]),
+                self._object_by_instance_id(choice.get("then_source_id")),
+            )
     def _search_choice(
         self,
         player: Player,
@@ -1165,6 +1181,8 @@ class SearchMixin:
         spent_mana_value: int = 0,
         chooser: Optional[Player] = None,
         share_land_type: bool = False,
+        then_specs_if_none: Optional[list[dict]] = None,
+        then_source_id: Optional[int] = None,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
         zones = list(zones) if zones else ["library"]
@@ -1227,6 +1245,10 @@ class SearchMixin:
             "remaining": count - len(found),
             "eligible": eligible,
             "options": options,
+            # "…if you don't put a card … this way, <body>." (The Vast
+            # Scrier) — run once the search finishes with nothing picked.
+            "then_specs_if_none": [dict(d) for d in (then_specs_if_none or [])],
+            "then_source_id": then_source_id,
         }
     def _finish_search(
         self,

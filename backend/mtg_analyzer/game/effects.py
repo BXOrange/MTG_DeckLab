@@ -462,6 +462,8 @@ class GameContext:
         total_mana_value_budget: Optional[int] = None,
         chooser: Optional["Player"] = None,
         share_land_type: bool = False,
+        then_specs_if_none: Optional[list[dict]] = None,
+        source: Optional["GameObject"] = None,
     ) -> None:
         self.engine.request_search(
             player, criteria, destination, count, optional,
@@ -472,6 +474,8 @@ class GameContext:
             total_mana_value_budget=total_mana_value_budget,
             chooser=chooser,
             share_land_type=share_land_type,
+            then_specs_if_none=then_specs_if_none,
+            source=source,
         )
 
     def request_intuition(
@@ -16286,12 +16290,18 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         attacking: bool = False,
         max_mana_value_selector: Optional[str] = None,
         power_less_than_source: bool = False,
+        miss_effect_specs: Optional[list[dict]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.criteria = criteria
         self.count = count
         self.tapped = tapped
+        #: "If you don't put a card onto the battlefield this way, <body>."
+        #: (The Vast Scrier) — serialized `EffectSpec` dicts run when the
+        #: from-hand pick places nothing (declined / nothing eligible),
+        #: threaded through `request_search`'s ``then_specs_if_none``.
+        self.miss_effect_specs = list(miss_effect_specs or [])
         #: "…onto the battlefield tapped **and attacking**." (RULE 508.4 —
         #: Preeminent Captain, Kaalia of the Vast). Routes to the
         #: ``"battlefield_attacking"`` search destination, which enters the
@@ -16335,6 +16345,7 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
                 criteria["max_power"] = (src_power - 1) if src_power is not None else -1
         context.request_search(
             player, criteria, destination, self.count, optional=True, zones=["hand"],
+            then_specs_if_none=self.miss_effect_specs or None, source=self.source,
         )
 
 
@@ -19279,6 +19290,7 @@ EffectRegistry.register(
         attacking=bool(p.get("attacking", False)),
         max_mana_value_selector=p.get("max_mana_value_selector"),
         power_less_than_source=bool(p.get("power_less_than_source", False)),
+        miss_effect_specs=p.get("miss_effect_specs"),
     ),
 )
 EffectRegistry.register(
