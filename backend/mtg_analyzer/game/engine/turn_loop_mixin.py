@@ -875,6 +875,9 @@ class TurnLoopMixin:
         # RULE 615 (MEC-30): "Damage can't be prevented this turn." also
         # lapses here, the same window every other "this turn" flag clears.
         self.state.damage_prevention_disabled = False
+        # MEC-46 (RULE 701.38f): "You choose how each player votes this
+        # turn." (Illusion of Choice) lapses on the same RULE 514.2 window.
+        self.state.forced_vote_controller_id = None
         # RULE 702.94b (PAR-26): a Miracle card's "cast for the miracle
         # cost" window is torn down here (the simplification is that it
         # lasts the whole turn rather than only until priority is next
@@ -1207,6 +1210,12 @@ class TurnLoopMixin:
             # <B>." — the option id is the vote index; a decline/missing
             # answer defaults to option 0 (each player must vote).
             self.rules.resolve_vote_choice(None if declined else str(answer))
+        elif kind == "vote_object":
+            # MEC-46 / RULE 701.38: "each player votes for a nonland
+            # permanent you don't control" / "…a card in your graveyard" —
+            # the option id is the chosen object's instance id; a decline/
+            # missing answer defaults to the first candidate.
+            self.rules.resolve_object_vote_choice(None if declined else str(answer))
         elif kind == "villainous_choice":
             # RULE 701.55: "<player> faces a villainous choice — <A>, or
             # <B>." — the option id is "0"/"1"; a decline/missing answer

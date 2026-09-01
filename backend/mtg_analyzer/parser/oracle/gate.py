@@ -1685,7 +1685,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `_EXILE_TARGET_TWO_COLOR_RE`/handler (Celestial Purge). `DestroyEffect`
 #: / `ExileEffect` gained a `colors` param threaded into their
 #: `TargetSpec` (mirroring `DestroyEffect.color`'s single-letter form).
-PARSER_VERSION = "170"
+#: "171": PAR-30 — the colour-list target extended to bounce / put-on-
+#: library / graveyard-recursion: `ReturnToHandEffect` /
+#: `ReturnToLibraryEffect` / `ReturnFromGraveyardEffect` each gained a
+#: `colors` param → `TargetSpec.colors`; three dedicated
+#: `_RETURN_*_TWO_COLOR_RE` handlers (Escape Routes, Hunting Drake, Crypt
+#: Angel). Same `_two_color_letters` helper, same-colour-twice rejected.
+PARSER_VERSION = "171"
 
 
 def parser_source_hash() -> str:

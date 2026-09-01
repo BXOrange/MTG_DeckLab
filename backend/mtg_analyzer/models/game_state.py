@@ -557,6 +557,17 @@ class GameState:
         #: RULE 514.2 window every other "this turn" flag clears in.
         self.damage_prevention_disabled: bool = False
 
+        #: MEC-46 (RULE 701.38f): "You choose how each player votes this
+        #: turn." (Illusion of Choice) — the id of the player who answers
+        #: *every* seat's `vote` / `vote_object` choice for the rest of the
+        #: turn. `RulesEngine._advance_vote` / `_advance_object_vote`
+        #: redirect the `pending_choice`'s ``player_id`` to this id while it
+        #: is set (the real voter's name still rides in the prompt). Reset
+        #: at cleanup (`GameEngine._step_cleanup`), the same RULE 514.2
+        #: window every other "this turn" flag clears in. Plain data —
+        #: deep-copies with `clone`.
+        self.forced_vote_controller_id: Optional[str] = None
+
         #: Extra turns to take (RULE 500.7), as a FIFO of player ids —
         #: "take an extra turn after this one" (Final Fortune, the Time Warp
         #: family) appends here; `GameEngine.begin_turn` pops the front instead

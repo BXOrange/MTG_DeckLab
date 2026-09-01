@@ -258,6 +258,16 @@ class RulesEngine(
         #: `_pending_all_decline_or`. See `request_vote`/`_advance_vote`/
         #: `resolve_vote_choice`/`_tally_and_apply_vote`.
         self._pending_vote: Optional[dict[str, Any]] = None
+        #: MEC-46: backing state for a `request_object_vote` APNAP sweep
+        #: (RULE 701.38 — "each player votes for a nonland permanent you
+        #: don't control" / "…a card in your graveyard", then "exile /
+        #: return each `<object>` with the most votes or tied for most
+        #: votes"): the still-to-ask player ids, the candidate object ids,
+        #: a per-object-id tally, and the outcome verb. Chained one
+        #: `vote_object` choice at a time, the tally-over-objects sibling of
+        #: `_pending_vote`. See `request_object_vote`/`_advance_object_vote`/
+        #: `resolve_object_vote_choice`/`_tally_and_apply_object_vote`.
+        self._pending_object_vote: Optional[dict[str, Any]] = None
         #: Backing state for a `request_villainous_choice` APNAP sweep (RULE
         #: 701.55 — "`<player>` faces a villainous choice — `<A>`, or
         #: `<B>`."): the still-to-ask facing-player ids and the two

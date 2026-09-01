@@ -1134,6 +1134,10 @@ def legal_targets(
             and not (exclude_source and o is source)
             and _targetable_by(o, source)
             and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
+            # "return target `<c1>` or `<c2>` creature you control …" (Escape
+            # Routes) — the same `_color_ok` narrowing every other creature
+            # branch above applies; a no-op when ``colors``/``color`` unset.
+            and _color_ok(spec, o.colors)
         ]
     if kind == "creature_or_enchantment_you_control":
         # "put a +1/+1 counter on target creature or enchantment you

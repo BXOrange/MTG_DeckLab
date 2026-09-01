@@ -2545,6 +2545,58 @@ def _graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optiona
     return f"{scope_key}_{type_key}"
 
 
+#: Colour-list ("`<c1>` or `<c2>`") siblings of the bounce / put-on-library
+#: / graveyard-return handlers — `TargetSpec.colors`' OR narrowing, the
+#: `_pump_target_two_color` / `_destroy_color_adj` idiom. Dedicated rows
+#: because the shared `TARGET` macro carries no colour slot (see
+#: `subgrammars.COLOR_WORD_ALT`'s note). Escape Routes (bounce), Hunting
+#: Drake (library), Crypt Angel (graveyard).
+_RETURN_TO_HAND_TWO_COLOR_RE = _c(
+    rf"return target (?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) "
+    rf"creature(?P<yc> you control)? to its owner's hand"
+)
+_RETURN_TO_LIBRARY_TWO_COLOR_RE = _c(
+    rf"put target (?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) creature "
+    rf"on (?:top|the (?P<pos>bottom)) of its owner's library"
+)
+_RETURN_FROM_GRAVEYARD_TWO_COLOR_RE = _c(
+    rf"return target (?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) creature card from "
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
+    r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
+)
+
+
+def _return_to_hand_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    colors = _two_color_letters(m)
+    if colors is None:
+        return None
+    kind = "creature_you_control" if m.groupdict().get("yc") else "creature"
+    return [EffectSpec("return_to_hand", {"target_kind": kind, "colors": colors})]
+
+
+def _return_to_library_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    colors = _two_color_letters(m)
+    if colors is None:
+        return None
+    position = "bottom" if m.group("pos") == "bottom" else "top"
+    return [EffectSpec("return_to_library", {
+        "target_kind": "creature", "position": position, "colors": colors,
+    })]
+
+
+def _return_from_graveyard_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    colors = _two_color_letters(m)
+    if colors is None:
+        return None
+    kind = _graveyard_target_kind("creature", m.group("scope"))
+    if kind is None:
+        return None
+    destination = "battlefield" if m.group("dest") == "the battlefield" else "hand"
+    return [EffectSpec("return_from_graveyard", {
+        "target_kind": kind, "destination": destination, "colors": colors,
+    })]
+
+
 #: "return target [type] card [with mana value N or less] from [scope]
 #: graveyard to the battlefield/your hand/its owner's hand" / "put target
 #: [type] card from [scope] graveyard onto the battlefield under its
@@ -8317,12 +8369,27 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"return (?:{_SELF_SUBJECT}|this card) to its owner's hand"),
         _return_self_to_hand,
     ),
+    # "return target <c1> or <c2> creature[ you control] to its owner's
+    # hand" (Escape Routes) — colour-list bounce; tried before the plain
+    # `return_to_hand` row (its "<c> or <c>" prefix isn't a TARGET row).
+    EffectHandler(
+        "return_to_hand_two_color",
+        _RETURN_TO_HAND_TWO_COLOR_RE,
+        _return_to_hand_two_color,
+    ),
     # "return target creature to its owner's hand" / "return a land you
     # control to its owner's hand" (RULE 701.3 — the bounce family).
     EffectHandler(
         "return_to_hand",
         _c(rf"return {TARGET} to its owner's hand"),
         _return_to_hand,
+    ),
+    # "put target <c1> or <c2> creature on top of its owner's library"
+    # (Hunting Drake) — colour-list tempo bounce.
+    EffectHandler(
+        "return_to_library_two_color",
+        _RETURN_TO_LIBRARY_TWO_COLOR_RE,
+        _return_to_library_two_color,
     ),
     # "put target creature on top/the bottom of its owner's library" (RULE
     # 701.3 — Time Ebb/Griptide-shaped tempo bounce).
@@ -8353,6 +8420,14 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "return_previous_group", _RETURN_PREVIOUS_GROUP_RE, _return_previous_group,
         previous_subject_only=True,
+    ),
+    # "return target <c1> or <c2> creature card from [scope] graveyard to
+    # [dest]" (Crypt Angel) — colour-list graveyard recursion; tried
+    # before the plain row (its "<c> or <c>" prefix isn't a TARGET row).
+    EffectHandler(
+        "return_from_graveyard_two_color",
+        _RETURN_FROM_GRAVEYARD_TWO_COLOR_RE,
+        _return_from_graveyard_two_color,
     ),
     # "return target [type] card from [scope] graveyard to the
     # battlefield/your hand/its owner's hand" / "put target [type] card

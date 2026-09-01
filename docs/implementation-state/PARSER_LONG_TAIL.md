@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.7% covered — 13,109 / 34,811 — as of 2026-09-01, PARSER_VERSION 170.**
+**37.7% covered — 13,112 / 34,811 — as of 2026-09-01, PARSER_VERSION 171.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,20 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+171 = PAR-30 — the colour-list target extended to bounce / put-on-
+library / graveyard-recursion. `ReturnToHandEffect` /
+`ReturnToLibraryEffect` / `ReturnFromGraveyardEffect` each gained a
+`colors` param → `TargetSpec.colors`; three dedicated
+`_RETURN_*_TWO_COLOR_RE` handlers (Escape Routes, Hunting Drake, Crypt
+Angel). Also plugged a latent gap: the `creature_you_control` /
+`land_you_control` / `other_creature_you_control` branch of
+`legal_targets` never applied `_color_ok` — added, a no-op unless
+`colors`/`color` is set. +3, 0 regressed. Still open in the cluster:
+Combust (needs a per-instance "damage can't be prevented" flag), Snow
+Hound (compound "return ~ and target …"), Tidebinder Mage (the
+"doesn't untap …" tail), Surge of Righteousness ("that's attacking or
+blocking" + "you gain 2 life"), Offspring's Revenge's 3-colour list.
 
 170 = PAR-30 — the same colour-list target extended to removal:
 `_DESTROY_COLOR_ADJ_RE` widened to a "`<c1>` or `<c2>`" adjective + an

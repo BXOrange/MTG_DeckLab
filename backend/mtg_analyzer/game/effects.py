@@ -8642,9 +8642,14 @@ class ReturnToHandEffect(GameEffect):
         filter: Optional[dict[str, Any]] = None,
         spell_or_permanent: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
+        colors: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "return target `<c1>` or `<c2>` creature you control to its
+        #: owner's hand" (Escape Routes) — `TargetSpec.colors`' OR
+        #: narrowing, offer-time (`targeting._color_ok`).
+        self.colors = tuple(colors) if colors else None
         self.previous_subject = previous_subject
         self.spell_or_permanent = spell_or_permanent
         # RULE 601.2c mass "return all X [with condition]" (Displacement
@@ -8665,7 +8670,7 @@ class ReturnToHandEffect(GameEffect):
         self.target_spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
-                distinct_controllers=distinct_controllers,
+                distinct_controllers=distinct_controllers, colors=self.colors,
                 # "target **Human** you control" (Kogla, the Titan Ape,
                 # MEC-43) — the same `TargetSpec.creature_filter` narrowing
                 # `BlinkEffect`/`CounterUntapGrantKeywordEffect` already
@@ -8726,14 +8731,21 @@ class ReturnToLibraryEffect(GameEffect):
         position: str = "top",
         optional: bool = False,
         count: int = 1,
+        colors: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "put target `<c1>` or `<c2>` creature on top of its owner's
+        #: library" (Hunting Drake) — `TargetSpec.colors`' OR narrowing.
+        self.colors = tuple(colors) if colors else None
         self.position = position if position in ("top", "bottom") else "top"
         #: ``target_kind=None`` — "Put **this**/~ on top of its owner's
         #: library." (Sensei's Divining Top-shaped) — no RULE 115 target at
         #: all, mirroring `ExileEffect`/`TapEffect`'s own self mode.
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count) if target_kind else None
+        self.target_spec = (
+            TargetSpec(kind=target_kind, optional=optional, count=count, colors=self.colors)
+            if target_kind else None
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.target_spec is None:
@@ -8873,9 +8885,13 @@ class ReturnFromGraveyardEffect(GameEffect):
         trigger_subject_key: Optional[str] = None,
         players: Optional[str] = None,
         count_selector: Optional[str] = None,
+        colors: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "return target `<c1>` or `<c2>` creature card from your
+        #: graveyard …" (Crypt Angel) — `TargetSpec.colors`' OR narrowing.
+        self.colors = tuple(colors) if colors else None
         #: Living Death family — "[each player / you] return[s] all/each
         #: creature card from [their / your] graveyard to the battlefield /
         #: hand". A mass, untargeted return over every matching card in the
@@ -8937,6 +8953,7 @@ class ReturnFromGraveyardEffect(GameEffect):
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, subtype=subtype,
                 max_mana_value=max_mana_value, count_selector=count_selector,
+                colors=self.colors,
             )
             if not self._self_enchant_mode and not self.trigger_subject_key else None
         )
@@ -11033,12 +11050,24 @@ class TakeExtraTurnEffect(GameEffect):
     """Take an extra turn after this one (RULE 500.7) — Final Fortune, the
     Time Warp family. Queues the effect's controller onto
     `GameState.extra_turns`; `GameEngine.begin_turn` takes it right after the
-    current turn."""
+    current turn.
+
+    ``count`` > 1 (MEC-46 — Expropriate's "for each time vote, take an
+    extra turn after this one") queues that many, all for the same player:
+    RULE 500.7 stacks them so they are taken back to back. The vote's own
+    per-vote scaling (`_tally_and_apply_vote`) multiplies this ``count`` by
+    the number of "time" votes.
+    """
+
+    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = max(0, int(count))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is not None:
-            context.take_extra_turn(player)
+            for _ in range(self.count):
+                context.take_extra_turn(player)
 
 
 class ExtraCombatPhaseEffect(GameEffect):
@@ -18325,6 +18354,7 @@ EffectRegistry.register(
         filter=p.get("filter"),
         spell_or_permanent=bool(p.get("spell_or_permanent", False)),
         creature_filter=p.get("creature_filter"),
+        colors=p.get("colors"),
     ),
 )
 EffectRegistry.register(
@@ -18335,6 +18365,7 @@ EffectRegistry.register(
         position=p.get("position", "top"),
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
+        colors=p.get("colors"),
     ),
 )
 EffectRegistry.register(
@@ -18377,6 +18408,7 @@ EffectRegistry.register(
         trigger_subject_key=p.get("trigger_subject_key"),
         players=p.get("players"),
         count_selector=p.get("count_selector"),
+        colors=p.get("colors"),
     ),
 )
 EffectRegistry.register(
@@ -18833,7 +18865,10 @@ EffectRegistry.register(
         tapped=bool(p.get("tapped", False)),
     ),
 )
-EffectRegistry.register("take_extra_turn", lambda p: TakeExtraTurnEffect())
+EffectRegistry.register(
+    "take_extra_turn",
+    lambda p: TakeExtraTurnEffect(count=int(p.get("count", 1) or 1)),
+)
 EffectRegistry.register(
     "extra_combat_phase",
     lambda p: ExtraCombatPhaseEffect(main_phase_too=bool(p.get("main_phase_too", False))),
