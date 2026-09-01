@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.2% covered — 13,309 / 34,811 — as of 2026-09-01, PARSER_VERSION 198.**
+**38.3% covered — 13,329 / 34,811 — as of 2026-09-01, PARSER_VERSION 202.**
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -681,6 +681,52 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+202 = PAR-30 (Threaten / O-Ring residue, closed) — the *old two-sentence*
+Oblivion Ring templating: `_return_exiled_card` claims a standalone
+"return the exiled card[s] to the battlefield under its/their owner's
+control." LTB line (→ `return_linked_exile`), `_exile` gains an "exile
+**another** target `<X>`" ETB row, and `gate.parse_oracle` stamps
+`remember=True` onto every plain `exile` effect on any card that also
+carries a `return_linked_exile` (so `linked_exile_id` is populated).
++10 — Oblivion Ring itself, Journey to Nowhere, Faceless Butcher, Fiend
+Hunter, Petravark, Petradon, Slithery Stalker, The Princess Takes Flight,
+Eldrazi Displacer, Driftgloom Coyote (its "if that creature had power N
+or less, put a +1/+1 counter on ~" after-tail via the new
+`previous_target_power_at_most` `ConditionalEffect` key).
+
+201 = PAR-30 (Threaten residue) — the two card-specific conditional
+after-tails on a threaten clause: "if that creature is a `<subtype>`, it
+also gets +N/+M until end of turn" (Goatnap) and "if it's equipped, you
+may destroy all Equipment attached to that creature" (Awaken the
+Sleeper), each a `ConditionalEffect` on new `previous_target_*` keys
+(`_has_subtype` / `_is_equipped`) reading `GameContext.previous_targets`;
+the destroy runs over a new `equipment_attached_to_previous` mass
+selector (the "you may" isn't an interactive choice — documented
+simplification). +2 (+ Kaseto Orochi Archmage bycatch).
+
+200 = PAR-30 (Threaten residue) — leading "until end of turn, it …"
+rich restatements: "it gains haste and '`<quoted ability>`'" (Furnace
+Reins — `grant_until(previous_subject=True)` over
+`_quoted_ability_grant_effects`), "it becomes a `<subtype>` in addition
+to its other types and gains haste" (Loki's Scepter — `type_change`
+add-subtype), "it has base power and toughness N/N and gains `<kws>`"
+(`pt_set` + residual `pump`); `_DAMAGE_TRIGGER_RE` also accepts "…to a
+player or battle" (RULE 310). Plus the opponent-scoped mass threaten
+(`_GAIN_CONTROL_MASS_EOT_RE`): `selector="opponents_artifacts"`
+(Broadcast Takeover — the mass path now passes `source` to
+`_mass_selector_objects`) or `GainControlUntilEndOfTurnEffect.
+mass_of_target_player` (one RULE 115 opponent target, then all their
+creatures/artifacts). +5 (incl. Beamtown Beatstick / Archpriest of
+Shadows bycatch).
+
+199 = PAR-30 (Threaten residue) — `_GAIN_CONTROL_HASTE_TAIL_RE`'s
+restatement tail now recurses whatever the "it/they gains … haste …
+until end of turn" sentence says beyond bare haste through
+`parse_effect_body(previous_subject=True)`, so the shipped
+`pump(previous_subject=True)` claims "untap it. it gains trample and
+haste until end of turn" (Traitorous Blood) / "…haste and myriad…"
+(Firbolg Flutist) with no second RULE 115 target. +2.
 
 198 = PAR-30 "create a token that's a copy of `<named card>`" body
 singletons — **Sin, Spira's Punishment**. New self-contained

@@ -1943,7 +1943,19 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (`previous_target_has_subtype` / `_is_equipped` / `_power_at_most`)
 #: reading `GameContext.previous_targets`; the destroy runs over a new
 #: `equipment_attached_to_previous` mass selector. +2.
-PARSER_VERSION = "201"
+#: "202": PAR-30 threaten residue — the *old two-sentence* Oblivion Ring
+#: templating: `_return_exiled_card` claims a standalone "return the exiled
+#: card[s] to the battlefield under its/their owner's control." LTB line
+#: (→ `return_linked_exile`), `_exile` gains an "exile **another** target
+#: …" ETB row, and `gate.parse_oracle` stamps `remember=True` onto the
+#: companion exile (any card carrying a `return_linked_exile`) so
+#: `GameObject.linked_exile_id` is populated. Plus Driftgloom Coyote's
+#: "if that creature had power N or less, put a +1/+1 counter on ~."
+#: after-tail (`previous_target_power_at_most`). +10 (Oblivion Ring,
+#: Journey to Nowhere, Faceless Butcher, Fiend Hunter, Petravark, Petradon,
+#: Slithery Stalker, The Princess Takes Flight, Eldrazi Displacer,
+#: Driftgloom Coyote).
+PARSER_VERSION = "202"
 
 
 def parser_source_hash() -> str:
@@ -2653,6 +2665,30 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 continue
             _process_line(lines[i])
             i += 1
+
+    # PAR-30 "Threaten … tails residue" — old two-sentence O-Ring linkage.
+    # Modern templating ("exile X until ~ leaves the battlefield.") sets
+    # ``remember`` on the exile at parse time; the old cycle prints the
+    # return as its own separate "When ~ leaves the battlefield, return the
+    # exiled card…" line (`_return_exiled_card` → `return_linked_exile`).
+    # That effect reads `GameObject.linked_exile_id`, which only an
+    # ``ExileEffect(remember=True)`` populates — so, seeing both halves on
+    # one card, stamp ``remember`` onto the companion ETB exile here.
+    _has_return_linked = any(
+        e.type == "return_linked_exile"
+        for spec in effect_specs
+        for e in spec.effects
+    )
+    if _has_return_linked:
+        # The return half is only ever printed to pair with this card's own
+        # exile (ETB for O-Ring, a Saga chapter for The Princess Takes
+        # Flight, …), so stamp ``remember`` on every plain targeted exile it
+        # has — never a mass ``selector`` exile (a board wipe won't be the
+        # one linked card) and never one that already carries ``remember``.
+        for spec in effect_specs:
+            for e in spec.effects:
+                if e.type == "exile" and not e.params.get("selector"):
+                    e.params["remember"] = True
 
     return ParseResult(
         specs=list(keyword_specs) + effect_specs,

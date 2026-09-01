@@ -4631,6 +4631,42 @@ def _exile_until_leaves(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: PAR-30 "Threaten … tails residue" — the *old two-sentence* O-Ring
+#: templating's return half, printed as its own `LEAVES_BATTLEFIELD`
+#: trigger line rather than folded into an "exile … until ~ leaves" clause
+#: (Journey to Nowhere, Petravark, Slithery Stalker, Faceless Butcher &c.):
+#: "return the exiled card[s] to the battlefield under its/their owner's
+#: control." → `ReturnLinkedExileEffect`. `gate.parse_oracle`'s own
+#: cross-line pass stamps ``remember=True`` onto the companion ETB exile so
+#: `GameObject.linked_exile_id` is populated for this to read back.
+_RETURN_EXILED_CARD_RE = _c(
+    r"return the exiled cards? to the battlefield under "
+    r"(?:its owner'?s|their owners'?) control"
+)
+
+
+def _return_exiled_card(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("return_linked_exile", {})]
+
+
+#: PAR-30 "Threaten … tails residue" — Driftgloom Coyote's own O-Ring
+#: after-tail: "if that creature had power N or less, put a +1/+1 counter
+#: on ~." — the exiled creature (`GameContext.previous_targets`, read at a
+#: documented simplification: its last-known power, the object is off the
+#: battlefield by now) gates a self-counter (`ConditionalEffect`'s
+#: `previous_target_power_at_most`).
+_IF_PREV_POWER_SELF_COUNTER_RE = _c(
+    r"if (?:that creature|it) had power (?P<n>\d+) or less, "
+    r"put a (?P<ck>\+1/\+1|-1/-1|−1/−1) counter on ~"
+)
+
+
+def _if_prev_power_self_counter(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_counters", {
+        "count": 1, "kind": _counter_sign(m.group("ck")),
+    }, condition={"previous_target_power_at_most": int(m.group("n"))})]
+
+
 #: "return it/~ to the battlefield transformed under its owner's control"
 #: (RULE 400.7 + RULE 712.8, Bruce Banner-shaped) — the graveyard-sourced
 #: sibling of `_EXILE_RETURN_TRANSFORMED_RE` above: a dies trigger's own
@@ -8898,6 +8934,32 @@ HANDLERS: list[EffectHandler] = [
         "exile",
         _c(rf"exile {TARGET}"),
         _exile,
+    ),
+    # "exile another target creature/nonland permanent" (Faceless Butcher /
+    # old two-sentence O-Ring ETB) — RULE 601.2c's self-exclusion isn't
+    # separately enforced (documented simplification, the same one
+    # `_gain_control_eot`'s "another" accepts): an ETB body with no reason
+    # to grab its own source.
+    EffectHandler(
+        "exile_another_target",
+        _c(rf"exile another {TARGET}"),
+        _exile,
+    ),
+    # "return the exiled card[s] to the battlefield under its/their owner's
+    # control." — old two-sentence O-Ring's own LEAVES_BATTLEFIELD line
+    # (Journey to Nowhere, Petravark, Faceless Butcher …).
+    EffectHandler(
+        "return_exiled_card",
+        _RETURN_EXILED_CARD_RE,
+        _return_exiled_card,
+    ),
+    # Driftgloom Coyote: "if that creature had power N or less, put a +1/+1
+    # counter on ~." — an O-Ring exile clause's own conditional after-tail.
+    EffectHandler(
+        "if_prev_power_self_counter",
+        _IF_PREV_POWER_SELF_COUNTER_RE,
+        _if_prev_power_self_counter,
+        previous_subject_only=True,
     ),
     # "exile two target creatures" / "exile up to two target artifacts" /
     # "exile any number of target spells" (Mindbreak Trap — the one row
