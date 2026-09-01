@@ -1662,7 +1662,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: the Animist / Path of the Enigma (through `_vote_majority`'s body
 #: parse) + Plain Walker's standalone "planeswalk" body. Fullmatch-only:
 #: "planeswalk to <plane>" / "you may planeswalk" stay UNMODELED. +3.
-PARSER_VERSION = "167"
+#: "168": PAR-30 (reanimator-token residue) — "return [up to] X target
+#: `<type>` cards from [scope] graveyard to your hand / the battlefield"
+#: (Death Denied, Entreat the Dead, Shattered Crypt, Wake the Dead). The
+#: count is the spell's announced {X}, read at target-gathering time via
+#: `TargetSpec.count_selector="source_x_paid"` (the March of Swirling
+#: Mist / Change of Plans idiom); `ReturnFromGraveyardEffect` gained a
+#: `count_selector` param + a matching multi-target apply branch. New
+#: `_RETURN_FROM_GRAVEYARD_X_RE`/handler.
+PARSER_VERSION = "168"
 
 
 def parser_source_hash() -> str:

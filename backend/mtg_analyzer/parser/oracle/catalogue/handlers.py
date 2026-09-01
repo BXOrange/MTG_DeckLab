@@ -2574,6 +2574,32 @@ def _return_from_graveyard_multi_target(m: re.Match[str]) -> Optional[list[Effec
     return [EffectSpec("return_from_graveyard", params)]
 
 
+#: "return [up to] X target `<type>` cards from [scope] graveyard to your
+#: hand / the battlefield" (Death Denied, Entreat the Dead, Shattered
+#: Crypt, Wake the Dead, Champion of Stray Souls) — the target count is
+#: the spell/ability's own announced {X} (`GameObject.x_paid`), read at
+#: target-gathering time via `TargetSpec.count_selector="source_x_paid"`,
+#: the same idiom March of Swirling Mist's "up to X target creatures
+#: phase out" and Change of Plans already use. Always `optional`: RULE
+#: 601.2c lets an announced X be 0, and "up to X" is optional anyway.
+_RETURN_FROM_GRAVEYARD_X_RE = _c(
+    rf"return (?:up to )?x target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards from "
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyards? to "
+    r"(?P<dest>the battlefield|your hand)"
+)
+
+
+def _return_from_graveyard_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
+    if kind is None:
+        return None
+    destination = "battlefield" if m.group("dest") == "the battlefield" else "hand"
+    return [EffectSpec("return_from_graveyard", {
+        "target_kind": kind, "destination": destination,
+        "count_selector": "source_x_paid", "optional": True,
+    })]
+
+
 #: "put target [type] card from [scope] graveyard onto the battlefield
 #: under your control" (Reanimate/Rise from the Grave/Virtue of Persistence)
 #: — unlike the two shapes above, this one *steals* the card for the
@@ -8261,6 +8287,15 @@ HANDLERS: list[EffectHandler] = [
     # "return up to two target creature cards from your graveyard to your
     # hand"/"...to the battlefield" (RULE 115.1a generalized to N>=2) — the
     # plural sibling of `return_from_graveyard`.
+    # "return [up to] X target creature cards from your graveyard to your
+    # hand / the battlefield" — the count is the spell's announced {X}
+    # (`count_selector="source_x_paid"`). Tried before the numeric-N
+    # plural handler (its `\d+` count can't match the "x" token anyway).
+    EffectHandler(
+        "return_from_graveyard_x",
+        _RETURN_FROM_GRAVEYARD_X_RE,
+        _return_from_graveyard_x,
+    ),
     EffectHandler(
         "return_from_graveyard_multi_target",
         _RETURN_FROM_GRAVEYARD_MULTI_RE,

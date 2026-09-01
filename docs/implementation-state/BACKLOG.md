@@ -87,7 +87,11 @@ Plan-level sequencing lives in
   - **Face a Villainous Choice (RULE 701.55) + reanimator-token residue.**
     Each remaining reanimator-token cluster card blocks on its *own*
     filter/quantifier/tail gap: **Anikthea** "non-aura enchantment card"
-    filter; **Hour of Eternity** "exile X target creature cards";
+    filter; **Hour of Eternity / Midnight Ritual / Foggy Swamp Visions**
+    "exile X target creature cards … for each card exiled this way, `<per-
+    card body>`" (the `return_from_graveyard` X-count form landed v168 —
+    `count_selector="source_x_paid"`; the *exile* form still needs the
+    "for each … this way" `count_from_context` scaling on the follow-up);
     **Offspring's Revenge** "target red, white, or black creature card"
     colour filter *and* its "It gains haste until end of turn." after a
     create-token antecedent (the referent half shipped v146 — a

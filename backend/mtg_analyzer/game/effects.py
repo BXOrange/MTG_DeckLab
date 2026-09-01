@@ -8861,6 +8861,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         tapped: bool = False,
         trigger_subject_key: Optional[str] = None,
         players: Optional[str] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -8917,10 +8918,14 @@ class ReturnFromGraveyardEffect(GameEffect):
         # own spell already targeted when cast, stashed on `GameObject.
         # reanimate_target_id` since it can't attach the ordinary way.
         self._self_enchant_mode = target_kind == "self_enchant_target"
+        #: "return X target creature cards from your graveyard …" — the
+        #: count is the spell/ability's announced {X}, read at target-
+        #: gathering time (`targeting.resolved_count`, ``"source_x_paid"``).
+        self.count_selector = count_selector
         self.target_spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, subtype=subtype,
-                max_mana_value=max_mana_value,
+                max_mana_value=max_mana_value, count_selector=count_selector,
             )
             if not self._self_enchant_mode and not self.trigger_subject_key else None
         )
@@ -9014,9 +9019,17 @@ class ReturnFromGraveyardEffect(GameEffect):
                 return
             self._apply_one(context, target)
             return
-        if self.target_spec.effective_count != 1:
-            chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
-            for target in chosen:
+        if self.count_selector or self.target_spec.effective_count != 1:
+            # A ``count_selector`` spec's real count is resolved by the
+            # targeting layer at cast (`resolved_count`), so ``targets``
+            # already holds exactly the X picks it offered — take them all
+            # rather than the printed ``effective_count`` (still 1 here).
+            cap = (
+                len(targets or [])
+                if self.count_selector and targets is not None
+                else self.target_spec.effective_count
+            )
+            for target in _chosen_targets(targets, cap, self.target):
                 self._apply_one(context, target)
             return
         target = (targets[0] if targets else None) or self.target
@@ -18345,6 +18358,7 @@ EffectRegistry.register(
         tapped=bool(p.get("tapped", False)),
         trigger_subject_key=p.get("trigger_subject_key"),
         players=p.get("players"),
+        count_selector=p.get("count_selector"),
     ),
 )
 EffectRegistry.register(

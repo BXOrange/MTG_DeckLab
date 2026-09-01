@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.6% covered — 13,096 / 34,811 — as of 2026-09-01, PARSER_VERSION 167.**
+**37.6% covered — 13,099 / 34,811 — as of 2026-09-01, PARSER_VERSION 168.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,18 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+168 = PAR-30 (reanimator-token residue) — "return [up to] X target
+`<type>` cards from [scope] graveyard to your hand / the battlefield"
+(Death Denied, Entreat the Dead, Wildest Dreams; narrows Wake the Dead /
+Shattered Crypt / Champion of Stray Souls). The count is the spell's own
+announced {X}, read at target-gathering time via `TargetSpec.
+count_selector="source_x_paid"` — the March of Swirling Mist / Change of
+Plans idiom. `ReturnFromGraveyardEffect` gained a `count_selector` param
+threaded into its `TargetSpec` plus a multi-target apply branch that
+takes every pick the targeting layer offered (its printed
+`effective_count` stays 1). New `_RETURN_FROM_GRAVEYARD_X_RE` / handler,
+tried before the numeric-N plural handler. +3, 0 regressed.
 
 167 = PAR-30 (Vote residue) — "planeswalk" / "chaos ensues" outcome
 bodies. Two new no-param effect types (`effects.PlaneswalkEffect` /
