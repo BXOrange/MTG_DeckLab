@@ -387,38 +387,93 @@ _SELF_COST_REDUCTION_IF_RE = re.compile(
 #: target rather than on board state, so it emits ``reduce_if_targets`` (a
 #: criteria dict `continuous._obj_matches_target_criteria` checks) instead
 #: of ``active_if``. Only the recognised permanent qualifiers below.
-_TARGETS_CRITERIA_RE = re.compile(
-    r"it targets an? "
-    r"(?P<tapped>tapped )?"
-    r"(?P<combat>attacking |blocking )?"
-    r"(?P<color>white |blue |black |red |green )?"
-    r"(?P<head>creature|permanent|artifact|enchantment|land)$",
-    re.IGNORECASE,
-)
+_TARGET_CRIT_KEYWORDS = frozenset({
+    "flying", "trample", "first strike", "deathtouch", "lifelink", "vigilance",
+    "reach", "menace", "haste", "defender", "hexproof", "indestructible",
+})
+_TARGET_CRIT_HEADS = frozenset({"creature", "permanent", "artifact", "enchantment", "land", "spell"})
 _COLOR_WORD_TO_LETTER = {
     "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
 }
+_TARGETS_CRITERIA_RE = re.compile(
+    r"it targets an? (?P<body>[a-z' +/\-\d]+?)"
+    r"(?P<ctrl> you control| you don'?t control)?$",
+    re.IGNORECASE,
+)
 
 
 def _targets_reduction_criteria(cond: str) -> "dict | None":
     """"it targets a `<criteria>`" → a criteria dict, or ``None`` (fail-closed
-    for any shape not in the small recognised vocabulary — a spell target,
-    a mana-value cap, "a creature card", a subtype, "you don't control", …)."""
+    for any shape not in the recognised vocabulary — a spell target, a
+    mana-value cap, "a creature card", a counter clause, …).
+
+    ``body`` is parsed word by word: an optional ``tapped``/``attacking``/
+    ``blocking``/``legendary``, an optional colour, an optional subtype (or
+    ``X or Y`` pair), an optional head noun, an optional ``token``, an
+    optional ``with <keyword>`` — anything left over is unrecognised and the
+    whole thing fails closed."""
     m = _TARGETS_CRITERIA_RE.fullmatch(cond.strip())
     if m is None:
         return None
-    head = m.group("head").lower()
+    body = m.group("body").strip().lower()
     crit: dict = {}
-    if head != "permanent":
+    ctrl = (m.group("ctrl") or "").strip().lower()
+    if ctrl == "you control":
+        crit["controller"] = "you"
+    elif ctrl.startswith("you don"):
+        crit["controller"] = "not_you"
+
+    kw_m = re.search(r" with ([a-z ]+)$", body)
+    if kw_m:
+        kw = kw_m.group(1).strip()
+        if kw not in _TARGET_CRIT_KEYWORDS:
+            return None
+        crit["keyword"] = kw
+        body = body[: kw_m.start()].strip()
+
+    words = body.split()
+    if words and words[-1] == "token":
+        crit["is_token"] = True
+        words = words[:-1]
+
+    flags = {"tapped", "attacking", "blocking", "legendary"}
+    while words and words[0] in flags:
+        w = words.pop(0)
+        crit["tapped" if w == "tapped" else w] = True
+        if w == "legendary":
+            crit["legendary"] = True
+        elif w in ("attacking", "blocking"):
+            crit[w] = True
+
+    if words and words[0] in _COLOR_WORD_TO_LETTER:
+        crit["color"] = _COLOR_WORD_TO_LETTER[words.pop(0)]
+
+    head = None
+    if words and words[-1] in _TARGET_CRIT_HEADS:
+        head = words.pop()
+    if head == "spell" and words and words[-1] in _TARGET_CRIT_HEADS:
+        # "a creature spell" (Out of Air) — the word before "spell" is the
+        # real card-type constraint.
+        head = words.pop()
+    if head and head not in ("permanent", "spell"):
+        # "spell" (Mystical Dispute's "a blue spell") on its own adds no
+        # card-type constraint — a spell on the stack still resolves through
+        # `_obj_matches_target_criteria` off its underlying object's card.
         crit["card_type"] = head
-    if m.group("tapped"):
-        crit["tapped"] = True
-    combat = (m.group("combat") or "").strip().lower()
-    if combat in ("attacking", "blocking"):
-        crit[combat] = True
-    color = (m.group("color") or "").strip().lower()
-    if color:
-        crit["color"] = _COLOR_WORD_TO_LETTER[color]
+
+    # Whatever's left is the subtype ("spider", "mount or vehicle").
+    if words:
+        subs = " ".join(words)
+        parts = [p for p in subs.split(" or ") if p]
+        if any(not p.isalpha() for p in parts):
+            return None  # a stray "+1/+1 counter" etc. — fail closed
+        if len(parts) > 1:
+            crit["subtype_any"] = parts
+        else:
+            crit["subtype"] = parts[0]
+
+    # A discount gated on nothing (bare "a permanent") is a no-op; a lone
+    # ``controller`` scope is real (This Town Ain't Big Enough).
     return crit or None
 
 # "Each player can't cast more than N spell(s) each turn."  (RULE 601-area

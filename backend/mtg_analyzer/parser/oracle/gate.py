@@ -1777,7 +1777,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: thread `targets`; `combat.matches_object_filter` grew a `tapped` key.
 #: Recognised criteria: card type + tapped / attacking / blocking /
 #: colour. +15.
-PARSER_VERSION = "181"
+#: "182": PAR-30 — `reduce_if_targets` criteria widened. `_targets_
+#: reduction_criteria` now parses the phrase word-by-word: a bare subtype
+#: or "X or Y" pair ("a spider", "a mount or vehicle"), a "you control" /
+#: "you don't control" scope, "token", "with `<keyword>`", "legendary",
+#: and the "a `<x>` spell" stack-target forms. `continuous._obj_matches_
+#: target_criteria` grew `legendary` / `is_token` / `controller` handling
+#: (via a threaded `caster_id`). +10 — Grow Extra Arms, Mystical Dispute,
+#: Out of Air, Price of Fame, Run Over, Savage Stomp, Swampsnare Trap,
+#: This Town Ain't Big Enough, Hunter's Mark, Mascot Interception.
+PARSER_VERSION = "182"
 
 
 def parser_source_hash() -> str:

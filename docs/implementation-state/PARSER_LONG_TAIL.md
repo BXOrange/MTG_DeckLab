@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**37.9% covered — 13,191 / 34,811 — as of 2026-09-01, PARSER_VERSION 181.**
+**37.9% covered — 13,201 / 34,811 — as of 2026-09-01, PARSER_VERSION 182.**
 (109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
 701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
 +1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
@@ -659,6 +659,20 @@ control]" / "…all creatures other than ~" / "…except [for] ~" + an
 optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
 the "destroy all creatures other than ~" branch of Magister of Worth's
 vote body (card still blocked on its other branch).
+
+182 = PAR-30 — the `reduce_if_targets` criteria vocabulary widened.
+`_targets_reduction_criteria` now parses the phrase word by word: a bare
+subtype or "X or Y" pair ("a spider", "a mount or vehicle you control"), a
+"you control" / "you don't control" scope, "…token", "…with `<keyword>`",
+"legendary …", and the "a `<x>` spell" stack-target forms (Mystical
+Dispute, Out of Air). `continuous._obj_matches_target_criteria` grew
+`legendary` / `is_token` / `controller` handling (via a threaded
+`caster_id`), leaving the rest to `combat.matches_object_filter`. +10 —
+Grow Extra Arms, Mystical Dispute, Out of Air, Price of Fame, Run Over,
+Savage Stomp, Swampsnare Trap, This Town Ain't Big Enough, Hunter's Mark,
+Mascot Interception. 0 regressed. Still open: a mana-value cap
+(reanimation-spell targets — No One Left Behind, Revoke Demise) and a
+"…with a +1/+1 counter on it" clause (Titanic Brawl).
 
 181 = "This spell costs {N} less to cast **if it targets a `<criteria>`**."
 (RULE 601.2f — Ajani's Response, Knockout Blow, Depower, Fantastic Bounce,

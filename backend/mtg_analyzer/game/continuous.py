@@ -2812,7 +2812,10 @@ def cost_floor_for(state: "GameState", player: "Player", obj: Optional["GameObje
     return floor
 
 
-def _obj_matches_target_criteria(target: Any, criteria: dict[str, Any], state: "GameState") -> bool:
+def _obj_matches_target_criteria(
+    target: Any, criteria: dict[str, Any], state: "GameState",
+    caster_id: Optional[str] = None,
+) -> bool:
     """Whether a resolved spell target matches a `reduce_if_targets` criteria
     dict (RULE 601.2f "if it targets a `<criteria>`"). ``target`` may be a
     `GameObject` or an instance-id/descriptor; a player target never matches
@@ -2825,11 +2828,20 @@ def _obj_matches_target_criteria(target: Any, criteria: dict[str, Any], state: "
         obj = state.find_object(iid) if iid is not None else None
     if obj is None or not hasattr(obj, "card"):
         return False
-    card_type = criteria.get("card_type")
+    crit = dict(criteria)
+    card_type = crit.pop("card_type", None)
     if card_type and card_type.lower() not in obj.card.type_line.lower():
         return False
-    rest = {k: v for k, v in criteria.items() if k != "card_type"}
-    return combat.matches_object_filter(obj, rest) if rest else True
+    if crit.pop("legendary", False) and "legendary" not in obj.card.type_line.lower():
+        return False
+    if crit.pop("is_token", False) and not getattr(obj, "is_token", False):
+        return False
+    controller = crit.pop("controller", None)
+    if controller == "you" and getattr(obj, "controller_id", None) != caster_id:
+        return False
+    if controller == "not_you" and getattr(obj, "controller_id", None) == caster_id:
+        return False
+    return combat.matches_object_filter(obj, crit) if crit else True
 
 
 def self_cost_reduction_for(
@@ -2878,7 +2890,8 @@ def self_cost_reduction_for(
         reduce_if_targets = ability.params.get("reduce_if_targets")
         if reduce_if_targets and targets is not None:
             if not any(
-                _obj_matches_target_criteria(t, reduce_if_targets, state) for t in targets
+                _obj_matches_target_criteria(t, reduce_if_targets, state, caster_id)
+                for t in targets
             ):
                 continue
         except_same = ability.params.get("except_same_controller_as")

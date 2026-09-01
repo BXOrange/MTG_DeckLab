@@ -41,6 +41,59 @@ def test_targets_attacking_creature_parses():
     assert specs[0].params["reduce_if_targets"] == {"card_type": "creature", "attacking": True}
 
 
+def test_bare_subtype_parses():
+    specs = match_static_line("this spell costs {1} less to cast if it targets a spider")
+    assert specs[0].params["reduce_if_targets"] == {"subtype": "spider"}
+
+
+def test_subtype_pair_you_control_parses():
+    specs = match_static_line(
+        "this spell costs {1} less to cast if it targets a mount or vehicle you control"
+    )
+    assert specs[0].params["reduce_if_targets"] == {
+        "controller": "you", "subtype_any": ["mount", "vehicle"],
+    }
+
+
+def test_colour_permanent_you_dont_control_parses():
+    specs = match_static_line(
+        "this spell costs {3} less to cast if it targets a blue permanent you don't control"
+    )
+    assert specs[0].params["reduce_if_targets"] == {"color": "U", "controller": "not_you"}
+
+
+def test_legendary_token_keyword_parse():
+    assert match_static_line(
+        "this spell costs {2} less to cast if it targets a legendary creature"
+    )[0].params["reduce_if_targets"] == {"legendary": True, "card_type": "creature"}
+    assert match_static_line(
+        "this spell costs {3} less to cast if it targets a creature token"
+    )[0].params["reduce_if_targets"] == {"is_token": True, "card_type": "creature"}
+    assert match_static_line(
+        "this spell costs {1} less to cast if it targets a creature with flying"
+    )[0].params["reduce_if_targets"] == {"keyword": "flying", "card_type": "creature"}
+
+
+def test_spell_target_forms_parse():
+    assert match_static_line(
+        "this spell costs {2} less to cast if it targets a blue spell"
+    )[0].params["reduce_if_targets"] == {"color": "U"}
+    assert match_static_line(
+        "this spell costs {2} less to cast if it targets a creature spell"
+    )[0].params["reduce_if_targets"] == {"card_type": "creature"}
+
+
+def test_counter_and_mv_cap_still_fail_closed():
+    assert match_static_line(
+        "this spell costs {1} less to cast if it targets a creature you control "
+        "with a +1/+1 counter on it"
+    ) is None
+    assert match_static_line(
+        "this spell costs {3} less to cast if it targets a creature card with "
+        "mana value 3 or less"
+    ) is None
+
+
 def test_unrecognised_target_shape_falls_through_to_board_condition():
     # "a creature card with mana value 3 or less" isn't a permanent criteria
     # this vocabulary knows → the board-condition path takes over and (also
