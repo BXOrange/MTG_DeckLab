@@ -1992,7 +1992,26 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: and a new `equipment_attached_to_source` target kind + `_destroy_
 #: equipment_attached_to_it` handler cover the granted quoted trigger's
 #: "destroy target Equipment attached to it". +2.
-PARSER_VERSION = "204"
+#: "205": PAR-30 (Incubate residue — closed) — the plain "incubate N" cards
+#: blocked on *unrelated* surrounding grammar. (a) `_counter` gains an
+#: optional reflexive "…unless its controller pays {N}. **If they do**,
+#: `<effect>`." tail (`CounterSpellEffect.on_pay_effect_specs`, threaded
+#: through `RulesEngine.counter_unless_pays` /
+#: `resolve_counter_unless_pays_choice`), and "battle" joins the counter-
+#: target spell-type list (`_SPELL_TYPE_WORD`, `targeting._spell_matches_
+#: filter`) — Assimilate Essence + bonus Don't Make a Sound. (b) new
+#: `_IF_PREV_CREATURE_CANT_BLOCK_RE` "if it's a creature, it can't block
+#: this turn" — a damage-rider tail gated on the "any target" clause's
+#: target being a creature (`CantBlockEffect.previous_subject` +
+#: `previous_target_is_creature` `ConditionalEffect` gate) — Searing Barb.
+#: (c) new `_CAST_SPELL_TARGETS_PERMANENT_TRIGGER_RE` "whenever you cast a
+#: spell that targets one or more permanents" (`SPELL_CAST`'s new
+#: ``targets_a_permanent`` flag + ``requires_spell_targets_permanent``
+#: predicate) — Tiller of Flesh. +4, 0 regressed. The three remaining
+#: singletons (Phyrexian Incubator's "that many times", Progenitor
+#: Exarch's "X times", Traumatic Revelation's "if you don't" else-branch)
+#: are hand-authored in `ability_catalogue/entries_016.py`, not parsed.
+PARSER_VERSION = "205"
 
 
 def parser_source_hash() -> str:

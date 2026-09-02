@@ -464,6 +464,7 @@ class GameContext:
         share_land_type: bool = False,
         then_specs_if_none: Optional[list[dict]] = None,
         source: Optional["GameObject"] = None,
+        track_exiled_with: bool = False,
     ) -> None:
         self.engine.request_search(
             player, criteria, destination, count, optional,
@@ -476,6 +477,7 @@ class GameContext:
             share_land_type=share_land_type,
             then_specs_if_none=then_specs_if_none,
             source=source,
+            track_exiled_with=track_exiled_with,
         )
 
     def request_intuition(
@@ -502,6 +504,7 @@ class GameContext:
         source: Optional["GameObject"] = None,
         then_specs: Optional[list[dict[str, Any]]] = None,
         then_specs_if_commander: Optional[list[dict[str, Any]]] = None,
+        else_specs: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         """Open the general "which of these objects?" choice — see
         `RulesEngine.request_choose_objects`."""
@@ -509,6 +512,7 @@ class GameContext:
             player, candidates, action, count=count, optional=optional,
             prompt=prompt, source=source, then_specs=then_specs,
             then_specs_if_commander=then_specs_if_commander,
+            else_specs=else_specs,
         )
 
     def impulsive_look(
@@ -560,9 +564,11 @@ class GameContext:
         unless_pays: Optional[str] = None,
         source: Optional["GameObject"] = None,
         suspend_instead: Optional[int] = None,
+        on_pay_effect_specs: Optional[list[dict]] = None,
     ) -> None:
         self.engine.counter_unless_pays(
-            target, unless_pays, source, suspend_time_counters=suspend_instead
+            target, unless_pays, source, suspend_time_counters=suspend_instead,
+            on_pay_effect_specs=on_pay_effect_specs,
         )
 
     def counter_ability(self, target: Any) -> None:
@@ -2681,9 +2687,23 @@ class ConditionalEffect(GameEffect):
         prev_subtype = self.condition.get("previous_target_has_subtype")
         prev_power_at_most = self.condition.get("previous_target_power_at_most")
         prev_equipped = self.condition.get("previous_target_is_equipped")
-        if prev_subtype is not None or prev_power_at_most is not None or prev_equipped is not None:
+        # "~ deals N damage to any target. **If it's a creature**, it can't
+        # block this turn." (Searing Barb) — the damage clause's "any
+        # target" can resolve onto a player/planeswalker/battle, so the
+        # can't-block rider only applies when the previous target actually
+        # is a creature. Same `GameContext.previous_targets` referent as
+        # the threaten tails above.
+        prev_is_creature = self.condition.get("previous_target_is_creature")
+        if (
+            prev_subtype is not None or prev_power_at_most is not None
+            or prev_equipped is not None or prev_is_creature is not None
+        ):
             prev = context.previous_targets[0] if context.previous_targets else None
             if prev is None or not hasattr(prev, "instance_id"):
+                return False
+            if prev_is_creature is not None and bool(getattr(prev, "is_creature", False)) != bool(
+                prev_is_creature
+            ):
                 return False
             if prev_subtype is not None:
                 from . import combat  # local: avoid the combat<->effects cycle
@@ -3768,6 +3788,8 @@ class RevealHandChooseDiscardEffect(GameEffect):
         exclude_creature: bool = False,
         card_types: Optional[list[str]] = None,
         max_mana_value: Optional[int] = None,
+        optional: bool = False,
+        else_specs: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.target_spec = TargetSpec(kind=target_kind)
@@ -3776,6 +3798,12 @@ class RevealHandChooseDiscardEffect(GameEffect):
         self.exclude_creature = exclude_creature
         self.card_types = card_types
         self.max_mana_value = max_mana_value
+        #: "You **may** choose a creature or battle card from it. … If you
+        #: don't, incubate 3." (Traumatic Revelation) — the chooser may
+        #: decline, and ``else_specs`` (serialized `EffectSpec` dicts) then
+        #: resolve instead of the discard.
+        self.optional = bool(optional)
+        self.else_specs = list(else_specs or [])
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
@@ -3794,6 +3822,8 @@ class RevealHandChooseDiscardEffect(GameEffect):
                 "instant": bool(card.is_instant),
                 "sorcery": bool(card.is_sorcery),
                 "enchantment": bool(card.is_enchantment),
+                # "a creature or battle card" (Traumatic Revelation).
+                "battle": bool(getattr(card, "is_battle", False)),
             }
             if not any(checks.get(t, False) for t in self.card_types):
                 return False
@@ -3810,7 +3840,11 @@ class RevealHandChooseDiscardEffect(GameEffect):
         if caster is None:
             return
         candidates = [obj for obj in revealed_player.hand if self._matches(obj)]
-        context.choose_objects(caster, candidates, "discard", count=1, source=self.source)
+        context.choose_objects(
+            caster, candidates, "discard", count=1, source=self.source,
+            optional=self.optional,
+            else_specs=self.else_specs or None,
+        )
 
 
 class PutHandCardsOnTopEffect(GameEffect):
@@ -5649,10 +5683,19 @@ class CounterSpellEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_from_trigger_event: Optional[str] = None,
         suspend_instead: Optional[int] = None,
+        on_pay_effect_specs: Optional[list[dict]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.unless_pays = unless_pays
+        #: "…unless its controller pays {4}. **If they do**, you incubate 2."
+        #: (Assimilate Essence) — serialized `EffectSpec` dicts applied only
+        #: on the branch where the target's controller *pays* the
+        #: ``unless_pays`` cost (so the spell resolves). Threaded through
+        #: `RulesEngine.counter_unless_pays` and fired from
+        #: `resolve_counter_unless_pays_choice`'s "pay" answer; inert on the
+        #: countered / can't-pay branches (they didn't pay).
+        self.on_pay_effect_specs = list(on_pay_effect_specs or [])
         #: "…if no mana was spent to cast it, counter that spell." (Vexing
         #: Bauble) — "that spell" is the firing SPELL_CAST event's own
         #: object, not a RULE 115 target — the same "resolve off the firing
@@ -5680,6 +5723,7 @@ class CounterSpellEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        on_pay = self.on_pay_effect_specs or None
         if self.target_from_trigger_event:
             event = context.trigger_event or {}
             instance_id = event.get(self.target_from_trigger_event)
@@ -5687,14 +5731,14 @@ class CounterSpellEffect(GameEffect):
             if target is not None:
                 context.counter(
                     target, unless_pays=self.unless_pays, source=self.source,
-                    suspend_instead=self.suspend_instead,
+                    suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
                 )
             return
         target = (targets[0] if targets else None) or self.target
         if target is not None:
             context.counter(
                 target, unless_pays=self.unless_pays, source=self.source,
-                suspend_instead=self.suspend_instead,
+                suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
             )
 
 
@@ -11781,16 +11825,29 @@ class CantBlockEffect(GameEffect):
         filter: Optional[dict[str, Any]] = None,
         count: int = 1,
         optional: bool = False,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.selector = selector
         self.filter = dict(filter or {})
+        #: "…If it's a creature, **it** can't block this turn." (Searing
+        #: Barb) — no RULE 115 target of its own; acts on whatever the
+        #: previous clause targeted (`GameContext.previous_targets`), the
+        #: same idiom `PumpEffect.previous_subject` uses.
+        self.previous_subject = bool(previous_subject)
         self.target_spec = (
-            None if selector else TargetSpec(kind=target_kind, count=count, optional=optional)
+            None
+            if (selector or previous_subject)
+            else TargetSpec(kind=target_kind, count=count, optional=optional)
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.previous_subject:
+            prev = context.previous_targets[0] if context.previous_targets else None
+            if prev is not None and getattr(prev, "is_creature", False):
+                prev.temp_cant_block = True
+            return
         if self.selector:
             from . import combat
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
@@ -15247,8 +15304,19 @@ class SearchLibraryEffect(GameEffect):
         total_mana_value_budget: Optional[int] = None,
         player_from_target: bool = False,
         share_land_type: bool = False,
+        track_exiled_with: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "…exile them, then incubate 2 **that many times**." (Phyrexian
+        #: Incubator) — with ``destination="exile"``, appends every card
+        #: this search exiles to the source's `GameObject.exiled_with_ids`,
+        #: so a later `create_token` with ``count_selector=
+        #: "exiled_with_count"`` in the same effect list can size itself off
+        #: the count *after* the search's RULE 608.2 pending-choice
+        #: suspension (the list lives on the permanent, not the resolution
+        #: `GameContext`). Same accumulator `ExileEffect.track_exiled_with`
+        #: and `request_choose_objects` already write.
+        self.track_exiled_with = bool(track_exiled_with)
         #: "...basic land cards **that share a land type**." (Myriad
         #: Landscape, MEC-43 round 3) — a cross-pick constraint on a
         #: multi-card search; see `RulesEngine.request_search`'s own
@@ -15378,6 +15446,8 @@ class SearchLibraryEffect(GameEffect):
             total_mana_value_budget=self.total_mana_value_budget,
             chooser=chooser,
             share_land_type=self.share_land_type,
+            source=self.source,
+            track_exiled_with=self.track_exiled_with,
         )
 
 
@@ -18121,6 +18191,8 @@ EffectRegistry.register(
         exclude_creature=bool(p.get("exclude_creature", False)),
         card_types=p.get("card_types"),
         max_mana_value=p.get("max_mana_value"),
+        optional=bool(p.get("optional", False)),
+        else_specs=p.get("else_specs"),
     ),
 )
 EffectRegistry.register(
@@ -18341,6 +18413,7 @@ EffectRegistry.register(
         color=p.get("color"),
         target_from_trigger_event=p.get("target_from_trigger_event"),
         suspend_instead=p.get("suspend_instead"),
+        on_pay_effect_specs=p.get("on_pay_effect_specs"),
     ),
 )
 EffectRegistry.register(
@@ -19807,6 +19880,7 @@ EffectRegistry.register(
         filter=dict(p.get("filter") or {}),
         count=int(p.get("count", 1)),
         optional=bool(p.get("optional", False)),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -20160,6 +20234,7 @@ EffectRegistry.register(
         total_mana_value_budget=p.get("total_mana_value_budget"),
         player_from_target=bool(p.get("player_from_target", False)),
         share_land_type=bool(p.get("share_land_type", False)),
+        track_exiled_with=bool(p.get("track_exiled_with", False)),
     ),
 )
 EffectRegistry.register(

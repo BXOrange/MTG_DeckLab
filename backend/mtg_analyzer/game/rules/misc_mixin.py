@@ -2739,6 +2739,7 @@ class MiscSystemsMixin:
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
         connive: bool = False,
+        else_specs: Optional[list[dict]] = None,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -2803,6 +2804,14 @@ class MiscSystemsMixin:
         "recipient_is_player", "amount"}``, resolved into a `RulesEngine.
         redirect_damage_from_source` call instead.
 
+        ``else_specs`` are ``then_specs``' mirror: serialized `EffectSpec`
+        dicts applied only when the choice ends with **nothing** picked —
+        the "**If you don't**, incubate 3." half of Traumatic Revelation's
+        "you may choose a creature or battle card … If you don't, …". Also
+        fires when the candidate pool is empty to begin with (no legal card
+        to choose ⇒ "you didn't"). Carried as data on the choice so it
+        survives the `clone()` undo takes.
+
         ``connive=True`` (RULE 701.47, MEC-43 — Ledger Shredder's "this
         creature connives") marks an ``action="discard"`` pick for the
         conditional half connive's own template needs: "if a **nonland**
@@ -2817,6 +2826,11 @@ class MiscSystemsMixin:
             raise ValueError(f"unknown choose-objects action {action!r}")
         pool = [obj for obj in candidates if obj is not None]
         if not pool or count <= 0:
+            # Nothing to choose ⇒ "you didn't choose" — run the else branch
+            # (Traumatic Revelation's "If you don't, incubate 3." when the
+            # revealed hand holds no creature or battle card).
+            if not pool and count > 0 and else_specs:
+                self._apply_effect_specs(list(else_specs), source)
             return
         if len(pool) <= count and not optional:
             # Forced: every candidate is taken anyway, so asking would be
@@ -2840,7 +2854,7 @@ class MiscSystemsMixin:
             then_specs_if_commander=then_specs_if_commander, remember=remember,
             track_exiled_with=track_exiled_with,
             prevent_shield=prevent_shield, redirect_shield=redirect_shield,
-            connive=connive,
+            connive=connive, else_specs=else_specs,
         )
     def _apply_choose_objects_tail(
         self,
@@ -2870,6 +2884,7 @@ class MiscSystemsMixin:
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
         connive: bool = False,
+        else_specs: Optional[list[dict]] = None,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -2894,6 +2909,10 @@ class MiscSystemsMixin:
             "prompt_base": label,
             "options": options,
             "then_specs": [dict(spec) for spec in (then_specs or [])],
+            # Traumatic Revelation's "If you don't, incubate 3." — applied
+            # only when the choice ends with nothing picked (`then_specs`'
+            # mirror).
+            "else_specs": [dict(spec) for spec in (else_specs or [])],
             # MEC-30: the shield `_apply_chosen_object` opens once a source
             # is picked (``action="remember_source"`` only) — see
             # `request_choose_objects`'s own docstring.
@@ -2965,6 +2984,11 @@ class MiscSystemsMixin:
                     source, choice.get("then_specs"),
                     choice.get("then_specs_if_commander"), commander_taken,
                 )
+            elif choice.get("else_specs"):
+                # "If you don't, incubate 3." (Traumatic Revelation) — the
+                # declined-optional-choice branch `then_specs` deliberately
+                # skips.
+                self._apply_effect_specs(list(choice["else_specs"]), source)
             return
         next_choice = self._choose_objects_choice(
             player, remaining_pool, choice["action"], choice["count"],
@@ -3755,6 +3779,7 @@ class MiscSystemsMixin:
         unless_pays: Optional[str],
         source: Optional[GameObject] = None,
         suspend_time_counters: Optional[int] = None,
+        on_pay_effect_specs: Optional[list[dict]] = None,
     ) -> None:
         """`CounterSpellEffect`'s resolve-time logic (RULE 118/601/701.5).
 
@@ -3775,6 +3800,13 @@ class MiscSystemsMixin:
         the same convention `_pending_counter_target`/`_pending_counter_cost`
         already use) — no real card combines "unless pays" with Delay's own
         redirect today, but nothing here assumes they're mutually exclusive.
+
+        ``on_pay_effect_specs`` (Assimilate Essence — "…unless its
+        controller pays {4}. If they do, you incubate 2.") are serialized
+        `EffectSpec` dicts applied *only* on the branch where the target's
+        controller pays, from `resolve_counter_unless_pays_choice` — stashed
+        alongside the other `_pending_counter_*` fields. Inert on every
+        branch that ends in a `counter_spell` (they didn't pay).
         """
         item = self._stack_item_for(target)
         if item is None or item.obj is None:
@@ -3797,6 +3829,8 @@ class MiscSystemsMixin:
         self._pending_counter_target = target
         self._pending_counter_cost = cost
         self._pending_counter_suspend = suspend_time_counters
+        self._pending_counter_on_pay_specs = list(on_pay_effect_specs or [])
+        self._pending_counter_on_pay_source = source
         self.state.pending_choice = {
             "kind": "counter_unless_pays",
             "player_id": controller.id,
@@ -3810,8 +3844,10 @@ class MiscSystemsMixin:
         """Answer a pending `counter_unless_pays` choice (RULE 601).
 
         ``answer == "pay"`` deducts the cost from the target spell's
-        controller and leaves it on the stack; anything else (``None``/
-        ``"decline"``) counters it.
+        controller and leaves it on the stack, then applies any
+        ``on_pay_effect_specs`` stashed for this choice (Assimilate
+        Essence's "If they do, you incubate 2."); anything else (``None``/
+        ``"decline"``) counters it and the on-pay effects never fire.
         """
         choice = self.state.pending_choice
         if not choice or choice.get("kind") != "counter_unless_pays":
@@ -3820,9 +3856,13 @@ class MiscSystemsMixin:
         target = self._pending_counter_target
         cost = self._pending_counter_cost
         suspend_time_counters = getattr(self, "_pending_counter_suspend", None)
+        on_pay_specs = list(getattr(self, "_pending_counter_on_pay_specs", None) or [])
+        on_pay_source = getattr(self, "_pending_counter_on_pay_source", None)
         self._pending_counter_target = None
         self._pending_counter_cost = None
         self._pending_counter_suspend = None
+        self._pending_counter_on_pay_specs = []
+        self._pending_counter_on_pay_source = None
         if target is None:
             return
         if answer == "pay" and cost is not None:
@@ -3832,6 +3872,8 @@ class MiscSystemsMixin:
                 if controller is not None:
                     life_spent = controller.mana_pool.pay(cost, life_available=controller.life)
                     self.lose_life(controller, life_spent, cause="cost")
+            if on_pay_specs:
+                self._apply_effect_specs(on_pay_specs, on_pay_source)
             return
         self.counter_spell(target, suspend_time_counters=suspend_time_counters)
     def _fire_becomes_target_events(self, item: StackItem) -> None:

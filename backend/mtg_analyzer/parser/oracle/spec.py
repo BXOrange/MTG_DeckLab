@@ -109,6 +109,18 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # `GameObject.additional_cost_paid` (see that field). A bool; ``False``
         # is the "unless … paid" negative.
         "additional_cost_paid",
+        # PAR-30 threaten/damage-rider after-tails, gated on the creature a
+        # *previous* clause in the same resolution chose
+        # (`GameContext.previous_targets`; `effects.ConditionalEffect.
+        # _condition_holds`): ``previous_target_has_subtype`` (Goatnap "if
+        # that creature is a Goat, …"), ``previous_target_is_equipped``
+        # (Awaken the Sleeper), ``previous_target_power_at_most``
+        # (Driftgloom Coyote), and ``previous_target_is_creature`` (Searing
+        # Barb "~ deals N damage to any target. If it's a creature, it
+        # can't block this turn." — the "any target" clause can land on a
+        # non-creature). All bool except ``*_at_most``/``*_has_subtype``.
+        "previous_target_has_subtype", "previous_target_is_equipped",
+        "previous_target_power_at_most", "previous_target_is_creature",
     }
 )
 

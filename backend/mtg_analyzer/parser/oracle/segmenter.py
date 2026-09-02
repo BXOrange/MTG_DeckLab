@@ -450,6 +450,20 @@ _CAST_SPELL_TRIGGER_PLAIN_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: "Whenever you cast a spell that targets one or more permanents,
+#: `<effect>`." (Tiller of Flesh) — a RULE 608.2b targeting filter on the
+#: cast trigger. Distinct from `_CAST_SPELL_TRIGGER_PLAIN_RE` above (that
+#: one needs a comma right after "a spell"; here " that targets …" sits
+#: between), so it must be tried first. `normalize` already folds
+#: "one" → "1"; both spellings are accepted for robustness. The engine
+#: side is `effect_binder`'s ``requires_spell_targets_permanent`` predicate
+#: reading `SPELL_CAST`'s new ``targets_a_permanent`` flag.
+_CAST_SPELL_TARGETS_PERMANENT_TRIGGER_RE = re.compile(
+    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell that targets "
+    r"(?:1|one) or more permanents,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
 #: RULE 601.2i: "When you cast this spell, `<effect>`." — a self-referential
 #: cast trigger, meant to fire *while its own spell is still on the stack*
 #: (it resolves above the spell). The engine side is done (MEC-43):
@@ -3286,6 +3300,27 @@ def segment_line(
                 "event": "SPELL_CAST",
                 "condition": {"subject": "group"},
                 "spell_no_mana_spent": True,
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_targets_perm = _CAST_SPELL_TARGETS_PERMANENT_TRIGGER_RE.match(raw)
+    if cast_spell_targets_perm is not None:
+        subj = cast_spell_targets_perm.group("subj").lower()
+        body, optional = _peel_optional(cast_spell_targets_perm.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": _cast_spell_trigger_condition(subj),
+                "requires_spell_targets_permanent": True,
             },
             optional=optional,
             raw_text=raw,

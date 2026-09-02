@@ -739,6 +739,7 @@ class SearchMixin:
         share_land_type: bool = False,
         then_specs_if_none: Optional[list[dict]] = None,
         source: Optional[GameObject] = None,
+        track_exiled_with: bool = False,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -871,6 +872,7 @@ class SearchMixin:
             share_land_type=share_land_type,
             then_specs_if_none=then_specs_if_none,
             then_source_id=getattr(source, "instance_id", None),
+            track_exiled_with=track_exiled_with,
         )
 
     def request_intuition(
@@ -1140,6 +1142,7 @@ class SearchMixin:
                 share_land_type=share_land_type,
                 then_specs_if_none=choice.get("then_specs_if_none"),
                 then_source_id=choice.get("then_source_id"),
+                track_exiled_with=choice.get("track_exiled_with", False),
             )
             return
 
@@ -1154,6 +1157,8 @@ class SearchMixin:
             attach_to_creature_you_control=choice.get("attach_to_creature_you_control", False),
             remember_source_id=choice.get("remember_source_id"),
             chooser_id=chooser_id,
+            track_exiled_with=choice.get("track_exiled_with", False),
+            track_source_id=choice.get("then_source_id"),
         )
         # "…if you don't put a card … this way, <body>." (The Vast Scrier) —
         # the search finished and nothing was picked.
@@ -1183,6 +1188,7 @@ class SearchMixin:
         share_land_type: bool = False,
         then_specs_if_none: Optional[list[dict]] = None,
         then_source_id: Optional[int] = None,
+        track_exiled_with: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
         zones = list(zones) if zones else ["library"]
@@ -1249,6 +1255,14 @@ class SearchMixin:
             # Scrier) — run once the search finishes with nothing picked.
             "then_specs_if_none": [dict(d) for d in (then_specs_if_none or [])],
             "then_source_id": then_source_id,
+            # "…exile them, then incubate 2 **that many times**." (Phyrexian
+            # Incubator) — every card sent to exile by this search is
+            # appended to the source's `GameObject.exiled_with_ids`, so a
+            # later `create_token` with ``count_selector="exiled_with_count"``
+            # in the same effect list can read the count back after the
+            # RULE 608.2 pending-choice suspension (the id list lives on the
+            # permanent, not the resolution's `GameContext`).
+            "track_exiled_with": bool(track_exiled_with),
         }
     def _finish_search(
         self,
@@ -1264,6 +1278,8 @@ class SearchMixin:
         attach_to_creature_you_control: bool = False,
         remember_source_id: Optional[int] = None,
         chooser_id: Optional[str] = None,
+        track_exiled_with: bool = False,
+        track_source_id: Optional[int] = None,
     ) -> None:
         """Move every chosen card to its destination, then shuffle the
         library (RULE 701.19e) — unless ``exile_rest`` suppresses it
@@ -1378,6 +1394,17 @@ class SearchMixin:
                     self.attach_to_target(obj, host)
         if shuffle and not to_library:
             self.shuffle_library(player)
+
+        if track_exiled_with and track_source_id is not None:
+            # "…exile them, then incubate 2 **that many times**." (Phyrexian
+            # Incubator) — record every card this search sent to exile onto
+            # the source so a following `count_selector="exiled_with_count"`
+            # reads the count back across the RULE 608.2 suspension.
+            track_source = self.state.find_object(track_source_id)
+            if track_source is not None:
+                for obj, dest in zip(chosen, effective_destinations):
+                    if dest == "exile":
+                        track_source.exiled_with_ids.append(obj.instance_id)
 
         if exile_rest:
             # MEC-37 (Doomsday): when ``destination`` is itself one of the

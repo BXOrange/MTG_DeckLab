@@ -2330,6 +2330,21 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     cond_color = resolve_color_word(m.groupdict().get("cond_color"))
     if cond_color:
         params["color"] = cond_color
+    # "…unless its controller pays {4}. **If they do**, you incubate 2."
+    # (Assimilate Essence) — a reflexive follow-up on the branch where the
+    # target's controller pays (`CounterSpellEffect.on_pay_effect_specs`).
+    # Only meaningful after an "unless … pays" cost; the sub-body is parsed
+    # recursively and must fully claim, else fail closed.
+    reflexive = m.groupdict().get("reflexive")
+    if reflexive:
+        if not m.groupdict().get("cost"):
+            return None
+        from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+        sub = parse_effect_body(reflexive)
+        if not sub:
+            return None
+        params["on_pay_effect_specs"] = [s.to_dict() for s in sub]
     return [EffectSpec("counter", params)]
 
 
@@ -8150,6 +8165,26 @@ def _cant_block_turn_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("cant_block_this_turn", params)]
 
 
+#: "If it's a creature, it can't block this turn." (Searing Barb's own
+#: damage-rider tail — "~ deals 2 damage to any target." precedes it; the
+#: "any target" can resolve onto a player/planeswalker/battle, so the
+#: restriction is gated on the previous clause's target actually being a
+#: creature). `CantBlockEffect.previous_subject` acts on
+#: `GameContext.previous_targets`; the `ConditionalEffect` gate then
+#: short-circuits a non-creature target (`previous_target_is_creature`).
+_IF_PREV_CREATURE_CANT_BLOCK_RE = _c(
+    r"if it'?s a creature, (?:it|that creature) can'?t block this turn"
+)
+
+
+def _if_prev_creature_cant_block(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(
+        "cant_block_this_turn",
+        {"previous_subject": True},
+        condition={"previous_target_is_creature": True},
+    )]
+
+
 #: "~ can't be blocked by creatures with power 2 or less this turn" (Cavern
 #: Stomper) / "target creature can't be blocked by Walls this turn" (Tower of
 #: Coireall) — the resolve-time sibling of the standing static that
@@ -8903,16 +8938,19 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "counter target spell" / "counter target noncreature spell" / "counter
     # target instant or sorcery spell" / "counter target spell with mana
-    # value N" / "counter target blue spell" (RULE 105 colour-hoser
-    # adjective, inline via `SPELL_TARGET`'s own ``color`` group) / any of
-    # those "… unless its controller pays {N}" (the "Mana Leak" unless-pay
-    # template) and/or "… if it's blue" (the trailing-clause old-templating
-    # colour variant, Red Elemental Blast/Pyroblast-shaped).
+    # value N" / "counter target creature or battle spell" / "counter target
+    # blue spell" (RULE 105 colour-hoser adjective, inline via
+    # `SPELL_TARGET`'s own ``color`` group) / any of those "… unless its
+    # controller pays {N}" (the "Mana Leak" unless-pay template) — with an
+    # optional reflexive "… If they do, `<effect>`." on the pay branch
+    # (Assimilate Essence) — and/or "… if it's blue" (the trailing-clause
+    # old-templating colour variant, Red Elemental Blast/Pyroblast-shaped).
     EffectHandler(
         "counter",
         _c(
             rf"counter {SPELL_TARGET}"
             + r"(?: unless its controller pays (?P<cost>\{[^}]+\}))?"
+            + r"(?:\. if they do, (?P<reflexive>.+?))?\.?"
             + IF_COLOR_SUFFIX
         ),
         _counter,
@@ -9917,6 +9955,13 @@ HANDLERS: list[EffectHandler] = [
         "cant_block_this_turn_group",
         _CANT_BLOCK_TURN_GROUP_RE,
         _cant_block_turn_group,
+    ),
+    # "If it's a creature, it can't block this turn." (Searing Barb's
+    # damage-rider tail) — acts on the previous clause's target.
+    EffectHandler(
+        "if_prev_creature_cant_block",
+        _IF_PREV_CREATURE_CANT_BLOCK_RE,
+        _if_prev_creature_cant_block,
     ),
     # "~ can't be blocked by creatures with power 2 or less this turn" — the
     # resolve-time sibling of the standing combat-restriction static.

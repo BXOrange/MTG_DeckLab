@@ -146,28 +146,6 @@ Plan-level sequencing lives in
       Bending Prodigy — "her" pronoun; Waterbender Ascension — quest
       counters; Hama — alt-cast by waterbending; Aang's Iceberg — O-Ring).
 
-  - **Incubate (RULE 701.53) residue — the dynamic-amount grammar is
-    DONE.** "…where X is its power" (v160), "its controller incubates X,
-    where X is its mana value" + "…the number of creatures exiled this
-    way" (v162 — `creators="previous_target_controller"`, `count_from_
-    subject`, the `GameContext.objects_exiled_this_way` accumulator) all
-    shipped; see `Done_Backend.md`. What's left is **not** dynamic-amount
-    grammar — each is its own separate primitive:
-    - **Phyrexian Incubator** "incubate N **that many times**" — a
-      search-result count that must survive a `pending_choice` suspension
-      boundary (the search opens a choice; RULE 608.2 parks the rest of
-      the effect list; the count has to be threaded through the resume).
-    - **Progenitor Exarch** "incubate N **X times**" — the repeat count is
-      the source permanent's own `x_paid` ({X}{X} creature), not this
-      resolution's announced X; also blocked on its "{T}: transform target
-      Incubator token you control" activated ability.
-    - Plain "incubate N" cards blocked on unrelated surrounding grammar:
-      Assimilate Essence ("counter … unless its controller pays {N}. if
-      they do, …" reflexive), Tiller of Flesh ("whenever you cast a spell
-      that targets 1 or more permanents" trigger condition), Traumatic
-      Revelation ("if you don't, …" else-branch), Searing Barb ("if it's a
-      creature, it can't block this turn" on a damage target).
-
   - **Collect Evidence / Forage / Blight activated-body residue.** Exotic
     `{cost}, collect evidence N:` bodies (Hedge Whisperer land-animation,
     Polygraph Orb edict, Tenth District Hero class-up); Gristle Glutton's

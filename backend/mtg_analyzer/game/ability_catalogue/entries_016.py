@@ -1082,3 +1082,156 @@ def _earthshape() -> list[AbilitySpec]:
 
 
 register("Earthshape", _earthshape)
+
+
+# ---------------------------------------------------------------------------
+# Incubate (RULE 701.53) residue — the three cache singletons the PAR-30
+# parser trail left, each blocked on its own bespoke shape rather than on
+# incubate grammar (that shipped in v160/v162). Hand-authored per this
+# repo's escape valve (docs/Reference/11); the incubate itself is the
+# standard `create_token` "Incubator" + `extra_counters` {+1/+1} pattern
+# `Glissa, Herald of Predation` established, sized by a count source.
+# ---------------------------------------------------------------------------
+
+
+def _traumatic_revelation() -> list[AbilitySpec]:
+    """Target opponent reveals their hand. You may choose a creature or
+    battle card from it. If you do, that player discards that card. If you
+    don't, incubate 3.
+
+    — the "if you don't, `<effect>`" *else*-branch on an optional
+    `reveal_hand_choose_discard` (Thoughtseize's own template) is the only
+    new shape: `RevealHandChooseDiscardEffect` gains ``optional`` +
+    ``else_specs``, threaded through `request_choose_objects`' new
+    ``else_specs`` (the mirror of its long-standing ``then_specs``), which
+    fires when the choice ends with nothing picked — including when the
+    revealed hand held no creature or battle card to begin with. "battle"
+    joins the effect's own ``card_types`` filter. The else body is the
+    plain incubate-3 `create_token`.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("reveal_hand_choose_discard", {
+                "target_kind": "opponent",
+                "card_types": ["creature", "battle"],
+                "optional": True,
+                "else_specs": [
+                    {"type": "create_token", "params": {
+                        "token_name": "Incubator",
+                        "extra_counters": {"kind": "+1/+1", "count": 3},
+                    }},
+                ],
+            })],
+            raw_text="Ein Zielgegner zeigt seine Hand vor. Du kannst eine Kreaturen- "
+                     "oder Kampfkarte daraus wählen. Falls du das tust, wirft jener "
+                     "Spieler jene Karte ab. Falls du das nicht tust, inkubiere 3.",
+        ),
+    ]
+
+
+register("Traumatic Revelation", _traumatic_revelation)
+
+
+def _phyrexian_incubator() -> list[AbilitySpec]:
+    """{3}, {T}, Sacrifice Phyrexian Incubator: Search your library for any
+    number of Phyrexian cards or cards with phyrexian back faces, exile
+    them, then incubate 2 that many times. Then shuffle.
+
+    — "incubate 2 **that many times**", where "that many" is the count of
+    cards the search exiled, across the RULE 608.2 pending-choice
+    suspension the search opens. Solved without a `GameContext`
+    accumulator: `SearchLibraryEffect(track_exiled_with=True)` appends each
+    exiled card to the source's own `GameObject.exiled_with_ids` (the same
+    list `ExileEffect.track_exiled_with` writes), which lives on the
+    permanent and so survives the suspend/resume; the following
+    `create_token` reads it back with ``count_selector="exiled_with_count"``
+    (Abdel Adrian's own "for each permanent exiled this way" selector).
+    "Then shuffle" is `_finish_search`'s default (library zone, no
+    exile_rest).
+
+    **Documented simplification**: "or cards with phyrexian back faces" is
+    dropped — `card_query`'s type-line substring match claims "Phyrexian
+    cards" (the Phyrexian subtype) but not a DFC whose *back* face is
+    Phyrexian while the front isn't; no such card is in a normal library
+    search target for this artifact's real decks.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("search", {
+                    "criteria": {"type": "Phyrexian"},
+                    "count": 99,  # "any number of" — the shared search sentinel
+                    "optional": True,
+                    "destination": "exile",
+                    "track_exiled_with": True,
+                }),
+                EffectSpec("create_token", {
+                    "token_name": "Incubator",
+                    "count_selector": "exiled_with_count",
+                    "extra_counters": {"kind": "+1/+1", "count": 2},
+                }),
+            ],
+            cost={"text": "{3}, {T}, Sacrifice ~"},
+            raw_text="{3}, {T}, Opfere Phyrexianischen Inkubator: Durchsuche deine "
+                     "Bibliothek nach beliebig vielen phyrexianischen Karten, "
+                     "exiliere sie und inkubiere dann so oft 2. Mische danach.",
+        ),
+    ]
+
+
+register("Phyrexian Incubator", _phyrexian_incubator)
+
+
+def _progenitor_exarch() -> list[AbilitySpec]:
+    """When this creature enters, incubate 3 X times.
+    {T}: Transform target Incubator token you control.
+
+    — "incubate 3 **X times**": the repeat count is the creature's own
+    announced {X} ({X}{X} in its cost), `GameObject.x_paid` (RULE 107.3c,
+    stamped at cast time and still present when the ETB trigger resolves —
+    the same field enters-with-X-counters reads). New
+    `continuous.count_selector` key ``"source_x_paid"``, consumed by
+    `create_token`'s existing ``count_selector`` path.
+
+    The "{T}: Transform target Incubator token you control" ability reuses
+    the `Incubator` token's own transform shape exactly (`grant_until` /
+    ``type_change`` / ``rest_of_game`` — a genuinely permanent RULE 712.8
+    animation into a 0/0 Phyrexian artifact creature, its +1/+1 counters
+    doing the rest), just with a RULE 115 target instead of self: the new
+    ``incubator_token_you_control`` target kind (a token named "Incubator"
+    this ability's controller controls).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "token_name": "Incubator",
+                "count_selector": "source_x_paid",
+                "extra_counters": {"kind": "+1/+1", "count": 3},
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, inkubiere X-mal 3.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_until", {
+                "duration": "rest_of_game",
+                "target_kind": "incubator_token_you_control",
+                "static": {
+                    "type": "type_change",
+                    "params": {
+                        "add_types": ["creature"], "add_subtypes": ["Phyrexian"],
+                        "power": 0, "toughness": 0,
+                    },
+                },
+            })],
+            cost={"text": "{T}"},
+            raw_text="{T}: Transformiere einen Ziel-Inkubator-Spielstein unter deiner "
+                     "Kontrolle.",
+        ),
+    ]
+
+
+register("Progenitor Exarch", _progenitor_exarch)

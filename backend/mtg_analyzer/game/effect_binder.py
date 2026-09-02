@@ -1018,6 +1018,19 @@ def _trigger_condition(
 
         predicates.append(_single_creature_target_ok)
 
+    # "Whenever you cast a spell that targets one or more permanents,
+    # incubate 2." (Tiller of Flesh, RULE 608.2b) — reads the SPELL_CAST
+    # event's ``targets_a_permanent`` flag, stamped at cast time by
+    # `casting_mixin._targets_a_permanent` when the spell's chosen targets
+    # include a battlefield permanent. "you cast" is the ordinary
+    # ``{"subject": "group", "controller": "you"}`` check on the same
+    # event; this only adds the targeting filter that check doesn't cover.
+    if trigger.get("requires_spell_targets_permanent"):
+        def _spell_targets_permanent_ok(event: Any, context: Any) -> bool:
+            return bool(event.get("targets_a_permanent"))
+
+        predicates.append(_spell_targets_permanent_ok)
+
     # "…a spell with mana value equal to the number of charge counters on
     # this artifact, counter that spell." (Chalice of the Void, MEC-43) —
     # reads the firing SPELL_CAST event's own ``mana_value`` against a live

@@ -167,6 +167,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target permanent you own/control." (Reality Scramble) — the
         # controller-scoped mirror of `permanent_you_dont_control` above.
         "permanent_you_control",
+        # "{T}: Transform target Incubator token you control." (Progenitor
+        # Exarch) — a name-keyed token target, the Incubate family's own
+        # two-state token (`ability_catalogue` "Incubator").
+        "incubator_token_you_control",
         # "target nonland permanent" (Retraction Helix-shaped) — any
         # controller's, unlike the `_you_control`/`_you_dont_control`
         # suffixed forms (which have their own `legal_targets` branch); the
@@ -701,6 +705,8 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
             "artifact": bool(obj.card.is_artifact),
             "enchantment": bool(obj.card.is_enchantment),
             "planeswalker": obj.is_planeswalker,
+            # "counter target creature or battle spell" (Assimilate Essence)
+            "battle": bool(obj.card.is_battle),
         }
         if not any(type_checks.get(t, False) for t in card_types):
             return False
@@ -954,6 +960,19 @@ def legal_targets(
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+        ]
+    if kind == "incubator_token_you_control":
+        # "{T}: Transform target Incubator token you control." (Progenitor
+        # Exarch) — a token named "Incubator" (RULE 111.1) this ability's
+        # controller controls; the Incubate family's own two-state token.
+        return [
+            {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
+            for o in state.permanents()
+            if o.controller_id == controller_id
+            and getattr(o, "is_token", False)
+            and (o.name or "") == "Incubator"
+            and o is not source
+            and _targetable_by(o, source)
         ]
     if kind == "permanent_you_dont_control":
         # RULE 115: "target permanent an opponent controls." (Assassin's

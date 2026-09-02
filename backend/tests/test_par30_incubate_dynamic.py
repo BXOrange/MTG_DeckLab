@@ -30,10 +30,12 @@
   new `GameContext` same-resolution accumulator (sibling of
   `permanents_destroyed_this_way`) bumped by `context.exile`.
 
-Still UNMODELED, fail-closed, each a separate primitive: "incubate N
-**that many times**" (Phyrexian Incubator — a search-result count that
-must survive a `pending_choice` suspension) and "incubate N **X times**"
-reading a source's own `x_paid` (Progenitor Exarch).
+The parser still (by design) can't claim two shapes — "incubate N **that
+many times**" (Phyrexian Incubator) and "incubate N **X times**"
+(Progenitor Exarch) — but both cards, plus Traumatic Revelation's
+"if you don't, incubate 3" else-branch, are now **hand-authored** in
+`ability_catalogue/entries_016.py`; see
+`tests/test_incubate_residue_authored.py` for their end-to-end coverage.
 """
 
 from __future__ import annotations
@@ -152,12 +154,14 @@ def test_incubate_x_creatures_exiled_this_way_parses():
     }
 
 
-def test_incubate_x_that_many_times_still_unmodeled():
-    # a search-result repeat count that must survive a pending_choice
-    # suspension is a different, unbuilt primitive
-    card = Card(id="pi", name="Phyrexian Incubator", type_line="Artifact",
+def test_incubate_x_that_many_times_not_claimed_by_the_parser():
+    # "that many times" (a search-result repeat count) is deliberately not
+    # parser grammar — Phyrexian Incubator is hand-authored instead
+    # (tests/test_incubate_residue_authored.py). The parser still fails
+    # closed on the synthetic clause.
+    card = Card(id="pi", name="Phyrexian Incubator synthetic", type_line="Artifact",
                 mana_cost_string="{4}",
-                oracle_text=("{3}, {T}, Sacrifice Phyrexian Incubator: Search your "
+                oracle_text=("{3}, {T}, Sacrifice ~: Search your "
                              "library for any number of Phyrexian cards, exile them, "
                              "then incubate 2 that many times. Then shuffle."))
     assert parse_oracle(card).coverage == UNMODELED

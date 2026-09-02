@@ -771,6 +771,13 @@ def count_selector(
         # be given (a bare test fixture omitting it gets 0, the same safe
         # fallback every self-referential selector here gets).
         return len(getattr(source, "exiled_with_ids", None) or [])
+    if selector == "source_x_paid":
+        # "When this creature enters, incubate 3 **X times**." (Progenitor
+        # Exarch) — the repeat count is the source permanent's own announced
+        # {X} (`GameObject.x_paid`, RULE 107.3c, set at cast time), not a
+        # board count. ``source`` required; a fixture without one gets 0,
+        # the same safe fallback `exiled_with_count` above takes.
+        return int(getattr(source, "x_paid", 0) or 0)
     if selector == "sacrificed_cost_mana_value":
         # "…target player mills cards equal to the sacrificed creature's
         # mana value." (MEC-43) — reads `GameObject.sacrificed_cost_mana_

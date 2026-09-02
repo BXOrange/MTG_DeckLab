@@ -13,7 +13,15 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.4% covered — 13,352 / 34,811 — as of 2026-09-01, PARSER_VERSION 204.**
+**38.4% covered — 13,359 / 34,811 — as of 2026-09-02, PARSER_VERSION 205.**
+(205 = Incubate residue closed — the plain "incubate N" cards blocked on
+unrelated grammar: reflexive "…unless its controller pays {N}. If they do,
+`<effect>`" on a counter + "battle" spell type (Assimilate Essence, Don't
+Make a Sound); "if it's a creature, it can't block this turn" damage-rider
+gated on the previous target (Searing Barb); "whenever you cast a spell
+that targets one or more permanents" cast-trigger filter (Tiller of
+Flesh). +4, 0 regressed. Phyrexian Incubator / Progenitor Exarch /
+Traumatic Revelation hand-authored — see `Done_Backend.md`.)
 (187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
 block` recognises its trigger wrapper via `segment_line` and carries the
 whole trigger dict through, instead of the narrow `_trigger_event`/
@@ -25,7 +33,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~39.9% — 12,709 / 31,830 (PARSER_VERSION 187).**
+**Commander-legal slice: ~40.2% — 12,782 / 31,830 (PARSER_VERSION 205).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

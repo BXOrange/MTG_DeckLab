@@ -492,9 +492,11 @@ IF_COLOR_SUFFIX = rf"(?: if it'?s (?P<cond_color>{_COLOR_ALT}))?"
 # sub-grammars"; only `catalogue.handlers`'s counter handler needs it today).
 
 #: Card-type words a spell-target filter may name (nonland types only — a
-#: land is never a spell). Kept in sync with `game/targeting._spell_matches_
-#: filter`'s ``type_checks`` keys by `tests/test_counter_family.py`.
-_SPELL_TYPE_WORD = r"(?:artifact|creature|enchantment|instant|planeswalker|sorcery)"
+#: land is never a spell). "battle" is here for "counter target creature or
+#: battle spell" (Assimilate Essence) — a battle *is* castable, so a battle
+#: spell is a legal thing to filter for. Kept in sync with `game/targeting.
+#: _spell_matches_filter`'s ``type_checks`` keys by `tests/test_counter_family.py`.
+_SPELL_TYPE_WORD = r"(?:artifact|battle|creature|enchantment|instant|planeswalker|sorcery)"
 #: An "or"/comma-separated list of 1+ type words: "creature", "instant or
 #: sorcery", "artifact, creature, or planeswalker".
 _SPELL_TYPE_LIST = (

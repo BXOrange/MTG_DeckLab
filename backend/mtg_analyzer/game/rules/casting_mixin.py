@@ -93,6 +93,20 @@ def _saga_final_chapter(card: Card) -> int:
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
+def _targets_a_permanent(targets: Optional[list[Any]]) -> bool:
+    """Whether a spell's chosen ``targets`` include at least one permanent
+    (a `GameObject` currently on the battlefield) — RULE 608.2b's own
+    reading of "a spell that targets one or more permanents" (Tiller of
+    Flesh). Stamped onto the `SPELL_CAST` event so a "whenever you cast a
+    spell that targets one or more permanents" trigger has a flag to key
+    off, rather than re-deriving it from a stack item that may already be
+    gone by the time the trigger resolves."""
+    for t in targets or []:
+        if isinstance(t, GameObject) and getattr(t, "zone", None) == Zone.BATTLEFIELD:
+            return True
+    return False
+
+
 def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     """Whether ``obj`` matches a sacrifice cost/effect's type word (RULE
     701.17), e.g. ``"creature"``/``"artifact"``/``"enchantment"``/``"land"``/
@@ -672,6 +686,9 @@ class CastingResolutionMixin:
                 # a noncreature spell, correctly never matching either).
                 power=obj.power,
                 toughness=obj.toughness,
+                # "Whenever you cast a spell that targets one or more
+                # permanents, incubate 2." (Tiller of Flesh) — RULE 608.2b.
+                targets_a_permanent=_targets_a_permanent(targets),
             )
         )
         self.check_ward(item, player)
@@ -740,6 +757,7 @@ class CastingResolutionMixin:
                 # to the chosen number" purposes.
                 power=obj.power,
                 toughness=obj.toughness,
+                targets_a_permanent=_targets_a_permanent(targets),
             )
         )
         self.check_ward(item, player)
