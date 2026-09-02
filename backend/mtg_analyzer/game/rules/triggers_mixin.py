@@ -1022,6 +1022,24 @@ class TriggerCollectionMixin:
             # gathered as two requirements (`GameEffect.extra_target_specs`).
             specs.extend(getattr(effect, "target_specs", None) or [])
         return specs
+    def _trigger_controller_id(
+        self, ability: "TriggeredAbility", event: Optional[GameEvent]
+    ) -> str:
+        """Which player chooses this firing's target(s)/mode/"you may" —
+        ordinarily ``ability.controller_id`` (this ability's own source's
+        controller), but for a group-subject trigger built with
+        `TriggeredAbility.controller_from_trigger_event` (PAR-30 — Confusion
+        in the Ranks' "**its** controller chooses target permanent…") it's
+        the firing event's own subject controller instead, since the two can
+        genuinely differ: the ability's static source triggers off *any*
+        artifact/creature/enchantment entering, not just its controller's
+        own. Falls back to the ordinary path if the event carries no
+        ``controller_id`` (a player-only event, or no event at all)."""
+        if ability.controller_from_trigger_event and event is not None:
+            event_controller = event.get("controller_id")
+            if event_controller is not None:
+                return event_controller
+        return ability.controller_id or self.state.active_player.id
     def _place_triggers(self, queue: list[tuple["TriggeredAbility", GameEvent]]) -> None:
         """Place queued triggers (RULE 603.3), pausing on one that's modal
         (RULE 700.2 — the mode is chosen first, before any target/"you may"
@@ -1054,8 +1072,23 @@ class TriggerCollectionMixin:
                 # object (spell already off the stack) drops the trigger
                 # (RULE 603.3c), same as a required target with no legal pick.
                 obj = self.state.find_object(event.get("instance_id"))
-                if obj is not None:
-                    self._place_trigger(ability, targets=[obj], event=event)
+                if obj is None:
+                    continue
+                if ability.optional:
+                    # RULE 603.5 (Perplexing Chimera — "you may exchange
+                    # control of this creature and **that spell**."): still a
+                    # real "do it or don't" even though the target is fixed,
+                    # not chosen — the same `trigger_target` "do"/"decline"
+                    # UI a targetless "you may" uses, just carrying the
+                    # already-resolved object across the pause instead of
+                    # nothing.
+                    self._pending_trigger_ability = ability
+                    self._pending_trigger_queue = queue
+                    self._pending_trigger_event = event
+                    self._pending_trigger_reflexive_target = obj
+                    self.state.pending_choice = self._trigger_may_choice(ability, event=event)
+                    return
+                self._place_trigger(ability, targets=[obj], event=event)
                 continue
             if ability.modes:
                 self._pending_trigger_ability = ability
@@ -1100,7 +1133,7 @@ class TriggerCollectionMixin:
         specs, spans = expand_counts(
             specs,
             self.state,
-            ability.controller_id or self.state.active_player.id,
+            self._trigger_controller_id(ability, event),
             ability.source,
         )
         override = effects if effects is not ability.effects else None
@@ -1114,14 +1147,14 @@ class TriggerCollectionMixin:
             self._pending_trigger_effects = override
             self._pending_trigger_queue = queue
             self._pending_trigger_event = event
-            self.state.pending_choice = self._trigger_may_choice(ability)
+            self.state.pending_choice = self._trigger_may_choice(ability, event=event)
             return False
         if len(specs) == 1:
             # The overwhelming common case — one targeting effect, unchanged
             # from before `target_groups` existed (a flat ``targets`` list
             # of exactly this one effect's picks).
             spec = specs[0]
-            controller_id = ability.controller_id or self.state.active_player.id
+            controller_id = self._trigger_controller_id(ability, event)
             options = legal_targets(self.state, controller_id, spec, source=ability.source, trigger_event=event)
             if not options:
                 if spec.optional:
@@ -1149,7 +1182,7 @@ class TriggerCollectionMixin:
             # "up to one" only ever showed a decline button when the whole
             # ability happened to *also* be a "you may".
             self.state.pending_choice = self._trigger_target_choice(
-                ability, options, allow_decline=spec.optional or ability.optional,
+                ability, options, allow_decline=spec.optional or ability.optional, event=event,
             )
             return False
         # RULE 115.1/603.3c generalized: 2+ *different* targeting effects (or
@@ -1227,7 +1260,7 @@ class TriggerCollectionMixin:
             )
             return True
         spec = specs[idx]
-        controller_id = ability.controller_id or self.state.active_player.id
+        controller_id = self._trigger_controller_id(ability, event)
         options = legal_targets(self.state, controller_id, spec, source=ability.source, trigger_event=event)
         # RULE 601.2c: the same object can't be chosen twice for one
         # requirement, so the rounds an expanded multi-target spec was split
@@ -1253,7 +1286,8 @@ class TriggerCollectionMixin:
         # then on the ability is already committed to, so later specs are
         # never declinable on their own.
         choice = self._trigger_target_choice(
-            ability, options, kind="trigger_target_multi", allow_decline=(idx == 0 and ability.optional)
+            ability, options, kind="trigger_target_multi",
+            allow_decline=(idx == 0 and ability.optional), event=event,
         )
         # RULE 115.1a: "up to N target …" lets the player stop before N. That
         # is a *different* answer from the "you may" decline just above —
@@ -1404,6 +1438,7 @@ class TriggerCollectionMixin:
         options: list[dict[str, Any]],
         kind: str = "trigger_target",
         allow_decline: Optional[bool] = None,
+        event: Optional[GameEvent] = None,
     ) -> dict[str, Any]:
         """Build the `pending_choice` offering ``options`` as an ability's
         target — one button per legal permanent/player, matching the generic
@@ -1416,7 +1451,10 @@ class TriggerCollectionMixin:
         `resolve_trigger_target_multi_choice`, so the single-spec path below
         stays byte-for-byte unchanged); ``allow_decline=None`` keeps this
         method's original behaviour of following ``ability.optional``
-        (RULE 603.5 "you may").
+        (RULE 603.5 "you may"). ``event`` is only consulted (via
+        `_trigger_controller_id`) for a `controller_from_trigger_event`
+        ability (PAR-30, Confusion in the Ranks) — every other trigger keeps
+        prompting `ability.controller_id` exactly as before.
         """
         choice_options: list[dict[str, Any]] = []
         for opt in options:
@@ -1431,11 +1469,13 @@ class TriggerCollectionMixin:
             choice_options.append({"id": "decline", "label": "Nichts wählen"})
         return {
             "kind": kind,
-            "player_id": ability.controller_id or self.state.active_player.id,
+            "player_id": self._trigger_controller_id(ability, event),
             "prompt": ability.description or "Ziel für ausgelöste Fähigkeit wählen",
             "options": choice_options,
         }
-    def _trigger_may_choice(self, ability: "TriggeredAbility") -> dict[str, Any]:
+    def _trigger_may_choice(
+        self, ability: "TriggeredAbility", event: Optional[GameEvent] = None,
+    ) -> dict[str, Any]:
         """Build the `pending_choice` for a targetless "you may" trigger
         (RULE 603.5) — do it, or don't. Reuses the ``trigger_target`` kind
         (same resolver, same generic choice UI); ``"do"`` is the sentinel
@@ -1443,7 +1483,7 @@ class TriggerCollectionMixin:
         target"."""
         return {
             "kind": "trigger_target",
-            "player_id": ability.controller_id or self.state.active_player.id,
+            "player_id": self._trigger_controller_id(ability, event),
             "prompt": ability.description or "Ausgelöste Fähigkeit ausführen?",
             "options": [
                 {"id": "do", "label": "Ausführen"},
@@ -1467,14 +1507,24 @@ class TriggerCollectionMixin:
         queue = self._pending_trigger_queue
         effects_override = self._pending_trigger_effects
         event = self._pending_trigger_event
+        reflexive_target = self._pending_trigger_reflexive_target
         self._pending_trigger_ability = None
         self._pending_trigger_queue = []
         self._pending_trigger_effects = None
         self._pending_trigger_event = None
+        self._pending_trigger_reflexive_target = None
 
         if answer == "do":
             if ability is not None:
-                self._place_trigger(ability, effects_override=effects_override, event=event)
+                # RULE 603.3d + 603.5: a reflexive "you may" carries its
+                # already-fixed target across the pause instead of a
+                # targetless "you may" (`_place_triggers`'s reflexive
+                # branch) — see `_pending_trigger_reflexive_target`.
+                self._place_trigger(
+                    ability,
+                    targets=[reflexive_target] if reflexive_target is not None else None,
+                    effects_override=effects_override, event=event,
+                )
             self._place_triggers(queue)
             return
 

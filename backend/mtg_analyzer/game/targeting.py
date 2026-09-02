@@ -167,6 +167,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target permanent you own/control." (Reality Scramble) — the
         # controller-scoped mirror of `permanent_you_dont_control` above.
         "permanent_you_control",
+        # "target permanent you neither own nor control" (PAR-30 — Conjured
+        # Currency) — the double-negative sibling excluding both ownership
+        # and control, unlike either single-negative kind above.
+        "permanent_you_neither_own_nor_control",
         # "{T}: Transform target Incubator token you control." (Progenitor
         # Exarch) — a name-keyed token target, the Incubate family's own
         # two-state token (`ability_catalogue` "Incubator").
@@ -988,6 +992,25 @@ def legal_targets(
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+        ]
+    if kind == "permanent_you_neither_own_nor_control":
+        # RULE 115 (PAR-30 — Conjured Currency's "target permanent you
+        # **neither own nor control**"): excludes both this ability's
+        # controller's own cards (even one they've lost control of, unlike
+        # ``permanent_you_dont_control``'s controller-only exclusion) and
+        # any permanent someone else owns but *this* controller currently
+        # controls (a control-effect target that already changed hands) —
+        # the double negative RULE 108.4/701.10 exchange cards specifically
+        # want so the target can't be swapped right back to where it came
+        # from another way.
+        return [
+            {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
+            for o in state.permanents()
+            if o.owner_id != controller_id
+            and o.controller_id != controller_id
+            and o is not source
+            and _targetable_by(o, source)
+            and _color_ok(spec, o.colors)
         ]
     if kind == "nonland_permanent":
         # RULE 115: every permanent that isn't a land (Geistwave/Beast

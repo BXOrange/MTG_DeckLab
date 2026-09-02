@@ -1691,6 +1691,11 @@ def bind_ability(
                 modes_choose=int(spec.modes.get("choose", 1)) if spec.modes else 1,
                 modes_at_least=bool(spec.modes.get("at_least", False)) if spec.modes else False,
                 modes_optional=bool(spec.modes.get("optional", False)) if spec.modes else False,
+                # PAR-30 (Confusion in the Ranks) — "its controller chooses
+                # …": `TriggeredAbility.controller_from_trigger_event`.
+                controller_from_trigger_event=(
+                    spec.trigger.get("chooser") == "trigger_subject_controller"
+                ),
                 condition=_trigger_condition(single_trigger, source),
                 optional=spec.optional,
                 controller_id=getattr(source, "controller_id", None),

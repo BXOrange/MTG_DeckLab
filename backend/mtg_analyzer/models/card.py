@@ -498,7 +498,20 @@ class Card:
             main, dash, sub = type_line.partition("—")
             main = re.sub(r"\bLegendary\b\s*", "", main).strip()
             type_line = f"{main} — {sub.strip()}" if dash else main
-        is_creature = self.is_creature
+        # PAR-30 fix (found by execute-testing Arteeoh, Dread Scavenger's
+        # "…except it's a 1/1 green Squirrel creature token in addition to
+        # its other types"): `add_types` naming "creature" on a non-creature
+        # original (Copy Artifact-shaped "except it's an artifact **and a
+        # creature**") must flip `is_creature` too, the same way the
+        # `only_types` branch just below already computes it — otherwise the
+        # `set_power`/`set_toughness` override further down builds a Card
+        # with printed power/toughness but `is_creature=False`, tripping
+        # `Card.__init__`'s own "power/toughness may only be set on
+        # creatures" invariant. `only_types` (mutually exclusive with a bare
+        # additive `add_types`, per its own docstring) always overrides this.
+        is_creature = self.is_creature or bool(
+            add_types and "creature" in {t.lower() for t in add_types}
+        )
         power, toughness = self.power, self.toughness
         vehicle_power, vehicle_toughness = self.vehicle_power, self.vehicle_toughness
         if only_types is not None:

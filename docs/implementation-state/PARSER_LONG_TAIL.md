@@ -13,7 +13,29 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.7% covered — 13,464 / 34,811 — as of 2026-09-02, PARSER_VERSION 211.**
+**38.7% covered — 13,476 / 34,811 — as of 2026-09-02, PARSER_VERSION 212.**
+(212 = PAR-30, RULE 701.10 exchange-control residue — **closed**. The
+twelve remaining bespoke singletons, all hand-authored — no parser
+recognition needed, each shape appears on exactly one card. New engine
+primitives: `TriggeredAbility.controller_from_trigger_event` (a trigger's
+chooser can differ from the ability's own controller — Confusion in the
+Ranks) + `ExchangeControlEffect(first_target_kind="trigger_subject")`;
+`permanent_you_neither_own_nor_control` target kind (Conjured Currency); a
+`nonlegendary` filter + `ActivationCost.not_during_combat` (Djinn of
+Infinite Deceits); `destroy_auras_if_exchanged` (Gauntlets of Chaos) /
+`draw_if_neither_controlled` (Modify Memory) after-effect riders;
+`ExchangeLifeTotalsEffect.life_difference_at_most` (Psychic Transfer);
+`TripleExchangeEffect` + `capture="target_player"` (Mirror Mirror's
+delayed triple swap); `JuxtaposeEffect` / `CulturalExchangeEffect` (two
+selection rounds each, both with a documented simplification);
+`ExchangeControlSpellEffect` (RULE 701.10i, exchanging a permanent for a
+spell still on the stack — Perplexing Chimera's reflexive "you may" pause,
+Sudden Substitution's two independent targets) + `RulesEngine.enqueue_
+reflexive_trigger` + `ExchangeControlThenCopyTokenEffect` (Arteeoh, Dread
+Scavenger). Also fixed a real `Card.as_copy` bug found by execute-testing
+Arteeoh: `add_types` naming "creature" never flipped `is_creature`, so a
+`set_power`/`set_toughness` override tripped `Card.__init__`'s own
+invariant. +12, 0 regressed. See `Done_Backend.md`.)
 (211 = PAR-30, RULE 701.10 exchange-control residue — the cross-target
 legality predicates. `ExchangeControlEffect` gains resolve-time
 `shares_type` ("…that share[s] a card/permanent type with it" — Daring
@@ -92,7 +114,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~40.5% — 12,886 / 31,830 (PARSER_VERSION 211).**
+**Commander-legal slice: ~40.5% — 12,896 / 31,830 (PARSER_VERSION 212).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

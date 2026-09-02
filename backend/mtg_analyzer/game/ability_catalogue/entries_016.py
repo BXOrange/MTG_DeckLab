@@ -1337,3 +1337,380 @@ def _airtight_alibi() -> list[AbilitySpec]:
 
 
 register("Airtight Alibi", _airtight_alibi)
+
+
+# --- PAR-30 · RULE 701.10 exchange-control residue -------------------------
+#
+# The remaining ten cards the shared cross-target predicates (PARSER_VERSION
+# 211) didn't reach — each its own bespoke primitive, hand-authored per
+# BACKLOG.md rather than widened parser grammar (none of these shapes
+# repeats across more than this one card).
+
+
+def _confusion_in_the_ranks() -> list[AbilitySpec]:
+    """Whenever an artifact, creature, or enchantment enters, its
+    controller chooses target permanent another player controls that
+    shares a card type with it. Exchange control of those permanents.
+
+    — The chooser is the *entering permanent's* controller, not this
+    Enchantment's own controller (`TriggeredAbility.controller_from_
+    trigger_event`, PAR-30's own new primitive) — a RULE 603.1 group
+    trigger with no controller restriction of its own (any player's
+    permanent). `ExchangeControlEffect(first_target_kind="trigger_subject")`
+    reads the entering permanent straight off the firing event; `shares_
+    type="card"` is the ordinary cross-target predicate every other "shares
+    a card type" exchange card already uses.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exchange_control", {
+                "first_target_kind": "trigger_subject",
+                "target_kind": "permanent_you_dont_control",
+                "shares_type": "card",
+            })],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "group", "type": ["artifact", "creature", "enchantment"]},
+                "chooser": "trigger_subject_controller",
+            },
+            raw_text="Wann immer ein Artefakt, eine Kreatur oder ein Verzauberung ins Spiel "
+                     "kommt, wählt ihr Beherrscher ein Zielpermanent, das ein anderer Spieler "
+                     "kontrolliert und das mit ihm einen Kartentyp teilt. Tauscht die Kontrolle "
+                     "über diese Permanents.",
+        ),
+    ]
+
+
+register("Confusion in the Ranks", _confusion_in_the_ranks)
+
+
+def _conjured_currency() -> list[AbilitySpec]:
+    """At the beginning of your upkeep, you may exchange control of this
+    enchantment and target permanent you neither own nor control.
+
+    — The new `permanent_you_neither_own_nor_control` target kind
+    (`targeting.legal_targets`); the self+target `ExchangeControlEffect`
+    mode (`target_kind` only, no `first_target_kind`) Avarice Totem-shaped
+    cards already use.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exchange_control", {
+                "target_kind": "permanent_you_neither_own_nor_control",
+            })],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
+            optional=True,
+            raw_text="Zu Beginn deines Versorgungssegments kannst du die Kontrolle über "
+                     "diese Verzauberung und ein Zielpermanent, das du weder besitzt noch "
+                     "kontrollierst, tauschen.",
+        ),
+    ]
+
+
+register("Conjured Currency", _conjured_currency)
+
+
+def _djinn_of_infinite_deceits() -> list[AbilitySpec]:
+    """Flying
+    {T}: Exchange control of two target nonlegendary creatures. You can't
+    activate this ability during combat.
+
+    — The multi-target `count=2` mode's own shared filter (`second_
+    creature_filter={"nonlegendary": True}`, new `combat.matches_object_
+    filter` key) plus the new `ActivationCost.not_during_combat` timing
+    flag (RULE 602.5d's converse of `sorcery_speed_only`).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("exchange_control", {
+                "target_kind": "creature", "count": 2,
+                "second_creature_filter": {"nonlegendary": True},
+            })],
+            cost={"text": "{T}", "not_during_combat": True},
+            raw_text="Fliegend\n{T}: Tausche die Kontrolle über zwei nichtlegendäre "
+                     "Zielkreaturen. Du kannst diese Fähigkeit nicht während des Kampfes "
+                     "aktivieren.",
+        ),
+    ]
+
+
+register("Djinn of Infinite Deceits", _djinn_of_infinite_deceits)
+
+
+def _gauntlets_of_chaos() -> list[AbilitySpec]:
+    """{5}, Sacrifice this artifact: Exchange control of target artifact,
+    creature, or land you control and target permanent an opponent
+    controls that shares one of those types with it. If those permanents
+    are exchanged this way, destroy all Auras attached to them.
+
+    — The two-explicit-targets mode plus both new `ExchangeControlEffect`
+    riders: `shares_type="card"` (the cross-target predicate) and
+    `destroy_auras_if_exchanged` (RULE 701.10c's own after-effect, gated on
+    the exchange actually happening).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("exchange_control", {
+                "first_target_kind": "permanent_you_control",
+                "target_kind": "permanent_you_dont_control",
+                "shares_type": "card",
+                "destroy_auras_if_exchanged": True,
+            })],
+            cost={"text": "{5}, Sacrifice ~"},
+            raw_text="{5}, Opfere dieses Artefakt: Tausche die Kontrolle über ein "
+                     "Zielartefakt, eine Zielkreatur oder ein Zielland, das du "
+                     "kontrollierst, und ein Zielpermanent, das ein Gegner kontrolliert "
+                     "und das mit ihm einen dieser Typen teilt. Falls diese Permanents auf "
+                     "diese Weise getauscht werden, zerstöre alle Verzauberungen vom Typ "
+                     "Aura, die an ihnen befestigt sind.",
+        ),
+    ]
+
+
+register("Gauntlets of Chaos", _gauntlets_of_chaos)
+
+
+def _modify_memory() -> list[AbilitySpec]:
+    """Exchange control of two target creatures controlled by different
+    players. If you control neither creature, draw three cards.
+
+    — The multi-target `count=2` + `distinct_controllers` mode (already
+    shipped) plus the new `draw_if_neither_controlled` rider.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exchange_control", {
+                "target_kind": "creature", "count": 2, "distinct_controllers": True,
+                "draw_if_neither_controlled": 3,
+            })],
+            raw_text="Tausche die Kontrolle über zwei Zielkreaturen, die von "
+                     "unterschiedlichen Spielern kontrolliert werden. Falls du keine der "
+                     "beiden Kreaturen kontrollierst, ziehe drei Karten.",
+        ),
+    ]
+
+
+register("Modify Memory", _modify_memory)
+
+
+def _psychic_transfer() -> list[AbilitySpec]:
+    """If the difference between your life total and target player's life
+    total is 5 or less, exchange life totals with that player.
+
+    — The new `ExchangeLifeTotalsEffect.life_difference_at_most` pre-effect
+    numeric gate.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exchange_life_totals", {
+                "target_kind": "player", "life_difference_at_most": 5,
+            })],
+            raw_text="Falls der Unterschied zwischen deinem Lebenspunktestand und dem "
+                     "Lebenspunktestand des Zielspielers 5 oder weniger beträgt, tauscht "
+                     "die Lebenspunktestände mit diesem Spieler.",
+        ),
+    ]
+
+
+register("Psychic Transfer", _psychic_transfer)
+
+
+def _mirror_mirror() -> list[AbilitySpec]:
+    """This artifact enters tapped.
+    {7}, {T}, Sacrifice this artifact: Choose target player. At the
+    beginning of the next end step, exchange life totals with that player,
+    exchange control of all permanents you and that player control, and
+    exchange cards in your hands, cards in your libraries, and cards in
+    your graveyards.
+
+    — "This artifact enters tapped" needs no entry here at all:
+    `ability_catalogue.core.enters_tapped` derives RULE 614.1 tap-lands (and
+    this same shape on any other permanent) straight from the card's own
+    printed oracle text (`parser.oracle.catalogue.lands.land_tap_condition`),
+    independent of this hand-authored registry.
+    `CreateDelayedTriggerEffect(step="end", scope="any", capture=
+    "target_player")` arms the delayed firing (RULE 603.7), baking in the
+    player chosen when the ability first resolved; `choose_targets` is what
+    actually offers that RULE 115 pick — a `target_groups=None` ability
+    passes its whole ``targets`` list to every one of its own effects, so
+    the delayed-trigger effect sees the same pick with no `target_spec` of
+    its own. The new `TripleExchangeEffect` (`capture="target_player"`'s
+    own new mode) is the delayed effect itself — see its docstring for why
+    the three swaps are one bespoke effect rather than three.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("choose_targets", {"kinds": ["player"]}),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end", "scope": "any", "capture": "target_player",
+                    "effects": [{"type": "triple_exchange", "params": {}}],
+                    "description": "Mirror Mirror: Lebenspunkte, Permanents und Zonen tauschen",
+                }),
+            ],
+            cost={"text": "{7}, {T}, Sacrifice ~"},
+            raw_text="{7}, {T}, Opfere dieses Artefakt: Wähle einen Zielspieler. Zu Beginn "
+                     "des nächsten Endsegments tauscht ihr die Lebenspunktestände, die "
+                     "Kontrolle über alle Permanents, die du und dieser Spieler "
+                     "kontrolliert, und die Karten in euren Händen, Bibliotheken und "
+                     "Friedhöfen.",
+        ),
+    ]
+
+
+register("Mirror Mirror", _mirror_mirror)
+
+
+def _cultural_exchange() -> list[AbilitySpec]:
+    """Choose any number of creatures target player controls. Choose the
+    same number of creatures another target player controls. Those players
+    exchange control of those creatures. (This effect lasts indefinitely.)
+
+    — See `CulturalExchangeEffect`'s own docstring for the two chained
+    interactive rounds and its documented "same number" simplification.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("cultural_exchange", {})],
+            raw_text="Wähle eine beliebige Anzahl Kreaturen, die ein Zielspieler "
+                     "kontrolliert. Wähle die gleiche Anzahl Kreaturen, die ein anderer "
+                     "Zielspieler kontrolliert. Diese Spieler tauschen die Kontrolle über "
+                     "diese Kreaturen. (Dieser Effekt hält unbegrenzt an.)",
+        ),
+    ]
+
+
+register("Cultural Exchange", _cultural_exchange)
+
+
+def _juxtapose() -> list[AbilitySpec]:
+    """You and target player exchange control of the creature you each
+    control with the greatest mana value. Then exchange control of
+    artifacts the same way. If two or more permanents a player controls
+    are tied for greatest, their controller chooses one of them.
+
+    — See `JuxtaposeEffect`'s own docstring for the two selection+exchange
+    rounds and its documented tie-break simplification.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("juxtapose", {})],
+            raw_text="Du und der Zielspieler tauscht die Kontrolle über die Kreatur mit "
+                     "dem höchsten Manawert, die ihr jeweils kontrolliert. Tauscht dann auf "
+                     "die gleiche Weise die Kontrolle über Artefakte. Falls zwei oder mehr "
+                     "Permanents, die ein Spieler kontrolliert, für den höchsten Wert "
+                     "gleichauf sind, wählt ihr Beherrscher eines davon.",
+        ),
+    ]
+
+
+register("Juxtapose", _juxtapose)
+
+
+def _perplexing_chimera() -> list[AbilitySpec]:
+    """Whenever an opponent casts a spell, you may exchange control of
+    this creature and that spell. If you do, you may choose new targets
+    for the spell. (If the spell becomes a permanent, you control that
+    permanent.)
+
+    — RULE 603.3d's reflexive "that spell" (the firing SPELL_CAST event's
+    own subject, never a RULE 115 target) combined with RULE 603.5's "you
+    may" (`TriggeredAbility.optional` — `_place_triggers`'s reflexive
+    branch now pauses on a do/decline choice instead of placing blind when
+    both are set, PAR-30's own new primitive). `ExchangeControlSpellEffect
+    (reflexive_spell=True)` is the still-on-the-stack sibling of the
+    ordinary battlefield `ExchangeControlEffect`.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exchange_control_spell", {"reflexive_spell": True})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "not_you"},
+                "reflexive": True,
+            },
+            optional=True,
+            raw_text="Wann immer ein Gegner einen Zauberspruch wirkt, kannst du die "
+                     "Kontrolle über diese Kreatur und diesen Zauberspruch tauschen. Wenn "
+                     "du dies tust, kannst du für den Zauberspruch neue Ziele bestimmen.",
+        ),
+    ]
+
+
+register("Perplexing Chimera", _perplexing_chimera)
+
+
+def _sudden_substitution() -> list[AbilitySpec]:
+    """Split second (As long as this spell is on the stack, players can't
+    cast spells or activate abilities that aren't mana abilities.)
+    Exchange control of target noncreature spell and target creature. Then
+    the spell's controller may choose new targets for it.
+
+    — `ExchangeControlSpellEffect`'s two-independent-targets mode
+    (``permanent_target_kind="creature"``, ``spell_filter={"noncreature":
+    True}``); Split Second is a plain flag keyword, already parsed off the
+    printed text.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exchange_control_spell", {
+                "permanent_target_kind": "creature",
+                "spell_filter": {"noncreature": True},
+            })],
+            raw_text="Split Second (Solange sich dieser Zauberspruch auf dem Stapel "
+                     "befindet, können Spieler keine Zaubersprüche wirken oder Fähigkeiten "
+                     "aktivieren, die keine Manafähigkeiten sind.)\n"
+                     "Tausche die Kontrolle über einen nichtkreaturischen Zielzauberspruch "
+                     "und eine Zielkreatur. Danach kann der Beherrscher des "
+                     "Zauberspruchs neue Ziele für ihn bestimmen.",
+        ),
+    ]
+
+
+register("Sudden Substitution", _sudden_substitution)
+
+
+def _arteeoh_dread_scavenger() -> list[AbilitySpec]:
+    """Flying, deathtouch
+    Whenever Arteeoh deals combat damage to a player, you may exchange
+    control of two other target artifacts. When you do, create a token
+    that's a copy of target artifact you don't control, except it's a 1/1
+    green Squirrel creature token in addition to its other colors and
+    types.
+
+    — See `ExchangeControlThenCopyTokenEffect`'s own docstring for the
+    exchange + RULE 603.11 reflexive copy-token connector and its
+    documented colour-addition simplification.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exchange_control_then_copy_token", {})],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            optional=True,
+            raw_text="Fliegend, Todesberührung\nImmer wenn Arteeoh einem Spieler "
+                     "Kampfschaden zufügt, kannst du die Kontrolle über zwei andere "
+                     "Zielartefakte tauschen. Wenn du dies tust, erschaffe einen Marker, "
+                     "der eine Kopie eines Zielartefakts ist, das du nicht kontrollierst, "
+                     "außer dass er zusätzlich zu seinen anderen Farben und Typen ein "
+                     "grüner 1/1 Eichhörnchen-Kreaturenmarker ist.",
+        ),
+    ]
+
+
+register("Arteeoh, Dread Scavenger", _arteeoh_dread_scavenger)

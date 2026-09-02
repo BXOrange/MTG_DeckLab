@@ -198,34 +198,6 @@ Plan-level sequencing lives in
         battlefield instead" (a `additional_cost_paid` + chosen-type
         conditional destination on a search).
 
-  - **RULE 701.10 exchange-control / exchange-life residue** (parked here
-    since PAR-29, not strictly a keyword action). The shared cross-target
-    "shares a card/permanent type" predicate and the numeric-comparison
-    sibling shipped at PARSER_VERSION 211 as resolve-time checks in
-    `ExchangeControlEffect._cross_target_ok` (`shares_type` /
-    `second_not_greater`) — Daring Thief, Legerdemain, Role Reversal,
-    Shifting Loyalties, Puca's Mischief, Spawnbroker closed (see
-    `Done_Backend.md`). Still open, each its own primitive: **Gauntlets of
-    Chaos** — the two-explicit "shares 1 of those types" form + a "destroy
-    all Auras attached to them" post-exchange rider; **Confusion in the
-    Ranks** — a trigger where "its controller chooses target permanent
-    another player controls that shares a card type with it" then "exchange
-    control of those permanents" (a chooses-then-references templating, not
-    a target on the exchange effect itself); **Conjured Currency** — "target
-    permanent you neither own nor control" target kind; **Djinn of Infinite
-    Deceits** — a "nonlegendary" `creature_filter` key + a "can't activate
-    this ability during combat" activation restriction; **Cultural Exchange
-    / Juxtapose** — "the `<X>` with the greatest mana value" dynamic
-    selection (+ Juxtapose's per-player tie-break choice); **Perplexing
-    Chimera / Sudden Substitution** — exchanging a **spell** on the stack;
-    **Mirror Mirror** — a delayed triple exchange (life totals + all
-    permanents + hands/libraries/graveyards); **Modify Memory** — "if you
-    control neither creature, draw 3 cards" post-exchange rider; **Psychic
-    Transfer** — a pre-effect numeric-comparison gate; **Arteeoh, Dread
-    Scavenger** — "exchange control of 2 other target artifacts" + a
-    reflexive copy-token connector. Teams (Get a Life, RULE 810) is a
-    permanent non-goal.
-
   - **Not gaps** (real handler verified action-by-action): Attach, Counter,
     Create, Destroy, Discard, Exile, Fight, Goad, Investigate, Mill,
     Regenerate, Scry, Search, Shuffle, Surveil, Tap/Untap, Transform/
@@ -239,7 +211,9 @@ Plan-level sequencing lives in
     (Planeswalk/Set in Motion/Abandon, Meld). Harness (701.64) / Heal
     (701.69) have ~0-3 cache cards and no handler yet — trivially small.
     Assemble (701.45) is out of the CR; Open an Attraction / Roll to Visit
-    (701.51/52) are the Attractions non-goal.
+    (701.51/52) are the Attractions non-goal. Teams (Get a Life, RULE 810)
+    is a permanent non-goal too — RULE 701.10's exchange-control/exchange-
+    life residue closed PARSER_VERSION 211–212, see `Done_Backend.md`.
 
 - **PAR-31…PAR-53 · Commander-legal tail — one PAR per recurring template
   cluster.** Seeded from `scripts/commander_tail_report.py` (read-only,

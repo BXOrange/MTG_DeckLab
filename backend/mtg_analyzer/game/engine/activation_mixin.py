@@ -190,6 +190,8 @@ class ActivationMixin:
             return False
         if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
             return False
+        if ability.cost.not_during_combat and not self._not_during_combat_ok():
+            return False
         if ability.cost.activation_condition and not static_conditions.condition_holds(
             ability.cost.activation_condition, self.state, source=source, controller_id=player.id
         ):
@@ -223,6 +225,12 @@ class ActivationMixin:
         stack or outside the controller's own main phase, only ruled out on
         someone else's turn (Wishclaw Talisman-shaped)."""
         return player is self.state.active_player
+    def _not_during_combat_ok(self) -> bool:
+        """RULE 602.5d's "You can't activate this ability during combat."
+        (PAR-30, Djinn of Infinite Deceits) — the only phase this flag
+        rules out; still legal on anyone's turn, at any other phase, with a
+        non-empty stack."""
+        return self.state.current_phase != "combat"
     def _can_activate_loyalty(self, player: Player, source: GameObject) -> bool:
         """Timing gate for a planeswalker loyalty ability (RULE 606.3).
 

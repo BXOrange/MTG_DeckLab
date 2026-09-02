@@ -214,6 +214,14 @@ class RulesEngine(
         #: (`StackItem.trigger_event`) after the player answers, exactly as it
         #: would have for a trigger that never paused.
         self._pending_trigger_event: Optional[GameEvent] = None
+        #: RULE 603.3d + 603.5 ("Whenever `<event>`, **you may** exchange
+        #: control of this creature and **that spell**." — Perplexing
+        #: Chimera): a reflexive trigger's target is baked in at fire time
+        #: (never a RULE 115 choice), so its own "you may" pauses on
+        #: `_trigger_may_choice` with this carrying the already-resolved
+        #: object across the pause, the same role `_pending_trigger_event`
+        #: plays for the event.
+        self._pending_trigger_reflexive_target: Optional[GameObject] = None
         #: Populated only while a `trigger_target_multi` choice is pending
         #: (2+ *different* targeting effects on one trigger, RULE 115.1) —
         #: every spec (`_trigger_target_specs`) and the groups gathered for

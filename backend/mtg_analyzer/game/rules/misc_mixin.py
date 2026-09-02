@@ -312,42 +312,60 @@ class MiscSystemsMixin:
         # since that dict is only ever populated by the mass primitive.
         if self._pending_each_player_pay_or is not None:
             self._advance_each_player_pay_or()
-    def _enqueue_pay_cost_then_trigger(self, pending: dict[str, Any]) -> None:
-        """RULE 603.11: a paid "you may `<cost>`" whose card continues "When
-        you do, `<targeted payoff>`" fires that payoff as its *own*
-        triggered ability. Built fresh here (per the `TriggeredAbility`
-        docstring's sanctioned "bake per-firing data in at the call site"
-        pattern) and queued on `pending_triggers`, so the ordinary
-        placement path (`put_triggers_on_stack` → `_place_triggers`) gathers
-        its RULE 115 target and puts it on the stack — which is the whole
-        point: `effect_specs` above resolve off the stack and could never
-        choose one.
+    def enqueue_reflexive_trigger(
+        self,
+        effect_specs: list[dict[str, Any]],
+        source: Optional[GameObject],
+        event: Optional[GameEvent] = None,
+    ) -> None:
+        """RULE 603.11: "`<effect with its own condition>`. **When you
+        do**, `<targeted payoff>`." fires the payoff as its *own* fresh
+        triggered ability rather than resolving it off-stack — the whole
+        point being that ``effect_specs``' own RULE 115 target (if any) has
+        to go through the ordinary placement path (`put_triggers_on_stack`
+        → `_place_triggers`) to be gathered at all; a bare `_apply_effect_
+        specs` call resolves immediately and could never open that choice.
+        Built fresh per the `TriggeredAbility` docstring's own sanctioned
+        "bake per-firing data in at the call site" pattern and queued on
+        `pending_triggers`, so it's picked up the next time triggers are
+        placed (normally right after the caller's own resolution finishes).
+
+        Two real callers: `_enqueue_pay_cost_then_trigger` (a paid optional
+        cost's own "when you do" — RULE 603.11 proper) and PAR-30's
+        `ExchangeControlThenCopyTokenEffect` (Arteeoh, Dread Scavenger — "if
+        you do" gated on whether a *targeted effect* actually happened,
+        not a cost payment).
         """
-        specs = pending.get("then_trigger_specs") or []
-        if not specs:
+        if not effect_specs:
             return
         from ..effect_binder import build_effects  # function-scoped: effects↔binder cycle
         from ...parser.oracle.spec import EffectSpec
 
-        source = pending.get("source")
-        outer_event = pending.get("then_trigger_event")
         built = build_effects(
-            [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in specs],
+            [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in effect_specs],
             source,
         )
         controller_id = getattr(source, "controller_id", None) or self.state.active_player.id
         ability = TriggeredAbility(
-            trigger_event=getattr(outer_event, "type", None) or EventType.SPELL_RESOLVED,
+            trigger_event=getattr(event, "type", None) or EventType.SPELL_RESOLVED,
             effects=built,
             source=source,
             controller_id=controller_id,
-            optional=False,  # the "may" was the cost payment; the payoff is not optional
+            optional=False,  # the "may"/"if" was already decided; the payoff itself is not
             description=getattr(source, "name", "") or "reflexive ability",
         )
-        # Carry the outer trigger's event so a payoff naming it ("that
-        # player") reads it off its own `StackItem.trigger_event`.
-        event = outer_event if isinstance(outer_event, GameEvent) else GameEvent(EventType.SPELL_RESOLVED)
-        self.pending_triggers.append((ability, event))
+        # Carry the outer event so a payoff naming it ("that player") reads
+        # it off its own `StackItem.trigger_event`.
+        stamped_event = event if isinstance(event, GameEvent) else GameEvent(EventType.SPELL_RESOLVED)
+        self.pending_triggers.append((ability, stamped_event))
+    def _enqueue_pay_cost_then_trigger(self, pending: dict[str, Any]) -> None:
+        """RULE 603.11: a paid "you may `<cost>`" whose card continues "When
+        you do, `<targeted payoff>`" fires that payoff via
+        `enqueue_reflexive_trigger`."""
+        self.enqueue_reflexive_trigger(
+            pending.get("then_trigger_specs") or [], pending.get("source"),
+            pending.get("then_trigger_event"),
+        )
     def request_pay_life_or_return_to_library(
         self, player: Player, objs: list[GameObject], amount: int = 4,
     ) -> None:
@@ -2788,6 +2806,11 @@ class MiscSystemsMixin:
             # reassignment, the same shape `GainControlBySourceEffect`
             # uses). Nothing else happens to it.
             "gain_control",
+            # PAR-30 (RULE 701.10i residue — Cultural Exchange): the same
+            # bare `controller_id` reassignment as `"gain_control"`, but to
+            # a specific *other* player named by `control_recipient_id`
+            # rather than to the chooser.
+            "gain_control_for",
             # PAR-30 Suspect one-off shapes / RULE 701.60a's reverse ("You
             # may have it become no longer suspected." — Deadly
             # Complication): nothing is created or moved, the pick just
@@ -2813,6 +2836,7 @@ class MiscSystemsMixin:
         redirect_shield: Optional[dict] = None,
         connive: bool = False,
         else_specs: Optional[list[dict]] = None,
+        control_recipient_id: Optional[str] = None,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -2894,6 +2918,14 @@ class MiscSystemsMixin:
         depends on *which* card was picked, so it's threaded straight
         through to `_apply_chosen_object` rather than tracked as a
         choice-level flag the way ``commander_taken`` is.
+
+        ``control_recipient_id`` (PAR-30 — Cultural Exchange's "choose any
+        number of creatures target player controls[.] … control moves to a
+        **third** player, not the chooser") is ``action="gain_control_for"``'s
+        own payload: unlike the plain ``"gain_control"`` action (control
+        moves to ``player``, the chooser), this hands each pick to whichever
+        player's id is carried here instead — the caster picks, but someone
+        *else* receives.
         """
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
@@ -2915,6 +2947,7 @@ class MiscSystemsMixin:
                     player, obj, action, source, remember=remember,
                     track_exiled_with=track_exiled_with, prevent_shield=prevent_shield,
                     redirect_shield=redirect_shield, connive=connive,
+                    control_recipient_id=control_recipient_id,
                 )
             self._apply_choose_objects_tail(
                 source, then_specs, then_specs_if_commander, commander_taken
@@ -2928,6 +2961,7 @@ class MiscSystemsMixin:
             track_exiled_with=track_exiled_with,
             prevent_shield=prevent_shield, redirect_shield=redirect_shield,
             connive=connive, else_specs=else_specs,
+            control_recipient_id=control_recipient_id,
         )
     def _apply_choose_objects_tail(
         self,
@@ -2958,6 +2992,7 @@ class MiscSystemsMixin:
         redirect_shield: Optional[dict] = None,
         connive: bool = False,
         else_specs: Optional[list[dict]] = None,
+        control_recipient_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -2993,6 +3028,9 @@ class MiscSystemsMixin:
             # MEC-30: `redirect_shield`'s own sibling — see
             # `request_choose_objects`'s own docstring.
             "redirect_shield": dict(redirect_shield) if redirect_shield else None,
+            # PAR-30: `action="gain_control_for"`'s own recipient payload —
+            # see `request_choose_objects`'s own docstring.
+            "control_recipient_id": control_recipient_id,
             "then_specs_if_commander": [
                 dict(spec) for spec in (then_specs_if_commander or [])
             ],
@@ -3042,6 +3080,7 @@ class MiscSystemsMixin:
                 prevent_shield=choice.get("prevent_shield"),
                 redirect_shield=choice.get("redirect_shield"),
                 connive=bool(choice.get("connive")),
+                control_recipient_id=choice.get("control_recipient_id"),
             )
         remaining_pool = [
             obj
@@ -3111,6 +3150,7 @@ class MiscSystemsMixin:
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
         connive: bool = False,
+        control_recipient_id: Optional[str] = None,
     ) -> None:
         """Do the one thing a `choose_objects` action names to one pick."""
         if action == "tap":
@@ -3248,6 +3288,14 @@ class MiscSystemsMixin:
             # picks up the new characteristics (RULE 613.1).
             if obj.controller_id != player.id:
                 obj.controller_id = player.id
+                continuous.recompute(self.state)
+        elif action == "gain_control_for" and control_recipient_id is not None:
+            # PAR-30 (Cultural Exchange): control moves to a *third*
+            # player, not the chooser — see `request_choose_objects`'s own
+            # docstring for ``control_recipient_id``.
+            if obj.controller_id != control_recipient_id:
+                obj.controller_id = control_recipient_id
+                obj.summoning_sick = True
                 continuous.recompute(self.state)
         elif action == "soulbond_pair" and source is not None:
             # RULE 702.94a: the pairing is recorded on both creatures.

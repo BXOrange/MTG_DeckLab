@@ -2100,7 +2100,48 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: permanent kinds; a dedicated Spawnbroker row (its comparison sits inside
 #: the second target phrase). +10 (6 exchange cards + 4 "untap another
 #: target permanent" bonus), 0 regressed.
-PARSER_VERSION = "211"
+#: "212": PAR-30 — RULE 701.10 exchange-control residue, closed. The
+#: twelve remaining bespoke singletons, all hand-authored
+#: (`ability_catalogue/entries_016.py`) — no new parser recognition, each
+#: shape appears on exactly one card. New engine primitives: `TriggeredAbility.
+#: controller_from_trigger_event` (RULE 603.1's chooser can differ from the
+#: ability's own source's controller — Confusion in the Ranks) +
+#: `ExchangeControlEffect(first_target_kind="trigger_subject")` (the entering
+#: permanent, read off the firing event, never a RULE 115 target of its own);
+#: `permanent_you_neither_own_nor_control` target kind (Conjured Currency);
+#: a `nonlegendary` `creature_filter` key + `ActivationCost.not_during_combat`
+#: (Djinn of Infinite Deceits); `ExchangeControlEffect.destroy_auras_if_
+#: exchanged` (Gauntlets of Chaos) / `.draw_if_neither_controlled` (Modify
+#: Memory) — both RULE 701.10c after-effect riders, gated on the exchange
+#: attempt's own outcome; `ExchangeLifeTotalsEffect.life_difference_at_most`
+#: (Psychic Transfer's pre-effect numeric gate); `TripleExchangeEffect` +
+#: `CreateDelayedTriggerEffect`'s new `capture="target_player"` (Mirror
+#: Mirror's delayed triple swap — life totals, all permanents, and the three
+#: owner-scoped zones); `JuxtaposeEffect` (two greatest-mana-value selection
+#: rounds, tie-break simplified to lowest instance id) and
+#: `CulturalExchangeEffect` (two chained interactive rounds via a new
+#: `request_choose_objects` action `"gain_control_for"` + payload
+#: `control_recipient_id`, "same number" simplified to independent "any
+#: number"); `ExchangeControlSpellEffect` (RULE 701.10i — exchanging a
+#: permanent for a **spell** still on the stack, Perplexing Chimera's
+#: reflexive `self`+that-spell mode and Sudden Substitution's two
+#: independent targets) alongside a new reflexive-trigger "you may" pause
+#: (`_place_triggers`'s reflexive branch now opens a do/decline choice
+#: instead of placing blind when `TriggeredAbility.optional` is set,
+#: `RulesEngine._pending_trigger_reflexive_target`); `RulesEngine.
+#: enqueue_reflexive_trigger` (refactored out of `_enqueue_pay_cost_then_
+#: trigger`, RULE 603.11's "when you do" as a fresh triggered ability with
+#: its own real target) + `ExchangeControlThenCopyTokenEffect` (Arteeoh,
+#: Dread Scavenger — exchange, then reflexively copy a *third* artifact as
+#: a 1/1 green Squirrel, colour addition undocumented/simplified). Also
+#: fixed a real `Card.as_copy` bug found by execute-testing Arteeoh: `add_
+#: types` naming "creature" never flipped `is_creature`, so a `set_power`/
+#: `set_toughness` override on the result tripped `Card.__init__`'s own
+#: "power/toughness may only be set on creatures" invariant. The whole
+#: **RULE 701.10 exchange-control / exchange-life residue** bullet is now
+#: closed (see PARSER_VERSION 211's entry above for the shared cross-target
+#: predicates). `tests/test_par30_exchange_control_bespoke.py`.
+PARSER_VERSION = "212"
 
 
 def parser_source_hash() -> str:

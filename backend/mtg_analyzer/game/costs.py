@@ -457,6 +457,13 @@ class ActivationCost:
     #: than folded into `sorcery_speed_only` — see `GameEngine.
     #: _only_during_your_turn_ok`.
     only_during_your_turn: bool = False
+    #: RULE 602.5d's converse — "You can't activate this ability during
+    #: combat." (PAR-30, Djinn of Infinite Deceits) — a *narrower* window
+    #: than `sorcery_speed_only`: still legal at instant speed with a
+    #: non-empty stack or outside the controller's own turn, only ruled out
+    #: during the combat phase specifically. See `GameEngine.
+    #: _not_during_combat_ok`.
+    not_during_combat: bool = False
     #: "Any player may activate this ability." (Mercenaries, MEC-30) — RULE
     #: 602.2a's *eligibility* is normally "the permanent's controller only";
     #: this is a standing exception widening it to any player at the table,
@@ -847,6 +854,8 @@ def parse_activation_cost(
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if "only_during_your_turn" in cost:
         parsed.only_during_your_turn = bool(cost["only_during_your_turn"])
+    if "not_during_combat" in cost:
+        parsed.not_during_combat = bool(cost["not_during_combat"])
     if cost.get("class_level") is not None:
         parsed.class_level = int(cost["class_level"])
     if cost.get("activation_condition"):

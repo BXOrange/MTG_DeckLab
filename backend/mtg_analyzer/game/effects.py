@@ -601,6 +601,25 @@ class GameContext:
     def gain_control_of_spell(self, target: "GameObject", new_controller_id: str) -> None:
         self.engine.gain_control_of_spell(target, new_controller_id)
 
+    def apply_effect_specs(
+        self, effect_specs: list[dict[str, Any]], source: Optional["GameObject"],
+    ) -> None:
+        """Build and apply serialized `EffectSpec` dicts right now, off the
+        stack — the same "chain a follow-up effect from inside another
+        effect's own `apply`" idiom `RulesEngine._apply_effect_specs`
+        already offers `resolve_pay_cost_then_choice`/`request_choose_
+        objects`' own ``then_specs``/``else_specs``, exposed here so an
+        effect can reach it directly too (PAR-30, `CulturalExchangeEffect`'s
+        own zero-candidates fallback)."""
+        self.engine._apply_effect_specs(effect_specs, source)
+
+    def enqueue_reflexive_trigger(
+        self, effect_specs: list[dict[str, Any]], source: Optional["GameObject"],
+    ) -> None:
+        """RULE 603.11's "When you do, `<targeted payoff>`." — see
+        `RulesEngine.enqueue_reflexive_trigger`."""
+        self.engine.enqueue_reflexive_trigger(effect_specs, source, self.trigger_event)
+
     def end_the_turn(self) -> None:
         self.engine.end_the_turn()
 
@@ -1266,6 +1285,7 @@ class TriggeredAbility(GameEffect):
         mana_ability: bool = False,
         functions_from_graveyard: bool = False,
         functions_from_stack: bool = False,
+        controller_from_trigger_event: bool = False,
     ) -> None:
         super().__init__(source)
         #: RULE 113.6a (PAR-16): whether this ability fires while its own
@@ -1316,6 +1336,17 @@ class TriggeredAbility(GameEffect):
         self.condition = condition
         self.optional = optional
         self.controller_id = controller_id
+        #: RULE 603.1/601.2c (PAR-30 — Confusion in the Ranks' "**its**
+        #: controller chooses target permanent…"): a group-subject trigger
+        #: whose *chooser* is the firing event's own subject controller, not
+        #: this ability's own source's controller (the ordinary case).
+        #: `triggers_mixin`'s `_trigger_controller_id` reads
+        #: ``event.get("controller_id")`` instead of `self.controller_id`
+        #: when this is set and the event actually carries one — every
+        #: target-selection/choice-prompt call site that currently reads
+        #: ``ability.controller_id or state.active_player.id`` goes through
+        #: that helper instead of the bare fallback.
+        self.controller_from_trigger_event = controller_from_trigger_event
         self.description = description
         self.modes = modes
         self.modes_or_both = modes_or_both
@@ -5031,6 +5062,7 @@ class ExchangeLifeTotalsEffect(GameEffect):
 
     def __init__(
         self, source: Optional["GameObject"] = None, target_kind: Optional[str] = None,
+        life_difference_at_most: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self._two_target_mode = target_kind is None
@@ -5038,6 +5070,16 @@ class ExchangeLifeTotalsEffect(GameEffect):
             TargetSpec(kind="player", count=2) if self._two_target_mode
             else TargetSpec(kind=target_kind)
         )
+        #: PAR-30 (RULE 701.10 residue, Psychic Transfer) — "if the
+        #: difference between your life total and target player's life
+        #: total is N or less, exchange life totals with that player." A
+        #: pre-effect numeric gate RULE 115 has no vocabulary for (the
+        #: comparison is between two *life totals*, not a static creature
+        #: characteristic `ConditionalEffect` could read off a target) —
+        #: checked here at resolution instead, the same "no `legal_targets`/
+        #: client change" idiom `ExchangeControlEffect._cross_target_ok`
+        #: uses: the swap just doesn't happen if the gap is too wide.
+        self.life_difference_at_most = life_difference_at_most
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         chosen = list(targets or [])
@@ -5050,7 +5092,214 @@ class ExchangeLifeTotalsEffect(GameEffect):
             b = chosen[0] if chosen else None
             if a is None or b is None:
                 return
+        if self.life_difference_at_most is not None and abs(
+            (a.life or 0) - (b.life or 0)
+        ) > self.life_difference_at_most:
+            return
         a.life, b.life = b.life, a.life
+
+
+class TripleExchangeEffect(GameEffect):
+    """"Exchange life totals with that player, exchange control of all
+    permanents you and that player control, and exchange cards in your
+    hands, cards in your libraries, and cards in your graveyards." (Mirror
+    Mirror, delayed to "the beginning of the next end step" — see
+    `CreateDelayedTriggerEffect`'s ``capture="target_player"``, which
+    stamps ``player`` here with the player chosen when the ability first
+    resolved, since the delayed firing itself carries no target of its own).
+
+    RULE 701.10's three swaps, all at once. Not modeled as three separate
+    registered effects composed in the delayed trigger's own ``effects``
+    list: `ExchangeControlEffect`'s battlefield swap only ever handles ONE
+    RULE 115-targeted pair, never "every permanent both players control" —
+    an untargeted mass form this card is the only one to want — so the
+    whole thing is one bespoke effect instead of three ordinary ones.
+
+    Hand/library/graveyard are all owner-scoped zones (RULE 400.3 — each
+    player has their own), so "exchanging" their contents genuinely swaps
+    **ownership** of every card in them (RULE 701.10h), unlike the
+    battlefield swap (control only, ownership never moves for a permanent
+    exchange). Exile/command/the stack are untouched — not part of the
+    printed effect.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None, player: Optional["Player"] = None) -> None:
+        super().__init__(source)
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        you = _controller_of(self.source, context)
+        them = self.player
+        if you is None or them is None or you is them:
+            return
+        you.life, them.life = them.life, you.life
+        for obj in context.state.permanents():
+            if obj.controller_id == you.id:
+                obj.controller_id = them.id
+                obj.summoning_sick = True
+            elif obj.controller_id == them.id:
+                obj.controller_id = you.id
+                obj.summoning_sick = True
+        context.recompute()
+        for zone in (Zone.HAND, Zone.LIBRARY, Zone.GRAVEYARD):
+            you_cards = list(you.zones.get(zone, []))
+            them_cards = list(them.zones.get(zone, []))
+            for obj in you_cards:
+                obj.owner_id = them.id
+                obj.controller_id = them.id
+            for obj in them_cards:
+                obj.owner_id = you.id
+                obj.controller_id = you.id
+            you.zones[zone], them.zones[zone] = them_cards, you_cards
+
+
+class JuxtaposeEffect(GameEffect):
+    """"You and target player exchange control of the creature you each
+    control with the greatest mana value. Then exchange control of
+    artifacts the same way." (Juxtapose) — RULE 701.10's own "the X with
+    the greatest mana value" dynamic selection, run twice (creatures, then
+    artifacts) against the same pair of players.
+
+    **Documented simplification**: "If two or more permanents a player
+    controls are tied for greatest, their controller chooses one of them."
+    is read as the lowest ``instance_id`` among the tied permanents (the
+    one that entered the battlefield first) rather than an interactive
+    choice — a real board tie has no gameplay-relevant difference between
+    the tied permanents' mana values, so this one card doesn't justify a
+    new interactive-choice type of its own.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="player")
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    @staticmethod
+    def _greatest(state: "GameState", player_id: str, want_creature: bool) -> Optional["GameObject"]:
+        candidates = [
+            o for o in state.permanents()
+            if o.controller_id == player_id
+            and (o.is_creature if want_creature else bool(o.card.is_artifact))
+        ]
+        if not candidates:
+            return None
+        best_mv = max(o.card.converted_mana_cost or 0 for o in candidates)
+        tied = [o for o in candidates if (o.card.converted_mana_cost or 0) == best_mv]
+        return min(tied, key=lambda o: o.instance_id)
+
+    def _swap_round(self, context: GameContext, you: "Player", them: "Player", want_creature: bool) -> None:
+        mine = self._greatest(context.state, you.id, want_creature)
+        theirs = self._greatest(context.state, them.id, want_creature)
+        if mine is None or theirs is None:
+            return
+        mine.controller_id, theirs.controller_id = theirs.controller_id, mine.controller_id
+        mine.summoning_sick = True
+        theirs.summoning_sick = True
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        you = _controller_of(self.source, context)
+        them = targets[0] if targets else None
+        if you is None or them is None or you is them:
+            return
+        self._swap_round(context, you, them, want_creature=True)
+        self._swap_round(context, you, them, want_creature=False)
+        context.recompute()
+
+
+class CulturalExchangeRound2Effect(GameEffect):
+    """`CulturalExchangeEffect`'s own second interactive round — see its
+    docstring. Threaded through as a plain `EffectSpec` payload (``from_
+    player_id``/``to_player_id``, both resolved player ids from the first
+    round's own two RULE 115 targets, not card text) rather than a second
+    `GameContext.previous_targets`-style referent, since the first round's
+    ``request_choose_objects`` needs a concrete `EffectSpec` to hand its own
+    ``then_specs``/``else_specs`` — the "run round 2 regardless of round 1's
+    outcome" combination `CulturalExchangeEffect.apply` sets both to.
+    """
+
+    def __init__(
+        self, source: Optional["GameObject"] = None,
+        from_player_id: Optional[str] = None, to_player_id: Optional[str] = None,
+    ) -> None:
+        super().__init__(source)
+        self.from_player_id = from_player_id
+        self.to_player_id = to_player_id
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from_player = context.state.player_by_id(self.from_player_id) if self.from_player_id else None
+        caster = _controller_of(self.source, context)
+        if from_player is None or self.to_player_id is None or caster is None:
+            return
+        candidates = [
+            o for o in context.state.permanents()
+            if o.controller_id == from_player.id and o.is_creature
+        ]
+        if not candidates:
+            return
+        context.engine.request_choose_objects(
+            caster, candidates, "gain_control_for", count=len(candidates), optional=True,
+            source=self.source, control_recipient_id=self.to_player_id,
+            prompt="Kreatur an den anderen Spieler abgeben?",
+        )
+
+
+class CulturalExchangeEffect(GameEffect):
+    """"Choose any number of creatures target player controls. Choose the
+    same number of creatures another target player controls. Those players
+    exchange control of those creatures. (This effect lasts indefinitely.)"
+    (Cultural Exchange) — two independent RULE 115 player targets, then two
+    chained interactive rounds: this ability's own controller picks any
+    number of the *first* target's creatures to hand to the *second*
+    (`RulesEngine.request_choose_objects`, action ``"gain_control_for"``),
+    then — via `CulturalExchangeRound2Effect`, run through the first
+    round's own ``then_specs``/``else_specs`` so it fires either way — the
+    same from the second target's creatures back to the first.
+
+    **Documented simplification**: the printed "choose the **same**
+    number" — the second round's count matching however many the first
+    round picked exactly — isn't modeled; both rounds are independently
+    "any number of" instead (`request_choose_objects` has no "count =
+    however many a separate, already-finished choice ended up with"
+    primitive, and this is the only card that would ever need one). The
+    actual control transfer — every creature picked from the first target
+    moves to the second and vice versa — is otherwise exact, including
+    "lasts indefinitely" (a bare `controller_id` reassignment, permanent
+    like every other exchange-control effect, never a duration-bounded
+    grab).
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="player")
+        self.extra_target_specs = (TargetSpec(kind="player"),)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        a = targets[0] if targets and len(targets) > 0 else None
+        b = targets[1] if targets and len(targets) > 1 else None
+        caster = _controller_of(self.source, context)
+        if a is None or b is None or a is b or caster is None:
+            return
+        round2 = [{
+            "type": "cultural_exchange_round2",
+            "params": {"from_player_id": b.id, "to_player_id": a.id},
+        }]
+        a_creatures = [
+            o for o in context.state.permanents() if o.controller_id == a.id and o.is_creature
+        ]
+        if not a_creatures:
+            context.apply_effect_specs(round2, self.source)
+            return
+        context.engine.request_choose_objects(
+            caster, a_creatures, "gain_control_for", count=len(a_creatures), optional=True,
+            source=self.source, control_recipient_id=b.id,
+            prompt="Kreatur an den anderen Spieler abgeben?",
+            then_specs=round2, else_specs=round2,
+        )
 
 
 #: `LoseLifeEffect`'s mass-selector vocabulary ("each opponent loses N
@@ -6164,6 +6413,85 @@ class GainControlOfSpellEffect(GameEffect):
             return
         context.change_target(target, optional=True, source=self.source)
         context.gain_control_of_spell(target, controller_id)
+
+
+class ExchangeControlSpellEffect(GameEffect):
+    """RULE 701.10i: exchanging control of a permanent and a **spell** on
+    the stack — the sibling `ExchangeControlEffect` doesn't cover (its own
+    swap is a plain `GameObject.controller_id` flip, which only makes sense
+    for something already on the battlefield). Two printed shapes:
+
+      * ``reflexive_spell=True`` — "Whenever `<event>`, **you may** exchange
+        control of this creature and **that spell**." (Perplexing Chimera,
+        RULE 603.3d): the spell is the reflexive trigger subject, never a
+        RULE 115 target of this effect's own (``target_spec=None`` — the
+        "you may" pause and the target-baking both happen in
+        `triggers_mixin._place_triggers`'s reflexive branch before this ever
+        runs, see `RulesEngine._pending_trigger_reflexive_target`), so
+        ``targets`` here is just ``[that spell]`` and the permanent side is
+        always this effect's own source.
+      * otherwise — "Exchange control of target noncreature spell and
+        target creature." (Sudden Substitution): two independent RULE 115
+        targets, the spell always first (``target_spec``) so ``targets[0]``/
+        ``targets[1]`` read the same regardless of pick order, mirroring
+        `ExchangeControlEffect`'s own ``first_target_kind`` two-target mode.
+
+    Both then let "the spell's controller" (the *new* one, post-swap) choose
+    new targets for it (`RulesEngine.change_target`, ``optional=True`` —
+    RULE 601.2c/115.5's "may").
+
+    The permanent's controller becomes the spell's controller and
+    vice-versa, mirroring `ExchangeControlEffect.apply` exactly for the
+    permanent side; the spell side reuses `RulesEngine.gain_control_of_spell`
+    (Commandeer's own primitive), which mirrors `StackItem.controller_id`
+    onto the underlying `GameObject` too — so a plain `spell.controller_id`
+    read is always the spell's *current* controller, no separate stack-item
+    lookup needed. A no-op (same controller already, or the spell already
+    left the stack) leaves both untouched.
+    """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        permanent_target_kind: Optional[str] = None,
+        spell_filter: Optional[dict[str, Any]] = None,
+        reflexive_spell: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self._reflexive_spell = reflexive_spell
+        if reflexive_spell:
+            self.target_spec = None
+        else:
+            self.target_spec = TargetSpec(kind="spell", spell_filter=dict(spell_filter or {}))
+            self.extra_target_specs = (
+                TargetSpec(kind=permanent_target_kind or "creature"),
+            )
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self._reflexive_spell:
+            permanent = self.source
+            spell = targets[0] if targets else None
+        else:
+            spell = targets[0] if targets and len(targets) > 0 else None
+            permanent = targets[1] if targets and len(targets) > 1 else None
+        if permanent is None or spell is None:
+            return
+        if permanent not in context.state.permanents():
+            return
+        if not any(item.obj is spell for item in context.state.stack):
+            return  # the spell already resolved/was countered/left the stack
+        old_permanent_controller = permanent.controller_id
+        old_spell_controller = spell.controller_id
+        if old_permanent_controller == old_spell_controller:
+            return
+        permanent.controller_id = old_spell_controller
+        permanent.summoning_sick = True  # RULE 302.6, mirroring ExchangeControlEffect
+        context.gain_control_of_spell(spell, old_permanent_controller)
+        context.recompute()
+        context.change_target(spell, optional=True, source=self.source)
 
 
 class CounterCreateTokenEffect(GameEffect):
@@ -9844,6 +10172,19 @@ class CreateDelayedTriggerEffect(GameEffect):
                 for effect in inner:
                     if hasattr(effect, "player") and getattr(effect, "player", None) is None:
                         effect.player = target_player
+        if self.capture == "target_player" and targets:
+            # "Choose target player. At the beginning of the next end step,
+            # `<effect against that player>`." (Mirror Mirror) — unlike
+            # ``target_controller`` above, ``targets[0]`` here already *is*
+            # the chosen player (RULE 115's own player target, `TargetSpec(
+            # kind="player")`), not a permanent whose controller has to be
+            # looked up. Baked the same way — the only settable-``player``
+            # inner effect this feeds is `TripleExchangeEffect`.
+            target_player = targets[0]
+            target_controller_id = getattr(target_player, "id", None)
+            for effect in inner:
+                if hasattr(effect, "player") and getattr(effect, "player", None) is None:
+                    effect.player = target_player
         controller_id = (
             target_controller_id
             or getattr(self.source, "controller_id", None)
@@ -16443,8 +16784,25 @@ class ExchangeControlEffect(GameEffect):
         distinct_controllers: bool = False,
         shares_type: Optional[str] = None,
         second_not_greater: Optional[str] = None,
+        destroy_auras_if_exchanged: bool = False,
+        draw_if_neither_controlled: int = 0,
     ) -> None:
         super().__init__(source)
+        #: RULE 701.10c's own after-effect riders, both conditioned on the
+        #: exchange *actually happening* (unlike ``shares_type``/
+        #: ``second_not_greater`` above, which gate whether it happens at
+        #: all): ``destroy_auras_if_exchanged`` (Gauntlets of Chaos —
+        #: "if those permanents are exchanged this way, destroy all Auras
+        #: attached to them") destroys every Aura attached to either
+        #: permanent post-swap; ``draw_if_neither_controlled`` (Modify
+        #: Memory — "if you control neither creature, draw three cards")
+        #: draws that many cards for this ability's controller when, after
+        #: the attempt, they end up controlling neither exchanged permanent
+        #: (true both when the exchange happened and handed both away, and
+        #: when it never happened at all because neither was theirs to
+        #: begin with).
+        self.destroy_auras_if_exchanged = destroy_auras_if_exchanged
+        self.draw_if_neither_controlled = int(draw_if_neither_controlled or 0)
         #: PAR-30 (RULE 701.10 exchange-control residue) — cross-target
         #: legality predicates RULE 115 verifies at *selection*, checked here
         #: at resolution instead (the same documented simplification the
@@ -16487,15 +16845,39 @@ class ExchangeControlEffect(GameEffect):
         # ``first_target_kind`` two-spec mode above. `apply()` doesn't need
         # to know which of the two shapes produced its two targets; a flat
         # ``targets`` list of 2 reads the same either way.
-        self._two_target_mode = first_target_kind is not None or count >= 2
-        if first_target_kind is not None:
+        #: PAR-30 (Confusion in the Ranks — "whenever `<X>` enters, its
+        #: controller chooses target permanent … that shares a card type
+        #: with it. Exchange control of those permanents."): the *first*
+        #: side is the firing event's own subject (the entering permanent),
+        #: never a RULE 115 target of this effect's own — the same
+        #: ``target_kind="trigger_subject"`` idiom `ExileEffect`/`TapEffect`
+        #: already use, just for the ``first_target_kind`` slot instead of
+        #: the only one. Only the *second* side is a real target — chosen by
+        #: `TriggeredAbility.controller_from_trigger_event` (not this
+        #: ability's own source's controller), so this collapses to the
+        #: same single-target-mode shape the plain ``self``+target case
+        #: below already has, just resolving ``mine`` from the trigger event
+        #: in `apply` instead of `self.source`.
+        self._first_trigger_subject = first_target_kind == "trigger_subject"
+        self._two_target_mode = (
+            first_target_kind is not None and not self._first_trigger_subject
+        ) or count >= 2
+        if self._first_trigger_subject:
+            self.target_spec = TargetSpec(kind=target_kind, creature_filter=second_creature_filter)
+        elif first_target_kind is not None:
             self.target_spec = TargetSpec(kind=first_target_kind)
             self.extra_target_specs = (
                 TargetSpec(kind=target_kind, creature_filter=second_creature_filter),
             )
         elif count >= 2:
+            # ``second_creature_filter`` doubles as the multi mode's own
+            # shared filter here (Djinn of Infinite Deceits' "two target
+            # **nonlegendary** creatures") — one requirement picking N
+            # same-kind, same-filter targets, unlike the two-independently-
+            # typed-specs mode above.
             self.target_spec = TargetSpec(
                 kind=target_kind, count=count, distinct_controllers=distinct_controllers,
+                creature_filter=second_creature_filter,
             )
         else:
             # ``optional`` is RULE 115.1a's "up to one" (Gilded Drake) —
@@ -16532,7 +16914,11 @@ class ExchangeControlEffect(GameEffect):
         return True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self._two_target_mode:
+        if self._first_trigger_subject:
+            ev = context.trigger_event
+            mine = context.state.find_object(ev.get("instance_id")) if ev is not None else None
+            theirs = targets[0] if targets else None
+        elif self._two_target_mode:
             mine = targets[0] if targets and len(targets) > 0 else None
             theirs = targets[1] if targets and len(targets) > 1 else None
         else:
@@ -16555,12 +16941,31 @@ class ExchangeControlEffect(GameEffect):
             # battlefield arrival.
             mine.summoning_sick = True
             theirs.summoning_sick = True
+            if self.destroy_auras_if_exchanged:
+                # Gauntlets of Chaos — every Aura attached to either
+                # now-swapped permanent, RULE 704.5m style (SBA-independent,
+                # a direct destroy so a regeneration shield can't save one).
+                for aura in [
+                    o for o in context.state.battlefield
+                    if o.attached_to in (mine.instance_id, theirs.instance_id)
+                    and "aura" in (o.card.type_line or "").lower()
+                ]:
+                    context.destroy(aura)
             context.recompute()
-            return
-        if self.sacrifice_self_if_no_exchange and mine is not None and mine in battlefield:
+        elif self.sacrifice_self_if_no_exchange and mine is not None and mine in battlefield:
             # RULE 701.10d + 701.16c: no exchange happened, so the drake
             # sacrifices itself — sacrifice, never destruction.
             context.put_into_graveyard(mine)
+        if self.draw_if_neither_controlled:
+            # Modify Memory — whether or not the exchange above happened,
+            # this ability's controller ends up controlling neither
+            # permanent, so they draw a consolation hand.
+            player = _controller_of(self.source, context)
+            controls_either = player is not None and player.id in (
+                getattr(mine, "controller_id", None), getattr(theirs, "controller_id", None),
+            )
+            if player is not None and not controls_either:
+                context.draw(player, self.draw_if_neither_controlled)
 
 
 class ExchangeControlThenEnergySacrificeEffect(GameEffect):
@@ -16620,6 +17025,60 @@ class ExchangeControlThenEnergySacrificeEffect(GameEffect):
         from .costs import ActivationCost  # function-scoped: costs↔effects cycle
         mv = theirs.card.converted_mana_cost or 0
         context.engine.request_sacrifice_unless_pay(player, ActivationCost(pay_energy=mv), theirs)
+
+
+class ExchangeControlThenCopyTokenEffect(GameEffect):
+    """"You may exchange control of two other target artifacts. When you
+    do, create a token that's a copy of target artifact you don't control,
+    except it's a 1/1 green Squirrel creature token in addition to its
+    other colors and types." (Arteeoh, Dread Scavenger) — RULE 608.2b's "if
+    you do" gated on whether the *exchange* actually happened (same
+    composite-effect reason `ExchangeControlThenEnergySacrificeEffect`'s
+    own docstring gives), **and** RULE 603.11's "when you do" reflexive
+    shape for the copy's own target — a fresh permanent, chosen only once
+    the exchange is confirmed, never one of the two just exchanged. Queued
+    via `RulesEngine.enqueue_reflexive_trigger` exactly like `pay_cost_
+    then.then_trigger` (v206) rather than resolved off-stack, so the copy
+    target gets real RULE 115 selection.
+
+    **Documented simplification**: "in addition to its **other colors**" —
+    the green addition — isn't modeled (`CopyPermanentEffect` has
+    ``set_colors`` (replace) but no *additive* colour param, and this is
+    the only card that would ever want one); the type/subtype/P/T additions
+    ("1/1 … Squirrel creature … in addition to its other types") are exact.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="artifact", count=2, optional=True)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        chosen = [t for t in (targets or []) if t is not None]
+        if len(chosen) < 2:
+            return
+        a, b = chosen[0], chosen[1]
+        battlefield = context.state.permanents()
+        exchangeable = a in battlefield and b in battlefield and a.controller_id != b.controller_id
+        if not exchangeable:
+            return
+        a.controller_id, b.controller_id = b.controller_id, a.controller_id
+        a.summoning_sick = True
+        b.summoning_sick = True
+        context.recompute()
+        context.enqueue_reflexive_trigger(
+            [{
+                "type": "copy_permanent",
+                "params": {
+                    "target_kind": "artifact_you_dont_control",
+                    "add_types": ["creature"], "add_subtypes": ["Squirrel"],
+                    "set_power": 1, "set_toughness": 1,
+                },
+            }],
+            self.source,
+        )
 
 
 class PhaseOutAllYouControlEffect(GameEffect):
@@ -18725,7 +19184,32 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "exchange_life_totals",  # "Two target players exchange life totals." (Soul Conduit)
-    lambda p: ExchangeLifeTotalsEffect(target_kind=p.get("target_kind")),
+    lambda p: ExchangeLifeTotalsEffect(
+        target_kind=p.get("target_kind"),
+        life_difference_at_most=p.get("life_difference_at_most"),
+    ),
+)
+EffectRegistry.register(
+    # PAR-30 (RULE 701.10i residue, Mirror Mirror) — see TripleExchangeEffect.
+    "triple_exchange",
+    lambda p: TripleExchangeEffect(),
+)
+EffectRegistry.register(
+    # PAR-30 (RULE 701.10 residue, Juxtapose) — see JuxtaposeEffect.
+    "juxtapose",
+    lambda p: JuxtaposeEffect(),
+)
+EffectRegistry.register(
+    # PAR-30 (RULE 701.10 residue, Cultural Exchange) — see
+    # CulturalExchangeEffect.
+    "cultural_exchange",
+    lambda p: CulturalExchangeEffect(),
+)
+EffectRegistry.register(
+    "cultural_exchange_round2",
+    lambda p: CulturalExchangeRound2Effect(
+        from_player_id=p.get("from_player_id"), to_player_id=p.get("to_player_id"),
+    ),
 )
 EffectRegistry.register(
     "lose_life",
@@ -18824,6 +19308,16 @@ EffectRegistry.register(
     # for it." (Commandeer)
     "gain_control_of_spell",
     lambda p: GainControlOfSpellEffect(target=p.get("target")),
+)
+EffectRegistry.register(
+    # RULE 701.10i (PAR-30 residue) — Perplexing Chimera / Sudden
+    # Substitution. See `ExchangeControlSpellEffect`.
+    "exchange_control_spell",
+    lambda p: ExchangeControlSpellEffect(
+        permanent_target_kind=p.get("permanent_target_kind"),
+        spell_filter=p.get("spell_filter"),
+        reflexive_spell=bool(p.get("reflexive_spell", False)),
+    ),
 )
 EffectRegistry.register(
     # "Return it to the battlefield [tapped] under its owner's control."
@@ -19895,6 +20389,8 @@ EffectRegistry.register(
         # PAR-30 RULE 701.10 residue — resolve-time cross-target predicates.
         shares_type=p.get("shares_type"),
         second_not_greater=p.get("second_not_greater"),
+        destroy_auras_if_exchanged=bool(p.get("destroy_auras_if_exchanged", False)),
+        draw_if_neither_controlled=int(p.get("draw_if_neither_controlled", 0) or 0),
     ),
 )
 EffectRegistry.register(
@@ -19905,6 +20401,11 @@ EffectRegistry.register(
     lambda p: ExchangeControlThenEnergySacrificeEffect(
         target_kind=p.get("target_kind", "creature"),
     ),
+)
+EffectRegistry.register(
+    # PAR-30 (Arteeoh, Dread Scavenger) — see ExchangeControlThenCopyTokenEffect.
+    "exchange_control_then_copy_token",
+    lambda p: ExchangeControlThenCopyTokenEffect(),
 )
 EffectRegistry.register(
     # RULE 702.26b + 611.2b: "all permanents you control phase out", plus

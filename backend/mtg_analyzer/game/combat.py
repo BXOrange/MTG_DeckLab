@@ -627,6 +627,11 @@ def matches_object_filter(
     # sacrifice-only check.
     if filt.get("nontoken") and getattr(obj, "is_token", False):
         return False
+    # "exchange control of two target **nonlegendary** creatures" (RULE
+    # 205.4a, PAR-30 — Djinn of Infinite Deceits) — reads `Card.is_legendary`
+    # the same boolean-flag way `nontoken` reads `is_token` above.
+    if filt.get("nonlegendary") and getattr(obj.card, "is_legendary", False):
+        return False
     # "target suspected creature you control" (RULE 701.60, PAR-29 — Deadly
     # Complication) — reads `GameObject.is_suspected` the same boolean-flag
     # way `attacking`/`is_commander` do above.
