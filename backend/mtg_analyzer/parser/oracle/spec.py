@@ -805,6 +805,11 @@ class AbilitySpec:
             valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
             if value != "x" and not valid_int:
                 raise SpecValidationError("'additional_cost' waterbend must be a positive int or 'x'")
+        elif key == "forage":
+            # RULE 701.61 (PAR-29): "forage [or pay {M}]." — same "or pay
+            # {M}" documented drop as `behold`/`blight`. A bare bool.
+            if value is not True:
+                raise SpecValidationError("'additional_cost' forage must be True")
         else:
             raise SpecValidationError(f"unknown additional_cost kind {key!r}")
 

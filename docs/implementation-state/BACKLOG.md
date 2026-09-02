@@ -146,14 +146,16 @@ Plan-level sequencing lives in
       Bending Prodigy — "her" pronoun; Waterbender Ascension — quest
       counters; Hama — alt-cast by waterbending; Aang's Iceberg — O-Ring).
 
-  - **Collect Evidence / Forage / Blight activated-body residue.** Two
+  - **Collect Evidence / Forage / Blight activated-body residue.** Three
     sub-clusters shipped (see `Done_Backend.md`): the reflexive *targeted*
     "When you do, `<payoff>`" shape (v206 — `pay_cost_then.then_trigger`,
-    RULE 603.11, +43 family) and the exotic `{cost}, collect evidence N`
+    RULE 603.11, +43 family); the exotic `{cost}, collect evidence N`
     activated-ability bodies (v207 — `_COST_LOOKS_REAL` keyword-action
     costs + `exile_attached` / `_DISCARD_THEN_IF_YOU_DO_RE` /
     `each_player_pay_or` scope-and-OR bodies, +13; Hedge Whisperer
-    hand-authored). What's left, each its own primitive:
+    hand-authored); and Feed the Cycle's "forage" additional cast cost
+    (v208, `additional_cost={"forage": True}`). What's left, each its own
+    primitive:
     - **Tenth District Hero** — the second leveler body: "becomes a
       legendary creature named Mileva, the Stalwart … and gains 'Other
       creatures you control have indestructible'" (a become-legendary-
@@ -167,9 +169,13 @@ Plan-level sequencing lives in
       many cards" (dynamic multi-target mill) and "cast target nonland
       card from a graveyard without paying its mana cost" (a new one-shot
       cast-from-graveyard-free primitive).
-    - **"collect evidence N / forage / behold `<quality>` rather than pay
-      the mana cost"** alt-cast forms — Conspiracy Unraveler, Feed the
-      Cycle.
+    - **Conspiracy Unraveler** — "you may collect evidence 10 **rather
+      than pay the mana cost for spells you cast**": a battlefield
+      permanent granting an alternative cost to *every* spell its
+      controller casts. The cast path's `alt_cost` reads only a spell's
+      *own* `AbilitySpec.alt_cost`, not an externally-granted one — needs
+      a scan-the-battlefield-for-alt-cost-grants hook in `can_cast` /
+      `_offer_cast` / `cast_spell`.
     - **Behold** — Molten Exhale (conditional-flash fused with a behold
       cost), Elven Passage ("you may behold an elf. If you do, untap that
       land."), the Champion cycle ("behold a `<type>` and exile it" + LTB

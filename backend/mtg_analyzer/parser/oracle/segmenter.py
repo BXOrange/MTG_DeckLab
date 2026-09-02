@@ -1680,6 +1680,14 @@ _ADDITIONAL_COST_BLIGHT_RE = re.compile(
 _ADDITIONAL_COST_WATERBEND_RE = re.compile(
     r"^waterbend\s+\{(?P<n>\d+)\}$", re.IGNORECASE
 )
+#: RULE 701.61 (Forage, PAR-29 — Bloomburrow): "as an additional cost to
+#: cast this spell, forage [or pay {M}]." (Feed the Cycle). Same documented
+#: "or pay {M}" drop as `_ADDITIONAL_COST_BEHOLD_RE`/`_BLIGHT_RE` — the
+#: spell forages if it can and casts regardless. `ActivationCost.forage`
+#: (already charged by `_can`/`_pay_activation_cost`).
+_ADDITIONAL_COST_FORAGE_RE = re.compile(
+    r"^forage(?:\s+or pay\s+(?:\{[^}]+\})+)?$", re.IGNORECASE
+)
 #: PAR-30 / RULE 601.2b: the *optional* additional-cost prefix — "as an
 #: additional cost to cast this spell, **you may** <cost>." (Katara Seeking
 #: Revenge, Ruinous Waterbending, Burning Curiosity, Graven Archfiend, …).
@@ -1993,6 +2001,8 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     if wtr is not None:
         n = wtr.group("n").lower()
         return {"waterbend": "x" if n == "x" else int(n)}
+    if _ADDITIONAL_COST_FORAGE_RE.match(text):
+        return {"forage": True}
     return None
 
 

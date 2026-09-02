@@ -13,7 +13,8 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.5% covered — 13,415 / 34,811 — as of 2026-09-02, PARSER_VERSION 207.**
+**38.5% covered — 13,416 / 34,811 — as of 2026-09-02, PARSER_VERSION 208.**
+(208 = Collect Evidence / Forage / Blight residue, sub-cluster (d): "As an additional cost to cast this spell, forage [or pay {M}]." (Feed the Cycle) → `additional_cost={"forage": True}`, the "or pay {M}" alternative dropped as behold/blight already do. +1, 0 regressed. Conspiracy Unraveler still needs a battlefield-granted alternative-cost-for-all-your-spells cast primitive.)
 (207 = Collect Evidence / Forage / Blight residue, sub-cluster (b): the
 exotic `{cost}, collect evidence N: <body>` / `{T}, Blight N: <body>`
 activated abilities. `_COST_LOOKS_REAL` gains the three keyword-action
@@ -51,7 +52,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~40.3% — 12,837 / 31,830 (PARSER_VERSION 207).**
+**Commander-legal slice: ~40.3% — 12,838 / 31,830 (PARSER_VERSION 208).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

@@ -65,6 +65,17 @@ def test_hedge_whisperer_is_hand_authored():
     assert kinds == ["activated", "static"]
 
 
+def test_feed_the_cycle_forage_additional_cost():
+    # "As an additional cost to cast this spell, forage or pay {B}." — the
+    # forage half is modeled (`additional_cost={"forage": True}`), the
+    # "or pay {B}" alternative is the documented drop behold/blight share.
+    r = parse_oracle(_db().get_card("Feed the Cycle"))
+    assert r.coverage != UNMODELED, r.unclaimed
+    carrier = next(s for s in r.specs if s.additional_cost is not None)
+    assert carrier.additional_cost == {"forage": True}
+    assert any(e.type == "destroy" for s in r.specs for e in s.effects)
+
+
 def test_polygraph_orb_scope_and_or_cost():
     spec = next(
         s for s in parse_oracle(_db().get_card("Polygraph Orb")).specs

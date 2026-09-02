@@ -2043,7 +2043,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: District Hero (become-legendary-renamed leveler) and Incinerator of the
 #: Guilty (dynamic "collect evidence X" + event-player group damage) still
 #: need their own primitives — tracked in `BACKLOG.md`.
-PARSER_VERSION = "207"
+#: "208": PAR-30 (Collect Evidence / Forage / Blight residue, sub-cluster d)
+#: — "As an additional cost to cast this spell, forage [or pay {M}]."
+#: (Feed the Cycle). New `_ADDITIONAL_COST_FORAGE_RE` → `additional_cost=
+#: {"forage": True}` (`ActivationCost.forage`, already charged by
+#: `_can`/`_pay_activation_cost`); the "or pay {M}" alternative is the same
+#: documented drop `behold`/`blight` additional costs already make. +1, 0
+#: regressed. Conspiracy Unraveler ("you may collect evidence 10 rather
+#: than pay the mana cost for spells you cast" — a battlefield permanent
+#: granting an alternative cost to *every* spell its controller casts, a
+#: cast-path primitive that doesn't exist) stays UNMODELED, tracked in
+#: `BACKLOG.md`.
+PARSER_VERSION = "208"
 
 
 def parser_source_hash() -> str:
