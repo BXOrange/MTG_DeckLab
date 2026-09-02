@@ -657,6 +657,12 @@ class ManaCountersMixin:
         if amount > 0:
             self.add_counters(land, amount, "+1/+1", source=source)
         self.check_state_based_actions()
+        # RULE 701.6x: the earthbend is complete — fire EventType.BENT so a
+        # "whenever you earthbend" trigger (Avatar Aang) sees it.
+        bender_id = getattr(source, "controller_id", None)
+        bender = self.state.player_by_id(bender_id) if bender_id else None
+        if bender is not None:
+            self.record_bend(bender, "earthbend", amount, source=source)
     def request_remove_counters_choice(
         self, target: Union[GameObject, Player], max_count: int, chooser: Player
     ) -> None:

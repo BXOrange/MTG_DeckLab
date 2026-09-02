@@ -2380,6 +2380,34 @@ class MiscSystemsMixin:
             EventType.FORAGED, player_id=player.id, controller_id=player.id,
         ))
         return did
+    #: The four bending keyword actions (RULE 701.6x — Avatar: The Last
+    #: Airbender). `record_bend`'s ``kind`` is one of these.
+    BEND_KINDS = ("waterbend", "earthbend", "firebend", "airbend")
+    def record_bend(
+        self, player: Player, kind: str, amount: int = 0,
+        source: Optional[GameObject] = None,
+    ) -> None:
+        """Register that ``player`` has performed a bending keyword action
+        (RULE 701.6x — ``kind`` in `BEND_KINDS`): stamp `GameState.
+        bends_this_turn` and fire `EventType.BENT`.
+
+        Called from each bending primitive once its own procedure is
+        complete — `earthbend` (after the land is animated + countered),
+        the waterbend additional-cast-cost payment (RULE 701.67c — "triggers
+        whenever that player pays a waterbend cost"), `ExileEffect` with
+        ``bend_kind`` set (airbend), and the Firebending attack trigger's
+        `RecordBendEffect` marker. Mirrors `collect_evidence`/`forage`/
+        `behold`: fire an event so a "whenever you `<bend>`" trigger (Avatar
+        Aang) can see an action that otherwise leaves no board trace.
+        """
+        if kind not in self.BEND_KINDS:
+            return
+        self.state.bends_this_turn.setdefault(player.id, set()).add(kind)
+        self.state.fire_event(GameEvent(
+            EventType.BENT,
+            player_id=player.id, controller_id=player.id,
+            kind=kind, amount=int(amount or 0),
+        ))
     def behold(
         self, player: Player, quality: str, source: Optional[GameObject] = None
     ) -> bool:

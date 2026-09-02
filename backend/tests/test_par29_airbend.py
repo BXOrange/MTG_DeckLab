@@ -38,6 +38,9 @@ def test_airbend_clause_forms():
     assert b and b[0].params == {
         "target_kind": "creature", "grant_owner_play_permission": True,
         "owner_play_permission_cost": "{2}", "count": 2, "optional": True,
+        # PAR-30 (Firebending residue): airbend now marks its exile so
+        # `ExileEffect` fires EventType.BENT for Avatar Aang.
+        "bend_kind": "airbend",
     }
 
     # "creature or spell" — the airbend-a-spell form (v145)
@@ -77,6 +80,7 @@ def test_airbend_that_creature_trigger_subject_form():
         "target_kind": "trigger_subject",
         "grant_owner_play_permission": True,
         "owner_play_permission_cost": "{2}",
+        "bend_kind": "airbend",  # PAR-30 Firebending residue — see above
     })]
     assert match_clause("airbend it") == got
 

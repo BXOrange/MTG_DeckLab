@@ -2793,6 +2793,19 @@ class ConditionalEffect(GameEffect):
                 self.source, {"subtype": str(source_subtype)}
             ):
                 return False
+        did_all_bends = self.condition.get("did_all_bends_this_turn")
+        if did_all_bends is not None:
+            # RULE 701.6x: "then if you've done all four this turn, transform
+            # ~." (Avatar Aang, PAR-30). The ability controller's own
+            # `GameState.bends_this_turn` set must cover every bending
+            # keyword action (`RulesEngine.BEND_KINDS`). `self` = the
+            # controller, not a target — the same idiom `life_gained_this_
+            # turn_at_least` uses.
+            player = _controller_of(self.source, context)
+            done = context.state.bends_this_turn.get(getattr(player, "id", None), set())
+            all_four = done.issuperset(context.engine.BEND_KINDS)
+            if not (all_four if did_all_bends else not all_four):
+                return False
         return True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -7007,9 +7020,17 @@ class ExileEffect(GameEffect):
         grant_free_cast_window: bool = False,
         spell_or_permanent: bool = False,
         colors: Optional[list[str]] = None,
+        bend_kind: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: RULE 701.65 (Airbend) / 701.6x: when set (always ``"airbend"``,
+        #: from `handlers._airbend`/`_airbend_trigger_subject`), fire
+        #: `EventType.BENT` after the exile so Avatar Aang's "whenever you …
+        #: airbend" trigger sees it. `RulesEngine.record_bend` owns the
+        #: event + `GameState.bends_this_turn` stamp; fired once per
+        #: resolution that exiled at least one object, not once per object.
+        self.bend_kind = bend_kind
         #: "exile target `<c1>` or `<c2>` permanent" (Celestial Purge) —
         #: `TargetSpec.colors`' OR narrowing, offer-time (`_color_ok`).
         self.colors = tuple(colors) if colors else None
@@ -7117,6 +7138,7 @@ class ExileEffect(GameEffect):
                 # exile-cast permission / remember / free-cast-window riders,
                 # exactly as the RULE 115 targeted branch below applies them.
                 self._post_exile(context, target)
+                self._record_bend_if_set(context)
             return
         if self.target_spec is None:
             # Self mode ("Exile ~."/"Exile this spell/card.") — like
@@ -7146,6 +7168,19 @@ class ExileEffect(GameEffect):
             else:
                 context.exile(target)
             self._post_exile(context, target)
+        if chosen:
+            self._record_bend_if_set(context)
+
+    def _record_bend_if_set(self, context: GameContext) -> None:
+        """Fire `EventType.BENT` for an airbend (RULE 701.65) — a no-op
+        unless `bend_kind` was set (`handlers._airbend`). Called once per
+        resolution that exiled at least one object; `RulesEngine.record_bend`
+        is idempotent within a turn (`GameState.bends_this_turn` is a set)."""
+        if not self.bend_kind:
+            return
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.engine.record_bend(player, self.bend_kind, source=self.source)
 
     def _post_exile(self, context: GameContext, target: "GameObject") -> None:
         """The free-cast-window / owner-play-permission / import-tax riders a
@@ -11064,6 +11099,32 @@ class CollectEvidenceEffect(GameEffect):
             return
         if context.engine.collect_evidence_possible(player, self.amount):
             context.engine.collect_evidence(player, self.amount)
+
+
+class RecordBendEffect(GameEffect):
+    """Mark that this effect's controller performed a bending keyword action
+    (RULE 701.6x — ``kind`` in `RulesEngine.BEND_KINDS`) by calling
+    `RulesEngine.record_bend` (stamps `GameState.bends_this_turn`, fires
+    `EventType.BENT`).
+
+    Not an instruction body of its own — used as the **Firebending** attack
+    marker: `effect_binder._kw_firebending` appends it to the firebending
+    mana trigger's effects, so "you firebend" is registered the moment that
+    trigger resolves (the set has no other "firebend" action). Earthbend,
+    the waterbend cost payment and airbend (`ExileEffect.bend_kind`) each
+    call `record_bend` from their own primitive directly instead. Kept as a
+    registered spec type so any future explicit "you `<bend>`" body has a
+    marker to reach.
+    """
+
+    def __init__(self, kind: str = "firebend", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.kind = kind
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.engine.record_bend(player, self.kind, source=self.source)
 
 
 class ForageEffect(GameEffect):
@@ -19771,6 +19832,7 @@ EffectRegistry.register(
         grant_free_cast_window=bool(p.get("grant_free_cast_window", False)),
         spell_or_permanent=bool(p.get("spell_or_permanent", False)),
         colors=p.get("colors"),
+        bend_kind=p.get("bend_kind"),
     ),
 )
 EffectRegistry.register(
@@ -20820,6 +20882,11 @@ EffectRegistry.register(
     # RULE 701.61 "Forage" as a resolving effect (the "you may" is the
     # segmenter's outer optional peel). See `ForageEffect`.
     "forage", lambda p: ForageEffect(),
+)
+EffectRegistry.register(
+    # RULE 701.6x (Avatar: The Last Airbender): the Firebending attack-
+    # trigger bending marker. See `RecordBendEffect`.
+    "record_bend", lambda p: RecordBendEffect(kind=str(p.get("kind", "firebend"))),
 )
 EffectRegistry.register(
     # RULE 701.44 (explore, PAR-29): reveal top card of library — land to

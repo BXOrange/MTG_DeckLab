@@ -133,6 +133,11 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # current (derived) subtypes — "If this creature is a Detective, …"
         # (Tenth District Hero). A string subtype word.
         "source_has_subtype",
+        # PAR-30 / RULE 701.6x: "then if you've done all four this turn,
+        # transform ~." (Avatar Aang) — every bending keyword action
+        # (waterbend/earthbend/firebend/airbend) is in the ability
+        # controller's `GameState.bends_this_turn` set. A bool.
+        "did_all_bends_this_turn",
     }
 )
 

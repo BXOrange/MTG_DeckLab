@@ -36,6 +36,7 @@ from .effects import (
     ActivatedAbility,
     AddCountersEffect,
     AddManaEffect,
+    RecordBendEffect,
     AttachEffect,
     BecomeSaddledEffect,
     CumulativeUpkeepEffect,
@@ -260,6 +261,11 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # "Whenever you behold …" (RULE 701.4b, PAR-29) — `RulesEngine.behold`
     # fires `BEHELD` per-player.
     "BEHELD": "player_id",
+    # "Whenever you waterbend, earthbend, firebend, or airbend, …" (RULE
+    # 701.6x, Avatar Aang) — `RulesEngine.record_bend` fires `BENT`
+    # per-player, same ``player_id`` convention as every player-subject
+    # event above.
+    "BENT": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE
@@ -2541,14 +2547,22 @@ def _kw_backup(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
 
 
 def _kw_firebending(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
-    """RULE 702.189 (approx) Firebending N (Doctor Who) — "Whenever this
-    creature attacks, add {R}×N. This mana lasts until end of combat."
+    """RULE 702.189 (approx) Firebending N (Doctor Who / Avatar: The Last
+    Airbender) — "Whenever this creature attacks, add {R}×N. This mana lasts
+    until end of combat."
 
     A self-only `ATTACKS` triggered **mana** ability (RULE 605.4 —
     resolves off-stack, so the {R} is spendable in the same combat). The
     "lasts until end of combat" note is a **documented simplification**:
     the mana is added to the pool now and empties at the ordinary step
     boundary rather than being tagged with a combat-scoped lifetime.
+
+    A second, ordinary (stack-using) self-only `ATTACKS` trigger carries a
+    `RecordBendEffect` — attacking with a Firebending creature is how a
+    player "firebends" in the Avatar set (RULE 701.6x), and Avatar Aang's
+    "whenever you … firebend" trigger reads `EventType.BENT`. Kept separate
+    from the mana ability so the latter stays a pure mana effect (RULE
+    605.4) and the marker still fires when N is 0 (Firebending X, X=0).
 
     Only reached from a *printed* Firebending keyword line. A *granted*
     "gains firebending N" (Sozin's Comet, Fire Nation Palace) needs
@@ -2558,15 +2572,23 @@ def _kw_firebending(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbilit
     if n is None:
         return []
     n = int(n)
+    self_only = _self_only_condition(getattr(obj, "instance_id", None))
     return [
         TriggeredAbility(
             trigger_event=EventType.ATTACKS,
             effects=[AddManaEffect(colors=["R"] * n)],
-            condition=_self_only_condition(getattr(obj, "instance_id", None)),
+            condition=self_only,
             source=obj,
             mana_ability=True,
             description=spec.raw_text or f"Firebending {n}",
-        )
+        ),
+        TriggeredAbility(
+            trigger_event=EventType.ATTACKS,
+            effects=[RecordBendEffect(kind="firebend", source=obj)],
+            condition=_self_only_condition(getattr(obj, "instance_id", None)),
+            source=obj,
+            description="Firebending — du feuerbändigst",
+        ),
     ]
 
 

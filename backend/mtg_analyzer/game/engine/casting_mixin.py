@@ -1608,6 +1608,19 @@ class CastingMixin:
             obj.additional_cost_paid = _add_cost is not None and (
                 not getattr(obj, "additional_cast_cost_optional", False) or pay_additional
             )
+            # RULE 701.67c: "an ability that triggers whenever a player
+            # waterbends triggers whenever that player pays a waterbend
+            # cost" — the waterbend additional cast cost has just been paid
+            # (it is folded into the mana total in `effective_cast_cost`, so
+            # there is no earlier discrete moment). Fires EventType.BENT for
+            # Avatar Aang's "whenever you … waterbend" trigger. ``amount``
+            # left 0 — the bending verb, not its {N}, is what any trigger
+            # reads.
+            if (
+                obj.additional_cost_paid
+                and getattr(_add_cost, "help_pay_kind", None) == "waterbend"
+            ):
+                self.rules.record_bend(player, "waterbend", source=obj)
             # RULE 702.33b: record how many times Kicker was paid, so a
             # resolve-time effect that reads "if this spell was kicked" (a
             # follow-up, not yet parsed) has something to consult.

@@ -254,6 +254,10 @@ class TurnLoopMixin:
         # RULE 700.4 history ("unless a creature died under your control this
         # turn", Bontu the Glorified) — game-wide for the same reason.
         self.state.creatures_died_this_turn.clear()
+        # RULE 701.6x history ("then if you've done all four this turn",
+        # Avatar Aang) — game-wide, same as the row above; a bend by any
+        # player is a per-turn fact none of them carry on the board.
+        self.state.bends_this_turn.clear()
         # Mana-potential tracking (`game/mana_potential.py`) — game-wide,
         # not `active.id`-only like `spells_cast_this_turn` above: a
         # non-active player can still tap mana at instant speed under

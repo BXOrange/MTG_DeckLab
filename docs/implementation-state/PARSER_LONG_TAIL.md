@@ -13,7 +13,19 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.8% covered — 13,502 / 34,811 — as of 2026-09-02, PARSER_VERSION 213.**
+**38.8% covered — 13,503 / 34,811 — as of 2026-09-02, PARSER_VERSION 214.**
+(214 = PAR-30, **Firebending (RULE ~702.189) grants residue — closed**: the
+last open sub-bullet of PAR-29's parser trail, the "whenever you waterbend,
+earthbend, firebend, or airbend" bending-verb trigger (Avatar Aang, a strict
+singleton — hand-authored). Reusable half: `EventType.BENT` +
+`RulesEngine.record_bend` + `GameState.bends_this_turn`, fired from all four
+bending primitives — `earthbend`, the waterbend additional-cast-cost payment
+(RULE 701.67c), airbend (a new `ExileEffect.bend_kind` param — the only
+parser-visible change, `_airbend` now emits it), and a second `ATTACKS`
+trigger carrying `RecordBendEffect` on every Firebending creature. Plus an
+`EffectSpec.condition` key `did_all_bends_this_turn` for the reflexive
+"transform" clause. +1 (Avatar Aang, hand-authored), 0 regressed. See
+`Done_Backend.md` "Firebending".)
 (213 = PAR-30, **Collect Evidence / Forage / Blight activated-body residue
 — closed**: the Lorwyn "Champion" cycle's mandatory `behold_exile`
 additional cast cost + a "return the exiled card to its owner's hand"
@@ -130,7 +142,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~40.6% — 12,920 / 31,830 (PARSER_VERSION 213).**
+**Commander-legal slice: ~40.6% — 12,921 / 31,830 (PARSER_VERSION 214).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

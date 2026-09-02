@@ -230,6 +230,17 @@ class EventType:
     #: keyword-action family's "fire an event so a future trigger can see
     #: it" convention.
     BEHELD = "BEHELD"
+    #: A player performed a bending keyword action (RULE 701.6x — Avatar:
+    #: The Last Airbender): waterbend / earthbend / firebend / airbend —
+    #: fired once by `RulesEngine.record_bend` after that action's own
+    #: procedure is complete (the 701.59b/701.61b process-complete
+    #: convention the rest of this family follows), carrying ``player_id``/
+    #: ``controller_id`` (that player, the SCRY/SURVEIL player-subject
+    #: convention), ``kind`` (``"waterbend"``/``"earthbend"``/``"firebend"``/
+    #: ``"airbend"``) and ``amount`` (the N of "earthbend N" etc., 0 where
+    #: the action carries no number). Powers "whenever you waterbend,
+    #: earthbend, firebend, or airbend, …" (Avatar Aang).
+    BENT = "BENT"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
     #: The Ring tempted a player (RULE 701.51a, Tales of Middle-earth) —

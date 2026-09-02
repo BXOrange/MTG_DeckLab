@@ -2170,7 +2170,23 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `alt_cost=True` cast path now scans the battlefield for); Celestial
 #: Reunion (`CelestialReunionSearchEffect`). `tests/test_par30_champion_
 #: behold_exile.py`, `tests/test_par30_collect_evidence_residue.py`.
-PARSER_VERSION = "213"
+#: v214 — **Firebending (RULE ~702.189) grants residue** closed (PAR-30, the
+#: last sub-bullet of PAR-29's parser trail): the "whenever you waterbend,
+#: earthbend, firebend, or airbend" bending-verb trigger (Avatar Aang).
+#: Engine: `EventType.BENT` + `RulesEngine.record_bend` + `GameState.bends_
+#: this_turn` (cleared each `begin_turn`), fired from all four bending
+#: primitives — `RulesEngine.earthbend`, the waterbend additional-cast-cost
+#: payment (RULE 701.67c), `ExileEffect.bend_kind` (airbend — the only
+#: parser-visible change: `handlers._airbend`/`_airbend_trigger_subject`
+#: now emit `"bend_kind": "airbend"`), and a second `ATTACKS` trigger
+#: carrying `effects.RecordBendEffect` on every Firebending creature
+#: (`effect_binder._kw_firebending`). `EffectSpec.condition` gained
+#: `did_all_bends_this_turn` (the reflexive "then if you've done all four
+#: this turn, transform ~"). Avatar Aang is hand-authored (strict
+#: singleton, un-parseable reflexive clause). No card's parser verdict
+#: changes; +1 covered via hand-authoring. `tests/test_par30_firebending_
+#: bending_trail.py`.
+PARSER_VERSION = "214"
 
 
 def parser_source_hash() -> str:

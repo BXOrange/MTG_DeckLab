@@ -863,6 +863,17 @@ class GameState:
         #: from every zone a live board scan could reach.
         self.creatures_died_this_turn: dict[str, int] = {p.id: 0 for p in players}
 
+        #: Which bending keyword actions (RULE 701.6x — Avatar: The Last
+        #: Airbender) each player has performed *this turn*: ``{player_id:
+        #: {"waterbend", "earthbend", "firebend", "airbend"}}``. Populated by
+        #: `RulesEngine.record_bend` (which also fires `EventType.BENT`) and
+        #: cleared wholesale in `GameEngine.begin_turn`, the same
+        #: history-question shape `creatures_died_this_turn` uses above —
+        #: Avatar Aang's "then if you've done all four this turn, transform"
+        #: is exactly such a question (the individual bends leave no board
+        #: trace a live scan could reach).
+        self.bends_this_turn: dict[str, set[str]] = {}
+
         #: Chronological log of everything fired; also the record the
         #: WebSocket layer can diff to build ``game_state_update``s.
         self.event_log: list[GameEvent] = []

@@ -103,13 +103,6 @@ Plan-level sequencing lives in
     (Hunted by The Family); "each opponent who lost 3+ life this turn"
     (Davros).
 
-  - **Firebending (RULE ~702.189) grants residue.** Only the "whenever you
-    waterbend / earthbend / firebend / airbend" bending-verb trigger row
-    (Avatar Aang) is left — needs each bending primitive to fire an event
-    first. (Fire Nation Cadets closed at PARSER_VERSION 157 — the self
-    parametric-keyword-grant static + the v156 `subtype_in_graveyard`
-    condition; see `Done_Backend.md`.)
-
   - **Waterbend (RULE 701.67) residue — parser grammar for the shared
     shapes is DONE; the rest are primitive-blocked singletons.** The
     optional-additional-cost-paid tracker (v155), the `subtype_in_graveyard`
@@ -139,12 +132,14 @@ Plan-level sequencing lives in
       `look_top_select` reveal-filter variant).
     - **North Pole Patrol** `waterbend {N}, {T}` compound cost; **Ward—
       Waterbend {4}** (The Unagi); **Exhaust — Waterbend {3}: becomes an
-      artifact creature …** (Invasion Submersible); the "whenever you
-      waterbend / earthbend / firebend / airbend" bending-verb trigger
-      (Avatar Aang — no bending events fire yet); plus cards blocked on
+      artifact creature …** (Invasion Submersible); plus cards blocked on
       unrelated clauses (Aang Swift Savior — airbend a *spell*; Katara
       Bending Prodigy — "her" pronoun; Waterbender Ascension — quest
       counters; Hama — alt-cast by waterbending; Aang's Iceberg — O-Ring).
+      (The "whenever you waterbend / earthbend / firebend / airbend"
+      bending-verb trigger — Avatar Aang — closed at PARSER_VERSION 214:
+      `EventType.BENT` now fires from all four bending primitives; see
+      `Done_Backend.md`.)
 
   - **Not gaps** (real handler verified action-by-action): Attach, Counter,
     Create, Destroy, Discard, Exile, Fight, Goad, Investigate, Mill,

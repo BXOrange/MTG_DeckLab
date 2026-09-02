@@ -7383,6 +7383,9 @@ def _airbend(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict[str, Any] = {
         "grant_owner_play_permission": True,
         "owner_play_permission_cost": "{2}",
+        # RULE 701.6x: mark this exile as an airbend so `ExileEffect` fires
+        # `EventType.BENT` (Avatar Aang's "whenever you … airbend" trigger).
+        "bend_kind": "airbend",
     }
     if m.group("orspell"):
         # "airbend up to one other target creature or spell" (Aang, Swift
@@ -7436,6 +7439,7 @@ def _airbend_trigger_subject(m: re.Match[str]) -> list[EffectSpec]:
         "target_kind": "trigger_subject",
         "grant_owner_play_permission": True,
         "owner_play_permission_cost": "{2}",
+        "bend_kind": "airbend",  # RULE 701.6x — see `_airbend`
     })]
 
 
