@@ -199,17 +199,32 @@ Plan-level sequencing lives in
         conditional destination on a search).
 
   - **RULE 701.10 exchange-control / exchange-life residue** (parked here
-    since PAR-29, not strictly a keyword action): a cross-target "shares a
-    card/permanent type with it" legality predicate (Confusion in the Ranks,
-    Daring Thief, Gauntlets of Chaos, Legerdemain, Role Reversal, Shifting
-    Loyalties, The Trickster-God's Heist, ~7); the numeric-comparison
-    sibling (Puca's Mischief, Spawnbroker); "you neither own nor control"
-    target kind (Conjured Currency); a "nonlegendary" `creature_filter` key
-    (Djinn of Infinite Deceits); "the `<X>` with the greatest mana value"
-    dynamic selection (Cultural Exchange, Juxtapose); exchanging a **spell**
-    on the stack (Perplexing Chimera, Sudden Substitution); a delayed triple
-    exchange (Mirror Mirror); a pre-effect numeric-comparison gate (Psychic
-    Transfer). Teams (Get a Life, RULE 810) is a permanent non-goal.
+    since PAR-29, not strictly a keyword action). The shared cross-target
+    "shares a card/permanent type" predicate and the numeric-comparison
+    sibling shipped at PARSER_VERSION 211 as resolve-time checks in
+    `ExchangeControlEffect._cross_target_ok` (`shares_type` /
+    `second_not_greater`) — Daring Thief, Legerdemain, Role Reversal,
+    Shifting Loyalties, Puca's Mischief, Spawnbroker closed (see
+    `Done_Backend.md`). Still open, each its own primitive: **Gauntlets of
+    Chaos** — the two-explicit "shares 1 of those types" form + a "destroy
+    all Auras attached to them" post-exchange rider; **Confusion in the
+    Ranks** — a trigger where "its controller chooses target permanent
+    another player controls that shares a card type with it" then "exchange
+    control of those permanents" (a chooses-then-references templating, not
+    a target on the exchange effect itself); **Conjured Currency** — "target
+    permanent you neither own nor control" target kind; **Djinn of Infinite
+    Deceits** — a "nonlegendary" `creature_filter` key + a "can't activate
+    this ability during combat" activation restriction; **Cultural Exchange
+    / Juxtapose** — "the `<X>` with the greatest mana value" dynamic
+    selection (+ Juxtapose's per-player tie-break choice); **Perplexing
+    Chimera / Sudden Substitution** — exchanging a **spell** on the stack;
+    **Mirror Mirror** — a delayed triple exchange (life totals + all
+    permanents + hands/libraries/graveyards); **Modify Memory** — "if you
+    control neither creature, draw 3 cards" post-exchange rider; **Psychic
+    Transfer** — a pre-effect numeric-comparison gate; **Arteeoh, Dread
+    Scavenger** — "exchange control of 2 other target artifacts" + a
+    reflexive copy-token connector. Teams (Get a Life, RULE 810) is a
+    permanent non-goal.
 
   - **Not gaps** (real handler verified action-by-action): Attach, Counter,
     Create, Destroy, Discard, Exile, Fight, Goad, Investigate, Mill,

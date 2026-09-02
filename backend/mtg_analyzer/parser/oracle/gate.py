@@ -2084,7 +2084,23 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: and a ``cant_become_suspected`` `grant_keyword` slug `RulesEngine.
 #: suspect` honours — the only card printing that prohibition). +4, 0
 #: regressed.
-PARSER_VERSION = "210"
+#: "211": PAR-30 — RULE 701.10 exchange-control residue, the cross-target
+#: legality predicates. `ExchangeControlEffect` gains resolve-time
+#: ``shares_type`` ("…that share[s] a card/permanent type with it" — Daring
+#: Thief, Legerdemain, Role Reversal, Shifting Loyalties) and
+#: ``second_not_greater`` (``"mana_value"`` — Puca's Mischief "with equal or
+#: lesser mana value"; ``"power"`` — Spawnbroker "with power less than or
+#: equal to that creature's power") checks — one more branch on the
+#: existing ``exchangeable`` no-op gate, no `legal_targets`/client change
+#: (the same documented simplification the different-controllers no-op is).
+#: `_exchange_control_two_explicit` / `_exchange_control_multi` regexes gain
+#: an optional `_EXCHANGE_XTARGET_TAIL`; new `subgrammars` rows "target
+#: nonland permanent you control" and "another/other target permanent";
+#: `_EXCHANGE_CONTROL_TARGET_KINDS` widened for the controller-scoped
+#: permanent kinds; a dedicated Spawnbroker row (its comparison sits inside
+#: the second target phrase). +10 (6 exchange cards + 4 "untap another
+#: target permanent" bonus), 0 regressed.
+PARSER_VERSION = "211"
 
 
 def parser_source_hash() -> str:

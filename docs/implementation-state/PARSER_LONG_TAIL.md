@@ -13,7 +13,21 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.6% covered — 13,454 / 34,811 — as of 2026-09-02, PARSER_VERSION 210.**
+**38.7% covered — 13,464 / 34,811 — as of 2026-09-02, PARSER_VERSION 211.**
+(211 = PAR-30, RULE 701.10 exchange-control residue — the cross-target
+legality predicates. `ExchangeControlEffect` gains resolve-time
+`shares_type` ("…that share[s] a card/permanent type with it" — Daring
+Thief, Legerdemain, Role Reversal, Shifting Loyalties) and
+`second_not_greater` (`"mana_value"` — Puca's Mischief; `"power"` —
+Spawnbroker) checks, one more branch on the existing `exchangeable` no-op
+gate — no `legal_targets`/client change, the same documented
+simplification the different-controllers no-op already is. Parser: an
+optional `_EXCHANGE_XTARGET_TAIL` on the two-explicit / multi handlers, a
+dedicated Spawnbroker row, new `subgrammars` rows "target nonland
+permanent you control" / "another target permanent",
+`_EXCHANGE_CONTROL_TARGET_KINDS` widened for the controller-scoped
+permanent kinds. +10 (6 exchange cards + 4 "untap another target
+permanent" bonus), 0 regressed. See `Done_Backend.md`.)
 (210 = PAR-30, Suspect (RULE 701.60) one-off shapes — the four
 primitive-blocked singletons the PAR-29 keyword trail left. New
 `EffectSpec.condition` key `previous_target_is_suspected` (Agrus Kos,
@@ -78,7 +92,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~40.5% — 12,876 / 31,830 (PARSER_VERSION 210).**
+**Commander-legal slice: ~40.5% — 12,886 / 31,830 (PARSER_VERSION 211).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

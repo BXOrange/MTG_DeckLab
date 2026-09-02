@@ -4146,7 +4146,9 @@ def _choose_targets_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 # theirs.controller_id` check), so nothing incorrect resolves either way.
 _EXCHANGE_CONTROL_TARGET_KINDS = frozenset(
     {"creature", "creature_you_control", "creature_you_dont_control",
-     "permanent", "nonland_permanent", "artifact", "land",
+     "permanent", "permanent_you_control", "permanent_you_dont_control",
+     "nonland_permanent", "nonland_permanent_you_control",
+     "nonland_permanent_you_dont_control", "artifact", "land",
      "land_you_control", "land_you_dont_control"}
 )
 
@@ -4160,19 +4162,67 @@ def _exchange_control_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: PAR-30 RULE 701.10 residue — the optional trailing cross-target predicate
+#: on an "exchange control of X and Y" clause, checked at resolution by
+#: `effects.ExchangeControlEffect._cross_target_ok`:
+#:   * "…that share[s] {a card type | a permanent type | 1 of those types}
+#:     [with it]" (Daring Thief / Legerdemain / Role Reversal / Shifting
+#:     Loyalties / Trickster-God's Heist) — all fold to ``shares_type="card"``
+#:     (RULE 205.2: two battlefield permanents sharing a permanent type ⇔
+#:     sharing a card type);
+#:   * "…with equal or lesser mana value" (Puca's Mischief).
+_EXCHANGE_XTARGET_TAIL = (
+    r"(?:,? (?P<xt_share>that shares? (?:a (?:card|permanent) type|1 of those types)"
+    r"(?: with it)?)"
+    r"|,? with (?P<xt_mv>equal or lesser mana value))?"
+)
+
+
+def _exchange_xtarget_params(m: re.Match[str]) -> dict:
+    gd = m.groupdict()
+    params: dict = {}
+    if gd.get("xt_share"):
+        params["shares_type"] = "card"
+    if gd.get("xt_mv"):
+        params["second_not_greater"] = "mana_value"
+    return params
+
+
 def _exchange_control_two_explicit(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     first = resolve_target_kind(m.group("target"))
     second = resolve_target_kind(m.group("target_b"))
     if first not in _EXCHANGE_CONTROL_TARGET_KINDS or second not in _EXCHANGE_CONTROL_TARGET_KINDS:
         return None
-    return [EffectSpec("exchange_control", {"first_target_kind": first, "target_kind": second})]
+    return [EffectSpec("exchange_control", {
+        "first_target_kind": first, "target_kind": second,
+        **_exchange_xtarget_params(m),
+    })]
 
 
 def _exchange_control_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _multi_target_params(m)
     if params is None:
         return None
+    params.update(_exchange_xtarget_params(m))
     return [EffectSpec("exchange_control", params)]
+
+
+#: Spawnbroker — "target creature you control and target creature **with
+#: power less than or equal to that creature's power** an opponent controls".
+#: The comparison sits *inside* the second target phrase (before "an opponent
+#: controls"), so `_TARGET_B` can't consume it; its own row.
+_EXCHANGE_CONTROL_SPAWNBROKER_RE = _c(
+    r"exchange control of target creature you control and target creature "
+    r"with power less than or equal to that creature'?s power an opponent controls"
+)
+
+
+def _exchange_control_spawnbroker(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exchange_control", {
+        "first_target_kind": "creature_you_control",
+        "target_kind": "creature_you_dont_control",
+        "second_not_greater": "power",
+    })]
 
 
 # RULE 701.10's life-total half — "exchange life totals with target
@@ -9697,8 +9747,13 @@ HANDLERS: list[EffectHandler] = [
     # `<kind>`[ controlled by different players]", then this permanent plus
     # one target.
     EffectHandler(
+        "exchange_control_spawnbroker",
+        _EXCHANGE_CONTROL_SPAWNBROKER_RE,
+        _exchange_control_spawnbroker,
+    ),
+    EffectHandler(
         "exchange_control_two_explicit",
-        _c(rf"exchange control of {TARGET} and {_TARGET_B}"),
+        _c(rf"exchange control of {TARGET} and {_TARGET_B}{_EXCHANGE_XTARGET_TAIL}"),
         _exchange_control_two_explicit,
     ),
     EffectHandler(
@@ -9706,6 +9761,7 @@ HANDLERS: list[EffectHandler] = [
         _c(
             rf"exchange control of {_MULTI_TARGET_QUANTIFIER}(?:other )?"
             rf"(?P<target>{_MULTI_TARGET_ALT}){_MULTI_TARGET_DISTINCT_CONTROLLERS}"
+            rf"{_EXCHANGE_XTARGET_TAIL}"
         ),
         _exchange_control_multi,
     ),

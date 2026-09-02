@@ -16441,8 +16441,25 @@ class ExchangeControlEffect(GameEffect):
         optional: bool = False,
         count: int = 1,
         distinct_controllers: bool = False,
+        shares_type: Optional[str] = None,
+        second_not_greater: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: PAR-30 (RULE 701.10 exchange-control residue) — cross-target
+        #: legality predicates RULE 115 verifies at *selection*, checked here
+        #: at resolution instead (the same documented simplification the
+        #: ``mine.controller_id != theirs.controller_id`` no-op below already
+        #: is): ``shares_type`` (``"card"``/``"permanent"`` — "…that shares a
+        #: card type with it", Daring Thief / Legerdemain / Role Reversal /
+        #: Shifting Loyalties) requires the two permanents to share a card
+        #: type; ``second_not_greater`` (``"mana_value"``/``"power"`` — Puca's
+        #: Mischief "with equal or lesser mana value", Spawnbroker "with power
+        #: less than or equal to that creature's power") caps the *second*
+        #: (opponent-side) permanent against the first. A pick that fails
+        #: either just doesn't exchange — one more branch onto the existing
+        #: ``exchangeable`` gate, no `legal_targets`/client change.
+        self.shares_type = shares_type
+        self.second_not_greater = second_not_greater
         # "Exchange control of target artifact or creature you control and
         # target creature an opponent controls with power 3 or less." (Oko,
         # Thief of Crowns' -5, MEC-43 round 4E) — unlike Gilded Drake's own
@@ -16491,6 +16508,29 @@ class ExchangeControlEffect(GameEffect):
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
+    def _cross_target_ok(self, mine: Any, theirs: Any) -> bool:
+        """RULE 115 cross-target predicates verified at resolution — see the
+        ``shares_type`` / ``second_not_greater`` note in ``__init__``."""
+        if self.shares_type is not None:
+            # RULE 205.2: for two battlefield permanents "shares a permanent
+            # type" and "shares a card type" pick out the same set, so both
+            # spellings check the same intersection — narrowed to real card
+            # types (``type_words`` also carries a synthetic "permanent"
+            # entry every permanent has, which would make the test vacuous).
+            a = {t.lower() for t in getattr(mine, "type_words", ())} & _PERMANENT_TYPE_WORDS
+            b = {t.lower() for t in getattr(theirs, "type_words", ())} & _PERMANENT_TYPE_WORDS
+            if not (a & b):
+                return False
+        if self.second_not_greater == "mana_value":
+            if (getattr(theirs.card, "converted_mana_cost", 0) or 0) > (
+                getattr(mine.card, "converted_mana_cost", 0) or 0
+            ):
+                return False
+        if self.second_not_greater == "power":
+            if (theirs.power or 0) > (mine.power or 0):
+                return False
+        return True
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self._two_target_mode:
             mine = targets[0] if targets and len(targets) > 0 else None
@@ -16505,6 +16545,7 @@ class ExchangeControlEffect(GameEffect):
             and mine in battlefield
             and theirs in battlefield
             and mine.controller_id != theirs.controller_id
+            and self._cross_target_ok(mine, theirs)
         )
         if exchangeable:
             mine.controller_id, theirs.controller_id = theirs.controller_id, mine.controller_id
@@ -19851,6 +19892,9 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         count=int(p.get("count", 1) or 1),
         distinct_controllers=bool(p.get("distinct_controllers", False)),
+        # PAR-30 RULE 701.10 residue — resolve-time cross-target predicates.
+        shares_type=p.get("shares_type"),
+        second_not_greater=p.get("second_not_greater"),
     ),
 )
 EffectRegistry.register(

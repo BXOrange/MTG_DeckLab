@@ -176,7 +176,16 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # wins, mirroring the "target permanent an opponent controls" pair.
     (r"target nonland permanent (?:an opponent controls|you don't control)",
      "nonland_permanent_you_dont_control"),
+    # "target nonland permanent you control" (PAR-30 — Daring Thief / Puca's
+    # Mischief exchange-control targets); the controller-scoped sibling,
+    # above the bare row so the longer phrase wins.
+    (r"target nonland permanent you control", "nonland_permanent_you_control"),
     (r"target nonland permanent", "nonland_permanent"),
+    # "another target permanent" (RULE 109.5 — Legerdemain's second
+    # exchange-control target; `other_permanent` isn't a distinct engine
+    # kind, so it routes to the plain broad ``permanent`` pool like the
+    # N-way row above, the same precision this file already accepts there).
+    (r"(?:another|other) target permanent", "permanent"),
     (r"target spell", "spell"),
     (r"target player or planeswalker", "player"),
     (r"target opponent", "player"),
