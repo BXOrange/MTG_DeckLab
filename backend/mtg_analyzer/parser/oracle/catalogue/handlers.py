@@ -4565,7 +4565,14 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
     if any(s.params.get("target_kind") for s in sub):
-        return None  # a targeted follow-up can't resolve off-stack — see docstring above
+        # RULE 603.11: a *targeted* "When you do, <payoff>." is a reflexive
+        # triggered ability — it goes on the stack as its own ability with
+        # full RULE 115 target selection, not off-stack like `effects`.
+        # (Sample Collector, Curious Forager, Warren Torchmaster.)
+        return [EffectSpec("pay_cost_then", {
+            "cost": m.group("cost"),
+            "then_trigger": [s.to_dict() for s in sub],
+        })]
     return [EffectSpec("pay_cost_then", {
         "cost": m.group("cost"),
         "effects": [s.to_dict() for s in sub],

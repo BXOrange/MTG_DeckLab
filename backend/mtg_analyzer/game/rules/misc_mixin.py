@@ -225,6 +225,8 @@ class MiscSystemsMixin:
         else_effect_specs: Optional[list[dict]] = None,
         prompt: Optional[str] = None,
         targets: Optional[list[Any]] = None,
+        then_trigger_specs: Optional[list[dict]] = None,
+        then_trigger_event: Optional[GameEvent] = None,
     ) -> None:
         """Open the interactive "you may pay ``cost``. If you do, `<effect>`."
         choice (RULE 118.3-style optional payment mid-resolution).
@@ -248,9 +250,18 @@ class MiscSystemsMixin:
         trigger's already-baked "that spell" (Wandering Archaic's copy),
         which the branch effects would otherwise never see, since they are
         built fresh at answer time rather than sitting on the stack item.
+
+        ``then_trigger_specs`` is RULE 603.11's "**When you do**, `<targeted
+        payoff>`." — instead of resolving off the stack like ``effect_specs``
+        (which can never choose a RULE 115 target), a paid cost enqueues
+        these as their own `TriggeredAbility` on `pending_triggers`, so the
+        ordinary placement path gathers targets and it goes on the stack.
+        ``then_trigger_event`` is the *outer* trigger's event, carried so a
+        payoff that names it ("that player") can read it back.
         """
         specs = [dict(d) for d in effect_specs]
         else_specs = [dict(d) for d in (else_effect_specs or [])]
+        then_trigger = [dict(d) for d in (then_trigger_specs or [])]
         if not self._can_pay_player_cost(player, cost):
             self._apply_effect_specs(else_specs, source, targets)
             return
@@ -261,6 +272,8 @@ class MiscSystemsMixin:
             "else_effect_specs": else_specs,
             "source": source,
             "targets": list(targets or []),
+            "then_trigger_specs": then_trigger,
+            "then_trigger_event": then_trigger_event,
         }
         cost_label = cost.label()
         self.state.pending_choice = {
@@ -292,12 +305,49 @@ class MiscSystemsMixin:
         else:
             self._pay_player_cost(player, pending["cost"])
             self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
+            self._enqueue_pay_cost_then_trigger(pending)
         # PAR-13: if this single-player choice is one leg of a mass
         # `request_each_player_pay_or` sweep, move on to whoever's next —
         # a no-op for every ordinary (non-mass) `pay_cost_then` caller,
         # since that dict is only ever populated by the mass primitive.
         if self._pending_each_player_pay_or is not None:
             self._advance_each_player_pay_or()
+    def _enqueue_pay_cost_then_trigger(self, pending: dict[str, Any]) -> None:
+        """RULE 603.11: a paid "you may `<cost>`" whose card continues "When
+        you do, `<targeted payoff>`" fires that payoff as its *own*
+        triggered ability. Built fresh here (per the `TriggeredAbility`
+        docstring's sanctioned "bake per-firing data in at the call site"
+        pattern) and queued on `pending_triggers`, so the ordinary
+        placement path (`put_triggers_on_stack` → `_place_triggers`) gathers
+        its RULE 115 target and puts it on the stack — which is the whole
+        point: `effect_specs` above resolve off the stack and could never
+        choose one.
+        """
+        specs = pending.get("then_trigger_specs") or []
+        if not specs:
+            return
+        from ..effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import EffectSpec
+
+        source = pending.get("source")
+        outer_event = pending.get("then_trigger_event")
+        built = build_effects(
+            [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in specs],
+            source,
+        )
+        controller_id = getattr(source, "controller_id", None) or self.state.active_player.id
+        ability = TriggeredAbility(
+            trigger_event=getattr(outer_event, "type", None) or EventType.SPELL_RESOLVED,
+            effects=built,
+            source=source,
+            controller_id=controller_id,
+            optional=False,  # the "may" was the cost payment; the payoff is not optional
+            description=getattr(source, "name", "") or "reflexive ability",
+        )
+        # Carry the outer trigger's event so a payoff naming it ("that
+        # player") reads it off its own `StackItem.trigger_event`.
+        event = outer_event if isinstance(outer_event, GameEvent) else GameEvent(EventType.SPELL_RESOLVED)
+        self.pending_triggers.append((ability, event))
     def request_pay_life_or_return_to_library(
         self, player: Player, objs: list[GameObject], amount: int = 4,
     ) -> None:

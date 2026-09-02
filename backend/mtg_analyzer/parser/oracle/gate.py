@@ -2011,7 +2011,20 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: singletons (Phyrexian Incubator's "that many times", Progenitor
 #: Exarch's "X times", Traumatic Revelation's "if you don't" else-branch)
 #: are hand-authored in `ability_catalogue/entries_016.py`, not parsed.
-PARSER_VERSION = "205"
+#: "206": PAR-30 (Collect Evidence / Forage / Blight residue, sub-cluster a)
+#: — reflexive "**When you do**, `<targeted payoff>`." after an optional
+#: keyword-action cost (RULE 603.11). `_pay_cost_then_general` no longer
+#: rejects a *targeted* follow-up: it emits `pay_cost_then` with a new
+#: ``then_trigger`` (the serialized payoff). On payment,
+#: `RulesEngine._enqueue_pay_cost_then_trigger` builds a fresh
+#: `TriggeredAbility` from those specs and queues it on `pending_triggers`,
+#: so the ordinary placement path gathers its RULE 115 target and puts it
+#: on the stack — which `effects` (off-stack) never could. Generalises far
+#: past Collect Evidence: any "you may pay {cost}/sacrifice/discard/pay
+#: life. If you do, `<targeted effect>`" — Surgespanner, Teneb, Bearer of
+#: Silence, Sample Collector, Curious Forager, Warren Torchmaster, … +43,
+#: 0 regressed.
+PARSER_VERSION = "206"
 
 
 def parser_source_hash() -> str:

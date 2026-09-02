@@ -13,7 +13,15 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.4% covered — 13,359 / 34,811 — as of 2026-09-02, PARSER_VERSION 205.**
+**38.5% covered — 13,402 / 34,811 — as of 2026-09-02, PARSER_VERSION 206.**
+(206 = Collect Evidence / Forage / Blight residue, sub-cluster (a): the
+reflexive *targeted* "When you do, `<payoff>`." after an optional
+keyword-action cost (RULE 603.11). A paid `pay_cost_then` now enqueues the
+payoff as its own `TriggeredAbility` (`then_trigger` param), so it goes on
+the stack with real RULE 115 target selection instead of resolving
+off-stack. Generalises far past Collect Evidence — Surgespanner, Teneb,
+Bearer of Silence, plus Sample Collector / Curious Forager / Warren
+Torchmaster. +43, 0 regressed. See `Done_Backend.md`.)
 (205 = Incubate residue closed — the plain "incubate N" cards blocked on
 unrelated grammar: reflexive "…unless its controller pays {N}. If they do,
 `<effect>`" on a counter + "battle" spell type (Assimilate Essence, Don't
@@ -33,7 +41,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~40.2% — 12,782 / 31,830 (PARSER_VERSION 205).**
+**Commander-legal slice: ~40.3% — 12,824 / 31,830 (PARSER_VERSION 206).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

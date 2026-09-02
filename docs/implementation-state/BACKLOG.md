@@ -146,20 +146,31 @@ Plan-level sequencing lives in
       Bending Prodigy — "her" pronoun; Waterbender Ascension — quest
       counters; Hama — alt-cast by waterbending; Aang's Iceberg — O-Ring).
 
-  - **Collect Evidence / Forage / Blight activated-body residue.** Exotic
-    `{cost}, collect evidence N:` bodies (Hedge Whisperer land-animation,
-    Polygraph Orb edict, Tenth District Hero class-up); Gristle Glutton's
-    `{T}, Blight 1: discard a card. If you do, draw a card.` and Spiral into
-    Solitude's three-part `{1}{W}, Blight 1, Sacrifice ~:` body; *targeted*
-    "when you do, `<targeted payoff>`" that `pay_cost_then` can't resolve
-    off-stack (Sample Collector, Memory Vampire, Curious Forager, Warren
-    Torchmaster); dynamic "collect evidence X" (Incinerator of the Guilty);
-    "collect evidence N / forage / behold `<quality>` **rather than pay the
-    mana cost**" alt-cast forms (Conspiracy Unraveler, Feed the Cycle);
-    Behold's Molten Exhale (conditional-flash fused with a behold cost),
-    Elven Passage ("you may behold an elf. If you do, untap that land."),
-    the Champion cycle ("behold a `<type>` and exile it" + LTB return),
-    Celestial Reunion ("behold 2 creatures of a chosen type").
+  - **Collect Evidence / Forage / Blight activated-body residue.** The
+    reflexive *targeted* "When you do, `<payoff>`" shape shipped (v206 —
+    `pay_cost_then.then_trigger`, RULE 603.11; see `Done_Backend.md`),
+    closing that sub-cluster and a +43 family beyond it. What's left:
+    - **Exotic `{cost}, collect evidence N:` bodies** — Hedge Whisperer
+      land-animation, Polygraph Orb edict, Tenth District Hero class-up;
+      Gristle Glutton's `{T}, Blight 1: discard a card. If you do, draw a
+      card.` and Spiral into Solitude's three-part `{1}{W}, Blight 1,
+      Sacrifice ~:` body.
+    - **Dynamic "collect evidence X"** — Incinerator of the Guilty (choose
+      X as you collect; the payoff `~ deals X damage to each creature and
+      planeswalker that player controls` also needs an event-scoped group
+      damage). **Memory Vampire** — its reflexive half rides v206's
+      `then_trigger`, but the card also needs "any number of target
+      players each mill that many cards" (dynamic multi-target mill) and
+      "cast target nonland card from a graveyard without paying its mana
+      cost" (a new one-shot cast-from-graveyard-free primitive) before it
+      is MODELED.
+    - **"collect evidence N / forage / behold `<quality>` rather than pay
+      the mana cost"** alt-cast forms — Conspiracy Unraveler, Feed the
+      Cycle.
+    - **Behold** — Molten Exhale (conditional-flash fused with a behold
+      cost), Elven Passage ("you may behold an elf. If you do, untap that
+      land."), the Champion cycle ("behold a `<type>` and exile it" + LTB
+      return), Celestial Reunion ("behold 2 creatures of a chosen type").
 
   - **Clash (RULE 701.30) win-branch residue — parser grammar is DONE; 6
     primitive-blocked singletons remain.** Eight batches (v147–v154) worked

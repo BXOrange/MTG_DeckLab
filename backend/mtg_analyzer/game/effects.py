@@ -9790,11 +9790,23 @@ class PayCostThenEffect(GameEffect):
         sacrifice_or_discard: bool = False,
         prompt: Optional[str] = None,
         remember_trigger_stack_id: bool = False,
+        then_trigger: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.cost_text = str(cost)
         self.inner_specs = list(effects or [])
         self.else_specs = list(else_effects or [])
+        #: "You may `<cost>`. **When you do**, `<targeted payoff>`." (Sample
+        #: Collector, Curious Forager, Warren Torchmaster) — RULE 603.11's
+        #: reflexive triggered ability. Unlike ``effects`` (applied off the
+        #: stack the moment the choice is answered, so a RULE 115 target
+        #: could never be chosen), these serialized `EffectSpec` dicts go on
+        #: the stack as their *own* triggered ability once the cost is paid,
+        #: with full target selection — see `RulesEngine.
+        #: resolve_pay_cost_then_choice`. Mutually exclusive with
+        #: ``effects``/``else_effects`` in practice; an "if you don't" on a
+        #: reflexive card doesn't occur.
+        self.then_trigger_specs = list(then_trigger or [])
         self.payer = payer
         #: "…unless they sacrifice a nonland permanent of their choice or
         #: discard a card." (Tergrid's Lantern, MEC-43 round 4E) — ORed
@@ -9897,6 +9909,11 @@ class PayCostThenEffect(GameEffect):
             # stack item where the usual target dispatch would find them.
             targets=list(targets or []),
             prompt=self.prompt,
+            then_trigger_specs=self.then_trigger_specs or None,
+            # The outer trigger's own event, so a "When you do" payoff that
+            # names it ("that player", "defending player's graveyard") can
+            # read it back off its own `StackItem.trigger_event`.
+            then_trigger_event=context.trigger_event,
         )
 
 
@@ -19188,6 +19205,7 @@ EffectRegistry.register(
         sacrifice_or_discard=bool(p.get("sacrifice_or_discard", False)),
         prompt=p.get("prompt"),
         remember_trigger_stack_id=bool(p.get("remember_trigger_stack_id", False)),
+        then_trigger=p.get("then_trigger"),
     ),
 )
 EffectRegistry.register(
