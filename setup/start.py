@@ -10,6 +10,18 @@ macOS/Linux/Windows as long as a Python 3 interpreter is on PATH.
 Usage:
   python3 setup/start.py  [--port 8765] [--backend-port 8000] [--backend-tests] [--no-browser] [--scryfall-primary]
   python setup\start.py   [--port 8765] [--backend-port 8000] [--backend-tests] [--no-browser] [--scryfall-primary]
+
+  --log LEVEL             backend log level (app loggers + uvicorn);
+                         default "warning"
+
+Worker/concurrency knobs (each also has a matching MTG_* env var and a
+key in backend/mtg_analyzer/config.json; the flag wins over both):
+  --server-threads N          how many games may be mid-step at once in the
+                              one backend process (default 40)
+  --analysis-jobs N           how many dynamic-analysis jobs run at once
+  --analysis-match-workers N  worker processes ONE analysis job spreads its
+                              matches across for real speed-up (0 = one per
+                              CPU core, 1 = in-process)
 """
 
 import argparse
@@ -43,7 +55,7 @@ def wait_for_port(host: str, port: int, timeout: float = 15.0) -> bool:
     return False
 
 
-def start_backend(python, port: int, scryfall_primary: bool = False) -> subprocess.Popen:
+def start_backend(python, port: int, scryfall_primary: bool = False, extra_env=None, log_level: str = "warning") -> subprocess.Popen:
     print(f"Starting backend API at http://localhost:{port} ...")
     env = os.environ.copy()
     if scryfall_primary:
@@ -51,8 +63,26 @@ def start_backend(python, port: int, scryfall_primary: bool = False) -> subproce
         # LazyCardLoader from the default cache-primary loading policy to
         # always refetching a stale cached card from Scryfall.
         env["MTG_SCRYFALL_PRIMARY"] = "1"
+    # Worker knobs (--server-threads / --analysis-jobs /
+    # --analysis-match-workers) are passed to the app as MTG_* env vars,
+    # read by mtg_analyzer/config.py. See main().
+    for key, value in (extra_env or {}).items():
+        env[key] = str(value)
+    # A single uvicorn process on purpose — no `--workers N`. The game
+    # session manager, the multiplayer lobby and the dynamic-analysis job
+    # registry are all in-memory, process-wide singletons
+    # (api/dependencies.py), so a second worker process would not see a
+    # session created on the first. Concurrency within the one process is
+    # via the request thread pool (--server-threads) and, for analysis, a
+    # per-job process pool (--analysis-match-workers).
+    # `--log-level` defaults to "warning" here rather than uvicorn's own
+    # "info": a normal run is quiet, and `--log` raises both this and the
+    # app's `mtg_analyzer.*` loggers (via MTG_LOG_LEVEL, see main()).
     return subprocess.Popen(
-        [str(python), "-m", "uvicorn", "mtg_analyzer.api.app:app", "--port", str(port)],
+        [
+            str(python), "-m", "uvicorn", "mtg_analyzer.api.app:app",
+            "--port", str(port), "--log-level", str(log_level),
+        ],
         cwd=str(BACKEND_DIR),
         env=env,
     )
@@ -100,8 +130,10 @@ def start_frontend(python, port: int, open_browser: bool) -> subprocess.Popen:
     return frontend_proc
 
 
-def run_servers(python, port: int, backend_port: int, open_browser: bool, scryfall_primary: bool = False) -> None:
-    backend_proc = start_backend(python, backend_port, scryfall_primary=scryfall_primary)
+def run_servers(python, port: int, backend_port: int, open_browser: bool, scryfall_primary: bool = False, extra_env=None, log_level: str = "warning") -> None:
+    backend_proc = start_backend(
+        python, backend_port, scryfall_primary=scryfall_primary, extra_env=extra_env, log_level=log_level,
+    )
     try:
         if not wait_for_port("127.0.0.1", backend_port):
             raise RuntimeError(f"Backend API did not become ready on port {backend_port}.")
@@ -148,7 +180,51 @@ def main() -> None:
             "calls (and rate limits) on an ordinary deck load."
         ),
     )
+    parser.add_argument(
+        "--log",
+        default=None,
+        metavar="LEVEL",
+        choices=["critical", "error", "warning", "info", "debug", "trace"],
+        help=(
+            "Backend log level for both the app's own loggers and uvicorn. "
+            "Default: warning (quiet). Use 'info' or 'debug' to see engine/parser detail."
+        ),
+    )
+    # Worker/concurrency knobs. Each maps to an MTG_* env var read by
+    # mtg_analyzer/config.py, and overrides both backend/mtg_analyzer/
+    # config.json and the built-in default. Left unset here, the file /
+    # default decide.
+    parser.add_argument(
+        "--server-threads", type=int, default=None, metavar="N",
+        help="How many blocking requests (i.e. games mid-step) the backend handles at once (default 40).",
+    )
+    parser.add_argument(
+        "--analysis-jobs", type=int, default=None, metavar="N",
+        help="How many dynamic-analysis jobs run concurrently (admission cap, default 4).",
+    )
+    parser.add_argument(
+        "--analysis-match-workers", type=int, default=None, metavar="N",
+        help=(
+            "Worker processes ONE dynamic-analysis job spreads its independent match "
+            "simulations across (real speed-up). 0 = one per CPU core, 1 = in-process."
+        ),
+    )
     args = parser.parse_args()
+
+    worker_env = {}
+    if args.server_threads is not None:
+        worker_env["MTG_SERVER_THREAD_WORKERS"] = args.server_threads
+    if args.analysis_jobs is not None:
+        worker_env["MTG_DYNAMIC_ANALYSIS_WORKERS"] = args.analysis_jobs
+    if args.analysis_match_workers is not None:
+        worker_env["MTG_DYNAMIC_ANALYSIS_MATCH_WORKERS"] = args.analysis_match_workers
+
+    # No --log: uvicorn is quieted to "warning" (vs its own "info" default)
+    # and the app's own loggers keep their config.json / WARNING default.
+    # With --log: force both to that level (MTG_LOG_LEVEL wins over the file).
+    log_level = args.log or "warning"
+    if args.log is not None:
+        worker_env["MTG_LOG_LEVEL"] = args.log
 
     if args.backend_only and args.frontend_only:
         parser.error("--backend-only and --frontend-only cannot be used together")
@@ -162,7 +238,10 @@ def main() -> None:
         print()
 
     if args.backend_only:
-        backend_proc = start_backend(python, args.backend_port, scryfall_primary=args.scryfall_primary)
+        backend_proc = start_backend(
+            python, args.backend_port, scryfall_primary=args.scryfall_primary,
+            extra_env=worker_env, log_level=log_level,
+        )
         try:
             backend_proc.wait()
         except KeyboardInterrupt:
@@ -184,6 +263,7 @@ def main() -> None:
     run_servers(
         python, args.port, args.backend_port,
         open_browser=not args.no_browser, scryfall_primary=args.scryfall_primary,
+        extra_env=worker_env, log_level=log_level,
     )
 
 

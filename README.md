@@ -49,7 +49,14 @@ Useful variants:
 ./start.sh --backend-only        # start only the FastAPI backend
 ./start.sh --frontend-only       # start only the static frontend server
 ./start.sh --no-browser          # skip opening a browser tab automatically
+./start.sh --log info            # backend log level (default: warning)
+./start.sh --analysis-match-workers 8   # parallelise dynamic analysis over 8 processes
 ```
+
+Runtime settings (paths, Scryfall, multiplayer timers, worker pool sizes,
+log level) live in `backend/mtg_analyzer/config.json` — edit it, or
+override any value with the matching `MTG_*` environment variable or the
+`start.sh` flag (flag > env var > file > built-in default).
 
 `setup/install.py` creates `backend/venv` and installs `backend/requirements.txt`
 into it — this is the whole backend, encapsulated in its own virtual

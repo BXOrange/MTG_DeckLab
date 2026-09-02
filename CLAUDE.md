@@ -508,16 +508,48 @@ English and German.
   `INFINITE_MANA_THRESHOLD` is the pattern: named, with a comment
   explaining the reasoning behind the exact number. Applies project-wide,
   backend and frontend.
-- **Configuration**: on-disk paths and a few runtime constants (cache/data
-  dirs, Scryfall User-Agent/rate limit) live in `mtg_analyzer/config.py`,
-  overridable via `MTG_CACHE_DIR`/`MTG_DATA_DIR`/`MTG_USER_AGENT`/
-  `MTG_SCRYFALL_MIN_REQUEST_INTERVAL` env vars — point a one-off script or
-  test run elsewhere without colliding with a real dev server's cache/saved
-  decks. Service modules (`card_database.py`, `deck_database.py`, etc.) keep
-  their old constant names (`CACHE_ROOT`, `DEFAULT_DB_PATH`, …) as aliases
-  onto `config.py`'s values; `api/dependencies.py`'s singletons import
-  straight from `config.py`. `LazyCardLoader`'s loading *policy* is also
-  here: `SCRYFALL_PRIMARY` (`MTG_SCRYFALL_PRIMARY` env var, or
+- **Configuration**: on-disk paths and runtime constants (cache/data
+  dirs, Scryfall User-Agent/rate limit, multiplayer timers, worker/pool
+  sizes) live in `mtg_analyzer/config.py`. Each value resolves with a
+  fixed precedence: **`MTG_*` env var > `mtg_analyzer/config.json` >
+  built-in default**. The JSON file is committed with every knob written
+  out at its default plus a per-section `_comment` (keys starting with
+  `_` are ignored); a missing/malformed file is ignored and the server
+  still starts. Point elsewhere with `MTG_CONFIG_FILE`. The env vars
+  (`MTG_CACHE_DIR`/`MTG_DATA_DIR`/`MTG_USER_AGENT`/
+  `MTG_SCRYFALL_MIN_REQUEST_INTERVAL`/…) still work and still win, so a
+  one-off script or test run points elsewhere without colliding with a
+  real dev server. Service modules (`card_database.py`, `deck_database.py`,
+  etc.) keep their old constant names (`CACHE_ROOT`, `DEFAULT_DB_PATH`, …)
+  as aliases onto `config.py`'s values; `api/dependencies.py`'s singletons
+  import straight from `config.py`.
+- **Concurrency / workers**: the backend runs as **one** uvicorn process
+  on purpose (`setup/start.py` — the game-session manager, multiplayer
+  lobby and dynamic-analysis job registry are in-memory process-wide
+  singletons, so `uvicorn --workers N` would split them). Concurrency
+  within that process has three configurable knobs (env var / `config.json`
+  `[workers]` / `start.sh` flag): `SERVER_THREAD_WORKERS`
+  (`--server-threads`, default 40) sizes the AnyIO request-thread pool
+  applied in `api/app.py`'s lifespan — every gameplay endpoint is a sync
+  `def`, so this is the ceiling on games mid-step at once;
+  `DYNAMIC_ANALYSIS_WORKERS` (`--analysis-jobs`, default 4) is an
+  admission cap on concurrent analysis *jobs* (`_JobWorkerPool`); and
+  `DYNAMIC_ANALYSIS_MATCH_WORKERS` (`--analysis-match-workers`, default 0
+  = one per CPU core, 1 = off) is the real speed-up — `run_dynamic_analysis`
+  fans one job's independent match simulations across a
+  `ProcessPoolExecutor` (GIL-bypassing), falling back to in-process for a
+  small job (`_MIN_MATCHES_FOR_PROCESS_POOL`) or if the pool can't start.
+- **Logging**: nothing configured logging before, so `mtg_analyzer.*`
+  records fell through to `logging.lastResort` (WARNING+ only). `config.
+  LOG_LEVEL` (`MTG_LOG_LEVEL` / `config.json` `logging.level` /
+  `./start.sh --log <level>`) now sets the `mtg_analyzer` parent logger's
+  level, applied in `create_app()` via `_configure_logging()`. Default
+  **WARNING** (the engine/parser are chatty at INFO); the root level
+  stays WARNING so raising the app to DEBUG doesn't unmute third-party
+  libraries. `start.sh --log` passes the same level to uvicorn as
+  `--log-level` (whose own default this project overrides to `warning`).
+- **Scryfall loading policy** lives in `config.py` too:
+  `SCRYFALL_PRIMARY` (`MTG_SCRYFALL_PRIMARY` env var, or
   `./start.sh --scryfall-primary`) — default `False`, **cache-primary**:
   an already-cached card is served as-is even if it looks `stale`
   (missing mana-cost/image data, a pre-fix `Card.partner_with`

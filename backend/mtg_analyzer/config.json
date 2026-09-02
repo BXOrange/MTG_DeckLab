@@ -1,0 +1,45 @@
+{
+  "_README": [
+    "MTG Deck Analyzer - backend runtime configuration.",
+    "Precedence:  environment variable  >  this file  >  built-in default.",
+    "The matching MTG_* env var always wins (tests and one-off scripts rely",
+    "on that). An empty string here means 'not set - use the default', not",
+    "'set to empty'. Keys beginning with an underscore are ignored.",
+    "Point elsewhere with MTG_CONFIG_FILE=/path/to/config.json. A missing or",
+    "malformed file is ignored and every value falls back to its default;",
+    "the server always starts. See mtg_analyzer/config.py for a full",
+    "description of every value and its env var / start.py flag."
+  ],
+
+  "paths": {
+    "_comment": "cache_dir: disposable Scryfall cache, empty = backend/cache (MTG_CACHE_DIR). data_dir: persistent user data, empty = backend/data (MTG_DATA_DIR).",
+    "cache_dir": "",
+    "data_dir": ""
+  },
+
+  "logging": {
+    "_comment": "Level for the app's own mtg_analyzer.* loggers (and, via start.py, uvicorn's --log-level). CRITICAL/ERROR/WARNING/INFO/DEBUG; TRACE maps to DEBUG for the app. Env MTG_LOG_LEVEL / start.sh --log.",
+    "level": "WARNING"
+  },
+
+  "scryfall": {
+    "_comment": "primary=false = cache-primary (never auto-refetch a cached card); true = refetch a stale row. Env MTG_SCRYFALL_PRIMARY / start.py --scryfall-primary.",
+    "user_agent": "MTG-Deck-Analyzer/0.1",
+    "min_request_interval_seconds": 0.1,
+    "primary": false
+  },
+
+  "multiplayer": {
+    "_comment": "Seconds. idle_timeout: hold priority without acting before the socket is closed (0 disables). disconnect_grace: seat held open for a reconnect (0 = forever). client_token_validity: browser identity token lifetime, default 90 days.",
+    "idle_timeout_seconds": 120,
+    "disconnect_grace_seconds": 90,
+    "client_token_validity_seconds": 7776000
+  },
+
+  "workers": {
+    "_comment": "server_threads: how many games can be mid-step at once in this process (MTG_SERVER_THREAD_WORKERS / start.py --server-threads). dynamic_analysis_workers: how many analysis JOBS run concurrently, an admission cap (--analysis-jobs). dynamic_analysis_match_processes: worker PROCESSES one job spreads its matches across for real speed-up; 0 = one per CPU core, 1 = in-process (--analysis-match-workers).",
+    "server_threads": 40,
+    "dynamic_analysis_workers": 5,
+    "dynamic_analysis_match_processes": 1
+  }
+}
