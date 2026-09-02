@@ -800,6 +800,17 @@ class GameState:
         #: attacks" triggers and a creature only ever attacks on its own
         #: controller's turn.
         self.life_gained_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: The life each player has *lost* this turn — the mirror of
+        #: `life_gained_this_turn`, bumped at `RulesEngine.lose_life`'s single
+        #: choke point (damage, life-paid costs, "loses N life" effects all
+        #: funnel through it) and reset for every player each
+        #: `GameEngine.begin_turn`. Read by `ConditionalEffect`'s
+        #: ``opponent_lost_life_this_turn_at_least`` key and
+        #: `FaceVillainousChoiceEffect.subject_min_life_lost` (Davros, Dalek
+        #: Creator — "…if an opponent lost 3 or more life this turn" / "each
+        #: opponent who lost 3 or more life this turn faces a villainous
+        #: choice").
+        self.life_lost_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: Whether each player has cast an instant or sorcery spell *this
         #: turn* (PAR-10 — `game/static_conditions.py`'s
         #: ``cast_instant_or_sorcery_this_turn`` condition: Hall of Oracles/

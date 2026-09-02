@@ -410,6 +410,13 @@ class DamageDeathMixin:
             self.gain_life(player, amount)
             return
         player.lose_life(amount)
+        # RULE 118-119 running per-turn total, the mirror of `gain_life`'s own
+        # `life_gained_this_turn` bump — every life-loss path funnels through
+        # here (see this method's docstring), so this one site covers damage,
+        # life-paid costs and "loses N life" alike.
+        self.state.life_lost_this_turn[player.id] = (
+            self.state.life_lost_this_turn.get(player.id, 0) + amount
+        )
         self.state.fire_event(
             GameEvent(EventType.LIFE_LOST, player_id=player.id, amount=amount, cause=cause)
         )

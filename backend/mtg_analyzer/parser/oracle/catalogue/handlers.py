@@ -7256,7 +7256,8 @@ def _forced_vote(m: re.Match[str]) -> list[EffectSpec]:
 # permanent from hand", "create a copy of that card", "exile until …" &c.
 # stay UNMODELED (tracked in PAR-30).
 _VILLAINOUS_HEADER_RE = _c(
-    r"(?P<subj>each opponent|that player|that opponent|target opponent|target player|defending player) "
+    r"(?P<subj>each opponent(?: who lost (?P<mll>\d+) or more life this turn)?"
+    r"|that player|that opponent|target opponent|target player|defending player) "
     r"faces a villainous choice\s*[—-]\s*(?P<opts>.+)"
 )
 _VILLAINOUS_SUBJECTS: dict[str, str] = {
@@ -7328,7 +7329,13 @@ def _villainous_option_specs(body: str):
 
 
 def _face_villainous_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    subject = _VILLAINOUS_SUBJECTS.get(m.group("subj").lower())
+    min_life_lost = m.groupdict().get("mll")
+    if min_life_lost is not None:
+        # "each opponent **who lost N or more life this turn**" (Davros) —
+        # an `each_opponent` sweep narrowed by `subject_min_life_lost`.
+        subject = "each_opponent"
+    else:
+        subject = _VILLAINOUS_SUBJECTS.get(m.group("subj").lower())
     if subject is None:
         return None
     opts = m.group("opts").strip()
@@ -7339,11 +7346,14 @@ def _face_villainous_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         a_specs = _villainous_option_specs(opts[:cut])
         b_specs = _villainous_option_specs(opts[cut + 5:])
         if a_specs and b_specs:
-            return [EffectSpec("face_villainous_choice", {
+            params: dict = {
                 "subject": subject,
                 "option_a": a_specs,
                 "option_b": b_specs,
-            })]
+            }
+            if min_life_lost is not None:
+                params["subject_min_life_lost"] = int(min_life_lost)
+            return [EffectSpec("face_villainous_choice", params)]
     return None
 
 

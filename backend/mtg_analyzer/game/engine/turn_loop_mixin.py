@@ -236,6 +236,11 @@ class TurnLoopMixin:
         # already uses.
         for player in self.state.players:
             self.state.spells_cast_this_turn[player.id] = 0
+            # RULE 500.1 — reset for *every* player, not just the incoming
+            # active one: Davros, Dalek Creator's own end-step trigger reads
+            # each *opponent's* `life_lost_this_turn`, so a stale value from
+            # someone else's turn must be cleared here.
+            self.state.life_lost_this_turn[player.id] = 0
         self.state.combats_this_turn = 0
         self.state.cards_drawn_this_turn[active.id] = 0
         self.state.cards_drawn_this_turn_ids[active.id] = []

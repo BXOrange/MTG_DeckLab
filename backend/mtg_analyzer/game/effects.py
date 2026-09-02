@@ -2389,6 +2389,18 @@ class ConditionalEffect(GameEffect):
             gained = context.state.life_gained_this_turn.get(getattr(player, "id", None), 0)
             if gained < life_gained_at_least:
                 return False
+        opp_lost_at_least = self.condition.get("opponent_lost_life_this_turn_at_least")
+        if opp_lost_at_least is not None:
+            # "…if an opponent lost N or more life this turn." (Davros, Dalek
+            # Creator) — true if *any* opponent of the ability's controller
+            # is at or past the threshold (`GameState.life_lost_this_turn`).
+            me = getattr(_controller_of(self.source, context), "id", None)
+            if not any(
+                context.state.life_lost_this_turn.get(p.id, 0) >= opp_lost_at_least
+                for p in context.state.living_players()
+                if p.id != me
+            ):
+                return False
         is_ring_bearer = self.condition.get("is_ring_bearer")
         if is_ring_bearer is not None:
             # "if ~ is your Ring-bearer, <effect>." (RULE 701.52a) — reads
@@ -11415,6 +11427,7 @@ class FaceVillainousChoiceEffect(GameEffect):
         option_b: Optional[list[dict[str, Any]]] = None,
         subject: str = "each_opponent",
         labels: Optional[list[str]] = None,
+        subject_min_life_lost: int = 0,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -11422,6 +11435,11 @@ class FaceVillainousChoiceEffect(GameEffect):
         self.option_b = list(option_b or [])
         self.subject = subject
         self.labels = tuple(labels) if labels and len(labels) == 2 else ("A", "B")
+        #: "**each opponent who lost N or more life this turn** faces a
+        #: villainous choice" (Davros, Dalek Creator) — narrows an
+        #: ``"each_opponent"`` sweep to the opponents at/past the threshold
+        #: (`GameState.life_lost_this_turn`). 0 = no filter.
+        self.subject_min_life_lost = int(subject_min_life_lost)
         self.target_spec = (
             TargetSpec(kind="player") if subject == "target" else None
         )
@@ -11450,6 +11468,11 @@ class FaceVillainousChoiceEffect(GameEffect):
                     facing = [context.state.player_by_id(pid)]
                 except (KeyError, ValueError):
                     facing = []
+        if self.subject_min_life_lost > 0:
+            facing = [
+                p for p in facing
+                if context.state.life_lost_this_turn.get(p.id, 0) >= self.subject_min_life_lost
+            ]
         if not facing:
             return
         context.engine.request_villainous_choice(
@@ -21132,6 +21155,7 @@ EffectRegistry.register(
         option_b=list(p.get("option_b", [])),
         subject=str(p.get("subject", "each_opponent")),
         labels=p.get("labels"),
+        subject_min_life_lost=int(p.get("subject_min_life_lost", 0) or 0),
     ),
 )
 EffectRegistry.register(

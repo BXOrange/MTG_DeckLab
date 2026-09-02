@@ -279,10 +279,13 @@ Plan-level sequencing lives in
   PARSER_VERSION 216). The *parser* side of each is one small handler once
   the primitive below exists — this is engine work, not oracle grammar.
   Shipped so far: the graveyard-exile-copy piece at v216 (Anikthea, Hour of
-  Eternity, Midnight Ritual) and **Sauron, the Necromancer** at v217 (a
+  Eternity, Midnight Ritual); **Sauron, the Necromancer** at v217 (a
   RULE 603.4 `DelayedTrigger.condition` "…unless ~ is your Ring-bearer" +
-  the "tapped and attacking" / "with `<keyword>`" copy-tail widenings — see
-  `Done_Backend.md` "Reanimator-token residue"). What's left:
+  the "tapped and attacking" / "with `<keyword>`" copy-tail widenings);
+  **Davros, Dalek Creator** at v218 (`GameState.life_lost_this_turn`, a
+  `ConditionalEffect` `opponent_lost_life_this_turn_at_least` key +
+  `FaceVillainousChoiceEffect.subject_min_life_lost`). See `Done_Backend.md`
+  "Reanimator-token residue". What's left:
   - **Back from the Brink** — an activated ability whose cost is "exile a
     creature card from your graveyard **and pay its mana cost**": a
     *variable* cost priced off a chosen object (the exiled card's own mana
@@ -313,12 +316,6 @@ Plan-level sequencing lives in
     their library and ~ **deals damage equal to the total mana value of
     those exiled cards** to that player" — needs a "damage = summed MV of
     the cards exiled this way" amount source.
-  - **Davros, Dalek Creator** — `GameState.life_lost_this_turn` (the mirror
-    of `life_gained_this_turn`, wired into every life-loss path), feeding
-    both a `ConditionalEffect` key ("if an opponent lost 3+ life this
-    turn", for the conditional token) and a filtered villainous subject
-    "each opponent who lost 3 or more life this turn". The option bodies
-    ("you draw a card" / "that player discards a card") already parse.
 
 > **Permanent non-goals** (never to be built, not gaps): Stickers (RULE
 > 123) and Attractions (RULE 717) — `gate.parse_oracle` classifies mentions

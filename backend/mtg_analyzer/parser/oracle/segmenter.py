@@ -1269,6 +1269,18 @@ _ADDITIONAL_COST_NOT_PAID_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: RULE 603.4 intervening-if as a *suffix* — "`<effect>` **if an opponent
+#: lost N or more life this turn**." (Davros, Dalek Creator's own end-step
+#: token). Same "parse the rest, tag every spec's condition" idiom as the
+#: prefix conditions above, onto `EffectSpec.condition`'s
+#: ``"opponent_lost_life_this_turn_at_least"`` key (`GameState.
+#: life_lost_this_turn`). ``rest`` is non-greedy so the shortest clause that
+#: still parses carries the gate.
+_OPPONENT_LOST_LIFE_SUFFIX_RE = re.compile(
+    r"^(?P<rest>.+?) if an opponent lost (?P<n>\d+) or more life this turn$",
+    re.IGNORECASE,
+)
+
 #: RULE 603.4-style intervening-if keyed to a just-chosen *target*, rather
 #: than an announced-cost flag (The Ghoul, Gunslinger: "target player gets
 #: two rad counters. If that player is you, create a Treasure token.") —
@@ -2494,6 +2506,27 @@ def parse_effect_body(
     body = body.strip().rstrip(".").strip()
     if not body:
         return []
+
+    # RULE 603.4 suffix intervening-if — "`<effect>` if an opponent lost N
+    # or more life this turn." (Davros) — checked before `match_clause` /
+    # the connector split so the base `<effect>` handler can't claim the
+    # clause *without* the gate (a wrong-but-modeled unconditional token).
+    opp_lost = _OPPONENT_LOST_LIFE_SUFFIX_RE.match(body)
+    if opp_lost is not None:
+        inner = parse_effect_body(
+            opp_lost.group("rest"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if inner:
+            n = int(opp_lost.group("n"))
+            return [
+                EffectSpec(
+                    e.type, dict(e.params),
+                    condition={"opponent_lost_life_this_turn_at_least": n},
+                )
+                for e in inner
+            ]
+        return None
 
     kicked = _KICKED_CONDITION_RE.match(body)
     if kicked is not None:

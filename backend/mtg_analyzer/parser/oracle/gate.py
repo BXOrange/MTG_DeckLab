@@ -2237,7 +2237,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: directly for a "that token" subject (not `previous_or_self`, which would
 #: bake the earlier graveyard target). +1 covered.
 #: `tests/test_mec52_delayed_trigger_condition.py`.
-PARSER_VERSION = "217"
+#: v218 — MEC-52 (Davros, Dalek Creator) — `GameState.life_lost_this_turn`,
+#: the mirror of `life_gained_this_turn` (bumped at `RulesEngine.lose_life`'s
+#: single choke point, reset for every player each `begin_turn`). Feeds a
+#: new `ConditionalEffect` key `opponent_lost_life_this_turn_at_least`
+#: (segmenter `_OPPONENT_LOST_LIFE_SUFFIX_RE` — the *suffix* "…if an opponent
+#: lost N or more life this turn", checked before `match_clause` so the base
+#: token clause can't claim it ungated) and
+#: `FaceVillainousChoiceEffect.subject_min_life_lost` (`_VILLAINOUS_HEADER_RE`
+#: "each opponent **who lost N or more life this turn**"). +1 covered.
+#: `tests/test_mec52_davros_life_lost.py`.
+PARSER_VERSION = "218"
 
 
 def parser_source_hash() -> str:
