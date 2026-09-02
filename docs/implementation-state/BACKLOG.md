@@ -146,24 +146,27 @@ Plan-level sequencing lives in
       Bending Prodigy — "her" pronoun; Waterbender Ascension — quest
       counters; Hama — alt-cast by waterbending; Aang's Iceberg — O-Ring).
 
-  - **Collect Evidence / Forage / Blight activated-body residue.** The
-    reflexive *targeted* "When you do, `<payoff>`" shape shipped (v206 —
-    `pay_cost_then.then_trigger`, RULE 603.11; see `Done_Backend.md`),
-    closing that sub-cluster and a +43 family beyond it. What's left:
-    - **Exotic `{cost}, collect evidence N:` bodies** — Hedge Whisperer
-      land-animation, Polygraph Orb edict, Tenth District Hero class-up;
-      Gristle Glutton's `{T}, Blight 1: discard a card. If you do, draw a
-      card.` and Spiral into Solitude's three-part `{1}{W}, Blight 1,
-      Sacrifice ~:` body.
+  - **Collect Evidence / Forage / Blight activated-body residue.** Two
+    sub-clusters shipped (see `Done_Backend.md`): the reflexive *targeted*
+    "When you do, `<payoff>`" shape (v206 — `pay_cost_then.then_trigger`,
+    RULE 603.11, +43 family) and the exotic `{cost}, collect evidence N`
+    activated-ability bodies (v207 — `_COST_LOOKS_REAL` keyword-action
+    costs + `exile_attached` / `_DISCARD_THEN_IF_YOU_DO_RE` /
+    `each_player_pay_or` scope-and-OR bodies, +13; Hedge Whisperer
+    hand-authored). What's left, each its own primitive:
+    - **Tenth District Hero** — the second leveler body: "becomes a
+      legendary creature named Mileva, the Stalwart … and gains 'Other
+      creatures you control have indestructible'" (a become-legendary-
+      renamed static + a granted anthem).
     - **Dynamic "collect evidence X"** — Incinerator of the Guilty (choose
       X as you collect; the payoff `~ deals X damage to each creature and
-      planeswalker that player controls` also needs an event-scoped group
-      damage). **Memory Vampire** — its reflexive half rides v206's
-      `then_trigger`, but the card also needs "any number of target
-      players each mill that many cards" (dynamic multi-target mill) and
-      "cast target nonland card from a graveyard without paying its mana
-      cost" (a new one-shot cast-from-graveyard-free primitive) before it
-      is MODELED.
+      planeswalker that player controls` also needs a group-damage
+      selector scoped to the reflexive trigger's outer event-player).
+      **Memory Vampire** — its reflexive half rides v206's `then_trigger`,
+      but the card also needs "any number of target players each mill that
+      many cards" (dynamic multi-target mill) and "cast target nonland
+      card from a graveyard without paying its mana cost" (a new one-shot
+      cast-from-graveyard-free primitive).
     - **"collect evidence N / forage / behold `<quality>` rather than pay
       the mana cost"** alt-cast forms — Conspiracy Unraveler, Feed the
       Cycle.

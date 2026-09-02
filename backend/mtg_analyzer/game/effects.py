@@ -5627,11 +5627,18 @@ class EachPlayerPayOrEffect(GameEffect):
         effects: Optional[list[dict[str, Any]]] = None,
         scope: str = "each_player",
         effect_targets: str = "decliner",
+        sacrifice_or_discard: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.cost_text = str(cost or "")
         self.inner_specs = list(effects or [])
+        #: "…unless they discard a card **or** sacrifice a creature."
+        #: (Polygraph Orb) — the OR form of the mass cost, ORed onto the
+        #: parsed `ActivationCost` at resolve time (`sacrifice_or_discard`),
+        #: same as `PayCostThenEffect`'s own knob, since the plain regex
+        #: cost parser AND-combines its fragments.
+        self.sacrifice_or_discard = bool(sacrifice_or_discard)
         #: "…**for each opponent**, `<effect>` unless that player
         #: `<pays>`." (MEC-43, Acererak the Archlich) — ``"each_player"``
         #: (default, every existing caller's shape) asks every living
@@ -5651,6 +5658,8 @@ class EachPlayerPayOrEffect(GameEffect):
         from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
 
         cost = parse_activation_cost(self.cost_text)
+        if self.sacrifice_or_discard:
+            cost.sacrifice_or_discard = True
         if cost.is_free:
             return  # see SacrificeUnlessPayEffect's identical guard
         context.engine.request_each_player_pay_or(
@@ -6558,6 +6567,12 @@ class ExileEffect(GameEffect):
         #: exist either way, so the two are behaviourally identical.
         self.grant_free_cast_window = grant_free_cast_window
         self._trigger_subject_mode = target_kind == "trigger_subject"
+        #: "Exile enchanted creature." (Spiral into Solitude) — an Aura's
+        #: own one-shot effect acting on its host, no RULE 115 target of its
+        #: own (`GameObject.attached_to`), the same "attached_permanent"
+        #: self-acting mode `TapEffect`/`PumpEffect`/
+        #: `ShuffleSelfIntoLibraryEffect` already have.
+        self._attached_mode = target_kind == "attached_permanent"
         self.trigger_event_key = trigger_event_key or "instance_id"
         #: "For as long as that card remains exiled, its owner may play
         #: it." (MEC-12, Soul Partition/Praetor's Grasp-shaped) — the
@@ -6582,7 +6597,10 @@ class ExileEffect(GameEffect):
         #: to the printed cost); mutually exclusive with it in practice.
         self.owner_play_permission_cost = owner_play_permission_cost
         self.target_spec: Optional[TargetSpec] = None
-        if self.selector is None and target_kind is not None and not self._trigger_subject_mode:
+        if (
+            self.selector is None and target_kind is not None
+            and not self._trigger_subject_mode and not self._attached_mode
+        ):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter,
                 distinct_controllers=distinct_controllers, colors=self.colors,
@@ -6608,6 +6626,14 @@ class ExileEffect(GameEffect):
                     # `ReturnAllExiledWithEffect` later.
                     self.source.exiled_with_ids.append(obj.instance_id)
                 context.exile(obj)
+            return
+        if self._attached_mode:
+            # "Exile enchanted creature." — this Aura/Equipment's host.
+            host_id = getattr(self.source, "attached_to", None)
+            host = context.state.find_object(host_id) if host_id is not None else None
+            if host is not None:
+                context.exile(host)
+                self._post_exile(context, host)
             return
         if self._trigger_subject_mode:
             event = context.trigger_event
@@ -13043,10 +13069,18 @@ class GrantUntilEffect(GameEffect):
         condition: Optional[dict[str, Any]] = None,
         previous_subject: bool = False,
         self_subject: bool = False,
+        extra_statics: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.static = dict(static or {})
+        #: Additional `EffectSpec`-shaped static payloads applied to the
+        #: **same** chosen targets under the same duration/condition as
+        #: ``static`` — "target land … becomes a 5/5 green Plant Boar
+        #: creature **with haste** …" (Hedge Whisperer) is a layer-4
+        #: `type_change` plus a layer-6 `grant_keyword`, and the target is
+        #: picked once. Each is built and parked exactly like ``static``.
+        self.extra_statics = [dict(s) for s in (extra_statics or [])]
         self.duration = duration
         self.condition = dict(condition) if condition else None
         #: Apply to whatever the *previous clause* of this ability targeted
@@ -13066,10 +13100,44 @@ class GrantUntilEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from . import durations  # local: durations imports effects' siblings
 
-        spec_type = self.static.get("type")
+        payloads = [self.static, *self.extra_statics]
+        if not any(
+            p.get("type") and EffectRegistry.is_registered(str(p.get("type")))
+            for p in payloads
+        ):
+            return  # fail closed — nothing registered to grant
+
+        controller_id = getattr(self.source, "controller_id", None)
+        # Chosen targets are resolved once and shared by every payload.
+        chosen_ids: Optional[list[int]] = None
+        if self.target_spec is not None or self.previous_subject or self.self_subject:
+            if self.self_subject:
+                chosen = [self.source] if self.source is not None else []
+            elif self.previous_subject:
+                chosen = list(context.previous_targets)
+            else:
+                chosen = list(targets or [])[: self.target_spec.effective_count]
+            chosen_ids = [
+                t.instance_id for t in chosen if getattr(t, "instance_id", None) is not None
+            ]
+            if not chosen_ids:
+                return
+
+        for payload in payloads:
+            self._park_static(context, durations, payload, controller_id, chosen_ids)
+        # A new continuous effect changes derived characteristics immediately
+        # (RULE 613.1) — the caller's SBA pass would get there anyway, but a
+        # grant whose effect isn't visible until then reads as a bug.
+        context.recompute()
+
+    def _park_static(
+        self, context: GameContext, durations: Any, static_payload: dict[str, Any],
+        controller_id: Optional[str], chosen_ids: Optional[list[int]],
+    ) -> None:
+        spec_type = static_payload.get("type")
         if not spec_type or not EffectRegistry.is_registered(str(spec_type)):
             return  # fail closed — an unregistered static grants nothing
-        params = dict(self.static.get("params") or {})
+        params = dict(static_payload.get("params") or {})
         # `RulesEngine._substitute_x` walks a one-shot effect's own
         # magnitude fields, not a nested `static.params` dict — so an
         # X-scaled grant ("Creatures you control have base power and
@@ -13086,7 +13154,6 @@ class GrantUntilEffect(GameEffect):
         ability = EffectRegistry.create(str(spec_type), params)
         if not isinstance(ability, StaticAbility):
             return
-        controller_id = getattr(self.source, "controller_id", None)
         ability.source = self.source
         # RULE 613.7b (MEC-43 round 4E): this continuous effect's own
         # ordering key is *when it was created*, not whatever timestamp
@@ -13106,31 +13173,15 @@ class GrantUntilEffect(GameEffect):
             # merely lies dormant and can come back on.
             ability.duration = "for_as_long_as"
             ability.duration_data["condition"] = dict(self.condition)
-        if self.target_spec is not None or self.previous_subject or self.self_subject:
-            # A targeted grant applies to exactly the permanents chosen —
-            # `affects="objects"` reads the ids off the ability. With
-            # ``previous_subject`` the referent is instead whatever the
-            # *previous clause* of this same ability targeted ("Tap target
-            # land. **It** doesn't untap … for as long as ~ remains tapped."),
-            # the same `GameContext.previous_targets` pronoun `FightEffect`
-            # and `GoadEffect` use. ``self_subject`` (MEC-46) is this
-            # ability's own source.
-            if self.self_subject:
-                chosen = [self.source] if self.source is not None else []
-            elif self.previous_subject:
-                chosen = list(context.previous_targets)
-            else:
-                chosen = list(targets or [])[: self.target_spec.effective_count]
-            ids = [t.instance_id for t in chosen if getattr(t, "instance_id", None) is not None]
-            if not ids:
-                return
+        if chosen_ids is not None:
+            # A targeted grant applies to exactly the permanents chosen once
+            # in `apply` (`affects="objects"` reads the ids off the ability),
+            # whether via a RULE 115 target, ``previous_subject`` ("Tap
+            # target land. **It** doesn't untap … for as long as ~ remains
+            # tapped."), or ``self_subject`` (MEC-46, this ability's source).
             ability.affects = "objects"
-            ability.object_ids = ids
+            ability.object_ids = list(chosen_ids)
         context.state.floating_statics.append(ability)
-        # A new continuous effect changes derived characteristics immediately
-        # (RULE 613.1) — the caller's SBA pass would get there anyway, but a
-        # grant whose effect isn't visible until then reads as a bug.
-        context.recompute()
 
 
 class EndTheTurnEffect(GameEffect):
@@ -18632,6 +18683,7 @@ EffectRegistry.register(
     lambda p: EachPlayerPayOrEffect(
         cost=p.get("cost", ""), effects=list(p.get("effects", [])),
         scope=p.get("scope", "each_player"), effect_targets=p.get("effect_targets", "decliner"),
+        sacrifice_or_discard=bool(p.get("sacrifice_or_discard", False)),
     ),
 )
 EffectRegistry.register(
@@ -21617,6 +21669,7 @@ EffectRegistry.register(
         condition=p.get("condition"),
         previous_subject=bool(p.get("previous_subject", False)),
         self_subject=bool(p.get("self_subject", False)),
+        extra_statics=p.get("extra_statics"),
     ),
 )
 EffectRegistry.register(

@@ -13,7 +13,17 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.5% covered — 13,402 / 34,811 — as of 2026-09-02, PARSER_VERSION 206.**
+**38.5% covered — 13,415 / 34,811 — as of 2026-09-02, PARSER_VERSION 207.**
+(207 = Collect Evidence / Forage / Blight residue, sub-cluster (b): the
+exotic `{cost}, collect evidence N: <body>` / `{T}, Blight N: <body>`
+activated abilities. `_COST_LOOKS_REAL` gains the three keyword-action
+cost fragments (they never let the line reach the activated handler);
+unblocked bodies — "Exile enchanted creature." (`ExileEffect`
+``attached_permanent`` mode, + an Aura family), "discard a card. If you
+do, `<effect>`" (Gristle Glutton loot), "each opponent loses N life
+unless they discard/sacrifice" (`each_player_pay_or` scope + OR cost,
+Polygraph Orb). +13, 0 regressed. Hedge Whisperer hand-authored
+(`GrantUntilEffect.extra_statics`). See `Done_Backend.md`.)
 (206 = Collect Evidence / Forage / Blight residue, sub-cluster (a): the
 reflexive *targeted* "When you do, `<payoff>`." after an optional
 keyword-action cost (RULE 603.11). A paid `pay_cost_then` now enqueues the
@@ -41,7 +51,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~40.3% — 12,824 / 31,830 (PARSER_VERSION 206).**
+**Commander-legal slice: ~40.3% — 12,837 / 31,830 (PARSER_VERSION 207).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

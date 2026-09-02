@@ -2024,7 +2024,26 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: life. If you do, `<targeted effect>`" — Surgespanner, Teneb, Bearer of
 #: Silence, Sample Collector, Curious Forager, Warren Torchmaster, … +43,
 #: 0 regressed.
-PARSER_VERSION = "206"
+#: "207": PAR-30 (Collect Evidence / Forage / Blight residue, sub-cluster b)
+#: — the exotic `{cost}, collect evidence N: <body>` / `{T}, Blight N:
+#: <body>` activated abilities. `segmenter._COST_LOOKS_REAL` gains
+#: `collect evidence \d+` / `forage` / `blight \d+` (they're real
+#: `costs.parse_activation_cost` fragments but the cost sniff never let the
+#: line reach the activated handler). Unblocked bodies: (a)
+#: `ExileEffect`'s new ``attached_permanent`` self-mode + `exile_attached`
+#: handler ("Exile enchanted creature." — Spiral into Solitude, and a
+#: whole Aura family: Dreadful Apathy, Cooped Up, Choking Restraints …);
+#: (b) `segmenter._DISCARD_THEN_IF_YOU_DO_RE` collapsing "discard a card.
+#: If you do, `<effect>`" (Gristle Glutton's loot); (c)
+#: `_EACH_PLAYER_LOSE_LIFE_UNLESS_RE` widened to "each opponent"
+#: (`scope="each_opponent"`) and the OR cost form
+#: (`EachPlayerPayOrEffect.sacrifice_or_discard` — Polygraph Orb). +13, 0
+#: regressed. Hedge Whisperer hand-authored (`GrantUntilEffect.extra_
+#: statics` — one target, layer-4 type_change + layer-6 haste). Tenth
+#: District Hero (become-legendary-renamed leveler) and Incinerator of the
+#: Guilty (dynamic "collect evidence X" + event-player group damage) still
+#: need their own primitives — tracked in `BACKLOG.md`.
+PARSER_VERSION = "207"
 
 
 def parser_source_hash() -> str:

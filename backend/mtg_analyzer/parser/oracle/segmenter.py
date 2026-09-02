@@ -1121,6 +1121,12 @@ _SPEND_ONLY_CHOSEN_COLOR_RE = re.compile(
 #: fragment in sync if that regex's grammar ever changes).
 _COST_LOOKS_REAL = re.compile(
     r"\{[^}]+\}|sacrifice|pay \d+ life|discard|put an? .+ counter on|"
+    # RULE 701.59a / 701.61a / 701.68 keyword-action costs — Gristle
+    # Glutton ("{T}, Blight 1: …"), Polygraph Orb / Hedge Whisperer /
+    # Tenth District Hero ("…, collect evidence N: …"). All three are real
+    # `costs.parse_activation_cost` fragments (`ActivationCost.collect_
+    # evidence`/`forage`/`blight`) charged by `_can`/`_pay_player_cost`.
+    r"collect evidence \d+|forage|blight \d+|"
     r"tap .+ untapped .+ you control|remove .+ counters?|"
     r"return an? [a-z]+ you control to (?:its|your) owner'?s?\s*hand|"
     r"exile (?:this \w+|~) from (?:your|their) hand|"
@@ -1568,6 +1574,20 @@ _SACRIFICE_THEN_WHEN_YOU_DO_RE = re.compile(
 #: onto the genuine optional "you may `<action>`. When you do, …" family.
 _EARTHBEND_THEN_WHEN_YOU_DO_RE = re.compile(
     r"^(?P<before>earthbend \d+)\.\s*when you do,\s*(?P<after>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: "Discard a card. **If you do,** `<effect>`." (Gristle Glutton's
+#: `{T}, Blight 1:` loot body, and the wider mandatory-discard-then-draw
+#: family). Same collapse rationale as the two above — a plain "discard a
+#: card" antecedent all but always succeeds, so the "if you do" gate
+#: reduces to a sequence `[discard, <effect>]`. **Documented
+#: simplification:** the one case it *can* fail (an empty hand) isn't
+#: modeled. Narrow: the clause before "if you do," must be exactly a bare
+#: mandatory discard, so it never misfires onto the optional
+#: "you may discard …. If you do, …" family (`_pay_cost_then_or_else`).
+_DISCARD_THEN_IF_YOU_DO_RE = re.compile(
+    r"^(?P<before>discard (?:a card|\d+ cards?|your hand))\.\s*(?:if|when) you do,?\s*(?P<after>.+)$",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -2725,6 +2745,18 @@ def parse_effect_body(
             return None  # fail closed — only a certain, unconditional antecedent collapses
         return _with_after_tail(
             before_specs, earthbend_when_you_do.group("after"), group_subject=group_subject,
+        )
+
+    discard_then_if_you_do = _DISCARD_THEN_IF_YOU_DO_RE.match(body)
+    if discard_then_if_you_do is not None:
+        before_specs = parse_effect_body(
+            discard_then_if_you_do.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if before_specs is None or not any(spec.type == "discard" for spec in before_specs):
+            return None  # fail closed — only a bare mandatory discard collapses
+        return _with_after_tail(
+            before_specs, discard_then_if_you_do.group("after"), group_subject=group_subject,
         )
 
     exile_then_copy = _EXILE_THEN_COPY_SENTENCE_RE.match(body)

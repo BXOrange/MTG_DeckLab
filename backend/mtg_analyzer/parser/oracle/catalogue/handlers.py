@@ -1497,20 +1497,28 @@ def _target_player_edict(m: re.Match[str]) -> list[EffectSpec]:
 #: cost the plain-word `_SACRIFICE_RE`/`ActivationCost.sacrifice` vocabulary
 #: doesn't otherwise reach (`costs._SACRIFICE_CREATURE_ARTIFACT_OR_LAND_RE`).
 _EACH_PLAYER_LOSE_LIFE_UNLESS_RE = _c(
-    r"each player loses (?P<n>\d+) life unless they "
-    r"(?P<cost>discard a card|"
-    r"sacrifice a creature,\s*(?:an?\s+)?artifact,?\s*(?:or|and)\s*(?:an?\s+)?land of their choice)"
+    r"each (?P<who>player|opponent) loses (?P<n>\d+) life unless they "
+    r"(?P<cost>discard a card"
+    # "…discard a card **or** sacrifice a creature." (Polygraph Orb) — the
+    # OR form; `_each_player_lose_life_unless` sets `sacrifice_or_discard`.
+    r"(?P<or_sac> or sacrifice a creature)?"
+    r"|sacrifice a creature,\s*(?:an?\s+)?artifact,?\s*(?:or|and)\s*(?:an?\s+)?land of their choice)"
 )
 
 
 def _each_player_lose_life_unless(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("each_player_pay_or", {
-        "cost": m.group("cost"),
+    params: dict = {
+        "cost": "discard a card" if m.groupdict().get("or_sac") else m.group("cost"),
         "effects": [{
             "type": "lose_life",
             "params": {"amount": int(m.group("n")), "target_kind": "player"},
         }],
-    })]
+    }
+    if m.group("who") == "opponent":
+        params["scope"] = "each_opponent"
+    if m.groupdict().get("or_sac"):
+        params["sacrifice_or_discard"] = True
+    return [EffectSpec("each_player_pay_or", params)]
 
 
 #: "Discard a card and sacrifice a creature, an artifact, and a land."
@@ -9199,6 +9207,14 @@ HANDLERS: list[EffectHandler] = [
         "tap_attached",
         _c(rf"(?P<verb>tap|untap) {_ATTACHED_SUBJECT}"),
         _tap_attached,
+    ),
+    # "Exile enchanted creature." (Spiral into Solitude — an Aura's own
+    # `{cost}, Blight N, Sacrifice ~:` removal body). `ExileEffect`'s
+    # ``attached_permanent`` self-acting mode, no RULE 115 target.
+    EffectHandler(
+        "exile_attached",
+        _c(rf"exile {_ATTACHED_SUBJECT}"),
+        lambda m: [EffectSpec("exile", {"target_kind": "attached_permanent"})],
     ),
     # "Return ~ to its owner's hand." (RULE 701.3, self form) — before the
     # targeted sibling below, whose `TARGET` grammar has no ``~``
