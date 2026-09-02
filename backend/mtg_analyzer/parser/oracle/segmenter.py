@@ -1672,7 +1672,8 @@ _EXILE_THEN_COPY_SENTENCE_RE = re.compile(
     r"^(?P<before>(?:you may )?exile .+?graveyard[^.]*?)\.\s*"
     r"(?:(?:if you do|if you exiled (?:a|up to \w+|\w+) cards?(?: this way)?)"
     r"(?: this way)?,\s*)?"
-    r"(?P<after>create a token that'?s a copy of that card.*)$",
+    r"(?P<after>create a (?:tapped and attacking |tapped |attacking )?"
+    r"token that'?s a copy of that card.*)$",
     re.IGNORECASE | re.DOTALL,
 )
 

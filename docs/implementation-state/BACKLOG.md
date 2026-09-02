@@ -274,23 +274,15 @@ Plan-level sequencing lives in
   routing hooks + a hand-authored `EffectSpec("control_player", {"scope":
   …})` (bespoke enough per card that the parser handler can come later).
 
-- **MEC-52 · Reanimator-token & villainous-choice residue — six cards, six
-  engine primitives.** The tail of PAR-29's keyword trail (PAR-30, closed
+- **MEC-52 · Reanimator-token & villainous-choice residue — engine
+  primitives.** The tail of PAR-29's keyword trail (PAR-30, closed
   PARSER_VERSION 216). The *parser* side of each is one small handler once
   the primitive below exists — this is engine work, not oracle grammar.
-  The graveyard-exile-copy piece already shipped at v216 (Anikthea, Hour of
-  Eternity, Midnight Ritual — `Done_Backend.md` "Reanimator-token residue");
-  what's left:
-  - **Sauron, the Necromancer** — a delayed trigger whose captured-object
-    effect is *conditional*: "at the beginning of the next end step, exile
-    that token **unless ~ is your Ring-bearer**". `CreateDelayedTriggerEffect`
-    (`capture="created_objects"`/`"previous_or_self"`) doesn't thread the
-    capture through a `ConditionalEffect` wrapper — needs that, or a
-    `condition` key on the delayed inner spec. The `is_ring_bearer`
-    predicate (`effects.ConditionalEffect`) and `exile_specific` both
-    already exist. Also widen `_COPY_PERMANENT_PREVIOUS_RE` for a "tapped
-    and attacking" prefix (`CopyPermanentEffect` already takes
-    `tapped`/`attacking`).
+  Shipped so far: the graveyard-exile-copy piece at v216 (Anikthea, Hour of
+  Eternity, Midnight Ritual) and **Sauron, the Necromancer** at v217 (a
+  RULE 603.4 `DelayedTrigger.condition` "…unless ~ is your Ring-bearer" +
+  the "tapped and attacking" / "with `<keyword>`" copy-tail widenings — see
+  `Done_Backend.md` "Reanimator-token residue"). What's left:
   - **Back from the Brink** — an activated ability whose cost is "exile a
     creature card from your graveyard **and pay its mana cost**": a
     *variable* cost priced off a chosen object (the exiled card's own mana

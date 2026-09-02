@@ -166,6 +166,7 @@ class DelayedTrigger:
         targets: Optional[list[Any]] = None,
         description: str = "",
         min_turn: int = 0,
+        condition: Optional[dict[str, Any]] = None,
     ) -> None:
         self.controller_id = controller_id
         self.step = step
@@ -173,6 +174,12 @@ class DelayedTrigger:
         self.scope = scope
         self.targets = targets or []
         self.description = description
+        #: RULE 603.4 intervening-if re-checked by `GameEngine._fire_delayed_
+        #: triggers` when this would go on the stack — an "…unless <X>" rider
+        #: on the delayed instruction (Sauron, the Necromancer's "exile that
+        #: token unless ~ is your Ring-bearer"). ``None`` (the common case)
+        #: always fires. A whitelisted `EffectSpec.condition`-shaped dict.
+        self.condition = condition
         #: The earliest ``turn_number`` this may fire at — 0 means "the very
         #: next matching step". Lets "at the beginning of *that* (extra) turn's
         #: end step" (Final Fortune) skip the *current* turn's end step by

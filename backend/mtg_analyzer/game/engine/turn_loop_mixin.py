@@ -578,6 +578,12 @@ class TurnLoopMixin:
             else:
                 remaining.append(dt)
         self.state.delayed_triggers = remaining
+        # RULE 603.4: a delayed ability with an "…unless <X>" rider
+        # (`DelayedTrigger.condition` — Sauron, the Necromancer) only
+        # triggers if its intervening-if holds when it would go on the
+        # stack. Evaluated through the shared `ConditionalEffect` whitelist
+        # so the semantics match the parser's `EffectSpec.condition`.
+        due = [dt for dt in due if self._delayed_trigger_condition_holds(dt)]
         for dt in due:
             self.state.stack.append(
                 StackItem(
@@ -589,6 +595,25 @@ class TurnLoopMixin:
                     category="triggered_ability",
                 )
             )
+
+    def _delayed_trigger_condition_holds(self, dt: "DelayedTrigger") -> bool:
+        """RULE 603.4: a `DelayedTrigger.condition` ("…unless ~ is your
+        Ring-bearer") re-checked when the ability would go on the stack.
+        ``None`` always fires; otherwise the check reuses `ConditionalEffect`'s
+        whitelisted evaluator against the ability's own source (the first
+        baked effect's ``source`` — the same one `DelayedTrigger.to_dict`
+        reads) so it matches the parser's `EffectSpec.condition` semantics."""
+        condition = getattr(dt, "condition", None)
+        if not condition:
+            return True
+        from ..effects import ConditionalEffect
+
+        src = getattr(dt.effects[0], "source", None) if dt.effects else None
+        probe = ConditionalEffect(condition, dt.effects[0], source=src) if dt.effects else None
+        if probe is None:
+            return True
+        return probe._condition_holds(self.rules.context, dt.targets)
+
     def _step_untap(self) -> None:
         active = self.state.active_player
         # RULE 702.26a: "at the beginning of the untap step, before

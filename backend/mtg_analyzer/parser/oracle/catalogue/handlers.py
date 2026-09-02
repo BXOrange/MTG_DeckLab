@@ -386,6 +386,9 @@ _COPY_EXCEPT_PT_RE = re.compile(
     r"(?:(?P<p>\d+)/(?P<t>\d+)\s*)?"
     r"(?P<mid>[a-z][a-z ]*?)?"
     r"(?P<creature>\s*creature)?"
+    # "…except it's a 3/3 black Wraith **with menace**" (Sauron, the
+    # Necromancer) — a keyword the copy carries, not a subtype.
+    r"(?:\s+with (?P<kw>[a-z][a-z, ]*?))?"
     r"(?:\s+in addition to its other types)?",
     re.IGNORECASE,
 )
@@ -439,7 +442,12 @@ def _copy_except_modifier(piece: str) -> Optional[dict]:
             out["add_types"] = add_types
         if subtypes:
             out["add_subtypes"] = [s.capitalize() for s in subtypes]
-        return out or None  # nothing recognised in the piece → fail closed
+        if pt.groupdict().get("kw"):
+            keywords = _token_keywords(pt.group("kw"))
+            if keywords is None:
+                return None  # an unrecognised keyword — fail the whole tail closed
+            out["extra_temp_keywords"] = keywords
+        return out or None  # nothing recognised in the piece — fail closed
     return None
 
 
@@ -530,13 +538,22 @@ def _copy_permanent_kicked_override(m: re.Match[str]) -> Optional[list[EffectSpe
 #: off an earlier clause that announced a target. Shares
 #: `_parse_copy_except_tail` with the plain-target row above.
 _COPY_PERMANENT_PREVIOUS_RE = _c(
-    r"create a token that'?s a copy of (?:it|that card)"
+    r"create a (?P<ta>tapped and attacking |tapped |attacking )?"
+    r"token that'?s a copy of (?:it|that card)"
     r"(?:, except (?P<except_tail>.+))?"
 )
 
 
 def _copy_permanent_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"target_kind": None, "referent": "previous"}
+    # "create a **tapped and attacking** token that's a copy of that card…"
+    # (RULE 508.4 — Sauron, the Necromancer). `CopyPermanentEffect` already
+    # takes ``tapped``/``attacking``.
+    ta = (m.groupdict().get("ta") or "").strip()
+    if "tapped" in ta:
+        params["tapped"] = True
+    if "attacking" in ta:
+        params["attacking"] = True
     tail = m.groupdict().get("except_tail")
     if tail:
         extra = _parse_copy_except_tail(tail)
@@ -8095,6 +8112,53 @@ def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: The *when-first* sibling of `_DELAYED_SAC_EXILE_TAIL_RE` — "At the
+#: beginning of the next end step, sacrifice/exile `<it>`[ unless `<X>`]."
+#: (Apprentice Necromancer, Momo's Heist, Skirk Alarmist, The Beamtown
+#: Bullies, Sauron the Necromancer — MEC-52). Same `previous_or_self`
+#: capture and inner effect as the tail form; the optional trailing "unless
+#: ~ is your Ring-bearer" rider (RULE 603.4 intervening-if — Sauron only) is
+#: threaded as `create_delayed_trigger`'s new whitelisted ``condition``
+#: param (`_ALLOWED_CONDITION_KEYS["is_ring_bearer"]`, ``False`` = "…unless").
+#: Other "unless" riders on this shape (Satya "unless you pay {E}…",
+#: Tilonalli's Summoner "unless you have the city's blessing") are a
+#: pay-cost / designation check this doesn't model — they stay fail-closed.
+_DELAYED_SAC_EXILE_WHEN_FIRST_RE = _c(
+    r"at the beginning of (?:the|your) next end step, "
+    r"(?P<verb>sacrifice|exile) "
+    r"(?P<obj>it|that creature|that token|that permanent|that artifact|that vehicle|those tokens|the tokens?)"
+    r"(?P<unless> unless ~ is your ring-bearer)?"
+)
+
+#: Object phrases that can only mean "the token(s) an earlier clause of this
+#: same resolution *created*" (RULE 608.2) — never a RULE 115 target it also
+#: chose. For these the delayed trigger must capture `GameContext.created_
+#: objects` directly; "it"/"that creature"/"that permanent" stay on
+#: `previous_or_self` (target first, then created, then the source).
+_DELAYED_TAIL_TOKEN_SUBJECTS: frozenset[str] = frozenset(
+    {"that token", "those tokens", "the token", "the tokens"}
+)
+
+
+def _delayed_sac_exile_when_first(m: re.Match[str]) -> list[EffectSpec]:
+    inner = _DELAYED_TAIL_INNER[m.group("verb").lower()]
+    obj = (m.groupdict().get("obj") or "").strip().lower()
+    params: dict = {
+        "step": "end",
+        "scope": "any",
+        "capture": (
+            "created_objects" if obj in _DELAYED_TAIL_TOKEN_SUBJECTS
+            else "previous_or_self"
+        ),
+        "effects": [{"type": inner, "params": {}}],
+    }
+    if m.groupdict().get("unless"):
+        # "…unless ~ is your Ring-bearer" — the delayed ability doesn't
+        # trigger at all while ~ is the Ring-bearer (so the token stays).
+        params["condition"] = {"is_ring_bearer": False}
+    return [EffectSpec("create_delayed_trigger", params)]
+
+
 #: ENG-30: "They [each] get +N/+N [and gain `<kw>`]/gain `<kw>` until end of
 #: turn." (A-Bretagard Stronghold/Fancy Footwork-shaped, following "…1 or 2
 #: target creatures…") — the pump-family sibling of `_UNTAP_PREVIOUS_GROUP_
@@ -10354,6 +10418,13 @@ HANDLERS: list[EffectHandler] = [
         "delayed_sac_exile_tail",
         _DELAYED_SAC_EXILE_TAIL_RE,
         _delayed_sac_exile_tail,
+    ),
+    # The when-first sibling — "At the beginning of the next end step,
+    # sacrifice/exile <it>[ unless ~ is your Ring-bearer]." (MEC-52).
+    EffectHandler(
+        "delayed_sac_exile_when_first",
+        _DELAYED_SAC_EXILE_WHEN_FIRST_RE,
+        _delayed_sac_exile_when_first,
     ),
     # ENG-30: "They [each] get +N/+N [and gain <kw>] until end of turn."
     # (A-Bretagard Stronghold/Fancy Footwork) — the pump-family sibling of

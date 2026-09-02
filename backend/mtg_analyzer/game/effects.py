@@ -10353,6 +10353,7 @@ class CreateDelayedTriggerEffect(GameEffect):
         capture: Optional[str] = None,
         min_turn_offset: int = 0,
         description: str = "",
+        condition: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -10366,6 +10367,22 @@ class CreateDelayedTriggerEffect(GameEffect):
         # end step, which would otherwise be the very next one.
         self.min_turn_offset = int(min_turn_offset)
         self.description = str(description)
+        #: RULE 603.4 intervening-if on the *whole* delayed ability — "at the
+        #: beginning of the next end step, exile that token **unless ~ is
+        #: your Ring-bearer**" (Sauron, the Necromancer). A whitelisted
+        #: `EffectSpec.condition`-shaped dict (`_ALLOWED_CONDITION_KEYS`),
+        #: re-checked by `_fire_delayed_triggers` when the delayed ability
+        #: would go on the stack; if it doesn't hold, the ability simply
+        #: doesn't trigger. Distinct from a `condition` on an *inner* spec
+        #: (which `build_effects` wraps in `ConditionalEffect`, checked at
+        #: resolution) — this one gates the firing itself, which is what an
+        #: "…unless <X>" rider on the delayed instruction wants.
+        from ..parser.oracle.spec import _ALLOWED_CONDITION_KEYS
+
+        self.condition = (
+            {k: v for k, v in condition.items() if k in _ALLOWED_CONDITION_KEYS}
+            if condition else None
+        ) or None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
@@ -10472,6 +10489,7 @@ class CreateDelayedTriggerEffect(GameEffect):
                 targets=list(targets or []),
                 description=self.description,
                 min_turn=context.state.turn_number + self.min_turn_offset,
+                condition=self.condition,
             )
         )
 
@@ -20540,6 +20558,7 @@ EffectRegistry.register(
         capture=p.get("capture"),
         min_turn_offset=p.get("min_turn_offset", 0),
         description=p.get("description", ""),
+        condition=p.get("condition"),
     ),
 )
 EffectRegistry.register(

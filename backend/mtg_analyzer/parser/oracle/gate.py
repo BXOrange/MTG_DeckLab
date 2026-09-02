@@ -2221,7 +2221,23 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "objects_exiled_this_way"`` (**Midnight Ritual**); `CreateTokenEffect`
 #: gained that `count_from_context` param (closed whitelist). +3 covered.
 #: `tests/test_par30_reanimator_token_residue.py`.
-PARSER_VERSION = "216"
+#: v217 — MEC-52 (first sub-item) — **Sauron, the Necromancer**, and a
+#: RULE 603.4 intervening-if on delayed triggered abilities.
+#: `CreateDelayedTriggerEffect` / `DelayedTrigger` gained a whitelisted
+#: ``condition`` dict (`_ALLOWED_CONDITION_KEYS`) re-checked by
+#: `_fire_delayed_triggers` when the ability would go on the stack — "…exile
+#: that token **unless ~ is your Ring-bearer**". Parser: `_COPY_PERMANENT_
+#: PREVIOUS_RE` + the exile→copy connector accept a "tapped and attacking"
+#: prefix (`CopyPermanentEffect` already took `tapped`/`attacking`);
+#: `_COPY_EXCEPT_PT_RE` accepts a trailing "with `<keyword>`" ("a 3/3 black
+#: Wraith with menace" → `extra_temp_keywords`); new when-first
+#: `_delayed_sac_exile_when_first` handler ("At the beginning of the next
+#: end step, sacrifice/exile `<it>`[ unless ~ is your Ring-bearer]") — the
+#: mirror of `_DELAYED_SAC_EXILE_TAIL_RE`, capturing `created_objects`
+#: directly for a "that token" subject (not `previous_or_self`, which would
+#: bake the earlier graveyard target). +1 covered.
+#: `tests/test_mec52_delayed_trigger_condition.py`.
+PARSER_VERSION = "217"
 
 
 def parser_source_hash() -> str:
