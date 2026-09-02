@@ -176,10 +176,27 @@ Plan-level sequencing lives in
       *own* `AbilitySpec.alt_cost`, not an externally-granted one — needs
       a scan-the-battlefield-for-alt-cost-grants hook in `can_cast` /
       `_offer_cast` / `cast_spell`.
-    - **Behold** — Molten Exhale (conditional-flash fused with a behold
-      cost), Elven Passage ("you may behold an elf. If you do, untap that
-      land."), the Champion cycle ("behold a `<type>` and exile it" + LTB
-      return), Celestial Reunion ("behold 2 creatures of a chosen type").
+    - **Behold** — four bespoke singletons, each its own primitive (this is
+      MEC-shaped, not parser grammar):
+      - **Molten Exhale** — `conditional_flash` gated on *choosing to pay*
+        an optional "behold a dragon" additional cost (a new interaction
+        between `additional_cost_optional` and the cast-timing whitelist —
+        `ALLOWED_CAST_CONDITION_KEYS` has no such member).
+      - **Elven Passage** — a multi-sentence activated body (search + "you
+        may behold an elf. If you do, untap that land"), which needs (i)
+        `costs.parse_activation_cost` to recognize "behold a `<type>`" in a
+        cost string, (ii) "behold a `<type>`" in `_MAY_COST_THEN_CLAUSE`,
+        and (iii) the activated handler to split a `search. <reflexive>`
+        two-sentence body. "untap that land" already parses.
+      - **Champion cycle** — "behold a `<type>` and exile it" additional
+        cost + a "when ~ leaves, return the exiled card" LTB return; each
+        Champion is *also* blocked on its own unrelated clause, so the
+        behold work alone doesn't finish any of them.
+      - **Celestial Reunion** — "choose a creature type and behold 2
+        creatures of that type" additional cost + "if the additional cost
+        was paid and the revealed card is the chosen type, put it onto the
+        battlefield instead" (a `additional_cost_paid` + chosen-type
+        conditional destination on a search).
 
   - **Clash (RULE 701.30) win-branch residue — parser grammar is DONE; 6
     primitive-blocked singletons remain.** Eight batches (v147–v154) worked
