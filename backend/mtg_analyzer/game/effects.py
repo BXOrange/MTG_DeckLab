@@ -321,8 +321,13 @@ class GameContext:
         select_count: int,
         rest_destination: str,
         rest_order: Optional[str] = None,
+        select_optional: bool = False,
+        select_filter: Optional[dict[str, Any]] = None,
     ) -> None:
-        self.engine.look_top_select(player, count, select_count, rest_destination, rest_order)
+        self.engine.look_top_select(
+            player, count, select_count, rest_destination, rest_order,
+            select_optional=select_optional, select_filter=select_filter,
+        )
 
     def recompute(self) -> None:
         """Re-derive continuous characteristics now (RULE 613) — used by an
@@ -7021,9 +7026,16 @@ class ExileEffect(GameEffect):
         spell_or_permanent: bool = False,
         colors: Optional[list[str]] = None,
         bend_kind: Optional[str] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Exile **X** target creatures you control" (Waterbender's
+        #: Restoration) — a `TargetSpec.count_selector` (``"source_x_paid"``,
+        #: resolved at announce time off `GameObject.x_paid`), not the plain
+        #: ``count``, so `has_legal_targets`/`all_requirements_satisfiable`
+        #: see a real int rather than the ``"x"`` sentinel.
+        self._count_selector = count_selector
         #: RULE 701.65 (Airbend) / 701.6x: when set (always ``"airbend"``,
         #: from `handlers._airbend`/`_airbend_trigger_subject`), fire
         #: `EventType.BENT` after the exile so Avatar Aang's "whenever you …
@@ -7096,6 +7108,7 @@ class ExileEffect(GameEffect):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter,
                 distinct_controllers=distinct_controllers, colors=self.colors,
+                count_selector=count_selector,
                 # "…permanent … with mana value N or less." (MEC-12, Skyclave
                 # Apparition) — the same target-offer-time cap `DestroyEffect`
                 # already threads (`targeting.TargetSpec.max_mana_value`).
@@ -7153,7 +7166,17 @@ class ExileEffect(GameEffect):
             if target is not None:
                 context.exile(target)
             return
-        chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
+        # A `count_selector`-sized spec ("exile X target …" — Waterbender's
+        # Restoration / Foggy Swamp Visions) took its real count at announce
+        # time; `effective_count` is a static field with no live board
+        # access, so trust `targets` as already sized (the `AddCountersEffect`
+        # `count_selector` guard). Otherwise slice to this effect's own count
+        # off the possibly-shared list.
+        chosen = (
+            list(targets or [])
+            if self.target_spec.count_selector
+            else _chosen_targets(targets, self.target_spec.effective_count, self.target)
+        )
         for target in chosen:
             if self.remember and self.source is not None:
                 self.source.linked_exile_id = target.instance_id
@@ -8775,6 +8798,20 @@ class ShuffleGraveyardIntoLibraryEffect(GameEffect):
             player.remove_from_zone(obj, Zone.GRAVEYARD)
             player.add_to_zone(obj, Zone.LIBRARY)
         context.shuffle_library(player)
+
+
+class NoMaxHandSizeRestOfGameEffect(GameEffect):
+    """"You have no maximum hand size for the rest of the game." (Spirit
+    Water Revival) — a resolve-time grant, so it lives as a player-id flag
+    on `GameState.no_max_hand_size_player_ids` (consulted by `continuous.
+    has_no_maximum_hand_size`) rather than a battlefield-static
+    `no_max_hand_size` layer. Never expires (rest of the game) and is RULE
+    400.7-safe (keyed by the player, not an object)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.state.no_max_hand_size_player_ids.add(player.id)
 
 
 class GraveyardToLibraryBottomRandomEffect(GameEffect):
@@ -10469,11 +10506,24 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
         effects: Optional[list[dict[str, Any]]] = None,
         description: str = "",
         source: Optional["GameObject"] = None,
+        recipient: str = "defending_player",
+        duration: str = "defending_next_turn",
+        event_player_scope: str = "self",
     ) -> None:
         super().__init__(source)
         self.event_type = str(event_type)
         self.inner_specs = list(effects or [])
         self.description = str(description)
+        #: Who the installed trigger's effects go to: ``"defending_player"``
+        #: (RULE 506.4 — Nuka-Nuke Launcher) or ``"controller"`` (this
+        #: effect's own source's controller — Ruinous Waterbending's "…you
+        #: gain 1 life").
+        self.recipient = recipient
+        #: Passed straight through to `TemporaryPlayerTrigger` — see its
+        #: docstring. ``"this_turn"`` + ``event_player_scope="any"`` is the
+        #: Ruinous Waterbending shape ("whenever a creature dies this turn").
+        self.duration = duration
+        self.event_player_scope = event_player_scope
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
@@ -10486,7 +10536,10 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
             resolved = context.state.find_object(attached_to)
             if resolved is not None:
                 host = resolved
-        player = _defending_player_of(host, context)
+        if self.recipient == "controller":
+            player = _controller_of(self.source, context)
+        else:
+            player = _defending_player_of(host, context)
         if player is None:
             return
         inner = build_effects(
@@ -10503,6 +10556,8 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
                 effects=inner,
                 install_turn=context.state.turn_number,
                 description=self.description,
+                duration=self.duration,
+                event_player_scope=self.event_player_scope,
             )
         )
 
@@ -12463,9 +12518,14 @@ class TapEffect(GameEffect):
         subtypes: Optional[list[str]] = None,
         choose_tap_or_untap: bool = False,
         colors: Optional[list[str]] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Tap up to **X** target creatures" (Crashing Wave) — a
+        #: `TargetSpec.count_selector` (``"source_x_paid"``), resolved at
+        #: announce time; see `ExileEffect._count_selector`.
+        self._count_selector = count_selector
         #: "tap target `<c1>` or `<c2>` creature an opponent controls"
         #: (Tidebinder Mage) — `TargetSpec.colors`' OR narrowing.
         self.colors = tuple(colors) if colors else None
@@ -12507,6 +12567,7 @@ class TapEffect(GameEffect):
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
                 creature_filter=creature_filter, colors=self.colors,
+                count_selector=count_selector,
             )
             if target_kind is not None and not self._attached_mode
             and not self._trigger_subject_mode and self.selector is None and not previous_subject
@@ -12553,8 +12614,18 @@ class TapEffect(GameEffect):
             if target is not None:
                 context.set_tapped(target, tapped=not self.untap)
             return
-        if self.target_spec is not None and self.target_spec.effective_count != 1:
-            chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
+        if self.target_spec is not None and (
+            self.target_spec.count_selector or self.target_spec.effective_count != 1
+        ):
+            # A `count_selector`-sized spec ("tap up to X target creatures"
+            # — Crashing Wave) took its real count at announce time; trust
+            # `targets` as sized (the `AddCountersEffect`/`ExileEffect`
+            # guard). Otherwise slice to this effect's own static count.
+            chosen = (
+                list(targets or [])
+                if self.target_spec.count_selector
+                else _chosen_targets(targets, self.target_spec.effective_count, self.target)
+            )
             for one in chosen:
                 context.set_tapped(one, tapped=not self.untap)
             return
@@ -13735,6 +13806,26 @@ class AddCountersEffect(GameEffect):
             for target, share in zip(chosen, shares):
                 if share > 0:
                     context.add_counters(target, share, self.kind, source=self.source)
+            return
+        if self.previous_subject and self.divided:
+            # "…then distribute three stun counters among any number of
+            # `<the creatures a previous clause just tapped>`" (Crashing
+            # Wave, PAR-30) — a ``divided`` pool split across every object
+            # `GameContext.previous_targets` carries, no fresh RULE 115
+            # target. **Documented simplification:** "…your opponents
+            # control" is dropped (a caster taps opponents' creatures to
+            # stun them; stun on your own is strictly a downside), and the
+            # split is auto-even rather than an interactive "any number of"
+            # choice — the same call `divided`'s own targeted branch makes.
+            prev = [t for t in context.previous_targets if t is not None]
+            if not prev:
+                return
+            total = self.amount if isinstance(self.amount, int) else 0
+            base, extra = divmod(total, len(prev))
+            for i, one in enumerate(prev):
+                share = base + (1 if i < extra else 0)
+                if share > 0:
+                    context.add_counters(one, share, self.kind, source=self.source)
             return
         if self.target_spec is not None:
             target = targets[0] if targets else None
@@ -15243,6 +15334,8 @@ class LookTopSelectEffect(GameEffect):
         select_count: int = 1,
         rest_destination: str = "library_bottom",
         rest_order: Optional[str] = None,
+        select_optional: bool = False,
+        select_filter: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -15250,12 +15343,18 @@ class LookTopSelectEffect(GameEffect):
         self.select_count = select_count
         self.rest_destination = rest_destination
         self.rest_order = rest_order
+        #: "You **may** reveal a **creature card with power 3 or less**…"
+        #: (Water Tribe Rallier) — see `RulesEngine.look_top_select`.
+        self.select_optional = select_optional
+        self.select_filter = select_filter
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is not None:
             context.look_top_select(
-                player, self.count, self.select_count, self.rest_destination, self.rest_order
+                player, self.count, self.select_count, self.rest_destination,
+                self.rest_order, select_optional=self.select_optional,
+                select_filter=self.select_filter,
             )
 
 
@@ -15736,7 +15835,11 @@ class CopyPermanentEffect(GameEffect):
         #: target), this is the trigger's *subject itself*, already gone
         #: from the battlefield by the time a SACRIFICE/DIES trigger
         #: resolves.
-        self.referent = referent if referent in ("source", "previous", "trigger_event") else "source"
+        self.referent = (
+            referent
+            if referent in ("source", "previous", "previous_each", "trigger_event")
+            else "source"
+        )
         #: "…except it has haste." (Kiki-Jiki, Mirror Breaker-shaped) — a
         #: temp keyword grant on the freshly-made token(s), the same
         #: `temp_keywords` set every other resolve-time haste grant uses.
@@ -15823,6 +15926,36 @@ class CopyPermanentEffect(GameEffect):
             for one in _chosen_targets(targets, self.target_spec.effective_count):
                 made = context.copy_permanent(
                     controller_id, one, 1,
+                    add_types=self.add_types, add_subtypes=self.add_subtypes,
+                    not_legendary=self.not_legendary,
+                    set_power=self.set_power, set_toughness=self.set_toughness,
+                    set_colors=self.set_colors,
+                )
+                context.created_objects.extend(made)
+                if self.haste:
+                    for obj in made:
+                        obj.temp_keywords.add("haste")
+                for kw in self.extra_temp_keywords:
+                    for obj in made:
+                        obj.temp_keywords.add(kw)
+                self._apply_enter_state(context, made)
+            return
+        if self.referent == "previous_each" and self.target_spec is None:
+            # "For **each** creature card exiled this way, create a token
+            # that's a copy of **it**." (Foggy Swamp Visions) — one copy
+            # per object an earlier clause of this same resolution acted on
+            # (`GameContext.previous_targets`, RULE 608.2 order), each a
+            # copy of *that* object. `self.count` copies of each.
+            controller_id = (
+                self.source.controller_id if self.source is not None
+                else context.active_player.id
+            )
+            n = max(1, int(self.count) if isinstance(self.count, int) else 1)
+            for one in list(context.previous_targets):
+                if one is None:
+                    continue
+                made = context.copy_permanent(
+                    controller_id, one, n,
                     add_types=self.add_types, add_subtypes=self.add_subtypes,
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
@@ -19833,6 +19966,7 @@ EffectRegistry.register(
         spell_or_permanent=bool(p.get("spell_or_permanent", False)),
         colors=p.get("colors"),
         bend_kind=p.get("bend_kind"),
+        count_selector=p.get("count_selector"),
     ),
 )
 EffectRegistry.register(
@@ -20078,6 +20212,9 @@ EffectRegistry.register(
 EffectRegistry.register("exile_library", lambda p: ExileLibraryEffect())
 EffectRegistry.register(
     "shuffle_graveyard_into_library", lambda p: ShuffleGraveyardIntoLibraryEffect()
+)
+EffectRegistry.register(
+    "no_max_hand_size_rest_of_game", lambda p: NoMaxHandSizeRestOfGameEffect()
 )
 EffectRegistry.register(
     "graveyard_to_library_bottom_random",  # Endurance
@@ -20389,6 +20526,9 @@ EffectRegistry.register(
         event_type=p.get("event_type", "SPELL_CAST"),
         effects=list(p.get("effects", [])),
         description=p.get("description", ""),
+        recipient=p.get("recipient", "defending_player"),
+        duration=p.get("duration", "defending_next_turn"),
+        event_player_scope=p.get("event_player_scope", "self"),
     ),
 )
 EffectRegistry.register(
@@ -21084,8 +21224,13 @@ EffectRegistry.register(
         untap=bool(p.get("untap", False)),
         optional=bool(p.get("optional", False)),
         selector=p.get("selector"),
-        count=int(p.get("count", 1)),
+        count=p.get("count", 1),
         count_max=p.get("count_max"),
+        # "Tap up to **X** target creatures" (Crashing Wave) — a
+        # `TargetSpec.count_selector`, resolved at announce time off
+        # `GameObject.x_paid`, not the plain ``count`` (see
+        # `ExileEffect.count_selector`).
+        count_selector=p.get("count_selector"),
         previous_subject=bool(p.get("previous_subject", False)),
         trigger_event_key=p.get("trigger_event_key"),
         creature_filter=p.get("creature_filter"),
@@ -21286,6 +21431,7 @@ EffectRegistry.register(
         count_selector=p.get("target_count_selector"),
         subtypes=p.get("subtypes"),
         divided=bool(p.get("divided", False)),
+        creature_filter=p.get("creature_filter"),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
         x_multiplier=p.get("x_multiplier"),
         amount_from_count_selector=p.get("amount_from_count_selector"),
@@ -21336,6 +21482,8 @@ EffectRegistry.register(
         select_count=p.get("select_count", 1),
         rest_destination=p.get("rest_destination", "library_bottom"),
         rest_order=p.get("rest_order"),
+        select_optional=bool(p.get("select_optional", False)),
+        select_filter=p.get("select_filter"),
     ),
 )
 EffectRegistry.register(

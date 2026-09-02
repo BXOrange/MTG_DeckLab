@@ -523,6 +523,8 @@ class SearchMixin:
         select_count: int,
         rest_destination: str,
         rest_order: Optional[str] = None,
+        select_optional: bool = False,
+        select_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         """"Look at the top N cards of your library. Put M of them into
         your hand and the rest `<destination>`." (Anticipate/Dig Through
@@ -539,18 +541,45 @@ class SearchMixin:
         (RULE 701.31b's own precedent — a surveil/mill pile is never
         ordered, which is also why none of these cards ever pair
         "graveyard" with "in any order").
+
+        ``select_filter`` (Water Tribe Rallier — "you may reveal **a
+        creature card with power 3 or less** from among them") restricts
+        which of the looked-at cards may be picked for hand
+        (`combat.matches_object_filter`); ``select_optional`` makes the
+        pick a "you **may**" (0 up to ``select_count``, with a decline
+        option) rather than mandatory. A revealed pick is public info at a
+        real table; this engine has no reveal step, so the card simply goes
+        to hand.
         """
         looked = player.library[-count:] if count > 0 else []
         if not looked:
             return
         remaining = [obj.instance_id for obj in reversed(looked)]  # top of library first
-        select_count = max(0, min(select_count, len(remaining)))
+        eligible = self._look_top_select_eligible(remaining, select_filter)
+        select_count = max(0, min(select_count, len(eligible)))
         if select_count <= 0:
             self._advance_look_top_select(player, remaining, [], rest_destination, rest_order)
             return
         self.state.pending_choice = self._look_top_select_choice(
             player, "select", remaining, [], select_count, [], rest_destination, rest_order,
+            select_optional=select_optional, select_filter=select_filter,
         )
+
+    def _look_top_select_eligible(
+        self, instance_ids: list[int], select_filter: Optional[dict[str, Any]]
+    ) -> list[int]:
+        """The subset of ``instance_ids`` a `look_top_select` pick may take
+        (`select_filter`, or all of them when there is none)."""
+        if not select_filter:
+            return list(instance_ids)
+        from .. import combat  # function-scoped: avoid a load-time cycle
+
+        out = []
+        for iid in instance_ids:
+            obj = self._object_by_instance_id(iid)
+            if obj is not None and combat.matches_object_filter(obj, dict(select_filter)):
+                out.append(iid)
+        return out
 
     def _look_top_select_choice(
         self,
@@ -562,22 +591,31 @@ class SearchMixin:
         ordered: list[int],
         rest_destination: str,
         rest_order: Optional[str],
+        select_optional: bool = False,
+        select_filter: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Build one step of the serializable `look_top_select` decision —
-        ``phase`` is ``"select"`` (choosing the hand cards, no decline: RULE
-        701.19's "put M of them" is mandatory, not "up to") or ``"order"``
-        (placing what's left one at a time, decline keeps the rest in
-        their looked-at order, same convention as `_look_top_choice`)."""
+        ``phase`` is ``"select"`` (choosing the hand cards — mandatory per
+        RULE 701.19's "put M of them", unless ``select_optional``, a "you
+        may reveal…" — and narrowed to ``select_filter`` when set) or
+        ``"order"`` (placing what's left one at a time, decline keeps the
+        rest in their looked-at order, same convention as `_look_top_choice`)."""
         looked = [(iid, self._object_by_instance_id(iid)) for iid in remaining]
-        options = [
-            {"id": str(iid), "label": obj.name, "instance_id": iid}
-            for iid, obj in looked
-            if obj is not None
-        ]
         if phase == "order":
+            options = [
+                {"id": str(iid), "label": obj.name, "instance_id": iid}
+                for iid, obj in looked if obj is not None
+            ]
             options.append({"id": "decline", "label": "Reihenfolge behalten"})
             prompt = "Wähle die nächste Karte für die Bibliothek"
         else:
+            eligible = set(self._look_top_select_eligible(remaining, select_filter))
+            options = [
+                {"id": str(iid), "label": obj.name, "instance_id": iid}
+                for iid, obj in looked if obj is not None and iid in eligible
+            ]
+            if select_optional:
+                options.append({"id": "decline", "label": "Keine offenbaren"})
             prompt = f"Wähle eine Karte für deine Hand ({select_count - len(selected)} übrig)"
         return {
             "kind": "look_top_select",
@@ -589,6 +627,8 @@ class SearchMixin:
             "ordered": list(ordered),
             "rest_destination": rest_destination,
             "rest_order": rest_order,
+            "select_optional": select_optional,
+            "select_filter": dict(select_filter) if select_filter else None,
             "prompt": prompt,
             "options": options,
         }
@@ -606,17 +646,32 @@ class SearchMixin:
         ordered: list[int] = list(choice["ordered"])
         rest_destination: str = choice["rest_destination"]
         rest_order: Optional[str] = choice["rest_order"]
+        select_optional: bool = bool(choice.get("select_optional", False))
+        select_filter: Optional[dict[str, Any]] = choice.get("select_filter")
         phase = choice["phase"]
 
         if phase == "select":
-            if instance_id is None or instance_id not in remaining:
+            eligible = set(self._look_top_select_eligible(remaining, select_filter))
+            if instance_id is None:
+                # RULE 601.2 "you may reveal…" declined — take whatever was
+                # already picked and place the rest. A mandatory pick has no
+                # decline (the caller only offers one when select_optional).
+                if not select_optional:
+                    raise ValueError("a look_top_select pick is not optional")
+                self._advance_look_top_select(
+                    player, remaining, selected, rest_destination, rest_order
+                )
+                return
+            if instance_id not in remaining or instance_id not in eligible:
                 raise ValueError(f"{instance_id} is not a legal choice")
             remaining.remove(instance_id)
             selected.append(instance_id)
-            if len(selected) < select_count and remaining:
+            still_eligible = [i for i in remaining if i in eligible]
+            if len(selected) < select_count and still_eligible:
                 self.state.pending_choice = self._look_top_select_choice(
                     player, "select", remaining, selected, select_count, ordered,
                     rest_destination, rest_order,
+                    select_optional=select_optional, select_filter=select_filter,
                 )
                 return
             self._advance_look_top_select(player, remaining, selected, rest_destination, rest_order)

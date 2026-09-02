@@ -1714,3 +1714,321 @@ def _arteeoh_dread_scavenger() -> list[AbilitySpec]:
 
 
 register("Arteeoh, Dread Scavenger", _arteeoh_dread_scavenger)
+
+
+# ---------------------------------------------------------------------------
+# PAR-30 — Waterbend (RULE 701.67) residue: the remaining per-card bodies.
+# The shared "waterbend {X}" announcement (v215) folds the {X} into the
+# spell's total and stamps `GameObject.x_paid`; each body below is bespoke.
+# ---------------------------------------------------------------------------
+
+
+def _waterbending_lesson() -> list[AbilitySpec]:
+    """Draw three cards. Then discard a card unless you waterbend {2}.
+
+    — RULE 118.3 resolve-time pay-or-discard: `pay_cost_then` with an
+    ``else_effects`` discard, the cost being the waterbend {2} (modeled as a
+    plain {2}, the same documented-simplification drop of the "tap your
+    artifacts and creatures to help" helper as every other waterbend cost).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("draw", {"count": 3}),
+                EffectSpec("pay_cost_then", {
+                    "cost": "{2}",
+                    "effects": [],
+                    "else_effects": [{"type": "discard", "params": {"count": 1}}],
+                    "prompt": "Wasserbändige {2}, sonst wirf eine Karte ab.",
+                }),
+            ],
+            raw_text="Ziehe drei Karten. Wirf dann eine Karte ab, es sei denn, du "
+                     "wasserbändigst {2}.",
+        ),
+    ]
+
+
+register("Waterbending Lesson", _waterbending_lesson)
+
+
+def _water_tribe_rallier() -> list[AbilitySpec]:
+    """Waterbend {5}: Look at the top four cards of your library. You may
+    reveal a creature card with power 3 or less from among them and put it
+    into your hand. Put the rest on the bottom of your library in a random
+    order.
+
+    — the `look_top_select` reveal-filter variant (PAR-30): ``select_
+    optional`` ("you may reveal") + ``select_filter`` ({card_type: creature,
+    max_power: 3}) + ``rest_order="random"``. Cost is the waterbend {5} as a
+    plain {5} activated cost.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("look_top_select", {
+                "count": 4,
+                "select_count": 1,
+                "select_optional": True,
+                "select_filter": {"card_type": "creature", "max_power": 3},
+                "rest_destination": "library_bottom",
+                "rest_order": "random",
+            })],
+            cost={"mana": "{5}"},
+            raw_text="Wasserbändige {5}: Sieh dir die obersten vier Karten deiner "
+                     "Bibliothek an. Du darfst eine Kreaturenkarte mit Stärke 3 oder "
+                     "weniger von ihnen offenbaren und auf deine Hand nehmen. Lege "
+                     "den Rest in zufälliger Reihenfolge unter deine Bibliothek.",
+        ),
+    ]
+
+
+register("Water Tribe Rallier", _water_tribe_rallier)
+
+
+def _ruinous_waterbending() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, you may waterbend {4}.
+    All creatures get -2/-2 until end of turn. If this spell's additional
+    cost was paid, whenever a creature dies this turn, you gain 1 life.
+
+    — the -2/-2 board sweep parses on its own (`pump` selector
+    ``all_creatures``); the paid-branch grant is the new *event-based,
+    this-turn* floating triggered ability — `install_temporary_player_
+    trigger` with ``duration="this_turn"`` (armed active immediately,
+    dropped at the next `TURN_BEGIN`), ``event_player_scope="any"``
+    ("whenever **a** creature dies", not "a creature you control") and
+    ``recipient="controller"`` ("**you** gain 1 life").
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("pump", {"power": -2, "toughness": -2, "selector": "all_creatures"}),
+                EffectSpec("install_temporary_player_trigger", {
+                    "event_type": "DIES",
+                    "duration": "this_turn",
+                    "event_player_scope": "any",
+                    "recipient": "controller",
+                    "effects": [{"type": "gain_life", "params": {"amount": 1}}],
+                    "description": "Immer wenn in diesem Zug eine Kreatur stirbt, gewinnst du 1 Leben.",
+                }, condition={"additional_cost_paid": True}),
+            ],
+            additional_cost={"waterbend": 4},
+            additional_cost_optional=True,
+            raw_text="Alle Kreaturen erhalten -2/-2 bis zum Ende des Zuges. Falls die "
+                     "zusätzlichen Kosten dieses Zauberspruchs bezahlt wurden, gewinnst "
+                     "du 1 Leben, immer wenn in diesem Zug eine Kreatur stirbt.",
+        ),
+    ]
+
+
+register("Ruinous Waterbending", _ruinous_waterbending)
+
+
+def _spirit_water_revival() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, you may waterbend {6}.
+    Draw two cards. If this spell's additional cost was paid, instead
+    shuffle your graveyard into your library, draw seven cards, and you
+    have no maximum hand size for the rest of the game.
+    Exile Spirit Water Revival.
+
+    — the additional-cost-paid *override* ("instead"): the plain "draw two"
+    is gated `{"additional_cost_paid": False}`, the bigger line
+    `{"additional_cost_paid": True}` (RULE 118.3's "instead" = the two
+    branches are mutually exclusive complements, the `clash_won` idiom).
+    "no maximum hand size for the rest of the game" is the new
+    `no_max_hand_size_rest_of_game` effect (`GameState.no_max_hand_size_
+    player_ids`). "Exile ~" is the self-exile-on-resolution tail.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("draw", {"count": 2}, condition={"additional_cost_paid": False}),
+                EffectSpec("shuffle_graveyard_into_library", {},
+                           condition={"additional_cost_paid": True}),
+                EffectSpec("draw", {"count": 7}, condition={"additional_cost_paid": True}),
+                EffectSpec("no_max_hand_size_rest_of_game", {},
+                           condition={"additional_cost_paid": True}),
+                EffectSpec("exile", {"target_kind": None}),
+            ],
+            additional_cost={"waterbend": 6},
+            additional_cost_optional=True,
+            raw_text="Ziehe zwei Karten. Falls die zusätzlichen Kosten dieses "
+                     "Zauberspruchs bezahlt wurden, mische stattdessen deinen Friedhof "
+                     "in deine Bibliothek, ziehe sieben Karten und du hast für den Rest "
+                     "des Spiels keine maximale Handkartenzahl. Schicke Spirit Water "
+                     "Revival ins Exil.",
+        ),
+    ]
+
+
+register("Spirit Water Revival", _spirit_water_revival)
+
+
+def _waterbenders_restoration() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, waterbend {X}.
+    Exile X target creatures you control. Return those cards to the
+    battlefield under their owner's control at the beginning of the next
+    end step.
+
+    — a mass delayed-return flicker: `exile` X targets with ``track_exiled_
+    with`` + a RULE 603.7 `create_delayed_trigger` at the next end step
+    running `return_all_exiled_with` (each card back under its own owner's
+    control — the effect's default). The mandatory waterbend {X} announces
+    X (v215) and `_substitute_x` resolves the ``"x"`` target count.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("exile", {
+                    "target_kind": "creature_you_control",
+                    "count_selector": "source_x_paid",
+                    "track_exiled_with": True,
+                }),
+                # "at the beginning of **the** next end step" (not "your") —
+                # scope "any", the very next end step whoever's turn it is.
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end", "scope": "any",
+                    "effects": [{"type": "return_all_exiled_with", "params": {}}],
+                    "description": "Bringe diese Karten am Anfang des nächsten "
+                                   "Endsegments ins Spiel zurück.",
+                }),
+            ],
+            additional_cost={"waterbend": "x"},
+            raw_text="Schicke X Zielkreaturen, die du kontrollierst, ins Exil. Bringe "
+                     "diese Karten am Anfang des nächsten Endsegments unter der "
+                     "Kontrolle ihrer Besitzer ins Spiel zurück.",
+        ),
+    ]
+
+
+register("Waterbender's Restoration", _waterbenders_restoration)
+
+
+def _foggy_swamp_visions() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, waterbend {X}.
+    Exile X target creature cards from graveyards. For each creature card
+    exiled this way, create a token that's a copy of it. At the beginning
+    of your next end step, sacrifice those tokens.
+
+    — `exile` X graveyard creature cards → `copy_permanent` with the new
+    ``referent="previous_each"`` (one token copy of *each* card an earlier
+    clause of this resolution exiled, `GameContext.previous_targets`) → a
+    RULE 603.7 `create_delayed_trigger` at the next end step sacrificing
+    the captured tokens (``capture="created_objects"``).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("exile", {
+                    "target_kind": "any_graveyard_creature",
+                    "count_selector": "source_x_paid",
+                }),
+                EffectSpec("copy_permanent", {
+                    "referent": "previous_each", "target_kind": None,
+                }),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end", "scope": "controller", "capture": "created_objects",
+                    "effects": [{"type": "sacrifice_specific", "params": {}}],
+                    "description": "Opfere diese Marker am Anfang deines nächsten "
+                                   "Endsegments.",
+                }),
+            ],
+            additional_cost={"waterbend": "x"},
+            raw_text="Schicke X Zielkreaturenkarten aus Friedhöfen ins Exil. Erschaffe "
+                     "für jede auf diese Weise ins Exil geschickte Kreaturenkarte einen "
+                     "Marker, der eine Kopie von ihr ist. Opfere diese Marker am Anfang "
+                     "deines nächsten Endsegments.",
+        ),
+    ]
+
+
+register("Foggy Swamp Visions", _foggy_swamp_visions)
+
+
+def _crashing_wave() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, waterbend {X}.
+    Tap up to X target creatures, then distribute three stun counters among
+    any number of tapped creatures your opponents control.
+
+    — `tap` up to X targets (`TargetSpec.count_selector="source_x_paid"`,
+    resolved at announce time off `x_paid`) → `add_counters` ``divided`` +
+    ``previous_subject`` (a 3-stun-counter pool auto-split across the
+    creatures this spell just tapped). **Documented simplification:** the
+    stun distribution isn't a RULE 115 target (the printed text has no
+    "target" for it — it's "any number of tapped creatures your opponents
+    control"), so it's modeled as "the creatures this spell tapped", split
+    evenly, rather than a fresh interactive "distribute among any number
+    of" choice restricted to opponent-controlled creatures.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("tap", {
+                    "target_kind": "creature",
+                    "count_selector": "source_x_paid", "optional": True,
+                }),
+                EffectSpec("add_counters", {
+                    "kind": "stun", "amount": 3, "divided": True,
+                    "previous_subject": True,
+                }),
+            ],
+            additional_cost={"waterbend": "x"},
+            raw_text="Tappe bis zu X Zielkreaturen, dann verteile drei "
+                     "Betäubungsmarken unter einer beliebigen Anzahl getappter "
+                     "Kreaturen, die deine Gegner kontrollieren.",
+        ),
+    ]
+
+
+register("Crashing Wave", _crashing_wave)
+
+
+def _invasion_submersible() -> list[AbilitySpec]:
+    """When this Vehicle enters, return up to one other target nonland
+    permanent to its owner's hand.
+    Exhaust — Waterbend {3}: This Vehicle becomes an artifact creature. Put
+    three +1/+1 counters on it. (Activate each exhaust ability only once.)
+
+    — the ETB parses on its own (v215 "up to one other target nonland
+    permanent"), reproduced here since a catalogue entry replaces the
+    parser fallback. The Exhaust body is hand-authored: "becomes an
+    artifact creature" is a `grant_until` rest-of-game `type_change`
+    (0/0 base — this Vehicle's printed crew P/T — plus the three counters
+    = a 3/3), and RULE 702.177a's once-per-game restriction is the
+    `activate_only_once_marker` the binder folds into ``once_per_game``.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_to_hand", {
+                "target_kind": "nonland_permanent", "optional": True,
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn dieses Fahrzeug ins Spiel kommt, bringe bis zu eine andere "
+                     "Ziel-Nichtland-bleibende-Karte auf die Hand ihres Besitzers zurück.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("grant_until", {
+                    "duration": "rest_of_game", "target_kind": None,
+                    "static": {"type": "type_change", "params": {
+                        "add_types": ["artifact", "creature"], "power": 0, "toughness": 0,
+                    }},
+                }),
+                EffectSpec("add_counters", {"kind": "+1/+1", "amount": 3, "target_kind": None}),
+                EffectSpec("activate_only_once_marker", {}),
+            ],
+            cost={"mana": "{3}"},
+            raw_text="Auslaugen — Wasserbändige {3}: Dieses Fahrzeug wird eine "
+                     "Artefaktkreatur. Lege drei +1/+1-Marken darauf.",
+        ),
+    ]
+
+
+register("Invasion Submersible", _invasion_submersible)

@@ -3539,6 +3539,11 @@ def has_no_maximum_hand_size(state: "GameState", player: "Player") -> bool:
     ("…for the rest of the game") is a different, unmodeled shape (Card-pool
     Batch 8's writeup).
     """
+    # Spirit Water Revival — a resolve-time "…for the rest of the game"
+    # grant, keyed by player id on `GameState` rather than a battlefield
+    # static (RULE 400.7-safe, no duration to track).
+    if player.id in getattr(state, "no_max_hand_size_player_ids", set()):
+        return True
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "no_max_hand_size":
             continue

@@ -696,14 +696,24 @@ class TriggerCollectionMixin:
                 remaining.append(trig)
                 continue
             # phase == "active": the *next* TURN_BEGIN (anyone's) after their
-            # own turn started means their turn just ended — drop it.
+            # own turn started means their turn just ended — drop it. For a
+            # ``"this_turn"`` trigger (armed active immediately, `active_
+            # since_turn` == install turn), that same check is exactly
+            # "until end of this turn".
             if (
                 event.type == EventType.TURN_BEGIN
                 and trig.active_since_turn is not None
                 and int(event.get("turn", 0)) > trig.active_since_turn
             ):
                 continue
-            if event.type == trig.event_type and event.get("player_id") == trig.player_id:
+            # RULE 603.1: ``"self"`` scope fires only when the event names
+            # this player; ``"any"`` fires on every matching event_type
+            # (Ruinous Waterbending's "whenever **a** creature dies").
+            _player_ok = (
+                trig.event_player_scope == "any"
+                or event.get("player_id") == trig.player_id
+            )
+            if event.type == trig.event_type and _player_ok:
                 ability = TriggeredAbility(
                     trigger_event=trig.event_type,
                     effects=trig.effects,

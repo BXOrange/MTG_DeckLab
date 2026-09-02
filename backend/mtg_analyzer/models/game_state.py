@@ -233,17 +233,38 @@ class TemporaryPlayerTrigger:
         effects: list[Any],
         install_turn: int,
         description: str = "",
+        duration: str = "defending_next_turn",
+        event_player_scope: str = "self",
     ) -> None:
         self.player_id = player_id
         self.event_type = event_type
         self.effects = effects
         self.install_turn = install_turn
-        self.phase = "waiting"
-        self.active_since_turn: Optional[int] = None
+        #: ``"defending_next_turn"`` — the Nuka-Nuke Launcher shape: arm in
+        #: the ``"waiting"`` phase, go ``"active"`` when ``player_id``'s own
+        #: next turn begins, drop after it ends. ``"this_turn"`` (Ruinous
+        #: Waterbending's "whenever a creature dies **this turn**, you gain
+        #: 1 life") — armed ``"active"`` immediately, dropped at the next
+        #: `EventType.TURN_BEGIN` (anyone's).
+        self.duration = duration
+        #: How the installed trigger matches an event to ``player_id``:
+        #: ``"self"`` — only when the event names that player (`event.get(
+        #: "player_id")`, Nuka-Nuke's "whenever **they** cast a spell").
+        #: ``"any"`` — fire on every matching ``event_type`` regardless of
+        #: whose it is (Ruinous Waterbending's "whenever **a** creature
+        #: dies"); the effects still go to ``player_id`` (baked at install).
+        self.event_player_scope = event_player_scope
+        self.phase = "active" if duration == "this_turn" else "waiting"
+        self.active_since_turn: Optional[int] = (
+            install_turn if duration == "this_turn" else None
+        )
         self.description = description
 
     def __repr__(self) -> str:
-        return f"TemporaryPlayerTrigger({self.player_id} @ {self.event_type!r}, phase={self.phase!r})"
+        return (
+            f"TemporaryPlayerTrigger({self.player_id} @ {self.event_type!r}, "
+            f"phase={self.phase!r}, duration={self.duration!r})"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """For the UI's "planned" panel — mirrors `DelayedTrigger.to_dict()`."""
@@ -862,6 +883,15 @@ class GameState:
         #: restriction) is a *history* question — the creature is long gone
         #: from every zone a live board scan could reach.
         self.creatures_died_this_turn: dict[str, int] = {p.id: 0 for p in players}
+
+        #: Player ids granted "you have no maximum hand size **for the rest
+        #: of the game**" by a resolving spell/ability (Spirit Water
+        #: Revival) — the durational, resolve-time-granted sibling of the
+        #: battlefield-static `no_max_hand_size` layer (Reliquary Tower).
+        #: Consulted by `continuous.has_no_maximum_hand_size`; never
+        #: cleared (rest of the game), and RULE 400.7-safe (keyed by the
+        #: player, not an object).
+        self.no_max_hand_size_player_ids: set[str] = set()
 
         #: Which bending keyword actions (RULE 701.6x — Avatar: The Last
         #: Airbender) each player has performed *this turn*: ``{player_id:
