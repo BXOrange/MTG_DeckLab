@@ -13,7 +13,23 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.7% covered — 13,476 / 34,811 — as of 2026-09-02, PARSER_VERSION 212.**
+**38.8% covered — 13,502 / 34,811 — as of 2026-09-02, PARSER_VERSION 213.**
+(213 = PAR-30, **Collect Evidence / Forage / Blight activated-body residue
+— closed**: the Lorwyn "Champion" cycle's mandatory `behold_exile`
+additional cast cost + a "return the exiled card to its owner's hand"
+`ReturnLinkedExileEffect(destination=…)` branch; a trigger-subject-sourced
+"it deals damage equal to its power to each opponent"; a "tap [up to one]
+target creature and put a stun counter on it" handler with RULE 122.1c
+stun-counter skip-untap now enforced in `RulesEngine.set_tapped`;
+`conditional_flash={"controller_beholds_subtype": …}` (Molten Exhale); an
+optional `behold_two_shared_type` additional cost (Celestial Reunion); a
+`type_change` ``legendary`` param + `source_has_subtype` condition key
+(Tenth District Hero). Plus eight hand-authored / engine cards — Champion
+of the Weird / Path, Tenth District Hero, Elven Passage, Incinerator of the
+Guilty, Memory Vampire (with a `cast_without_paying` control-transfer fix),
+Conspiracy Unraveler (`granted_alt_cast_cost` — a board-wide RULE 118.9 alt
+cost the engine's `alt_cost=True` cast path now scans for), Celestial
+Reunion. See `Done_Backend.md` "Collect Evidence (RULE 701.59)".)
 (212 = PAR-30, RULE 701.10 exchange-control residue — **closed**. The
 twelve remaining bespoke singletons, all hand-authored — no parser
 recognition needed, each shape appears on exactly one card. New engine
@@ -114,7 +130,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~40.5% — 12,896 / 31,830 (PARSER_VERSION 212).**
+**Commander-legal slice: ~40.6% — 12,920 / 31,830 (PARSER_VERSION 213).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

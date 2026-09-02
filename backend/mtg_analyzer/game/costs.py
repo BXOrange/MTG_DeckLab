@@ -320,6 +320,26 @@ class ActivationCost:
     #: attempted, and the spell casts whether or not it succeeds; it never
     #: blocks casting.
     behold: Optional[str] = None
+    #: RULE 701.4a (Behold, PAR-30 — the Lorwyn "Champion" cycle reflavoured):
+    #: "as an additional cost to cast this spell, behold a `<type>` **and
+    #: exile it**." — the mandatory sibling of ``behold`` (no "or pay {N}"
+    #: alternative), so it *does* block casting when the caster controls no
+    #: matching permanent and holds no matching card. The type word to
+    #: behold; the beheld object is exiled and its `instance_id` stamped onto
+    #: the spell (`GameObject.linked_exile_id`, the O-Ring field) so the
+    #: card's own "when ~ leaves the battlefield, return the exiled card to
+    #: its owner's hand" trigger (`ReturnLinkedExileEffect(destination=
+    #: "hand")`) can give it back. Charged by `GameEngine.
+    #: _pay_additional_cast_cost`.
+    behold_exile: Optional[str] = None
+    #: RULE 701.4a (Behold, PAR-30 — Celestial Reunion): "as an additional
+    #: cost to cast this spell, **you may** choose a creature type and behold
+    #: two creatures of that type." A bool — always the optional
+    #: (`additional_cost_optional`) shape. When paid, a shared creature type
+    #: is chosen and stamped on `GameObject.chosen_type`, and
+    #: `GameObject.additional_cost_paid` is set, so the resolving search can
+    #: put the found creature onto the battlefield if it is that type.
+    behold_two_shared_type: bool = False
     #: RULE 701.68 (Blight N, PAR-29 — Bloomburrow): "put N -1/-1 counters on
     #: a creature you control", paid as a cost — an activated-ability cost
     #: ("{T}, Blight 1:" — Gristle Glutton), an additional cast cost
@@ -607,6 +627,8 @@ class ActivationCost:
             or self.collect_evidence
             or self.forage
             or self.behold
+            or self.behold_exile
+            or self.behold_two_shared_type
             or self.blight
             or self.tap_others
             or self.sacrifice_count
@@ -666,6 +688,10 @@ class ActivationCost:
             parts.append("Forage")
         if self.behold:
             parts.append(f"Behold a {self.behold}")
+        if self.behold_exile:
+            parts.append(f"Behold a {self.behold_exile} and exile it")
+        if self.behold_two_shared_type:
+            parts.append("Choose a creature type and behold two creatures of that type")
         if self.blight:
             parts.append(f"Blight {self.blight}")
         if self.tap_others:
@@ -719,6 +745,8 @@ class ActivationCost:
             "collect_evidence": self.collect_evidence,
             "forage": self.forage,
             "behold": self.behold,
+            "behold_exile": self.behold_exile,
+            "behold_two_shared_type": self.behold_two_shared_type,
             "blight": self.blight,
             "tap_others": list(self.tap_others) if self.tap_others else None,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
@@ -802,6 +830,10 @@ def parse_activation_cost(
         parsed.forage = True
     if cost.get("behold"):
         parsed.behold = str(cost["behold"])
+    if cost.get("behold_exile"):
+        parsed.behold_exile = str(cost["behold_exile"])
+    if cost.get("behold_two_shared_type"):
+        parsed.behold_two_shared_type = True
     if cost.get("blight"):
         parsed.blight = int(cost["blight"])
     if cost.get("tap_others"):

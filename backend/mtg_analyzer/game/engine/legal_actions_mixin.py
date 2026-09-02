@@ -305,7 +305,10 @@ class LegalActionsMixin:
                 action["free"] = True
             elif alt_cost:
                 action["alt_cost"] = True
-                alt_cast_cost = getattr(obj, "alt_cast_cost", None)
+                alt_cast_cost = getattr(obj, "alt_cast_cost", None) or (
+                    continuous.granted_alt_cast_cost_for(self.state, player, obj.card)
+                    if obj is not None else None
+                )
                 if alt_cast_cost is not None:
                     action["alt_cost_label"] = alt_cast_cost.label()
             else:
@@ -546,7 +549,10 @@ class LegalActionsMixin:
         ) and self.can_cast(player, obj, face=face, free=True):
             return True
         if (
-            getattr(obj, "alt_cast_cost", None) is not None
+            (
+                getattr(obj, "alt_cast_cost", None) is not None
+                or (card is not None and continuous.granted_alt_cast_cost_for(self.state, player, card))
+            )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
             and self.can_cast(player, obj, face=face, alt_cost=True)
         ):
@@ -640,7 +646,10 @@ class LegalActionsMixin:
         # (`obj.miracle_armed`) — otherwise a Miracle card just sits in hand
         # castable normally.
         if (
-            getattr(obj, "alt_cast_cost", None) is not None
+            (
+                getattr(obj, "alt_cast_cost", None) is not None
+                or continuous.granted_alt_cast_cost_for(self.state, player, obj.card)
+            )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
             and self.can_cast(player, obj, alt_cost=True)
         ):

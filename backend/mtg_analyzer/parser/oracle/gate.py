@@ -2141,7 +2141,36 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: **RULE 701.10 exchange-control / exchange-life residue** bullet is now
 #: closed (see PARSER_VERSION 211's entry above for the shared cross-target
 #: predicates). `tests/test_par30_exchange_control_bespoke.py`.
-PARSER_VERSION = "212"
+#: v213 — **Collect Evidence / Forage / Blight activated-body residue**
+#: closed (PAR-30). Parser: the Lorwyn "Champion" cycle's mandatory
+#: ``behold_exile`` additional cast cost (`segmenter._ADDITIONAL_COST_
+#: BEHOLD_EXILE_RE`, `ActivationCost.behold_exile`) + a widened
+#: `_RETURN_EXILED_CARD_RE` "to its owner's **hand**" branch
+#: (`ReturnLinkedExileEffect(destination=…)`) → Champion of the Clachan
+#: and Champions of the Perfect MODELED (the latter's hand-authored
+#: stopgap retired); `subject_damages_each_opponent_equal_to_power` (a
+#: trigger-subject-sourced "it deals damage equal to its power to each
+#: opponent" — Champion of the Path + a 6-card SOLO cluster); a
+#: `tap_and_stun` handler ("tap [up to one] target creature and put a
+#: stun counter on it" — Champions of the Shoal + a ~15-card cluster,
+#: with RULE 122.1c stun-counter skip-untap now enforced engine-side in
+#: `RulesEngine.set_tapped`, and `AddCountersEffect.previous_subject`);
+#: `_CONDITIONAL_FLASH_IF_BEHOLD_RE` → `conditional_flash={"controller_
+#: beholds_subtype": …}` (Molten Exhale); `additional_cost={"behold_two_
+#: shared_type": True}` (Celestial Reunion). Engine/hand-authored:
+#: Champion of the Weird (`BlightEffect(target_kind="opponent")` — "target
+#: opponent blights N"); Tenth District Hero (`type_change` gained a
+#: ``legendary`` param, new `source_has_subtype` `EffectSpec.condition`
+#: key); Elven Passage (`MayBeholdThenUntapLinkedEffect`); Incinerator of
+#: the Guilty (`CollectEvidenceXThenBoardDamageEffect`); Memory Vampire
+#: (`MemoryVampireCombatEffect` + a `cast_without_paying` fix: the caster
+#: now controls a card cast from another player's graveyard); Conspiracy
+#: Unraveler (`granted_alt_cast_cost` static + `continuous.granted_alt_
+#: cast_cost_for`, an externally-granted RULE 118.9 alt cost the engine's
+#: `alt_cost=True` cast path now scans the battlefield for); Celestial
+#: Reunion (`CelestialReunionSearchEffect`). `tests/test_par30_champion_
+#: behold_exile.py`, `tests/test_par30_collect_evidence_residue.py`.
+PARSER_VERSION = "213"
 
 
 def parser_source_hash() -> str:

@@ -146,58 +146,6 @@ Plan-level sequencing lives in
       Bending Prodigy — "her" pronoun; Waterbender Ascension — quest
       counters; Hama — alt-cast by waterbending; Aang's Iceberg — O-Ring).
 
-  - **Collect Evidence / Forage / Blight activated-body residue.** Three
-    sub-clusters shipped (see `Done_Backend.md`): the reflexive *targeted*
-    "When you do, `<payoff>`" shape (v206 — `pay_cost_then.then_trigger`,
-    RULE 603.11, +43 family); the exotic `{cost}, collect evidence N`
-    activated-ability bodies (v207 — `_COST_LOOKS_REAL` keyword-action
-    costs + `exile_attached` / `_DISCARD_THEN_IF_YOU_DO_RE` /
-    `each_player_pay_or` scope-and-OR bodies, +13; Hedge Whisperer
-    hand-authored); and Feed the Cycle's "forage" additional cast cost
-    (v208, `additional_cost={"forage": True}`). What's left, each its own
-    primitive:
-    - **Tenth District Hero** — the second leveler body: "becomes a
-      legendary creature named Mileva, the Stalwart … and gains 'Other
-      creatures you control have indestructible'" (a become-legendary-
-      renamed static + a granted anthem).
-    - **Dynamic "collect evidence X"** — Incinerator of the Guilty (choose
-      X as you collect; the payoff `~ deals X damage to each creature and
-      planeswalker that player controls` also needs a group-damage
-      selector scoped to the reflexive trigger's outer event-player).
-      **Memory Vampire** — its reflexive half rides v206's `then_trigger`,
-      but the card also needs "any number of target players each mill that
-      many cards" (dynamic multi-target mill) and "cast target nonland
-      card from a graveyard without paying its mana cost" (a new one-shot
-      cast-from-graveyard-free primitive).
-    - **Conspiracy Unraveler** — "you may collect evidence 10 **rather
-      than pay the mana cost for spells you cast**": a battlefield
-      permanent granting an alternative cost to *every* spell its
-      controller casts. The cast path's `alt_cost` reads only a spell's
-      *own* `AbilitySpec.alt_cost`, not an externally-granted one — needs
-      a scan-the-battlefield-for-alt-cost-grants hook in `can_cast` /
-      `_offer_cast` / `cast_spell`.
-    - **Behold** — four bespoke singletons, each its own primitive (this is
-      MEC-shaped, not parser grammar):
-      - **Molten Exhale** — `conditional_flash` gated on *choosing to pay*
-        an optional "behold a dragon" additional cost (a new interaction
-        between `additional_cost_optional` and the cast-timing whitelist —
-        `ALLOWED_CAST_CONDITION_KEYS` has no such member).
-      - **Elven Passage** — a multi-sentence activated body (search + "you
-        may behold an elf. If you do, untap that land"), which needs (i)
-        `costs.parse_activation_cost` to recognize "behold a `<type>`" in a
-        cost string, (ii) "behold a `<type>`" in `_MAY_COST_THEN_CLAUSE`,
-        and (iii) the activated handler to split a `search. <reflexive>`
-        two-sentence body. "untap that land" already parses.
-      - **Champion cycle** — "behold a `<type>` and exile it" additional
-        cost + a "when ~ leaves, return the exiled card" LTB return; each
-        Champion is *also* blocked on its own unrelated clause, so the
-        behold work alone doesn't finish any of them.
-      - **Celestial Reunion** — "choose a creature type and behold 2
-        creatures of that type" additional cost + "if the additional cost
-        was paid and the revealed card is the chosen type, put it onto the
-        battlefield instead" (a `additional_cost_paid` + chosen-type
-        conditional destination on a search).
-
   - **Not gaps** (real handler verified action-by-action): Attach, Counter,
     Create, Destroy, Discard, Exile, Fight, Goad, Investigate, Mill,
     Regenerate, Scry, Search, Shuffle, Surveil, Tap/Untap, Transform/
@@ -278,10 +226,11 @@ Plan-level sequencing lives in
   - **PAR-44** — static permission / prohibition (`you may play lands from
     your graveyard` #9, `a deck can have any number of cards named ~` #10 —
     a deckbuilding clause, claim-without-spec).
-  - **PAR-45** — ETB compound utility (`tap target creature an opponent
-    controls and put a stun counter on it` #10, `as ~ enters, choose an
-    opponent` #10, `target opponent loses <n> life and you gain <n> life`
-    #8).
+  - **PAR-45** — ETB compound utility (`as ~ enters, choose an opponent`
+    #10, `target opponent loses <n> life and you gain <n> life` #8). (The
+    `tap target creature and put a stun counter on it` half closed at
+    PARSER_VERSION 213 — `handlers.tap_and_stun` + RULE 122.1c stun-counter
+    skip-untap in `RulesEngine.set_tapped`; see `Done_Backend.md`.)
   - **PAR-46** — cost reduction `for each creature card in your graveyard`
     (#9) and the Party count-selector (see PAR-50).
   - **PAR-47** — `<cost>,<cost>: put a charge counter on ~` + its

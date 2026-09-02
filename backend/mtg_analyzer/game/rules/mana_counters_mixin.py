@@ -322,6 +322,19 @@ class ManaCountersMixin:
         event — RULE 400.7's new object was never tapped/untapped "before".
         """
         was_tapped = obj.tapped
+        # RULE 122.1c: "If a permanent with a stun counter on it would become
+        # untapped, instead remove a stun counter from it." A replacement on
+        # every genuine untap route (this is the choke point) — the untap
+        # step's per-permanent loop, a {Q}/"Untap ~" cost or effect,
+        # `TapEffect(untap=True)`. The permanent stays tapped and no
+        # `UNTAPPED` event fires, exactly as if the untap never happened.
+        if (
+            not tapped
+            and was_tapped
+            and obj.counters.get("stun", 0) > 0
+        ):
+            self.add_counters(obj, -1, "stun")
+            return
         obj.tapped = tapped
         if tapped and not was_tapped:
             self.state.fire_event(

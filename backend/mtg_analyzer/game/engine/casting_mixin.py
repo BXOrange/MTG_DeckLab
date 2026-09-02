@@ -595,7 +595,9 @@ class CastingMixin:
             ):
                 return False
         elif alt_cost:
-            alt_cast_cost = getattr(obj, "alt_cast_cost", None)
+            alt_cast_cost = getattr(obj, "alt_cast_cost", None) or continuous.granted_alt_cast_cost_for(
+                self.state, player, card
+            )
             if alt_cast_cost is None:
                 return False
             alt_cast_condition = getattr(obj, "alt_cast_condition", None)
@@ -659,6 +661,7 @@ class CastingMixin:
         return self._can_pay_additional_cast_cost(
             player, obj, additional_cost, x,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            pay_additional=pay_additional,
         )
     @staticmethod
     def _buyback_cost(obj: GameObject) -> Optional["ManaCost"]:
@@ -1533,7 +1536,11 @@ class CastingMixin:
                 # pay something else after" order the RULE 118-life-payment
                 # branch just below uses.
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups)
-                self._pay_alt_cast_cost(player, obj, getattr(obj, "alt_cast_cost", None))
+                self._pay_alt_cast_cost(
+                    player, obj,
+                    getattr(obj, "alt_cast_cost", None)
+                    or continuous.granted_alt_cast_cost_for(self.state, player, obj.card),
+                )
                 if getattr(obj, "dash", False):
                     # RULE 702.109c/d (PAR-26): a creature cast for its dash
                     # cost gains haste and is bounced at the next end step —
@@ -1688,6 +1695,7 @@ class CastingMixin:
         x: int,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        pay_additional: bool = False,
     ) -> bool:
         """RULE 601.2b: whether ``player`` can pay a spell's "as an
         additional cost to cast this spell, …" clause right now.
@@ -1740,7 +1748,91 @@ class CastingMixin:
         # documented-dropped half) means a player who can't behold / has no
         # creature to blight still gets to cast. `_pay_additional_cast_cost`
         # does the reveal / -1/-1 counters if able.
+        # RULE 601.2b (PAR-30): "behold a `<type>` **and exile it**" (the
+        # Lorwyn "Champion" cycle) has *no* alternative — unlike `behold`, it
+        # blocks casting when the caster controls no matching permanent and
+        # holds no matching card.
+        if cost.behold_exile and self._behold_exile_candidate(
+            player, obj, cost.behold_exile
+        ) is None:
+            return False
+        # RULE 701.4a (PAR-30, Celestial Reunion): "you may choose a creature
+        # type and behold two creatures of that type." — an *optional*
+        # additional cost. Only its `pay_additional` cast variant needs the
+        # payability check (the plain cast never touches it); when nothing
+        # qualifies, `_offer_cast` must not offer that variant.
+        if pay_additional and cost.behold_two_shared_type and self._behold_two_shared_type(
+            player, obj
+        ) is None:
+            return False
         return True
+    def _behold_two_shared_type(
+        self, player: Player, obj: GameObject
+    ) -> Optional[str]:
+        """A creature type ``player`` has at least two of, counting permanents
+        they control and creature cards in hand (`RulesEngine.behold`'s own
+        two zones), to pay Celestial Reunion's "choose a creature type and
+        behold two creatures of that type" optional additional cost — or
+        ``None`` if no such type exists. ``obj`` (the spell itself) is kept
+        out of the hand pool. Auto-picks the first qualifying type (the
+        "no chooser in this MVP" idiom); type lists come off the printed
+        type line, sufficient at cost-payment time.
+        """
+        from collections import Counter
+
+        def _subs(card: "GameObject") -> list[str]:
+            line = (getattr(card.card, "type_line", "") or "")
+            if "creature" not in line.lower() or "—" not in line:
+                return []
+            return [w.lower() for w in line.split("—", 1)[1].split()]
+
+        counts: "Counter[str]" = Counter()
+        for perm in self.state.permanents_controlled_by(player.id):
+            if getattr(perm, "is_creature", False):
+                counts.update(set(_subs(perm)))
+        for card in player.hand:
+            if card is obj:
+                continue
+            counts.update(set(_subs(card)))
+        for kind, n in counts.items():
+            if n >= 2:
+                return kind
+        return None
+    def _behold_exile_candidate(
+        self, player: Player, obj: GameObject, quality: str
+    ) -> Optional[GameObject]:
+        """A permanent ``player`` controls with subtype ``quality``, or a
+        card of that subtype in their hand, eligible to pay a ``behold_exile``
+        additional cast cost (RULE 701.4a — "behold a `<type>` and exile
+        it"). ``obj`` (the spell itself, still in hand at legality-check
+        time) is kept out of its own hand pool.
+
+        **Documented simplification:** an auto-pick, not an interactive one —
+        the same "no chooser in this MVP" idiom `behold` / the other
+        additional-cost payers use. Battlefield first (matching
+        `RulesEngine.behold`'s own scan order and the reminder text), lowest
+        mana value within each zone, so the least is spent for a card that
+        comes back to hand later anyway.
+        """
+        on_bf = sorted(
+            (
+                o
+                for o in self.state.permanents_controlled_by(player.id)
+                if continuous.has_subtype(o, quality)
+            ),
+            key=lambda o: o.card.converted_mana_cost,
+        )
+        if on_bf:
+            return on_bf[0]
+        in_hand = sorted(
+            (
+                c
+                for c in player.hand
+                if c is not obj and continuous.has_subtype(c, quality)
+            ),
+            key=lambda c: c.card.converted_mana_cost,
+        )
+        return in_hand[0] if in_hand else None
     def _pay_additional_cast_cost(
         self,
         player: Player,
@@ -1818,6 +1910,41 @@ class CastingMixin:
             # payment can't pause for a chooser. A player with no creature
             # simply pays nothing (the {M} they'd owe isn't modeled).
             self.rules.blight(player, cost.blight, source=obj, interactive=False)
+        if cost.behold_exile:
+            # RULE 701.4a (PAR-30): "behold a `<type>` and exile it." (the
+            # Lorwyn "Champion" cycle). `_can_pay_additional_cast_cost`
+            # already refused the cast if nothing matched, so a candidate
+            # exists here. Exile it and stamp its id onto the spell — which
+            # is the same `GameObject` once it enters the battlefield
+            # (`casting_mixin._resolve_permanent_spell` adds ``obj`` itself),
+            # so the card's own `LEAVES_BATTLEFIELD` `return_linked_exile`
+            # trigger can hand it back (RULE 400.7: new object on return).
+            victim = self._behold_exile_candidate(player, obj, cost.behold_exile)
+            if victim is not None:
+                self.state.fire_event(GameEvent(
+                    EventType.BEHELD,
+                    player_id=player.id, controller_id=player.id,
+                    instance_id=victim.instance_id, quality=cost.behold_exile,
+                ))
+                self.rules.exile(victim)
+                obj.linked_exile_id = victim.instance_id
+        if cost.behold_two_shared_type:
+            # RULE 701.4a (PAR-30, Celestial Reunion): "choose a creature type
+            # and behold two creatures of that type." Optional — only reached
+            # here when `pay_additional` (the guard at the top of this method
+            # returned early otherwise). Stamp the chosen type so the
+            # resolving search can put the found creature onto the
+            # battlefield if it matches (RULE 700.6-adjacent, `chosen_type`,
+            # the field the RULE 601.2b enter-time creature-type choice
+            # already uses).
+            chosen = self._behold_two_shared_type(player, obj)
+            if chosen is not None:
+                obj.chosen_type = chosen
+                self.state.fire_event(GameEvent(
+                    EventType.BEHELD,
+                    player_id=player.id, controller_id=player.id,
+                    quality=chosen,
+                ))
     def _exile_hand_card_candidate(
         self, player: Player, color: str, exclude: Optional[GameObject] = None
     ) -> Optional[GameObject]:
@@ -1924,6 +2051,13 @@ class CastingMixin:
             count, subtype = cost.tap_others
             if self._resolve_tap_others(player, obj, count, subtype, None) is None:
                 return False
+        # PAR-30: "collect evidence N rather than pay the mana cost"
+        # (Conspiracy Unraveler's board-wide grant — `continuous.
+        # granted_alt_cast_cost_for`).
+        if cost.collect_evidence and not self.rules.collect_evidence_possible(
+            player, cost.collect_evidence
+        ):
+            return False
         return True
     def _pay_alt_cast_cost(
         self, player: Player, obj: GameObject, cost: Optional["ActivationCost"]
@@ -1976,6 +2110,9 @@ class CastingMixin:
             count, subtype = cost.tap_others
             for tapped in self._resolve_tap_others(player, obj, count, subtype, None) or []:
                 self.rules.set_tapped(tapped, True)
+        if cost.collect_evidence:
+            # PAR-30 (Conspiracy Unraveler's granted alt cost).
+            self.rules.collect_evidence(player, cost.collect_evidence)
     def _sacrifice_filter_candidate(
         self, player: Player, filt: dict, exclude: Optional[GameObject] = None
     ) -> Optional[GameObject]:

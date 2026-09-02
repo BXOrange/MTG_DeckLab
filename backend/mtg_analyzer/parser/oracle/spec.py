@@ -129,6 +129,10 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # idiom). Read off this effect's own resolved ``targets`` first, then
         # `GameContext.previous_targets`. A bool.
         "previous_target_is_suspected",
+        # PAR-30: RULE 603.4 intervening-if on the ability's own source's
+        # current (derived) subtypes — "If this creature is a Detective, …"
+        # (Tenth District Hero). A string subtype word.
+        "source_has_subtype",
     }
 )
 
@@ -147,8 +151,16 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
 #: other key here lacked: a plain, unqualified flash grant still needs a
 #: `conditional_flash` entry to reach `combat.has(obj, "flash")`-shaped
 #: legality (`can_cast`'s own check), it just never has anything to test.
+#: ``"controller_beholds_subtype"`` (PAR-30, Molten Exhale — "you may cast
+#: this spell as though it had flash if you behold a Dragon as an additional
+#: cost") — a string subtype word; holds when the caster controls a
+#: permanent of that subtype or holds a card of it in hand (i.e. *could*
+#: behold one). **Documented simplification:** the behold reveal itself and
+#: its being an additional cost aren't separately modeled — the same "the
+#: 'or pay {N}' behold alternative is dropped" precedent PAR-29 set.
 ALLOWED_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
-    {"entered_this_turn", "targets_a_commander", "unconditional"}
+    {"entered_this_turn", "targets_a_commander", "unconditional",
+     "controller_beholds_subtype"}
 )
 
 #: RULE 601.2f/117.3a-adjacent: "If you control a commander, you may cast
@@ -797,6 +809,24 @@ class AbilitySpec:
             # `_ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE`).
             if not isinstance(value, str) or not value.strip():
                 raise SpecValidationError("'additional_cost' behold must be a non-empty type word")
+        elif key == "behold_exile":
+            # RULE 701.4a (PAR-30 — the Lorwyn "Champion" cycle reflavoured):
+            # "behold a `<type>` and exile it." — a *mandatory* additional
+            # cost (no "or pay {N}" alternative), value is the type word.
+            # The exiled card is returned by the card's own
+            # `LEAVES_BATTLEFIELD` `return_linked_exile` trigger.
+            if not isinstance(value, str) or not value.strip():
+                raise SpecValidationError(
+                    "'additional_cost' behold_exile must be a non-empty type word"
+                )
+        elif key == "behold_two_shared_type":
+            # RULE 701.4a (PAR-30 — Celestial Reunion): "you may choose a
+            # creature type and behold two creatures of that type." A bool;
+            # always the optional (`additional_cost_optional`) shape.
+            if value is not True:
+                raise SpecValidationError(
+                    "'additional_cost' behold_two_shared_type must be True"
+                )
         elif key == "blight":
             # RULE 701.68 (PAR-29): "blight N or pay {M}." — N -1/-1 counters
             # on a creature you control. Same "or pay {M}" documented
@@ -835,6 +865,12 @@ class AbilitySpec:
             raise SpecValidationError("'targets_a_commander' condition must be a bool")
         if key == "unconditional" and not isinstance(value, bool):
             raise SpecValidationError("'unconditional' condition must be a bool")
+        if key == "controller_beholds_subtype" and (
+            not isinstance(value, str) or not value.strip()
+        ):
+            raise SpecValidationError(
+                "'controller_beholds_subtype' condition must be a non-empty string"
+            )
 
     def _validate_impulsive_draw_on_combat_damage(self) -> None:
         """Structural check for an ``impulsive_draw_on_combat_damage`` marker."""
@@ -1040,6 +1076,8 @@ class AbilitySpec:
             if key == "kicked_at_least":
                 if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                     raise SpecValidationError("'kicked_at_least' condition must be a positive int")
+            if key == "source_has_subtype" and (not isinstance(value, str) or not value.strip()):
+                raise SpecValidationError("'source_has_subtype' condition must be a non-empty string")
 
     @staticmethod
     def _clamp_params(params: dict[str, Any]) -> None:

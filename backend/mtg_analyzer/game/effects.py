@@ -2779,6 +2779,20 @@ class ConditionalEffect(GameEffect):
                 return False
             if bool(getattr(subj, "is_suspected", False)) != bool(prev_suspected):
                 return False
+        source_subtype = self.condition.get("source_has_subtype")
+        if source_subtype is not None:
+            # RULE 603.4 intervening-if on the ability's *own source*'s
+            # current subtypes — "If this creature is a Detective, …" (Tenth
+            # District Hero's second level, PAR-30). Reads derived subtypes
+            # (a layer-4 `type_change` from the first level can add the
+            # subtype), via the same `combat.matches_object_filter` check
+            # `previous_target_has_subtype` uses.
+            from . import combat  # local: avoid the combat<->effects cycle
+
+            if self.source is None or not combat.matches_object_filter(
+                self.source, {"subtype": str(source_subtype)}
+            ):
+                return False
         return True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -8286,6 +8300,181 @@ class GainControlAttachedEffect(GameEffect):
         context.recompute()
 
 
+class MayBeholdThenUntapLinkedEffect(GameEffect):
+    """"You may behold a(n) `<type>`. If you do, untap that land." (Elven
+    Passage — PAR-30) — the reflexive tail of a "search your library for a
+    basic land, put it onto the battlefield tapped" activated ability. The
+    land searched up is on this ability's own source (`GameObject.
+    linked_exile_id`, stamped by the preceding `search` effect's
+    ``remember=True``, the O-Ring field); this untaps it when the behold
+    succeeds.
+
+    **Documented simplification:** the "you may" is auto-taken whenever the
+    controller *can* behold (controls / holds a matching card) — beholding
+    reveals a card at no cost and the payoff is pure upside (a fetched land
+    untapped), the same "auto-pick, no chooser in this MVP" idiom
+    `collect_evidence` / `forage` / `blight` use for a value-neutral or
+    strictly-beneficial choice.
+    """
+
+    def __init__(self, quality: str = "Elf", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.quality = quality
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        linked_id = getattr(self.source, "linked_exile_id", None)
+        self.source.linked_exile_id = None
+        if linked_id is None:
+            return
+        land = context.state.find_object(linked_id)
+        if land is None or land.zone != Zone.BATTLEFIELD:
+            return
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        if context.engine.behold(player, self.quality, source=self.source):
+            context.engine.set_tapped(land, False)
+
+
+class CollectEvidenceXThenBoardDamageEffect(GameEffect):
+    """Incinerator of the Guilty (PAR-30): "Whenever this creature deals
+    combat damage to a player, you may collect evidence X. When you do, this
+    creature deals X damage to each creature and planeswalker **that
+    player** controls."
+
+    "That player" is the combat-damage recipient, read off the firing
+    `DAMAGE` event's ``target_id``.
+
+    **Documented simplification:** X — the player's choice of how much
+    evidence to collect — is taken as the maximum (every card in the
+    controller's graveyard is exiled), since a larger X is strictly better
+    for the payoff and costs nothing beyond those graveyard cards; the same
+    "auto-pick the strongest line" idiom `RulesEngine.collect_evidence`'s
+    own highest-MV-first exile already uses. The RULE 603.11 reflexive "when
+    you do" is folded in here rather than fired as its own trigger, because
+    the payoff takes no RULE 115 target (an untargeted mass selector).
+    """
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None:
+            return
+        controller = _controller_of(src, context)
+        event = context.trigger_event or {}
+        victim = None
+        vid = event.get("target_id")
+        if vid is not None:
+            try:
+                victim = context.state.player_by_id(vid)
+            except (KeyError, ValueError):
+                victim = None
+        if controller is None or victim is None:
+            return
+        x = sum(c.card.converted_mana_cost for c in controller.graveyard)
+        if x <= 0:
+            return
+        context.engine.collect_evidence(controller, x)  # exiles all; fires COLLECTED_EVIDENCE
+        for obj in list(context.state.battlefield):
+            if obj.controller_id == victim.id and (
+                getattr(obj, "is_creature", False) or getattr(obj, "is_planeswalker", False)
+            ):
+                context.deal_damage(obj, x, src)
+
+
+class CelestialReunionSearchEffect(GameEffect):
+    """Celestial Reunion (PAR-30): "Search your library for a creature card
+    with mana value X or less, reveal it, put it into your hand, then
+    shuffle. If this spell's additional cost was paid and the revealed card
+    is the chosen type, put that card onto the battlefield instead of
+    putting it into your hand."
+
+    X is the spell's own announced ``{X}`` (`GameObject.x_paid`). The
+    conditional destination rides `request_search`'s ``destination_if``: a
+    ``{"type": <chosen creature type>}`` criteria → ``"battlefield"``,
+    active only when the optional "choose a creature type and behold two
+    creatures of that type" additional cost was paid
+    (`GameObject.additional_cost_paid` + `GameObject.chosen_type`, both
+    stamped by `GameEngine._pay_additional_cast_cost`).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None:
+            return
+        player = _controller_of(src, context)
+        if player is None:
+            return
+        x = getattr(src, "x_paid", 0) or 0
+        criteria: dict[str, Any] = {"type": "Creature", "max_mana_value": x}
+        destination_if = None
+        chosen = getattr(src, "chosen_type", None)
+        if getattr(src, "additional_cost_paid", False) and chosen:
+            destination_if = [
+                {"criteria": {"type": str(chosen)}, "destination": "battlefield"}
+            ]
+        context.request_search(
+            player, criteria, "hand", 1, optional=True,
+            destination_if=destination_if, source=src,
+        )
+
+
+class MemoryVampireCombatEffect(GameEffect):
+    """Memory Vampire (PAR-30): "Whenever this creature deals combat damage
+    to a player, any number of target players each mill that many cards.
+    Then you may collect evidence 9. When you do, you may cast target
+    nonland card from defending player's graveyard without paying its mana
+    cost."
+
+    "That many" / "defending player" are read off the firing `DAMAGE`
+    event (``amount`` / ``target_id``).
+
+    **Documented simplifications:**
+    * "any number of target players" → every opponent mills ``amount``
+      cards (the aggressive intent; a self-mill line isn't auto-taken).
+    * "you may collect evidence 9. When you do, you may cast …" → the
+      collect and the follow-up cast are auto-taken when able, and the
+      RULE 115 "target nonland card" is the highest-mana-value nonland card
+      in the damaged player's graveyard — the same "auto-pick the strongest
+      line, no chooser in this MVP" idiom `collect_evidence` itself uses.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None:
+            return
+        controller = _controller_of(src, context)
+        event = context.trigger_event or {}
+        amount = int(event.get("amount") or 0)
+        victim = None
+        vid = event.get("target_id")
+        if vid is not None:
+            try:
+                victim = context.state.player_by_id(vid)
+            except (KeyError, ValueError):
+                victim = None
+        if controller is None or victim is None or amount <= 0:
+            return
+        for player in context.state.living_players():
+            if player.id != controller.id:
+                context.engine.mill(player, amount)
+        if not context.engine.collect_evidence_possible(controller, 9):
+            return
+        context.engine.collect_evidence(controller, 9)
+        candidates = [
+            c for c in list(victim.graveyard)
+            if not getattr(c.card, "is_land", False)
+        ]
+        if not candidates:
+            return
+        pick = max(candidates, key=lambda c: c.card.converted_mana_cost or 0)
+        context.engine.cast_without_paying(controller, pick)
+
+
 class ReturnLinkedExileEffect(GameEffect):
     """"When this leaves the battlefield, return the exiled card to the
     battlefield under its owner's control." (Leonin Relic-Warder/O-Ring-
@@ -8297,7 +8486,19 @@ class ReturnLinkedExileEffect(GameEffect):
     currently linked (the "may exile" ETB was declined) or the linked card
     already left exile some other way (bounced back by a third effect,
     etc.).
+
+    ``destination`` defaults to ``"battlefield"`` (O-Ring). The Lorwyn
+    "Champion" cycle reflavoured (Champion of the Clachan &c. — PAR-30)
+    prints "return the exiled card to its owner's **hand**" instead, paired
+    with a ``behold_exile`` additional cast cost that stamps
+    `linked_exile_id`; ``destination="hand"`` covers that.
     """
+
+    def __init__(
+        self, destination: str = "battlefield", source: Optional["GameObject"] = None
+    ) -> None:
+        super().__init__(source)
+        self.destination = destination
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
@@ -8309,7 +8510,7 @@ class ReturnLinkedExileEffect(GameEffect):
         card_obj = context.state.find_object(linked_id)
         if card_obj is None or card_obj.zone != Zone.EXILE:
             return
-        context.return_from_graveyard(card_obj, "battlefield")
+        context.return_from_graveyard(card_obj, self.destination)
 
 
 class ReturnAllExiledWithEffect(GameEffect):
@@ -11348,14 +11549,36 @@ class BlightEffect(GameEffect):
     control"). `BolsterEffect`'s negative sibling: a bare "you"-subject
     effect (no target, no pronoun), `RulesEngine.blight` owns the procedure
     and its "which creature" `pending_choice`.
+
+    ``target_kind`` (PAR-30 — Champion of the Weird's "target opponent
+    blights 2.") makes *that player* the one who blights: the RULE 115
+    target is read as the player, and the -1/-1 counters go on a creature
+    **they** control (their own `pending_choice`), not the controller's.
     """
 
-    def __init__(self, source: Optional["GameObject"] = None, amount: int = 1) -> None:
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        amount: int = 1,
+        target_kind: Optional[str] = None,
+    ) -> None:
         super().__init__(source)
         self.amount = max(1, int(amount))
+        self.target_kind = target_kind
+        if target_kind:
+            from .targeting import TargetSpec
+
+            self.target_spec = TargetSpec(target_kind, count=1)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
+        if self.target_kind:
+            from ..models.player import Player as _Player
+
+            player = next(
+                (t for t in (targets or []) if isinstance(t, _Player)), None
+            )
+        else:
+            player = _controller_of(self.source, context)
         if player is None:
             return
         context.engine.blight(player, self.amount, source=self.source)
@@ -13277,9 +13500,17 @@ class AddCountersEffect(GameEffect):
         creature_filter: Optional[dict] = None,
         count_selector: Optional[str] = None,
         ring_bearer: bool = False,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: "tap [up to one] target creature and put a stun counter on **it**."
+        #: (Champions of the Shoal &c., PAR-30) — "it" is the creature the
+        #: *preceding* clause of this same body just tapped/targeted
+        #: (`GameContext.previous_targets`), the pronoun idiom `TapEffect`/
+        #: `FightEffect`/`GoadEffect` already use. Distinct from
+        #: `trigger_subject_key` (a RULE 603.1 group-subject read).
+        self.previous_subject = previous_subject
         #: MEC-46 (Galadriel, Elven-Queen): "put a +1/+1 counter on your
         #: Ring-bearer" — no RULE 115 target, resolved fresh against
         #: `continuous.ring_bearer_of` for this effect's controller.
@@ -13446,6 +13677,11 @@ class AddCountersEffect(GameEffect):
             return
         if self.target_spec is not None:
             target = targets[0] if targets else None
+        elif self.previous_subject:
+            prev = list(context.previous_targets)
+            target = prev[0] if prev else None
+            if target is None:
+                return
         else:
             target = self.source
 
@@ -13931,6 +14167,42 @@ class EachCreatureYouControlDamageEachOpponentEffect(GameEffect):
                 continue
             for opponent in opponents:
                 context.deal_damage(opponent, power, creature)
+
+
+class SubjectDamagesEachOpponentEqualToPowerEffect(GameEffect):
+    """"<subject> deals damage equal to its power to each opponent." — a
+    triggered-ability body where the damage *source* and its *amount* are
+    one object: the trigger's own subject when the firing event names one
+    (``instance_id``: Champion of the Path's just-entered Elemental,
+    Pyrotechnic Performer's turned-face-up creature), else the ability's
+    own source (Gau, Feral Youth / Giggling Skitterspike, whose "it" is
+    "~" itself). PAR-30 — a 6-card SOLO cluster the plain `DealDamageEffect`
+    can't express: it sources damage from ``self.source`` and reads a flat
+    or event-payload amount, never "this other object's current power".
+
+    "Each opponent" is every living player other than the ability's
+    controller (RULE 102.1). Power ≤ 0 deals nothing (RULE 119.8).
+    """
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        event = context.trigger_event or {}
+        subject = context.state.find_object(event.get("instance_id"))
+        if subject is None:
+            subject = self.source
+        if subject is None:
+            return
+        power = subject.power or 0
+        if power <= 0:
+            return
+        for opponent in context.state.living_players():
+            if opponent.id != controller.id:
+                context.deal_damage(opponent, power, subject)
 
 
 class DiesReturnAsEnchantmentEffect(GameEffect):
@@ -19366,6 +19638,13 @@ EffectRegistry.register(
     lambda p: EachCreatureYouControlDamageEachOpponentEffect(),
 )
 EffectRegistry.register(
+    # "<subject> deals damage equal to its power to each opponent."
+    # (Champion of the Path / Gau, Feral Youth / Giggling Skitterspike /
+    # Pyrotechnic Performer — PAR-30)
+    "subject_damages_each_opponent_equal_to_power",
+    lambda p: SubjectDamagesEachOpponentEqualToPowerEffect(),
+)
+EffectRegistry.register(
     # "Exile the top N cards of your library. Creature cards exiled this
     # way gain 'You may cast this card from exile as long as `<condition>`.'"
     # (Lukka, Coppercoat Outcast)
@@ -19677,7 +19956,35 @@ EffectRegistry.register(
     "prevent_attacking_player_this_turn",
     lambda p: PreventAttackingPlayerThisTurnEffect(),
 )
-EffectRegistry.register("return_linked_exile", lambda p: ReturnLinkedExileEffect())
+EffectRegistry.register(
+    "return_linked_exile",
+    lambda p: ReturnLinkedExileEffect(destination=p.get("destination", "battlefield")),
+)
+EffectRegistry.register(
+    # "You may behold a(n) <type>. If you do, untap that land." (Elven
+    # Passage — PAR-30) — reads the fetched land off `linked_exile_id`.
+    "may_behold_untap_linked",
+    lambda p: MayBeholdThenUntapLinkedEffect(quality=p.get("quality", "Elf")),
+)
+EffectRegistry.register(
+    # Incinerator of the Guilty (PAR-30): dynamic "collect evidence X" +
+    # "X damage to each creature and planeswalker that player controls".
+    "collect_evidence_x_then_board_damage",
+    lambda p: CollectEvidenceXThenBoardDamageEffect(),
+)
+EffectRegistry.register(
+    # Memory Vampire (PAR-30): dynamic multi-target mill + collect evidence
+    # 9 + free-cast a nonland card from the defending player's graveyard.
+    "memory_vampire_combat",
+    lambda p: MemoryVampireCombatEffect(),
+)
+EffectRegistry.register(
+    # Celestial Reunion (PAR-30): search for a creature card with mana value
+    # X or less; onto the battlefield instead of into hand if the optional
+    # behold-two additional cost was paid and it's the chosen type.
+    "celestial_reunion_search",
+    lambda p: CelestialReunionSearchEffect(),
+)
 EffectRegistry.register("return_all_exiled_with", lambda p: ReturnAllExiledWithEffect())
 EffectRegistry.register(
     "exile_any_number_you_control",
@@ -20552,7 +20859,10 @@ EffectRegistry.register(
     # "Blight N" (Bloomburrow, PAR-29): put N -1/-1 counters on a creature
     # you control (your choice). See `BlightEffect` / `RulesEngine.blight`.
     "blight",
-    lambda p: BlightEffect(amount=p.get("amount", p.get("count", 1))),
+    lambda p: BlightEffect(
+        amount=p.get("amount", p.get("count", 1)),
+        target_kind=p.get("target_kind"),
+    ),
 )
 EffectRegistry.register(
     # "Time travel" (RULE 701.56, PAR-29): remove a time counter from each
@@ -20915,6 +21225,7 @@ EffectRegistry.register(
         amount_if_trigger_subject_subtype=p.get("amount_if_trigger_subject_subtype"),
         amount_if_trigger_subject_subtype_value=p.get("amount_if_trigger_subject_subtype_value"),
         ring_bearer=bool(p.get("ring_bearer", False)),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -21721,6 +22032,10 @@ EffectRegistry.register(
             # object's printed subtypes, unlike `set_subtypes` below.
             "add_subtypes": list(p.get("add_subtypes", [])),
             "add_subtypes_from_source": bool(p.get("add_subtypes_from_source", False)),
+            # RULE 205.4a: "it becomes a **legendary** creature…" (Tenth
+            # District Hero) — sets `GameObject._granted_legendary` in the
+            # layer-4 pass so the legend rule (RULE 704.5j) applies.
+            "legendary": bool(p.get("legendary", False)),
             "power": p.get("power"),
             "toughness": p.get("toughness"),
             # "…becomes an artifact creature with power and toughness each
@@ -22269,6 +22584,28 @@ EffectRegistry.register(
             # controller check entirely when set.
             "any_player": bool(p.get("any_player", False)),
             "grants_flash": bool(p.get("grants_flash", False)),
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
+    # "You may collect evidence N rather than pay the mana cost for spells
+    # you cast." (Conspiracy Unraveler — PAR-30) — a standing, board-wide
+    # RULE 118.9 *alternative cost* grant: unlike `free_cast_permission`
+    # (Aluren) the replacement isn't free, it's a payable non-mana cost.
+    # Consulted by `continuous.granted_alt_cast_cost_for` from the engine's
+    # ``alt_cost=True`` cast path (`can_cast` / `cast_spell` /
+    # legal-actions `_offer_cast`). Controller-scoped ("spells **you**
+    # cast"); ``max_mana_value``/``creature_only`` unused by the only real
+    # card but kept for parity with `free_cast_permission`.
+    "granted_alt_cast_cost",
+    lambda p: StaticAbility(
+        "granted_alt_cast_cost",
+        affects="self",
+        params={
+            "collect_evidence": int(p.get("collect_evidence", 0)),
+            "creature_only": bool(p.get("creature_only", False)),
+            "max_mana_value": p.get("max_mana_value"),
             **_selectors(p),
         },
     ),

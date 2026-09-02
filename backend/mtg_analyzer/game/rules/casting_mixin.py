@@ -724,6 +724,13 @@ class CastingResolutionMixin:
         obj.was_cast = True
         self._remove_from_current_zone(player, obj)
         obj.zone = Zone.STACK
+        # RULE 108.4 / 601.2f: whoever casts the spell controls it (and the
+        # permanent it may become). Usually a no-op — a free cast is nearly
+        # always of the caster's own card — but not when casting a card out
+        # of *another* player's graveyard/exile (Memory Vampire, Mnemonic
+        # Betrayal), where ``owner_id`` stays that other player but control
+        # passes to ``player``.
+        obj.controller_id = player.id
         # RULE 202.1: a free cast spends no mana at all — the "if no mana was
         # spent to cast it" family (Lavinia/Boromir) keys off this rather
         # than ``free``, since a *paid* cast can also come to 0 (see

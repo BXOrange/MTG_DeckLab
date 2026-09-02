@@ -1706,9 +1706,19 @@ _ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE = re.compile(
 #: `_ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE` just above) — a spell is beheld
 #: for if a matching permanent/hand card exists and casts regardless. A
 #: trailing "and exile it." (the Champion cycle) deliberately fails this
-#: anchor, staying unclaimed.
+#: anchor — it is `_ADDITIONAL_COST_BEHOLD_EXILE_RE`'s shape instead.
 _ADDITIONAL_COST_BEHOLD_RE = re.compile(
     r"^behold an?\s+(?P<q>[a-z][a-z'-]*)(?:\s+or pay\s+(?:\{[^}]+\})+)?$", re.IGNORECASE
+)
+#: RULE 701.4a (Behold, PAR-30 — the Lorwyn "Champion" cycle reflavoured,
+#: Champion of the Clachan/Path/Weird, Champions of the Perfect/Shoal):
+#: "behold a `<type>` and exile it." as a *mandatory* additional cast cost
+#: (no "or pay {N}" alternative — unlike `_ADDITIONAL_COST_BEHOLD_RE`, this
+#: one blocks casting when unpayable). The exiled card is given back by the
+#: card's own "when ~ leaves the battlefield, return the exiled card to its
+#: owner's hand" trigger.
+_ADDITIONAL_COST_BEHOLD_EXILE_RE = re.compile(
+    r"^behold an?\s+(?P<q>[a-z][a-z'-]*)\s+and exile it$", re.IGNORECASE
 )
 #: RULE 701.68 (Blight, PAR-29 — Bloomburrow): "blight N [or pay {M}]" as
 #: an additional cast cost (Bogslither's Embrace/Wild Unraveling). Same
@@ -1790,6 +1800,15 @@ _FREE_CAST_IF_OPPONENT_FOREST_YOU_ISLAND_RE = re.compile(
 #: recognized today, matching `ALLOWED_CAST_CONDITION_KEYS`'s whitelist.
 _CONDITIONAL_FLASH_IF_TARGETS_COMMANDER_RE = re.compile(
     r"^you may cast this spell as though it had flash if it targets a commander\.?\s*$",
+    re.IGNORECASE,
+)
+#: PAR-30, Molten Exhale: "You may cast this spell as though it had flash if
+#: you behold a `<type>` as an additional cost to cast it." →
+#: `conditional_flash={"controller_beholds_subtype": "<type>"}` (the caster
+#: could behold one). The type word is a creature type for every real card.
+_CONDITIONAL_FLASH_IF_BEHOLD_RE = re.compile(
+    r"^you may cast this spell as though it had flash if you behold an?\s+"
+    r"(?P<q>[a-z][a-z'-]*) as an additional cost to cast it\.?\s*$",
     re.IGNORECASE,
 )
 
@@ -2037,6 +2056,9 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     if life_or_mana is not None:
         amount = life_or_mana.group(1)
         return {"pay_life": "x" if amount.lower() == "x" else int(amount)}
+    beh_exile = _ADDITIONAL_COST_BEHOLD_EXILE_RE.match(text)
+    if beh_exile is not None:
+        return {"behold_exile": beh_exile.group("q").strip()}
     beh = _ADDITIONAL_COST_BEHOLD_RE.match(text)
     if beh is not None:
         return {"behold": beh.group("q").strip()}
@@ -4164,6 +4186,19 @@ def segment_line(
                 "spell_effect",
                 effects=[],
                 conditional_flash={"targets_a_commander": True},
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        behold_flash = _CONDITIONAL_FLASH_IF_BEHOLD_RE.match(raw)
+        if behold_flash is not None:
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                conditional_flash={
+                    "controller_beholds_subtype": behold_flash.group("q").strip().lower()
+                },
                 raw_text=raw,
                 parser=provenance,
             )

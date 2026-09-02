@@ -4450,6 +4450,25 @@ _POWER_DAMAGE_SELF_SELECTOR_RE = _c(
 _POWER_DAMAGE_PRONOUN_SELECTOR_RE = _c(
     rf"it {_DEALS_POWER} (?P<selector>{_DAMAGE_SELECTOR_ALT})"
 )
+#: PAR-30: "<subject> deals damage equal to its power to each opponent." as
+#: a *triggered-ability body* where the damage source and its amount are the
+#: same object — the trigger's own subject (Champion of the Path's
+#: just-entered Elemental / Pyrotechnic Performer's turned-face-up creature
+#: → `group_subject_only`) or "~" itself (Giggling Skitterspike / Gau, Feral
+#: Youth → `self_subject_only`). Routed to the dedicated
+#: `subject_damages_each_opponent_equal_to_power` effect, which resolves the
+#: subject from `GameContext.trigger_event` at resolution — the plain
+#: `damage_equal_to_power` selector rows source from ``self.source``, which
+#: is wrong when "it" is a *different* creature every firing.
+_SUBJECT_POWER_DAMAGE_EACH_OPPONENT_RE = _c(
+    r"(?:it|that creature) deals? damage equal to its power to each opponent"
+)
+
+
+def _subject_damages_each_opponent_equal_to_power(
+    m: "re.Match[str]",
+) -> list[EffectSpec]:
+    return [EffectSpec("subject_damages_each_opponent_equal_to_power", {})]
 
 #: The one-sided fight's own registration table (see `_FIGHT_ROW_SPECS`'s
 #: matching note) — two rows wider than fight's, since a creature can deal
@@ -4458,6 +4477,19 @@ _POWER_DAMAGE_PRONOUN_SELECTOR_RE = _c(
 #: `_pronoun_selector` rows.
 _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     ("damage_equal_to_power", _POWER_DAMAGE_TWO_TARGETS_RE, _damage_equal_to_power, {}),
+    # "it/that creature deals damage equal to its power to each opponent."
+    # — before the generic pronoun/self selector rows so the dedicated
+    # trigger-subject effect wins for the "each opponent" recipient (PAR-30).
+    (
+        "subject_damage_each_opponent_power_group",
+        _SUBJECT_POWER_DAMAGE_EACH_OPPONENT_RE,
+        _subject_damages_each_opponent_equal_to_power, {"group_subject_only": True},
+    ),
+    (
+        "subject_damage_each_opponent_power_self",
+        _SUBJECT_POWER_DAMAGE_EACH_OPPONENT_RE,
+        _subject_damages_each_opponent_equal_to_power, {"self_subject_only": True},
+    ),
     (
         "damage_equal_to_power_self", _POWER_DAMAGE_SELF_RE,
         _damage_equal_to_power_implicit(None), {},
@@ -4756,13 +4788,23 @@ def _exile_until_leaves(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: control." → `ReturnLinkedExileEffect`. `gate.parse_oracle`'s own
 #: cross-line pass stamps ``remember=True`` onto the companion ETB exile so
 #: `GameObject.linked_exile_id` is populated for this to read back.
+#:
+#: PAR-30: "return the exiled card to its owner's **hand**." is the Lorwyn
+#: "Champion" cycle's return half (Champion of the Clachan &c.), paired with
+#: a ``behold_exile`` additional cast cost (`segmenter.
+#: _ADDITIONAL_COST_BEHOLD_EXILE_RE`) that stamps `linked_exile_id` itself —
+#: `ReturnLinkedExileEffect(destination="hand")`.
 _RETURN_EXILED_CARD_RE = _c(
-    r"return the exiled cards? to the battlefield under "
-    r"(?:its owner'?s|their owners'?) control"
+    r"return the exiled cards? to (?:"
+    r"the battlefield under (?:its owner'?s|their owners'?) control"
+    r"|(?P<hand>its owner'?s hand)"
+    r")"
 )
 
 
 def _return_exiled_card(m: re.Match[str]) -> list[EffectSpec]:
+    if m.groupdict().get("hand"):
+        return [EffectSpec("return_linked_exile", {"destination": "hand"})]
     return [EffectSpec("return_linked_exile", {})]
 
 
@@ -9256,6 +9298,33 @@ HANDLERS: list[EffectHandler] = [
         "tap_two_color",
         _TAP_TWO_COLOR_RE,
         _tap_two_color,
+    ),
+    # "tap [up to one] target creature[ an opponent controls] and put a stun
+    # counter on it." (Champions of the Shoal, Alchemax Slayer-Bots,
+    # Constrictor Sage &c. — PAR-30, a ~30-card SOLO cluster). One clause,
+    # two effects: the tap, then a stun counter on the same creature
+    # (`AddCountersEffect.previous_subject`). RULE 122.1c's skip-untap
+    # replacement is enforced engine-side in `RulesEngine.set_tapped`.
+    # Above the plain `tap` row so the trailing "and put a stun counter…"
+    # isn't dropped.
+    EffectHandler(
+        "tap_and_stun",
+        _c(
+            r"(?P<verb>tap) (?:up to (?:one|1) )?target creature"
+            r"(?P<yc> an opponent controls| you don't control)? "
+            r"and put a stun counter on it"
+        ),
+        lambda m: [
+            EffectSpec("tap", {
+                "target_kind": (
+                    "creature_you_dont_control" if m.group("yc") else "creature"
+                ),
+                "optional": bool(re.search(r"up to (?:one|1)", m.group(0))),
+            }),
+            EffectSpec("add_counters", {
+                "kind": "stun", "amount": 1, "previous_subject": True,
+            }),
+        ],
     ),
     # "tap target creature" / "untap target permanent"
     EffectHandler(

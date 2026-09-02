@@ -44,11 +44,15 @@ def test_behold_additional_cost_dict_forms():
 
 
 def test_behold_dict_adversarial_no_match():
-    # the Champion cycle ("... and exile it") and the spell "Behold the
-    # Multiverse" must NOT be read as a behold additional cost.
-    assert _additional_cost_dict("behold an elemental and exile it") is None
+    # the spell "Behold the Multiverse" must NOT be read as a behold
+    # additional cost.
     assert _additional_cost_dict("behold the multiverse") is None
     assert _additional_cost_dict("behold a dragon, then draw a card") is None
+    # the Lorwyn "Champion" cycle's "... and exile it" is its own
+    # (mandatory) shape, `behold_exile`, not the plain `behold` (PAR-30).
+    assert _additional_cost_dict("behold an elemental and exile it") == {
+        "behold_exile": "elemental"
+    }
 
 
 def test_behold_line_claimed_on_a_creature_spell():

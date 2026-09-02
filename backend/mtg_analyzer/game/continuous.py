@@ -1777,6 +1777,12 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                     obj._loses_all_abilities = True
             if obj_power is not None and obj_toughness is not None:
                 animation_pt[obj.instance_id] = (obj_power, obj_toughness)
+            if ability.params.get("legendary"):
+                # RULE 205.4a: "it becomes a legendary creature…" (Tenth
+                # District Hero's second level) — the same `_granted_
+                # legendary` flag The Ring's "your Ring-bearer is legendary"
+                # sets, so the RULE 704.5j legend-rule SBA sees it.
+                obj._granted_legendary = True
             label = ", ".join(added + add_subtypes) if (added or add_subtypes) else ", ".join(set_subtypes or [])
             _trace(obj, 4, _source_name(ability), f"becomes {label}")
 
@@ -3707,6 +3713,39 @@ def standing_free_cast_grants_flash(state: "GameState", player: "Player", card: 
     """
     ability = _active_free_cast_permission(state, player, card)
     return ability is not None and bool(ability.params.get("grants_flash"))
+
+
+def granted_alt_cast_cost_for(
+    state: "GameState", player: "Player", card: Any
+) -> Optional[Any]:
+    """An `ActivationCost` a standing ``"granted_alt_cast_cost"`` static
+    (Conspiracy Unraveler — "You may collect evidence N rather than pay the
+    mana cost for spells you cast.") lets ``player`` pay in place of
+    ``card``'s mana cost right now, or ``None``.
+
+    The RULE 118.9 *alternative cost* sibling of
+    `_active_free_cast_permission` (Aluren): that one is genuinely free,
+    this replaces the mana cost with a payable non-mana cost. Controller-
+    scoped, with the same optional ``creature_only`` / ``max_mana_value``
+    narrowing.
+    """
+    from .costs import parse_activation_cost  # function-scoped: import cycle
+
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "granted_alt_cast_cost":
+            continue
+        if getattr(ability.source, "controller_id", None) != player.id:
+            continue
+        if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
+            continue
+        max_mv = ability.params.get("max_mana_value")
+        if max_mv is not None and getattr(card, "converted_mana_cost", 0) > max_mv:
+            continue
+        n = int(ability.params.get("collect_evidence") or 0)
+        if n <= 0:
+            continue
+        return parse_activation_cost({"collect_evidence": n})
+    return None
 
 
 def granted_evoke_cost_for(state: "GameState", obj: Any) -> Optional["ManaCost"]:
