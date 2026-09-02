@@ -2186,7 +2186,25 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: singleton, un-parseable reflexive clause). No card's parser verdict
 #: changes; +1 covered via hand-authoring. `tests/test_par30_firebending_
 #: bending_trail.py`.
-PARSER_VERSION = "214"
+#: v215 — PAR-30 **Waterbend (RULE 701.67) residue**, first pass. Three
+#: shared parser/engine wins the residue cards (and many others) were
+#: blocked on: (1) "Whenever you/an opponent draws their **second** card
+#: each turn, …" (`segmenter._DRAW_CARD_TRIGGER_NTH_RE` → the engine's
+#: existing `is_nth_draw_this_turn` predicate — Faerie Mastermind's
+#: hand-authored shape, now parser-reachable; ~+35, closes The Unagi of
+#: Kyoshi Island whose Ward—Waterbend {4} already resolved via the ward
+#: text-cost fallback). (2) "[another/other] target permanent you control"
+#: → the real `permanent_you_control` target kind, + `_TAP_TARGET_KINDS`
+#: (closes North Pole Patrol's "{T}: Untap another target permanent you
+#: control"). (3) "up to one **other** target nonland permanent" (a new
+#: `_TARGET_ROWS` row — closes Invasion Submersible's ETB). Plus the
+#: **waterbend {X}** mandatory additional cost: `_ADDITIONAL_COST_
+#: WATERBEND_RE` now matches `{X}` → `{"waterbend": "x"}`, and
+#: `legal_actions` surfaces `has_x`/`max_x` off a mandatory variable
+#: additional cost (`effective_cast_cost` already folds `mana.with_x(x)`,
+#: `x_paid` carries it to the body) — the announcement plumbing Crashing
+#: Wave / Foggy Swamp Visions / Waterbender's Restoration need.
+PARSER_VERSION = "215"
 
 
 def parser_source_hash() -> str:

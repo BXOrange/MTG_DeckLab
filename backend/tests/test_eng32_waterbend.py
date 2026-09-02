@@ -70,13 +70,18 @@ def test_real_waterbend_cards_modeled():
         assert parse_oracle(c).modeled, (name, parse_oracle(c).unclaimed)
 
 
-def test_x_waterbend_additional_cost_stays_unmodeled():
-    # "waterbend {X}" (needs {X}-announcement plumbing the printed cost
-    # doesn't trigger) is still out of scope — PAR-30.
+def test_x_waterbend_additional_cost_is_claimed():
+    # PAR-30 (PARSER_VERSION 215 — Waterbend residue): "waterbend {X}" now
+    # parses to `additional_cost={"waterbend": "x"}`. `legal_actions`
+    # surfaces `has_x` off a mandatory variable additional cost and
+    # `effective_cast_cost` folds `mana.with_x(x)`, so a spell whose body
+    # also parses (here "Draw X cards") is MODELED.
     c = _card("T", "Sorcery",
               "As an additional cost to cast this spell, waterbend {X}.\nDraw X cards.",
               mana_cost_string="{1}{U}")
-    assert not parse_oracle(c).modeled
+    r = parse_oracle(c)
+    assert r.modeled
+    assert any(s.additional_cost == {"waterbend": "x"} for s in r.specs)
 
 
 def test_optional_waterbend_additional_cost_is_now_claimed():

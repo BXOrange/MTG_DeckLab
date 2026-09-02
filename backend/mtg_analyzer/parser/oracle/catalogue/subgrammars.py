@@ -123,6 +123,14 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # controls" → `creature_you_dont_control` above; above that bare row so
     # the longer phrase wins.
     (r"target permanent (?:an opponent controls|you don't control)", "permanent_you_dont_control"),
+    # "[another] target permanent you control" (North Pole Patrol's "{T}:
+    # Untap another target permanent you control") — the you-control
+    # sibling, onto the real `permanent_you_control` engine kind
+    # (`targeting.legal_targets`); above the bare row so the longer phrase
+    # wins. RULE 109.5's "another" adds no distinct kind (same call as the
+    # "another target permanent" row below), it just narrows the offer off
+    # the effect's own source.
+    (r"(?:another |other )?target permanent you control", "permanent_you_control"),
     (r"target permanent", "permanent"),
     # "target artifact, enchantment, or land" (Acidic Slime) / "target
     # artifact, creature, or land" (Aftershock) / any other 2+ combination of
@@ -180,6 +188,10 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # Mischief exchange-control targets); the controller-scoped sibling,
     # above the bare row so the longer phrase wins.
     (r"target nonland permanent you control", "nonland_permanent_you_control"),
+    # "[up to one] other target nonland permanent" (RULE 109.5 — Invasion
+    # Submersible's ETB); "other" adds no distinct kind, same call as the
+    # "another target permanent" row just below.
+    (r"(?:another|other) target nonland permanent", "nonland_permanent"),
     (r"target nonland permanent", "nonland_permanent"),
     # "another target permanent" (RULE 109.5 — Legerdemain's second
     # exchange-control target; `other_permanent` isn't a distinct engine

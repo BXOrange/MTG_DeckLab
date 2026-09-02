@@ -333,7 +333,19 @@ class LegalActionsMixin:
             # otherwise has nowhere to read it from, since `GameObject.to_dict`
             # carries board state rather than printed characteristics.
             action["mana_value"] = cost.converted_mana_cost
-            if cost.has_variable:
+            # RULE 601.2b (PAR-30 — Crashing Wave / Foggy Swamp Visions /
+            # Waterbender's Restoration): a spell whose only {X} lives in a
+            # *mandatory* "waterbend {X}" additional cost still announces X
+            # (the body reads it as `x_paid`). `effective_cast_cost` already
+            # folds `additional_cast_cost.mana.with_x(x)`, so `max_affordable_x`
+            # is correct for it — this is purely the missing offer-time flag.
+            _add = getattr(obj, "additional_cast_cost", None)
+            _add_has_x = (
+                _add is not None and getattr(_add, "mana", None) is not None
+                and _add.mana.has_variable
+                and not getattr(obj, "additional_cast_cost_optional", False)
+            )
+            if cost.has_variable or _add_has_x:
                 action["has_x"] = True
                 action["max_x"] = self.max_affordable_x(player, obj)
 

@@ -557,6 +557,20 @@ _CAST_SPELL_TRIGGER_NTH_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: "Whenever you draw your second card each turn, …" / "Whenever an opponent
+#: draws their second card each turn, …" (Faerie Mastermind / Bard the
+#: Bowman / The Unagi of Kyoshi Island — the ~44-SOLO ordinal-draw cluster).
+#: The draw-side sibling of `_CAST_SPELL_TRIGGER_NTH_RE`, reusing its closed
+#: ordinal→int map; `effect_binder`'s ``is_nth_draw_this_turn`` predicate
+#: (`GameState.cards_drawn_this_turn`, RULE 120.3) is already proven by
+#: Faerie Mastermind's hand-authored entry, so this is purely the missing
+#: oracle-text recognizer.
+_DRAW_CARD_TRIGGER_NTH_RE = re.compile(
+    r"^whenever (?P<subj>you|an opponent|a player) draws? (?:your|their) "
+    rf"(?P<ordinal>{'|'.join(_CAST_SPELL_ORDINAL_WORDS)}) card each turn,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
 #: The mana-value-filtered sibling — "Whenever a player casts a spell with
 #: mana value N or less, <effect>." (Eidolon of the Great Revel/Pyrostatic
 #: Pillar-shaped). `SPELL_CAST` already carries ``mana_value`` on the event
@@ -1728,13 +1742,15 @@ _ADDITIONAL_COST_BLIGHT_RE = re.compile(
 )
 #: ENG-32 (RULE 701.67, Avatar: TLA): "as an additional cost to cast this
 #: spell, waterbend {N}." — a fixed {N} generic mana cost folded into the
-#: spell's total (`casting_mixin.effective_cast_cost`). **Not** matched:
-#: "waterbend {X}" (needs {X}-announcement plumbing the printed cost
-#: doesn't trigger — Crashing Wave/Foggy Swamp Visions), and "you may
-#: waterbend {N}" (a Kicker-shaped optional additional cost) — both stay
-#: UNMODELED.
+#: spell's total (`casting_mixin.effective_cast_cost`). PAR-30: "waterbend
+#: {X}" (Crashing Wave / Foggy Swamp Visions / Waterbender's Restoration)
+#: now matches too — `{"waterbend": "x"}`, folded with the announced X
+#: (`legal_actions` surfaces `has_x` off a mandatory variable additional
+#: cost, `effective_cast_cost` folds `mana.with_x(x)`, `x_paid` carries it
+#: to the body). "you may waterbend {N}" (a Kicker-shaped *optional*
+#: additional cost) is `_ADDITIONAL_COST_OPTIONAL_RE`'s job, not this one.
 _ADDITIONAL_COST_WATERBEND_RE = re.compile(
-    r"^waterbend\s+\{(?P<n>\d+)\}$", re.IGNORECASE
+    r"^waterbend\s+\{(?P<n>\d+|x)\}$", re.IGNORECASE
 )
 #: RULE 701.61 (Forage, PAR-29 — Bloomburrow): "as an additional cost to
 #: cast this spell, forage [or pay {M}]." (Feed the Cycle). Same documented
@@ -3523,6 +3539,28 @@ def segment_line(
             "triggered",
             effects=effects,
             trigger={"event": "DRAW", "condition": _cast_spell_trigger_condition(subj)},
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    draw_trig_nth = _DRAW_CARD_TRIGGER_NTH_RE.match(raw)
+    if draw_trig_nth is not None:
+        subj = draw_trig_nth.group("subj").lower()
+        n = _CAST_SPELL_ORDINAL_WORDS[draw_trig_nth.group("ordinal").lower()]
+        body, optional = _peel_optional(draw_trig_nth.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "DRAW",
+                "condition": _cast_spell_trigger_condition(subj),
+                "is_nth_draw_this_turn": n,
+            },
             optional=optional,
             raw_text=raw,
             parser=provenance,

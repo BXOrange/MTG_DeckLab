@@ -13,7 +13,22 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.8% covered — 13,503 / 34,811 — as of 2026-09-02, PARSER_VERSION 214.**
+**38.9% covered — 13,548 / 34,811 — as of 2026-09-02, PARSER_VERSION 215.**
+(215 = PAR-30, **Waterbend (RULE 701.67) residue**, first pass. Three
+shared wins the residue cards were blocked on: "Whenever you / an opponent
+draws their **second** card each turn, …" (`segmenter._DRAW_CARD_TRIGGER_
+NTH_RE` → the engine's existing `is_nth_draw_this_turn` predicate; ~+35,
+closes The Unagi of Kyoshi Island); "[another] target permanent you
+control" → the `permanent_you_control` target kind (closes North Pole
+Patrol); "up to one **other** target nonland permanent" → a new
+`_TARGET_ROWS` row (closes Invasion Submersible's ETB). Plus the
+**waterbend {X}** mandatory additional cost: `{"waterbend": "x"}` +
+`legal_actions` `has_x`/`max_x` off a mandatory variable additional cost
+(the announcement plumbing Crashing Wave / Foggy Swamp Visions /
+Waterbender's Restoration need for their bodies). Still open in the
+bullet: those three bodies, Waterbending Lesson, Water Tribe Rallier,
+Ruinous Waterbending, Spirit Water Revival, Secret of Bloodbending. +45,
+0 regressed.)
 (214 = PAR-30, **Firebending (RULE ~702.189) grants residue — closed**: the
 last open sub-bullet of PAR-29's parser trail, the "whenever you waterbend,
 earthbend, firebend, or airbend" bending-verb trigger (Avatar Aang, a strict
@@ -142,7 +157,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~40.6% — 12,921 / 31,830 (PARSER_VERSION 214).**
+**Commander-legal slice: ~40.7% — 12,966 / 31,830 (PARSER_VERSION 215).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

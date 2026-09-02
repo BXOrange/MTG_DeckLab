@@ -2441,6 +2441,7 @@ _exile_multi_target = _multi_target_builder("exile", allow_spell=True)
 _TAP_TARGET_KINDS = (
     "creature", "permanent", "legendary_permanent", "forest",
     "creature_you_control", "creature_you_dont_control", "other_creature_you_control",
+    "permanent_you_control", "permanent_you_dont_control",
     *_SINGLE_TYPE_PERMANENT_KINDS,
 )
 

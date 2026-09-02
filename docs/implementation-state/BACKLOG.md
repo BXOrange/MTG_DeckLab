@@ -103,43 +103,53 @@ Plan-level sequencing lives in
     (Hunted by The Family); "each opponent who lost 3+ life this turn"
     (Davros).
 
-  - **Waterbend (RULE 701.67) residue — parser grammar for the shared
-    shapes is DONE; the rest are primitive-blocked singletons.** The
-    optional-additional-cost-paid tracker (v155), the `subtype_in_graveyard`
-    condition + `<subtype>_cards_in_your_graveyard` count-selector (v156/158),
-    the self parametric-keyword grant (v157) and Katara's suffix condition
-    (v158) all shipped; see `Done_Backend.md`. What's left is one distinct
-    MEC-scale engine primitive per card, not loose parser ends:
+  - **Waterbend (RULE 701.67) residue — the remaining per-card bodies.**
+    Shared-shape parser grammar and the three cluster wins are DONE
+    (v155–158, and v215's nth-draw trigger / `permanent_you_control`
+    target / `other target nonland permanent` / **waterbend {X}**
+    announcement — see `Done_Backend.md`). What's left is one distinct
+    MEC-scale primitive per remaining card:
     - **Ruinous Waterbending** — "if paid, whenever a creature dies this
       turn, you gain 1 life": a *player-scoped, this-turn floating
       triggered ability*. `CreateDelayedTriggerEffect` is step-based only
       (RULE 603.7 "at the beginning of the next end step"); an event-based
-      "whenever X this turn" temporary trigger is unbuilt.
+      "whenever X this turn" temporary trigger is unbuilt. (The "-2/-2 to
+      all creatures" half already parses; only the paid-branch grant is
+      open.)
     - **Secret of Bloodbending** — "you control target opponent during
       their next combat phase / turn": the Mindslaver / Word of Command
-      family (control another player's turn), unbuilt.
+      family (control another player's turn), unbuilt — a genuinely large
+      engine feature, likely its own `MEC` ticket.
     - **Spirit Water Revival** — "if paid, `<effect>` **instead**": the
       additional-cost-paid *amount-override* branch (v155 shipped only the
       additive "if paid, extra effect" form), + "no maximum hand size for
-      the rest of the game" static + graveyard-shuffle.
-    - **"waterbend {X}"** mandatory additional cost (Crashing Wave, Foggy
-      Swamp Visions, Waterbender's Restoration) — the printed cost carries
-      no `{X}`, so nothing announces the X the body reads.
+      the rest of the game" static + graveyard-shuffle-into-library.
+    - **Crashing Wave** / **Foggy Swamp Visions** / **Waterbender's
+      Restoration** — the **waterbend {X}** cost + `x_paid` now reach the
+      body (v215); each body is still bespoke: "tap up to X target
+      creatures, then distribute 3 stun counters among any number of
+      tapped creatures your opponents control" (Crashing Wave); "exile X
+      target creature cards from graveyards. For each … create a token
+      copy … sacrifice those tokens at the next end step" (Foggy Swamp
+      Visions — the `count_from_context` "for each … this way" scaling);
+      "exile X target creatures you control, return at the next end step"
+      (Waterbender's Restoration — a mass delayed-return flicker; even the
+      single-target "exile then return at next end step" form, Otherworldly
+      Journey / Long Road Home, is unbuilt).
     - **Waterbending Lesson** — "discard a card unless you waterbend {N}":
       a resolve-time pay-or-discard whose cost is a waterbend.
     - **Water Tribe Rallier** — "look at the top N … reveal a creature card
       with power M or less … rest on the bottom in a random order" (a
       `look_top_select` reveal-filter variant).
-    - **North Pole Patrol** `waterbend {N}, {T}` compound cost; **Ward—
-      Waterbend {4}** (The Unagi); **Exhaust — Waterbend {3}: becomes an
-      artifact creature …** (Invasion Submersible); plus cards blocked on
-      unrelated clauses (Aang Swift Savior — airbend a *spell*; Katara
-      Bending Prodigy — "her" pronoun; Waterbender Ascension — quest
-      counters; Hama — alt-cast by waterbending; Aang's Iceberg — O-Ring).
-      (The "whenever you waterbend / earthbend / firebend / airbend"
-      bending-verb trigger — Avatar Aang — closed at PARSER_VERSION 214:
-      `EventType.BENT` now fires from all four bending primitives; see
-      `Done_Backend.md`.)
+    - **Invasion Submersible** — Exhaust — Waterbend {3}: "This Vehicle
+      becomes an artifact creature. Put three +1/+1 counters on it." — its
+      ETB now parses (v215), but "becomes an artifact creature" is the
+      165-SOLO "becomes a creature" animation cluster (its own PAR ticket),
+      so the Exhaust body is hand-author territory until that lands.
+    - Cards blocked on *unrelated* clauses (not this bullet's job): Aang
+      Swift Savior — airbend a *spell*; Katara Bending Prodigy — "her"
+      pronoun; Waterbender Ascension — quest counters; Hama — alt-cast by
+      waterbending; Aang's Iceberg — O-Ring.
 
   - **Not gaps** (real handler verified action-by-action): Attach, Counter,
     Create, Destroy, Discard, Exile, Fight, Goad, Investigate, Mill,
