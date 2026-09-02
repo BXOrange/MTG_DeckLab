@@ -14,21 +14,23 @@ Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
 **38.9% covered — 13,555 / 34,811 — as of 2026-09-02, PARSER_VERSION 215.**
-(215 = PAR-30, **Waterbend (RULE 701.67) residue**, first pass. Three
-shared wins the residue cards were blocked on: "Whenever you / an opponent
-draws their **second** card each turn, …" (`segmenter._DRAW_CARD_TRIGGER_
-NTH_RE` → the engine's existing `is_nth_draw_this_turn` predicate; ~+35,
-closes The Unagi of Kyoshi Island); "[another] target permanent you
-control" → the `permanent_you_control` target kind (closes North Pole
-Patrol); "up to one **other** target nonland permanent" → a new
-`_TARGET_ROWS` row (closes Invasion Submersible's ETB). Plus the
-**waterbend {X}** mandatory additional cost: `{"waterbend": "x"}` +
-`legal_actions` `has_x`/`max_x` off a mandatory variable additional cost
-(the announcement plumbing Crashing Wave / Foggy Swamp Visions /
-Waterbender's Restoration need for their bodies). Still open in the
-bullet: those three bodies, Waterbending Lesson, Water Tribe Rallier,
-Ruinous Waterbending, Spirit Water Revival, Secret of Bloodbending. +45,
-0 regressed.)
+(215 + a hand-authored batch = PAR-30, **Waterbend (RULE 701.67) residue —
+closed**. v215's three parser wins: "Whenever you / an opponent draws
+their **second** card each turn, …" (`segmenter._DRAW_CARD_TRIGGER_NTH_RE`
+→ the engine's existing `is_nth_draw_this_turn` predicate; ~+35, closes
+The Unagi of Kyoshi Island); "[another] target permanent you control" →
+the `permanent_you_control` target kind (closes North Pole Patrol); "up to
+one **other** target nonland permanent" → a new `_TARGET_ROWS` row (closes
+Invasion Submersible's ETB); and the **waterbend {X}** mandatory
+additional cost (`{"waterbend": "x"}` + `legal_actions` `has_x`/`max_x`).
+Then a hand-authored batch over six new engine primitives closed the
+bodies — Crashing Wave, Foggy Swamp Visions, Waterbender's Restoration,
+Waterbending Lesson, Water Tribe Rallier, Ruinous Waterbending, Spirit
+Water Revival (see `Done_Backend.md`). The one card left, **Secret of
+Bloodbending** ("control target opponent during their next combat phase /
+turn"), is deferred to **MEC-51 · Control another player's turn** — the
+general Mindslaver primitive, a real standalone engine feature. +45 (v215)
++7 (hand-authored), 0 regressed.)
 (214 = PAR-30, **Firebending (RULE ~702.189) grants residue — closed**: the
 last open sub-bullet of PAR-29's parser trail, the "whenever you waterbend,
 earthbend, firebend, or airbend" bending-verb trigger (Avatar Aang, a strict
@@ -696,9 +698,10 @@ stays unclaimed). Threaded `pay_additional` through `can_cast` /
 `effective_cast_cost` / `cast_spell` / `_cast_current_face` /
 `_auto_tap_for_cast_if_needed` / `_pay_additional_cast_cost` /
 `GameSession._dispatch_cast_spell`. +1 (Requiting Hex); the per-card bodies
-(Ruinous Waterbending, Secret of Bloodbending, Spirit Water Revival,
-Katara Seeking Revenge) still open, each its own effect-body grammar.
-0 regressed.
+(Ruinous Waterbending, Spirit Water Revival, Katara Seeking Revenge) were
+each their own effect-body grammar — all since closed (Katara v158, the
+rest in the v215 hand-authored batch); Secret of Bloodbending deferred to
+MEC-51. 0 regressed.
 
 156 = PAR-30 — "**as long as there's a `<subtype>` card in your
 graveyard**" (the Avatar: TLA "Lesson" cards), a `static_conditions.py`

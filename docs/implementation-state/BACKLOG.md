@@ -87,11 +87,14 @@ Plan-level sequencing lives in
   - **Face a Villainous Choice (RULE 701.55) + reanimator-token residue.**
     Each remaining reanimator-token cluster card blocks on its *own*
     filter/quantifier/tail gap: **Anikthea** "non-aura enchantment card"
-    filter; **Hour of Eternity / Midnight Ritual / Foggy Swamp Visions**
-    "exile X target creature cards … for each card exiled this way, `<per-
-    card body>`" (the `return_from_graveyard` X-count form landed v168 —
-    `count_selector="source_x_paid"`; the *exile* form still needs the
-    "for each … this way" `count_from_context` scaling on the follow-up);
+    filter; **Hour of Eternity / Midnight Ritual** "exile X target
+    creature cards … for each card exiled this way, `<per-card body>`" (the
+    `return_from_graveyard` X-count form landed v168 —
+    `count_selector="source_x_paid"`; **Foggy Swamp Visions**' own "…create
+    a token that's a copy of it" tail shipped in the v215 Waterbend batch
+    via `CopyPermanentEffect.referent="previous_each"` — Hour/Midnight need
+    the *non-copy* "for each … this way, create an N/N token" `count_from_
+    context` scaling on the follow-up, still open);
     **Sauron the Necromancer / Sin** "create a
     tapped [and attacking] token"; **Back from the Brink** "…and pay its
     mana cost:" activation cost. Villainous option bodies still open: "you
@@ -102,23 +105,6 @@ Plan-level sequencing lives in
     by the Mara); "that creature becomes a 1/1 and loses all abilities"
     (Hunted by The Family); "each opponent who lost 3+ life this turn"
     (Davros).
-
-  - **Secret of Bloodbending — Mindslaver / control-another-player's-turn
-    (`MEC`).** The last open Waterbend-residue card, and a genuinely large
-    standalone engine feature: "You control target opponent during their
-    next combat phase. If this spell's additional cost was paid, you
-    control that player during their next turn instead." No "one player
-    makes another player's decisions" machinery exists (priority routing,
-    per-seat `pending_choice` re-addressing, attack/block declaration by
-    the controller). Word of Command / Mindslaver / Sorin Markov's "-7"
-    all want this. Everything *else* in the Waterbend-residue bullet
-    shipped v215 + the hand-authored batch (Ruinous Waterbending,
-    Spirit Water Revival, Waterbender's Restoration, Foggy Swamp Visions,
-    Crashing Wave, Waterbending Lesson, Water Tribe Rallier, Invasion
-    Submersible — see `Done_Backend.md`). Cards blocked on *unrelated*
-    clauses (not this ticket): Aang Swift Savior (airbend a *spell*),
-    Katara Bending Prodigy ("her" pronoun), Waterbender Ascension (quest
-    counters), Hama (alt-cast by waterbending), Aang's Iceberg (O-Ring).
 
   - **Not gaps** (real handler verified action-by-action): Attach, Counter,
     Create, Destroy, Discard, Exile, Fight, Goad, Investigate, Mill,
@@ -250,8 +236,8 @@ Plan-level sequencing lives in
     Coalition). Needs repeatable-mode selection in the engine
     (`spell_modes` + `_modal_cast_actions` currently assume distinct
     picks); one `MODAL_HEADER_RE` variant + a `repeatable` modes flag +
-    the engine offer. MEC-scale — file as MEC-50 if the engine half
-    dominates.
+    the engine offer. MEC-scale — file as the next free MEC-* if the
+    engine half dominates.
   - **`Choose N. If <cond>, choose <more> instead.`** (Inscription of Ruin
     "if kicked … any number", Flame of Anor "if you control a wizard …",
     Let's Play a Game, Prophetic Titan, Depth Defiler) — the **existing
@@ -297,6 +283,40 @@ Plan-level sequencing lives in
   (cleared in cleanup) plus the RULE 603.1 trigger-condition filter that
   reads it. Check the Clash batch's `_damage`-family work
   (`Done_Backend.md`) for an adjacent tracker before building.
+- **MEC-51 · Control another player's turn (or a part of it — e.g. a
+  combat phase).** "You control target opponent during their next turn."
+  (Mindslaver, Sorin Markov's `−7`, Emrakul, the Promised End, Worst
+  Fears) / "…during their next combat phase." (Secret of Bloodbending) /
+  "…play with your hand revealed and you control that player's choices
+  this turn." (Word of Command-adjacent). The engine has no "one player
+  makes another player's decisions for a bounded window" machinery — this
+  is a real spread of touch-points, not one hook:
+  - a `GameState` mapping `{controlled_player_id → (controller_id,
+    scope, armed_turn)}` with `scope ∈ {"turn", "combat"}` and a small
+    state machine (`TemporaryPlayerTrigger`-style: `waiting` → `active` at
+    the controlled player's next matching window → expire), so it
+    survives `GameState.clone` as plain data;
+  - **priority / actions**: `GameSession.apply_action(action, actor_id=…)`
+    and `GameEngine.legal_actions(perspective=…)` must let the controller
+    act *as* the controlled seat while active — the multiplayer actor
+    validation in `_dispatch` already keys on a per-seat id, so this is a
+    redirect there, not a new path;
+  - **interactive choices**: a `pending_choice` raised for the controlled
+    player must be re-addressed to the controller (its `player_id`),
+    including nested sub-choices (search, mode, target) — the single
+    largest sub-task;
+  - **turn-based actions**: declare-attackers / declare-blockers /
+    discard-to-hand-size / mulligan-adjacent are taken by the controller;
+  - **the fenced-off bits** (RULE 720.1): the controlled player still
+    can't be made to concede, and effects that would end the game or
+    reveal/keep their hidden info follow 720.x — a documented-simplification
+    boundary is acceptable for a first cut (model the decision routing,
+    note the 720.x edge cases as unmodeled).
+  Closes **Secret of Bloodbending** (the last Waterbend-residue card,
+  everything else shipped — see `Done_Backend.md`), and unblocks the
+  Mindslaver family cache-wide. One batch: the state + machine + the
+  routing hooks + a hand-authored `EffectSpec("control_player", {"scope":
+  …})` (bespoke enough per card that the parser handler can come later).
 
 > **Permanent non-goals** (never to be built, not gaps): Stickers (RULE
 > 123) and Attractions (RULE 717) — `gate.parse_oracle` classifies mentions
