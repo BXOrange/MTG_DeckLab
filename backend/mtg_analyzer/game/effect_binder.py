@@ -701,12 +701,17 @@ def _any_attacking_matches(
         return False
     excluded = [s.lower() for s in group_filter.get("excluded_subtypes") or []]
     want_type = group_filter.get("type")
+    want_suspected = bool(group_filter.get("is_suspected"))
     for obj in state.battlefield:
         if not getattr(obj, "attacking", False):
             continue
         if getattr(obj, "controller_id", None) != controller_id:
             continue
         if want_type and want_type not in {t.lower() for t in getattr(obj, "type_words", ())}:
+            continue
+        # RULE 508.3a / 701.60 (Clandestine Meddler): "whenever one or more
+        # **suspected** creatures you control attack, …".
+        if want_suspected and not getattr(obj, "is_suspected", False):
             continue
         if excluded:
             obj_subs = {s.lower() for s in _card_subtypes(getattr(obj, "card", None))}

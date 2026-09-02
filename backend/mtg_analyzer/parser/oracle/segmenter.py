@@ -987,6 +987,11 @@ def _batch_attack_group_filter(filt: Optional[str]) -> Optional[dict[str, Any]]:
         return {"excluded_subtypes": [f[4:]]}
     if f in _GROUP_TYPE_WORDS:
         return {"type": f}
+    if f == "suspected":
+        # RULE 701.60 (Clandestine Meddler) — "whenever one or more
+        # suspected creatures you control attack, …". Checked against the
+        # live attacking group by `effect_binder._any_attacking_matches`.
+        return {"is_suspected": True}
     return None
 
 #: RULE 303.4/301.5's "enchanted/equipped creature" trigger subject (Acquired
@@ -1403,6 +1408,21 @@ _CLASH_BOUNCE_OR_LIBRARY_RE = re.compile(
     r"if you w(?:in|on), you may put (?:that creature|it) on top of its owner'?s "
     r"library instead$",
     re.IGNORECASE | re.S,
+)
+
+#: PAR-30 Suspect one-off shapes / RULE 701.60c: "choose up to one target
+#: creature. If it's suspected, exile it. Otherwise, suspect it." (Agrus
+#: Kos, Spirit of Justice) — an if/else over the chosen creature's own
+#: suspected state, emitted as two mutually complementary condition-gated
+#: specs (the `_IF_YOU_WIN_CLASH_RE`/`clash_won` idiom). The exile branch
+#: carries the RULE 115 ``target_spec`` ("up to one" ⇒ ``optional``); the
+#: "otherwise, suspect it" branch reads that same creature back off
+#: `GameContext.previous_targets`. Deliberately the exact printed template
+#: only — a card that swapped the two branch bodies is a new shape.
+_CHOOSE_TARGET_IF_SUSPECTED_RE = re.compile(
+    r"^choose up to (?:1|one) target creature\.\s*"
+    r"if it'?s suspected, exile it\.\s*otherwise, suspect it$",
+    re.IGNORECASE,
 )
 
 #: "Destroy target X. It can't be regenerated." (Terminate/Doom Blade's
@@ -2500,6 +2520,25 @@ def parse_effect_body(
             EffectSpec("return_to_hand", {
                 "target_kind": "creature", "to_library_top_if_clash_won": True,
             }),
+        ]
+
+    if _CHOOSE_TARGET_IF_SUSPECTED_RE.match(body) is not None:
+        # PAR-30 (Agrus Kos, Spirit of Justice) — RULE 701.60c if/else over
+        # the chosen creature's suspected state. The exile branch carries the
+        # RULE 115 target; the "otherwise" branch reads it back as the
+        # previous subject (`effects.ConditionalEffect._condition_holds`'s
+        # ``previous_target_is_suspected`` key). Exile leaves ``is_suspected``
+        # set on the old object reference (RULE 400.7), so the complementary
+        # branch still evaluates `True` and stays skipped.
+        return [
+            EffectSpec(
+                "exile", {"target_kind": "creature", "count": 1, "optional": True},
+                condition={"previous_target_is_suspected": True},
+            ),
+            EffectSpec(
+                "suspect", {"previous_subject": True},
+                condition={"previous_target_is_suspected": False},
+            ),
         ]
 
     clash_branch = _IF_YOU_WIN_CLASH_RE.match(body) or _OTHERWISE_CLASH_RE.match(body)

@@ -2545,6 +2545,12 @@ class MiscSystemsMixin:
         """
         if obj is None or not getattr(obj, "is_creature", False):
             return
+        # PAR-30 Suspect one-off shapes / RULE 701.60c — a static "can't
+        # become suspected" (Airtight Alibi, hand-authored) rides a
+        # ``grant_keyword`` slug the layer engine stamps onto the affected
+        # creature; honour it here, the one place the designation is applied.
+        if "cant_become_suspected" in getattr(obj, "granted_keywords", ()):
+            return
         obj.is_suspected = True
         self.state.fire_event(
             GameEvent(
@@ -2782,6 +2788,12 @@ class MiscSystemsMixin:
             # reassignment, the same shape `GainControlBySourceEffect`
             # uses). Nothing else happens to it.
             "gain_control",
+            # PAR-30 Suspect one-off shapes / RULE 701.60a's reverse ("You
+            # may have it become no longer suspected." — Deadly
+            # Complication): nothing is created or moved, the pick just
+            # clears its own suspected designation. ``optional`` so declining
+            # keeps the menace a suspected creature has.
+            "remove_suspected",
         }
     )
     def request_choose_objects(
@@ -3268,6 +3280,12 @@ class MiscSystemsMixin:
                 obj, player, source.name if source is not None else None,
                 same_turn_only=True, mana_wildcard=None,
             )
+        elif action == "remove_suspected":
+            # PAR-30 Suspect one-off shapes / RULE 701.60a's reverse: "You
+            # may have it become no longer suspected." (Deadly Complication).
+            # Nothing is created or moved — the pick just clears its own
+            # suspected designation.
+            self.remove_suspected([obj])
     def the_ring_tempts_you(self, player: Player) -> None:
         """RULE 701.51a: the Ring tempts ``player``.
 

@@ -198,16 +198,6 @@ Plan-level sequencing lives in
         battlefield instead" (a `additional_cost_paid` + chosen-type
         conditional destination on a search).
 
-  - **Suspect (RULE 701.60) one-off shapes.** A genuine if/else *effect*
-    primitive ("if `<cond>`, A. Otherwise, B." — two mutually exclusive
-    bodies, not `ConditionalEffect`'s single-branch gate) for Agrus Kos;
-    a "can't become `<designation>`" static-flag family + a `Conditional
-    Effect` key reading a previous-subject's own `is_suspected` (Airtight
-    Alibi); a bare cost-less mid-resolution "you may `<effect>`" wrapper
-    (Deadly Complication); a designation-aware group-subject trigger filter
-    "whenever 1 or more suspected creatures you control attack" (Clandestine
-    Meddler).
-
   - **RULE 701.10 exchange-control / exchange-life residue** (parked here
     since PAR-29, not strictly a keyword action): a cross-target "shares a
     card/permanent type with it" legality predicate (Confusion in the Ranks,

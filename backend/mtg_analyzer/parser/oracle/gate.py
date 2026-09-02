@@ -2068,7 +2068,23 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `SkipNextUntapEffect.subject="clashed_opponent"` (Pollen Lullaby). +34,
 #: 0 regressed (the discard family is the bonus). Whole ticket = engine
 #: primitives + oracle handlers + version bump, one batch.
-PARSER_VERSION = "209"
+#: "210": PAR-30 — Suspect (RULE 701.60) one-off shapes, the four
+#: primitive-blocked singletons the PAR-29 keyword trail left. New:
+#: `EffectSpec.condition` key ``previous_target_is_suspected`` (Agrus Kos,
+#: Spirit of Justice — "if it's suspected, exile it. otherwise, suspect it."
+#: as two complementary condition-gated specs, read off the effect's own
+#: resolved target); `RemoveSuspectedEffect` gains ``previous_subject`` /
+#: ``attached`` / ``optional`` subject shapes (Deadly Complication's "you
+#: may have it become no longer suspected." routed through
+#: `request_choose_objects`, action ``"remove_suspected"``); a
+#: `subgrammars` target row for "up to one **other** target creature you
+#: control" + `_batch_attack_group_filter` / `_any_attacking_matches`
+#: ``is_suspected`` (Clandestine Meddler). Airtight Alibi hand-authored
+#: (ETB untap + hexproof-EOT + un-suspect on the Aura host; a static +2/+2
+#: and a ``cant_become_suspected`` `grant_keyword` slug `RulesEngine.
+#: suspect` honours — the only card printing that prohibition). +4, 0
+#: regressed.
+PARSER_VERSION = "210"
 
 
 def parser_source_hash() -> str:

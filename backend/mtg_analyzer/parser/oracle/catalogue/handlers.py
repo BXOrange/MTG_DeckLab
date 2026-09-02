@@ -7480,6 +7480,15 @@ def _remove_suspected_all(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("remove_suspected", {})]
 
 
+# PAR-30 Suspect one-off shapes — "You may have it become no longer
+# suspected." (Deadly Complication's second mode, after "put a +1/+1 counter
+# on target suspected creature you control"). "it" is the previous clause's
+# target; the "you may" routes through `request_choose_objects` so declining
+# keeps the menace a suspected creature has (`RemoveSuspectedEffect.optional`).
+def _remove_suspected_may_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("remove_suspected", {"previous_subject": True, "optional": True})]
+
+
 # "Detain [up to N] target <permanent> an opponent controls." (RULE 701.35a
 # — Return to Ravnica). `RulesEngine.detain` / `effects.DetainEffect`
 # (registered as ``detain``). Only an opponent-controlled creature or
@@ -10845,6 +10854,14 @@ HANDLERS: list[EffectHandler] = [
         "remove_suspected_all",
         _c(r"all suspected creatures are no longer suspected"),
         _remove_suspected_all,
+    ),
+    # "you may have it become no longer suspected" (RULE 701.60a's reverse,
+    # PAR-30 — Deadly Complication) — "it" = the previous clause's target.
+    EffectHandler(
+        "remove_suspected_may_previous",
+        _c(r"you may have it become no longer suspected"),
+        _remove_suspected_may_previous,
+        previous_subject_only=True,
     ),
     # "suspect enchanted creature" (RULE 701.60a) — an Aura's host.
     EffectHandler(

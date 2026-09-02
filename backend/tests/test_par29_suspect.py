@@ -210,13 +210,11 @@ def test_leaving_battlefield_clears_suspected():
 
 # --- PAR-29 residue: "target suspected creature you control" -------------
 #
-# Deadly Complication's own "put a +1/+1 counter on target suspected
-# creature you control. You may have it become no longer suspected." stays
-# UNMODELED even with this row (the two sentences bundle into one unclaimed
-# compound clause, an unrelated segmenter gap — see docs/implementation-
-# state/BACKLOG.md's PAR-29 entry) — this covers the reachable, tested half:
-# the new `combat.matches_object_filter` ``is_suspected`` key and the
-# `add_counters` row that uses it.
+# The "put a +1/+1 counter on target suspected creature you control" row and
+# its `combat.matches_object_filter` ``is_suspected`` key. Deadly
+# Complication's own second sentence ("You may have it become no longer
+# suspected.") closed at PARSER_VERSION 210 — see
+# `test_par30_suspect_one_off_shapes.py`.
 
 
 def test_suspected_creature_target_filter_parses():

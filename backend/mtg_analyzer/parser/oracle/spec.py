@@ -121,6 +121,14 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # non-creature). All bool except ``*_at_most``/``*_has_subtype``.
         "previous_target_has_subtype", "previous_target_is_equipped",
         "previous_target_power_at_most", "previous_target_is_creature",
+        # PAR-30 Suspect one-off shapes / RULE 701.60c: "choose up to one
+        # target creature. If it's suspected, exile it. Otherwise, suspect
+        # it." (Agrus Kos, Spirit of Justice) — an if/else over the chosen
+        # creature's own suspected state, expressed as two mutually
+        # complementary conditionals (the `clash_won`/`ring_tempted_at_most`
+        # idiom). Read off this effect's own resolved ``targets`` first, then
+        # `GameContext.previous_targets`. A bool.
+        "previous_target_is_suspected",
     }
 )
 
@@ -1025,6 +1033,10 @@ class AbilitySpec:
                 raise SpecValidationError("'clash_won' condition must be a bool")
             if key == "additional_cost_paid" and not isinstance(value, bool):
                 raise SpecValidationError("'additional_cost_paid' condition must be a bool")
+            if key == "previous_target_is_suspected" and not isinstance(value, bool):
+                raise SpecValidationError(
+                    "'previous_target_is_suspected' condition must be a bool"
+                )
             if key == "kicked_at_least":
                 if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                     raise SpecValidationError("'kicked_at_least' condition must be a positive int")

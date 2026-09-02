@@ -2730,6 +2730,24 @@ class ConditionalEffect(GameEffect):
                 )
                 if bool(is_equipped) != bool(prev_equipped):
                     return False
+        # PAR-30 Suspect one-off shapes — "choose up to one target creature.
+        # If it's suspected, exile it. Otherwise, suspect it." (Agrus Kos,
+        # Spirit of Justice). Read off *this* effect's own resolved target
+        # first (the exile branch carries the `target_spec`, so `targets` is
+        # the freshly-chosen creature and `previous_targets` isn't set yet);
+        # fall back to `previous_targets` for the "otherwise" branch, which
+        # carries no target of its own. The exile branch leaves the creature's
+        # ``is_suspected`` untouched on the old object reference (RULE 400.7),
+        # so the complementary branch still reads `True` and stays skipped.
+        prev_suspected = self.condition.get("previous_target_is_suspected")
+        if prev_suspected is not None:
+            subj = targets[0] if targets else None
+            if subj is None or not hasattr(subj, "instance_id"):
+                subj = context.previous_targets[0] if context.previous_targets else None
+            if subj is None or not hasattr(subj, "instance_id"):
+                return False
+            if bool(getattr(subj, "is_suspected", False)) != bool(prev_suspected):
+                return False
         return True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -13948,19 +13966,65 @@ class DetainEffect(GameEffect):
 
 
 class RemoveSuspectedEffect(GameEffect):
-    """"All suspected creatures are no longer suspected." (RULE 701.60a's
-    reverse — Absolving Lammasu's ETB). ``scope="all"`` is the only shape a
-    real card prints as a standalone clause; the single-creature "it's no
-    longer suspected" is always conditional so far ("if it's suspected, it's
-    no longer suspected") and stays unclaimed, fail-closed.
+    """"... is/are no longer suspected." (RULE 701.60a's reverse). Subject
+    shapes:
+
+      * ``scope="all"`` (default) — the mass "all suspected creatures are no
+        longer suspected." standalone clause (Absolving Lammasu's ETB);
+      * ``previous_subject`` — the creature an earlier clause of the same
+        resolution chose (`GameContext.previous_targets`): "put a +1/+1
+        counter on target suspected creature you control. **You may have it
+        become no longer suspected.**" (Deadly Complication, ``optional``),
+        and Airtight Alibi's conditional tail "if it's suspected, it's no
+        longer suspected." (wrapped in a `ConditionalEffect`, not optional);
+      * ``attached`` — this Aura's host.
+
+    ``optional`` (the "you may have it …" rider) routes through
+    `request_choose_objects` so declining is a real board choice, not an
+    auto-take — a suspected creature has menace, which its controller may
+    want to keep.
     """
 
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        scope: str = "all",
+        previous_subject: bool = False,
+        attached: bool = False,
+        optional: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.scope = scope
+        self.previous_subject = bool(previous_subject)
+        self.attached = bool(attached)
+        self.optional = bool(optional)
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        suspected = [
-            o for o in context.state.battlefield
-            if getattr(o, "is_suspected", False)
-        ]
-        context.engine.remove_suspected(suspected)
+        if self.attached:
+            host_id = getattr(self.source, "attached_to", None)
+            host = context.state.find_object(host_id) if host_id is not None else None
+            objs = [host] if host is not None else []
+        elif self.previous_subject:
+            objs = [
+                o for o in context.previous_targets
+                if getattr(o, "instance_id", None) is not None
+            ]
+        else:
+            objs = list(context.state.battlefield)
+        objs = [o for o in objs if getattr(o, "is_suspected", False)]
+        if not objs:
+            return
+        if self.optional:
+            controller = _controller_of(self.source, context)
+            if controller is None:
+                return
+            context.engine.request_choose_objects(
+                controller, objs, "remove_suspected", count=len(objs),
+                optional=True, source=self.source,
+                prompt="Have it become no longer suspected?",
+            )
+            return
+        context.engine.remove_suspected(objs)
 
 
 class LivingWeaponEffect(GameEffect):
@@ -21913,10 +21977,18 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    # RULE 701.60a's reverse: "all suspected creatures are no longer
-    # suspected." See `RemoveSuspectedEffect` / `RulesEngine.remove_suspected`.
+    # RULE 701.60a's reverse: "... is/are no longer suspected." — the mass
+    # ``scope="all"`` standalone (Absolving Lammasu), the ``previous_subject``
+    # single-creature form (Deadly Complication's optional rider, Airtight
+    # Alibi's conditional tail) and the ``attached`` Aura-host form. See
+    # `RemoveSuspectedEffect` / `RulesEngine.remove_suspected`.
     "remove_suspected",
-    lambda p: RemoveSuspectedEffect(),
+    lambda p: RemoveSuspectedEffect(
+        scope=str(p.get("scope") or "all"),
+        previous_subject=bool(p.get("previous_subject", False)),
+        attached=bool(p.get("attached", False)),
+        optional=bool(p.get("optional", False)),
+    ),
 )
 EffectRegistry.register(
     # RULE 701.35a (detain, PAR-29): until the detainer's next turn the

@@ -13,7 +13,23 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.6% covered — 13,450 / 34,811 — as of 2026-09-02, PARSER_VERSION 209.**
+**38.6% covered — 13,454 / 34,811 — as of 2026-09-02, PARSER_VERSION 210.**
+(210 = PAR-30, Suspect (RULE 701.60) one-off shapes — the four
+primitive-blocked singletons the PAR-29 keyword trail left. New
+`EffectSpec.condition` key `previous_target_is_suspected` (Agrus Kos,
+Spirit of Justice — "if it's suspected, exile it. otherwise, suspect it."
+as two complementary condition-gated specs, read off the effect's own
+resolved target); `RemoveSuspectedEffect` gains `previous_subject` /
+`attached` / `optional` subject shapes (Deadly Complication's "you may
+have it become no longer suspected." routed through
+`request_choose_objects`, action `"remove_suspected"`); a `subgrammars`
+target row for "up to one **other** target creature you control" +
+`_batch_attack_group_filter` / `_any_attacking_matches` `is_suspected`
+(Clandestine Meddler). Airtight Alibi hand-authored — ETB untap +
+hexproof-EOT + un-suspect on the Aura host, plus a static +2/+2 and a
+`cant_become_suspected` `grant_keyword` slug `RulesEngine.suspect`
+honours (the only card printing that prohibition). +4, 0 regressed. See
+`Done_Backend.md`.)
 (209 = MEC-50, Clash (RULE 701.30) win/otherwise-branch residue — the six
 primitive-blocked singletons the v147–v154 grammar left. `GameContext.
 clashed_opponent` is the shared "that player" referent; new
@@ -62,7 +78,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~40.4% — 12,872 / 31,830 (PARSER_VERSION 209).**
+**Commander-legal slice: ~40.5% — 12,876 / 31,830 (PARSER_VERSION 210).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

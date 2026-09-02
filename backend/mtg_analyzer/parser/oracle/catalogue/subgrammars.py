@@ -99,8 +99,11 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # Qilin). The engine's `other_creature_you_control` kind (targeting.py)
     # already does the exclusion + "you control" scoping + German label;
     # this row just routes the printed phrase there. Above the plain
-    # "target creature you control" row so the longer phrase wins.
-    (r"another target creature you control", "other_creature_you_control"),
+    # "target creature you control" row so the longer phrase wins. The
+    # "other" spelling is the "up to one **other** target creature you
+    # control" form (`UP_TO_ONE` consumes the "up to one " prefix, leaving
+    # "other target …" here) — Clandestine Meddler's suspect ETB.
+    (r"(?:another|other) target creature you control", "other_creature_you_control"),
     # "target creature you control" (RULE 115/603.3c controller-restricted
     # pick, e.g. an Equipment's ETB "attach it to target creature you
     # control") — must sit above the bare "target creature" row below.
