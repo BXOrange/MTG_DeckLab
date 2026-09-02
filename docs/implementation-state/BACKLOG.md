@@ -198,33 +198,6 @@ Plan-level sequencing lives in
         battlefield instead" (a `additional_cost_paid` + chosen-type
         conditional destination on a search).
 
-  - **Clash (RULE 701.30) win-branch residue — parser grammar is DONE; 6
-    primitive-blocked singletons remain.** Eight batches (v147–v154) worked
-    the whole "if you win, `<body>`" seam and, along the way, unlocked **7
-    general effect families** that a clash card merely sat inside (X-damage
-    `_damage_x` +20; `skip_next_untap` "doesn't untap during its
-    controller's next untap step" +51; `grant_protection` "from the colour
-    of your choice" +17; `dig_until` "reveal from top until a `<type>`
-    card" +9; `opponents_enchantments`/`_artifacts` destroy-all scope +1;
-    `GainLifeEffect.amount_from_subject` "gain life equal to `<its / that
-    creature's>` `<power/toughness>`" +14; `DealDamageEffect.recipient_
-    subject` "deals N to that creature's controller" +10 — ~+124 total).
-    The 6 cards left each need a **genuinely new engine primitive**, not
-    parser grammar — file them as MEC-shaped work, not a parser section:
-    **Hoarder's Greed** — a repeat-this-whole-process loop (the process is
-    "lose 2 life, draw 2, clash"); **Broken Ambitions** — "counter target
-    spell unless its controller pays `{X}`" (X = the counter spell's own
-    announced X) *and* "that spell's controller mills 4" (`MillEffect`
-    needs a `previous_subject_controller` recipient, the sibling of the
-    damage/life-gain ones just shipped); **Whirlpool Whelm** — a bounce
-    whose destination is *overridden* ("put that creature on top of its
-    owner's library **instead**") on a win; **Captivating Glance** — an
-    indefinite "gain control of enchanted creature" (a permanent
-    control-change of an Aura's own host, no existing effect); **Pulling
-    Teeth** / **Pollen Lullaby** — a "that player" referent carried from
-    the clash win-branch's own target/opponent into the "otherwise" branch
-    (or, for Pollen Lullaby, from the clashed opponent).
-
   - **Suspect (RULE 701.60) one-off shapes.** A genuine if/else *effect*
     primitive ("if `<cond>`, A. Otherwise, B." — two mutually exclusive
     bodies, not `ConditionalEffect`'s single-branch gate) for Agrus Kos;

@@ -2054,7 +2054,21 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: granting an alternative cost to *every* spell its controller casts, a
 #: cast-path primitive that doesn't exist) stays UNMODELED, tracked in
 #: `BACKLOG.md`.
-PARSER_VERSION = "208"
+#: "209": MEC-50 — Clash (RULE 701.30) win/otherwise-branch residue, the
+#: six primitive-blocked singletons the v147–v154 grammar left. Shared:
+#: `GameContext.clashed_opponent` (recorded by `RulesEngine.clash`) as the
+#: "that player" referent. New: `RepeatProcessEffect` (Hoarder's Greed,
+#: capped loop); `MillEffect.selector="previous_subject_controller"`
+#: (Broken Ambitions — the countered spell's owner); `ReturnToHandEffect.
+#: to_library_top_if_clash_won` (Whirlpool Whelm — destination override);
+#: `GainControlAttachedEffect(recipient)` (Captivating Glance — indefinite
+#: control of the Aura's host); `DiscardEffect.previous_subject` (Pulling
+#: Teeth — "that player", with a trigger-event fallback that also unlocks
+#: the "whenever ~ deals damage to a player, that player discards" family);
+#: `SkipNextUntapEffect.subject="clashed_opponent"` (Pollen Lullaby). +34,
+#: 0 regressed (the discard family is the bonus). Whole ticket = engine
+#: primitives + oracle handlers + version bump, one batch.
+PARSER_VERSION = "209"
 
 
 def parser_source_hash() -> str:

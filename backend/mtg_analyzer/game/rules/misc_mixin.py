@@ -2623,10 +2623,21 @@ class MiscSystemsMixin:
         top = player.library[-1] if player.library else None
         my_mv = top.card.converted_mana_cost if top is not None else -1
         other_mvs: list[int] = []
+        #: RULE 701.30b: which opponent this clash was "with" — recorded so a
+        #: following "if you win, `<X> that player <does Y>`" / "otherwise,
+        #: that player …" branch (Captivating Glance, Pollen Lullaby) has a
+        #: referent. **Documented simplification** (same as `GainControlBy
+        #: SourceEffect`): the first living opponent, not an interactive
+        #: "choose an opponent" pick — unambiguous in 1v1 goldfish/Replay,
+        #: auto-picked in multiplayer. Read back via `effects.ClashEffect`
+        #: → `GameContext.clashed_opponent`.
+        self._last_clash_opponent_id = None
         if with_opponent:
             for opp in self.state.living_players():
                 if opp.id == player.id:
                     continue
+                if self._last_clash_opponent_id is None:
+                    self._last_clash_opponent_id = opp.id
                 opp_top = opp.library[-1] if opp.library else None
                 if opp_top is not None:
                     other_mvs.append(opp_top.card.converted_mana_cost)

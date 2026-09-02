@@ -161,6 +161,13 @@ class GameContext:
         #: idiom (reset to ``None`` per resolution, outer value restored
         #: after, so a nested trigger resolution can't see a stale win).
         self.clash_won: Optional[bool] = None
+        #: RULE 701.30b: the opponent the preceding `ClashEffect` in this
+        #: resolution clashed "with" (a `Player`), for a "that player"
+        #: referent in the win/otherwise branch — Captivating Glance
+        #: ("otherwise, that player gains control …"), Pollen Lullaby
+        #: ("creatures that player controls don't untap …"). Same
+        #: save/reset/restore idiom as `clash_won`.
+        self.clashed_opponent: Optional["Player"] = None
 
     @property
     def players(self) -> list["Player"]:
@@ -997,6 +1004,7 @@ def _apply_effects_partitioned(
     outer_objects_exiled = getattr(context, "objects_exiled_this_way", 0)
     outer_previous_selector = getattr(context, "previous_selector", None)
     outer_clash_won = getattr(context, "clash_won", None)
+    outer_clashed_opponent = getattr(context, "clashed_opponent", None)
     context.previous_targets = list(previous_targets or [])
     context.created_objects = list(created_objects or [])
     context.life_lost_this_way = life_lost_this_way
@@ -1004,6 +1012,7 @@ def _apply_effects_partitioned(
     context.objects_exiled_this_way = objects_exiled_this_way
     context.previous_selector = previous_selector
     context.clash_won = None
+    context.clashed_opponent = None
     try:
         for position, effect in enumerate(effects):
             if source is not None and effect.source is None:
@@ -1057,6 +1066,7 @@ def _apply_effects_partitioned(
         context.objects_exiled_this_way = outer_objects_exiled
         context.previous_selector = outer_previous_selector
         context.clash_won = outer_clash_won
+        context.clashed_opponent = outer_clashed_opponent
 
 
 # ---------------------------------------------------------------------------
@@ -2870,6 +2880,65 @@ class ClashEffect(GameEffect):
         context.clash_won = context.engine.clash(
             player, with_opponent=self.with_opponent
         )
+        # RULE 701.30b's "that player" referent — the opponent this clash
+        # was with (`RulesEngine.clash` recorded its id).
+        opp_id = getattr(context.engine, "_last_clash_opponent_id", None)
+        context.clashed_opponent = (
+            context.state.player_by_id(opp_id) if opp_id is not None else None
+        )
+
+
+#: Termination cap for `RepeatProcessEffect` (Hoarder's Greed): a chain of
+#: clash wins is unbounded in principle (the same top-of-library card can
+#: keep winning), and each iteration also *loses life* — so the loop would
+#: usually self-terminate on death, but a defensive ceiling keeps a
+#: pathological board (empty opponent library, or life-gain in the mix)
+#: from wedging the resolution. 20 iterations is well past any realistic
+#: run and past `MAX_EFFECT_MAGNITUDE`'s own spirit for a repeat count.
+_MAX_CLASH_REPEAT_ITERATIONS = 20
+
+
+class RepeatProcessEffect(GameEffect):
+    """"`<process>`, then clash with an opponent. If you win, **repeat this
+    process**." (Hoarder's Greed — the process is "you lose 2 life and draw
+    two cards, then clash with an opponent").
+
+    ``effects`` is the serialized process (`EffectSpec`-shaped dicts, built
+    through the ordinary `effect_binder.build_effects` whitelist). It runs
+    once, then — while ``repeat_while`` holds (only ``"clash_won"`` today,
+    read off `GameContext.clash_won`, which the process's own trailing
+    `ClashEffect` sets each pass) — runs again, up to
+    `_MAX_CLASH_REPEAT_ITERATIONS`. The inner effects apply directly on
+    ``context`` (not a nested `_apply_effects_partitioned`) so the clash
+    outcome each pass is visible to the loop test.
+    """
+
+    def __init__(
+        self,
+        effects: Optional[list[dict[str, Any]]] = None,
+        repeat_while: str = "clash_won",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.inner_specs = list(effects or [])
+        self.repeat_while = repeat_while
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from ..parser.oracle.spec import EffectSpec
+
+        if not self.inner_specs:
+            return
+        for _ in range(_MAX_CLASH_REPEAT_ITERATIONS):
+            built = build_effects(
+                [EffectSpec(type=d["type"], params=dict(d.get("params") or {}))
+                 for d in self.inner_specs],
+                self.source,
+            )
+            for effect in built:
+                effect.apply(context, None)
+            if self.repeat_while == "clash_won" and not getattr(context, "clash_won", None):
+                return
 
 
 class PlaneswalkEffect(GameEffect):
@@ -3698,12 +3767,23 @@ class DiscardEffect(GameEffect):
         scope: Optional[str] = None,
         player_from_trigger_event: bool = False,
         draw_per_discard: bool = False,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.scope = scope
+        #: "**That player** discards a card." — the same `Player` an earlier
+        #: clause of this resolution RULE 115-targeted (Pulling Teeth's
+        #: "…target player discards two cards. Otherwise, that player…"),
+        #: OR, when nothing was targeted, whichever player the firing
+        #: trigger's own event names: a DAMAGE event's recipient (Abyssal
+        #: Specter — "whenever ~ deals damage to a player, that player
+        #: discards a card") or a SPELL_CAST's caster (Oppression). One
+        #: param covering both "that player" idioms, resolved in priority
+        #: order at apply time.
+        self.previous_subject = bool(previous_subject)
         #: "Whenever equipped creature deals combat damage to a player,
         #: **that player** discards a card…" (Sword of Feast and Famine,
         #: MEC-43) — "that player" is the DAMAGE event's own recipient
@@ -3734,6 +3814,24 @@ class DiscardEffect(GameEffect):
                 )
             return
         player = self.player
+        if player is None and self.previous_subject:
+            prev = list(context.previous_targets)
+            player = prev[0] if prev else None
+            if player is None:
+                # No RULE 115 target in this resolution — "that player" is
+                # the firing trigger's own event player (Abyssal Specter's
+                # damaged player, Oppression's caster).
+                event = context.trigger_event or {}
+                if event.get("is_player"):
+                    try:
+                        player = context.state.player_by_id(event.get("target_id"))
+                    except (KeyError, ValueError):
+                        player = None
+                if player is None:
+                    player = (
+                        _event_player(context, key="player_id")
+                        or _event_player(context)
+                    )
         if player is None and self.player_from_trigger_event:
             event = context.trigger_event or {}
             if event.get("is_player"):
@@ -6446,6 +6544,19 @@ class MillEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector == "event_controller":
             player = _event_player(context)
+        elif self.selector == "previous_subject_controller":
+            # "Counter target spell … . Clash … . If you win, **that
+            # spell's controller** mills four cards." (Broken Ambitions) —
+            # `context.previous_targets[0]` is the countered spell, now in
+            # a graveyard with no controller (RULE 608.2h last-known info),
+            # so fall back to its `owner_id`.
+            prev = list(context.previous_targets)
+            obj = prev[0] if prev else None
+            who_id = getattr(obj, "controller_id", None) or getattr(obj, "owner_id", None)
+            try:
+                player = context.state.player_by_id(who_id) if who_id is not None else None
+            except (KeyError, ValueError):
+                player = None
         elif self.target_spec is not None:
             player = targets[0] if targets else None
         else:
@@ -7788,6 +7899,47 @@ class GainControlBySourceEffect(GameEffect):
         context.recompute()
 
 
+class GainControlAttachedEffect(GameEffect):
+    """"Gain control of enchanted creature." / "That player gains control of
+    enchanted creature." (Captivating Glance's clash win / otherwise
+    branches) — an indefinite control change of this Aura's *host*, moved
+    to whichever player ``recipient`` names, no RULE 115 target.
+
+    ``recipient`` ∈ ``"controller"`` (this ability's own controller — the
+    "if you win" branch) or ``"clashed_opponent"`` (the opponent the
+    preceding `ClashEffect` clashed with — the "otherwise" branch, read off
+    `GameContext.clashed_opponent`). Applied as a direct ``controller_id``
+    mutation + recompute, the same documented simplification
+    `GainControlBySourceEffect` makes for a permanent (not layer-2)
+    control change in this MVP.
+    """
+
+    def __init__(
+        self, recipient: str = "controller", source: Optional["GameObject"] = None
+    ) -> None:
+        super().__init__(source)
+        self.recipient = recipient
+
+    def target_polarity(self) -> Optional[str]:
+        return "beneficial" if self.recipient == "controller" else "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        host_id = getattr(self.source, "attached_to", None)
+        host = context.state.find_object(host_id) if host_id is not None else None
+        if host is None:
+            return
+        if self.recipient == "clashed_opponent":
+            recipient = getattr(context, "clashed_opponent", None)
+        else:
+            recipient = _controller_of(self.source, context)
+        if recipient is None or host.controller_id == recipient.id:
+            return
+        host.controller_id = recipient.id
+        context.recompute()
+
+
 class ReturnLinkedExileEffect(GameEffect):
     """"When this leaves the battlefield, return the exiled card to the
     battlefield under its owner's control." (Leonin Relic-Warder/O-Ring-
@@ -8847,9 +8999,20 @@ class ReturnToHandEffect(GameEffect):
         spell_or_permanent: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
         colors: Optional[list[str]] = None,
+        to_library_top_if_clash_won: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Clash with an opponent, then return target creature to its
+        #: owner's hand. **If you win, you may put that creature on top of
+        #: its owner's library instead.**" (Whirlpool Whelm) — the clash
+        #: resolved first (RULE 608.2a, printed order), so `context.
+        #: clash_won` is already set when this effect applies: on a win the
+        #: single target goes to the top of its owner's *library* instead
+        #: of hand. The "you may" is auto-taken (a beneficial *may*, the
+        #: same convention `CoinFlipEffect` documents) — one effect, so no
+        #: stale RULE 400.7 reference to "that creature" after a zone change.
+        self.to_library_top_if_clash_won = bool(to_library_top_if_clash_won)
         #: "return target `<c1>` or `<c2>` creature you control to its
         #: owner's hand" (Escape Routes) — `TargetSpec.colors`' OR
         #: narrowing, offer-time (`targeting._color_ok`).
@@ -8888,7 +9051,13 @@ class ReturnToHandEffect(GameEffect):
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        bounce = context.bounce_spell_or_permanent if self.spell_or_permanent else context.return_to_hand
+        if self.to_library_top_if_clash_won and getattr(context, "clash_won", None):
+            bounce = lambda obj: context.return_to_library(obj, "top")  # noqa: E731
+        else:
+            bounce = (
+                context.bounce_spell_or_permanent if self.spell_or_permanent
+                else context.return_to_hand
+            )
         if self.selector is not None:
             # "…with mana value X or less" — the ``"x"`` sentinel on
             # ``self.filter`` is already substituted for the spell's real
@@ -11777,20 +11946,35 @@ class SkipNextUntapEffect(GameEffect):
         previous_subject: bool = False,
         optional: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
+        subject: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.previous_subject = previous_subject
+        #: "clash with an opponent. If you win, **creatures that player
+        #: controls** don't untap during the player's next untap step."
+        #: (Pollen Lullaby) — ``"clashed_opponent"`` applies the flag to
+        #: every creature that player currently controls, no RULE 115
+        #: target. "that player" is `GameContext.clashed_opponent`.
+        self.subject = subject
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional, creature_filter=creature_filter)
-            if target_kind is not None and not previous_subject else None
+            if target_kind is not None and not previous_subject and subject is None else None
         )
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.previous_subject:
+        if self.subject == "clashed_opponent":
+            opp = getattr(context, "clashed_opponent", None)
+            if opp is None:
+                return
+            objs = [
+                o for o in context.state.battlefield
+                if o.is_creature and o.controller_id == opp.id
+            ]
+        elif self.previous_subject:
             objs = list(context.previous_targets)
         elif self.target_spec is None:
             objs = [self.target or self.source]
@@ -18240,6 +18424,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"), scope=p.get("scope"),
         player_from_trigger_event=bool(p.get("player_from_trigger_event", False)),
         draw_per_discard=bool(p.get("draw_per_discard", False)),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -19122,6 +19307,7 @@ EffectRegistry.register(
         spell_or_permanent=bool(p.get("spell_or_permanent", False)),
         creature_filter=p.get("creature_filter"),
         colors=p.get("colors"),
+        to_library_top_if_clash_won=bool(p.get("to_library_top_if_clash_won", False)),
     ),
 )
 EffectRegistry.register(
@@ -19154,6 +19340,12 @@ EffectRegistry.register(
     # "An opponent gains control of ~." (Wishclaw Talisman)
     "gain_control_by_source",
     lambda p: GainControlBySourceEffect(recipient=p.get("recipient", "opponent")),
+)
+EffectRegistry.register(
+    # "[You / that player] gain(s) control of enchanted creature."
+    # (Captivating Glance's clash win / otherwise branches)
+    "gain_control_attached",
+    lambda p: GainControlAttachedEffect(recipient=p.get("recipient", "controller")),
 )
 EffectRegistry.register(
     # "return target creature card from your graveyard to the battlefield/
@@ -19928,6 +20120,7 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         optional=bool(p.get("optional", False)),
         creature_filter=p.get("creature_filter"),
+        subject=p.get("subject"),
     ),
 )
 EffectRegistry.register(
@@ -20379,6 +20572,14 @@ EffectRegistry.register(
     # not params here.
     "clash",
     lambda p: ClashEffect(with_opponent=p.get("with_opponent", True)),
+)
+EffectRegistry.register(
+    # "`<process>`, then clash …. If you win, repeat this process." (Hoarder's Greed)
+    "repeat_process",
+    lambda p: RepeatProcessEffect(
+        effects=list(p.get("effects", [])),
+        repeat_while=p.get("repeat_while", "clash_won"),
+    ),
 )
 # RULE 901.10 / 901.13 — "planeswalk" / "chaos ensues" outcome bodies
 # (Path of the Animist/Enigma's vote; Plain Walker). No params.

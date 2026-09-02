@@ -188,6 +188,10 @@ class RulesEngine(
         #: Triggered abilities that fired and are waiting to be put on the
         #: stack (RULE 603.3 — after the current action, before priority).
         self.pending_triggers: list[tuple[TriggeredAbility, GameEvent]] = []
+        #: RULE 701.30b: the opponent the most recent `clash` was "with" —
+        #: `effects.ClashEffect` reads it into `GameContext.clashed_opponent`
+        #: for a "that player" referent in the win/otherwise branch.
+        self._last_clash_opponent_id: Optional[str] = None
         #: The active player's triggers awaiting an interactive ordering choice
         #: (RULE 603.3b), and the non-active-player triggers to place after them.
         #: Populated only while `state.interactive_ordering` drives a choice.

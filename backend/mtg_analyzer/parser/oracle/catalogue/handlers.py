@@ -6775,6 +6775,72 @@ def _clash(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("clash", {})]
 
 
+# --- MEC-50: Clash (RULE 701.30) win/otherwise-branch bodies. Each is the
+# `<rest>` a `segmenter._IF_YOU_WIN_CLASH_RE` / `_OTHERWISE_CLASH_RE` peel
+# hands to `parse_effect_body`; the segmenter re-wraps the result with
+# `condition={"clash_won": True/False}`, so these builders emit the bare
+# effect only. -----------------------------------------------------------------
+
+#: "…If you win, **that spell's controller** mills four cards." (Broken
+#: Ambitions) — "that spell" is the countered spell an earlier clause of
+#: this same resolution targeted (`GameContext.previous_targets[0]`, now in
+#: a graveyard, RULE 608.2h last-known — `MillEffect.selector=
+#: "previous_subject_controller"` reads its `owner_id`).
+_MILL_PREV_SPELL_CONTROLLER_RE = _c(
+    r"that spell'?s controller mills (?P<n>\d+) cards?"
+)
+
+
+def _mill_prev_spell_controller(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("mill", {
+        "count": int(m.group("n")), "selector": "previous_subject_controller",
+    })]
+
+
+#: "Otherwise, **that player** discards a card." (Pulling Teeth) — "that
+#: player" is the same player an earlier clause RULE 115-targeted
+#: (`DiscardEffect.previous_subject`, reads `GameContext.previous_targets[0]`,
+#: a `Player`).
+_THAT_PLAYER_DISCARDS_RE = _c(
+    r"that player discards (?P<n>a|\d+) cards?"
+)
+
+
+def _that_player_discards(m: re.Match[str]) -> list[EffectSpec]:
+    n = m.group("n")
+    return [EffectSpec("discard", {
+        "count": 1 if n == "a" else int(n), "previous_subject": True,
+    })]
+
+
+#: "If you win, **gain control of enchanted creature**. Otherwise, **that
+#: player gains control of enchanted creature**." (Captivating Glance) — an
+#: indefinite control change of this Aura's host
+#: (`GainControlAttachedEffect`); recipient is the ability's controller
+#: (win) or `GameContext.clashed_opponent` (otherwise).
+_GAIN_CONTROL_ATTACHED_RE = _c(
+    r"(?P<who>you gain|gain|that player gains) control of enchanted creature"
+)
+
+
+def _gain_control_attached(m: re.Match[str]) -> list[EffectSpec]:
+    recipient = "clashed_opponent" if m.group("who") == "that player gains" else "controller"
+    return [EffectSpec("gain_control_attached", {"recipient": recipient})]
+
+
+#: "If you win, **creatures that player controls don't untap during the
+#: player's next untap step**." (Pollen Lullaby) — "that player" is
+#: `GameContext.clashed_opponent`; `SkipNextUntapEffect.subject=
+#: "clashed_opponent"` flags every creature that player currently controls.
+_CLASHED_OPP_CREATURES_NO_UNTAP_RE = _c(
+    r"creatures that player controls don'?t untap during (?:the player'?s|their) next untap step"
+)
+
+
+def _clashed_opp_creatures_no_untap(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("skip_next_untap", {"subject": "clashed_opponent"})]
+
+
 # "Planeswalk." (RULE 901.10) / "Chaos ensues." (RULE 901.13) — the two
 # outcome bodies of Path of the Animist / Path of the Enigma's "each
 # player votes for planeswalk or chaos" vote (reached through
@@ -10539,6 +10605,27 @@ HANDLERS: list[EffectHandler] = [
         "clash",
         _c(r"clash with (?:an opponent|defending player)"),
         _clash,
+    ),
+    # MEC-50: Clash win/otherwise-branch bodies (RULE 701.30d).
+    EffectHandler(
+        "mill_prev_spell_controller",
+        _MILL_PREV_SPELL_CONTROLLER_RE,
+        _mill_prev_spell_controller,
+    ),
+    EffectHandler(
+        "that_player_discards",
+        _THAT_PLAYER_DISCARDS_RE,
+        _that_player_discards,
+    ),
+    EffectHandler(
+        "gain_control_attached",
+        _GAIN_CONTROL_ATTACHED_RE,
+        _gain_control_attached,
+    ),
+    EffectHandler(
+        "clashed_opp_creatures_no_untap",
+        _CLASHED_OPP_CREATURES_NO_UNTAP_RE,
+        _clashed_opp_creatures_no_untap,
     ),
     # "planeswalk" / "chaos ensues" (RULE 901.10 / 901.13) — Planechase
     # vote outcome bodies (Path of the Animist/Enigma) + standalone.

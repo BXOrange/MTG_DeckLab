@@ -13,7 +13,17 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**38.5% covered — 13,416 / 34,811 — as of 2026-09-02, PARSER_VERSION 208.**
+**38.6% covered — 13,450 / 34,811 — as of 2026-09-02, PARSER_VERSION 209.**
+(209 = MEC-50, Clash (RULE 701.30) win/otherwise-branch residue — the six
+primitive-blocked singletons the v147–v154 grammar left. `GameContext.
+clashed_opponent` is the shared "that player" referent; new
+`RepeatProcessEffect` (Hoarder's Greed), `MillEffect` prev-spell-controller
+selector (Broken Ambitions), `ReturnToHandEffect` clash-win library
+override (Whirlpool Whelm), `GainControlAttachedEffect` (Captivating
+Glance), `DiscardEffect.previous_subject` (Pulling Teeth, + the
+"whenever ~ deals damage to a player, that player discards" bonus
+family), `SkipNextUntapEffect` clashed-opponent scope (Pollen Lullaby).
++34, 0 regressed. See `Done_Backend.md`.)
 (208 = Collect Evidence / Forage / Blight residue, sub-cluster (d): "As an additional cost to cast this spell, forage [or pay {M}]." (Feed the Cycle) → `additional_cost={"forage": True}`, the "or pay {M}" alternative dropped as behold/blight already do. +1, 0 regressed. Conspiracy Unraveler still needs a battlefield-granted alternative-cost-for-all-your-spells cast primitive.)
 (207 = Collect Evidence / Forage / Blight residue, sub-cluster (b): the
 exotic `{cost}, collect evidence N: <body>` / `{T}, Blight N: <body>`
@@ -52,7 +62,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~40.3% — 12,838 / 31,830 (PARSER_VERSION 208).**
+**Commander-legal slice: ~40.4% — 12,872 / 31,830 (PARSER_VERSION 209).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments

@@ -1379,6 +1379,32 @@ _OTHERWISE_CLASH_RE = re.compile(
     r"^otherwise,\s*(?P<rest>.+)$", re.IGNORECASE,
 )
 
+#: MEC-50: "`<process>`, then clash with an opponent. If you win, **repeat
+#: this process**." (Hoarder's Greed) — the win branch loops the *whole*
+#: preceding process (`RepeatProcessEffect`, capped), not a fresh clause,
+#: so it can't ride the generic `_IF_YOU_WIN_CLASH_RE` peel (which appends
+#: a condition-gated sibling). ``process`` is parsed recursively; a bare
+#: `clash` is appended so the loop's own re-clash runs each pass.
+_CLASH_REPEAT_PROCESS_RE = re.compile(
+    r"^(?P<process>.+?),\s*then clash with an opponent\.\s*"
+    r"if you w(?:in|on), repeat this process$",
+    re.IGNORECASE | re.S,
+)
+
+#: MEC-50: "Clash with an opponent, then return target creature to its
+#: owner's hand. **If you win, you may put that creature on top of its
+#: owner's library instead**." (Whirlpool Whelm) — the win branch
+#: *overrides the destination* of the earlier bounce rather than adding an
+#: effect (and "that creature" would be a stale RULE 400.7 reference after
+#: the hand move), so it's folded into `ReturnToHandEffect.to_library_top_
+#: if_clash_won` on the one bounce spec.
+_CLASH_BOUNCE_OR_LIBRARY_RE = re.compile(
+    r"^clash with an opponent, then return target creature to its owner'?s hand\.\s*"
+    r"if you w(?:in|on), you may put (?:that creature|it) on top of its owner'?s "
+    r"library instead$",
+    re.IGNORECASE | re.S,
+)
+
 #: "Destroy target X. It can't be regenerated." (Terminate/Doom Blade's
 #: mass/multi/filtered siblings — Death Bomb, Big Game Hunter, Cruel
 #: Revival, …) — the single most repeated removal-spell tail in the cache
@@ -2457,6 +2483,23 @@ def parse_effect_body(
         return [
             EffectSpec(e.type, dict(e.params), condition={"target_is_controller": wants_controller})
             for e in inner
+        ]
+
+    clash_repeat = _CLASH_REPEAT_PROCESS_RE.match(body)
+    if clash_repeat is not None:
+        process = parse_effect_body(clash_repeat.group("process"), self_subject=self_subject)
+        if process is None:
+            return None
+        inner = [e.to_dict() for e in process] + [{"type": "clash", "params": {}}]
+        return [EffectSpec("repeat_process", {"effects": inner, "repeat_while": "clash_won"})]
+
+    clash_bounce_lib = _CLASH_BOUNCE_OR_LIBRARY_RE.match(body)
+    if clash_bounce_lib is not None:
+        return [
+            EffectSpec("clash", {}),
+            EffectSpec("return_to_hand", {
+                "target_kind": "creature", "to_library_top_if_clash_won": True,
+            }),
         ]
 
     clash_branch = _IF_YOU_WIN_CLASH_RE.match(body) or _OTHERWISE_CLASH_RE.match(body)
