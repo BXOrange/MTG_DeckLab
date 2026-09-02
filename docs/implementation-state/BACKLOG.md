@@ -39,8 +39,11 @@ Plan-level sequencing lives in
 > **(none open.)** ENG-31 (parametric keyword *grants*, PARSER_VERSION
 > 128), ENG-33 (villainous / vote option bodies, 129–132) and ENG-32
 > (Waterbend, 131) — the three engine primitives PAR-29's keyword-action
-> handlers needed — have all shipped; see `Done_Backend.md`. The residual
-> per-card grammar around them is **PAR-30**, under `## PAR` below.
+> handlers needed — have all shipped; see `Done_Backend.md`. PAR-30
+> (PAR-29's parser trail) is closed too; the six cards its
+> reanimator-token / villainous-choice residue still couldn't reach are
+> each blocked on a distinct **engine** primitive now, tracked as
+> **MEC-52** under `## MEC` below.
 
 ## PAR — Parser
 
@@ -66,62 +69,15 @@ Plan-level sequencing lives in
   to end already — see Done_Backend.md "PLR-13"; Vanguard's own avatar
   picker/text is a permanent non-goal, see the MEC callout below.)
 
-  > **Ticket-id note:** every number from `PAR-1` through `PAR-28` is
+  > **Ticket-id note:** every number from `PAR-1` through `PAR-30` is
   > already a real, shipped, cross-referenced ticket elsewhere in this
   > codebase (grep before reusing one — `PAR-14`, for one, is RULE 603.2's
   > once-per-turn trigger limiter, `Done_Backend.md`, nothing to do with
-  > keywords). The only open parser ticket below is `PAR-30` (`PAR-29`'s parser trail — `PAR-29` itself is closed, all 24 keyword actions now have recognition; see `Done_Backend.md`).
-
-- **PAR-30 · PAR-29's parser trail — remaining effect-body grammar for the
-  RULE 701 keyword actions.** `PAR-29` and its three spun-off engine
-  tickets (`ENG-31` parametric keyword grants, `ENG-32` Waterbend cost,
-  `ENG-33` villainous/vote option-body primitives) are all closed — full
-  per-mechanic narrative in `Done_Backend.md`. What stays UNMODELED here is
-  **not the keyword action** — every one has recognition + an engine
-  primitive — it's the ordinary effect-/outcome-body grammar *around* it,
-  card by card. Open scope only below; cache-wide `parser_probe.py` SOLO
-  counts. Sub-cluster progress lands in `Done_Backend.md` /
-  `PARSER_LONG_TAIL.md` per PARSER_VERSION bump — keep this list to what is
-  *still* open.
-
-  - **Face a Villainous Choice (RULE 701.55) + reanimator-token residue.**
-    Each remaining reanimator-token cluster card blocks on its *own*
-    filter/quantifier/tail gap: **Anikthea** "non-aura enchantment card"
-    filter; **Hour of Eternity / Midnight Ritual** "exile X target
-    creature cards … for each card exiled this way, `<per-card body>`" (the
-    `return_from_graveyard` X-count form landed v168 —
-    `count_selector="source_x_paid"`; **Foggy Swamp Visions**' own "…create
-    a token that's a copy of it" tail shipped in the v215 Waterbend batch
-    via `CopyPermanentEffect.referent="previous_each"` — Hour/Midnight need
-    the *non-copy* "for each … this way, create an N/N token" `count_from_
-    context` scaling on the follow-up, still open);
-    **Sauron the Necromancer / Sin** "create a
-    tapped [and attacking] token"; **Back from the Brink** "…and pay its
-    mana cost:" activation cost. Villainous option bodies still open: "you
-    create a token that's a copy of that card" (**The Master** — needs
-    `previous_targets` threaded through `_apply_effect_specs` in the APNAP
-    sweep, plus its "choose an opponent with the most life" subject);
-    "exile cards … until you exile a nonland card, then cast it" (Ensnared
-    by the Mara); "that creature becomes a 1/1 and loses all abilities"
-    (Hunted by The Family); "each opponent who lost 3+ life this turn"
-    (Davros).
-
-  - **Not gaps** (real handler verified action-by-action): Attach, Counter,
-    Create, Destroy, Discard, Exile, Fight, Goad, Investigate, Mill,
-    Regenerate, Scry, Search, Shuffle, Surveil, Tap/Untap, Transform/
-    Convert, Proliferate, Monstrosity, Adapt, Amass, Manifest/Cloak,
-    Manifest Dread, Venture, The Ring Tempts You, Connive, Discover,
-    Explore, Populate, Bolster, Support, Suspect, Detain, Endure, Recruit,
-    Collect Evidence, Forage, Behold, Learn, Incubate, Clash, Blight,
-    Earthbend, Airbend, Vote, Face a Villainous Choice, Time Travel,
-    Exchange Control, Exchange Life Totals — plus engine-action verbs with
-    no oracle grammar (Activate/Cast/Play) and variant-subsystem ones
-    (Planeswalk/Set in Motion/Abandon, Meld). Harness (701.64) / Heal
-    (701.69) have ~0-3 cache cards and no handler yet — trivially small.
-    Assemble (701.45) is out of the CR; Open an Attraction / Roll to Visit
-    (701.51/52) are the Attractions non-goal. Teams (Get a Life, RULE 810)
-    is a permanent non-goal too — RULE 701.10's exchange-control/exchange-
-    life residue closed PARSER_VERSION 211–212, see `Done_Backend.md`.
+  > keywords; `PAR-30` was `PAR-29`'s parser trail, closed PARSER_VERSION
+  > 216 — all 24 RULE 701 keyword actions have recognition + an engine
+  > primitive, and its last residue moved to `MEC-52`). The first free
+  > parser ticket id is `PAR-54` (`PAR-31…PAR-53` are the Commander-legal
+  > tail clusters below).
 
 - **PAR-31…PAR-53 · Commander-legal tail — one PAR per recurring template
   cluster.** Seeded from `scripts/commander_tail_report.py` (read-only,
@@ -317,6 +273,60 @@ Plan-level sequencing lives in
   Mindslaver family cache-wide. One batch: the state + machine + the
   routing hooks + a hand-authored `EffectSpec("control_player", {"scope":
   …})` (bespoke enough per card that the parser handler can come later).
+
+- **MEC-52 · Reanimator-token & villainous-choice residue — six cards, six
+  engine primitives.** The tail of PAR-29's keyword trail (PAR-30, closed
+  PARSER_VERSION 216). The *parser* side of each is one small handler once
+  the primitive below exists — this is engine work, not oracle grammar.
+  The graveyard-exile-copy piece already shipped at v216 (Anikthea, Hour of
+  Eternity, Midnight Ritual — `Done_Backend.md` "Reanimator-token residue");
+  what's left:
+  - **Sauron, the Necromancer** — a delayed trigger whose captured-object
+    effect is *conditional*: "at the beginning of the next end step, exile
+    that token **unless ~ is your Ring-bearer**". `CreateDelayedTriggerEffect`
+    (`capture="created_objects"`/`"previous_or_self"`) doesn't thread the
+    capture through a `ConditionalEffect` wrapper — needs that, or a
+    `condition` key on the delayed inner spec. The `is_ring_bearer`
+    predicate (`effects.ConditionalEffect`) and `exile_specific` both
+    already exist. Also widen `_COPY_PERMANENT_PREVIOUS_RE` for a "tapped
+    and attacking" prefix (`CopyPermanentEffect` already takes
+    `tapped`/`attacking`).
+  - **Back from the Brink** — an activated ability whose cost is "exile a
+    creature card from your graveyard **and pay its mana cost**": a
+    *variable* cost priced off a chosen object (the exiled card's own mana
+    cost, unknown until the graveyard pick). `game/costs.py` + the
+    activation flow have no "pick-then-price" cost. "Activate only as a
+    sorcery" already parses.
+  - **The Master, Gallifrey's End** — "you create a token that's a copy of
+    that card" as a villainous *option* body: thread
+    `GameContext.previous_targets`/`created_objects` into
+    `RulesEngine._apply_effect_specs` for the villainous APNAP sweep so
+    `copy_permanent` `referent="previous"` resolves inside an option, plus a
+    `FaceVillainousChoiceEffect` `subject="opponent_with_most_life"`
+    pre-selection. ("They lose 4 life" already parses.)
+  - **Hunted by The Family** — per-target villainous: "choose up to four
+    target creatures you don't control. For each of them, **that creature's
+    controller** faces a villainous choice — …". Needs
+    `FaceVillainousChoiceEffect` `subject="previous_target_controller"`
+    iterated once per chosen target, and option bodies that act on the
+    *creature*: "becomes a 1/1 white Human creature and loses all
+    abilities" (`base_pt` + `remove_all_abilities` + colour/subtype set,
+    permanent not EOT) / "you create a token that's a copy of it" —
+    `handlers._villainous_option_specs` currently rejects any spec whose
+    `target_kind` isn't `None`/`"player"`.
+  - **Ensnared by the Mara** — villainous option bodies: "exile cards from
+    the top of their library until they exile a nonland card, then you may
+    cast that card without paying its mana cost" (`dig_until` exists —
+    make it villainous-option-legal) and "…exiles the top four cards of
+    their library and ~ **deals damage equal to the total mana value of
+    those exiled cards** to that player" — needs a "damage = summed MV of
+    the cards exiled this way" amount source.
+  - **Davros, Dalek Creator** — `GameState.life_lost_this_turn` (the mirror
+    of `life_gained_this_turn`, wired into every life-loss path), feeding
+    both a `ConditionalEffect` key ("if an opponent lost 3+ life this
+    turn", for the conditional token) and a filtered villainous subject
+    "each opponent who lost 3 or more life this turn". The option bodies
+    ("you draw a card" / "that player discards a card") already parse.
 
 > **Permanent non-goals** (never to be built, not gaps): Stickers (RULE
 > 123) and Attractions (RULE 717) — `gate.parse_oracle` classifies mentions

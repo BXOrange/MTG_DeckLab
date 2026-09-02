@@ -52,6 +52,11 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "land": lambda o: o.is_land,
     "artifact": lambda o: bool(o.card.is_artifact),
     "enchantment": lambda o: bool(o.card.is_enchantment),
+    # "exile up to one target non-Aura enchantment card from your graveyard"
+    # (Anikthea, Hand of Erebos — PAR-30 reanimator-token residue): an
+    # enchantment whose printed type line carries no "Aura" subtype.
+    "non_aura_enchantment": lambda o: bool(o.card.is_enchantment)
+    and "aura" not in o.card.type_line.lower(),
     "instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery),
     # "target **sorcery** card in your graveyard gains flashback…" (MEC-24,
     # Recoup) — the sorcery-only narrowing of the combined filter above.
@@ -304,6 +309,7 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "land": "Landkarte",
     "artifact": "Artefaktkarte",
     "enchantment": "Verzauberungskarte",
+    "non_aura_enchantment": "Nicht-Aura-Verzauberungskarte",
     "instant_or_sorcery": "Spontanzauber- oder Hexereikarte",
     "permanent": "Karte eines bleibenden Kartentyps",
     "nonland_permanent": "Karte eines nichtländlichen bleibenden Kartentyps",

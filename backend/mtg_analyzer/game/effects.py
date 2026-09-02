@@ -15456,6 +15456,14 @@ class CreateNamedCardTokenEffect(GameEffect):
         context.created_objects.extend(made)
 
 
+#: The `GameContext` same-resolution accumulator names `CreateTokenEffect.
+#: count_from_context` will read — a closed whitelist so parser-derived text
+#: can never name an arbitrary `GameContext` attribute (mirrors the intent of
+#: `_resolve_extra_counter_amount`'s own ``count_from_context`` key, which
+#: today also only ever carries this one name).
+_TOKEN_COUNT_CONTEXT_ACCUMULATORS: frozenset[str] = frozenset({"objects_exiled_this_way"})
+
+
 class CreateTokenEffect(GameEffect):
     """Create one or more token permanents (RULE 111.5 / 701.6).
 
@@ -15508,6 +15516,7 @@ class CreateTokenEffect(GameEffect):
         pt_from_trigger_event: Optional[str] = None,
         pt_from_count_selector: Optional[str] = None,
         count_from_trigger_event: Optional[str] = None,
+        count_from_context: Optional[str] = None,
         extra_counters: Optional[dict[str, Any]] = None,
         grant_self_anthem: Optional[dict[str, Any]] = None,
         is_artifact: bool = False,
@@ -15595,6 +15604,15 @@ class CreateTokenEffect(GameEffect):
         #: sibling of ``pt_from_trigger_event`` (a token's stats, not how
         #: many get made). Overrides ``count``/``count_selector`` when set.
         self.count_from_trigger_event = count_from_trigger_event
+        #: "Exile X target creature cards from your graveyard. **For each
+        #: creature card exiled this way**, create a 2/2 black Zombie
+        #: creature token." (Midnight Ritual / Necromancer's Covenant /
+        #: Release to Memory — PAR-30 reanimator-token residue): the count is
+        #: a `GameContext` same-resolution accumulator, read fresh at resolve
+        #: time. Only ``"objects_exiled_this_way"`` today, the same
+        #: accumulator `_resolve_extra_counter_amount`'s own ``count_from_
+        #: context`` key reads (Sunfall's Incubate). Overrides ``count``.
+        self.count_from_context = count_from_context
 
     def _resolve_extra_counter_amount(self, context: GameContext) -> int:
         """How many ``extra_counters`` to place on each created token.
@@ -15689,6 +15707,13 @@ class CreateTokenEffect(GameEffect):
         if self.count_from_trigger_event:
             event = context.trigger_event
             count = int((event or {}).get(self.count_from_trigger_event) or 0)
+        if self.count_from_context in _TOKEN_COUNT_CONTEXT_ACCUMULATORS:
+            from ..parser.oracle.spec import MAX_EFFECT_MAGNITUDE
+
+            count = max(0, min(
+                int(getattr(context, str(self.count_from_context), 0) or 0),
+                MAX_EFFECT_MAGNITUDE,
+            ))
         # "For each opponent, [you] create …" — one token apiece, all under
         # this effect's controller; when ``attacking`` each is paired with a
         # distinct opponent as its defender below.
@@ -21542,6 +21567,7 @@ EffectRegistry.register(
         pt_from_trigger_event=p.get("pt_from_trigger_event"),
         pt_from_count_selector=p.get("pt_from_count_selector"),
         count_from_trigger_event=p.get("count_from_trigger_event"),
+        count_from_context=p.get("count_from_context"),
         extra_counters=p.get("extra_counters"),
         grant_self_anthem=p.get("grant_self_anthem"),
         is_artifact=bool(p.get("is_artifact", False)),

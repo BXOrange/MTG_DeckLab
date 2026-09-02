@@ -385,7 +385,7 @@ _COPY_EXCEPT_PT_RE = re.compile(
     r"it'?s (?:an? )?"
     r"(?:(?P<p>\d+)/(?P<t>\d+)\s*)?"
     r"(?P<mid>[a-z][a-z ]*?)?"
-    r"(?:\s*creature)?"
+    r"(?P<creature>\s*creature)?"
     r"(?:\s+in addition to its other types)?",
     re.IGNORECASE,
 )
@@ -423,8 +423,20 @@ def _copy_except_modifier(piece: str) -> Optional[dict]:
             out["set_toughness"] = int(pt.group("t"))
         if colors:
             out["set_colors"] = colors
+        add_types: list[str] = []
         if is_artifact:
-            out["add_types"] = ["Artifact"]
+            add_types.append("Artifact")
+        # "…except it's a 3/3 black Zombie **creature** in addition to its
+        # other types" (Anikthea, Hand of Erebos): a non-creature original
+        # (an enchantment card) genuinely gains the creature type — without
+        # it `Card.as_copy` would set P/T on a noncreature and trip
+        # `Card.__init__`'s RULE 208.1 invariant (see `as_copy`'s own
+        # PAR-30 note). Harmless (idempotent) when the original is already a
+        # creature (God-Pharaoh's Gift / Hour of Eternity).
+        if pt.group("creature"):
+            add_types.append("Creature")
+        if add_types:
+            out["add_types"] = add_types
         if subtypes:
             out["add_subtypes"] = [s.capitalize() for s in subtypes]
         return out or None  # nothing recognised in the piece → fail closed
@@ -2815,7 +2827,8 @@ def _return_previous_group(m: re.Match[str]) -> list[EffectSpec]:
 #: card" — doesn't need the same ordering care since it starts on a
 #: different word than "instant or sorcery").
 _GRAVEYARD_TYPE_WORD = (
-    r"instant or sorcery|sorcery|nonland permanent|creature|artifact|enchantment|land|permanent"
+    r"instant or sorcery|sorcery|nonland permanent|creature|artifact|"
+    r"non-aura enchantment|enchantment|land|permanent"
 )
 #: A graveyard clause's *scope* — whose graveyard — "your"/"a" (any single
 #: graveyard)/"an opponent's" (longest-alternative-first, same reason).
@@ -2836,6 +2849,7 @@ def _graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optiona
     type_key = {
         "": "card", "instant or sorcery": "instant_or_sorcery",
         "nonland permanent": "nonland_permanent",
+        "non-aura enchantment": "non_aura_enchantment",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
 

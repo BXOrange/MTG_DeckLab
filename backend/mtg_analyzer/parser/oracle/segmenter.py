@@ -1676,6 +1676,22 @@ _EXILE_THEN_COPY_SENTENCE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: PAR-30 reanimator-token residue — the *X-count "for each card exiled this
+#: way"* sibling of `_EXILE_THEN_COPY_SENTENCE_RE`: "Exile X target creature
+#: cards from your graveyard. For each [creature] card exiled this way,
+#: `<create clause>`." (Hour of Eternity — a copy token; Midnight Ritual — a
+#: plain inline token). The exile is a many-target RULE 107.3 {X} pick
+#: (`count_selector="source_x_paid"`, the same one Foggy Swamp Visions'
+#: waterbend-X exile uses); the follow-up scales off it — one copy of *each*
+#: exiled card (`copy_permanent` ``referent="previous_each"``) or N inline
+#: tokens (`create_token` ``count_from_context="objects_exiled_this_way"``).
+_EXILE_X_GY_FOR_EACH_CREATE_RE = re.compile(
+    r"^exile x target creature cards from your graveyard\.\s*"
+    r"for each (?:creature )?card exiled this way,\s*"
+    r"(?P<create>create .+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: RULE 601.2b/604.3's additional-cost line: "As an additional cost to cast
 #: this spell, <cost>." — instants/sorceries only (gated by
 #: ``allow_spell_effect`` at the call site below, same as a bare imperative).
@@ -2920,6 +2936,36 @@ def parse_effect_body(
         if after_specs is None or not any(s.type == "copy_permanent" for s in after_specs):
             return None
         return before_specs + after_specs
+
+    exile_x_for_each = _EXILE_X_GY_FOR_EACH_CREATE_RE.match(body)
+    if exile_x_for_each is not None:
+        create_specs = parse_effect_body(
+            exile_x_for_each.group("create"), previous_subject=True, group_subject=group_subject,
+        )
+        if not create_specs or len(create_specs) != 1:
+            return None
+        follow = create_specs[0]
+        if follow.type == "copy_permanent":
+            # "…create a token that's a copy of that card…" (Hour of Eternity)
+            # — one copy of *each* exiled card, RULE 608.2 `previous_targets`.
+            follow = EffectSpec(
+                "copy_permanent", {**follow.params, "referent": "previous_each"},
+            )
+        elif follow.type == "create_token":
+            # "…create a 2/2 black Zombie creature token." (Midnight Ritual) —
+            # N inline tokens, N = how many cards this resolution exiled.
+            follow = EffectSpec(
+                "create_token",
+                {**follow.params, "count_from_context": "objects_exiled_this_way"},
+            )
+        else:
+            return None  # fail closed — only the two known follow-up shapes
+        return [
+            EffectSpec("exile", {
+                "target_kind": "graveyard_creature", "count_selector": "source_x_paid",
+            }),
+            follow,
+        ]
 
     direct = match_clause(
         body, self_subject=self_subject, previous_subject=previous_subject,

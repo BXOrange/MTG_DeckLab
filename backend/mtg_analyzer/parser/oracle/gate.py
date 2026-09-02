@@ -2204,7 +2204,24 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: additional cost (`effective_cast_cost` already folds `mana.with_x(x)`,
 #: `x_paid` carries it to the body) — the announcement plumbing Crashing
 #: Wave / Foggy Swamp Visions / Waterbender's Restoration need.
-PARSER_VERSION = "215"
+#: v216 — PAR-30 **reanimator-token residue**, the graveyard-exile-copy
+#: cluster. (1) `non-Aura enchantment card` graveyard target — a new
+#: `_GRAVEYARD_TYPE_FILTERS["non_aura_enchantment"]` + its `_GRAVEYARD_
+#: TYPE_WORD`/`_graveyard_target_kind` wiring — closes **Anikthea, Hand of
+#: Erebos** (the exile→copy segmenter connector + `copy_permanent_previous`
+#: already did the rest). (2) `_COPY_EXCEPT_PT_RE` now emits
+#: `add_types=["Creature"]` when the "…except it's a N/N `<colour>` `<sub>`
+#: **creature** …" clause names the creature type — without it `Card.as_
+#: copy` set P/T on a non-creature original (an enchantment card) and
+#: tripped `Card.__init__`'s RULE 208.1 invariant. (3) new segmenter span
+#: `_EXILE_X_GY_FOR_EACH_CREATE_RE` — "Exile X target creature cards from
+#: your graveyard. For each [creature] card exiled this way, `<create>`" —
+#: routing the follow-up to `copy_permanent` ``referent="previous_each"``
+#: (**Hour of Eternity**) or `create_token` ``count_from_context=
+#: "objects_exiled_this_way"`` (**Midnight Ritual**); `CreateTokenEffect`
+#: gained that `count_from_context` param (closed whitelist). +3 covered.
+#: `tests/test_par30_reanimator_token_residue.py`.
+PARSER_VERSION = "216"
 
 
 def parser_source_hash() -> str:
