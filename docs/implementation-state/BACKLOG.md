@@ -284,21 +284,17 @@ Plan-level sequencing lives in
   the "tapped and attacking" / "with `<keyword>`" copy-tail widenings);
   **Davros, Dalek Creator** at v218 (`GameState.life_lost_this_turn`, a
   `ConditionalEffect` `opponent_lost_life_this_turn_at_least` key +
-  `FaceVillainousChoiceEffect.subject_min_life_lost`). See `Done_Backend.md`
-  "Reanimator-token residue". What's left:
+  `FaceVillainousChoiceEffect.subject_min_life_lost`); **The Master,
+  Gallifrey's End** (hand-authored, no bump — `FaceVillainousChoiceEffect`
+  `subject="opponent_with_most_life"` + `capture_previous` so a villainous
+  option's "copy of that card" resolves after the choice is answered). See
+  `Done_Backend.md` "Reanimator-token residue". What's left:
   - **Back from the Brink** — an activated ability whose cost is "exile a
     creature card from your graveyard **and pay its mana cost**": a
     *variable* cost priced off a chosen object (the exiled card's own mana
     cost, unknown until the graveyard pick). `game/costs.py` + the
     activation flow have no "pick-then-price" cost. "Activate only as a
     sorcery" already parses.
-  - **The Master, Gallifrey's End** — "you create a token that's a copy of
-    that card" as a villainous *option* body: thread
-    `GameContext.previous_targets`/`created_objects` into
-    `RulesEngine._apply_effect_specs` for the villainous APNAP sweep so
-    `copy_permanent` `referent="previous"` resolves inside an option, plus a
-    `FaceVillainousChoiceEffect` `subject="opponent_with_most_life"`
-    pre-selection. ("They lose 4 life" already parses.)
   - **Hunted by The Family** — per-target villainous: "choose up to four
     target creatures you don't control. For each of them, **that creature's
     controller** faces a villainous choice — …". Needs

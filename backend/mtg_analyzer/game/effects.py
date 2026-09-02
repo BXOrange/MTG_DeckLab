@@ -7158,6 +7158,13 @@ class ExileEffect(GameEffect):
             target = context.state.find_object(obj_id) if obj_id is not None else None
             if target is not None:
                 context.exile(target)
+                # RULE 608.2's "it"/"that card" referent — a following clause
+                # ("If you do, … create a token that's a copy of **that
+                # card**." — The Master, Gallifrey's End) names what this
+                # clause just exiled, the same way the RULE 115 targeted
+                # branch below leaves its picks in `previous_targets` via
+                # `_apply_effects_partitioned`.
+                context.previous_targets = [target]
                 # "…you may **airbend that creature**." (Monk Gyatso, PAR-30)
                 # — the trigger-subject sibling still needs the airbend
                 # exile-cast permission / remember / free-cast-window riders,
@@ -11428,6 +11435,7 @@ class FaceVillainousChoiceEffect(GameEffect):
         subject: str = "each_opponent",
         labels: Optional[list[str]] = None,
         subject_min_life_lost: int = 0,
+        capture_previous: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -11440,6 +11448,15 @@ class FaceVillainousChoiceEffect(GameEffect):
         #: ``"each_opponent"`` sweep to the opponents at/past the threshold
         #: (`GameState.life_lost_this_turn`). 0 = no filter.
         self.subject_min_life_lost = int(subject_min_life_lost)
+        #: "…choose an opponent with the most life among your opponents. That
+        #: player faces a villainous choice — … or you create a token that's
+        #: a copy of **that card**." (The Master, Gallifrey's End) — bake the
+        #: RULE 608.2 referent (`context.previous_targets`, the card an
+        #: earlier clause of this resolution just exiled) into the choice so
+        #: an option body's `copy_permanent` ``referent="previous"`` still
+        #: resolves against it once the choice is *answered* — by which point
+        #: this resolution's own context is long gone.
+        self.capture_previous = bool(capture_previous)
         self.target_spec = (
             TargetSpec(kind="player") if subject == "target" else None
         )
@@ -11468,6 +11485,22 @@ class FaceVillainousChoiceEffect(GameEffect):
                     facing = [context.state.player_by_id(pid)]
                 except (KeyError, ValueError):
                     facing = []
+        elif self.subject == "opponent_with_most_life":
+            # "choose an opponent with the most life among your opponents"
+            # (The Master, Gallifrey's End) — RULE 701.55's pre-selection.
+            # Ties: the first in APNAP order (a documented simplification of
+            # the printed "your choice").
+            opps = [
+                p for p in context.state.living_players() if p.id != controller.id
+            ]
+            if opps:
+                most = max(p.life for p in opps)
+                start = context.state.active_player_index
+                n = len(context.state.players)
+                ordered = [
+                    context.state.players[(start + i) % n] for i in range(n)
+                ]
+                facing = [p for p in ordered if p in opps and p.life == most][:1]
         if self.subject_min_life_lost > 0:
             facing = [
                 p for p in facing
@@ -11482,6 +11515,9 @@ class FaceVillainousChoiceEffect(GameEffect):
             option_a=self.option_a,
             option_b=self.option_b,
             labels=self.labels,
+            captured_previous=(
+                list(context.previous_targets) if self.capture_previous else None
+            ),
         )
 
 
@@ -16036,7 +16072,16 @@ class CopyPermanentEffect(GameEffect):
                         obj.temp_keywords.add(kw)
                 self._apply_enter_state(context, made)
             return
-        target = (targets[0] if targets else None) or self.target
+        # A referent/self mode (``target_spec is None``) must not grab a
+        # stray ``targets[0]`` left over from a *different* effect in the
+        # same resolution — the same gotcha `ExileEffect`'s self mode
+        # documents (Mizzix's Mastery). It bites here for a `copy_permanent`
+        # inside a villainous-choice option, applied with
+        # ``targets=[the facing player]`` (The Master, Gallifrey's End).
+        target = (
+            self.target if self.target_spec is None
+            else ((targets[0] if targets else None) or self.target)
+        )
         if self._attached_mode:
             attached_to = getattr(self.source, "attached_to", None)
             target = context.state.find_object(attached_to) if attached_to is not None else None
@@ -21156,6 +21201,7 @@ EffectRegistry.register(
         subject=str(p.get("subject", "each_opponent")),
         labels=p.get("labels"),
         subject_min_life_lost=int(p.get("subject_min_life_lost", 0) or 0),
+        capture_previous=bool(p.get("capture_previous", False)),
     ),
 )
 EffectRegistry.register(

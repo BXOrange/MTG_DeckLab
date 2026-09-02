@@ -979,6 +979,7 @@ class MiscSystemsMixin:
         option_a: list[dict[str, Any]],
         option_b: list[dict[str, Any]],
         labels: Optional[tuple[str, str]] = None,
+        captured_previous: Optional[list[Any]] = None,
     ) -> None:
         """RULE 701.55: "`<player>` faces a villainous choice — `<A>`, or
         `<B>`." Each facing player in ``facing_ids`` (already resolved and
@@ -1004,6 +1005,11 @@ class MiscSystemsMixin:
             "labels": labels or ("Option A", "Option B"),
             "source": source,
             "controller_id": controller_id,
+            #: RULE 608.2 referent baked in at request time (The Master,
+            #: Gallifrey's End — the just-exiled card an option's "copy of
+            #: that card" names). Re-seeded onto `self.context.previous_
+            #: targets` around each option's `_apply_effect_specs`.
+            "captured_previous": list(captured_previous) if captured_previous else None,
         }
         self._advance_villainous_choice()
     def _advance_villainous_choice(self) -> None:
@@ -1050,7 +1056,19 @@ class MiscSystemsMixin:
             facing = None
         specs = pending["option_b"] if str(answer) == "1" else pending["option_a"]
         if facing is not None:
-            self._apply_effect_specs(specs, pending["source"], targets=[facing])
+            captured = pending.get("captured_previous")
+            if captured:
+                # Re-seed the RULE 608.2 referent for this option's own
+                # `copy_permanent` ``referent="previous"`` / pronoun specs
+                # (the resolution that opened the choice is long gone).
+                saved = list(self.context.previous_targets)
+                self.context.previous_targets = list(captured)
+                try:
+                    self._apply_effect_specs(specs, pending["source"], targets=[facing])
+                finally:
+                    self.context.previous_targets = saved
+            else:
+                self._apply_effect_specs(specs, pending["source"], targets=[facing])
         self._advance_villainous_choice()
     def _apply_effect_specs(
         self,
