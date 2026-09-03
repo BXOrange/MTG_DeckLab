@@ -7,6 +7,7 @@
 // marker stays a single implementation across all three modes.
 
 import { getDeckCoverage } from './api.js';
+import { t } from './i18n.js';
 
 /** HTML-escape arbitrary text for use as element content. */
 export function escapeHtml(str) {
@@ -52,24 +53,24 @@ export function deckSelectOptionsHtml({
   unmodeledDeckIds = new Set(),
   decksLoading = false,
   decksLoadError = false,
-  placeholder = '— Deck wählen —',
-  errorText = '— Server nicht erreichbar —',
+  placeholder = t('setup.pickDeck'),
+  errorText = t('setup.serverUnreachableDash'),
 } = {}) {
   if (savedDecks == null || (decksLoading && savedDecks == null)) {
-    return '<option>Lädt …</option>';
+    return `<option>${t('setup.loadingOption')}</option>`;
   }
   if (decksLoadError) return `<option value="">${escapeHtml(errorText)}</option>`;
-  if (!savedDecks.length) return '<option value="">— keine gespeicherten Decks —</option>';
+  if (!savedDecks.length) return `<option value="">${t('setup.noDecksDash')}</option>`;
   const fav = favoriteDeckIds instanceof Set ? favoriteDeckIds : new Set(favoriteDeckIds || []);
   const unmodeled =
     unmodeledDeckIds instanceof Set ? unmodeledDeckIds : new Set(unmodeledDeckIds || []);
   const options = [`<option value="">${escapeHtml(placeholder)}</option>`];
   for (const d of sortDecksFavoritesFirst(savedDecks, fav)) {
-    const name = (d.name || '').trim() || 'Unbenanntes Deck';
+    const name = (d.name || '').trim() || t('common.unnamedDeck');
     const marker = unmodeled.has(d.id) ? '⚠️ ' : '';
     const label = fav.has(d.id) ? `★ ${marker}${name}` : `${marker}${name}`;
     const title = unmodeled.has(d.id)
-      ? ' title="Enthält Karten, die die Regel-Engine noch nicht modelliert"'
+      ? ` title="${escapeAttr(t('setup.unmodeledTitle'))}"`
       : '';
     options.push(
       `<option value="${escapeAttr(d.id)}"${d.id === selectedId ? ' selected' : ''}${title}>${escapeHtml(label)}</option>`,
@@ -136,7 +137,7 @@ export function mulliganTileHtml(o, { imageCache, selected = false, bottomEnable
   return `
     <div class="gf-card-slot">
       <div class="${classes.join(' ')}" data-hover-card="${escapeAttr(o.name)}" title="${escapeAttr(o.name)}"${toggle}>${inner}</div>
-      ${bottomEnabled ? `<button type="button" class="gf-card-action" data-bottom-toggle="${o.instance_id}">${selected ? '✓ unten' : 'Nach unten legen'}</button>` : ''}
+      ${bottomEnabled ? `<button type="button" class="gf-card-action" data-bottom-toggle="${o.instance_id}">${selected ? t('setup.bottomDone') : t('setup.bottomAction')}</button>` : ''}
     </div>`;
 }
 
@@ -151,8 +152,8 @@ export function resultBannerHtml(state, meId) {
   const youWon = !!winner && !!meId && winner.id === meId;
   const banner = winner
     ? youWon
-      ? '🏆 Gewonnen!'
-      : `Verloren – Sieger: ${escapeHtml(winner.name)}.`
-    : 'Spiel beendet.';
+      ? t('setup.won')
+      : escapeHtml(t('setup.lost', { name: winner.name }))
+    : t('setup.gameOver');
   return `<p class="server-status ${youWon ? 'ok' : 'warning'}">${banner}</p>`;
 }

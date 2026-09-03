@@ -16,23 +16,24 @@
 import { listCachedCards } from './api.js';
 import { renderCardTile } from './cardTile.js';
 import { TYPE_BUCKETS } from './deckAnalysis.js';
+import { t } from './i18n.js';
 
-const COLORS = [
-  { key: 'W', label: '⚪ Weiß' },
-  { key: 'U', label: '🔵 Blau' },
-  { key: 'B', label: '⚫ Schwarz' },
-  { key: 'R', label: '🔴 Rot' },
-  { key: 'G', label: '🟢 Grün' },
-  { key: 'C', label: '🔘 Farblos' },
-];
+// Labels are resolved at import (i18n initializes first, and a language
+// change reloads the page — see i18n.js), so a plain module-level array is
+// fine. Colour glyphs stay inline; only the name is translated.
+const COLOR_GLYPHS = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢', C: '🔘' };
+const COLORS = ['W', 'U', 'B', 'R', 'G', 'C'].map((key) => ({
+  key,
+  label: `${COLOR_GLYPHS[key]} ${t(`common.color.${key}`)}`,
+}));
 
 // Mirrors the badges `cardTile.js`'s `renderCoverageBadge` shows (📖/✅/✖) —
 // "catalogue" and "oracle" are both `coverage.modeled`, just a different
 // `coverage.source` (see `api/cards.py`'s `_coverage_for`).
 const COVERAGE_OPTIONS = [
-  { key: 'catalogue', label: '📖 Katalogisiert' },
-  { key: 'oracle', label: '✅ Modelliert' },
-  { key: 'unmodeled', label: '✖ Nicht modelliert' },
+  { key: 'catalogue', label: t('cache.coverage.catalogue') },
+  { key: 'oracle', label: t('cache.coverage.oracle') },
+  { key: 'unmodeled', label: t('cache.coverage.unmodeled') },
 ];
 
 function coverageKey(coverage) {
@@ -89,31 +90,27 @@ export function renderCachedCardsView(container) {
   container.innerHTML = `
     <div class="cache-panel">
       <div class="cache-toolbar">
-        <h2>Karten-Cache</h2>
-        <div class="cache-scope-toggle" role="radiogroup" aria-label="Kartenumfang">
-          <label><input type="radio" name="cache-scope" value="decks" checked /> Deck-Karten</label>
-          <label><input type="radio" name="cache-scope" value="all" /> Alle Karten</label>
+        <h2>${t('cache.title')}</h2>
+        <div class="cache-scope-toggle" role="radiogroup" aria-label="${t('cache.scopeAria')}">
+          <label><input type="radio" name="cache-scope" value="decks" checked /> ${t('cache.scopeDecks')}</label>
+          <label><input type="radio" name="cache-scope" value="all" /> ${t('cache.scopeAll')}</label>
         </div>
-        <button id="refresh-cache-btn" type="button">Aktualisieren</button>
+        <button id="refresh-cache-btn" type="button">${t('cache.refresh')}</button>
         <span class="cache-count"></span>
       </div>
-      <p class="cache-coverage-legend hint">
-        Engine-Abdeckung je Karte (siehe „Engine-Status"-Tab für Details):
-        📖 katalogisiert · ✅ vom Oracle-Parser modelliert · ✖ nicht modelliert
-        (nur Keywords wirken, restlicher Text ist noch nicht spielbar).
-      </p>
+      <p class="cache-coverage-legend hint">${t('cache.coverageLegend')}</p>
       <div class="cache-filters" id="cache-filters">
-        ${filterGroupHtml('Kartentyp', 'type', TYPE_BUCKETS)}
-        ${filterGroupHtml('Engine-Abdeckung', 'coverage', COVERAGE_OPTIONS)}
-        ${filterGroupHtml('Farbe', 'color', COLORS)}
+        ${filterGroupHtml(t('cache.filter.type'), 'type', TYPE_BUCKETS)}
+        ${filterGroupHtml(t('cache.filter.coverage'), 'coverage', COVERAGE_OPTIONS)}
+        ${filterGroupHtml(t('cache.filter.color'), 'color', COLORS)}
         <fieldset class="cache-filter-group">
-          <legend>Manawert (CMC)</legend>
-          <label>Min <input type="number" id="cache-cmc-min" min="0" step="1" placeholder="0" /></label>
-          <label>Max <input type="number" id="cache-cmc-max" min="0" step="1" placeholder="∞" /></label>
+          <legend>${t('cache.filter.cmc')}</legend>
+          <label>${t('cache.filter.min')} <input type="number" id="cache-cmc-min" min="0" step="1" placeholder="0" /></label>
+          <label>${t('cache.filter.max')} <input type="number" id="cache-cmc-max" min="0" step="1" placeholder="∞" /></label>
         </fieldset>
-        <button type="button" id="cache-filter-reset">Filter zurücksetzen</button>
+        <button type="button" id="cache-filter-reset">${t('cache.filter.reset')}</button>
       </div>
-      <div id="cache-result"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lade Karten-Cache …</p></div>
+      <div id="cache-result"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('cache.loading')}</p></div>
     </div>
   `;
 
@@ -137,12 +134,17 @@ export function renderCachedCardsView(container) {
     const modeledCount = filtered.filter((c) => c.coverage?.modeled).length;
 
     countEl.textContent =
-      `${filtered.length} von ${allCards.length} Karte(n)` +
-      (filtered.length ? ` · ${modeledCount} vollständig modelliert (${Math.round((modeledCount / filtered.length) * 100)} %)` : '');
+      t('cache.count', { shown: filtered.length, total: allCards.length }) +
+      (filtered.length
+        ? t('cache.modeledPart', {
+            count: modeledCount,
+            pct: Math.round((modeledCount / filtered.length) * 100),
+          })
+        : '');
 
     resultEl.innerHTML = filtered.length
       ? `<div class="card-tile-grid">${filtered.map((c) => renderCardTile(c)).join('')}</div>`
-      : '<p class="empty-state">Keine Karten entsprechen den gewählten Filtern.</p>';
+      : `<p class="empty-state">${t('cache.noMatch')}</p>`;
   }
 
   let latestRequestId = 0;
@@ -150,14 +152,14 @@ export function renderCachedCardsView(container) {
   async function load() {
     const requestId = ++latestRequestId;
     const scope = currentScope();
-    resultEl.innerHTML = '<p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lade Karten-Cache …</p>';
+    resultEl.innerHTML = `<p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('cache.loading')}</p>`;
     countEl.textContent = '';
 
     const cards = await listCachedCards(scope);
     if (requestId !== latestRequestId) return; // superseded by a later refresh/scope change
 
     if (cards === null) {
-      resultEl.innerHTML = '<p class="server-status warning">Server nicht erreichbar.</p>';
+      resultEl.innerHTML = `<p class="server-status warning">${t('common.serverUnreachable')}</p>`;
       return;
     }
 
@@ -166,9 +168,7 @@ export function renderCachedCardsView(container) {
     if (!allCards.length) {
       countEl.textContent = '';
       resultEl.innerHTML = `<p class="empty-state">${
-        scope === 'decks'
-          ? 'Keine im Cache gespeicherten Deck-Karten – importiere oder öffne einen gespeicherten Deck.'
-          : 'Noch keine Karten im Cache – importiere eine Deckliste, um welche zu laden.'
+        scope === 'decks' ? t('cache.emptyDecks') : t('cache.emptyAll')
       }</p>`;
       return;
     }

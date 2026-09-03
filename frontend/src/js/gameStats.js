@@ -5,6 +5,8 @@
 // identical breakdown — same totals, same mana curve, same mana-per-turn
 // bars — rather than a second, drifting copy of it.
 
+import { t } from './i18n.js';
+
 /**
  * Totals + a mana-value curve and mana-per-turn bars for each player,
  * side by side.
@@ -16,7 +18,7 @@ export function analysisHtml(analysis) {
   const cards = players.map((p) => analysisCardHtml(p)).join('');
   return `
     <div class="gf-analysis">
-      <h4>Auswertung nach ${analysis.turns} Zügen</h4>
+      <h4>${escapeHtml(t('stats.summaryHeading', { turns: analysis.turns }))}</h4>
       <div class="gf-analysis-grid">${cards}</div>
     </div>`;
 }
@@ -28,19 +30,19 @@ function analysisCardHtml(p) {
     <div class="gf-analysis-card">
       <h5>${p.is_dummy ? '🐟 ' : ''}${escapeHtml(p.name)}</h5>
       <div class="gf-stat-row">
-        ${stat('Gezogen', p.cards_drawn)}
-        ${stat('Gespielt', p.cards_played)}
-        ${stat('Zauber', p.spells_cast)}
-        ${stat('Länder', p.lands_played)}
+        ${stat(t('stats.drawn'), p.cards_drawn)}
+        ${stat(t('stats.played'), p.cards_played)}
+        ${stat(t('stats.spells'), p.spells_cast)}
+        ${stat(t('stats.lands'), p.lands_played)}
       </div>
       <div class="gf-stat-row">
-        ${stat('Mana erzeugt', p.mana_produced)}
-        ${stat('Ø MW', p.avg_cmc)}
-        ${stat('Schaden', p.damage_dealt)}
-        ${stat('erhalten', p.damage_taken)}
+        ${stat(t('stats.manaProduced'), p.mana_produced)}
+        ${stat(t('stats.avgCmc'), p.avg_cmc)}
+        ${stat(t('stats.damage'), p.damage_dealt)}
+        ${stat(t('stats.damageTaken'), p.damage_taken)}
       </div>
-      ${barChartHtml('Mana-Kurve gespielter Zauber (MW)', p.cmc_curve)}
-      ${barChartHtml('Mana pro Zug', p.mana_per_turn)}
+      ${barChartHtml(t('stats.cmcCurve'), p.cmc_curve)}
+      ${barChartHtml(t('stats.manaPerTurn'), p.mana_per_turn)}
     </div>`;
 }
 

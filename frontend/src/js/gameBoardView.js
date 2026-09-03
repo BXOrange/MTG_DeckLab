@@ -32,31 +32,32 @@ import {
   MAX_AUTO_PASS_SECONDS,
   MIN_AUTO_PASS_SECONDS,
 } from './settings.js';
+import { t, tPlural } from './i18n.js';
 
 const PHASE_LABELS = {
-  beginning: 'Anfang',
-  precombat_main: 'Hauptphase I',
-  combat: 'Kampf',
-  postcombat_main: 'Hauptphase II',
-  ending: 'Endphase',
+  beginning: t('bd.phase.beginning'),
+  precombat_main: t('bd.phase.precombat_main'),
+  combat: t('bd.phase.combat'),
+  postcombat_main: t('bd.phase.postcombat_main'),
+  ending: t('bd.phase.ending'),
 };
 const STEP_LABELS = {
-  untap: 'Enttappen',
-  upkeep: 'Versorgung',
-  draw: 'Ziehen',
-  main1: 'Hauptphase I',
-  begin_combat: 'Kampfbeginn',
-  declare_attackers: 'Angreifer',
-  declare_blockers: 'Blocker',
-  combat_damage: 'Kampfschaden',
-  end_combat: 'Kampfende',
-  main2: 'Hauptphase II',
-  end: 'Ende',
-  cleanup: 'Aufräumen',
+  untap: t('bd.step.untap'),
+  upkeep: t('bd.step.upkeep'),
+  draw: t('bd.step.draw'),
+  main1: t('bd.step.main1'),
+  begin_combat: t('bd.step.begin_combat'),
+  declare_attackers: t('bd.step.declare_attackers'),
+  declare_blockers: t('bd.step.declare_blockers'),
+  combat_damage: t('bd.step.combat_damage'),
+  end_combat: t('bd.step.end_combat'),
+  main2: t('bd.step.main2'),
+  end: t('bd.step.end'),
+  cleanup: t('bd.step.cleanup'),
   // Not a real step name on its own — `DelayedTrigger.step` uses this for
   // "your next main phase" (Mana Drain-shaped), matching whichever of
   // main1/main2 begins first (`GameEngine._fire_delayed_triggers`).
-  main: 'Hauptphase',
+  main: t('bd.step.main'),
 };
 function labelPhase(name) {
   return PHASE_LABELS[name] || name || '—';
@@ -417,17 +418,17 @@ export function createGameBoardView(opts = {}) {
     const kind = sep === -1 ? label : label.slice(0, sep);
     const name = sep === -1 ? '' : label.slice(sep + 2);
     const templates = {
-      play_land: `hat ${name || 'ein Land'} gespielt`,
-      cast_spell: `hat ${name || 'einen Zauberspruch'} gewirkt`,
-      activate_ability: `hat eine Fähigkeit${name ? ` von ${name}` : ''} aktiviert`,
-      pass_priority: 'hat gepasst',
-      declare_attackers: 'hat Angreifer erklärt',
-      declare_blockers: 'hat Blocker erklärt',
-      keep_hand: 'hat die Starthand behalten',
-      mulligan: 'hat einen Mulligan genommen',
+      play_land: t('bd.move.playLand', { name: name || t('bd.move.playLandDefault') }),
+      cast_spell: t('bd.move.castSpell', { name: name || t('bd.move.castSpellDefault') }),
+      activate_ability: t('bd.move.activateAbility', { of: name ? t('bd.move.activateOf', { name }) : '' }),
+      pass_priority: t('bd.move.passPriority'),
+      declare_attackers: t('bd.move.declareAttackers'),
+      declare_blockers: t('bd.move.declareBlockers'),
+      keep_hand: t('bd.move.keepHand'),
+      mulligan: t('bd.move.mulligan'),
     };
-    if (kind === 'concede' || kind.startsWith('concede:')) return 'hat aufgegeben';
-    return templates[kind] || `hat "${label}" gespielt`;
+    if (kind === 'concede' || kind.startsWith('concede:')) return t('bd.move.concede');
+    return templates[kind] || t('bd.move.generic', { label });
   }
   // A single requirement with `count > 1` (RULE 115.1a generalized to N>=2 —
   // "destroy two target creatures"/"up to two target artifacts") is expanded
@@ -902,7 +903,7 @@ export function createGameBoardView(opts = {}) {
         // render retry instead of silently going inert.
         skipAttemptedForKey = null;
         if (res.status === 400) {
-          setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? ''}`, 'warning');
+          setStatus(t('bd.msg.actionNotAllowed', { detail: res.data?.detail ?? '' }), 'warning');
         } else if (res.status === 404) {
           setStatus('Spielsitzung abgelaufen.', 'warning');
         } else {
@@ -920,9 +921,9 @@ export function createGameBoardView(opts = {}) {
         : await rewindGame(sessionId, 1);
       if (res.ok) {
         applyView(res.data);
-        setStatus('Letzter Zug rückgängig gemacht.', 'ok');
+        setStatus(t('bd.msg.lastTurnUndone'), 'ok');
       } else {
-        setStatus(`Rückgängig fehlgeschlagen (${res.status}).`, 'warning');
+        setStatus(t('bd.msg.undoFailed', { status: res.status }), 'warning');
       }
     });
   }
@@ -962,7 +963,7 @@ export function createGameBoardView(opts = {}) {
         ${moveFeedHtml()}
         <div class="gf-topbar">
           <div class="gf-turninfo">
-            <span class="gf-turn" title="Regel 500.1 zählt jeden Spielerzug einzeln – das ist Spielzug ${s.turn_number}.">Zug ${s.round_number || s.turn_number}</span>
+            <span class="gf-turn" title="${escapeAttr(t('bd.turn.rule500', { n: s.turn_number }))}">${escapeHtml(t('bd.turn.label', { n: s.round_number || s.turn_number }))}</span>
             <span class="gf-step">${escapeHtml(labelPhase(s.current_phase))} · ${escapeHtml(labelStep(s.current_step))}</span>
             ${turnOrderHtml(live, s)}
             ${s.day_night ? `<span class="gf-daynight gf-daynight-${s.day_night}">${s.day_night === 'night' ? '🌙 Nacht' : '☀️ Tag'}</span>` : ''}
@@ -977,7 +978,7 @@ export function createGameBoardView(opts = {}) {
 
         ${gameOver ? gameOverHtml(s, seatId ? s.players.find((p) => p.id === seatId) : live[0]) : ''}
         ${statusHtml()}
-        ${view.observer ? '<p class="server-status gf-observer-note">👁️ Beobachter-Modus – du siehst das öffentliche Spielfeld, aber keine Handkarten.</p>' : ''}
+        ${view.observer ? `<p class="server-status gf-observer-note">${escapeHtml(t('bd.observerNote'))}</p>` : ''}
         ${waitingOnChoiceHtml(s)}
         ${pending ? pendingChoiceHtml(pending, choiceAside) : ''}
         ${castTargeting ? castTargetModalHtml() : ''}
@@ -1009,7 +1010,7 @@ export function createGameBoardView(opts = {}) {
     if (!plane) return '';
     const roll = (actions || []).find((a) => a.type === 'roll_planar_die');
     const rollButton = roll
-      ? `<button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'roll_planar_die' }))}' title="Planarwürfel werfen (Regel 901.6): 1× Chaos, 1× Planarwanderung, 4× leer. Kostet {X} = bisherige Würfe in diesem Zug.">🎲 Planarwürfel (${escapeHtml(roll.cost_label || '{0}')})</button>`
+      ? `<button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'roll_planar_die' }))}' title="${escapeAttr(t('bd.planar.rollTitle'))}">${escapeHtml(t('bd.planar.rollButton', { cost: roll.cost_label || '{0}' }))}</button>`
       : '';
     return `
       <div class="gf-planechase">
@@ -1021,7 +1022,7 @@ export function createGameBoardView(opts = {}) {
                backticks in here — this comment sits inside a template
                literal, where one would end the string mid-comment. -->
           <strong title="${escapeAttr(plane.type_line || '')}">${escapeHtml(plane.name)}</strong>
-          <span class="gf-planechase-count" title="Verbleibende Karten im Planarstapel">${s.planar_deck_count || 0} im Stapel</span>
+          <span class="gf-planechase-count" title="${escapeAttr(t('bd.planar.remaining'))}">${escapeHtml(t('bd.planar.inStack', { count: s.planar_deck_count || 0 }))}</span>
         </div>
         ${rollButton}
       </div>`;
@@ -1075,9 +1076,9 @@ export function createGameBoardView(opts = {}) {
       // the turn just passes over them now.
       if (p.has_lost) classes.push('gf-turnorder-out');
       const title = [
-        isActive ? 'am Zug' : '',
-        p.id === view.perspective ? 'du' : '',
-        p.has_lost ? 'ausgeschieden – wird übersprungen' : '',
+        isActive ? t('bd.turnOrder.active') : '',
+        p.id === view.perspective ? t('bd.turnOrder.you') : '',
+        p.has_lost ? t('bd.turnOrder.outSkipped2') : '',
       ].filter(Boolean).join(', ');
       // The same banner colour as that player's board below, so the strip
       // is a legend for the *colours* too and not only for the order.
@@ -1088,7 +1089,7 @@ export function createGameBoardView(opts = {}) {
       return `<span class="${classes.join(' ')}"${title ? ` title="${escapeAttr(title)}"` : ''}>${isActive ? '▶ ' : ''}${dot}${escapeHtml(p.name)}</span>`;
     });
     return `
-      <span class="gf-turnorder" title="Zugreihenfolge (Regel 500.1) – dieselbe Reihenfolge wie die Spielfelder darunter. ↻: danach geht es wieder von vorn los.">
+      <span class="gf-turnorder" title="${escapeAttr(t('bd.turnOrder.title'))}">
         ${seats.join(arrow)}<span class="gf-turnorder-arrow" aria-hidden="true">↻</span>
       </span>`;
   }
@@ -1149,8 +1150,8 @@ export function createGameBoardView(opts = {}) {
   // label stays the action it always was.
   function zonesSideButtonHtml() {
     return podGrid()
-      ? `<button id="gf-zones-side" type="button" title="Zonen-Spalten (Bibliothek, Friedhof …) nach ${zonesInside ? 'außen an die Ränder' : 'innen zur Mitte'} legen">⇄ Zonen: ${zonesInside ? 'innen' : 'außen'}</button>`
-      : '<button id="gf-zones-side" type="button" title="Zonen-Spalte (Bibliothek, Friedhof …) auf die andere Seite legen">⇄ Zonen-Seite</button>';
+      ? `<button id="gf-zones-side" type="button" title="${escapeAttr(t('bd.zonesSide.podTitle', { where: zonesInside ? t('bd.zonesSide.podOutside') : t('bd.zonesSide.podInside') }))}">${escapeHtml(t('bd.zonesSide.podLabel', { state: zonesInside ? t('bd.zonesSide.podInner') : t('bd.zonesSide.podOuter') }))}</button>`
+      : `<button id="gf-zones-side" type="button" title="${escapeAttr(t('bd.zonesSide.plainTitle'))}">${t('bd.zonesSide.plainLabel')}</button>`;
   }
 
   function controlsHtml(stackNonEmpty, pending, gameOver) {
@@ -1182,10 +1183,10 @@ export function createGameBoardView(opts = {}) {
     const myTurn = !view.perspective || view.state.active_player_id === actingSeat();
     return `
       <div class="gf-controls">
-        <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>Nächster Schritt →</button>
-        ${allowFastForward ? `<button id="gf-next-decision" type="button" title="Überspringt Schritte ohne Entscheidung und hält bei der nächsten Wahl des aktiven Spielers" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>⏭ Nächste Entscheidung</button>` : ''}
-        ${stackNonEmpty && !pending ? `<button type="button" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>Priorität abgeben (Stack auflösen)</button>` : ''}
-        ${allowRewind ? `<button id="gf-rewind" type="button" ${busy || !view.can_rewind ? 'disabled' : ''}>↶ Zurücknehmen</button>` : ''}
+        <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>${t('bd.ctrl.advance')}</button>
+        ${allowFastForward ? `<button id="gf-next-decision" type="button" title="${escapeAttr(t('bd.ctrl.nextDecisionTitle2'))}" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>${t('bd.ctrl.nextDecision')}</button>` : ''}
+        ${stackNonEmpty && !pending ? `<button type="button" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>${t('bd.ctrl.passResolveStack')}</button>` : ''}
+        ${allowRewind ? `<button id="gf-rewind" type="button" ${busy || !view.can_rewind ? 'disabled' : ''}>${t('bd.ctrl.rewind')}</button>` : ''}
         ${zonesSideButtonHtml()}
         ${extra}
       </div>`;
@@ -1237,7 +1238,7 @@ export function createGameBoardView(opts = {}) {
   // from the cards you're looking at. They're the same control, so it's a
   // data attribute rather than an id, and `wire()` binds all of them.
   function passButtonHtml(disabled, extraClass = '') {
-    const label = view.state.stack.length > 0 ? 'Passen (Stack auflösen)' : 'Passen →';
+    const label = view.state.stack.length > 0 ? t('bd.ctrl.passResolve') : t('bd.ctrl.pass');
     return `<button type="button" class="primary${extraClass}" data-pass-priority ${disabled ? 'disabled' : ''}>${label}</button>`;
   }
 
@@ -1251,16 +1252,16 @@ export function createGameBoardView(opts = {}) {
   // client's own board banner, so it's a data attribute rather than an id —
   // two elements sharing one id would leave the second one dead.
   function skipToActionButtonHtml(disabled, extraClass = '') {
-    return `<button type="button" class="gf-skip-empty${extraClass}" data-skip-empty title="Passt Prioritätsfenster ohne jede Handlungsmöglichkeit sofort durch und hält bei der nächsten echten Entscheidung" ${disabled ? 'disabled' : ''}>⏭ Nächste Aktion</button>`;
+    return `<button type="button" class="gf-skip-empty${extraClass}" data-skip-empty title="${escapeAttr(t('bd.ctrl.skipEmptyTitle2'))}" ${disabled ? 'disabled' : ''}>${t('bd.ctrl.nextAction')}</button>`;
   }
 
   function priorityBadgeHtml(compact = false) {
     if (!interactivePriority()) return '';
     const holder = view.priority?.player_id;
     if (hasPriority()) {
-      return `<span class="gf-priority-badge gf-priority-mine">${compact ? '⚡ Priorität' : 'Du bist dran (Priorität)'}${autoPassCountdownHtml()}</span>`;
+      return `<span class="gf-priority-badge gf-priority-mine">${compact ? t('bd.priority.mineCompact') : t('bd.priority.mine')}${autoPassCountdownHtml()}</span>`;
     }
-    return `<span class="gf-priority-badge">⏳ ${escapeHtml(playerName(holder))} ist dran …</span>`;
+    return `<span class="gf-priority-badge">${escapeHtml(t('bd.priority.holder', { name: playerName(holder) }))}</span>`;
   }
 
   // The live countdown on the "you're up" badge. Purely cosmetic — the
@@ -1276,15 +1277,15 @@ export function createGameBoardView(opts = {}) {
   function autoPassControlHtml() {
     const on = getAutoPassEnabled();
     return `
-      <label class="gf-autopass" title="Nach Ablauf der Zeit wird automatisch gepasst, auch wenn du eigentlich noch etwas tun könntest. Jede Aktion auf dem Brett stoppt den Countdown.">
+      <label class="gf-autopass" title="${escapeAttr(t('bd.autopass.toggleTitle'))}">
         <input type="checkbox" id="gf-autopass-toggle" ${on ? 'checked' : ''} />
-        Auto-Pass (nach Ablaufzeit)
+        ${t('bd.autopass.toggle')}
         <input type="number" id="gf-autopass-seconds" min="${MIN_AUTO_PASS_SECONDS}" max="${MAX_AUTO_PASS_SECONDS}"
                value="${autoPassSeconds}" ${on ? '' : 'disabled'} /> s
       </label>
-      <label class="gf-autopass" title="Anders als Auto-Pass: kein Countdown, und es greift nur, wenn dir wirklich nichts anderes als 'Passen' offensteht (z. B. im gegnerischen Zug ohne Instant in der Hand). Sobald irgendeine echte Aktion angeboten wird (Karte spielen/zaubern, angreifen, blocken …), bist du sofort wieder am Zug.">
+      <label class="gf-autopass" title="${escapeAttr(t('bd.autopass.skipEmptyTitle'))}">
         <input type="checkbox" id="gf-skip-empty-toggle" ${getAutoSkipEmpty() ? 'checked' : ''} />
-        Sofort passen, wenn nichts zu tun ist
+        ${t('bd.autopass.skipEmpty')}
       </label>
       ${botSpeedControlHtml()}`;
   }
@@ -1294,15 +1295,15 @@ export function createGameBoardView(opts = {}) {
   // moves would all show up in the feed at once. Lets a player watching a
   // bot opponent choose how spread out the "Bot hat X gespielt" reveals
   // should be — 0 keeps the old instant behaviour.
-  const BOT_SPEED_LABELS = { 0: 'Sofort', 900: 'Normal', 2000: 'Langsam' };
+  const BOT_SPEED_LABELS = { 0: t('bd.botSpeed.instant'), 900: t('bd.botSpeed.normal'), 2000: t('bd.botSpeed.slow') };
 
   function botSpeedControlHtml() {
     const options = BOT_SPEED_MS_OPTIONS.map(
       (ms) => `<option value="${ms}" ${ms === botSpeedMs ? 'selected' : ''}>${BOT_SPEED_LABELS[ms] || `${ms} ms`}</option>`
     ).join('');
     return `
-      <label class="gf-autopass" title="Wie schnell die Aktionen eines Bots nacheinander im Verlauf/Feed auftauchen, statt alle auf einmal (der ganze Bot-Zug kommt als eine Antwort vom Server).">
-        Bot-Tempo
+      <label class="gf-autopass" title="${escapeAttr(t('bd.botSpeed.title'))}">
+        ${t('bd.botSpeed.label')}
         <select id="gf-bot-speed">${options}</select>
       </label>`;
   }
@@ -1328,24 +1329,24 @@ export function createGameBoardView(opts = {}) {
     // from X's hand" window, distinct from the turn/combat control below.
     const woc = s.word_of_command;
     if (woc && woc.controller_id === me) {
-      return `<p class="server-status gf-turn-control gf-turn-control-driving">🎛️ Word of Command – du spielst eine Karte aus <strong>${escapeHtml(playerName(woc.target_id))}</strong>s Hand.</p>`;
+      return `<p class="server-status gf-turn-control gf-turn-control-driving">${escapeHtml(t('bd.turnControl.wocDriving', { name: playerName(woc.target_id) }))}</p>`;
     }
     if (woc && woc.target_id === me) {
-      return `<p class="server-status pending gf-turn-control gf-turn-control-locked">🔒 <strong>${escapeHtml(playerName(woc.controller_id))}</strong> spielt gerade per Word of Command eine Karte aus deiner Hand.</p>`;
+      return `<p class="server-status pending gf-turn-control gf-turn-control-locked">${escapeHtml(t('bd.turnControl.wocLocked', { name: playerName(woc.controller_id) }))}</p>`;
     }
     const controls = (s.turn_controls || []).filter((c) => c.phase === 'active');
     if (!controls.length) return '';
     // I'm driving someone else's turn/combat.
     const mine = controls.find((c) => c.controller_id === me && c.controlled_id !== me);
     if (mine) {
-      const scopeWord = mine.scope === 'combat' ? 'die Kampfphase' : 'den Zug';
-      return `<p class="server-status gf-turn-control gf-turn-control-driving">🎛️ Du kontrollierst ${scopeWord} von <strong>${escapeHtml(playerName(mine.controlled_id))}</strong>${mine.source_name ? ` (${escapeHtml(mine.source_name)})` : ''} – du triffst alle Entscheidungen und siehst die Handkarten.</p>`;
+      const scopeWord = mine.scope === 'combat' ? t('bd.turnControl.scopeCombat') : t('bd.turnControl.scopeTurn');
+      return `<p class="server-status gf-turn-control gf-turn-control-driving">${escapeHtml(t('bd.turnControl.driving', { scope: scopeWord, name: playerName(mine.controlled_id), source: mine.source_name ? ` (${mine.source_name})` : '' }))}</p>`;
     }
     // My own turn/combat is being controlled by someone else.
     const over = controls.find((c) => c.controlled_id === me && c.controller_id !== me);
     if (over) {
-      const scopeWord = over.scope === 'combat' ? 'deine Kampfphase' : 'deinen Zug';
-      return `<p class="server-status pending gf-turn-control gf-turn-control-locked">🔒 <strong>${escapeHtml(playerName(over.controller_id))}</strong> kontrolliert gerade ${scopeWord}. Du triffst währenddessen keine Entscheidungen.</p>`;
+      const scopeWord = over.scope === 'combat' ? t('bd.turnControl.scopeYourCombat') : t('bd.turnControl.scopeYourTurn');
+      return `<p class="server-status pending gf-turn-control gf-turn-control-locked">${escapeHtml(t('bd.turnControl.locked', { name: playerName(over.controller_id), scope: scopeWord }))}</p>`;
     }
     return '';
   }
@@ -1361,7 +1362,7 @@ export function createGameBoardView(opts = {}) {
       .map((offer) => {
         const chosen = blockDraft.get(offer.instance_id);
         const options = [
-          `<option value="">— blockt nicht —</option>`,
+          `<option value="">${t('bd.block.noBlock')}</option>`,
           ...offer.legal_attackers.map(
             (a) =>
               `<option value="${a.instance_id}"${chosen === a.instance_id ? ' selected' : ''}>${escapeHtml(a.name)}</option>`,
@@ -1378,20 +1379,14 @@ export function createGameBoardView(opts = {}) {
     const count = blockDraft.size;
     return `
       <section class="gf-block-panel">
-        <h4>🛡️ Blocker deklarieren</h4>
-        <p class="hint">
-          ${escapeHtml(playerName(s.active_player_id))} greift an. Weise deine
-          Kreaturen zu und bestätige – der ganze Block wird auf einmal
-          deklariert (nötig für Bedrohlich &amp; Co., Regel 702.111b). "Blockt
-          nicht" ist eine gültige Entscheidung: bestätige einfach ohne
-          Zuweisung, um komplett auf den Block zu verzichten.
-        </p>
+        <h4>${t('bd.block.declareHeading')}</h4>
+        <p class="hint">${escapeHtml(t('bd.block.hint', { name: playerName(s.active_player_id) }))}</p>
         ${rows}
         <div class="gf-controls">
           <button id="gf-submit-blocks" type="button" class="primary" ${busy ? 'disabled' : ''}>
-            ${count ? `Block bestätigen (${count})` : 'Keine Blocker bestätigen'}
+            ${count ? escapeHtml(t('bd.block.confirm', { count })) : t('bd.block.confirmNone')}
           </button>
-          <button id="gf-clear-blocks" type="button" ${busy || !count ? 'disabled' : ''}>Zurücksetzen</button>
+          <button id="gf-clear-blocks" type="button" ${busy || !count ? 'disabled' : ''}>${t('bd.block.reset')}</button>
         </div>
       </section>`;
   }
@@ -1430,16 +1425,16 @@ export function createGameBoardView(opts = {}) {
     const isActive = s.active_player_id === p.id;
     const seat = seatStatus(p.id);
     const badges = [
-      isMe ? '<span class="gf-seat-badge gf-seat-you">Du</span>' : '',
-      isActive ? '<span class="gf-seat-badge gf-seat-active">am Zug</span>' : '',
+      isMe ? `<span class="gf-seat-badge gf-seat-you">${t('bd.seat.you')}</span>` : '',
+      isActive ? `<span class="gf-seat-badge gf-seat-active">${t('bd.seat.active')}</span>` : '',
       p.has_lost
-        ? `<span class="gf-seat-badge gf-seat-out">${p.loss_reason === 'conceded' ? 'aufgegeben' : 'ausgeschieden'}</span>`
+        ? `<span class="gf-seat-badge gf-seat-out">${p.loss_reason === 'conceded' ? t('bd.seat.conceded') : t('bd.seat.out')}</span>`
         : '',
       // Not a rules state at all — this player's browser is gone. The
       // server passes priority for them meanwhile, so the game keeps
       // moving; the badge is why it looks like they're doing nothing.
       seat?.connected === false
-        ? '<span class="gf-seat-badge gf-seat-away" title="Verbindung verloren – der Platz bleibt kurz reserviert">⚡ getrennt</span>'
+        ? `<span class="gf-seat-badge gf-seat-away" title="${escapeAttr(t('bd.seat.awayTitle'))}">${t('bd.seat.away')}</span>`
         : '',
     ].join('');
     // The banner colour this seat picked in the Multiplayer setup — the
@@ -1463,7 +1458,7 @@ export function createGameBoardView(opts = {}) {
       : isMe
         ? `${priorityBadgeHtml(true)}${passButtonHtml(priorityDisabled, ' gf-banner-pass')}${skipToActionButtonHtml(priorityDisabled, ' gf-banner-skip')}`
         : holdsPriority
-          ? '<span class="gf-priority-badge">⏳ ist dran …</span>'
+          ? `<span class="gf-priority-badge">${escapeHtml(t('bd.priority.isUp'))}</span>`
           : '';
     // Folding an opponent away is only offered at a pod-sized table — with
     // one opponent there is nothing to scroll past.
@@ -1475,7 +1470,7 @@ export function createGameBoardView(opts = {}) {
         <header class="gf-player-board-head${bannerCss ? ' gf-banner-tinted' : ''}"${bannerAttrs}>
           ${
             foldable
-              ? `<button type="button" class="gf-board-fold" data-fold-board="${escapeAttr(p.id)}" title="${folded ? 'Spielfeld ausklappen' : 'Spielfeld einklappen'}" aria-expanded="${folded ? 'false' : 'true'}">${folded ? '▸' : '▾'}</button>`
+              ? `<button type="button" class="gf-board-fold" data-fold-board="${escapeAttr(p.id)}" title="${folded ? escapeAttr(t('bd.fold.expand')) : escapeAttr(t('bd.fold.collapse'))}" aria-expanded="${folded ? 'false' : 'true'}">${folded ? '▸' : '▾'}</button>`
               : ''
           }
           <h3>${escapeHtml(p.name)}${badges}</h3>
@@ -1483,7 +1478,7 @@ export function createGameBoardView(opts = {}) {
           <div class="gf-banner-stats">
             ${manaPoolHtml(p.mana_pool)}
             ${manaPotentialHtml(view.mana_potential?.[p.id])}
-            ${lifeBox('Leben', p.life)}
+            ${lifeBox(t('bd.zone.life'), p.life)}
             ${playerCountersHtml(p, s)}
           </div>
         </header>
@@ -1491,29 +1486,29 @@ export function createGameBoardView(opts = {}) {
         <div class="gf-play gf-zones-${zonesSideFor(index, total)}"${folded ? ' hidden' : ''}>
           <aside class="gf-side">
             <div class="gf-zone gf-command">
-              <h4>Command Zone</h4>
+              <h4>${t('bd.zone.commandZone')}</h4>
               ${objGrid(p.command, '–', byInstance, pending)}
             </div>
             <div class="gf-zone gf-library">
-              <h4>Bibliothek</h4>
-              <p class="library-count">${p.library_count} Karten</p>
+              <h4>${t('bd.zone.library')}</h4>
+              <p class="library-count">${escapeHtml(t('bd.zone.libraryCount', { count: p.library_count }))}</p>
               ${libraryTopHtml(p, byInstance, pending)}
             </div>
-            ${collapsibleZoneHtml('gf-graveyard', 'Friedhof', `${p.id}:graveyard`, p.graveyard.length, zoneListHtml(p.graveyard, 'leer'))}
-            ${collapsibleZoneHtml('gf-exile', 'Exil', `${p.id}:exile`, p.exile.length, objGrid(p.exile, 'leer', byInstance, pending))}
+            ${collapsibleZoneHtml('gf-graveyard', t('bd.zone.graveyard'), `${p.id}:graveyard`, p.graveyard.length, zoneListHtml(p.graveyard, t('bd.zone.empty')))}
+            ${collapsibleZoneHtml('gf-exile', t('bd.zone.exile'), `${p.id}:exile`, p.exile.length, objGrid(p.exile, t('bd.zone.empty'), byInstance, pending))}
           </aside>
 
           <div class="gf-main">
             <div class="gf-zone gf-battlefield" data-drop-zone="battlefield">
               <div class="gf-bf-head">
                 <h4>Battlefield (${bf.length})</h4>
-                <label class="gf-bf-toggle" title="Länder in eine eigene, dritte Reihe legen">
+                <label class="gf-bf-toggle" title="${escapeAttr(t('bd.bf.landsOwnRowTitle'))}">
                   <input type="checkbox" class="gf-rows-toggle" ${threeRows ? 'checked' : ''} />
-                  Länder in eigener Reihe
+                  ${t('bd.bf.landsOwnRow')}
                 </label>
-                <label class="gf-bf-toggle" title="Statische Effekte und die Layer-Herleitung (Regel 613) anzeigen">
+                <label class="gf-bf-toggle" title="${escapeAttr(t('bd.bf.staticsTitle'))}">
                   <input type="checkbox" class="gf-statics-toggle" ${showStatics ? 'checked' : ''} />
-                  🔍 Statische Effekte
+                  ${t('bd.bf.statics')}
                 </label>
               </div>
               ${battlefieldHtml(bf, byInstance, pending)}
@@ -1534,12 +1529,12 @@ export function createGameBoardView(opts = {}) {
   function foldedBoardHtml(p, bf) {
     const creatures = bf.filter((o) => o.is_creature).length;
     const counts = [
-      `${bf.length} Permanent${bf.length === 1 ? '' : 'e'}`,
-      `${creatures} Kreatur${creatures === 1 ? '' : 'en'}`,
-      `Hand ${p.hand_count != null ? p.hand_count : p.hand.length}`,
-      `Bibliothek ${p.library_count}`,
-      `Friedhof ${p.graveyard.length}`,
-      `Exil ${p.exile.length}`,
+      tPlural('bd.fold.permanents', bf.length),
+      tPlural('bd.fold.creatures', creatures),
+      t('bd.fold.hand', { count: p.hand_count != null ? p.hand_count : p.hand.length }),
+      t('bd.fold.library', { count: p.library_count }),
+      t('bd.fold.graveyard', { count: p.graveyard.length }),
+      t('bd.fold.exile', { count: p.exile.length }),
     ];
     return `<p class="gf-board-fold-summary">${counts.map(escapeHtml).join(' · ')}</p>`;
   }
@@ -1555,7 +1550,7 @@ export function createGameBoardView(opts = {}) {
       // Nothing here is information — the cards themselves never left the
       // server — so an opponent's row of backs is off unless asked for.
       if (!isOwn && !getShowOpponentHand()) {
-        return `<p class="empty-state gf-hand-hidden">${count} verdeckte Karte${count === 1 ? '' : 'n'}</p>`;
+        return `<p class="empty-state gf-hand-hidden">${escapeHtml(tPlural('bd.hand.hiddenCount', count))}</p>`;
       }
       return `<div class="card-grid">${Array.from(
         { length: count },
@@ -1573,9 +1568,9 @@ export function createGameBoardView(opts = {}) {
   // to hide and no toggle.
   function opponentHandToggleHtml() {
     return `
-      <label class="gf-bf-toggle gf-hand-toggle" title="Zeigt die Anzahl als verdeckte Karten statt nur als Zahl. Die Karten selbst sieht niemand – Regel 400.2.">
+      <label class="gf-bf-toggle gf-hand-toggle" title="${escapeAttr(t('bd.hand.showOppTitle'))}">
         <input type="checkbox" class="gf-opp-hand-toggle" ${getShowOpponentHand() ? 'checked' : ''} />
-        verdeckte Karten zeigen
+        ${t('bd.hand.showOppShort')}
       </label>`;
   }
 
@@ -1583,9 +1578,9 @@ export function createGameBoardView(opts = {}) {
   // (Einstellungen tab, `setAssets`), otherwise a plain patterned back.
   function faceDownCardHtml() {
     if (assetsSleeveImageUrl) {
-      return `<div class="card has-image gf-face-down"><img src="${escapeAttr(assetsSleeveImageUrl)}" alt="Verdeckte Karte" /></div>`;
+      return `<div class="card has-image gf-face-down"><img src="${escapeAttr(assetsSleeveImageUrl)}" alt="${escapeAttr(t('bd.hand.faceDownAlt'))}" /></div>`;
     }
-    return '<div class="card gf-face-down" title="Verdeckte Karte"></div>';
+    return `<div class="card gf-face-down" title="${escapeAttr(t('bd.hand.faceDownAlt'))}"></div>`;
   }
 
   // The top card of a library is normally face-down (`library_count` is
@@ -1603,7 +1598,7 @@ export function createGameBoardView(opts = {}) {
     if (!view.top_library_visible?.[p.id] || !p.library.length) return '';
     const top = p.library[p.library.length - 1];
     return `
-      <p class="library-top-hint">👁️ Oberste Karte sichtbar</p>
+      <p class="library-top-hint">${t('bd.libraryTop.visible')}</p>
       ${objGrid([top], '', byInstance, pending)}
     `;
   }
@@ -1626,7 +1621,7 @@ export function createGameBoardView(opts = {}) {
   // text) before answering rather than being fully blocked.
   function pendingChoiceHtml(pending, aside = false) {
     const icon = CHOICE_ICONS[pending.kind] || '❔';
-    const heading = pending.prompt || pending.description || 'Entscheidung nötig';
+    const heading = pending.prompt || pending.description || t('bd.choice.needed');
     const body = pending.kind === 'replacement_order'
       ? replacementOrderHtml(pending)
       : pending.kind === 'order_triggers'
@@ -1640,7 +1635,7 @@ export function createGameBoardView(opts = {}) {
           : pending.kind === 'vote_object'
             ? lookTopChoiceHtml(pending)
             : simpleChoiceButtonsHtml(pending);
-    const asideLabel = aside ? '⤢ Entscheidung einblenden' : '⤡ Zur Seite schieben';
+    const asideLabel = aside ? t('bd.choice.asideShow') : t('bd.choice.asidePush');
 
     return `
       <div class="gf-modal-overlay${aside ? ' aside' : ''}">
@@ -1649,10 +1644,10 @@ export function createGameBoardView(opts = {}) {
             <span class="gf-modal-icon">${icon}</span>
             <div>
               <h4>${escapeHtml(heading)}</h4>
-              <p class="gf-modal-who">Entscheidung für ${escapeHtml(playerName(pending.player_id))}</p>
-              ${pending.source_name ? `<p class="gf-modal-source">Ausgelöst durch: ${escapeHtml(pending.source_name)}</p>` : ''}
+              <p class="gf-modal-who">${escapeHtml(t('bd.choice.forWhom', { name: playerName(pending.player_id) }))}</p>
+              ${pending.source_name ? `<p class="gf-modal-source">${escapeHtml(t('bd.choice.triggeredBy', { name: pending.source_name }))}</p>` : ''}
             </div>
-            <button type="button" class="gf-modal-aside" data-choice-aside title="Board darunter ansehen, ohne zu entscheiden">${asideLabel}</button>
+            <button type="button" class="gf-modal-aside" data-choice-aside title="${escapeAttr(t('bd.choice.asideTitle'))}">${asideLabel}</button>
           </div>
           ${body}
         </div>
@@ -1668,7 +1663,7 @@ export function createGameBoardView(opts = {}) {
       .map((opt) => {
         if (opt.id === 'decline') {
           const action = JSON.stringify({ type: 'decline' });
-          return `<button type="button" class="gf-decline" data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || 'Nichts wählen')}</button>`;
+          return `<button type="button" class="gf-decline" data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || t('bd.choice.chooseNothing'))}</button>`;
         }
         const action = JSON.stringify({ type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label });
         const hover = opt.instance_id != null ? ` data-hover-card="${escapeHtml(opt.label || '')}"` : '';
@@ -1738,10 +1733,10 @@ export function createGameBoardView(opts = {}) {
       })
       .join('');
     return `
-      <p class="gf-reorder-hint">Per Drag &amp; Drop in die gewünschte Reihenfolge bringen — der oberste Effekt wird zuerst angewendet.</p>
+      <p class="gf-reorder-hint">${t('bd.reorder.hintEffects')}</p>
       <ul class="gf-reorder-list">${items}</ul>
       <div class="gf-modal-foot">
-        <button type="button" class="primary" data-reorder-confirm>Bestätigen</button>
+        <button type="button" class="primary" data-reorder-confirm>${t('bd.common.confirm')}</button>
       </div>
     `;
   }
@@ -1769,7 +1764,7 @@ export function createGameBoardView(opts = {}) {
           ? await transport.sendAction(action)
           : await sendGameAction(sessionId, action);
         if (!res.ok) {
-          setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? res.status}`, 'warning');
+          setStatus(t('bd.msg.actionNotAllowed', { detail: res.data?.detail ?? res.status }), 'warning');
           break;
         }
         if (res.data) applyView(res.data);
@@ -1815,10 +1810,10 @@ export function createGameBoardView(opts = {}) {
       })
       .join('');
     return `
-      <p class="gf-reorder-hint">Per Drag &amp; Drop in die gewünschte Reihenfolge bringen — die oberste Fähigkeit kommt zuerst auf den Stack und wird daher zuletzt aufgelöst.</p>
+      <p class="gf-reorder-hint">${t('bd.reorder.hintTriggers')}</p>
       <ul class="gf-reorder-list gf-trigger-order-list">${items}</ul>
       <div class="gf-modal-foot">
-        <button type="button" class="primary" data-trigger-order-confirm>Bestätigen</button>
+        <button type="button" class="primary" data-trigger-order-confirm>${t('bd.common.confirm')}</button>
       </div>
     `;
   }
@@ -1848,7 +1843,7 @@ export function createGameBoardView(opts = {}) {
           ? await transport.sendAction(action)
           : await sendGameAction(sessionId, action);
         if (!res.ok) {
-          setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? res.status}`, 'warning');
+          setStatus(t('bd.msg.actionNotAllowed', { detail: res.data?.detail ?? res.status }), 'warning');
           break;
         }
         if (res.data) applyView(res.data);
@@ -2285,7 +2280,7 @@ export function createGameBoardView(opts = {}) {
         // is the player's own choice, not an engine auto-pick; same
         // one-pick modal as `tap_cost` above, just always exactly one pick
         // and dispatched as `sacrifice_choice` instead of `tap_choices`.
-        const requirements = [{ label: 'zu opferndes Permanent', options, optional: false }];
+        const requirements = [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
           : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index: info.option_index };
@@ -2311,7 +2306,7 @@ export function createGameBoardView(opts = {}) {
         // card being picked twice, `isDiscardChoice` routes the picks to
         // `discard_choices` in `finishCastIfReady`.
         const requirements = Array.from({ length: count }, () => ({
-          label: 'abzuwerfende Karte', options, optional: false,
+          label: t('bd.discard.card'), options, optional: false,
         }));
         const send = {
           type: 'cast_spell', instance_id: iid, name: action.name,
@@ -2423,7 +2418,7 @@ export function createGameBoardView(opts = {}) {
   // pulled out of the flow and drawn inside a dashed group box around the
   // permanent they're attached to, rather than as loose cards.
   function battlefieldHtml(objs, byInstance = {}, pending = null) {
-    if (!objs.length) return '<p class="empty-state">Keine Permanents</p>';
+    if (!objs.length) return `<p class="empty-state">${t('bd.bf.none')}</p>`;
     const imageCache = getState().imageCache;
     const byId = new Map(objs.map((o) => [o.instance_id, o]));
 
@@ -2461,7 +2456,7 @@ export function createGameBoardView(opts = {}) {
       const atts = attachments.get(o.instance_id);
       if (!atts || !atts.length) return host;
       const attached = atts.map(renderAttached).join('');
-      return `<div class="gf-attach-group" title="Verbundene Karten (Aura/Ausrüstung)">${host}${attached}</div>`;
+      return `<div class="gf-attach-group" title="${escapeAttr(t('bd.bf.attachTitle'))}">${host}${attached}</div>`;
     };
 
     const rowHtml = (label, list) =>
@@ -2472,13 +2467,13 @@ export function createGameBoardView(opts = {}) {
 
     const rows = threeRows
       ? [
-          rowHtml('Kreaturen', creatures),
-          rowHtml('Artefakte & Verzauberungen', other),
-          rowHtml('Länder', lands),
+          rowHtml(t('bd.bf.rowCreatures'), creatures),
+          rowHtml(t('bd.bf.rowArtEnch'), other),
+          rowHtml(t('bd.bf.rowLands'), lands),
         ]
       : [
-          rowHtml('Kreaturen', creatures),
-          rowHtml('Länder & bleibende Karten', other.concat(lands)),
+          rowHtml(t('bd.bf.rowCreatures'), creatures),
+          rowHtml(t('bd.bf.rowLandsPermanents'), other.concat(lands)),
         ];
     return `<div class="gf-bf-rows">${rows.join('')}</div>`;
   }
@@ -2518,7 +2513,7 @@ export function createGameBoardView(opts = {}) {
     const isTop = index === total - 1;
     const order =
       total > 1
-        ? `<span class="gf-stack-order">${isTop ? 'oben – löst zuerst auf' : `#${total - index}`}</span>`
+        ? `<span class="gf-stack-order">${isTop ? t('bd.stack.topResolves') : `#${total - index}`}</span>`
         : '';
     const overlay = showOverlay
       ? `<div class="gf-stack-ability-overlay">${escapeHtml(abilityText)}</div>`
@@ -2542,7 +2537,7 @@ export function createGameBoardView(opts = {}) {
     const cards = s.stack.map((it, i) => stackItemHtml(it, i, s.stack.length)).join('');
     const asideLabel = aside ? '⤢ Stack einblenden' : '⤡ Zur Seite schieben';
     const hint = aside
-      ? 'Board aktiv — reagiere und gib dann Priorität ab.'
+      ? t('bd.stack.reactHint')
       : 'Reagieren? Schiebe den Stack zur Seite.';
     return `
       <div class="gf-stack-overlay${aside ? ' aside' : ''}">
@@ -2554,7 +2549,7 @@ export function createGameBoardView(opts = {}) {
           <div class="card-grid gf-stack-grid">${cards}</div>
           <div class="gf-stack-panel-foot">
             <span class="hint">${hint}</span>
-            <button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>Priorität abgeben ▶</button>
+            <button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>${t('bd.ctrl.passPriority')}</button>
           </div>
         </div>
       </div>`;
@@ -2562,17 +2557,17 @@ export function createGameBoardView(opts = {}) {
 
   function stackKindBadge(item) {
     if (item.category === 'triggered_ability') {
-      return { cls: 'triggered', icon: '⚡', label: 'Ausgelöste Fähigkeit' };
+      return { cls: 'triggered', icon: '⚡', label: t('bd.stack.triggered') };
     }
     if (item.category === 'activated_ability') {
-      return { cls: 'activated', icon: '🔧', label: 'Aktivierte Fähigkeit' };
+      return { cls: 'activated', icon: '🔧', label: t('bd.stack.activated') };
     }
     return { cls: 'spell', icon: '🃏', label: spellTypeLabel(item.type_line) };
   }
 
   function spellTypeLabel(typeLine) {
-    const t = (typeLine || '').toLowerCase();
-    if (t.includes('creature')) return 'Kreaturenzauber';
+    const tl = (typeLine || '').toLowerCase();
+    if (tl.includes('creature')) return t('bd.stack.creatureSpell');
     if (t.includes('instant')) return 'Spontanzauber';
     if (t.includes('sorcery')) return 'Hexerei';
     if (t.includes('planeswalker')) return 'Planeswalker';
@@ -2698,7 +2693,7 @@ export function createGameBoardView(opts = {}) {
     // lore count is shown (no "/N" to compare against).
     const lore = (o.counters || {}).lore;
     const sagaBadge = o.is_saga && lore != null
-      ? `<span class="gf-loyalty-badge gf-saga-badge" title="Sagen-Kapitel (Regel 714)">📜 ${lore}${o.saga_final_chapter ? `/${o.saga_final_chapter}` : ''}</span>`
+      ? `<span class="gf-loyalty-badge gf-saga-badge" title="${escapeAttr(t('bd.badge.sagaTitle'))}">📜 ${lore}${o.saga_final_chapter ? `/${o.saga_final_chapter}` : ''}</span>`
       : '';
     // RULE 310.4c: a battle's current defense is its defense-counter count,
     // badged like loyalty/lore above (and likewise pulled out of the generic
@@ -2707,7 +2702,7 @@ export function createGameBoardView(opts = {}) {
     // against the view's own player list, since a raw id means nothing here.
     const protectorName = o.protector_id ? playerName(o.protector_id) : null;
     const battleBadge = o.is_battle && o.defense != null
-      ? `<span class="gf-loyalty-badge gf-battle-badge" title="Verteidigung (Regel 310.4c)${protectorName ? ` — beschützt von ${escapeAttr(protectorName)}` : ''}">🛡 ${o.defense}${protectorName ? ` · ${escapeHtml(protectorName)}` : ''}</span>`
+      ? `<span class="gf-loyalty-badge gf-battle-badge" title="${escapeAttr(t('bd.badge.battleTitle') + (protectorName ? t('bd.badge.battleProtectedBy', { name: protectorName }) : ''))}">🛡 ${o.defense}${protectorName ? ` · ${escapeHtml(protectorName)}` : ''}</span>`
       : '';
     const counterEntries = Object.entries(o.counters || {})
       .filter(([k]) => !(o.is_planeswalker && k === 'loyalty') && !(o.is_saga && k === 'lore')
@@ -2721,17 +2716,17 @@ export function createGameBoardView(opts = {}) {
     // RULE 715.3d: an Adventure creature exiled by its own spell half,
     // castable from here — flags it distinctly from an inert exiled card.
     const adventureBadge = o.adventure_castable
-      ? `<span class="gf-adventure-badge" title="Abenteuer: aus dem Exil als Kreatur zauberbar">📖 Abenteuer</span>`
+      ? `<span class="gf-adventure-badge" title="${escapeAttr(t('bd.badge.adventureTitle'))}">${t('bd.badge.adventure')}</span>`
       : '';
     // RULE 722.3a: this permanent is prepared — its exiled prepare-spell
     // copy is castable (badged on that copy's own tile via `prepared_copy`
     // below, since that's a property of the copy, not of this permanent).
     const preparedBadge = o.prepared
-      ? `<span class="gf-prepared-badge" title="Vorbereitet: die Zauberspruch-Kopie im Exil ist zauberbar">🛡️ Vorbereitet</span>`
+      ? `<span class="gf-prepared-badge" title="${escapeAttr(t('bd.badge.preparedTitle'))}">${t('bd.badge.prepared')}</span>`
       : '';
     // RULE 722.3c: this *is* that exiled prepare-spell copy.
     const preparedCopyBadge = o.prepared_copy
-      ? `<span class="gf-prepared-badge" title="Vorbereitete Kopie: aus dem Exil zauberbar, solange die Quelle vorbereitet bleibt">🛡️ Kopie</span>`
+      ? `<span class="gf-prepared-badge" title="${escapeAttr(t('bd.badge.preparedCopyTitle'))}">${t('bd.badge.preparedCopy')}</span>`
       : '';
     // RULE 708.2: a face-down permanent shows *what put it there* (morph,
     // disguise, manifest, cloak) and nothing about the card underneath —
@@ -2739,10 +2734,10 @@ export function createGameBoardView(opts = {}) {
     // player because it decides how it can be turned face up (RULE
     // 702.37e/701.40b) and whether it has ward {2} (RULE 702.168a/701.58a).
     const faceDownLabels = {
-      morph: 'Morph', disguise: 'Verkleidung', manifest: 'Manifestiert', cloak: 'Verhüllt',
+      morph: t('bd.faceDown.morph'), disguise: t('bd.faceDown.disguise'), manifest: t('bd.faceDown.manifest'), cloak: t('bd.faceDown.cloak'),
     };
     const faceDownBadge = o.face_down
-      ? `<span class="gf-facedown-badge" title="Verdeckte bleibende Karte (Regel 708.2): 2/2 ohne Namen und Text">🎭 ${escapeHtml(faceDownLabels[o.face_down_kind] || 'Verdeckt')}</span>`
+      ? `<span class="gf-facedown-badge" title="${escapeAttr(t('bd.faceDown.title'))}">🎭 ${escapeHtml(faceDownLabels[o.face_down_kind] || t('bd.faceDown.default'))}</span>`
       : '';
     const effectsSummary = effectSummaryHtml(o);
     // A double-faced permanent (transform/modal DFC) gets a "🔄 peek other
@@ -2756,7 +2751,7 @@ export function createGameBoardView(opts = {}) {
     const dragAttrs = draggable ? ` draggable="true" data-draggable-card="true"` : '';
     return `
       <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}">
-        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${effectsSummary}</div>
+        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}">${inner}${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${effectsSummary}</div>
         ${buttons}
       </div>`;
   }
@@ -2767,17 +2762,17 @@ export function createGameBoardView(opts = {}) {
   // Returns ``null`` for an ordinary, inert exiled card.
   function exileCastableInfo(o, s) {
     if (o.adventure_castable) {
-      return { reason: 'Adventure — eigene Zauberspruch-Hälfte bereits gecastet', duration: 'kein Zeitlimit (bis gezaubert)' };
+      return { reason: t('bd.exileCast.adventureReason'), duration: t('bd.exileCast.adventureDuration') };
     }
     if (o.prepared_copy) {
-      return { reason: 'Vorbereitete Kopie (Regel 722.3c)', duration: 'solange die Quelle vorbereitet bleibt' };
+      return { reason: t('bd.exileCast.preparedReason'), duration: t('bd.exileCast.preparedDuration') };
     }
     const grantedTurn = s.temp_play_permissions ? s.temp_play_permissions[o.instance_id] : null;
     if (grantedTurn != null) {
       const source = s.temp_play_permission_source ? s.temp_play_permission_source[o.instance_id] : null;
       return {
-        reason: source ? `Impulsiv gezogen von „${source}“` : 'Temporäre Spielerlaubnis',
-        duration: `spielbar bis Ende von Zug ${grantedTurn + 1}`,
+        reason: source ? t('bd.exileCast.impulseReason', { source }) : t('bd.exileCast.tempReason'),
+        duration: t('bd.exileCast.tempDuration', { turn: grantedTurn + 1 }),
       };
     }
     return null;
@@ -2805,7 +2800,7 @@ export function createGameBoardView(opts = {}) {
       .join('');
     return `
       <div class="gf-zone gf-exile-castable">
-        <h4>🎇 Spielbar aus dem Exil (${entries.length})</h4>
+        <h4>${escapeHtml(t('bd.exileCast.headingExile', { count: entries.length }))}</h4>
         <div class="card-grid gf-exile-castable-list">${cards}</div>
       </div>`;
   }
@@ -2831,7 +2826,7 @@ export function createGameBoardView(opts = {}) {
       .join('');
     return `
       <div class="gf-zone gf-exile-castable gf-grave-castable">
-        <h4>⚰️ Spielbar aus dem Friedhof (${entries.length})</h4>
+        <h4>${escapeHtml(t('bd.exileCast.headingGrave', { count: entries.length }))}</h4>
         <div class="card-grid gf-exile-castable-list">${cards}</div>
       </div>`;
   }
@@ -2848,7 +2843,7 @@ export function createGameBoardView(opts = {}) {
     return `
       <div class="gf-hand-area">
         <div class="gf-zone gf-hand">
-          <h4>Hand (${p.hand_count != null ? p.hand_count : p.hand.length})${ownHand ? '' : opponentHandToggleHtml()}</h4>
+          <h4>${t('bd.zone.hand')} (${p.hand_count != null ? p.hand_count : p.hand.length})${ownHand ? '' : opponentHandToggleHtml()}</h4>
           ${handHtml(p, byInstance, pending, ownHand)}
         </div>
         ${asideHtml}
@@ -2858,15 +2853,15 @@ export function createGameBoardView(opts = {}) {
   // The German label for a trace entry's `duration` (game/continuous.py):
   // how long the effect lasts, shown as a chip in the per-card summary.
   function durationLabel(d) {
-    if (d === 'end_of_turn') return 'bis Zugende';
-    if (d === 'permanent') return 'dauerhaft';
-    return 'statisch'; // "static": lasts while its source stays in play
+    if (d === 'end_of_turn') return t('bd.dur.endOfTurn');
+    if (d === 'permanent') return t('bd.dur.permanent');
+    return t('bd.dur.static'); // "static": lasts while its source stays in play
   }
 
   function durationTitle(d) {
-    if (d === 'end_of_turn') return 'Bis zum Ende des Zuges (Regel 514.2)';
-    if (d === 'permanent') return 'Dauerhaft (z. B. +1/+1-Marken, Regel 122)';
-    return 'Solange die Quelle im Spiel bleibt (statischer Effekt, Regel 613)';
+    if (d === 'end_of_turn') return t('bd.durTitle.endOfTurn');
+    if (d === 'permanent') return t('bd.durTitle.permanent');
+    return t('bd.durTitle.static');
   }
 
   // Per-card "info point" (RULE 613): a Σ-badge that opens a breakdown of
@@ -2902,9 +2897,9 @@ export function createGameBoardView(opts = {}) {
       })
       .join('');
     return `<span class="gf-effects">
-      <button type="button" class="gf-effects-badge" popovertarget="${escapeAttr(popId)}" title="Aktive Effekte &amp; Ergebnis anzeigen">Σ</button>
+      <button type="button" class="gf-effects-badge" popovertarget="${escapeAttr(popId)}" title="${escapeAttr(t('bd.eff.badgeTitle'))}">Σ</button>
       <div id="${escapeAttr(popId)}" popover class="gf-effects-pop">
-        <div class="gf-eff-result">Ergebnis: ${resultParts.join(' · ') || '—'}</div>
+        <div class="gf-eff-result">${escapeHtml(t('bd.eff.result', { parts: resultParts.join(' · ') || '—' }))}</div>
         <ul class="gf-eff-list">${rows}</ul>
       </div>
     </span>`;
@@ -2939,7 +2934,7 @@ export function createGameBoardView(opts = {}) {
   // repeated name. The front face keeps today's plain label (no visible
   // change for the common single-face case).
   function faceHint(a) {
-    if (a.face === 'fuse') return ' (Fuse — beide Hälften)';
+    if (a.face === 'fuse') return t('bd.faceHint.fuse');
     // RULE 702.103: the Bestow cast is the same card name as the plain
     // creature cast, so it gets a short "(Bestow — <cost>)" suffix rather
     // than a redundant repeated name, the same treatment as Fuse above.
@@ -2958,8 +2953,8 @@ export function createGameBoardView(opts = {}) {
   // "both modes" `mode: "both"` shape, just priced, so it gets its own
   // label rather than falling back to the plain mode text.
   function modeHint(a) {
-    if (!a.mode_description) return a.entwine ? ' (Verflechten)' : '';
-    const suffix = a.entwine ? ' (Verflechten)' : '';
+    if (!a.mode_description) return a.entwine ? t('bd.modeHint.entwine') : '';
+    const suffix = a.entwine ? t('bd.modeHint.entwine') : '';
     return ` — ${escapeHtml(a.mode_description)}${suffix}`;
   }
 
@@ -3006,11 +3001,11 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           actionButton(
             { type: 'play_land', instance_id: a.instance_id, name: a.name, face: a.face },
-            `🌳 Land spielen${faceHint(a)}`
+            t('bd.cast.playLand', { face: faceHint(a) })
           )
         );
       } else if (a.type === 'cast_spell' && a.locked) {
-        const reason = a.lock_reason || 'Kein gültiges Ziel';
+        const reason = a.lock_reason || t('bd.cast.noValidTarget');
         buttons.push(
           `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}${faceHint(a)}</button>`
         );
@@ -3023,7 +3018,7 @@ export function createGameBoardView(opts = {}) {
         // of the hand.
         const startInfo = JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode });
         buttons.push(
-          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>✨ Zaubern${modeHint(a)}${faceHint(a)}</button>`
+          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${escapeHtml(t('bd.cast.castPlain', { mode: modeHint(a), hint: '', face: faceHint(a) }))}</button>`
         );
       } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker)) {
         const xField = a.has_x
@@ -3033,7 +3028,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             ${xField}${kickerFieldHtml(a)}
-            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine }))}'>✨ Zaubern (${suffix})${modeHint(a)}${faceHint(a)}</button>
+            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine }))}'>${escapeHtml(t('bd.cast.castSuffix', { suffix, mode: modeHint(a), face: faceHint(a) }))}</button>
           </div>
         `);
       } else if (a.type === 'cast_spell') {
@@ -3043,11 +3038,11 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           actionButton(
             { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face, mode: a.mode, entwine: a.entwine },
-            `✨ Zaubern${modeHint(a)}${hint}${faceHint(a)}`
+            t('bd.cast.castPlain', { mode: modeHint(a), hint, face: faceHint(a) })
           )
         );
       } else if (a.type === 'activate_ability' && a.locked) {
-        const reason = a.lock_reason || 'Kein gültiges Ziel';
+        const reason = a.lock_reason || t('bd.cast.noValidTarget');
         buttons.push(
           `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}</button>`
         );
@@ -3197,7 +3192,7 @@ export function createGameBoardView(opts = {}) {
       <div class="gf-mana-split" data-split-total="${a.combination_total}" data-split-action='${escapeAttr(actionInfo)}'>
         <span class="gf-split-hint">Farbkombination (${a.combination_total}):</span>
         ${inputs}
-        <button type="button" class="gf-card-action" data-split-confirm>💎 Erzeugen</button>
+        <button type="button" class="gf-card-action" data-split-confirm>${t('bd.split.generate')}</button>
       </div>`;
   }
 
@@ -3211,8 +3206,8 @@ export function createGameBoardView(opts = {}) {
       mode: a.mode, entwine: a.entwine,
     });
     const label = a.type === 'activate_ability'
-      ? `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} → Ziel ▾`
-      : `✨ Zaubern${modeHint(a)} → Ziel ▾${faceHint(a)}`;
+      ? t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') })
+      : t('bd.cast.castLabel', { mode: modeHint(a), face: faceHint(a) });
     const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
     return `<div class="gf-cast-targets">${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
   }
@@ -3254,10 +3249,10 @@ export function createGameBoardView(opts = {}) {
     });
     if (req.optional) {
       const skip = JSON.stringify({ instance_id: iid, target: null });
-      buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>∅ Kein Ziel</button>`);
+      buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>${t('bd.cast.noTarget')}</button>`);
     }
-    const heading = isCostChoice ? 'Kosten bezahlen' : 'Ziel wählen';
-    const progress = total > 1 ? `${idx + 1} von ${total}` : (isCostChoice ? 'Auswählen' : 'Ziel wählen');
+    const heading = isCostChoice ? t('bd.cast.payCosts') : t('bd.cast.chooseTarget');
+    const progress = total > 1 ? t('bd.cast.progress', { i: idx + 1, total }) : (isCostChoice ? t('bd.cast.select') : t('bd.cast.chooseTarget'));
     return `
       <div class="gf-modal-overlay">
         <div class="gf-modal gf-target-modal" role="dialog" aria-modal="true">
@@ -3333,12 +3328,12 @@ export function createGameBoardView(opts = {}) {
     return `
       <div class="gf-opponent">
         <span class="gf-opp-name">🐟 ${escapeHtml(opp.name)}</span>
-        <span class="gf-opp-life" title="Leben">❤️ ${opp.life}</span>
+        <span class="gf-opp-life" title="${escapeAttr(t('bd.opp.lifeTitle'))}">❤️ ${opp.life}</span>
         ${commanderDamageHtml(opp.commander_damage)}
-        <span title="Handkarten (verdeckt)">🖐️ ${opp.hand_count ?? opp.hand?.length ?? 0}</span>
-        <span title="Friedhof">⚰️ ${opp.graveyard?.length ?? 0}</span>
-        <span title="Bibliothek">📚 ${opp.library_count ?? 0}</span>
-        <span class="gf-opp-tag">passiver Gegner</span>
+        <span title="${escapeAttr(t('bd.opp.handTitle'))}">🖐️ ${opp.hand_count ?? opp.hand?.length ?? 0}</span>
+        <span title="${escapeAttr(t('bd.opp.graveTitle'))}">⚰️ ${opp.graveyard?.length ?? 0}</span>
+        <span title="${escapeAttr(t('bd.opp.libraryTitle'))}">📚 ${opp.library_count ?? 0}</span>
+        <span class="gf-opp-tag">${t('bd.opp.passive')}</span>
       </div>`;
   }
 
@@ -3365,19 +3360,19 @@ export function createGameBoardView(opts = {}) {
     if (p.ring_level > 0) {
       // RULE 701.52: the Ring tempts you — four cumulative levels.
       bits.push(
-        `<span class="gf-pcounter" title="Der Eine Ring verlockt dich – Stufe ${p.ring_level} von 4 (Regel 701.52)">💍 ${p.ring_level}/4</span>`,
+        `<span class="gf-pcounter" title="${escapeAttr(t('bd.ring.title', { level: p.ring_level }))}">💍 ${p.ring_level}/4</span>`,
       );
     }
     if (s.monarch_id === p.id) {
-      bits.push('<span class="gf-pcounter gf-pcounter--designation" title="Monarch (Regel 725): zieht in seinem Endsegment eine Karte">👑 Monarch</span>');
+      bits.push(`<span class="gf-pcounter gf-pcounter--designation" title="${escapeAttr(t('bd.monarch.title'))}">${t('bd.monarch.label')}</span>`);
     }
     if (s.initiative_id === p.id) {
-      bits.push('<span class="gf-pcounter gf-pcounter--designation" title="Initiative (Regel 726)">⚔️ Initiative</span>');
+      bits.push(`<span class="gf-pcounter gf-pcounter--designation" title="${escapeAttr(t('bd.initiative.title'))}">⚔️ Initiative</span>`);
     }
     if (p.has_city_blessing) {
       // RULE 702.131c: no shared holder, unlike Monarch/Initiative above —
       // every player who has ascended shows this, any number at once.
-      bits.push('<span class="gf-pcounter gf-pcounter--designation" title="Segen der Stadt (Regel 702.131): dauerhaft, sobald du 10+ Permanente kontrolliert hast">🏙️ Segen der Stadt</span>');
+      bits.push(`<span class="gf-pcounter gf-pcounter--designation" title="${escapeAttr(t('bd.cityBlessing.title'))}">${t('bd.cityBlessing.label')}</span>`);
     }
     // RULE 309: the dungeon card in this player's command zone, with the
     // room their venture marker is on and how far through they are — plus
@@ -3395,7 +3390,7 @@ export function createGameBoardView(opts = {}) {
     }
     if ((p.completed_dungeons || []).length) {
       bits.push(
-        `<span class="gf-pcounter" title="${escapeAttr(`Abgeschlossene Dungeons (Regel 309.7): ${p.completed_dungeons.join(', ')}`)}">🏁 ${p.completed_dungeons.length}</span>`,
+        `<span class="gf-pcounter" title="${escapeAttr(t('bd.dungeon.completedTitle', { list: p.completed_dungeons.join(', ') }))}">🏁 ${p.completed_dungeons.length}</span>`,
       );
     }
     // RULE 902.2: a Vanguard avatar sits in the command zone all game with
@@ -3435,15 +3430,15 @@ export function createGameBoardView(opts = {}) {
     energy: '⚡', experience: '✨', rad: '☢️', ticket: '🎟️', acorn: '🌰',
   };
   const PLAYER_COUNTER_LABELS = {
-    energy: 'Energie-Marken (Regel 122)',
-    experience: 'Erfahrungsmarken',
-    rad: 'Strahlungsmarken',
+    energy: t('bd.counter.energy'),
+    experience: t('bd.counter.experience'),
+    rad: t('bd.counter.rad'),
   };
   function counterIcon(kind) {
     return PLAYER_COUNTER_ICONS[kind] || '🔘';
   }
   function counterLabel(kind) {
-    return PLAYER_COUNTER_LABELS[kind] || `${kind}-Marken`;
+    return PLAYER_COUNTER_LABELS[kind] || t('bd.counter.generic', { kind });
   }
 
   function commanderDamageHtml(commanderDamage) {
@@ -3452,7 +3447,7 @@ export function createGameBoardView(opts = {}) {
     return entries
       .map((e) => {
         const lethal = e.amount >= 21 ? ' gf-cmd-dmg--lethal' : '';
-        return `<span class="gf-cmd-dmg${lethal}" title="Commander-Schaden von ${escapeHtml(e.name)}">👑 ${e.amount}/21</span>`;
+        return `<span class="gf-cmd-dmg${lethal}" title="${escapeAttr(t('bd.cmdDmg.title', { name: e.name }))}">👑 ${e.amount}/21</span>`;
       })
       .join('');
   }
@@ -3471,9 +3466,9 @@ export function createGameBoardView(opts = {}) {
     const youWon = winner && me && winner.id === me.id;
     const banner = winner
       ? youWon
-        ? '🏆 Gewonnen.'
-        : `Verloren – Sieger: ${escapeHtml(winner.name)}.`
-      : 'Spiel beendet.';
+        ? t('bd.gameOver.won')
+        : escapeHtml(t('bd.gameOver.lost', { name: winner.name }))
+      : t('bd.gameOver.plain');
     return `<p class="server-status ${youWon ? 'ok' : 'warning'}">${banner}</p>`;
   }
 
@@ -3482,7 +3477,7 @@ export function createGameBoardView(opts = {}) {
     const parts = order.filter((c) => pool[c] > 0).map((c) => `<span class="gf-mana">${MANA_SYMBOL_EMOJI[c]}${pool[c]}</span>`);
     const restrictedParts = restrictedManaHtml(pool.restricted, MANA_SYMBOL_EMOJI, order);
     const empty = !parts.length && !restrictedParts.length;
-    return `<div class="gf-manapool" title="Mana-Pool">${empty ? '<span class="empty-state">kein Mana</span>' : parts.join('') + restrictedParts.join('')}</div>`;
+    return `<div class="gf-manapool" title="${escapeAttr(t('bd.mana.poolTitle'))}">${empty ? `<span class="empty-state">${t('bd.mana.noMana')}</span>` : parts.join('') + restrictedParts.join('')}</div>`;
   }
 
   // "Mana-Potenzial": how much more mana this player could still produce
@@ -3503,10 +3498,10 @@ export function createGameBoardView(opts = {}) {
       if (!parts.length) return '';
       return `<span class="gf-mana-potential-row ${cls}"><span class="gf-mana-potential-label">${label}</span>${parts.join('')}</span>`;
     };
-    const openRow = row(potential.open || {}, 'Offen', 'gf-mana-potential-open');
-    const usedRow = row(potential.used || {}, 'Genutzt', 'gf-mana-potential-used');
+    const openRow = row(potential.open || {}, t('bd.mana.open'), 'gf-mana-potential-open');
+    const usedRow = row(potential.used || {}, t('bd.mana.used'), 'gf-mana-potential-used');
     if (!openRow && !usedRow) return '';
-    return `<div class="gf-mana-potential" title="Mana-Potenzial: noch verfügbar (offen) + diesen Zug bereits erzeugt (genutzt)">${openRow}${usedRow}</div>`;
+    return `<div class="gf-mana-potential" title="${escapeAttr(t('bd.mana.potentialTitle'))}">${openRow}${usedRow}</div>`;
   }
 
   // RULE 605.3a: mana tagged "spend only on X" (`ManaPool.to_dict`'s additive
@@ -3522,7 +3517,7 @@ export function createGameBoardView(opts = {}) {
         .concat(lot.amounts.C > 0 ? ['C'] : [])
         .map((c) => `${glyph[c]}${lot.amounts[c]}`)
         .join('');
-      return `<span class="gf-mana gf-mana-restricted" title="Zweckgebunden: ${escapeAttr(restrictionLabel(lot.restriction))}">🔒${amounts}</span>`;
+      return `<span class="gf-mana gf-mana-restricted" title="${escapeAttr(t('bd.mana.restrictedTitle', { label: restrictionLabel(lot.restriction) }))}">🔒${amounts}</span>`;
     });
   }
 
@@ -3532,20 +3527,20 @@ export function createGameBoardView(opts = {}) {
   // lives here).
   function restrictionLabel(restriction) {
     const kind = restriction?.kind;
-    if (kind === 'contains_x') return 'nur für Zaubersprüche mit {X} in den Kosten';
+    if (kind === 'contains_x') return t('bd.restrict.containsX');
     if (kind === 'creature_spell') {
       return restriction.allow_ability
-        ? 'nur um einen Kreaturenzauber zu wirken oder eine Fähigkeit zu aktivieren'
-        : 'nur um einen Kreaturenzauber zu wirken';
+        ? t('bd.restrict.creatureSpellAbility')
+        : t('bd.restrict.creatureSpell');
     }
-    if (kind === 'commander_spell') return 'nur für deinen Commander';
-    if (kind === 'legendary_spell') return 'nur für legendäre Zaubersprüche';
-    if (kind === 'instant_or_sorcery_spell') return 'nur für Spontanzauber/Hexereien';
+    if (kind === 'commander_spell') return t('bd.restrict.commanderSpell');
+    if (kind === 'legendary_spell') return t('bd.restrict.legendarySpell');
+    if (kind === 'instant_or_sorcery_spell') return t('bd.restrict.instantSorcery');
     if (kind === 'type_spell') {
       const types = (restriction.types || []).join('/');
       return restriction.allow_ability
-        ? `nur für ${types}-Zaubersprüche/-Fähigkeiten`
-        : `nur für ${types}-Zaubersprüche`;
+        ? t('bd.restrict.typeSpellAbility', { types })
+        : t('bd.restrict.typeSpell', { types });
     }
     return 'zweckgebunden';
   }
@@ -3553,7 +3548,7 @@ export function createGameBoardView(opts = {}) {
   function moveLogHtml(log) {
     if (!log || !log.length) return '';
     const recent = log.slice(-8);
-    return `<div class="gf-movelog"><h4>Verlauf</h4><ol>${recent.map((m) => `<li>${escapeHtml(m)}</li>`).join('')}</ol></div>`;
+    return `<div class="gf-movelog"><h4>${t('bd.moveLog.heading')}</h4><ol>${recent.map((m) => `<li>${escapeHtml(m)}</li>`).join('')}</ol></div>`;
   }
 
   // VIS-5: the transient "Bob hat X gespielt" toasts `pushMoveFeed` queues.
@@ -3587,7 +3582,7 @@ export function createGameBoardView(opts = {}) {
           ? `<img src="${imageUrl}" alt="${escapeHtml(visual.name)}" loading="lazy" />`
           : '<span class="gf-delayed-noart">⏳</span>';
         const hover = visual ? ` data-hover-card="${escapeHtml(visual.name)}"` : '';
-        const label = dt.description || (visual ? visual.name : 'Ausgelöste Fähigkeit');
+        const label = dt.description || (visual ? visual.name : t('bd.stack.triggered'));
         return `
           <li class="gf-delayed-item">
             <div class="gf-delayed-thumb"${hover}>${thumb}</div>
@@ -3614,9 +3609,9 @@ export function createGameBoardView(opts = {}) {
   function delayedTriggerWhenLabel(dt) {
     const stepLabel = STEP_LABELS[dt.step] || dt.step || '—';
     if (dt.scope === 'any') {
-      return `Zu Beginn des nächsten Schritts „${stepLabel}“`;
+      return t('bd.delayed.whenAny', { step: stepLabel });
     }
-    return `Zu Beginn von ${playerName(dt.controller_id)}s nächstem Schritt „${stepLabel}“`;
+    return t('bd.delayed.whenPlayer', { name: playerName(dt.controller_id), step: stepLabel });
   }
 
   function staticEffectsPanelHtml(view, s) {
@@ -3624,7 +3619,7 @@ export function createGameBoardView(opts = {}) {
     const traced = (s.battlefield || []).filter((o) => (o.static_trace || []).length);
     const reductions = collectCostReductions(view.legal_actions || []);
     if (!actives.length && !traced.length && !reductions.length) {
-      return `<div class="gf-statics"><h4>🔍 Statische Effekte (Layer, Regel 613)</h4>
+      return `<div class="gf-statics"><h4>${t('bd.statics.panelHeading')}</h4>
         <p class="empty-state">Zurzeit keine statischen Effekte im Spiel.</p></div>`;
     }
     const layerLabel = (l) => (l === 'cost' ? 'Kosten (601.2f)' : `Layer ${l}`);
@@ -3651,7 +3646,7 @@ export function createGameBoardView(opts = {}) {
              ${boundsHtml(e)}</li>`
           )
           .join('')}</ul>`
-      : '<p class="empty-state">Keine aktiven statischen Fähigkeiten.</p>';
+      : `<p class="empty-state">${t('bd.statics.none')}</p>`;
 
     const traceBlocks = traced
       .map((o) => {
@@ -3666,7 +3661,7 @@ export function createGameBoardView(opts = {}) {
               ${escapeHtml(t.source)}: ${escapeHtml(t.description)}${escapeHtml(pt)}</li>`;
           })
           .join('');
-        const pt = o.power != null && o.toughness != null ? ` — jetzt ${o.power}/${o.toughness}` : '';
+        const pt = o.power != null && o.toughness != null ? t('bd.static.nowPt', { pt: `${o.power}/${o.toughness}` }) : '';
         return `<div class="gf-static-trace"><strong>${escapeHtml(o.name)}</strong>${escapeHtml(pt)}
           <ol>${steps}</ol></div>`;
       })
@@ -3680,9 +3675,9 @@ export function createGameBoardView(opts = {}) {
 
     return `
       <div class="gf-statics">
-        <h4>🔍 Statische Effekte (Layer, Regel 613)</h4>
-        <div class="gf-static-active"><h5>Aktive statische Fähigkeiten</h5>${activeList}</div>
-        ${traceBlocks ? `<div class="gf-static-traces"><h5>Layer-Herleitung</h5>${traceBlocks}</div>` : ''}
+        <h4>${t('bd.statics.panelHeading')}</h4>
+        <div class="gf-static-active"><h5>${t('bd.statics.activeHeading')}</h5>${activeList}</div>
+        ${traceBlocks ? `<div class="gf-static-traces"><h5>${t('bd.statics.layerHeading')}</h5>${traceBlocks}</div>` : ''}
         ${costBlock}
       </div>`;
   }

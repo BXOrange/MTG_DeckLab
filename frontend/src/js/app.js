@@ -1,3 +1,6 @@
+// First import: pins i18n init order — its module top-level reads the
+// language cookie and stamps <html lang> before any view module runs.
+import { applyStaticI18n, t } from './i18n.js';
 import { renderDeckImportView } from './deckImportView.js';
 import { renderImportDeckView } from './importDeckView.js';
 import { createGoldfishView } from './goldfishView.js';
@@ -13,6 +16,7 @@ import { renderImplementationStatusView } from './implementationStatusView.js';
 import { renderConnectionIndicator } from './connectionStatus.js';
 import { initCardHoverDetail } from './cardHoverDetail.js';
 
+applyStaticI18n();
 initCardHoverDetail();
 renderConnectionIndicator(document.getElementById('header-connection-status'));
 
@@ -115,7 +119,7 @@ const mpBoardTab = document.querySelector('.tab-button[data-tab="mpBoard"]');
 const multiplayer = createMultiplayerView({
   onBoardAvailable: (available) => {
     mpBoardTab.disabled = !available;
-    mpBoardTab.title = available ? '' : 'Erst verfügbar, wenn du in einem Spiel bist';
+    mpBoardTab.title = available ? '' : t('nav.mpBoardDisabledHint');
     // Don't strand the user on a tab that just went away.
     if (!available && mpBoardTab.classList.contains('active')) showTab('mpSetup');
   },

@@ -43,58 +43,47 @@ import {
 } from './api.js';
 import { MULLIGAN_LABELS, SEAT_COUNTS } from './mulligan.js';
 import { escapeHtml } from './cardTile.js';
+import { t, tPlural } from './i18n.js';
 
-const GENERIC_TOKEN_LABEL = 'Generisch (alle Token ohne eigenes Bild)';
 // UI-only sentinel (never sent to the backend as a token_name): selecting it
 // reveals a free-text input, for a token that's neither in the curated
 // catalogue nor meant to be the generic fallback.
 const CUSTOM_TOKEN_VALUE = '__custom__';
 
 function tokenNameLabel(tokenName) {
-  return tokenName === GENERIC_TOKEN_KEY ? GENERIC_TOKEN_LABEL : tokenName;
+  return tokenName === GENERIC_TOKEN_KEY ? t('profile.tokens.generic') : tokenName;
 }
 
 export function renderProfileView(container) {
   container.innerHTML = `
     <div class="connection-settings-panel">
-      <h2>Profil</h2>
+      <h2>${t('profile.title')}</h2>
 
       <div class="deck-section">
-        <label for="profile-name-input">Spielername</label>
-        <input id="profile-name-input" type="text" placeholder="z.B. Alex" />
+        <label for="profile-name-input">${t('profile.playerName')}</label>
+        <input id="profile-name-input" type="text" placeholder="${t('profile.playerNamePlaceholder')}" />
       </div>
 
       <div class="import-actions">
-        <button id="save-profile-btn" type="button" class="primary">Speichern</button>
+        <button id="save-profile-btn" type="button" class="primary">${t('common.save')}</button>
       </div>
-      <p class="hint">
-        Wird im Browser (Cookie) gespeichert — nicht serverseitig, ein anderer Browser/Rechner
-        sieht ihn nicht. Eigene Token-Bilder, Karten-Sleeves und der Mehrspieler-Modus sind unter
-        diesem Namen gespeichert. Beim Speichern erhält dieser Browser außerdem eine eigene,
-        unsichtbare Kennung (90 Tage gültig, verlängert sich bei jedem Speichern) — so belegt ein
-        zweiter Browser mit demselben Namen nicht denselben Platz am Tisch. Wird die Kennung
-        90 Tage lang nicht genutzt, gelten Name und hochgeladene Bilder/Sleeves als verwaist und
-        werden vom Server gelöscht.
-      </p>
+      <p class="hint">${t('profile.nameHint')}</p>
 
       <div class="deck-section">
-        <h3>Mehrspieler: Standardeinstellungen</h3>
-        <p class="hint">
-          Werden übernommen, sobald du selbst einen neuen Tisch eröffnest (Tab "Multiplayer") —
-          am Tisch selbst bleiben sie jederzeit als Host änderbar.
-        </p>
+        <h3>${t('profile.mpDefaults.heading')}</h3>
+        <p class="hint">${t('profile.mpDefaults.hint')}</p>
         <div class="mp-option-row">
-          <label for="profile-mp-format">Format</label>
-          <select id="profile-mp-format"><option>Lädt …</option></select>
+          <label for="profile-mp-format">${t('profile.mpDefaults.format')}</label>
+          <select id="profile-mp-format"><option>${t('common.loading')}</option></select>
         </div>
         <div class="mp-option-row">
-          <label for="profile-mp-seats">Plätze</label>
+          <label for="profile-mp-seats">${t('profile.mpDefaults.seats')}</label>
           <select id="profile-mp-seats">
-            ${SEAT_COUNTS.map((n) => `<option value="${n}">${n} Spieler</option>`).join('')}
+            ${SEAT_COUNTS.map((n) => `<option value="${n}">${escapeHtml(tPlural('profile.mpDefaults.seatOption', n))}</option>`).join('')}
           </select>
         </div>
         <div class="mp-option-row">
-          <label for="profile-mp-mulligan">Mulligan-Regel</label>
+          <label for="profile-mp-mulligan">${t('profile.mpDefaults.mulligan')}</label>
           <select id="profile-mp-mulligan">
             ${Object.entries(MULLIGAN_LABELS)
               .map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`)
@@ -102,101 +91,82 @@ export function renderProfileView(container) {
           </select>
         </div>
         <div class="mp-option-row">
-          <label for="profile-mp-takebacks">Take-backs je Spieler</label>
+          <label for="profile-mp-takebacks">${t('profile.mpDefaults.takebacks')}</label>
           <input id="profile-mp-takebacks" type="number" min="0" max="20" />
         </div>
         <div class="mp-option-row">
-          <label>Auslosen</label>
+          <label>${t('profile.mpDefaults.randomize')}</label>
           <label class="mp-option-check">
             <input id="profile-mp-random-seating" type="checkbox" />
-            Sitzordnung (Regel 103.1)
+            ${t('profile.mpDefaults.randomSeating')}
           </label>
           <label class="mp-option-check">
             <input id="profile-mp-random-start" type="checkbox" />
-            Startspieler (Regel 103.2)
+            ${t('profile.mpDefaults.randomStart')}
           </label>
         </div>
       </div>
 
       <div class="deck-section">
-        <h3>Mehrspieler: Auto-Pass</h3>
-        <p class="hint">
-          Im Mehrspieler-Modus wird die Priorität (Regel 117) wirklich reihum
-          weitergegeben. Damit ein Spiel, in dem niemand reagieren will, nicht
-          zäh wird, kann automatisch gepasst werden. Der Countdown läuft nur,
-          solange du nichts anfasst — jede Aktion auf dem Spielfeld stoppt ihn.
-          Auch während einer Partie direkt am Spielfeld änderbar.
-        </p>
+        <h3>${t('profile.autoPass.heading')}</h3>
+        <p class="hint">${t('profile.autoPass.hint')}</p>
         <label class="mp-inline-option">
           <input type="checkbox" id="auto-pass-toggle" />
-          Automatisch passen
+          ${t('profile.autoPass.toggle')}
         </label>
         <div class="mp-option-row">
-          <label for="auto-pass-seconds">Bedenkzeit</label>
-          <input id="auto-pass-seconds" type="number" min="1" max="60" /> Sekunden
+          <label for="auto-pass-seconds">${t('profile.autoPass.seconds')}</label>
+          <input id="auto-pass-seconds" type="number" min="1" max="60" /> ${t('profile.autoPass.secondsSuffix')}
         </div>
         <div class="mp-option-row">
-          <label for="auto-pass-scope">Gilt für</label>
+          <label for="auto-pass-scope">${t('profile.autoPass.scope')}</label>
           <select id="auto-pass-scope">
-            <option value="opponent">nur gegnerische Züge (empfohlen)</option>
-            <option value="always">alle Züge, auch meine eigenen</option>
+            <option value="opponent">${t('profile.autoPass.scopeOpponent')}</option>
+            <option value="always">${t('profile.autoPass.scopeAlways')}</option>
           </select>
         </div>
-        <label class="mp-inline-option" title="Anders als Automatisch passen: kein Countdown, und es greift nur, wenn dir wirklich nichts anderes als 'Passen' offensteht (z. B. im gegnerischen Zug ohne Instant in der Hand). Sobald eine echte Aktion angeboten wird, bist du sofort wieder am Zug.">
+        <label class="mp-inline-option" title="${escapeHtml(t('profile.autoPass.skipEmptyTitle'))}">
           <input type="checkbox" id="auto-skip-empty" />
-          Sofort passen, wenn nichts zu tun ist
+          ${t('profile.autoPass.skipEmpty')}
         </label>
       </div>
 
       <div class="deck-section">
-        <h3>Mehrspieler: Spielfeld</h3>
-        <p class="hint">
-          Die Handkarten deines Gegners verlassen den Server nie (Regel 400.2) —
-          die Frage ist nur, ob das Spielfeld die Anzahl als verdeckte Karten
-          zeichnet oder bloß als Zahl. Auch direkt am Spielfeld umschaltbar.
-        </p>
+        <h3>${t('profile.board.heading')}</h3>
+        <p class="hint">${t('profile.board.hint')}</p>
         <label class="mp-inline-option">
           <input type="checkbox" id="show-opponent-hand" />
-          Gegnerische Hand als verdeckte Karten zeigen
+          ${t('profile.board.showOpponentHand')}
         </label>
       </div>
 
       <div class="deck-section player-assets-section">
-        <h3>Eigene Token-Bilder</h3>
-        <p class="hint">
-          Bilder für bekannte Token-Arten, ein "generisches" Bild für alle Token ohne eigenes
-          Bild (z. B. selbst erzeugte "1/1 Soldier"), oder über "Andere" ein eigener Token-Name —
-          gespeichert unter deinem Spielernamen auf dem Server, damit sie auch ein Gegner im
-          Mehrspieler-Modus sieht.
-        </p>
-        <div id="token-images-list" class="player-asset-grid"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt …</p></div>
+        <h3>${t('profile.tokens.heading')}</h3>
+        <p class="hint">${t('profile.tokens.hint')}</p>
+        <div id="token-images-list" class="player-asset-grid"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('common.loading')}</p></div>
         <form id="token-image-form" class="player-asset-form">
-          <select id="token-image-name" required><option value="">Token-Art lädt …</option></select>
-          <input type="text" id="token-image-custom-name" placeholder="Token-Name (z. B. Soldier 1/1)" style="display: none" />
+          <select id="token-image-name" required><option value="">${t('profile.tokens.pickKind')}</option></select>
+          <input type="text" id="token-image-custom-name" placeholder="${t('profile.tokens.customName')}" style="display: none" />
           <input type="file" id="token-image-file" accept="image/png,image/jpeg,image/webp,image/gif" required />
-          <button type="submit" class="primary">Hochladen</button>
+          <button type="submit" class="primary">${t('common.upload')}</button>
         </form>
       </div>
 
       <div class="deck-section player-assets-section">
-        <h3>Karten-Sleeves</h3>
-        <p class="hint">
-          Eigene Kartenrückseiten — im Tab "Gespeicherte Decks" einem Deck zuweisbar.
-        </p>
-        <div id="sleeves-list" class="player-asset-grid"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt …</p></div>
+        <h3>${t('profile.sleeves.heading')}</h3>
+        <p class="hint">${t('profile.sleeves.hint')}</p>
+        <div id="sleeves-list" class="player-asset-grid"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('common.loading')}</p></div>
         <form id="sleeve-form" class="player-asset-form">
-          <input type="text" id="sleeve-label" placeholder="Name (z. B. Blauer Drache)" required />
+          <input type="text" id="sleeve-label" placeholder="${t('profile.sleeves.labelPlaceholder')}" required />
           <input type="file" id="sleeve-file" accept="image/png,image/jpeg,image/webp,image/gif" required />
-          <button type="submit" class="primary">Hochladen</button>
+          <button type="submit" class="primary">${t('common.upload')}</button>
         </form>
       </div>
 
       <div class="deck-section">
-        <h3>Lieblingsdecks</h3>
-        <p class="hint">
-          Erscheinen im Goldfisch-Modus und in der Mehrspieler-Lobby zuerst in der Deck-Auswahl.
-        </p>
-        <div id="profile-favorite-decks"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt …</p></div>
+        <h3>${t('profile.favorites.heading')}</h3>
+        <p class="hint">${t('profile.favorites.hint')}</p>
+        <div id="profile-favorite-decks"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('common.loading')}</p></div>
       </div>
     </div>
   `;
@@ -315,12 +285,12 @@ export function renderProfileView(container) {
   async function loadKnownTokenTypes() {
     const select = container.querySelector('#token-image-name');
     const res = await fetchKnownTokenTypes();
-    const names = res.ok ? (res.data?.tokens || []).map((t) => t.name) : [];
+    const names = res.ok ? (res.data?.tokens || []).map((tok) => tok.name) : [];
     const uniqueNames = [...new Set(names)].sort((a, b) => a.localeCompare(b));
     select.innerHTML = [
-      `<option value="${escapeHtml(GENERIC_TOKEN_KEY)}">${escapeHtml(GENERIC_TOKEN_LABEL)}</option>`,
+      `<option value="${escapeHtml(GENERIC_TOKEN_KEY)}">${escapeHtml(t('profile.tokens.generic'))}</option>`,
       ...uniqueNames.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`),
-      `<option value="${CUSTOM_TOKEN_VALUE}">Andere (Name eingeben) …</option>`,
+      `<option value="${CUSTOM_TOKEN_VALUE}">${escapeHtml(t('profile.tokens.customOption'))}</option>`,
     ].join('');
   }
 
@@ -341,25 +311,25 @@ export function renderProfileView(container) {
   async function loadTokenImages() {
     const name = getSettings().playerName;
     if (!name) {
-      tokenImagesList.innerHTML = '<p class="empty-state">Erst oben einen Spielernamen speichern.</p>';
+      tokenImagesList.innerHTML = `<p class="empty-state">${t('common.saveNameFirst')}</p>`;
       return;
     }
     const images = await listTokenImages(name);
     if (images === null) {
-      tokenImagesList.innerHTML = '<p class="server-status warning">Server nicht erreichbar.</p>';
+      tokenImagesList.innerHTML = `<p class="server-status warning">${t('common.serverUnreachable')}</p>`;
       return;
     }
     if (!images.length) {
-      tokenImagesList.innerHTML = '<p class="empty-state">Noch keine Token-Bilder hochgeladen.</p>';
+      tokenImagesList.innerHTML = `<p class="empty-state">${t('profile.tokens.none')}</p>`;
       return;
     }
     tokenImagesList.innerHTML = images
       .map(
-        (t) => `
+        (img) => `
       <div class="player-asset-tile">
-        <img src="${tokenImageUrl(name, t.token_name)}" alt="${escapeHtml(tokenNameLabel(t.token_name))}" loading="lazy" />
-        <span>${escapeHtml(tokenNameLabel(t.token_name))}</span>
-        <button type="button" class="delete-token-image-btn" data-token-name="${escapeHtml(t.token_name)}">Löschen</button>
+        <img src="${tokenImageUrl(name, img.token_name)}" alt="${escapeHtml(tokenNameLabel(img.token_name))}" loading="lazy" />
+        <span>${escapeHtml(tokenNameLabel(img.token_name))}</span>
+        <button type="button" class="delete-token-image-btn" data-token-name="${escapeHtml(img.token_name)}">${escapeHtml(t('common.delete'))}</button>
       </div>`
       )
       .join('');
@@ -375,16 +345,16 @@ export function renderProfileView(container) {
   async function loadSleeves() {
     const name = getSettings().playerName;
     if (!name) {
-      sleevesList.innerHTML = '<p class="empty-state">Erst oben einen Spielernamen speichern.</p>';
+      sleevesList.innerHTML = `<p class="empty-state">${t('common.saveNameFirst')}</p>`;
       return;
     }
     const sleeves = await listSleeves(name);
     if (sleeves === null) {
-      sleevesList.innerHTML = '<p class="server-status warning">Server nicht erreichbar.</p>';
+      sleevesList.innerHTML = `<p class="server-status warning">${t('common.serverUnreachable')}</p>`;
       return;
     }
     if (!sleeves.length) {
-      sleevesList.innerHTML = '<p class="empty-state">Noch keine Sleeves hochgeladen.</p>';
+      sleevesList.innerHTML = `<p class="empty-state">${t('profile.sleeves.none')}</p>`;
       return;
     }
     sleevesList.innerHTML = sleeves
@@ -393,7 +363,7 @@ export function renderProfileView(container) {
       <div class="player-asset-tile">
         <img src="${sleeveImageUrl(name, s.sleeve_id)}" alt="${escapeHtml(s.label)}" loading="lazy" />
         <span>${escapeHtml(s.label)}</span>
-        <button type="button" class="delete-sleeve-btn" data-sleeve-id="${escapeHtml(s.sleeve_id)}">Löschen</button>
+        <button type="button" class="delete-sleeve-btn" data-sleeve-id="${escapeHtml(s.sleeve_id)}">${escapeHtml(t('common.delete'))}</button>
       </div>`
       )
       .join('');
@@ -410,7 +380,7 @@ export function renderProfileView(container) {
     e.preventDefault();
     const name = getSettings().playerName;
     if (!name) {
-      window.alert('Bitte zuerst oben einen Spielernamen speichern.');
+      window.alert(t('profile.alertSaveNameFirst'));
       return;
     }
     const tokenNameSelect = container.querySelector('#token-image-name');
@@ -422,7 +392,7 @@ export function renderProfileView(container) {
     if (!tokenName || !file) return;
     const res = await uploadTokenImage(name, tokenName, file);
     if (!res.ok) {
-      window.alert(`Hochladen fehlgeschlagen (${res.status}).`);
+      window.alert(t('profile.tokens.uploadFailed', { status: res.status }));
       return;
     }
     tokenImageForm.reset();
@@ -436,7 +406,7 @@ export function renderProfileView(container) {
     e.preventDefault();
     const name = getSettings().playerName;
     if (!name) {
-      window.alert('Bitte zuerst oben einen Spielernamen speichern.');
+      window.alert(t('profile.alertSaveNameFirst'));
       return;
     }
     const labelInput = container.querySelector('#sleeve-label');
@@ -445,7 +415,7 @@ export function renderProfileView(container) {
     if (!labelInput.value.trim() || !file) return;
     const res = await uploadSleeve(name, labelInput.value.trim(), file);
     if (!res.ok) {
-      window.alert(`Hochladen fehlgeschlagen (${res.status}).`);
+      window.alert(t('profile.tokens.uploadFailed', { status: res.status }));
       return;
     }
     sleeveForm.reset();
@@ -457,24 +427,24 @@ export function renderProfileView(container) {
   async function loadFavorites() {
     const playerName = getSettings().playerName;
     if (!playerName) {
-      favoritesEl.innerHTML = '<p class="empty-state">Erst oben einen Spielernamen speichern.</p>';
+      favoritesEl.innerHTML = `<p class="empty-state">${t('common.saveNameFirst')}</p>`;
       return;
     }
-    favoritesEl.innerHTML = '<p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt …</p>';
+    favoritesEl.innerHTML = `<p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('common.loading')}</p>`;
     const [decks, favoriteIds] = await Promise.all([listSavedDecks(), listFavoriteDecks(playerName)]);
     if (decks === null || favoriteIds === null) {
-      favoritesEl.innerHTML = '<p class="server-status warning">Server nicht erreichbar.</p>';
+      favoritesEl.innerHTML = `<p class="server-status warning">${t('common.serverUnreachable')}</p>`;
       return;
     }
     if (!decks.length) {
       favoritesEl.innerHTML =
-        '<p class="empty-state">Noch keine gespeicherten Decks — im Tab "Deck importieren" eines anlegen.</p>';
+        `<p class="empty-state">${t('profile.favorites.noDecks')}</p>`;
       return;
     }
     const favoriteSet = new Set(favoriteIds);
     favoritesEl.innerHTML = `<ul class="profile-favorite-deck-list">${decks
       .map((d) => {
-        const name = (d.name || '').trim() || 'Unbenanntes Deck';
+        const name = (d.name || '').trim() || t('common.unnamedDeck');
         return `<li>
           <label>
             <input type="checkbox" data-favorite-deck="${escapeHtml(d.id)}" ${favoriteSet.has(d.id) ? 'checked' : ''} />

@@ -43,6 +43,7 @@ import {
   resultBannerHtml,
   loadUnmodeledDeckIds,
 } from './gameSetup.js';
+import { t } from './i18n.js';
 
 const MAX_OPPONENTS = 3;
 
@@ -109,11 +110,11 @@ export function createSoloView() {
     // into restart/export/concede is guarded inside those handlers instead.
     extraControls: (boardBusy) => {
       const controls = [
-        { id: 'restart', label: '⟲ Neu starten', disabled: boardBusy || busy, onClick: restart },
+        { id: 'restart', label: t('play.restart'), disabled: boardBusy || busy, onClick: restart },
         {
           id: 'export',
-          label: '⬇ Als Replay speichern',
-          title: 'Diesen Spielzustand als Replay-Datei speichern (im Replay-Tab wieder ladbar)',
+          label: t('play.saveReplay'),
+          title: t('play.saveReplayTitle'),
           disabled: boardBusy || busy,
           onClick: exportReplayFile,
         },
@@ -121,13 +122,13 @@ export function createSoloView() {
       if (!view?.state?.game_over) {
         controls.push({
           id: 'concede',
-          label: '🏳️ Aufgeben',
-          title: 'Die Partie aufgeben (Regel 104.3a) und die Auswertung ansehen',
+          label: t('solo.concede'),
+          title: t('solo.concedeTitle'),
           disabled: boardBusy,
           onClick: concede,
         });
       }
-      controls.push({ id: 'quit', label: 'Beenden', onClick: quit });
+      controls.push({ id: 'quit', label: t('play.quit'), onClick: quit });
       return controls;
     },
     // No lobby → connection state comes from the game state itself (the
@@ -243,12 +244,12 @@ export function createSoloView() {
 
   async function start() {
     if (!selectedDeckId) {
-      setStatus('Bitte zuerst dein Deck auswählen.', 'warning');
+      setStatus(t('solo.mustPickDeck'), 'warning');
       render();
       return;
     }
     if (!selectedValidation?.isLegal) {
-      setStatus('Nur legale Decks können ein Solo-Spiel starten.', 'warning');
+      setStatus(t('solo.needLegal'), 'warning');
       render();
       return;
     }
@@ -259,11 +260,11 @@ export function createSoloView() {
 
     phase = 'loading';
     loadingProgress = { loaded: 0, total: 0 };
-    setStatus('Kartenbilder werden geladen …', 'pending');
+    setStatus(t('play.loadingImages'), 'pending');
     render();
     await preloadAllArt(rows);
 
-    await withBusy('Spiel wird gestartet …', async () => {
+    await withBusy(t('play.starting'), async () => {
       const res = await startSolo({
         deckId: selectedDeckId,
         opponents: rows,
@@ -272,12 +273,12 @@ export function createSoloView() {
       });
       if (res.ok) {
         applyView(res.data);
-        setStatus('Wähle deine Starthand: behalten oder Mulligan.', 'ok');
+        setStatus(t('play.pickHand'), 'ok');
       } else if (res.status === 422) {
         phase = 'pick';
         const detail = res.data?.detail || {};
-        const reason = (detail.errors || []).join(' ') || detail.message || 'Deck ist nicht legal.';
-        setStatus(`Start abgelehnt: ${reason}`, 'warning');
+        const reason = (detail.errors || []).join(' ') || detail.message || t('solo.deckNotLegal');
+        setStatus(t('solo.startRejected', { reason }), 'warning');
       } else if (res.status === 400) {
         phase = 'pick';
         setStatus(`Start abgelehnt: ${detailText(res)}`, 'warning');
@@ -374,7 +375,7 @@ export function createSoloView() {
     const setup = view?.setup;
     if (!setup) return;
     if (mulliganBottom.size !== setup.bottom_count) {
-      setStatus(`Bitte genau ${setup.bottom_count} Karte(n) zum Unterlegen auswählen.`, 'warning');
+      setStatus(t('play.pickExactBottom', { count: setup.bottom_count }), 'warning');
       render();
       return;
     }
@@ -397,21 +398,21 @@ export function createSoloView() {
         applyView(res.data);
         setStatus('', '');
       } else if (res.status === 400) {
-        setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? ''}`, 'warning');
+        setStatus(t('play.actionNotAllowed', { detail: res.data?.detail ?? '' }), 'warning');
       } else if (res.status === 404) {
-        setStatus('Spielsitzung abgelaufen – bitte neu starten.', 'warning');
+        setStatus(t('play.sessionExpired'), 'warning');
         sessionId = null;
         view = null;
         phase = 'pick';
       } else {
-        setStatus(`Fehler (${res.status}).`, 'warning');
+        setStatus(t('play.error', { status: res.status }), 'warning');
       }
     });
   }
 
   async function concede() {
-    if (!sessionId || busy || !window.confirm('Wirklich aufgeben? Das beendet die Partie.')) return;
-    await withBusy('Aufgeben …', async () => {
+    if (!sessionId || busy || !window.confirm(t('solo.concedeConfirm'))) return;
+    await withBusy(t('solo.conceding'), async () => {
       const res = await concedeSolo(sessionId);
       if (res.ok) {
         view = res.data;
@@ -419,7 +420,7 @@ export function createSoloView() {
         board.stop();
         phase = 'summary';
       } else {
-        setStatus(`Aufgeben fehlgeschlagen (${res.status}).`, 'warning');
+        setStatus(t('solo.concedeFailed', { status: res.status }), 'warning');
       }
     });
     render();
@@ -427,14 +428,14 @@ export function createSoloView() {
 
   async function restart() {
     if (!sessionId || busy) return;
-    await withBusy('Spiel wird neu gestartet …', async () => {
+    await withBusy(t('play.restarting'), async () => {
       const res = await restartSolo(sessionId);
       if (res.ok) {
         summary = null;
         applyView(res.data);
-        setStatus('Spiel neu gestartet.', 'ok');
+        setStatus(t('play.restarted'), 'ok');
       } else {
-        setStatus(`Neustart fehlgeschlagen (${res.status}).`, 'warning');
+        setStatus(t('play.restartFailed', { status: res.status }), 'warning');
       }
     });
   }
@@ -517,10 +518,10 @@ export function createSoloView() {
     const pct = total ? Math.round((loaded / total) * 100) : 100;
     root.innerHTML = `
       <div class="goldfish-loading">
-        <h3>Spiel wird vorbereitet …</h3>
-        <p class="hint">Kartenbilder aller Decks werden geladen, damit beim Start alles sofort da ist.</p>
+        <h3>${t('play.preparing')}</h3>
+        <p class="hint">${t('solo.loadingHint')}</p>
         <div class="gf-loading-bar"><div class="gf-loading-fill" style="width: ${pct}%"></div></div>
-        <p class="server-status pending">${total ? `${loaded} / ${total} Bilder geladen …` : 'Lädt …'}</p>
+        <p class="server-status pending">${total ? escapeHtml(t('play.imagesLoaded', { loaded, total })) : t('play.loading')}</p>
       </div>`;
   }
 
@@ -529,16 +530,11 @@ export function createSoloView() {
     const canStart = !!selectedDeckId && legal && !busy && opponents.length >= 1;
     root.innerHTML = `
       <div class="goldfish-start">
-        <h3>Solo gegen Bots</h3>
-        <p class="hint">
-          Spiele ein gespeichertes Deck gegen 1–3 Bots auf der echten
-          Regel-Engine: echte Gegnerzüge, Stack, Priorität, verdeckte
-          Handkarten. Ohne Lobby, ohne Mitspieler. Nur legale Decks können
-          starten.
-        </p>
+        <h3>${t('solo.heading')}</h3>
+        <p class="hint">${escapeHtml(t('solo.intro'))}</p>
 
         <div class="gf-deck-picker">
-          <label for="solo-deck-select">Dein Deck</label>
+          <label for="solo-deck-select">${t('solo.yourDeck')}</label>
           <select id="solo-deck-select" ${decksLoading ? 'disabled' : ''}>
             ${deckSelectOptionsHtml({
               savedDecks,
@@ -563,25 +559,25 @@ export function createSoloView() {
         ${deckLegalityHtml()}
 
         <fieldset class="solo-opponents">
-          <legend>Gegner</legend>
+          <legend>${t('solo.opponents')}</legend>
           ${opponents.map((row, i) => opponentRowHtml(row, i)).join('')}
           ${
             opponents.length < MAX_OPPONENTS
-              ? `<button id="solo-add-opponent" type="button" ${busy ? 'disabled' : ''}>+ Gegner hinzufügen</button>`
+              ? `<button id="solo-add-opponent" type="button" ${busy ? 'disabled' : ''}>${t('solo.addOpponent')}</button>`
               : ''
           }
         </fieldset>
 
         <div class="gf-deck-picker">
-          <label for="solo-start-who">Wer beginnt?</label>
+          <label for="solo-start-who">${t('solo.whoStarts')}</label>
           <select id="solo-start-who" ${busy ? 'disabled' : ''}>
-            <option value="you"${startingPlayer === 'you' ? ' selected' : ''}>Du (auf dem Spiel)</option>
-            <option value="random"${startingPlayer === 'random' ? ' selected' : ''}>Zufällig</option>
+            <option value="you"${startingPlayer === 'you' ? ' selected' : ''}>${t('solo.youOnPlay')}</option>
+            <option value="random"${startingPlayer === 'random' ? ' selected' : ''}>${t('solo.random')}</option>
           </select>
         </div>
 
         <button id="solo-start-btn" type="button" class="primary" ${canStart ? '' : 'disabled'}>
-          Solo-Spiel starten
+          ${t('solo.startBtn')}
         </button>
         ${statusHtml()}
       </div>`;
@@ -627,12 +623,12 @@ export function createSoloView() {
             unmodeledDeckIds,
             decksLoading,
             decksLoadError,
-            placeholder: '— wie dein Deck —',
+            placeholder: t('solo.mirrorDeck'),
           })}
         </select>
         ${
           opponents.length > 1
-            ? `<button type="button" data-opp-remove="${index}" title="Gegner entfernen" ${busy ? 'disabled' : ''}>✕</button>`
+            ? `<button type="button" data-opp-remove="${index}" title="${escapeHtml(t('solo.removeOpponent'))}" ${busy ? 'disabled' : ''}>✕</button>`
             : ''
         }
         ${chosen?.description ? `<span class="hint">${escapeHtml(chosen.description)}</span>` : ''}
@@ -641,14 +637,14 @@ export function createSoloView() {
 
   function deckLegalityHtml() {
     if (!selectedDeckId) return '';
-    if (validating) return '<p class="server-status pending">Prüfe Legalität …</p>';
+    if (validating) return `<p class="server-status pending">${t('play.checkingLegality')}</p>`;
     if (selectedValidation === null) {
-      return '<p class="server-status warning">Legalität konnte nicht geprüft werden (Server?).</p>';
+      return `<p class="server-status warning">${t('play.legalityUnknown')}</p>`;
     }
-    if (selectedValidation.isLegal) return '<p class="server-status ok">✅ Deck ist legal.</p>';
+    if (selectedValidation.isLegal) return `<p class="server-status ok">${t('play.deckLegal')}</p>`;
     const reasons = (selectedValidation.errors || []).map((e) => `<li>${escapeHtml(e)}</li>`).join('');
     return `
-      <div class="server-status warning">🛑 Deck ist nicht legal – Start nicht möglich.</div>
+      <div class="server-status warning">${t('play.deckIllegal')}</div>
       ${reasons ? `<ul class="issue-list validation-errors">${reasons}</ul>` : ''}`;
   }
 
@@ -662,13 +658,13 @@ export function createSoloView() {
     const noMulligans = (view.legal_actions || []).every((a) => a.type !== 'mulligan');
     root.innerHTML = `
       <div class="goldfish-mulligan">
-        <h3>Starthand</h3>
+        <h3>${t('play.openingHand')}</h3>
         <p class="hint">
           ${
             mulliganCount === 0
-              ? `Deine Starthand: ${me.hand.length} Karten.${noMulligans ? ' In diesem Spiel wird ohne Mulligan gespielt.' : ' Behalten, oder neu mischen (Mulligan)?'}`
-              : mulliganText(setup, mulliganCount, bottomCount, me.hand.length) +
-                (bottomCount > 0 ? ' Wähle sie unten aus.' : '')
+              ? escapeHtml(t('solo.handIntroNoMull', { count: me.hand.length }) + (noMulligans ? t('solo.noMulligan') : t('solo.handIntroKeep')))
+              : escapeHtml(mulliganText(setup, mulliganCount, bottomCount, me.hand.length) +
+                (bottomCount > 0 ? t('play.pickBottomHint') : ''))
           }
         </p>
         ${statusHtml()}
@@ -684,11 +680,11 @@ export function createSoloView() {
             .join('')}
         </div>
         <div class="gf-controls">
-          ${noMulligans ? '' : `<button id="solo-mulligan-btn" type="button" ${busy ? 'disabled' : ''}>🔀 Mulligan (${nextHand} Karten ziehen)</button>`}
+          ${noMulligans ? '' : `<button id="solo-mulligan-btn" type="button" ${busy ? 'disabled' : ''}>${escapeHtml(t('play.mulliganBtn', { count: nextHand }))}</button>`}
           <button id="solo-keep-btn" type="button" class="primary" ${busy || !canKeep ? 'disabled' : ''}>
-            ${bottomCount === 0 ? 'Hand behalten' : `Behalten (${mulliganBottom.size}/${bottomCount} unten ausgewählt)`}
+            ${bottomCount === 0 ? t('play.keepHand') : escapeHtml(t('play.keepHandBottom', { picked: mulliganBottom.size, count: bottomCount }))}
           </button>
-          <button id="solo-quit-mulligan" type="button" ${busy ? 'disabled' : ''}>Abbrechen</button>
+          <button id="solo-quit-mulligan" type="button" ${busy ? 'disabled' : ''}>${t('play.cancel')}</button>
         </div>
       </div>`;
     root.querySelector('#solo-mulligan-btn')?.addEventListener('click', mulligan);
@@ -704,11 +700,11 @@ export function createSoloView() {
     const meId = view?.perspective || s?.players?.find((p) => p.id?.startsWith('solo:'))?.id || null;
     root.innerHTML = `
       <div class="goldfish-summary">
-        <h3>Partie-Auswertung</h3>
-        ${s && s.game_over ? resultBannerHtml(s, meId) : `<p class="hint">Partie nach ${summary.analysis?.turns ?? 0} Zügen beendet.</p>`}
+        <h3>${t('play.summaryHeading')}</h3>
+        ${s && s.game_over ? resultBannerHtml(s, meId) : `<p class="hint">${escapeHtml(t('play.gameEndedAfter', { turns: summary.analysis?.turns ?? 0 }))}</p>`}
         ${analysisHtml(summary.analysis)}
         <div class="gf-controls">
-          <button id="solo-summary-new" type="button" class="primary">Neues Spiel</button>
+          <button id="solo-summary-new" type="button" class="primary">${t('play.newGame')}</button>
         </div>
       </div>`;
     root.querySelector('#solo-summary-new')?.addEventListener('click', () => {

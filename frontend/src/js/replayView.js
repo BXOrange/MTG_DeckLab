@@ -20,33 +20,34 @@ import {
 import { getPlayerName } from './settings.js';
 import { getCookie, setCookie } from './cookies.js';
 import { createGameBoardView } from './gameBoardView.js';
+import { t } from './i18n.js';
 
 // Steps of a default turn (mirrors backend game/phases.py), for the
 // "Zug/Phase" control that positions the engine mid-turn.
 const STEPS = [
-  ['untap', 'Enttappen'],
-  ['upkeep', 'Versorgung'],
-  ['draw', 'Ziehen'],
-  ['main1', 'Hauptphase 1'],
-  ['begin_combat', 'Kampfbeginn'],
-  ['declare_attackers', 'Angreifer'],
-  ['declare_blockers', 'Blocker'],
-  ['combat_damage', 'Kampfschaden'],
-  ['end_combat', 'Kampfende'],
-  ['main2', 'Hauptphase 2'],
-  ['end', 'Ende'],
-  ['cleanup', 'Aufräumen'],
+  ['untap', t('bd.step.untap')],
+  ['upkeep', t('bd.step.upkeep')],
+  ['draw', t('bd.step.draw')],
+  ['main1', t('bd.step.main1')],
+  ['begin_combat', t('bd.step.begin_combat')],
+  ['declare_attackers', t('bd.step.declare_attackers')],
+  ['declare_blockers', t('bd.step.declare_blockers')],
+  ['combat_damage', t('bd.step.combat_damage')],
+  ['end_combat', t('bd.step.end_combat')],
+  ['main2', t('bd.step.main2')],
+  ['end', t('bd.step.end')],
+  ['cleanup', t('bd.step.cleanup')],
 ];
 
 // Zones, in editor display order (battlefield is the shared field; the rest
 // are the player's personal zones). value → German label.
 const ZONES = [
-  ['battlefield', 'Schlachtfeld'],
-  ['hand', 'Hand'],
-  ['graveyard', 'Friedhof'],
-  ['library', 'Bibliothek'],
-  ['exile', 'Exil'],
-  ['command', 'Kommandozone'],
+  ['battlefield', t('rp.zone.battlefield')],
+  ['hand', t('rp.zone.hand')],
+  ['graveyard', t('rp.zone.graveyard')],
+  ['library', t('rp.zone.library')],
+  ['exile', t('rp.zone.exile')],
+  ['command', t('rp.zone.command')],
 ];
 
 const COLORS = [['W', 'W'], ['U', 'U'], ['B', 'B'], ['R', 'R'], ['G', 'G']];
@@ -151,8 +152,8 @@ export function createReplayView() {
     extraControls: () => [
       {
         id: 'to-editor',
-        label: '✎ Zurück zum Editor',
-        title: 'Zurück in den Konfigurations-Modus (Board bearbeiten, Zug-Engine pausiert).',
+        label: t('rp.backToEditor'),
+        title: t('rp.backToEditorTitle'),
         onClick: () => {
           mode = 'edit';
           render();
@@ -220,7 +221,7 @@ export function createReplayView() {
       const res = await startReplay(null, numPlayers);
       if (res.ok) {
         applyView(res.data);
-        setStatus('Neuer Replay-Save erstellt.', 'ok');
+        setStatus(t('rp.saveCreated'), 'ok');
       } else {
         setStatus(`Konnte nicht starten (${res.status}).`, 'warning');
       }
@@ -232,7 +233,7 @@ export function createReplayView() {
       const res = await startReplay(descriptor, 1);
       if (res.ok) {
         applyView(res.data);
-        setStatus('Replay-Save geladen.', 'ok');
+        setStatus(t('rp.saveLoaded'), 'ok');
       } else {
         setStatus(`Laden fehlgeschlagen (${res.status}).`, 'warning');
       }
@@ -246,13 +247,13 @@ export function createReplayView() {
       try {
         const descriptor = JSON.parse(String(reader.result));
         if (descriptor?.format !== 'mtg-replay') {
-          setStatus('Keine gültige Replay-Datei.', 'warning');
+          setStatus(t('rp.invalidFile'), 'warning');
           render();
           return;
         }
         loadFromDescriptor(descriptor);
       } catch {
-        setStatus('Datei konnte nicht gelesen werden.', 'warning');
+        setStatus(t('rp.fileReadFailed'), 'warning');
         render();
       }
     };
@@ -268,7 +269,7 @@ export function createReplayView() {
       return;
     }
     downloadJson(res.data, 'replay.json');
-    setStatus('Replay exportiert.', 'ok');
+    setStatus(t('rp.exported'), 'ok');
     render();
   }
 
@@ -292,7 +293,7 @@ export function createReplayView() {
       } else if (res.status === 400) {
         setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? ''}`, 'warning');
       } else if (res.status === 404) {
-        setStatus('Sitzung abgelaufen – bitte neu starten.', 'warning');
+        setStatus(t('rp.sessionExpired'), 'warning');
         sessionId = null;
         view = null;
       } else {
@@ -306,7 +307,7 @@ export function createReplayView() {
     await withBusy(async () => {
       const res = await rewindGame(sessionId, 1);
       if (res.ok) applyView(res.data);
-      else setStatus(`Rückgängig fehlgeschlagen (${res.status}).`, 'warning');
+      else setStatus(t('rp.undoFailed', { status: res.status }), 'warning');
     });
   }
 
@@ -432,13 +433,13 @@ export function createReplayView() {
   function renderStart() {
     root.innerHTML = `
       <div class="replay-start">
-        <h2>Replay / Puzzle</h2>
-        <p>Baue einen Spielzustand oder lade einen gespeicherten (z.&nbsp;B. aus dem Goldfisch exportierten).</p>
+        <h2>${t('rp.title')}</h2>
+        <p>${t('rp.intro')}</p>
         <div class="replay-start-actions">
-          <button type="button" class="primary" data-start="1">Neues Puzzle (1&nbsp;Spieler)</button>
-          <button type="button" data-start="2">Mit Gegner (2&nbsp;Spieler)</button>
-          <button type="button" data-start="3">Mit 2 Gegnern (3&nbsp;Spieler)</button>
-          <button type="button" data-start="4">Mit 3 Gegnern (4&nbsp;Spieler)</button>
+          <button type="button" class="primary" data-start="1">${t('rp.newPuzzle1')}</button>
+          <button type="button" data-start="2">${t('rp.withOpponent')}</button>
+          <button type="button" data-start="3">${t('rp.with2Opponents')}</button>
+          <button type="button" data-start="4">${t('rp.with3Opponents')}</button>
           <label class="replay-import-label">Importieren…
             <input type="file" accept="application/json,.json" id="replay-import" hidden />
           </label>
@@ -488,24 +489,24 @@ export function createReplayView() {
     return `
       <div class="replay-toolbar">
         <div class="replay-toolbar-group">
-          <button type="button" data-tool="new">Neu</button>
+          <button type="button" data-tool="new">${t('rp.tool.new')}</button>
           <label class="replay-import-label">Importieren
             <input type="file" accept="application/json,.json" id="replay-import" hidden />
           </label>
-          <button type="button" data-tool="export">Exportieren</button>
-          <button type="button" data-tool="quit">Beenden</button>
+          <button type="button" data-tool="export">${t('rp.tool.export')}</button>
+          <button type="button" data-tool="quit">${t('rp.tool.quit')}</button>
         </div>
         <div class="replay-toolbar-group">
-          <label>Zug <input type="number" min="1" value="${s.turn_number}" id="replay-turn" /></label>
-          <label>Schritt <select id="replay-step">${stepOptions}</select></label>
-          <label>Aktiv <select id="replay-active">${activeOptions}</select></label>
+          <label>${t('rp.turn')} <input type="number" min="1" value="${s.turn_number}" id="replay-turn" /></label>
+          <label>${t('rp.step')} <select id="replay-step">${stepOptions}</select></label>
+          <label>${t('rp.active')} <select id="replay-active">${activeOptions}</select></label>
         </div>
         <div class="replay-toolbar-group">
-          <button type="button" data-tool="rewind" ${view.can_rewind ? '' : 'disabled'}>↶ Rückgängig</button>
-          <button type="button" data-tool="zones-side" title="Zonen-Spalte (Bibliothek, Friedhof …) auf die andere Seite legen">⇄ Zonen-Seite</button>
+          <button type="button" data-tool="rewind" ${view.can_rewind ? '' : 'disabled'}>${t('rp.tool.rewind')}</button>
+          <button type="button" data-tool="zones-side" title="${escapeAttr(t('rp.tool.zonesSideTitle'))}">${t('rp.tool.zonesSide')}</button>
         </div>
         <div class="replay-toolbar-group">
-          <button type="button" class="primary" data-tool="play-mode" title="Umschalten in den Spielmodus: die Zug-Engine läuft, das Board wird interaktiv spielbar (wie Goldfisch).">▶ Spielmodus</button>
+          <button type="button" class="primary" data-tool="play-mode" title="${escapeAttr(t('rp.tool.playModeTitle'))}">${t('rp.tool.playMode')}</button>
         </div>
       </div>`;
   }
@@ -516,7 +517,7 @@ export function createReplayView() {
     const pool = p.mana_pool || {};
     return `
       <div class="replay-manapool">
-        <span class="replay-manapool-label">Mana-Pool</span>
+        <span class="replay-manapool-label">${t('rp.manaPool')}</span>
         ${MANA_TYPES.map(
           ([type, glyph]) => `
           <label class="replay-mana-input" title="${escapeAttr(type)}-Mana">
@@ -534,11 +535,11 @@ export function createReplayView() {
       <section class="replay-player" data-player="${escapeAttr(p.id)}">
         <header class="replay-player-head">
           <h3>${escapeHtml(p.name)}</h3>
-          <label>Leben <input type="number" class="replay-life" value="${p.life}" /></label>
-          <label>Gift <input type="number" min="0" class="replay-poison" value="${p.poison ?? 0}" /></label>
-          <label>Energie <input type="number" min="0" class="replay-pcounter" data-counter="energy" value="${(p.counters || {}).energy ?? 0}" /></label>
-          <label>Erfahrung <input type="number" min="0" class="replay-pcounter" data-counter="experience" value="${(p.counters || {}).experience ?? 0}" /></label>
-          <button type="button" class="replay-pcounter-add" title="Weitere Marke setzen">+ Marke</button>
+          <label>${t('rp.life')} <input type="number" class="replay-life" value="${p.life}" /></label>
+          <label>${t('rp.poison')} <input type="number" min="0" class="replay-poison" value="${p.poison ?? 0}" /></label>
+          <label>${t('rp.energy')} <input type="number" min="0" class="replay-pcounter" data-counter="energy" value="${(p.counters || {}).energy ?? 0}" /></label>
+          <label>${t('rp.experience')} <input type="number" min="0" class="replay-pcounter" data-counter="experience" value="${(p.counters || {}).experience ?? 0}" /></label>
+          <button type="button" class="replay-pcounter-add" title="${escapeAttr(t('rp.addCounterTitle'))}">${t('rp.addCounter')}</button>
         </header>
         ${manaPoolEditorHtml(p)}
         ${counters.filter(([k]) => k !== 'energy' && k !== 'experience').length
@@ -554,14 +555,14 @@ export function createReplayView() {
           : ''}
         <div class="gf-play gf-zones-${zonesLeft ? 'left' : 'right'}">
           <aside class="gf-side">
-            ${renderZone(p, 'command', 'Kommandozone', p.command || [], s, 'gf-command')}
+            ${renderZone(p, 'command', t('rp.zone.command'), p.command || [], s, 'gf-command')}
             ${renderLibraryZone(p, p.library || [], s)}
-            ${renderZone(p, 'graveyard', 'Friedhof', p.graveyard || [], s, 'gf-graveyard')}
-            ${renderZone(p, 'exile', 'Exil', p.exile || [], s, 'gf-exile')}
+            ${renderZone(p, 'graveyard', t('rp.zone.graveyard'), p.graveyard || [], s, 'gf-graveyard')}
+            ${renderZone(p, 'exile', t('rp.zone.exile'), p.exile || [], s, 'gf-exile')}
           </aside>
           <div class="gf-main">
             ${renderBattlefieldZone(p, bf, s)}
-            ${renderZone(p, 'hand', 'Hand', p.hand || [], s, 'gf-hand')}
+            ${renderZone(p, 'hand', t('rp.zone.hand'), p.hand || [], s, 'gf-hand')}
           </div>
         </div>
       </section>`;
@@ -577,11 +578,11 @@ export function createReplayView() {
         <div class="replay-zone-head">
           <span>${escapeHtml(label)} <span class="replay-count">${objs.length}</span></span>
           <span class="replay-zone-add">
-            <button type="button" class="replay-add-card" title="Karte hinzufügen">+ Karte</button>
+            <button type="button" class="replay-add-card" title="${escapeAttr(t('rp.addCardTitle'))}">${t('rp.addCard')}</button>
           </span>
         </div>
         <div class="replay-zone-cards">
-          ${objs.map((o) => renderCard(o, p, s)).join('') || '<span class="empty-state">leer</span>'}
+          ${objs.map((o) => renderCard(o, p, s)).join('') || `<span class="empty-state">${t('rp.empty')}</span>`}
         </div>
       </div>`;
   }
@@ -596,10 +597,10 @@ export function createReplayView() {
     return `
       <div class="gf-zone replay-zone gf-library" data-zone="library" data-player="${escapeAttr(p.id)}">
         <div class="replay-zone-head">
-          <span>Bibliothek <span class="replay-count">${lib.length}</span></span>
+          <span>${t('rp.libraryLabel')} <span class="replay-count">${lib.length}</span></span>
           <span class="replay-zone-add">
-            <button type="button" class="replay-lib-open" title="Bibliothek in einem Pop-up anzeigen">👁 Anzeigen</button>
-            <button type="button" class="replay-add-card" title="Karte hinzufügen">+ Karte</button>
+            <button type="button" class="replay-lib-open" title="${escapeAttr(t('rp.libOpenTitle'))}">${t('rp.libOpen')}</button>
+            <button type="button" class="replay-add-card" title="${escapeAttr(t('rp.addCardTitle'))}">${t('rp.addCard')}</button>
           </span>
         </div>
       </div>`;
@@ -637,10 +638,10 @@ export function createReplayView() {
             <span class="replay-lib-pos">${pos}</span>
             <span class="replay-lib-name">${escapeHtml(o.name)}</span>
             <span class="replay-lib-tools">
-              <button type="button" data-lib-act="up" title="Näher zur Bibliotheksspitze" ${isTop ? 'disabled' : ''}>▲</button>
-              <button type="button" data-lib-act="down" title="Weiter von der Spitze weg" ${isBottom ? 'disabled' : ''}>▼</button>
-              <select class="replay-move" title="Verschieben"><option value="">→ Zone…</option>${moveOptions}</select>
-              <button type="button" data-lib-act="remove" title="Entfernen">✕</button>
+              <button type="button" data-lib-act="up" title="${escapeAttr(t('rp.libUpTitle'))}" ${isTop ? 'disabled' : ''}>▲</button>
+              <button type="button" data-lib-act="down" title="${escapeAttr(t('rp.libDownTitle'))}" ${isBottom ? 'disabled' : ''}>▼</button>
+              <select class="replay-move" title="${escapeAttr(t('rp.moveTitle'))}"><option value="">${t('rp.moveToZone')}</option>${moveOptions}</select>
+              <button type="button" data-lib-act="remove" title="${escapeAttr(t('rp.removeTitle'))}">✕</button>
             </span>
           </li>`;
       })
@@ -656,14 +657,14 @@ export function createReplayView() {
     return `
       <div class="gf-zone replay-zone gf-battlefield" data-zone="battlefield" data-player="${escapeAttr(p.id)}">
         <div class="gf-bf-head">
-          <span>Schlachtfeld <span class="replay-count">${bf.length}</span></span>
-          <label class="gf-bf-toggle" title="Länder in eine eigene, dritte Reihe legen">
+          <span>${t('rp.battlefieldLabel')} <span class="replay-count">${bf.length}</span></span>
+          <label class="gf-bf-toggle" title="${escapeAttr(t('bd.bf.landsOwnRowTitle'))}">
             <input type="checkbox" class="replay-rows-toggle" ${threeRows ? 'checked' : ''} />
-            Länder in eigener Reihe
+            ${t('bd.bf.landsOwnRow')}
           </label>
           <span class="replay-zone-add">
-            <button type="button" class="replay-add-card" title="Karte hinzufügen">+ Karte</button>
-            <button type="button" class="replay-add-token" title="Token hinzufügen">+ Token</button>
+            <button type="button" class="replay-add-card" title="${escapeAttr(t('rp.addCardTitle'))}">${t('rp.addCard')}</button>
+            <button type="button" class="replay-add-token" title="${escapeAttr(t('rp.addTokenTitle'))}">${t('rp.addToken')}</button>
           </span>
         </div>
         ${battlefieldRowsHtml(bf, p, s)}
@@ -710,7 +711,7 @@ export function createReplayView() {
       const atts = attachments.get(o.instance_id);
       if (!atts || !atts.length) return host;
       const attached = atts.map(renderAttached).join('');
-      return `<div class="gf-attach-group" title="Verbundene Karten (Aura/Ausrüstung)">${host}${attached}</div>`;
+      return `<div class="gf-attach-group" title="${escapeAttr(t('bd.bf.attachTitle'))}">${host}${attached}</div>`;
     };
 
     const rowHtml = (label, list) =>
@@ -721,13 +722,13 @@ export function createReplayView() {
 
     const rows = threeRows
       ? [
-          rowHtml('Kreaturen', creatures),
-          rowHtml('Artefakte & Verzauberungen', other),
-          rowHtml('Länder', lands),
+          rowHtml(t('bd.bf.rowCreatures'), creatures),
+          rowHtml(t('bd.bf.rowArtEnch'), other),
+          rowHtml(t('bd.bf.rowLands'), lands),
         ]
       : [
-          rowHtml('Kreaturen', creatures),
-          rowHtml('Länder & bleibende Karten', other.concat(lands)),
+          rowHtml(t('bd.bf.rowCreatures'), creatures),
+          rowHtml(t('bd.bf.rowLandsPermanents'), other.concat(lands)),
         ];
     return `<div class="gf-bf-rows">${rows.join('')}</div>`;
   }
@@ -763,7 +764,7 @@ export function createReplayView() {
       pt ? `<span class="replay-badge">${escapeHtml(pt)}</span>` : '',
       o.loyalty != null ? `<span class="replay-badge">♦${o.loyalty}</span>` : '',
       counters.length ? `<span class="replay-badge replay-badge--counter">${counters.map(([k, v]) => `${escapeHtml(k)}×${v}`).join(' ')}</span>` : '',
-      sick ? `<span class="replay-badge replay-badge--sick" title="Beschwörungskrankheit (RULE 302.6)">💤</span>` : '',
+      sick ? `<span class="replay-badge replay-badge--sick" title="${escapeAttr(t('rp.sickTitle'))}">💤</span>` : '',
     ].join('');
     // Draggable onto any `.replay-zone` drop target (see `wireEditor`) — the
     // "→ Zone…" dropdown this replaced also let a 2-player board reassign
@@ -773,13 +774,13 @@ export function createReplayView() {
         ${inner}
         ${badges ? `<div class="replay-card-badges">${badges}</div>` : ''}
         <div class="replay-card-tools">
-          <button type="button" data-card-act="tap" title="Tappen/Enttappen">⤵</button>
-          <button type="button" data-card-act="flip" title="Umwandeln">⟳</button>
+          <button type="button" data-card-act="tap" title="${escapeAttr(t('rp.tapTitle'))}">⤵</button>
+          <button type="button" data-card-act="flip" title="${escapeAttr(t('rp.flipTitle'))}">⟳</button>
           <button type="button" data-card-act="plus" title="+1/+1 Marke">＋</button>
           <button type="button" data-card-act="minus" title="−1/−1 Marke">−</button>
-          <button type="button" data-card-act="counter" title="Beliebige Marke">✦</button>
-          ${o.is_creature ? `<button type="button" data-card-act="sick" class="${sick ? 'active' : ''}" title="Beschwörungskrankheit umschalten (RULE 302.6): kann noch nicht angreifen oder {T}/{Q}-Kosten zahlen">💤</button>` : ''}
-          <button type="button" data-card-act="remove" title="Entfernen">✕</button>
+          <button type="button" data-card-act="counter" title="${escapeAttr(t('rp.counterAnyTitle'))}">✦</button>
+          ${o.is_creature ? `<button type="button" data-card-act="sick" class="${sick ? 'active' : ''}" title="${escapeAttr(t('rp.sickToggleTitle'))}">💤</button>` : ''}
+          <button type="button" data-card-act="remove" title="${escapeAttr(t('rp.removeTitle'))}">✕</button>
         </div>
       </div>`;
   }
@@ -858,11 +859,11 @@ export function createReplayView() {
   function cardResultListHtml() {
     if (!modal.searched) return '';
     if (modal.tooShort) return `<li class="empty-state">Mindestens ${MIN_SEARCH_CHARS} Zeichen eingeben…</li>`;
-    if (cardPool == null) return '<li class="empty-state">Lade Kartenpool …</li>';
+    if (cardPool == null) return `<li class="empty-state">${t('rp.cardPoolLoading')}</li>`;
     const results = modal.results || [];
     return results.length
       ? results.map((c) => `<li><button type="button" data-add-card='${escapeAttr(JSON.stringify({ id: c.id, name: c.name }))}'>${escapeHtml(c.name)} <small>${escapeHtml(c.type_line || '')}</small></button></li>`).join('')
-      : '<li class="empty-state">Nichts gefunden – ggf. „Suchen“ für eine neue Karte aus dem Scryfall-Fundus.</li>';
+      : `<li class="empty-state">${escapeHtml(t('rp.nothingFound'))}</li>`;
   }
 
   function wireCardResultButtons(container) {
@@ -874,11 +875,11 @@ export function createReplayView() {
   function renderCardSearch() {
     return `
       <div class="replay-modal">
-        <div class="replay-modal-head"><h3>Karte hinzufügen</h3><button type="button" data-modal-close>✕</button></div>
+        <div class="replay-modal-head"><h3>${t('rp.addCardTitle')}</h3><button type="button" data-modal-close>✕</button></div>
         <div class="replay-modal-body">
           <div class="replay-search-row">
-            <input type="text" id="replay-card-query" placeholder="Kartenname (Teilstring, z. B. „Elv“)…" value="${escapeAttr(modal.query || '')}" />
-            <button type="button" id="replay-card-search" class="primary">Suchen</button>
+            <input type="text" id="replay-card-query" placeholder="${escapeAttr(t('rp.cardQueryPlaceholder'))}" value="${escapeAttr(modal.query || '')}" />
+            <button type="button" id="replay-card-search" class="primary">${t('rp.search')}</button>
           </div>
           <ul class="replay-search-results">${cardResultListHtml()}</ul>
         </div>
@@ -892,23 +893,23 @@ export function createReplayView() {
     }).join('');
     return `
       <div class="replay-modal">
-        <div class="replay-modal-head"><h3>Token hinzufügen</h3><button type="button" data-modal-close>✕</button></div>
+        <div class="replay-modal-head"><h3>${t('rp.addTokenTitle')}</h3><button type="button" data-modal-close>✕</button></div>
         <div class="replay-modal-body replay-token-form">
           <div class="replay-token-presets">
-            <span class="replay-token-presets-label">Häufige Token (füllt das Formular, direkt anpassbar):</span>
+            <span class="replay-token-presets-label">${t('rp.tokenPresetsLabel')}</span>
             <div class="replay-token-preset-grid">${presets}</div>
           </div>
-          <label>Name <input type="text" id="replay-token-name" placeholder="Goblin" /></label>
+          <label>${t('rp.name')} <input type="text" id="replay-token-name" placeholder="Goblin" /></label>
           <label>Typ <input type="text" id="replay-token-type" placeholder="Creature — Goblin" value="Creature" /></label>
-          <label>Stärke <input type="number" id="replay-token-p" value="1" /></label>
-          <label>Widerstand <input type="number" id="replay-token-t" value="1" /></label>
+          <label>${t('rp.power')} <input type="number" id="replay-token-p" value="1" /></label>
+          <label>${t('rp.toughness')} <input type="number" id="replay-token-t" value="1" /></label>
           <div class="replay-token-colors">Farben:
             ${COLORS.map(([v, l]) => `<label><input type="checkbox" class="replay-token-color" value="${v}" /> ${l}</label>`).join('')}
           </div>
-          <label>Fähigkeitstext (optional)
-            <textarea id="replay-token-text" rows="2" placeholder="z. B. Flying, vigilance"></textarea>
+          <label>${t('rp.abilityText')}
+            <textarea id="replay-token-text" rows="2" placeholder="${escapeAttr(t('rp.tokenTextPlaceholder'))}"></textarea>
           </label>
-          <button type="button" id="replay-token-add" class="primary">Hinzufügen</button>
+          <button type="button" id="replay-token-add" class="primary">${t('rp.add')}</button>
         </div>
       </div>`;
   }
@@ -968,9 +969,9 @@ export function createReplayView() {
         inp.addEventListener('change', (e) =>
           act({ type: 'edit_set_player_counter', player_id: pid, counter: inp.dataset.counter, amount: Number(e.target.value) })));
       panel.querySelector('.replay-pcounter-add')?.addEventListener('click', () => {
-        const name = window.prompt('Name der Marke (z. B. poison, oil):');
+        const name = window.prompt(t('rp.promptCounterName'));
         if (!name) return;
-        const amount = Number(window.prompt('Anzahl:', '1') || 0);
+        const amount = Number(window.prompt(t('rp.promptAmount'), '1') || 0);
         act({ type: 'edit_set_player_counter', player_id: pid, counter: name.trim(), amount });
       });
     });
@@ -1081,11 +1082,11 @@ export function createReplayView() {
       const next = action === 'plus' ? current + 1 : current - 1;
       act({ type: 'edit_set_counters', instance_id: iid, counter: '+1/+1', amount: next });
     } else if (action === 'counter') {
-      const kind = window.prompt('Art der Marke (z. B. loyalty, charge, -1/-1):');
+      const kind = window.prompt(t('rp.promptCounterKind'));
       if (!kind) return;
       const obj = findObject(iid);
       const current = (obj?.counters || {})[kind.trim()] || 0;
-      const amount = Number(window.prompt('Anzahl:', String(current || 1)) || 0);
+      const amount = Number(window.prompt(t('rp.promptAmount'), String(current || 1)) || 0);
       act({ type: 'edit_set_counters', instance_id: iid, counter: kind.trim(), amount });
     } else if (action === 'remove') {
       act({ type: 'edit_remove_object', instance_id: iid });

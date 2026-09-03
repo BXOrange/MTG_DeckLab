@@ -11,6 +11,7 @@
 // module load.
 
 import { getServerUrl } from './settings.js';
+import { t } from './i18n.js';
 
 /**
  * Whether the configured backend address is reachable (GET /api/health).
@@ -52,7 +53,7 @@ export async function submitDeck(sections, isCube = false) {
   try {
     return { ok: true, deck: await response.json() };
   } catch {
-    return { ok: false, error: 'Ungültige Server-Antwort – lokale Vorschau wird verwendet.' };
+    return { ok: false, error: t('api.invalidResponsePreview') };
   }
 }
 
@@ -88,7 +89,7 @@ export async function importArchidektDeck(deckIdOrUrl) {
   try {
     return { ok: true, ...(await response.json()) };
   } catch {
-    return { ok: false, error: 'Ungültige Server-Antwort.' };
+    return { ok: false, error: t('api.invalidResponse') };
   }
 }
 

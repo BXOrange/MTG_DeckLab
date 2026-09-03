@@ -24,6 +24,8 @@
 //: mana…'", Goldspan Dragon) reprints that mana text on itself without
 //: having any mana ability of its own — matching this regex is not
 //: sufficient on its own to call a card a mana source.
+import { t } from './i18n.js';
+
 const MANA_ABILITY_RE = /\badd\s+(\{[wubrgcsx0-9/]+\}|(one|two|three|x)\s+mana|mana\b)/i;
 
 //: "Search your library for ... land ... battlefield/hand" — land-tutor
@@ -164,14 +166,14 @@ export function manaProduced(card) {
 //: Artifact Creature counts in both), matching how deck-building tools
 //: (Moxfield/Archidekt) usually total types.
 export const TYPE_BUCKETS = [
-  { key: 'creature', label: 'Kreatur', test: (c) => c.is_creature },
-  { key: 'planeswalker', label: 'Planeswalker', test: (c) => /\bplaneswalker\b/i.test(c.type_line) },
-  { key: 'battle', label: 'Battle', test: (c) => /\bbattle\b/i.test(c.type_line) },
-  { key: 'land', label: 'Land', test: (c) => c.is_land },
-  { key: 'artifact', label: 'Artefakt', test: (c) => /\bartifact\b/i.test(c.type_line) },
-  { key: 'enchantment', label: 'Verzauberung', test: (c) => /\benchantment\b/i.test(c.type_line) },
-  { key: 'instant', label: 'Spontanzauber', test: (c) => c.is_instant },
-  { key: 'sorcery', label: 'Hexerei', test: (c) => c.is_sorcery },
+  { key: 'creature', label: t('da.type.creature'), test: (c) => c.is_creature },
+  { key: 'planeswalker', label: t('da.type.planeswalker'), test: (c) => /\bplaneswalker\b/i.test(c.type_line) },
+  { key: 'battle', label: t('da.type.battle'), test: (c) => /\bbattle\b/i.test(c.type_line) },
+  { key: 'land', label: t('da.type.land'), test: (c) => c.is_land },
+  { key: 'artifact', label: t('da.type.artifact'), test: (c) => /\bartifact\b/i.test(c.type_line) },
+  { key: 'enchantment', label: t('da.type.enchantment'), test: (c) => /\benchantment\b/i.test(c.type_line) },
+  { key: 'instant', label: t('da.type.instant'), test: (c) => c.is_instant },
+  { key: 'sorcery', label: t('da.type.sorcery'), test: (c) => c.is_sorcery },
 ];
 
 //: The five basic land types — a nonbasic land naming 3+ of these is a
@@ -201,10 +203,10 @@ function isMdfcLand(card) {
 //: specific first — since a card is filed under exactly one archetype
 //: here (unlike TYPE_BUCKETS, which allows several).
 const LAND_ARCHETYPES = [
-  { key: 'basic', label: 'Basisland', test: (c) => /\bbasic\b/i.test(c.type_line) },
+  { key: 'basic', label: t('da.land.basic'), test: (c) => /\bbasic\b/i.test(c.type_line) },
   {
     key: 'fetch',
-    label: 'Fetchland',
+    label: t('da.land.fetch'),
     // Already gated to is_land: a land that sacrifices itself to search
     // the library is, in practice, always a fetchland (Onslaught-style
     // "Search your library for a Plains or Island card" never says
@@ -213,38 +215,38 @@ const LAND_ARCHETYPES = [
   },
   {
     key: 'canopy',
-    label: 'Horizon-Land',
+    label: t('da.land.horizon'),
     test: (c) => /\bsacrifice\b/i.test(oracleText(c)) && /draw a card/i.test(oracleText(c)),
   },
   {
     key: 'bounce',
-    label: 'Bounce-Land (Karoo)',
+    label: t('da.land.bounce'),
     test: (c) => /return a land you control to its owner's hand/i.test(oracleText(c)),
   },
   {
     key: 'manland',
-    label: 'Kreaturland',
+    label: t('da.land.creature'),
     test: (c) => /\bbecomes? a\b[^.]*\bcreature\b/i.test(oracleText(c)),
   },
-  { key: 'triome', label: 'Triome', test: (c) => basicLandTypeCount(c.type_line) >= 3 },
+  { key: 'triome', label: t('da.land.triome'), test: (c) => basicLandTypeCount(c.type_line) >= 3 },
   {
     key: 'pain',
-    label: 'Painland',
+    label: t('da.land.pain'),
     test: (c) => /deals? 1 damage to you/i.test(oracleText(c)),
   },
   {
     key: 'shock',
-    label: 'Schockland',
+    label: t('da.land.shock'),
     test: (c) => /pay 2 life/i.test(oracleText(c)) && /\btapped\b/i.test(oracleText(c)),
   },
   {
     key: 'check',
-    label: 'Checkland',
+    label: t('da.land.check'),
     test: (c) => /tapped unless you control/i.test(oracleText(c)) && !/two or (more|fewer)/i.test(oracleText(c)),
   },
-  { key: 'fast', label: 'Fastland', test: (c) => /two or fewer other lands/i.test(oracleText(c)) },
-  { key: 'slow', label: 'Slowland', test: (c) => /two or more other lands/i.test(oracleText(c)) },
-  { key: 'battle', label: 'Kampfland', test: (c) => /two or more basic lands/i.test(oracleText(c)) },
+  { key: 'fast', label: t('da.land.fast'), test: (c) => /two or fewer other lands/i.test(oracleText(c)) },
+  { key: 'slow', label: t('da.land.slow'), test: (c) => /two or more other lands/i.test(oracleText(c)) },
+  { key: 'battle', label: t('da.land.battle'), test: (c) => /two or more basic lands/i.test(oracleText(c)) },
   {
     // Checked after every mana-producing cycle above (a fetchland has no
     // "Add" text of its own either, so it must be filtered out by the
@@ -254,16 +256,16 @@ const LAND_ARCHETYPES = [
     // which is the catch-all for mana-producing nonbasics that don't fit
     // a recognized cycle.
     key: 'utility',
-    label: 'Utility-Land',
+    label: t('da.land.utility'),
     test: (c) => !producesMana(c),
   },
-   { key: 'mdfc_land', label: 'MDFC', test: isMdfcLand },
+   { key: 'mdfc_land', label: t('da.land.mdfc'), test: isMdfcLand },
   {
     key: 'conditional_tapped',
-    label: 'Sonstiges (getappt)',
+    label: t('da.land.otherTapped'),
     test: (c) => /enters?( the battlefield)? tapped/i.test(oracleText(c)),
   },
-  { key: 'other', label: 'Non-Basic (n. getappt)', test: () => true },
+  { key: 'other', label: t('da.land.other'), test: () => true },
 ];
 
 /** Which `LAND_ARCHETYPES` entry a (land) card falls under — first match wins. */
@@ -294,8 +296,8 @@ const TARGETED_DISCARD_RE = /\btarget (opponent|player) discards?\b/i;
 
 //: Sub-bucket of "Card Advantage" — first match wins.
 const CARD_ADVANTAGE_KINDS = [
-  { key: 'card_draw', label: 'Kartenziehen', test: (c) => CARD_DRAW_RE.test(oracleText(c)) },
-  { key: 'opponent_discard', label: 'Gegner-Diskard', test: (c) => TARGETED_DISCARD_RE.test(oracleText(c)) },
+  { key: 'card_draw', label: t('da.cardAdv.card_draw'), test: (c) => CARD_DRAW_RE.test(oracleText(c)) },
+  { key: 'opponent_discard', label: t('da.cardAdv.opponent_discard'), test: (c) => TARGETED_DISCARD_RE.test(oracleText(c)) },
 ];
 
 /** Which `CARD_ADVANTAGE_KINDS` entry (if any) a card falls under. */
@@ -345,12 +347,12 @@ function isTargetedRemoval(card) {
 //: Sub-bucket of "Targeted Disruption" (interaction aimed at a single
 //: permanent/player) — first match wins, most specific first.
 const TARGETED_DISRUPTION_KINDS = [
-  { key: 'counterspell', label: 'Konterzauber', test: (c) => COUNTERSPELL_RE.test(oracleText(c)) },
-  { key: 'removal', label: 'Entfernung (Removal)', test: isTargetedRemoval },
-  { key: 'bounce', label: 'Bounce', test: (c) => BOUNCE_TARGET_RE.test(oracleText(c)) },
-  { key: 'threaten', label: 'Kontrollwechsel (Threaten)', test: (c) => THREATEN_RE.test(oracleText(c)) },
-  { key: 'edict', label: 'Edikt (Opfer-Zwang)', test: (c) => EDICT_RE.test(oracleText(c)) },
-  { key: 'graveyard_hate', label: 'Friedhof-Hate', test: (c) => GRAVEYARD_HATE_RE.test(oracleText(c)) },
+  { key: 'counterspell', label: t('da.targeted.counterspell'), test: (c) => COUNTERSPELL_RE.test(oracleText(c)) },
+  { key: 'removal', label: t('da.targeted.removal'), test: isTargetedRemoval },
+  { key: 'bounce', label: t('da.targeted.bounce'), test: (c) => BOUNCE_TARGET_RE.test(oracleText(c)) },
+  { key: 'threaten', label: t('da.targeted.threaten'), test: (c) => THREATEN_RE.test(oracleText(c)) },
+  { key: 'edict', label: t('da.targeted.edict'), test: (c) => EDICT_RE.test(oracleText(c)) },
+  { key: 'graveyard_hate', label: t('da.targeted.graveyard_hate'), test: (c) => GRAVEYARD_HATE_RE.test(oracleText(c)) },
 ];
 
 /** Which `TARGETED_DISRUPTION_KINDS` entry (if any) a card falls under. */
@@ -370,19 +372,19 @@ const MASS_GRAVEYARD_HATE_RE = /\bexile[^.]*\b(all|each player's|all players'|ea
 //: opponent/symmetric effects) — first match wins, same convention as
 //: `TARGETED_DISRUPTION_KINDS`.
 const MASS_DISRUPTION_KINDS = [
-  { key: 'board_wipe', label: 'Board Wipe', test: (c) => BOARD_WIPE_RE.test(oracleText(c)) },
-  { key: 'prison', label: 'Prison-/Stax-Effekt', test: (c) => PRISON_RE.test(oracleText(c)) },
-  { key: 'mass_bounce', label: 'Mass Bounce', test: (c) => MASS_BOUNCE_RE.test(oracleText(c)) },
+  { key: 'board_wipe', label: t('da.mass.board_wipe'), test: (c) => BOARD_WIPE_RE.test(oracleText(c)) },
+  { key: 'prison', label: t('da.mass.prison'), test: (c) => PRISON_RE.test(oracleText(c)) },
+  { key: 'mass_bounce', label: t('da.mass.mass_bounce'), test: (c) => MASS_BOUNCE_RE.test(oracleText(c)) },
   {
     key: 'mass_removal_other',
-    label: 'Massenentfernung (Artefakte/Verz./Planeswalker)',
+    label: t('da.mass.mass_removal_other'),
     test: (c) => MASS_REMOVAL_OTHER_RE.test(oracleText(c)),
   },
-  { key: 'mass_discard', label: 'Massen-Diskard', test: (c) => MASS_DISCARD_RE.test(oracleText(c)) },
-  { key: 'mass_sacrifice', label: 'Massen-Opfer', test: (c) => MASS_SACRIFICE_RE.test(oracleText(c)) },
+  { key: 'mass_discard', label: t('da.mass.mass_discard'), test: (c) => MASS_DISCARD_RE.test(oracleText(c)) },
+  { key: 'mass_sacrifice', label: t('da.mass.mass_sacrifice'), test: (c) => MASS_SACRIFICE_RE.test(oracleText(c)) },
   {
     key: 'graveyard_hate_mass',
-    label: 'Friedhof-Hate (Masse)',
+    label: t('da.mass.graveyard_hate_mass'),
     test: (c) => MASS_GRAVEYARD_HATE_RE.test(oracleText(c)),
   },
 ];
@@ -395,12 +397,12 @@ export function massDisruptionKind(card) {
 //: The six Command Zone template buckets (lands handled separately by the
 //: caller, since it's already gated on `card.is_land` there).
 const COMMAND_ZONE_CATEGORIES = [
-  { key: 'lands', label: 'Lands' },
-  { key: 'ramp', label: 'Ramp' },
-  { key: 'card_advantage', label: 'Card Advantage' },
-  { key: 'targeted_disruption', label: 'Targeted Disruption' },
-  { key: 'mass_disruption', label: 'Mass Disruption' },
-  { key: 'plan', label: 'Plan Cards' },
+  { key: 'lands', label: t('da.cz.lands') },
+  { key: 'ramp', label: t('da.cz.ramp') },
+  { key: 'card_advantage', label: t('da.cz.card_advantage') },
+  { key: 'targeted_disruption', label: t('da.cz.targeted_disruption') },
+  { key: 'mass_disruption', label: t('da.cz.mass_disruption') },
+  { key: 'plan', label: t('da.cz.plan') },
 ];
 
 /**
@@ -589,21 +591,19 @@ export function suggestBracket(gameChangerCount, massLandDenialCount, extraTurnC
 
   if (gameChangerCount > 3) {
     minimumBracket = 4;
-    reasons.push(`${gameChangerCount} Game Changer (mehr als die 3 erlaubten in Bracket 3) → mind. Bracket 4`);
+    reasons.push(t('da.bracket.gcOver3', { count: gameChangerCount }));
   } else if (gameChangerCount >= 1) {
     minimumBracket = 3;
-    reasons.push(`${gameChangerCount} Game Changer (in Bracket 1–2 nicht erlaubt) → mind. Bracket 3`);
+    reasons.push(t('da.bracket.gcAny', { count: gameChangerCount }));
   }
 
   if (massLandDenialCount >= 1) {
     minimumBracket = 4;
-    reasons.push(`${massLandDenialCount} Mass-Land-Denial-Karte(n) (in Bracket 1–3 nicht vorgesehen) → mind. Bracket 4`);
+    reasons.push(t('da.bracket.mld', { count: massLandDenialCount }));
   }
 
   if (extraTurnCount >= 2) {
-    reasons.push(
-      `${extraTurnCount} Extra-Turn-Karten im Deck — falls diese verkettet/wiederholt eingesetzt werden sollen, ist das ab Bracket 1–3 nicht vorgesehen (eine einzelne Extra-Turn-Karte ist unbedenklich).`
-    );
+    reasons.push(t('da.bracket.extraTurns', { count: extraTurnCount }));
   }
 
   return { minimumBracket, reasons };
