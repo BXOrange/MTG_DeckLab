@@ -2448,7 +2448,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: turn-scoped burn-spell rider ("Players can't gain life this turn." —
 #: Skullcrack / Call In a Professional) reuses `PreventLifeGainEffect` with
 #: a new `recipient="all"`. +7.
-PARSER_VERSION = "239"
+#: v240 — PAR-40 — "~ deals N damage to each creature without flying [and
+#: each player]." (RULE 601.2c — Earthquake / Fault Line / Tremor / Rolling
+#: Temblor ground-sweeper family). New `damage_each_nonflyer` handler +
+#: `DealDamageEffect.selector_filter` (a `combat.matches_object_filter`
+#: `without_keyword` dict, applied to the `each_creature`/`each_creature_
+#: and_player` iteration only — players in a union selector are never
+#: filtered). Digit or {X} amount. +19.
+PARSER_VERSION = "240"
 
 
 def parser_source_hash() -> str:

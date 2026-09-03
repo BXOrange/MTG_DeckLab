@@ -3090,6 +3090,7 @@ class DealDamageEffect(GameEffect):
         count_max: Optional[int] = None,
         colors: Optional[list[str]] = None,
         creature_filter: Optional[dict[str, Any]] = None,
+        selector_filter: Optional[dict[str, Any]] = None,
         divided: bool = False,
         double_at: Optional[int] = None,
         amount_if_kicked: Optional[int] = None,
@@ -3192,6 +3193,12 @@ class DealDamageEffect(GameEffect):
         self.amount_from_noncreature_spells_cast_this_turn = amount_from_noncreature_spells_cast_this_turn
         self.target = target
         self.selector = selector if selector in _DAMAGE_SELECTORS else None
+        #: "~ deals N damage to each creature **without flying**." (RULE
+        #: 601.2c — Earthquake / Fault Line / Pyroclasm-with-a-filter) — a
+        #: `combat.matches_object_filter`-shaped narrowing applied to the
+        #: `each_creature`/`each_creature_and_player` iteration only (players
+        #: in a union selector are never filtered).
+        self.selector_filter = selector_filter
         # RULE 601.2d: a *divided* damage spell splits its total ``amount``
         # (typically {X}) among the chosen targets — "N damage divided as you
         # choose among …" (Fire Covenant, Shatterskull Smashing) — rather than
@@ -3427,8 +3434,11 @@ class DealDamageEffect(GameEffect):
             return
         if self.selector in ("each_creature", "each_creature_and_player", "each_creature_and_planeswalker"):
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
+            from . import combat  # local: combat↔effects cycle
 
             for obj in group_selector_objects(context.state, None, "all_creatures"):
+                if self.selector_filter and not combat.matches_object_filter(obj, self.selector_filter):
+                    continue
                 context.deal_damage(obj, amount, self.source)
             if self.selector == "each_creature_and_planeswalker":
                 # A creature that's *also* a planeswalker (rare, but real —
@@ -20050,6 +20060,7 @@ EffectRegistry.register(
         count_max=p.get("count_max"),
         colors=p.get("colors"),
         creature_filter=p.get("creature_filter"),
+        selector_filter=p.get("selector_filter"),
         divided=bool(p.get("divided", False)),
         double_at=p.get("double_at"),
         amount_if_kicked=p.get("amount_if_kicked"),

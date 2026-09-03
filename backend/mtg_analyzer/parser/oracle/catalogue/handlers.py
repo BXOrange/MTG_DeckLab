@@ -865,6 +865,27 @@ def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": selector})]
 
 
+#: "~ deals N damage to each creature without flying [and each player]."
+#: (RULE 601.2c — Earthquake / Fault Line / Pyroclasm-with-a-filter, ~30
+#: SOLO). The `each_creature` mass selector narrowed by a
+#: `combat.matches_object_filter` `without_keyword` — `DealDamageEffect.
+#: selector_filter`. Digit or ``{X}`` amount; the optional "and each
+#: player" tail flips the union selector (players are never filtered).
+_DAMAGE_EACH_NONFLYER_RE = _c(
+    rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? (?P<n>\d+|x) damage to "
+    rf"each creature without flying(?P<and_player> and each player)?"
+)
+
+
+def _damage_each_nonflyer(m: re.Match[str]) -> list[EffectSpec]:
+    n = m.group("n").lower()
+    return [EffectSpec("damage", {
+        "amount": "x" if n == "x" else int(n),
+        "selector": "each_creature_and_player" if m.group("and_player") else "each_creature",
+        "selector_filter": {"without_keyword": "flying"},
+    })]
+
+
 #: "~ deals damage to that player equal to the number of noncreature
 #: spells they've cast this turn." (Magebane Lizard) — `DealDamageEffect.
 #: amount_from_noncreature_spells_cast_this_turn`'s own trigger-body
@@ -8941,6 +8962,15 @@ HANDLERS: list[EffectHandler] = [
     # two "and each …" unions come first in the alternation so the bare
     # "each creature" branch can't consume a prefix and then fail the
     # fullmatch on the trailing "and each …".
+    # "~ deals N damage to each creature without flying [and each player]"
+    # (Earthquake / Fault Line) — before the plain `damage_selector` row,
+    # whose bare "each creature" alternative would otherwise consume the
+    # prefix and fail the fullmatch on "without flying".
+    EffectHandler(
+        "damage_each_nonflyer",
+        _DAMAGE_EACH_NONFLYER_RE,
+        _damage_each_nonflyer,
+    ),
     EffectHandler(
         "damage_selector",
         _c(
