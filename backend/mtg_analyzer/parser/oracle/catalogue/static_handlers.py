@@ -147,6 +147,21 @@ _GRANT_RE = re.compile(
     r"have (?P<kw>[a-z][a-z, ]*)",
     re.IGNORECASE,
 )
+# PAR-31: "Artifacts, creatures, enchantments, and lands you control have
+# <keywords>." (Elspeth, Knight-Errant's −8 emblem; also a standing static
+# on a handful of permanents) — a keyword grant whose scope is an
+# explicit *list* of two or more permanent-type words rather than the
+# single word `_GRANT_RE`/`_permanent_type_scope` handles. `_GRANT_RE`'s
+# own `body` group is comma-free (`[a-z][a-z ]*?`), so this never
+# competes with it. Emits one `grant_keyword` scoped to
+# `permanents_you_control` narrowed by the `card_type` list
+# `continuous.affected_objects` already ORs (Grand Abolisher-shaped).
+_MULTI_PERMANENT_TYPE_GRANT_RE = re.compile(
+    r"(?P<body>(?:artifacts|creatures|enchantments|lands|planeswalkers)"
+    r"(?:,? (?:and )?(?:artifacts|creatures|enchantments|lands|planeswalkers))+)"
+    r" you control have (?P<kw>[a-z][a-z, ]*)",
+    re.IGNORECASE,
+)
 # "Each creature you control with a +1/+1 counter on it has <keywords>."
 # (PAR-34 — the Abzan "outlast" cycle: Abzan Falconer / Abzan Battle
 # Priest / Ainok Bond-Kin / Hardened Scales-adjacent). A `grant_keyword`
@@ -2186,6 +2201,27 @@ def _permanent_scope_params(word: str, m: "re.Match[str]") -> dict:
     return params
 
 
+def _multi_permanent_type_list(body: str) -> Optional[list[str]]:
+    """A "artifacts, creatures, enchantments, and lands" scope phrase →
+    the ordered, de-duplicated list of singular `_CARD_TYPE_WORDS` in it,
+    or ``None`` (fail-closed) if it isn't two or more recognised
+    permanent-type words. Splits on commas and "and" (RULE-text list
+    punctuation), tolerating the Oxford comma.
+    """
+    words = [
+        _singularize(p.strip())
+        for p in re.split(r",\s*(?:and\s+)?|\s+and\s+", body.strip())
+        if p.strip()
+    ]
+    if not words or any(w not in _CARD_TYPE_WORDS for w in words):
+        return None
+    seen: list[str] = []
+    for w in words:
+        if w not in seen:
+            seen.append(w)
+    return seen if len(seen) >= 2 else None
+
+
 def _is_vehicle_scope(body: str) -> bool:
     """A bare "[other] Vehicles [you control]" scope (Balthier and Fran) —
     the `_ARTIFACT_SUBTYPES` sibling of `_permanent_type_scope`'s bare
@@ -3564,6 +3600,20 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "keywords": keywords,
             "affects": "creatures_you_control",
             "has_counter_kind": "+1/+1",
+        })]
+
+    m = _MULTI_PERMANENT_TYPE_GRANT_RE.fullmatch(text)
+    if m is not None:
+        card_types = _multi_permanent_type_list(m.group("body"))
+        if card_types is None:
+            return None
+        keywords = _flag_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        return [EffectSpec("grant_keyword", {
+            "keywords": keywords,
+            "affects": "permanents_you_control",
+            "card_type": card_types,
         })]
 
     m = _GRANT_RE.fullmatch(text)

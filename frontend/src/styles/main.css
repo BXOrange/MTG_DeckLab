@@ -727,12 +727,49 @@ textarea {
   gap: 0.4rem;
 }
 
-/* RULE 601.3b/715.3d/722.3c: the "castable from exile" callout next to the
-   hand — each entry pairs the ordinary card tile with a caption explaining
-   why it's castable and how long that lasts (an impulsive-draw permission
-   expires; Adventure/Prepared don't). */
+/* RULE 601.3b/715.3d/722.3c: the "castable from exile" callout (and its
+   graveyard sibling `.gf-grave-castable` — Flashback/Escape/Disturb/…) that
+   sits *beside* the hand in `.gf-castable-aside`. Each exile entry pairs the
+   card tile with a caption explaining why it's castable and how long that
+   lasts (an impulsive-draw permission expires; Adventure/Prepared don't). */
 .gf-exile-castable {
   border-color: var(--accent);
+}
+
+/* The hand row: hand on the left, the conditional exile/graveyard callouts
+   as a narrow column on the right (only present when they have something to
+   show — see `handAreaHtml`). Collapses to a stack on a narrow viewport. */
+.gf-hand-area {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.gf-hand-area .gf-hand {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gf-castable-aside {
+  flex: 0 0 auto;
+  width: min(280px, 40%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.gf-castable-aside .gf-zone {
+  margin-bottom: 0;
+}
+
+@media (max-width: 760px) {
+  .gf-hand-area {
+    flex-direction: column;
+  }
+  .gf-castable-aside {
+    width: auto;
+    align-self: stretch;
+  }
 }
 
 .gf-exile-castable-entry {
@@ -2111,6 +2148,45 @@ textarea {
   margin: 0 0 0.4rem;
   font-size: 0.85rem;
   color: var(--text-dim);
+}
+
+/* Collapsible Friedhof / Exil zones (`collapsibleZoneHtml`): the header is a
+   full-width toggle button styled to look exactly like the plain `h4` it
+   replaces; an empty zone keeps a static header with a muted "leer". The
+   open body is height-capped and scrolls inside itself so a 60-card
+   graveyard can never stretch the side column. */
+.gf-zone-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gf-zone-toggle:hover {
+  color: var(--text);
+}
+
+.gf-zone-caret {
+  font-size: 0.7em;
+  opacity: 0.8;
+}
+
+.gf-zone-empty {
+  opacity: 0.7;
+  font-weight: normal;
+}
+
+.gf-zone-body {
+  max-height: 15rem;
+  overflow-y: auto;
 }
 
 .gf-zone-row {

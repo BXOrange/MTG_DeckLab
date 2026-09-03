@@ -484,12 +484,24 @@ def test_static_bare_land_scope_uses_dedicated_selector():
     assert "card_type" not in e.params
 
 
-def test_static_compound_noncreature_scope_stays_unclaimed():
+def test_static_compound_noncreature_scope_grant():
     # "Artifacts and enchantments you control have shroud." (Fountain Watch)
-    # — no engine selector ORs two card types yet, so this deliberately
-    # stays fail-closed rather than guessing (PAR-3 is single-word only).
+    # — PAR-31: `continuous.affected_objects` now ORs a `card_type` list
+    # (Grand Abolisher-shaped), so a compound permanent-type scope is a
+    # `grant_keyword` on `permanents_you_control` narrowed by that list,
+    # no longer fail-closed. (`static_handlers._MULTI_PERMANENT_TYPE_GRANT_RE`.)
     r, statics = _static_specs("Artifacts and enchantments you control have shroud.")
-    assert statics == [] and r.coverage == UNMODELED
+    assert r.coverage != UNMODELED and len(statics) == 1
+    assert list(statics[0].effects) == [
+        EffectSpec("grant_keyword", {
+            "keywords": ["shroud"],
+            "affects": "permanents_you_control",
+            "card_type": ["artifact", "enchantment"],
+        })
+    ]
+    # A three-word non-permanent word in the list still fails closed.
+    r2, statics2 = _static_specs("Artifacts and goblins you control have haste.")
+    assert statics2 == [] and r2.coverage == UNMODELED
 
 
 def test_static_enchanted_creatures_group_scope_stays_unclaimed():

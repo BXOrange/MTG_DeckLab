@@ -197,6 +197,14 @@ export function createGameBoardView(opts = {}) {
   // opponent's hidden zones were never on the wire to begin with (RULE
   // 400.2). Starts empty, so nothing is hidden unless asked for.
   const collapsedBoards = new Set();
+  // Friedhof / Exil zone bodies the player has expanded. Both zones are
+  // collapsed to just their header by default so a full graveyard (60+
+  // entries) can't stretch the fixed-width side column and push the rest of
+  // the board around — clicking the header toggles the list open, and the
+  // open list is height-capped and scrolls inside itself. Keyed
+  // `${playerId}:graveyard` / `${playerId}:exile`; purely a client-side
+  // view state, same shape as `collapsedBoards`.
+  const expandedZones = new Set();
   // Double-faced permanents a player has clicked "🔄" on to *preview* the
   // other face — purely a client-side view toggle (RULE 712 has no such
   // concept; the object's real `transformed` state is untouched), so a
@@ -1491,14 +1499,8 @@ export function createGameBoardView(opts = {}) {
               <p class="library-count">${p.library_count} Karten</p>
               ${libraryTopHtml(p, byInstance, pending)}
             </div>
-            <div class="gf-zone gf-graveyard">
-              <h4>Friedhof (${p.graveyard.length})</h4>
-              ${zoneListHtml(p.graveyard, 'leer')}
-            </div>
-            <div class="gf-zone gf-exile">
-              <h4>Exil (${p.exile.length})</h4>
-              ${objGrid(p.exile, 'leer', byInstance, pending)}
-            </div>
+            ${collapsibleZoneHtml('gf-graveyard', 'Friedhof', `${p.id}:graveyard`, p.graveyard.length, zoneListHtml(p.graveyard, 'leer'))}
+            ${collapsibleZoneHtml('gf-exile', 'Exil', `${p.id}:exile`, p.exile.length, objGrid(p.exile, 'leer', byInstance, pending))}
           </aside>
 
           <div class="gf-main">
@@ -1519,12 +1521,7 @@ export function createGameBoardView(opts = {}) {
 
             ${showStatics ? staticEffectsPanelHtml(view, s) : ''}
 
-            ${exileCastableHtml(p, s, byInstance, pending)}
-
-            <div class="gf-zone gf-hand">
-              <h4>Hand (${p.hand_count != null ? p.hand_count : p.hand.length})${ownHand ? '' : opponentHandToggleHtml()}</h4>
-              ${handHtml(p, byInstance, pending, ownHand)}
-            </div>
+            ${handAreaHtml(p, s, byInstance, pending, ownHand)}
           </div>
         </div>
       </section>`;
@@ -1919,6 +1916,15 @@ export function createGameBoardView(opts = {}) {
         const id = el.dataset.foldBoard;
         if (collapsedBoards.has(id)) collapsedBoards.delete(id);
         else collapsedBoards.add(id);
+        render();
+      });
+    });
+    // Expand / collapse a Friedhof or Exil zone body (see `expandedZones`).
+    root.querySelectorAll('[data-zone-toggle]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const key = el.dataset.zoneToggle;
+        if (expandedZones.has(key)) expandedZones.delete(key);
+        else expandedZones.add(key);
         render();
       });
     });
@@ -2582,6 +2588,26 @@ export function createGameBoardView(opts = {}) {
       .join('')}</ul>`;
   }
 
+  // A side-column zone (Friedhof / Exil) whose body collapses to just the
+  // header by default (`expandedZones`), so a large graveyard can't stretch
+  // the fixed-width column and shove the rest of the board around. An empty
+  // zone shows its "leer" body outright with no toggle; a non-empty one
+  // turns the header into a ▸/▾ button and height-caps the open body so it
+  // scrolls inside itself rather than growing the layout. `bodyHtml` already
+  // carries its own "leer" empty-state, so the count drives everything here.
+  function collapsibleZoneHtml(cls, label, key, count, bodyHtml) {
+    const empty = count === 0;
+    if (empty) {
+      return `<div class="gf-zone ${cls}"><h4>${escapeHtml(label)} (0) — <span class="gf-zone-empty">leer</span></h4></div>`;
+    }
+    const open = expandedZones.has(key);
+    return `
+      <div class="gf-zone ${cls}">
+        <h4><button type="button" class="gf-zone-toggle" data-zone-toggle="${escapeAttr(key)}" aria-expanded="${open ? 'true' : 'false'}"><span class="gf-zone-caret">${open ? '▾' : '▸'}</span> ${escapeHtml(label)} (${count})</button></h4>
+        <div class="gf-zone-body"${open ? '' : ' hidden'}>${bodyHtml}</div>
+      </div>`;
+  }
+
   // Whether this permanent's tile should currently show its *back* face —
   // its real transformed state (RULE 712.8), inverted by a client-only
   // "🔄 peek" toggle (`flippedForView`) that doesn't touch game state.
@@ -2781,6 +2807,51 @@ export function createGameBoardView(opts = {}) {
       <div class="gf-zone gf-exile-castable">
         <h4>🎇 Spielbar aus dem Exil (${entries.length})</h4>
         <div class="card-grid gf-exile-castable-list">${cards}</div>
+      </div>`;
+  }
+
+  // The graveyard sibling of `exileCastableHtml`: every card in this
+  // player's graveyard that `legal_actions` currently offers a real
+  // play/cast/activate for (Flashback, Escape, Disturb, Aftermath, "you may
+  // cast … from your graveyard", …). The ordinary Friedhof zone lists these
+  // too, but only by name and with no way to act on them — this callout is
+  // where the actual buttons live, tile + art like the exile one.
+  function graveCastableHtml(p, s, byInstance, pending) {
+    if (pending) return '';
+    const entries = (p.graveyard || []).filter(
+      (o) => (byInstance[o.instance_id] || []).some(isPlayableCardAction),
+    );
+    if (!entries.length) return '';
+    const imageCache = getState().imageCache;
+    const cards = entries
+      .map((o) => `
+        <div class="gf-exile-castable-entry">
+          ${objCard(o, imageCache, byInstance[o.instance_id] || [])}
+        </div>`)
+      .join('');
+    return `
+      <div class="gf-zone gf-exile-castable gf-grave-castable">
+        <h4>⚰️ Spielbar aus dem Friedhof (${entries.length})</h4>
+        <div class="card-grid gf-exile-castable-list">${cards}</div>
+      </div>`;
+  }
+
+  // The hand and, *beside* it (not stacked above/below), the conditional
+  // "spielbar aus dem Exil / Friedhof" callouts — they only take a column
+  // of their own when at least one of them has something to show, otherwise
+  // the hand spans the full width as before.
+  function handAreaHtml(p, s, byInstance, pending, ownHand) {
+    const aside = `${exileCastableHtml(p, s, byInstance, pending)}${graveCastableHtml(p, s, byInstance, pending)}`;
+    const asideHtml = aside.trim()
+      ? `<div class="gf-castable-aside">${aside}</div>`
+      : '';
+    return `
+      <div class="gf-hand-area">
+        <div class="gf-zone gf-hand">
+          <h4>Hand (${p.hand_count != null ? p.hand_count : p.hand.length})${ownHand ? '' : opponentHandToggleHtml()}</h4>
+          ${handHtml(p, byInstance, pending, ownHand)}
+        </div>
+        ${asideHtml}
       </div>`;
   }
 
