@@ -1070,6 +1070,19 @@ def _trigger_condition(
 
         predicates.append(_spell_targets_permanent_ok)
 
+    # "Whenever you cast a spell that targets ~, put a +1/+1 counter on ~."
+    # (RULE 702.34a's un-keyworded template — Akroan Skyguard / Battlewise
+    # Hoplite / Hero of Iroas / Legolas, Master Archer) — the spell's chosen
+    # targets must include this ability's own source. Reads the SPELL_CAST
+    # event's `target_instance_ids` frozenset (`casting_mixin._target_
+    # instance_ids`); `source` here is the bound ability's own object.
+    if trigger.get("requires_spell_targets_source"):
+        def _spell_targets_source_ok(event: Any, context: Any, src=source) -> bool:
+            sid = getattr(src, "instance_id", None)
+            return sid is not None and sid in (event.get("target_instance_ids") or ())
+
+        predicates.append(_spell_targets_source_ok)
+
     # "…a spell with mana value equal to the number of charge counters on
     # this artifact, counter that spell." (Chalice of the Void, MEC-43) —
     # reads the firing SPELL_CAST event's own ``mana_value`` against a live

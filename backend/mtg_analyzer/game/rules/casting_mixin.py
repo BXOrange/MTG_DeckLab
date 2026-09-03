@@ -107,6 +107,19 @@ def _targets_a_permanent(targets: Optional[list[Any]]) -> bool:
     return False
 
 
+def _target_instance_ids(targets: Optional[list[Any]]) -> frozenset:
+    """The `instance_id`s of a spell's chosen object targets — stamped onto
+    the `SPELL_CAST` event so a Heroic-style "whenever you cast a spell that
+    targets ~" trigger (RULE 702.34a's un-keyworded template — Akroan
+    Skyguard / Battlewise Hoplite / Hero of Iroas) can tell whether the
+    ability's own source was among them, without a lookup back to a stack
+    item that may already have resolved."""
+    return frozenset(
+        t.instance_id for t in (targets or [])
+        if isinstance(t, GameObject) and getattr(t, "instance_id", None) is not None
+    )
+
+
 def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     """Whether ``obj`` matches a sacrifice cost/effect's type word (RULE
     701.17), e.g. ``"creature"``/``"artifact"``/``"enchantment"``/``"land"``/
@@ -707,6 +720,7 @@ class CastingResolutionMixin:
                 # "Whenever you cast a spell that targets one or more
                 # permanents, incubate 2." (Tiller of Flesh) — RULE 608.2b.
                 targets_a_permanent=_targets_a_permanent(targets),
+                target_instance_ids=_target_instance_ids(targets),
             )
         )
         self.check_ward(item, player)
@@ -783,6 +797,7 @@ class CastingResolutionMixin:
                 power=obj.power,
                 toughness=obj.toughness,
                 targets_a_permanent=_targets_a_permanent(targets),
+                target_instance_ids=_target_instance_ids(targets),
             )
         )
         self.check_ward(item, player)

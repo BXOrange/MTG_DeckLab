@@ -2461,7 +2461,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: with a new `targets_source` param; `continuous.cost_reduction_for` gains
 #: a `targets` arg and skips the tax unless the caster's chosen targets
 #: include this static's own source (`_adjust_cost` threads it through). +4.
-PARSER_VERSION = "241"
+#: v242 — RULE 702.34a's un-keyworded **Heroic** template: "Whenever you
+#: cast a spell that targets ~, `<effect>`." (the whole Theros + GRN + LOTR
+#: Heroic cycle — Akroan Skyguard / Battlewise Hoplite / Hero of Iroas /
+#: Wingsteed Rider / Fabled Hero / Phalanx Leader / Tenth District
+#: Legionnaire). `segmenter._CAST_SPELL_TARGETS_SOURCE_TRIGGER_RE` → a
+#: `SPELL_CAST` trigger with `requires_spell_targets_source`;
+#: `casting_mixin` stamps `target_instance_ids` (a frozenset) on the
+#: SPELL_CAST event, and `effect_binder`'s new predicate checks the bound
+#: ability's own object is among them. **+37** (coverage crossed 40.0%).
+PARSER_VERSION = "242"
 
 
 def parser_source_hash() -> str:

@@ -473,6 +473,21 @@ _CAST_SPELL_TARGETS_PERMANENT_TRIGGER_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: RULE 702.34a's un-keyworded **Heroic** template — "Whenever you cast a
+#: spell that targets ~, `<effect>`." (Akroan Skyguard / Battlewise Hoplite
+#: / Hero of Iroas / Legolas, Master Archer / Phalanx Leader-adjacent). The
+#: engine side is `effect_binder`'s ``requires_spell_targets_source``
+#: predicate, reading `SPELL_CAST`'s new ``target_instance_ids`` frozenset
+#: against the bound ability's own object. Always "you cast" (the ability's
+#: own controller); the body is parsed ``self_subject`` so "~" means this
+#: creature. Tried before `_CAST_SPELL_TARGETS_PERMANENT_TRIGGER_RE` — the
+#: "targets ~" and "targets 1 or more permanents" clauses don't overlap,
+#: this is just for locality.
+_CAST_SPELL_TARGETS_SOURCE_TRIGGER_RE = re.compile(
+    r"^whenever you cast a spell that targets ~,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
 #: RULE 601.2i: "When you cast this spell, `<effect>`." — a self-referential
 #: cast trigger, meant to fire *while its own spell is still on the stack*
 #: (it resolves above the spell). The engine side is done (MEC-43):
@@ -3651,6 +3666,26 @@ def segment_line(
                 "event": "SPELL_CAST",
                 "condition": {"subject": "group"},
                 "spell_no_mana_spent": True,
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_targets_src = _CAST_SPELL_TARGETS_SOURCE_TRIGGER_RE.match(raw)
+    if cast_spell_targets_src is not None:
+        body, optional = _peel_optional(cast_spell_targets_src.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": _cast_spell_trigger_condition("you"),
+                "requires_spell_targets_source": True,
             },
             optional=optional,
             raw_text=raw,
