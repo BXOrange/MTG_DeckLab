@@ -324,6 +324,7 @@ is in the rules-engine categories below them.
 - **What:** Added `lose_life`/`lose_life_selector` handlers and registered `LoseLifeEffect` (previously only reachable internally by Afflict) with the same mass-selector shape `DealDamageEffect` has.
 - **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
 - **Bug fixed:** `GainLifeEffect`/`LoseLifeEffect`'s "no explicit player" fallback read `targets[0]` from the ability's shared target list, crashing when combined with an unrelated targeted effect in the same clause (Deathrite Shaman's "Exile target creature card... You gain 2 life."). Fixed to use the effect's own controller instead.
+- **Follow-up (PAR-45, v232) — "target opponent loses N life":** the `lose_life` handler's `who` alternation gained `target opponent` → `EffectSpec("lose_life", {"target_kind": "opponent"})` (the RULE 115 opponent-restricted player target — already a valid `ALLOWED_TARGET_KINDS` entry, `legal_targets` already narrows it). This unlocks the Blood Artist / Zulaport Cutthroat **drain** family without any "drain" effect type: `target opponent loses N life and you gain N life` splits on the connector into the widened `lose_life` row + the existing `gain_life` row. **+34** — A-Blood Artist / A-Queza / Zulaport Chainmage / Bump in the Night / Geralf's Messenger / Vein Ripper / Skymarch Bloodletter / Diregraf Captain / …. `tests/test_par45_drain_target_opponent.py`.
 
 ### Surveil (RULE 701.31)
 

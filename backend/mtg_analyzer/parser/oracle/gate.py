@@ -2380,7 +2380,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `LoseLifeEffect`/`DealDamageEffect`'s same field, reading the firing
 #: DAMAGE event's `amount`. +17 (El-Hajjâj / Exalted Angel / Horned Cheetah
 #: / Spirit Link / Vampiric Link / Wall of Hope / …).
-PARSER_VERSION = "231"
+#: v232 — PAR-45 — "target opponent loses N life [and you gain N life]" (the
+#: Blood Artist / Zulaport Cutthroat drain family). The `lose_life`
+#: handler's `who` alternation gains `target opponent` →
+#: `EffectSpec("lose_life", {"target_kind": "opponent"})` (the RULE 115
+#: opponent-restricted player target, already a valid target kind); the
+#: paired "and you gain N life" rides the existing `gain_life` row via the
+#: ordinary connector split — no "drain" effect type needed. +34 (A-Blood
+#: Artist / Zulaport Chainmage / Bump in the Night / Geralf's Messenger /
+#: Vein Ripper / Skymarch Bloodletter / …).
+PARSER_VERSION = "232"
 
 
 def parser_source_hash() -> str:

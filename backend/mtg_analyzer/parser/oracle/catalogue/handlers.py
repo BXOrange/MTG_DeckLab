@@ -1657,8 +1657,12 @@ def _lose_life_per_spell_cast_this_turn(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _lose_life(m: re.Match[str]) -> list[EffectSpec]:
-    # "you lose N life" / "target player loses N life" — same targeting
-    # split as `_gain_life`. "they lose N life" (Sheoldred, the Apocalypse's
+    # "you lose N life" / "target player loses N life" / "target opponent
+    # loses N life" — same targeting split as `_gain_life`. "target
+    # opponent" is the RULE 115 opponent-restricted player target (the
+    # `"opponent"` target kind), which pairs with a following "and you gain
+    # N life" clause via the ordinary connector split for the Blood Artist
+    # drain family. "they lose N life" (Sheoldred, the Apocalypse's
     # "whenever an opponent draws a card, they lose 2 life.") is the group-
     # subject trigger's own firing player, not a fresh RULE 115 target —
     # `LoseLifeEffect`'s ``selector="event_player"``, the same "that player"
@@ -1667,6 +1671,8 @@ def _lose_life(m: re.Match[str]) -> list[EffectSpec]:
     params: dict = {"amount": int(m.group("n"))}
     if who == "target player":
         params["target_kind"] = "player"
+    elif who == "target opponent":
+        params["target_kind"] = "opponent"
     elif who == "they":
         params["selector"] = "event_player"
     return [EffectSpec("lose_life", params)]
@@ -9145,11 +9151,12 @@ HANDLERS: list[EffectHandler] = [
         _LOSE_LIFE_PER_SPELL_CAST_THIS_TURN_RE,
         _lose_life_per_spell_cast_this_turn,
     ),
-    # "you lose 2 life" / "target player loses 2 life" / "they lose 2 life"
-    # (the group-subject event's own player — see `_lose_life`'s docstring).
+    # "you lose 2 life" / "target player loses 2 life" / "target opponent
+    # loses 2 life" / "they lose 2 life" (the group-subject event's own
+    # player — see `_lose_life`'s docstring).
     EffectHandler(
         "lose_life",
-        _c(rf"(?P<who>you |target player |they )?loses? {NUMBER} life"),
+        _c(rf"(?P<who>you |target player |target opponent |they )?loses? {NUMBER} life"),
         _lose_life,
     ),
     # RULE 202.2f/700.6 "each opponent loses X life, where X is your

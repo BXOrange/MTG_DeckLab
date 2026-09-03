@@ -147,11 +147,15 @@ its block back into the matching section here.
   - **PAR-44** — static permission / prohibition (`you may play lands from
     your graveyard` #9, `a deck can have any number of cards named ~` #10 —
     a deckbuilding clause, claim-without-spec).
-  - **PAR-45** — ETB compound utility (`as ~ enters, choose an opponent`
-    #10, `target opponent loses <n> life and you gain <n> life` #8). (The
-    `tap target creature and put a stun counter on it` half closed at
-    PARSER_VERSION 213 — `handlers.tap_and_stun` + RULE 122.1c stun-counter
-    skip-untap in `RulesEngine.set_tapped`; see `Done_Backend.md`.)
+  - **PAR-45** — ETB compound utility. Left: `as ~ enters, choose an
+    opponent` (#10). Closed: `target opponent loses <n> life and you gain
+    <n> life` (the Blood Artist / Zulaport drain family — `lose_life`'s
+    `who` alternation gained `target opponent` → `target_kind: "opponent"`,
+    PARSER_VERSION 232, +34; the "and you gain" clause rides the existing
+    `gain_life` row via the connector split). The `tap target creature and
+    put a stun counter on it` half closed at PARSER_VERSION 213
+    (`handlers.tap_and_stun` + RULE 122.1c stun-counter skip-untap in
+    `RulesEngine.set_tapped`; see `Done_Backend.md`.)
   - **PAR-46** — cost reduction `for each creature card in your graveyard`
     (#9) and the Party count-selector (see PAR-50).
   - **PAR-47** — `<cost>,<cost>: put a charge counter on ~` + its
