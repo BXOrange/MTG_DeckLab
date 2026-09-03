@@ -1813,9 +1813,13 @@ class CreateEmblemEffect(GameEffect):
         player: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
+        abilities: Optional[list] = None,
     ) -> None:
         super().__init__(source)
+        #: A single ability dict, or (You Compleat Me — "an emblem with 'A'
+        #: and 'B'") ``abilities`` a list of them for one emblem.
         self.ability = ability
+        self.abilities = list(abilities) if abilities else None
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
@@ -1825,9 +1829,10 @@ class CreateEmblemEffect(GameEffect):
             player = targets[0] if targets else None
         if player is None:
             player = _controller_of(self.source, context)
-        if player is None or not self.ability:
+        payload = self.abilities or self.ability
+        if player is None or not payload:
             return
-        context.create_emblem(player, self.ability)
+        context.create_emblem(player, payload)
 
 
 class RequestChoosePlayerEffect(GameEffect):
@@ -4616,10 +4621,15 @@ class SetLifeEffect(GameEffect):
         amount: int = 0,
         target_kind: Optional[str] = "player",
         source: Optional["GameObject"] = None,
+        only_reduce: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = int(amount)
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        #: "If your life total is greater than N, it becomes N." (You
+        #: Compleat Me, MEC-54) — the conditional half-set: never raises a
+        #: lower total, only clamps a higher one down.
+        self.only_reduce = bool(only_reduce)
 
     def target_polarity(self) -> Optional[str]:
         return None  # can help or hurt depending on the target's current life
@@ -4631,8 +4641,23 @@ class SetLifeEffect(GameEffect):
         current = int(getattr(player, "life", 0))
         if current > self.amount:
             context.lose_life(player, current - self.amount)
-        elif current < self.amount:
+        elif current < self.amount and not self.only_reduce:
             context.gain_life(player, self.amount - current)
+
+
+class SetMaxLifeTotalEffect(GameEffect):
+    """MEC-54: "For the rest of the game, your maximum life total is N."
+    (You Compleat Me) — installs a permanent `RulesEngine.set_max_life_total`
+    cap on the effect's controller. Untargeted (always "your")."""
+
+    def __init__(self, amount: int = 0, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.amount = int(amount)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.engine.set_max_life_total(player, self.amount)
 
 
 class PreventDamageEffect(GameEffect):
@@ -20184,7 +20209,15 @@ EffectRegistry.register(
     lambda p: SetLifeEffect(
         amount=int(p.get("amount", 0) or 0),
         target_kind=p.get("target_kind", "player"),
+        only_reduce=bool(p.get("only_reduce", False)),
     ),
+)
+EffectRegistry.register(
+    # MEC-54: "For the rest of the game, your maximum life total is N."
+    # (You Compleat Me) — a permanent player-scoped cap, see
+    # `RulesEngine.set_max_life_total`.
+    "set_max_life_total",
+    lambda p: SetMaxLifeTotalEffect(amount=int(p.get("amount", 0) or 0)),
 )
 EffectRegistry.register(
     "prevent_damage_shield",
@@ -22953,6 +22986,23 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Instant and sorcery cards in your graveyard have retrace." (Wrenn and
+    # Six's −7 emblem); "Merfolk and Druid cards in your graveyard have
+    # retrace." (Deeproot Historian) — RULE 702.81 as a *granted* keyword
+    # onto graveyard cards (MEC-53), the `grant_escape` sibling; consulted by
+    # `continuous.granted_retrace_for` from `GameEngine._graveyard_cast_keyword`.
+    "grant_retrace",
+    lambda p: StaticAbility(
+        "grant_retrace",
+        affects="all",
+        params={
+            "nonland_only": bool(p.get("nonland_only", False)),
+            "card_types": list(p.get("card_types", []) or []),
+            "subtypes": list(p.get("subtypes", []) or []),
+        },
+    ),
+)
+EffectRegistry.register(
     "type_change",  # "Lands you control are 0/0 creatures" (layer 4)
     lambda p: StaticAbility(
         "type",
@@ -23857,7 +23907,11 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "create_emblem",  # "you get an emblem with '<ability>'" (RULE 114.2)
-    lambda p: CreateEmblemEffect(ability=p.get("ability"), target_kind=p.get("target_kind")),
+    lambda p: CreateEmblemEffect(
+        ability=p.get("ability"),
+        abilities=p.get("abilities"),
+        target_kind=p.get("target_kind"),
+    ),
 )
 EffectRegistry.register(
     # "Until your next turn, target player … can't cast noncreature spells."

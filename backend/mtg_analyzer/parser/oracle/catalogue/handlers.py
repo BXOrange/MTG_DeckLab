@@ -1793,6 +1793,17 @@ _DRAW_AND_LOSE_LIFE_DEVOTION_RE = _c(
 _GAIN_LIFE_AND_DRAW_DEVOTION_RE = _c(
     rf"you gains? x life and draws? x cards?, where x is {DEVOTION}"
 )
+#: PAR-31 (Ob Nixilis of the Black Oath's −8 emblem): "You gain X life and
+#: draw X cards, where X is the sacrificed creature's power." — the same
+#: two-effects-share-one-X shape as the `{DEVOTION}` combos above, but X is
+#: `continuous.count_selector`'s ``"sacrificed_cost_power"`` (stamped on the
+#: ability source when a "sacrifice a creature" cost is paid — Altar of
+#: Dementia's own idiom, MEC-43). Its own row rather than folded into
+#: `{DEVOTION}` (a subgrammar reused far too widely to widen for one card).
+_GAIN_LIFE_AND_DRAW_SAC_POWER_RE = _c(
+    r"you gains? x life and draws? x cards?, "
+    r"where x is the sacrificed creature'?s power"
+)
 _DRAW_AND_GAIN_LIFE_DEVOTION_RE = _c(
     rf"you draws? x cards? and (?:you )?gains? x life, where x is {DEVOTION}"
 )
@@ -1825,6 +1836,13 @@ def _draw_and_gain_life_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]
     return [
         EffectSpec("draw", {"amount_from_count_selector": dsel}),
         EffectSpec("gain_life", {"count_selector": dsel}),
+    ]
+
+
+def _gain_life_and_draw_sac_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [
+        EffectSpec("gain_life", {"count_selector": "sacrificed_cost_power"}),
+        EffectSpec("draw", {"amount_from_count_selector": "sacrificed_cost_power"}),
     ]
 
 
@@ -8996,6 +9014,11 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler(
         "gain_life_and_draw_devotion", _GAIN_LIFE_AND_DRAW_DEVOTION_RE, _gain_life_and_draw_devotion
+    ),
+    EffectHandler(
+        "gain_life_and_draw_sac_power",
+        _GAIN_LIFE_AND_DRAW_SAC_POWER_RE,
+        _gain_life_and_draw_sac_power,
     ),
     EffectHandler(
         "draw_and_gain_life_devotion", _DRAW_AND_GAIN_LIFE_DEVOTION_RE, _draw_and_gain_life_devotion

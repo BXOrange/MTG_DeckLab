@@ -252,6 +252,18 @@ class LandsMixin:
             return "flashback"
         if continuous.granted_escape_for(self.state, obj) is not None:
             return "escape"
+        # RULE 702.81: Retrace — a plain (parameterless) keyword, so it
+        # sits in `Card.keywords` rather than `parametric_keywords`; also
+        # grantable to graveyard cards ("Merfolk and Druid cards in your
+        # graveyard have retrace." — Deeproot Historian, `grant_retrace`).
+        # Unlike Flashback/Escape it pays the card's *normal* mana cost
+        # (`effective_cast_cost`'s default `alt_cost=None` branch) plus a
+        # fixed "discard a land card" additional cost, and is not exiled on
+        # resolution (MEC-53).
+        if "Retrace" in (getattr(obj.card, "keywords", None) or []):
+            return "retrace"
+        if continuous.granted_retrace_for(self.state, obj) is not None:
+            return "retrace"
         return None
     def _castable_from_graveyard(self, obj: GameObject) -> bool:
         """Whether an object sitting in a graveyard is castable from there

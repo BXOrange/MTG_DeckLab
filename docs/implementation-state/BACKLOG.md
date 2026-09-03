@@ -84,27 +84,6 @@ its block back into the matching section here.
 
   Bucket B (recurring effect-body / static templates, `extend-parser` loop):
 
-  - **PAR-31** — loyalty `−N: you get an emblem with "<ability>"` (#35).
-    The emblem *wrapper* has always parsed (`_create_emblem` recursively
-    parses the quoted body via `segment_line`); the residue is
-    inner-body families that don't parse standalone. Done: the
-    multi-permanent-type keyword grant `artifacts, creatures,
-    enchantments, and lands you control have <kw>`
-    (`_MULTI_PERMANENT_TYPE_GRANT_RE` → `grant_keyword` on
-    `permanents_you_control` + a `card_type` list, PARSER_VERSION 244,
-    +3 — Elspeth, Knight-Errant / Fountain Watch / Spiritual Asylum);
-    and `whenever an opponent casts their first spell each turn, counter
-    that spell` (Jace, Unraveler — "first" (n=1) added to
-    `_CAST_SPELL_ORDINAL_WORDS`, `_counter_triggering_spell_effects`
-    body for the nth-cast consumer, PARSER_VERSION 245, +2 with Rodeo
-    Pyromancers).
-    Left (each a distinct inner body, one SOLO card apiece): `instant
-    and sorcery cards in your graveyard have retrace` (Wrenn and Six —
-    zone-scoped keyword grant); Ob Nixilis of the Black Oath's
-    `{1}{b}, sacrifice a creature: you gain X life and draw X cards,
-    where X is the sacrificed creature's power` (X-from-sacrifice
-    activated); You Compleat Me's max-life-lock + twin quoted emblem
-    abilities.
   - **PAR-32** — static `commander creatures you own have "<ability>"` /
     commander-matters anthem (#22).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
@@ -270,8 +249,9 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-> **(none open.)** MEC-47/49/51/51b/52 all closed (`Done_Backend.md`);
-> MEC-48's Specialize-rider tail is parked in [DEFERRED.md](DEFERRED.md).
+> **(none open.)** MEC-47/49/51/51b/52/53/54 all closed
+> (`Done_Backend.md`); MEC-48's Specialize-rider tail is parked in
+> [DEFERRED.md](DEFERRED.md).
 
 ## PLR — Player management
 

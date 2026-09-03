@@ -133,6 +133,16 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     return True  # unknown type word → any permanent, so the cost is payable
 
 
+class _MaxLifeTotalMarker:
+    """MEC-54: a permanent "your maximum life total is N." marker on
+    `Player.player_effects` (You Compleat Me). Duck-typed like
+    `effects.PlayerShieldEffect`'s `player_life_locked` — the only attribute
+    anything reads is ``max_life_total``."""
+
+    def __init__(self, cap: int) -> None:
+        self.max_life_total = int(cap)
+
+
 def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
     """The creature-type choices to offer for a RULE 601.2b "as ~ enters,
     choose a creature type" pick.
@@ -887,6 +897,28 @@ class DamageDeathMixin:
         """RULE 119.6: "your life total can't change" (Teferi's Protection),
         a marker on `Player.player_effects` — see `PlayerShieldEffect`."""
         return any(getattr(e, "player_life_locked", False) for e in player.player_effects)
+
+    @staticmethod
+    def _max_life_total(player: Player) -> Optional[int]:
+        """MEC-54: the tightest "your maximum life total is N" cap in force
+        on ``player`` (You Compleat Me), or ``None``. A duck-typed marker on
+        `Player.player_effects` (`max_life_total` attr), the `player_life_
+        locked` idiom; permanent ("for the rest of the game")."""
+        caps = [
+            int(getattr(e, "max_life_total"))
+            for e in player.player_effects
+            if getattr(e, "max_life_total", None) is not None
+        ]
+        return min(caps) if caps else None
+
+    def set_max_life_total(self, player: Player, cap: int) -> None:
+        """RULE 119-adjacent (MEC-54): install a permanent "your maximum life
+        total is ``cap``" effect and clamp a currently-higher total down to
+        it at once (You Compleat Me's own "…it becomes 10." rider handles
+        the same clamp for the exact-10 case, but this stands on its own)."""
+        player.player_effects.append(_MaxLifeTotalMarker(cap))
+        if player.life > cap:
+            player.lose_life(player.life - cap)
     @staticmethod
     def _player_protected_from_everything(player: Player) -> bool:
         """RULE 702.16e: "you gain protection from everything" (Teferi's
@@ -920,6 +952,11 @@ class DamageDeathMixin:
             if resolved is None:
                 return
             final = int(resolved.get("amount", amount) or 0)
+            # MEC-54: "your maximum life total is N." (You Compleat Me) — a
+            # gain can raise the total only up to the cap, never past it.
+            cap = self._max_life_total(player)
+            if cap is not None:
+                final = min(final, max(cap - player.life, 0))
             if final <= 0:
                 return
             player.gain_life(final)

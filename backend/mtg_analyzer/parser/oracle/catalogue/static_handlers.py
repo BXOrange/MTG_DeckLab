@@ -1971,6 +1971,20 @@ _HAND_CYCLING_GRANT_RE = re.compile(
 )
 
 
+# MEC-53 / PAR-31: "[<filter>] cards in your graveyard have retrace."
+# (Wrenn and Six's −7 emblem — "instant and sorcery cards …"; Deeproot
+# Historian — "Merfolk and Druid cards …"; bare "cards in your graveyard
+# have retrace"). Retrace is the only keyword that means anything on a
+# *graveyard* card (RULE 702.81 — a cast-from-graveyard permission), so
+# this row hardcodes it rather than sharing `_flag_keywords`. `<filter>`
+# is an optional list of main-type words (`card_types`) and/or creature
+# subtypes (`subtypes`), split in `_graveyard_retrace_grant_specs`.
+_GRAVEYARD_RETRACE_GRANT_RE = re.compile(
+    r"(?:(?P<filter>[a-z][a-z, ]*?) )?cards in your graveyard have retrace",
+    re.IGNORECASE,
+)
+
+
 # "<equipped/enchanted/fortified subject> gets +N/+N [and has <keywords>]"
 # (attached-permanent anthem, +grant) — singular "gets"/"has", unlike the
 # plural "get"/"have" of `_ANTHEM_RE`/`_GRANT_RE` above (those two families
@@ -2220,6 +2234,51 @@ def _multi_permanent_type_list(body: str) -> Optional[list[str]]:
         if w not in seen:
             seen.append(w)
     return seen if len(seen) >= 2 else None
+
+
+#: Subtypes accepted in a graveyard-retrace grant's `<filter>` list
+#: (Deeproot Historian's tribal scope). Kept tiny and explicit — only the
+#: subtypes a real printed Retrace-grant card names.
+_RETRACE_GRANT_SUBTYPES: frozenset[str] = frozenset({"merfolk", "druid"})
+#: Main-type words a graveyard-card filter can name — the permanent types
+#: plus instant/sorcery (a graveyard holds non-permanent cards too), all of
+#: which `continuous._has_card_type` already recognises.
+_GRAVEYARD_CARD_TYPE_WORDS: frozenset[str] = _CARD_TYPE_WORDS | {"instant", "sorcery"}
+
+
+def _graveyard_retrace_grant_specs(filt: Optional[str]) -> Optional[list[EffectSpec]]:
+    """The `grant_retrace` spec for a "[<filter>] cards in your graveyard
+    have retrace" clause, or ``None`` (fail-closed) on an unrecognised
+    filter word. ``filt`` is ``None`` for the bare form, else a comma/"and"
+    list of `_CARD_TYPE_WORDS` (→ ``card_types``) and/or
+    `_RETRACE_GRANT_SUBTYPES` (→ ``subtypes``); "nonland" alone sets
+    ``nonland_only``.
+    """
+    params: dict[str, Any] = {}
+    if filt:
+        words = [
+            _singularize(p.strip())
+            for p in re.split(r",\s*(?:and\s+)?|\s+and\s+", filt.strip())
+            if p.strip()
+        ]
+        card_types: list[str] = []
+        subtypes: list[str] = []
+        for w in words:
+            if w == "nonland":
+                params["nonland_only"] = True
+            elif w in _GRAVEYARD_CARD_TYPE_WORDS:
+                card_types.append(w)
+            elif w in _RETRACE_GRANT_SUBTYPES:
+                subtypes.append(w.capitalize())
+            else:
+                return None
+        if card_types:
+            params["card_types"] = card_types
+        if subtypes:
+            params["subtypes"] = subtypes
+        if not params:
+            return None
+    return [EffectSpec("grant_retrace", params)]
 
 
 def _is_vehicle_scope(body: str) -> bool:
@@ -3601,6 +3660,10 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "affects": "creatures_you_control",
             "has_counter_kind": "+1/+1",
         })]
+
+    m = _GRAVEYARD_RETRACE_GRANT_RE.fullmatch(text)
+    if m is not None:
+        return _graveyard_retrace_grant_specs(m.group("filter"))
 
     m = _MULTI_PERMANENT_TYPE_GRANT_RE.fullmatch(text)
     if m is not None:

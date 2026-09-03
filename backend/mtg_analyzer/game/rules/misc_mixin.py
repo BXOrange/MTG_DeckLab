@@ -3599,9 +3599,12 @@ class MiscSystemsMixin:
             if continuous.ring_bearer_of(self.state, player) is None:
                 player.ring_bearer_id = None
     def create_emblem(self, player: Player, ability: dict) -> None:
-        """RULE 114.2/114.4: bind the emblem's one already-parsed quoted
-        ability into a live `TriggeredAbility`/`StaticAbility` and file it in
-        ``player``'s command zone.
+        """RULE 114.2/114.4: bind the emblem's already-parsed quoted
+        ability (or, for ``ability`` being a *list* of ability dicts —
+        "You get an emblem with 'A' and 'B'.", You Compleat Me — every one
+        of them) into live `TriggeredAbility`/`StaticAbility`/`ActivatedAbility`
+        objects on a single `Emblem` and file it in ``player``'s command
+        zone.
 
         Binding happens here — once, at resolve time — rather than at
         bind-on-load like every other ability, because an emblem has no
@@ -3618,36 +3621,41 @@ class MiscSystemsMixin:
 
         self.state._timestamp_counter = getattr(self.state, "_timestamp_counter", 0) + 1
         emblem = Emblem(controller_id=player.id, timestamp=self.state._timestamp_counter)
-        spec = AbilitySpec.from_dict(ability)
-        emblem.description = spec.raw_text
-        bound = bind_ability(spec, source=emblem)
-        if isinstance(bound, TriggeredAbility):
-            emblem.triggered_abilities.append(bound)
-        elif isinstance(bound, ActivatedAbility):
-            # RULE 114.4 — "functions in the command zone" covers an
-            # activated ability too (MEC-8); previously dropped silently
-            # since only the triggered/static branches were handled here.
-            emblem.activated_abilities.append(bound)
-        elif isinstance(bound, list):
-            for effect in bound:
-                if isinstance(effect, StaticAbility):
-                    emblem.static_effects.append(effect)
-                elif isinstance(effect, TriggeredAbility):
-                    # The compound "~ enters or attacks"-shaped multi-event
-                    # trigger returns a *list* of `TriggeredAbility` (see
-                    # `bind_ability`'s docstring) — the same silent-drop gap
-                    # the bare-`TriggeredAbility` branch above already covers
-                    # for a single-event trigger.
-                    emblem.triggered_abilities.append(effect)
-                elif isinstance(effect, ReplacementEffect):
-                    # MEC-30 (Ajani Steadfast's own "-7": "You get an emblem
-                    # with 'If a source would deal damage to you or a
-                    # planeswalker you control, prevent all but 1 of that
-                    # damage.'") — the first emblem to grant a replacement
-                    # rather than a triggered/static ability; previously
-                    # silently dropped here the same way the activated-
-                    # ability branch above used to be, before MEC-8.
-                    emblem.replacement_effects.append(effect)
+        ability_dicts = ability if isinstance(ability, list) else [ability]
+        descriptions: list[str] = []
+        for one in ability_dicts:
+            spec = AbilitySpec.from_dict(one)
+            if spec.raw_text:
+                descriptions.append(spec.raw_text)
+            bound = bind_ability(spec, source=emblem)
+            if isinstance(bound, TriggeredAbility):
+                emblem.triggered_abilities.append(bound)
+            elif isinstance(bound, ActivatedAbility):
+                # RULE 114.4 — "functions in the command zone" covers an
+                # activated ability too (MEC-8); previously dropped silently
+                # since only the triggered/static branches were handled here.
+                emblem.activated_abilities.append(bound)
+            elif isinstance(bound, list):
+                for effect in bound:
+                    if isinstance(effect, StaticAbility):
+                        emblem.static_effects.append(effect)
+                    elif isinstance(effect, TriggeredAbility):
+                        # The compound "~ enters or attacks"-shaped multi-event
+                        # trigger returns a *list* of `TriggeredAbility` (see
+                        # `bind_ability`'s docstring) — the same silent-drop gap
+                        # the bare-`TriggeredAbility` branch above already covers
+                        # for a single-event trigger.
+                        emblem.triggered_abilities.append(effect)
+                    elif isinstance(effect, ReplacementEffect):
+                        # MEC-30 (Ajani Steadfast's own "-7": "You get an emblem
+                        # with 'If a source would deal damage to you or a
+                        # planeswalker you control, prevent all but 1 of that
+                        # damage.'") — the first emblem to grant a replacement
+                        # rather than a triggered/static ability; previously
+                        # silently dropped here the same way the activated-
+                        # ability branch above used to be, before MEC-8.
+                        emblem.replacement_effects.append(effect)
+        emblem.description = " / ".join(d for d in descriptions if d)
         player.emblems.append(emblem)
     def _stack_item_for(self, target: Any) -> Optional[StackItem]:
         """The `StackItem` a counter effect's ``target`` names, or ``None``.

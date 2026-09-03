@@ -3484,6 +3484,43 @@ def granted_escape_for(state: "GameState", obj: "GameObject") -> Optional[dict[s
     return None
 
 
+def granted_retrace_for(state: "GameState", obj: "GameObject") -> Optional[dict[str, Any]]:
+    """The ``"grant_retrace"`` static granting ``obj`` Retrace right now
+    (RULE 702.81 as a *granted* keyword), as its params dict, or ``None``.
+
+    "Instant and sorcery cards in your graveyard have retrace." (Wrenn and
+    Six's −7 emblem); "Merfolk and Druid cards in your graveyard have
+    retrace." (Deeproot Historian); "…nonland permanent cards in your
+    graveyard have retrace." (Six). The exact `granted_escape_for` idiom —
+    a layer-6 ability grant onto cards in a **graveyard**, kept out of
+    `recompute` proper (nothing about the card's characteristics changes),
+    scoped to the granting permanent's controller's own graveyard.
+
+    Optional filters, all AND-combined: ``card_types`` (a list of main-type
+    words, ORed — "instant"/"sorcery"), ``subtypes`` (a list, ORed —
+    "Merfolk"/"Druid"), ``nonland_only``. No filter = every card.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "grant_retrace":
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        if controller_id is None:
+            continue
+        owner = next((p for p in state.players if p.id == controller_id), None)
+        if owner is None or obj not in owner.graveyard:
+            continue
+        if ability.params.get("nonland_only") and obj.card.is_land:
+            continue
+        card_types = ability.params.get("card_types")
+        if card_types and not any(_has_card_type(obj, str(t)) for t in card_types):
+            continue
+        subtypes = ability.params.get("subtypes")
+        if subtypes and not any(_has_subtype(obj, str(s)) for s in subtypes):
+            continue
+        return dict(ability.params)
+    return None
+
+
 def max_draws_per_turn(state: "GameState", player: Optional["Player"] = None) -> Optional[int]:
     """The most restrictive "Each player can't draw more than N cards each
     turn." cap in play (RULE 121.5-adjacent — Spirit of the Labyrinth), or
@@ -4086,7 +4123,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
-     "extra_land_drop", "no_max_hand_size", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape",
+     "extra_land_drop", "no_max_hand_size", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
      "uncast_creature_entry_exile",

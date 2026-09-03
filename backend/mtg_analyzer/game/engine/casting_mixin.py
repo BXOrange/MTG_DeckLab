@@ -576,6 +576,11 @@ class CastingMixin:
                 return False
             if len(player.graveyard) - 1 < escape_cost.exile_from_graveyard:
                 return False
+        if obj in player.graveyard and self._graveyard_cast_keyword(obj) == "retrace":
+            # RULE 702.81a: "…by discarding a land card in addition to paying
+            # its other costs." — unpayable with no land card in hand.
+            if not any(getattr(c, "is_land", False) for c in player.hand):
+                return False
         if free:
             # Two independent sources of a "you may cast this without
             # paying its mana cost" permission: a per-object condition
@@ -1687,6 +1692,10 @@ class CastingMixin:
                 escape_cost = self._escape_cost(obj)
                 if escape_cost is not None and escape_cost.exile_from_graveyard:
                     self._pay_escape_graveyard_cost(player, escape_cost.exile_from_graveyard)
+            # RULE 702.81a: Retrace's "discard a land card" additional cost,
+            # paid now that ``obj`` itself has left the graveyard (MEC-53).
+            if graveyard_keyword == "retrace":
+                self._pay_retrace_discard(player)
             # RULE 500.4-adjacent: record this use of a Lurrus-shaped
             # "once during each of your turns" standing permission against
             # its *granting* permanent, not the cast card — untapped again
@@ -2200,6 +2209,16 @@ class CastingMixin:
             if len(out) >= count:
                 break
         return out
+
+    def _pay_retrace_discard(self, player: Player) -> None:
+        """RULE 702.81a: discard one land card from ``player``'s hand as an
+        additional cost of casting via Retrace. Auto-picks the first land
+        card — the same non-interactive MVP simplification
+        `_pay_escape_graveyard_cost` and the additional-cost payers make.
+        """
+        victim = next((c for c in player.hand if getattr(c, "is_land", False)), None)
+        if victim is not None:
+            self.rules.discard_specific(victim)
 
     def _pay_escape_graveyard_cost(self, player: Player, count: int) -> None:
         """RULE 702.138b: exile ``count`` other cards from ``player``'s
