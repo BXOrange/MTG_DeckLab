@@ -1959,17 +1959,31 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 live_grant_keys.add(key)
                 granted = state._granted_ability_cache.get(key)
                 if granted is None:
+                    group_condition = ability.params.get("group_condition")
+                    if group_condition:
+                        # PAR-32: "X have 'Whenever an artifact or creature
+                        # you control dies, …'" (Agent of the Iron Throne).
+                        # Reuse `effect_binder`'s printed-trigger group
+                        # predicate, sourced on the *granted-to* permanent
+                        # so "you control"/"other" re-scope to it.
+                        from .effect_binder import _build_group_ok  # local: avoid an import cycle
+
+                        cond = _build_group_ok(
+                            group_condition, obj, {"event": trigger_event}, obj.instance_id
+                        )
+                    else:
+                        cond = _granted_trigger_condition(
+                            obj, bool(ability.params.get("controllers_turn_only", False)),
+                            trigger_event, ability.params.get("filter"),
+                            ability.params.get("phase_relation"),
+                        )
                     granted = TriggeredAbility(
                         trigger_event=trigger_event,
                         effects=[
                             _build_grant_effect(spec, obj)
                             for spec in ability.params.get("grant_effects", [])
                         ],
-                        condition=_granted_trigger_condition(
-                            obj, bool(ability.params.get("controllers_turn_only", False)),
-                            trigger_event, ability.params.get("filter"),
-                            ability.params.get("phase_relation"),
-                        ),
+                        condition=cond,
                         optional=bool(ability.params.get("optional", False)),
                         once_per_turn=bool(ability.params.get("once_per_turn", False)),
                         controller_id=obj.controller_id,

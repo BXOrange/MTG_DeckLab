@@ -113,3 +113,78 @@ def test_candlekeep_sage_modeled():
              oracle_text='Vigilance\nCommander creatures you own have "When '
                          'this creature enters or leaves the battlefield, draw a card."')
     assert parse_oracle(c).coverage != UNMODELED, parse_oracle(c).unclaimed
+
+
+# --- slice 2: group-subject trigger regrant + multi-type group subject ---
+
+
+def test_multi_main_type_group_subject_parses_as_a_type_list():
+    from mtg_analyzer.parser.oracle.segmenter import segment_line
+    from mtg_analyzer.parser.oracle.spec import ParserProvenance
+
+    seg = segment_line(
+        "whenever an artifact or creature you control dies, each opponent loses 1 life.",
+        allow_spell_effect=False,
+        provenance=ParserProvenance(version="x", source="y"),
+    )
+    assert seg.spec is not None
+    assert seg.spec.trigger["condition"]["type"] == ["artifact", "creature"]
+    # single-type unchanged
+    seg2 = segment_line(
+        "whenever a creature you control dies, draw a card.",
+        allow_spell_effect=False,
+        provenance=ParserProvenance(version="x", source="y"),
+    )
+    assert seg2.spec.trigger["condition"]["type"] == "creature"
+
+
+def test_agent_of_the_iron_throne_granted_group_trigger_rescopes_you_control():
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
+    )
+    st = eng.state
+    p1, p2 = st.player_by_id("p1"), st.player_by_id("p2")
+
+    granter = GameObject(
+        Card(id="ait", name="Agent of the Iron Throne", type_line="Enchantment",
+             oracle_text='Commander creatures you own have "Whenever an artifact '
+                         'or creature you control dies, each opponent loses 1 life."'),
+        owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(granter)
+    st.add_to_battlefield(granter)
+    cmd = GameObject(
+        Card(id="k", name="Cmdr", type_line="Legendary Creature — Human",
+             is_creature=True, power=3, toughness=3),
+        owner_id="p1", zone=Zone.BATTLEFIELD)
+    cmd.is_commander = True
+    cmd.summoning_sick = False
+    st.add_to_battlefield(cmd)
+    eng.recompute_continuous_effects()
+
+    def _kill(name, tl, owner="p1"):
+        o = GameObject(Card(id=name, name=name, type_line=tl),
+                       owner_id=owner, zone=Zone.BATTLEFIELD)
+        st.add_to_battlefield(o)
+        before = p2.life
+        eng.rules._move_to_graveyard(o)
+        eng.rules.put_triggers_on_stack()
+        while st.stack:
+            eng.rules.resolve_top_of_stack()
+        return p2.life - before
+
+    assert _kill("Bear", "Creature — Bear") == -1            # your creature
+    assert _kill("Rock", "Artifact") == -1                   # your artifact
+    assert _kill("OppBear", "Creature — Bear", owner="p2") == 0   # not yours
+    assert _kill("MyAura", "Enchantment — Aura") == 0        # wrong type
+
+
+def test_step_begin_phase_grant_still_claimed_after_the_refactor():
+    # Regression: "Other enchantments have 'At the beginning of your upkeep,
+    # sacrifice ~ unless you pay {2}.'" (Aura Flux) must not be swept into
+    # the group-subject reject branch.
+    specs = static_effect_specs(
+        'other enchantments have "at the beginning of your upkeep, '
+        'sacrifice ~ unless you pay {2}."'
+    )
+    assert specs is not None
+    assert specs[0].params["trigger_event"] == "STEP_BEGIN"

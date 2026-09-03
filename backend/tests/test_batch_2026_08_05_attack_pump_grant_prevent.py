@@ -196,14 +196,24 @@ def test_commander_creatures_quoted_grant_parses():
     ]
 
 
-def test_commander_creatures_grant_with_a_group_subject_inner_stays_unclaimed():
-    # `_quoted_ability_grant_effects` only supports a self-subject inner
-    # trigger — a group-subject one (Agent of the Iron Throne-shaped) is a
-    # separate, still-open gap, not silently mis-scoped.
-    assert static_effect_specs(
+def test_commander_creatures_grant_with_a_group_subject_inner():
+    # PAR-32: a `{"subject": "group"}` inner trigger (Agent of the Iron
+    # Throne — "whenever an artifact or creature you control dies, …") now
+    # re-grants with a `group_condition` param, resolved per affected
+    # object by `effect_binder._build_group_ok` against the granted-to
+    # permanent.
+    specs = static_effect_specs(
         'commander creatures you own have '
         '"whenever an artifact or creature you control dies, each opponent loses 1 life."'
-    ) is None
+    )
+    assert specs is not None and len(specs) == 1
+    gc = specs[0].params["group_condition"]
+    assert gc["type"] == ["artifact", "creature"] and gc["controller"] == "you"
+    # An exotic group filter tied to the source's own history still fails closed.
+    assert static_effect_specs(
+        'commander creatures you own have '
+        '"whenever a creature dealt damage by ~ this turn dies, draw a card."'
+    ) in (None, [])
 
 
 def test_commander_creatures_grant_with_a_compound_event_inner():

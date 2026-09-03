@@ -94,6 +94,19 @@ _GRANTABLE_TRIGGER_EVENTS = frozenset(
 #: single host permanent, which a regranted static has no notion of.
 _REGRANT_UNSUPPORTED_AFFECTS = frozenset({"self", "attached_permanent"})
 
+#: PAR-32: `{"subject": "group"}` trigger-condition keys that stay
+#: meaningful when the ability is re-granted to another permanent — every
+#: one is a filter on the *acting* object or a "you control"/"other"
+#: re-scoping, resolved by `effect_binder._build_group_ok` against the
+#: granted-to permanent (`_apply_layer_6_ability` passes it that permanent
+#: as the source). A condition carrying any *other* key (a filter tied to
+#: this ability's own source's history — `crewed_by_self`,
+#: `damaged_by_source_this_turn`, …) fails closed for the whole body.
+_REGRANT_SAFE_GROUP_KEYS = frozenset(
+    {"subject", "type", "subtypes", "excluded_subtypes", "nontoken", "nonland",
+     "nonbasic", "controller", "other", "goaded", "in_combat", "is_player", "combat"}
+)
+
 #: Type words that are *not* creature subtypes — a scope built on one of these
 #: isn't a creature anthem/grant, so we don't claim it. ``enchanted``/
 #: ``equipped`` belong here too (PAR-3 spot-check, Greater Auramancy's
@@ -1858,6 +1871,7 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
         return None
     if len(events) == 1:
         event = events[0]
+    group_condition: Optional[dict] = None
     if event == "STEP_BEGIN":
         # A RULE 500.7 phase trigger carries no object subject to re-scope
         # (see `_GRANTABLE_TRIGGER_EVENTS`) — only a `phase_relation`, which
@@ -1870,14 +1884,25 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
     elif event == "LIFE_GAINED":
         # RULE 119.3's "Whenever **you** gain life, …" is itself a
         # player-subject condition (`{"subject": "you"}`, not the object-
-        # subject `{"subject": "self"}` the `elif` below requires) — the
-        # `LIFE_GAINED` branch of `game/continuous.py`'s
-        # `_granted_trigger_condition` is what resolves "you" against the
-        # granted-to permanent's own controller once regranted.
+        # subject the `elif` below requires) — the `LIFE_GAINED` branch of
+        # `game/continuous.py`'s `_granted_trigger_condition` is what
+        # resolves "you" against the granted-to permanent's own controller
+        # once regranted.
         if trigger.get("condition") != {"subject": "you"}:
             return None
     elif len(events) == 1 and trigger.get("condition") != {"subject": "self"}:
-        return None  # a "group"/other subject wouldn't mean the same thing once regranted
+        cond = trigger.get("condition") or {}
+        # PAR-32: a `{"subject": "group"}` condition re-grants fine as long
+        # as every key stays meaningful relative to the granted-to
+        # permanent (`_REGRANT_SAFE_GROUP_KEYS`) — "whenever an artifact or
+        # creature you control dies, …" (Agent of the Iron Throne).
+        if (
+            cond.get("subject") == "group"
+            and set(cond) <= _REGRANT_SAFE_GROUP_KEYS
+        ):
+            group_condition = dict(cond)
+        else:
+            return None  # any other subject wouldn't mean the same thing once regranted
     grant_effects = [{"type": e.type, "params": e.params} for e in spec.effects]
     out: list[EffectSpec] = []
     for ev in events:
@@ -1887,6 +1912,8 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
             "optional": spec.optional,
             "affects": "attached_permanent",
         }
+        if group_condition is not None:
+            params["group_condition"] = group_condition
         if trigger.get("filter"):  # RULE 120.3 DAMAGE combat/is_player, STEP_BEGIN's step
             params["filter"] = dict(trigger["filter"])
         if trigger.get("phase_relation"):

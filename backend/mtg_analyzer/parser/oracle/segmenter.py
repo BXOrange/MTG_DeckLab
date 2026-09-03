@@ -1080,7 +1080,13 @@ _GROUP_SUBJECT_RE = re.compile(
     # creature subtype on the acting object, `effect_binder._build_group_ok`'s
     # ``excluded_subtypes`` (checked against the event's live subtypes).
     r"(?P<negsub>non-[a-z]+\s+)?"
-    r"(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
+    # A single main type, or an "X or Y[ or Z]" list of them ("an artifact
+    # or creature you control dies" — Agent of the Iron Throne). Each word
+    # is from the closed `_GROUP_TYPE_WORDS` vocabulary; `_group_subject_
+    # condition` splits the list and `effect_binder._build_group_ok`
+    # already ORs a `type` list.
+    r"(?P<type>(?:" + "|".join(_GROUP_TYPE_WORDS) + r")"
+    r"(?:,? or (?:" + "|".join(_GROUP_TYPE_WORDS) + r"))*)"
     r"(?P<you_a> you control)?"
     rf"\s+(?:{_VERB_ALT})"
     r"(?:\s+the\s+battlefield)?(?:\s+alone)?"
@@ -2527,9 +2533,10 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     # of being misread as a one-word tribal filter with no real subtype.
     m = _GROUP_SUBJECT_RE.match(cond)
     if m is not None:
+        type_words = [w for w in re.split(r",?\s+or\s+", m.group("type")) if w]
         out = {
             "subject": "group",
-            "type": m.group("type"),
+            "type": type_words if len(type_words) > 1 else type_words[0],
             "controller": "you" if (m.group("you_a") or m.group("you_b")) else "any",
             "other": m.group("article") == "another",
         }

@@ -22943,6 +22943,14 @@ EffectRegistry.register(
             # branch (which closes over the printed source) this is resolved
             # per affected object in `continuous._granted_trigger_condition`.
             **({"phase_relation": p["phase_relation"]} if p.get("phase_relation") else {}),
+            # PAR-32: a `{"subject": "group"}` condition re-granted to
+            # another permanent ("Commander creatures you own have
+            # 'Whenever an artifact or creature you control dies, …'" —
+            # Agent of the Iron Throne). `continuous._apply_layer_6_ability`
+            # builds the predicate via `effect_binder._build_group_ok` with
+            # the *granted-to* permanent as the source, so "you control" /
+            # "other" re-scope to it.
+            **({"group_condition": dict(p["group_condition"])} if p.get("group_condition") else {}),
             **_selectors(p),
         },
     ),

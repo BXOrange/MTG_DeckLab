@@ -97,10 +97,17 @@ its block back into the matching section here.
     pre-existing granted-ETB-timing gap, same as any Dionus-style grant).
     **Static inner bodies** — anthem/lord (Inspiring Leader) — shipped via
     MEC-55 (`grant_static_ability` regrant primitive), PARSER_VERSION 248,
-    +1. Left: **group-subject trigger regrant** ("whenever an artifact or creature
-    you control dies …" — Agent of the Iron Throne; the group filter is
-    dropped by `_granted_trigger_condition` today); the **"whenever ~
-    attacks a player, if no opponent has more life than that player,
+    +1. **Group-subject trigger regrant** — "whenever an artifact or
+    creature you control dies …" (Agent of the Iron Throne) — shipped: a
+    `group_condition` param on `grant_triggered_ability`, resolved per
+    affected object by `effect_binder._build_group_ok` against the
+    granted-to permanent (so "you control"/"other" re-scope); `_GROUP_
+    SUBJECT_RE` widened to an "X or Y" main-type list (`type: [...]`, which
+    `_build_group_ok` already ORs — this also fixed the *printed* form,
+    silently mis-scoped as creature subtypes before). PARSER_VERSION 249,
+    +2 (Agent of the Iron Throne / Nurturing Presence). Left: the
+    **"whenever ~ attacks a player, if no opponent has more life than that
+    player,
     `<payoff>`"** cluster (Agent of the Shadow Thieves / Guild Artisan /
     Hardy Outlander / Sword Coast Sailor / Veteran Soldier — a new trigger
     condition + varied payoffs); **cast-spell triggers** (Acolyte of
