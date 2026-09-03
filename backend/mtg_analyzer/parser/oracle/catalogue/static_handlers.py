@@ -2540,6 +2540,39 @@ _SELF_ANTHEM_FOR_EACH_GY_SUBTYPE_RE = re.compile(
     r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<sub>[a-z][a-z-]+) card in your graveyard",
     re.IGNORECASE,
 )
+
+#: PAR-43: "~ gets +P/+T for each `<X>`" — the general standing self-anthem
+#: whose per-unit +P/+T scales by a `continuous.count_selector` value
+#: (Akiri, Line-Slinger "+1/+0 for each artifact you control"; Adelbert
+#: Steiner "+1/+1 for each Equipment you control"; Nemata "+1/+1 for each
+#: Saproling…" &c.). ``<X>`` is matched against a fixed whitelist of phrases
+#: that **already have a `count_selector`** (`_SELF_ANTHEM_FOR_EACH_
+#: SELECTORS` + the `<basic land type> you control` special-case) — any
+#: other quantity fails closed, exactly like `_PT_CDA_RE` / the GY-subtype
+#: row above, since an anthem reading an unmodeled count would silently
+#: apply +0. Tried after the GY-subtype row (more specific) and before
+#: `_SELF_ANTHEM_RE` (whose fixed-digit `[+-]\d+/[+-]\d+` would claim the
+#: "+1/+1" prefix and drop the "for each …" scaling).
+_SELF_ANTHEM_FOR_EACH_RE = re.compile(
+    r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)\.?",
+    re.IGNORECASE,
+)
+_SELF_ANTHEM_FOR_EACH_SELECTORS: dict[str, str] = {
+    "artifact you control": "artifacts_you_control",
+    # "for each Equipment attached to it" — the source's *own* attachments
+    # (Nemata-adjacent), not a board-wide "Equipment you control" count
+    # (which has no `count_selector` yet — that phrase stays unclaimed).
+    "equipment attached to it": "equipment_attached_to_self",
+    "creature you control": "creatures_you_control",
+    "legendary creature you control": "legendary_creatures_you_control",
+    "land you control": "lands_you_control",
+    "permanent you control": "permanents_you_control",
+    "card in your hand": "cards_in_your_hand",
+    "artifact and/or enchantment you control": "artifacts_and_or_enchantments_you_control",
+}
+_BASIC_LAND_TYPES: frozenset[str] = frozenset(
+    {"plains", "island", "swamp", "mountain", "forest"}
+)
 _SELF_GRANT_RE = re.compile(
     # ``0-9`` in the keyword capture is ENG-31's parametric self-grant ("~
     # has firebending 2 as long as there's a lesson card in your graveyard"
@@ -3113,6 +3146,25 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "power": int(m.group("p")), "toughness": int(m.group("t")),
             "power_count": selector, "toughness_count": selector,
         })]
+
+    # PAR-43: "~ gets +P/+T for each <X>" — general standing self-anthem
+    # whose per-unit +P/+T scales by a `continuous.count_selector` value.
+    m = _SELF_ANTHEM_FOR_EACH_RE.fullmatch(text)
+    if m is not None:
+        what = m.group("what").strip().lower()
+        selector = _SELF_ANTHEM_FOR_EACH_SELECTORS.get(what)
+        if selector is None and what.endswith(" you control"):
+            land_type = what[: -len(" you control")]
+            if land_type in _BASIC_LAND_TYPES:
+                selector = f"lands_you_control_of_type_{land_type}"
+        if selector is not None:
+            return [EffectSpec("anthem", {
+                "affects": "self",
+                "power": int(m.group("p")), "toughness": int(m.group("t")),
+                "power_count": selector, "toughness_count": selector,
+            })]
+        # A "for each …" quantity with no wired selector — fail closed
+        # (an anthem reading an unmodeled count would silently apply +0).
 
     m = _ANTHEM_DEVOTION_SELF_RE.fullmatch(text)
     if m is not None:

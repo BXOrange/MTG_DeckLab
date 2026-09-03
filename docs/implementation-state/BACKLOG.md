@@ -120,9 +120,18 @@ its block back into the matching section here.
     tapped. as it enters, choose a color` #8, `with a +1/+1 counter for
     each color of mana spent to cast it` = Sunburst #9, `if it's neither
     day nor night, it becomes day as ~ enters` #10).
-  - **PAR-43** — self CDA / `for each` P/T (`~'s power is equal to the
-    number of creatures you control` #10, `~ gets +N/+N for each artifact
-    you control` #10).
+  - **PAR-43** — self CDA / `for each` P/T. `~'s power is equal to the
+    number of creatures you control` (#10) — the CDA form, still open.
+    The `~ gets +N/+N for each <X>` standing self-anthem form has its
+    general handler now (`_SELF_ANTHEM_FOR_EACH_RE`, PARSER_VERSION 228,
+    +14) but only for the "for each <X>" quantities that already have a
+    `continuous.count_selector`; the remaining tail (~120 SOLO, ~40
+    distinct selectors — "Equipment you control" board-wide, "oil counter
+    on it", "aura attached to it", "experience counter you have",
+    per-subtype "other <type> you control", …) is one new
+    `count_selector` per phrase in `continuous.py`, plus the **Aura** form
+    (`enchanted creature gets +N/+N for each <X>` — `affects=
+    "attached_permanent"` instead of `"self"`). See `Done_Backend.md`.
   - **PAR-44** — static permission / prohibition (`you may play lands from
     your graveyard` #9, `a deck can have any number of cards named ~` #10 —
     a deckbuilding clause, claim-without-spec).

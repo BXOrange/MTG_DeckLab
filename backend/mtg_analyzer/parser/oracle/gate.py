@@ -2339,7 +2339,20 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `GameContext.previous_targets` entry, no RULE 115 target of its own).
 #: +12 — Magma Spray / Feed the Flames / Elspeth's Smite / Bleed Dry /
 #: Mawloc / Suplex. PAR-40 fully closed.
-PARSER_VERSION = "227"
+#: v228 — PAR-43 (RULE 613 layer 7c) — the general "~ gets +P/+T for each
+#: <X>" standing self-anthem. `static_handlers._SELF_ANTHEM_FOR_EACH_RE` +
+#: `_SELF_ANTHEM_FOR_EACH_SELECTORS` map a whitelist of "for each …"
+#: quantities that already have a `continuous.count_selector`
+#: (artifacts/creatures/lands/permanents/legendary-creatures/cards-in-hand
+#: you control, artifacts-and/or-enchantments, Equipment attached to it,
+#: + `<basic land type> you control` → `lands_you_control_of_type_<t>`)
+#: onto a self `anthem` with `power_count`/`toughness_count` — the same
+#: shape the PAR-30 graveyard-subtype row emits. Any unwired quantity
+#: fails closed (an anthem reading an unmodeled count would silently apply
+#: +0). +14 — Akiri Line-Slinger / Goblin Gaveleer / the Nim cycle / Earth
+#: Servant / Deadeye Plunderers. The Aura form ("enchanted creature gets
+#: +P/+T for each …") and the long selector tail stay open in PAR-43.
+PARSER_VERSION = "228"
 
 
 def parser_source_hash() -> str:
