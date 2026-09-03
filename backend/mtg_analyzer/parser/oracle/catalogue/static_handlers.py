@@ -147,6 +147,20 @@ _GRANT_RE = re.compile(
     r"have (?P<kw>[a-z][a-z, ]*)",
     re.IGNORECASE,
 )
+# "Each creature you control with a +1/+1 counter on it has <keywords>."
+# (PAR-34 — the Abzan "outlast" cycle: Abzan Falconer / Abzan Battle
+# Priest / Ainok Bond-Kin / Hardened Scales-adjacent). A `grant_keyword`
+# static scoped to `creatures_you_control` **filtered by counter
+# presence** — `continuous.affected_objects`' `has_counter_kind` param
+# (MEC-21, Agatha's Soul Cauldron) already narrows the group that way, so
+# no engine change. Singular "has" (subject is "each creature"), so it
+# doesn't collide with `_GRANT_RE`'s plural "have".
+_GROUP_COUNTER_GRANT_RE = re.compile(
+    r"each creature you control with a \+1/\+1 counter on it has "
+    r"(?P<kw>[a-z][a-z, ]*)",
+    re.IGNORECASE,
+)
+
 # "[Other] <scope> [you control] [of the chosen type/color] have \"<ability>\""
 # (Tyvar Kell/Acidic Sliver-shaped — "Elves you control have '{T}: Add
 # {B}.'"/"All Slivers have '{2}, Sacrifice this permanent: ...'") — the
@@ -2256,6 +2270,13 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"there are (?P<n>\d+) or more cards in your graveyard", re.I),
      lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
                 "min": int(m.group("n"))}),
+    # The Odyssey-block Threshold phrasing — "as long as **seven or more
+    # cards are in your graveyard**" (subject-verb order rather than the
+    # "there are …" existential above; the "Threshold —" ability-word label
+    # is stripped by `normalize._strip_ability_words` first).
+    (re.compile(r"(?P<n>\d+) or more cards are in your graveyard", re.I),
+     lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
+                "min": int(m.group("n"))}),
     # RULE 702.137 "Delirium" ("delirium — as long as there are 4 or more
     # card types among cards in your graveyard, …" — the ability word itself
     # is stripped by `normalize._strip_ability_words` before this ever runs,
@@ -3493,6 +3514,17 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             return None
         grant.params.update(scope_params)
         return [grant]
+
+    m = _GROUP_COUNTER_GRANT_RE.fullmatch(text)
+    if m is not None:
+        keywords = _flag_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        return [EffectSpec("grant_keyword", {
+            "keywords": keywords,
+            "affects": "creatures_you_control",
+            "has_counter_kind": "+1/+1",
+        })]
 
     m = _GRANT_RE.fullmatch(text)
     if m is not None:

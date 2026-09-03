@@ -2420,7 +2420,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: {"target_kind": "attached_permanent"})`, routing to `RegenerateEffect`'s
 #: pre-existing `attached_permanent` mode (reads `source.attached_to`
 #: live). No engine change. +14.
-PARSER_VERSION = "236"
+#: v237 — PAR-34 — two static shapes. (1) "Each creature you control with a
+#: +1/+1 counter on it has `<keyword>`." (Abzan outlast cycle) —
+#: `static_handlers._GROUP_COUNTER_GRANT_RE` → `grant_keyword` scoped to
+#: `creatures_you_control` + `has_counter_kind="+1/+1"`; `_SELECTOR_KEYS`
+#: gains `has_counter_kind` so `_selectors` threads it into every
+#: scope-taking factory (`affected_objects` already filtered on it for
+#: MEC-21). (2) The Odyssey-block **Threshold** phrasing: `normalize.
+#: _ABILITY_WORD_RE` strips the "Threshold —" label, and
+#: `_STATIC_CONDITION_RES` gains the subject-verb "N or more cards are in
+#: your graveyard" variant of the existing `control_count` condition. +19.
+PARSER_VERSION = "237"
 
 
 def parser_source_hash() -> str:

@@ -94,9 +94,16 @@ its block back into the matching section here.
     (`_REGENERATE_ATTACHED_RE` → `RegenerateEffect`'s existing
     `attached_permanent` mode, +14 — Regeneration / Gaea's Embrace / Dark
     Privilege / Serpent Skin).
-  - **PAR-34** — tribal / state lord (`all slivers have "…"`, `each
-    creature you control with a +1/+1 counter has trample`, Threshold
-    `as long as <n>+ cards in your graveyard, ~ has/gets …`) (~#15+9+9).
+  - **PAR-34** — tribal / state lord. Done: `each creature you control
+    with a +1/+1 counter on it has <keyword>` (`_GROUP_COUNTER_GRANT_RE` +
+    `has_counter_kind` in `_SELECTOR_KEYS`, PARSER_VERSION 237, +18 — the
+    Abzan outlast cycle); the Odyssey **Threshold** phrasing ("Threshold —
+    As long as N or more cards **are in** your graveyard, …") now
+    normalises + parses (+1 real card so far — the rest of that cluster is
+    blocked on **quoted-ability** conditional bodies). Left: `all slivers
+    have "…"` (~#13 — a group-scoped **quoted-ability** grant, recursively
+    parsed) and the Threshold quoted-ability bodies (~#25 — same
+    quoted-ability-grant machinery, wrapped in the `active_if` gate).
   - **PAR-35** — casting-timing restriction (`cast this spell only during
     the declare attackers step and only if you've been attacked`,
     conditional flash `as though it had flash if you pay <cost> more`, the

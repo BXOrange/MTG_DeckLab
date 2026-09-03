@@ -22535,6 +22535,13 @@ _SELECTOR_KEYS: tuple[str, ...] = (
     # Troll/Flopsie-shaped); read off each affected object's own *derived*
     # characteristics, unlike every filter above (all about type/colour).
     "min_power", "max_power", "min_toughness", "max_toughness",
+    # A counter-presence qualifier on the scope ("Each creature you control
+    # **with a +1/+1 counter on it** has flying." — the Abzan "outlast"
+    # cycle, PAR-34); `continuous.affected_objects` reads it directly. Some
+    # factories (`grant_borrowed_activated_ability`) thread it explicitly
+    # too — listing it here makes it uniform across every scope-taking
+    # factory via `_selectors`.
+    "has_counter_kind",
     # The same qualifier with a *dynamic* threshold instead of a literal
     # ("Creatures your opponents control with power less than ~'s power are
     # goaded." — Baeloth Barrityl): `continuous.dynamic_threshold`'s

@@ -100,7 +100,12 @@ def _fold_self_reference(text: str) -> str:
 #: Runs after lowercasing, per-line (``^`` anchored with MULTILINE) since the
 #: label only ever opens a line, never appears mid-sentence.
 _ABILITY_WORD_RE = re.compile(
-    r"^(?:landfall|constellation|battalion|enrage|delirium|veil of time|avoidance)\s*—\s*",
+    r"^(?:landfall|constellation|battalion|enrage|delirium|veil of time|avoidance"
+    # "Threshold — As long as seven or more cards are in your graveyard, …"
+    # (Odyssey block) — the label carries no rules meaning of its own
+    # (RULE 207.2c); the "as long as …" body it precedes is an ordinary
+    # RULE 613.6 conditional static once the label is gone.
+    r"|threshold)\s*—\s*",
     re.MULTILINE,
 )
 
