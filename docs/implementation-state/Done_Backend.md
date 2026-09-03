@@ -317,6 +317,7 @@ is in the rules-engine categories below them.
 
 - **What:** `GainLifeEffect` and `CounterSpellEffect` (removes a spell from the stack to its owner's graveyard, RULE 701.5) registered alongside damage/draw/discard/destroy/search.
 - **Files:** `game/effects.py`
+- **Follow-up (PAR-36, v231) — "you gain that much life":** `GainLifeEffect` gained an `amount_from_trigger_event` param (the gain sibling of `LoseLifeEffect`/`DealDamageEffect`'s identically-named field, threaded first into `_resolve_amount_override`'s chain), reading the firing event's own `amount` off `GameContext.trigger_event`. New parser handler `gain_life_from_trigger_amount` (`you gain that much life` → `EffectSpec("gain_life", {"amount_from_trigger_event": "amount"})`), registered before the plain `gain_life` row so "that much" wins over its literal `NUMBER`. Closes the pre-lifelink "Whenever ~ deals damage, you gain that much life." template — `_DAMAGE_TRIGGER_RE` already parsed the (combat-or-not, any-instance) condition; only the body was blocked. **+17** — El-Hajjâj / Exalted Angel / Horned Cheetah / Warrior Angel / Wall of Hope (creatures), Spirit Link / Vampiric Link / Spirit Loop / Noble Purpose (the Aura/enchantment grant forms). `tests/test_par36_gain_that_much_life.py`.
 
 ### "X loses N life" effect family and gain/lose-life controller fallback
 

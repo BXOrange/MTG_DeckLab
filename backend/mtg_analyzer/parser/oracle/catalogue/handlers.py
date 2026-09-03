@@ -5747,6 +5747,17 @@ def _lose_life_from_trigger_amount(m: re.Match[str]) -> Optional[list[EffectSpec
     return [EffectSpec("lose_life", {"target_kind": "player", "amount_from_trigger_event": "amount"})]
 
 
+#: "Whenever ~ deals damage, **you gain that much life**." (El-Hajjâj /
+#: Exalted Angel / Horned Cheetah / Whip of Erebos-shaped — the pre-lifelink
+#: template, PAR-36). The `_DAMAGE_TRIGGER_RE` condition already parses; only
+#: this body was blocked. "That much" is the firing DAMAGE event's own
+#: ``amount`` (`GainLifeEffect.amount_from_trigger_event`, the gain sibling
+#: of `_lose_life_from_trigger_amount` just above). Untargeted — "you" is
+#: the ability's controller, no RULE 115 target.
+def _gain_life_from_trigger_amount(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {"amount_from_trigger_event": "amount"})]
+
+
 def _add_counters_from_trigger_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"kind": _counter_sign(m.group("ckind")), "amount_from_trigger_event": "amount"}
     return _add_counters_target_params(m, params, include_optional=False)
@@ -9168,6 +9179,14 @@ HANDLERS: list[EffectHandler] = [
         "lose_life_from_trigger_amount",
         _c(rf"{TARGET} loses that much life"),
         _lose_life_from_trigger_amount,
+    ),
+    # "Whenever ~ deals damage, you gain that much life." (El-Hajjâj /
+    # Exalted Angel-shaped, PAR-36) — before the plain `gain_life` row so
+    # "that much" wins over its literal `NUMBER`.
+    EffectHandler(
+        "gain_life_from_trigger_amount",
+        _c(r"you gain that much life"),
+        _gain_life_from_trigger_amount,
     ),
     # "you get half X rad counters, rounded up/down" (Contaminated Drink) —
     # tried before the plain shape below since its own ``n`` group would

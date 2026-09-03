@@ -2371,7 +2371,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: threshold — RULE 614.1 "a player"). +10 (Abandoned Campground / Bleeding
 #: Woods / Lakeside Shack / Peculiar Lighthouse / Razortrap Gorge / …, the
 #: whole 10-card cycle).
-PARSER_VERSION = "230"
+#: v231 — PAR-36 — "Whenever ~ deals damage, you gain that much life." (the
+#: pre-lifelink template). `_DAMAGE_TRIGGER_RE` already parsed the
+#: condition; only the body was blocked. New `gain_life_from_trigger_
+#: amount` handler (`you gain that much life` → `EffectSpec("gain_life",
+#: {"amount_from_trigger_event": "amount"})`), and `GainLifeEffect` gains
+#: the matching `amount_from_trigger_event` param — the gain sibling of
+#: `LoseLifeEffect`/`DealDamageEffect`'s same field, reading the firing
+#: DAMAGE event's `amount`. +17 (El-Hajjâj / Exalted Angel / Horned Cheetah
+#: / Spirit Link / Vampiric Link / Wall of Hope / …).
+PARSER_VERSION = "231"
 
 
 def parser_source_hash() -> str:

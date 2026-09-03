@@ -99,11 +99,14 @@ its block back into the matching section here.
     conditional flash `as though it had flash if you pay <cost> more`, the
     `… flash. if you cast it any time a sorcery couldn't …` templating)
     (~#14+9+9).
-  - **PAR-36** — trigger-condition vocabulary (`whenever you draw your
-    second card each turn`, `whenever ~ deals damage, you gain that much
-    life`, `whenever ~ deals combat damage to a player, that player
-    discards a card`, `whenever you cast a spell that targets ~`)
-    (~#12+10+9+8).
+  - **PAR-36** — trigger-condition vocabulary. Done: `whenever ~ deals
+    damage, you gain that much life` (`gain_life_from_trigger_amount` +
+    `GainLifeEffect.amount_from_trigger_event`, PARSER_VERSION 231, +17).
+    Left: `whenever you draw your second card each turn` (~#12 — shares
+    with PAR-48), `whenever ~ deals combat damage to a player, that player
+    discards a card` (~#9 — Cabal Slaver / Dreamstealer / Needle Specter;
+    a discard body reading the DAMAGE amount for the "that many" forms),
+    `whenever you cast a spell that targets ~` (~#8).
   - **PAR-37** — modal `choose <n>. if you control a commander … choose
     both instead` + `choose <n>. you may choose the same mode more than
     once` (~#12+12; both currently reach Bucket A/B as wrapper headers —

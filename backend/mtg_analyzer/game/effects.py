@@ -4446,12 +4446,21 @@ class GainLifeEffect(GameEffect):
         recipient: Optional[str] = None,
         amount_from_trigger_source_toughness: bool = False,
         amount_from_subject: Optional[str] = None,
+        amount_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.count_selector = count_selector
+        #: "Whenever ~ deals damage, you gain **that much** life." (El-Hajjâj
+        #: / Exalted Angel / Whip of Erebos-shaped, PAR-36) — the event
+        #: field name (``"amount"``) to read off `GameContext.trigger_event`
+        #: at resolution, the same "read this firing's own payload" idiom
+        #: `LoseLifeEffect.amount_from_trigger_event` (Sanguine Bond) and
+        #: `DealDamageEffect.amount_from_trigger_event` already use.
+        #: Overrides ``amount`` when set.
+        self.amount_from_trigger_event = amount_from_trigger_event
         #: "You gain life equal to `<its / that creature's>` `<power /
         #: toughness>`" where the creature isn't a RULE 115 target of *this*
         #: effect (PAR-30, ~36 SOLO). A ``"<who>_<char>"`` string:
@@ -4540,6 +4549,12 @@ class GainLifeEffect(GameEffect):
         amount = self._resolve_amount_override(
             self.amount,
             [
+                (
+                    bool(self.amount_from_trigger_event),
+                    lambda: int(
+                        (context.trigger_event or {}).get(self.amount_from_trigger_event) or 0
+                    ),
+                ),
                 (
                     self.amount_from_target_power,
                     lambda: int(subject.power or 0) if subject is not None else 0,
@@ -20129,6 +20144,7 @@ EffectRegistry.register(
             p.get("amount_from_trigger_source_toughness", False)
         ),
         amount_from_subject=p.get("amount_from_subject"),
+        amount_from_trigger_event=p.get("amount_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
