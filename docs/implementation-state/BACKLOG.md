@@ -80,7 +80,7 @@ its block back into the matching section here.
   narrate in `Done_Backend.md`, bump `PARSER_VERSION`, sync the three
   coverage figures, sweep for siblings). Full method:
   [`.claude/plans/analysiere-den-unmodelled-cardpool-und-crystalline-blanket.md`]
-  and `PARSER_LONG_TAIL.md`. Run cited: PARSER_VERSION 186, 2026-09-01.
+  and `PARSER_LONG_TAIL.md`. Run cited: PARSER_VERSION 186, 2026-09-01. Every ticket shall be completed end to end without leaving residue before moving to the next ticket.
 
   Bucket B (recurring effect-body / static templates, `extend-parser` loop):
 
