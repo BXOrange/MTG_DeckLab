@@ -2406,7 +2406,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: _pay_additional_cast_cost` gate the cast on the graveyard holding enough
 #: matching cards and exile them (auto-picked). The "exile **x** cards"
 #: variant stays UNMODELED. +9.
-PARSER_VERSION = "234"
+#: v235 — PAR-43 — the single-characteristic CDA: "~'s power is equal to
+#: the number of `<X>`" (Ironroot Warlord / Kolaghan Forerunners / Suki,
+#: Kyoshi Warrior — printed toughness, live-count power) + the rarer
+#: toughness form. `static_handlers._PT_CDA_SINGLE_RE` emits a `pt_cda`
+#: spec with only `power_count` (or `toughness_count`); `continuous.
+#: recompute`'s 7a pass already applies the two independently, so no
+#: engine change. Same `_PT_CDA_SELECTORS` whitelist as `_PT_CDA_RE`. +12.
+PARSER_VERSION = "235"
 
 
 def parser_source_hash() -> str:

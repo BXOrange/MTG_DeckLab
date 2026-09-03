@@ -204,6 +204,20 @@ _PT_CDA_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-43: the *single-characteristic* CDA — "~'s power is equal to the
+#: number of `<X>`." (Ironroot Warlord / Kolaghan Forerunners / Suki, Kyoshi
+#: Warrior — a printed toughness, power defined by a live count) and the
+#: rarer toughness form (Traproot Kami). `continuous.recompute`'s 7a
+#: `pt_cda` pass already applies `power_count` / `toughness_count`
+#: independently, so a spec with only one of them is enough — no engine
+#: change. Same `_PT_CDA_SELECTORS` whitelist as `_PT_CDA_RE` (so today only
+#: "creatures you control" is claimed; the "forests you control" / "basic
+#: land types" toughness cards stay UNMODELED until those selectors exist).
+_PT_CDA_SINGLE_RE = re.compile(
+    r"~'?s (?P<char>power|toughness) is equal to the number of (?P<what>.+)",
+    re.IGNORECASE,
+)
+
 #: The `<X>` phrases `_PT_CDA_RE` accepts → their `continuous.count_selector`
 #: string. Deliberately exact-match and small: the two PAR-20 named
 #: ("cards in your hand", "lands you control") plus the two adjacent ones a
@@ -2720,6 +2734,14 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "power_count": selector,
             "toughness_count": selector,
         })]
+
+    m = _PT_CDA_SINGLE_RE.fullmatch(text)
+    if m is not None:
+        selector = _PT_CDA_SELECTORS.get(m.group("what").strip().rstrip("."))
+        if selector is None:
+            return None  # fail-closed
+        key = "power_count" if m.group("char").lower() == "power" else "toughness_count"
+        return [EffectSpec("pt_cda", {"affects": "self", key: selector})]
 
     # "This spell can't be countered." (RULE 118-area) — printed on a
     # permanent as a standing line even though it only matters while the

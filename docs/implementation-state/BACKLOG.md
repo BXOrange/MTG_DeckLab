@@ -139,11 +139,15 @@ its block back into the matching section here.
     color` (#8), `with a +1/+1 counter for each color of mana spent to
     cast it` = Sunburst (#9), `if it's neither day nor night, it becomes
     day as ~ enters` (#10).
-  - **PAR-43** — self CDA / `for each` P/T. `~'s power is equal to the
-    number of creatures you control` (#10) — the CDA form, still open.
-    The `~ gets +N/+N for each <X>` standing self-anthem form has its
-    general handler now (`_SELF_ANTHEM_FOR_EACH_RE`, PARSER_VERSION 228,
-    +14) but only for the "for each <X>" quantities that already have a
+  - **PAR-43** — self CDA / `for each` P/T. The **single-characteristic
+    CDA** — `~'s power is equal to the number of <X>` — shipped at
+    PARSER_VERSION 235 (`_PT_CDA_SINGLE_RE` → a `pt_cda` spec with only
+    `power_count` / `toughness_count`; the layer-7a pass already applied
+    them independently; +12), for the same `_PT_CDA_SELECTORS` whitelist as
+    the "power and toughness" form. The `~ gets +N/+N for each <X>`
+    standing self-anthem form has its general handler
+    (`_SELF_ANTHEM_FOR_EACH_RE`, PARSER_VERSION 228, +14) but only for the
+    "for each <X>" quantities that already have a
     `continuous.count_selector`; the remaining tail (~120 SOLO, ~40
     distinct selectors — "Equipment you control" board-wide, "oil counter
     on it", "aura attached to it", "experience counter you have",
