@@ -2267,7 +2267,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: object against `GameState.creatures_damaged_by_source_this_turn` keyed
 #: on this ability's source. +4 (Kumano, Master Yamabushi / Kumano's
 #: Pupils / Frostwielder / Incendiary Oracle).
-PARSER_VERSION = "220"
+#: v221 — MEC-49 body gaps + bycatch. (1) `gain_life_eq_that_group` — "you
+#: gain life equal to **that creature's** `<char>`" on a *group* trigger
+#: (the wordier sibling of `gain_life_eq_its_group`), + a `toughness=
+#: obj.toughness` snapshot on the DIES/LEAVES event and a
+#: `_characteristic_of_subject` `trigger_subject` branch that prefers the
+#: event's stamped power/toughness (RULE 400.7). (2) the `add_counters`
+#: handler accepts "+N/+N" — Baron Sengir's "+2/+2 counter" modeled as N
+#: +1/+1 counters (`_counter_kind_and_multiplier`, documented
+#: simplification). +8 (Abattoir Ghoul, Baron Sengir, Armor Thrull,
+#: Proper Burial, Shield Sphere, Spirit Shackle, Trostani Selesnya's
+#: Voice, Experiment Five).
+PARSER_VERSION = "221"
 
 
 def parser_source_hash() -> str:

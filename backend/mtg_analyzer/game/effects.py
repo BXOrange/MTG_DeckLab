@@ -734,7 +734,14 @@ def _characteristic_of_subject(
         prev = list(getattr(context, "previous_targets", []) or [])
         obj = prev[0] if prev else None
     elif who == "trigger_subject":
-        obj = context.state.find_object((context.trigger_event or {}).get("instance_id"))
+        # RULE 400.7: for a DIES trigger the subject is gone by now, so
+        # prefer the firing event's snapshot of ``power``/``toughness``
+        # (`RulesEngine`'s DIES/LEAVES firing stamps both) over a stale
+        # graveyard-object re-lookup.
+        event = context.trigger_event or {}
+        if char in ("power", "toughness") and event.get(char) is not None:
+            return int(event.get(char) or 0)
+        obj = context.state.find_object(event.get("instance_id"))
     if obj is None:
         return 0
     if char == "mana_value":

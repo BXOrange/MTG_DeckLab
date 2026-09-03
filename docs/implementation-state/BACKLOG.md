@@ -232,19 +232,15 @@ Plan-level sequencing lives in
   back as a colour-chosen copy / a sacrifice-timed token" effect (not yet
   built — see that table's row) plus the keyword-cost recognition. One
   batch: primitive + `catalogue/` handler + `PARSER_VERSION` bump.
-- **MEC-49 · Per-turn damage-source attribution — residue.** The
-  attribution primitive (`GameState.creatures_damaged_by_source_this_turn`)
-  plus the DIES trigger condition shipped v219 (+8), and the `die_to_exile`
-  replacement form ("if a creature/permanent dealt damage by ~ this turn
-  would die, exile it instead") shipped v220 (+4) — see `Done_Backend.md`.
-  Left: the **Aura-hosted** variant "if a creature dealt damage by
+- **MEC-49 · Per-turn damage-source attribution — Aura-hosted tail.** The
+  attribution primitive + DIES trigger condition (v219, +8), the
+  `die_to_exile` replacement form (v220, +4) and the two body gaps —
+  "gain life equal to that creature's toughness" on a group trigger,
+  "+N/+N counter" (v221, +8) — are all done (see `Done_Backend.md`). Only
+  left: the **Aura-hosted** variant "if a creature dealt damage by
   **enchanted creature** this turn would die, exile it instead" (a
-  `die_to_exile` subject reading `source.attached_to` as the damage
-  source), and two per-card body gaps — `put a +2/+2 counter` (Baron
-  Sengir — an `add_counters` kind gap) and `you gain life equal to that
-  creature's toughness` (Abattoir Ghoul — `GainLifeEffect.amount_from_
-  subject` for a group-trigger subject; the primitive exists, just not
-  wired for this trigger shape).
+  `die_to_exile` subject reading the Aura's `attached_to` as the damage
+  source) — one card, low priority.
 - **MEC-51 · Control another player's turn (or a part of it — e.g. a
   combat phase).** "You control target opponent during their next turn."
   (Mindslaver, Sorin Markov's `−7`, Emrakul, the Promised End, Worst

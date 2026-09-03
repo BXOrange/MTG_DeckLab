@@ -572,6 +572,10 @@ class DamageDeathMixin:
                     # amount_from_trigger_event`, since a live re-lookup
                     # after this fires would see the *new* post-move object.
                     power=obj.power,
+                    # MEC-49: the toughness sibling — "you gain life equal to
+                    # that creature's toughness" on a DIES trigger (Abattoir
+                    # Ghoul), read the same RULE 400.7 last-known way.
+                    toughness=obj.toughness,
                 )
             )
             self.state.remove_from_battlefield(obj)
@@ -622,6 +626,10 @@ class DamageDeathMixin:
                     # amount_from_trigger_event`, since a live re-lookup
                     # after this fires would see the *new* post-move object.
                     power=obj.power,
+                    # MEC-49: the toughness sibling — "you gain life equal to
+                    # that creature's toughness" on a DIES trigger (Abattoir
+                    # Ghoul), read the same RULE 400.7 last-known way.
+                    toughness=obj.toughness,
                 )
             )
             self.state.remove_from_battlefield(obj)
@@ -1647,6 +1655,10 @@ class DamageDeathMixin:
                     # amount_from_trigger_event`, since a live re-lookup
                     # after this fires would see the *new* post-move object.
                     power=obj.power,
+                    # MEC-49: the toughness sibling — "you gain life equal to
+                    # that creature's toughness" on a DIES trigger (Abattoir
+                    # Ghoul), read the same RULE 400.7 last-known way.
+                    toughness=obj.toughness,
                 )
             )
             # RULE 700.4: "dies" means "is put into a graveyard from the

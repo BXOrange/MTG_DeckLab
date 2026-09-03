@@ -131,3 +131,59 @@ def test_trigger_fires_only_for_a_creature_this_source_damaged():
 
     # exactly one +1/+1 counter — from `hit` dying, not `missed`
     assert src.counters.get("+1/+1", 0) == 1
+
+
+# --- MEC-49 body gaps ------------------------------------------------
+
+
+def test_abattoir_ghoul_gains_life_equal_to_that_creatures_toughness():
+    eng, st = _engine()
+    src = GameObject(
+        Card(id="AG", name="Abattoir Ghoul", type_line="Creature — Zombie",
+             is_creature=True, power=3, toughness=2,
+             oracle_text=("Whenever a creature dealt damage by Abattoir Ghoul "
+                          "this turn dies, you gain life equal to that "
+                          "creature's toughness.")),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    src.controller_id = "p1"
+    st.add_to_battlefield(src)
+    bind_from_catalogue(src)
+
+    victim = _creature(st, "p2", "BigVictim", power=1, toughness=5)
+    eng.rules.deal_damage(victim, 1, source=src)
+    eng.rules.destroy(victim, can_be_regenerated=False)
+    eng.resolve_until_stable()
+    # RULE 400.7 last-known toughness of the dead creature = 5
+    assert st.player_by_id("p1").life == 25
+
+
+def test_abattoir_ghoul_parses():
+    card = Card(
+        id="AG", name="Abattoir Ghoul", type_line="Creature — Zombie",
+        is_creature=True, power=3, toughness=2,
+        oracle_text=("First strike\nWhenever a creature dealt damage by "
+                     "Abattoir Ghoul this turn dies, you gain life equal to "
+                     "that creature's toughness."),
+    )
+    res = parse_oracle(card)
+    assert res.modeled, res.unclaimed
+    trig = next(s for s in res.specs if s.ability_kind == "triggered")
+    assert trig.effects[0].type == "gain_life"
+    assert trig.effects[0].params["amount_from_subject"] == "trigger_subject_toughness"
+
+
+def test_baron_sengir_plus_two_counter_is_two_plus_one_counters():
+    from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
+    specs = match_clause("put a +2/+2 counter on ~")
+    assert specs and specs[0].type == "add_counters"
+    assert specs[0].params["kind"] == "+1/+1"
+    assert specs[0].params["count"] == 2
+
+    card = Card(
+        id="BS", name="Baron Sengir", type_line="Legendary Creature — Vampire",
+        is_creature=True, power=5, toughness=5,
+        oracle_text=("Flying\nWhenever a creature dealt damage by Baron Sengir "
+                     "this turn dies, put a +2/+2 counter on Baron Sengir."),
+    )
+    assert parse_oracle(card).modeled, parse_oracle(card).unclaimed

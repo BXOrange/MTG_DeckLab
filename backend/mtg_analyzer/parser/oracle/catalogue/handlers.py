@@ -5551,6 +5551,21 @@ def _counter_sign(token: str) -> str:
     return "-1/-1" if token.lstrip()[0] in "-−" else "+1/+1"
 
 
+def _counter_kind_and_multiplier(token: str) -> tuple[str, int]:
+    """A "±N/±N" counter token → ``("+1/+1" | "-1/-1", N)``. **Documented
+    simplification:** a genuine "+2/+2 counter" (Baron Sengir, RULE 122.1c —
+    one counter worth +2/+2) is modeled as *two* +1/+1 counters — identical
+    for net P/T, differing only for a later "remove a +1/+1 counter" / "has
+    a +1/+1 counter" reading. Asymmetric tokens ("+2/+0") have no real card
+    on this shape and fall back to magnitude 1."""
+    sign = _counter_sign(token)
+    mag = 1
+    m = re.match(r"\s*[+\-−](\d)/[+\-−](\d)", token)
+    if m and m.group(1) == m.group(2):
+        mag = max(1, int(m.group(1)))
+    return sign, mag
+
+
 def _add_counters_target_params(
     m: re.Match[str], params: dict, include_optional: bool = True
 ) -> Optional[list[EffectSpec]]:
@@ -5574,7 +5589,8 @@ def _add_counters_target_params(
 
 
 def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params: dict = {"count": count_of(m.group("n")), "kind": _counter_sign(m.group("ckind"))}
+    kind, mag = _counter_kind_and_multiplier(m.group("ckind"))
+    params: dict = {"count": count_of(m.group("n")) * mag, "kind": kind}
     return _add_counters_target_params(m, params)
 
 
@@ -9019,6 +9035,16 @@ HANDLERS: list[EffectHandler] = [
         "gain_life_eq_that_prev", _GAIN_LIFE_EQ_THAT_RE, _gain_life_eq_that_prev,
         previous_subject_only=True,
     ),
+    # MEC-49: "that creature's <char>" on a *group* trigger — "Whenever a
+    # creature dealt damage by ~ this turn dies, you gain life equal to
+    # **that creature's toughness**." (Abattoir Ghoul). The `its`-pronoun
+    # sibling (`gain_life_eq_its_group`) reads the same firing-event
+    # subject; this row just accepts the wordier "that creature's" form for
+    # the same shape.
+    EffectHandler(
+        "gain_life_eq_that_group", _GAIN_LIFE_EQ_THAT_RE, _gain_life_eq_its_group,
+        group_subject_only=True,
+    ),
     # Tried before the plain `lose_life` row below (its own bare
     # `{NUMBER} life` would otherwise stop right after the digit, leaving
     # "for each spell they've cast this turn" unconsumed).
@@ -10148,7 +10174,10 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "add_counters",
         _c(
-            rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on "
+            # "+1/+1" / "-1/-1" — and "+N/+N" for N>1 (Baron Sengir's
+            # "+2/+2 counter"), modeled as N +1/+1 counters (see
+            # `_counter_kind_and_multiplier`).
+            rf"put {COUNT} (?P<ckind>[+\-−]\d/[+\-−]\d) counters? on "
             rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
         ),
         _add_counters,
