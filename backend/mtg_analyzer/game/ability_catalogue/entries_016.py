@@ -2102,10 +2102,11 @@ register("The Master, Gallifrey's End", _the_master_gallifreys_end)
 #: `static_conditions` do the transform; the granted clause is an ordinary
 #: `affects="attached_permanent"` static that only bites once
 #: `attached_to` is set.
-_LICID_NOT_AURA = EffectSpec("activation_condition_marker",
-                             {"condition": {"kind": "not_licid_aura"}})
-_LICID_IS_AURA = EffectSpec("activation_condition_marker",
-                            {"condition": {"kind": "is_licid_aura"}})
+def _cond_marker(kind: str) -> EffectSpec:
+    # Fresh every call — the binder mutates specs when binding, so a shared
+    # module constant would be corrupted for the next Licid (and every
+    # subsequent `specs_for`).
+    return EffectSpec("activation_condition_marker", {"condition": {"kind": kind}})
 
 
 def _licid(name: str, cost: str, end_cost: str, granted: list[EffectSpec],
@@ -2113,7 +2114,7 @@ def _licid(name: str, cost: str, end_cost: str, granted: list[EffectSpec],
     return [
         AbilitySpec(
             "activated",
-            [EffectSpec("licid_become_aura", {}), _LICID_NOT_AURA],
+            [EffectSpec("licid_become_aura", {}), _cond_marker("not_licid_aura")],
             cost={"text": f"{cost}, {{T}}"},
             raw_text=(f"{cost}, {{T}}: Diese Kreatur verliert diese Fähigkeit und "
                       "wird eine Aura-Verzauberung mit Verzaubert Kreatur. Lege sie "
@@ -2121,27 +2122,40 @@ def _licid(name: str, cost: str, end_cost: str, granted: list[EffectSpec],
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("licid_revert", {}), _LICID_IS_AURA],
+            [EffectSpec("licid_revert", {}), _cond_marker("is_licid_aura")],
             cost={"text": end_cost},
             raw_text=f"Du kannst {end_cost} bezahlen, um diesen Effekt zu beenden.",
         ),
-        AbilitySpec("static", list(granted), raw_text=granted_raw),
+        AbilitySpec("static", [EffectSpec(s.type, dict(s.params)) for s in granted],
+                    raw_text=granted_raw),
     ]
 
 
+def _kw_at(kw: str) -> EffectSpec:
+    return EffectSpec("grant_keyword", {"keywords": [kw], "affects": "attached_permanent"})
+
+
 for _lname, _lcost, _lend, _lspecs, _lraw in [
-    ("Gliding Licid", "{U}", "{U}",
-     [EffectSpec("grant_keyword", {"keywords": ["flying"], "affects": "attached_permanent"})],
+    ("Gliding Licid", "{U}", "{U}", [_kw_at("flying")],
      "Enchanted creature has flying."),
-    ("Enraging Licid", "{R}", "{R}",
-     [EffectSpec("grant_keyword", {"keywords": ["haste"], "affects": "attached_permanent"})],
+    ("Enraging Licid", "{R}", "{R}", [_kw_at("haste")],
      "Enchanted creature has haste."),
-    ("Quickening Licid", "{1}{W}", "{W}",
-     [EffectSpec("grant_keyword", {"keywords": ["first strike"], "affects": "attached_permanent"})],
+    ("Quickening Licid", "{1}{W}", "{W}", [_kw_at("first strike")],
      "Enchanted creature has first strike."),
-    ("Corrupting Licid", "{B}", "{B}",
-     [EffectSpec("grant_keyword", {"keywords": ["fear"], "affects": "attached_permanent"})],
+    ("Corrupting Licid", "{B}", "{B}", [_kw_at("fear")],
      "Enchanted creature has fear."),
+    ("Calming Licid", "{W}", "{W}", [_kw_at("cant_attack")],
+     "Enchanted creature can't attack."),
+    ("Convulsing Licid", "{R}", "{R}", [_kw_at("cant_block")],
+     "Enchanted creature can't block."),
+    ("Tempting Licid", "{G}", "{G}", [_kw_at("all_must_block")],
+     "All creatures able to block enchanted creature do so."),
+    ("Dominating Licid", "{1}{U}{U}", "{U}", [EffectSpec("control_change", {})],
+     "You control enchanted creature."),
+    ("Transmogrifying Licid", "{1}", "{1}",
+     [EffectSpec("anthem", {"power": 1, "toughness": 1, "affects": "attached_permanent"}),
+      EffectSpec("type_change", {"add_types": ["artifact"], "affects": "attached_permanent"})],
+     "Enchanted creature gets +1/+1 and is an artifact in addition to its other types."),
 ]:
     register(_lname, (lambda n, c, e, s, r: (lambda: _licid(n, c, e, s, r)))(
         _lname, _lcost, _lend, _lspecs, _lraw))

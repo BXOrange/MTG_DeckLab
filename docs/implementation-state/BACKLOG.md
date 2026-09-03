@@ -221,22 +221,18 @@ Plan-level sequencing lives in
   state-change primitive is **built** (hand-authored, no version bump —
   `LicidBecomeAuraEffect`/`LicidRevertEffect` + `GameObject.is_licid_aura`
   + `static_conditions` `is_licid_aura`/`not_licid_aura`; see
-  `Done_Backend.md`). Shipped: **Gliding / Enraging / Quickening /
-  Corrupting Licid** (flying / haste / first strike / fear). Left, each a
-  `_licid(...)` catalogue entry with its own granted clause — the
-  keyword-grant ones (**Calming** "can't attack", **Convulsing** "can't
-  block") are trivial adds; **Transmogrifying** (grants +1/+1 and "is an
-  artifact in addition to its other types" — a compound static), **Nurturing**
-  ("{G}: Regenerate enchanted creature" — an activated ability *on the
-  Aura*, PAR-33-shaped), **Leeching** (upkeep-damage trigger on the
-  enchanted creature's controller), **Stinging** ("whenever enchanted
-  creature becomes tapped, …" trigger), **Tempting** ("all creatures able
-  to block enchanted creature do so" — a lure static), **Dominating**
-  ("you control enchanted creature"), and **Flanking Licid** (the odd
-  old-templating one, "becomes a creature enchantment that reads …") each
-  need their own granted-ability spec. Also open: RULE 704.5n (the Licid
-  Aura's host leaving the battlefield → the Licid to graveyard) and
-  targeting legality when no creature is on board.
+  `Done_Backend.md`). **9 of 13 shipped** — Gliding/Enraging/Quickening/
+  Corrupting (flying/haste/first strike/fear), Calming/Convulsing
+  (`cant_attack`/`cant_block`), Tempting (`all_must_block`), Dominating
+  (`control_change`), Transmogrifying (compound `anthem` + `type_change`
+  add-artifact). Left: **Nurturing** ("{G}: Regenerate enchanted creature"
+  — an activated ability *on the Aura*), **Leeching** ("At the beginning of
+  the upkeep of enchanted creature's controller, this creature deals 1
+  damage to that player" — a phase trigger scoped to the *host's*
+  controller), **Stinging** ("whenever enchanted creature becomes tapped, …"
+  — a BECOMES_TAPPED trigger on the attached permanent), and **Flanking
+  Licid** (the odd old-templating one). Also open: RULE 704.5n (the Licid
+  Aura's host leaving → the Licid to graveyard).
 - **MEC-48 · Specialize (Duskmourn, ~RULE 702.166).** ~50 cache cards, the
   `PARSER_LONG_TAIL.md` "Two tracks" table's largest still-open
   set-specific mechanic. Needs the "exile the specialize card, it comes

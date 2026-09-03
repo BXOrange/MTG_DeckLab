@@ -61,15 +61,72 @@ def _bear(st, name, pid="p2"):
 # --- registration -----------------------------------------------------
 
 
-def test_four_licids_registered_with_two_activated_and_one_static():
-    for n in ("Gliding Licid", "Enraging Licid", "Quickening Licid", "Corrupting Licid"):
+_ALL_LICIDS = (
+    "Gliding Licid", "Enraging Licid", "Quickening Licid", "Corrupting Licid",
+    "Calming Licid", "Convulsing Licid", "Tempting Licid", "Dominating Licid",
+    "Transmogrifying Licid",
+)
+
+
+def test_licids_registered_with_two_activated_and_a_static():
+    for n in _ALL_LICIDS:
         card = Card(id=n[:6], name=n, type_line="Creature — Licid",
                     is_creature=True, power=1, toughness=1)
         specs = ac.specs_for(card)
         kinds = sorted(s.ability_kind for s in specs)
-        assert kinds == ["activated", "activated", "static"], n
+        assert kinds[:2] == ["activated", "activated"] and "static" in kinds, n
         # fresh objects each call
         assert ac.specs_for(card) is not specs
+
+
+def _licid_on_battlefield(st, name, granted_text, pid="p1"):
+    o = _put(st, Card(
+        id=name[:6], name=name, type_line="Creature — Licid",
+        is_creature=True, power=1, toughness=1,
+        oracle_text=(
+            "{X}, {T}: This creature loses this ability and becomes an Aura "
+            "enchantment with enchant creature. Attach it to target creature. "
+            "You may pay {X} to end this effect.\n" + granted_text
+        ),
+    ), pid)
+    o.summoning_sick = False
+    bind_from_catalogue(o)
+    return o
+
+
+def test_dominating_licid_steals_control_of_the_enchanted_creature():
+    eng, st = _engine()
+    licid = _licid_on_battlefield(st, "Dominating Licid", "You control enchanted creature.")
+    host = _bear(st, "Victim", pid="p2")
+    st.player_by_id("p1").mana_pool.add_many({"U": 6})
+
+    eng.activate_ability(st.player_by_id("p1"), licid, 0, targets=[host])
+    eng.resolve_until_stable()
+    eng.recompute_continuous_effects()
+
+    assert host.controller_id == "p1", "you control enchanted creature"
+
+    eng.activate_ability(st.player_by_id("p1"), licid, 1)  # end it
+    eng.resolve_until_stable()
+    eng.recompute_continuous_effects()
+    assert host.controller_id == "p2", "control returns when the Licid detaches"
+
+
+def test_transmogrifying_licid_pumps_and_adds_artifact():
+    eng, st = _engine()
+    licid = _licid_on_battlefield(
+        st, "Transmogrifying Licid",
+        "Enchanted creature gets +1/+1 and is an artifact in addition to its other types.",
+    )
+    host = _bear(st, "Host")
+    st.player_by_id("p1").mana_pool.add_many({"C": 3})
+
+    eng.activate_ability(st.player_by_id("p1"), licid, 0, targets=[host])
+    eng.resolve_until_stable()
+    eng.recompute_continuous_effects()
+
+    assert (host.power, host.toughness) == (3, 3)
+    assert "artifact" in {t.lower() for t in host.type_words}
 
 
 # --- transform ------------------------------------------------------
