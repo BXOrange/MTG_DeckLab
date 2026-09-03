@@ -229,6 +229,13 @@ class CastingResolutionMixin:
                 # pass the same way a card's own printed flag keywords are
                 # (`effect_binder.attach_to_object`'s flag-keyword handling).
                 obj.intrinsic_keywords.add(grant_keyword)
+        elif condition.get("colors_spent_scale"):
+            # RULE 702.43a Sunburst: ``count`` per distinct colour of mana
+            # actually spent to cast ``obj`` (`GameObject.colors_spent_to_
+            # cast`, recorded by the mana-payment solver). 0 for a token /
+            # reanimated / searched-in permanent that never paid a cost.
+            colors = getattr(obj, "colors_spent_to_cast", None) or frozenset()
+            amount = condition["count"] * len(colors)
         else:
             amount = x_paid if condition["is_x"] else condition["count"]
         if amount > 0:

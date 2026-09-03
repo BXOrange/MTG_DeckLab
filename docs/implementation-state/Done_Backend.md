@@ -2535,6 +2535,11 @@ is in the rules-engine categories below them.
 - **What:** "if ~ was kicked, it enters with N counters on it" and its Multikicker-scaled "…for each time it was kicked" sibling reuse the existing entry-counters machinery via new `kicked_gate`/`kicked_scale` condition-dict keys resolved against `GameObject.kicker_count`.
 - **Files:** `parser/oracle/catalogue/counters.py`, `game/rules_engine.py`
 
+### Sunburst entry counters (PAR-42, PARSER_VERSION 238)
+
+- **What:** RULE 702.43a — "~ enters with a +1/+1 counter on it **for each color of mana spent to cast it**." (Chamber Sentry / Crystalline Crawler / Woodland Wanderer / Skyrider Elf / Rancorous Archaic / Springmantle Cleric). Same "enters with N counters" machinery, a third scaling key alongside `is_x`/`kicked_scale`: `counters.py`'s `_SUNBURST_ENTRY_COUNTERS_RE` → `{"colors_spent_scale": True, "count": 1, "counter_type": "+1/+1"}`, and `RulesEngine._apply_entry_counters` multiplies `count` by `len(GameObject.colors_spent_to_cast)` — the frozenset the mana-payment solver already records at cast time (the same field `SearchLibraryEffect.mana_value_from`'s `"colors_spent_to_cast"` sentinel reads). 0 for a token / reanimated / searched-in permanent that never paid a cost. **+9, 0 regressed.** `tests/test_entry_counters.py`.
+- **Files:** `parser/oracle/catalogue/counters.py`, `game/rules/casting_mixin.py`, `parser/oracle/gate.py` (PARSER_VERSION 238)
+
 ### "Remove a Counter From ~" Activation Cost (RULE 701.19/602.1)
 
 - **What:** The cost-parsing/payment machinery already existed; the gap was `segmenter.py`'s `_COST_LOOKS_REAL` sniff not recognizing "remove … counter" as a real cost when it was the ability's *entire* cost (no mana/{T} alongside it). One regex fix unlocked Triskelion end to end. Scope: fixed-count only — variable counts stayed unclaimed at ship time.

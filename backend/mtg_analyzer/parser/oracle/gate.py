@@ -2430,7 +2430,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: _ABILITY_WORD_RE` strips the "Threshold —" label, and
 #: `_STATIC_CONDITION_RES` gains the subject-verb "N or more cards are in
 #: your graveyard" variant of the existing `control_count` condition. +19.
-PARSER_VERSION = "237"
+#: v238 — PAR-42 — RULE 702.43a **Sunburst**: "~ enters with a +1/+1
+#: counter on it for each color of mana spent to cast it." (Chamber Sentry
+#: / Crystalline Crawler / Woodland Wanderer / Skyrider Elf).
+#: `catalogue/counters.py`'s `_SUNBURST_ENTRY_COUNTERS_RE` →
+#: `{"colors_spent_scale": True}`; `RulesEngine._apply_entry_counters`
+#: multiplies `count` by `len(GameObject.colors_spent_to_cast)` (the
+#: frozenset the mana-payment solver already records). +9.
+PARSER_VERSION = "238"
 
 
 def parser_source_hash() -> str:
