@@ -9254,16 +9254,27 @@ class GrantDieToExileThisTurnEffect(GameEffect):
     """
 
     def __init__(
-        self, target: Any = None, source: Optional["GameObject"] = None, target_kind: Optional[str] = None,
+        self, target: Any = None, source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None, previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        #: "~ deals N damage to target creature. **If that creature would
+        #: die this turn, exile it instead.**" (PAR-40 — Magma Spray / Feed
+        #: the Flames / Bleed Dry) — the trailing sentence has no RULE 115
+        #: target of its own; it arms the replacement on whatever creature
+        #: the *preceding* clause targeted (`GameContext.previous_targets`),
+        #: the same shape `PumpEffect.previous_subject` uses. No
+        #: `target_spec` in that mode, so `RulesEngine._trigger_target_specs`
+        #: doesn't open a spurious RULE 115 choice for it.
+        self.previous_subject = bool(previous_subject)
+        self.target_spec = (
+            TargetSpec(kind=target_kind)
+            if target_kind is not None and not self.previous_subject
+            else None
+        )
 
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
+    def _arm(self, target: Any, context: GameContext) -> None:
         armed_turn = context.state.turn_number
         target_id = target.instance_id
 
@@ -9284,6 +9295,17 @@ class GrantDieToExileThisTurnEffect(GameEffect):
                 description="exile instead of dying this turn",
             )
         )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.previous_subject:
+            for prev in list(context.previous_targets):
+                if hasattr(prev, "instance_id"):
+                    self._arm(prev, context)
+            return
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        self._arm(target, context)
 
 
 class TriggerDoublerEffect(GameEffect):
@@ -20884,6 +20906,7 @@ EffectRegistry.register(
     "grant_die_to_exile_this_turn",  # Lava Coil/Smite the Deathless/Torch the Tower
     lambda p: GrantDieToExileThisTurnEffect(
         target=p.get("target"), target_kind=p.get("target_kind"),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(

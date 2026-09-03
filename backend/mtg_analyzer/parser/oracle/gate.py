@@ -2328,7 +2328,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: unions first so the bare "each creature" branch can't prefix-match then
 #: fail the fullmatch). No engine change. +27 (Cave-In / Fire Tempest /
 #: Inferno / Star of Extinction / Storm's Wrath / Pestilence Demon / …).
-PARSER_VERSION = "226"
+#: v227 — PAR-40 (RULE 616/701.11) — the "If that creature would die this
+#: turn, exile it instead." rider. `segmenter._DIE_TO_EXILE_SENTENCE_RE`
+#: splits it off the same way `_NO_REGEN_SENTENCE_RE` handles "It can't be
+#: regenerated." — the "before" clause parses on its own, and (only if it
+#: announces a creature/permanent target) a `grant_die_to_exile_this_turn`
+#: spec with `previous_subject=True` is appended.
+#: `GrantDieToExileThisTurnEffect` gained the matching `previous_subject`
+#: mode (arms its `WOULD_DIE`->exile replacement on every
+#: `GameContext.previous_targets` entry, no RULE 115 target of its own).
+#: +12 — Magma Spray / Feed the Flames / Elspeth's Smite / Bleed Dry /
+#: Mawloc / Suplex. PAR-40 fully closed.
+PARSER_VERSION = "227"
 
 
 def parser_source_hash() -> str:

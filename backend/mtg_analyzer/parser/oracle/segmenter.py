@@ -1498,6 +1498,22 @@ _NO_REGEN_SENTENCE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: "~ deals N damage to target creature. **If that creature would die this
+#: turn, exile it instead.**" (RULE 616 / 701.11 — Magma Spray / Feed the
+#: Flames / Bot Bashing Time / Elspeth's Smite; also the pump form, Bleed
+#: Dry's "target creature gets -13/-13 …. If that creature would die this
+#: turn, exile it instead.") — the same "trailing sentence retroactively
+#: modifies the previous clause's target" idiom as `_NO_REGEN_SENTENCE_RE`.
+#: Not a second RULE 115 target: the rider arms `grant_die_to_exile_this_
+#: turn` on whatever creature the "before" clause already chose
+#: (`previous_subject`, off `GameContext.previous_targets`). Fail-closed
+#: unless "before" actually announces a creature/permanent target.
+_DIE_TO_EXILE_SENTENCE_RE = re.compile(
+    r"^(?P<before>.+?)\.\s*if (?:that creature|that permanent|it) would die this turn,"
+    r" exile it instead(?:\.\s*(?P<after>.+))?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: "Create <a token / a token copy>. **The token[s] enter[s] tapped and
 #: attacking.**" (RULE 508.4 — Ghired, Kari Zev, Stangg, Living Laser) — a
 #: trailing sentence that retroactively describes how the just-created
@@ -2929,6 +2945,20 @@ def parse_effect_body(
             return None  # nothing to deny regeneration to — fail closed
         return _with_after_tail(
             before_specs, no_regen.group("after"),
+            previous_subject=_announces_creature_target(before_specs), group_subject=group_subject,
+        )
+
+    die_to_exile = _DIE_TO_EXILE_SENTENCE_RE.match(body)
+    if die_to_exile is not None:
+        before_specs = parse_effect_body(
+            die_to_exile.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if before_specs is None or not _announces_creature_target(before_specs):
+            return None  # fail closed — the rider only qualifies a creature/permanent this clause already chose
+        return _with_after_tail(
+            before_specs + [EffectSpec("grant_die_to_exile_this_turn", {"previous_subject": True})],
+            die_to_exile.group("after"),
             previous_subject=_announces_creature_target(before_specs), group_subject=group_subject,
         )
 
