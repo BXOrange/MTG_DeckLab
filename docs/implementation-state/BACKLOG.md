@@ -232,13 +232,18 @@ Plan-level sequencing lives in
   back as a colour-chosen copy / a sacrifice-timed token" effect (not yet
   built — see that table's row) plus the keyword-cost recognition. One
   batch: primitive + `catalogue/` handler + `PARSER_VERSION` bump.
-- **MEC-49 · Per-turn damage-source attribution.** `whenever a creature
-  dealt damage by ~ this turn dies, …` (Abattoir Ghoul, Baron Sengir,
-  Blood Cultist, … ~28 Commander-legal cards). Needs a `GameState`
-  per-turn map of "which permanents dealt damage to object X this turn"
-  (cleared in cleanup) plus the RULE 603.1 trigger-condition filter that
-  reads it. Check the Clash batch's `_damage`-family work
-  (`Done_Backend.md`) for an adjacent tracker before building.
+- **MEC-49 · Per-turn damage-source attribution — the *replacement* form.**
+  The attribution primitive shipped PARSER_VERSION 219 (`GameState.
+  creatures_damaged_by_source_this_turn` + the `whenever a creature dealt
+  damage by ~ this turn dies, …` DIES trigger condition, +8 — see
+  `Done_Backend.md`). Still open: **"if a creature dealt damage by ~ this
+  turn would die, exile it instead."** (~4 SOLO — the O-Ring-of-death
+  shape) — a RULE 616 replacement that filters the dying object against
+  the same map, reusing the existing exile-instead-of-death replacement.
+  Plus two per-card body gaps the trigger form left: `put a +2/+2 counter`
+  (Baron Sengir — an `add_counters` kind gap) and `you gain life equal to
+  that creature's toughness` (Abattoir Ghoul — `GainLifeEffect.amount_
+  from_subject` for a group-trigger subject).
 - **MEC-51 · Control another player's turn (or a part of it — e.g. a
   combat phase).** "You control target opponent during their next turn."
   (Mindslaver, Sorin Markov's `−7`, Emrakul, the Promised End, Worst

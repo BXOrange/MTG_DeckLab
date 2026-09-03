@@ -1061,6 +1061,18 @@ _GOADED_SUBJECT_RE = re.compile(
     rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
+#: MEC-49: RULE 603.1's condition subject scoped by *damage history* — "a
+#: creature **dealt damage by ~ this turn** dies" (Baron Sengir, Abattoir
+#: Ghoul, Blood Cultist &c.). Not a type/subtype/controller/designation, so
+#: its own key (`effect_binder._build_group_ok`'s
+#: ``damaged_by_source_this_turn``, a `GameState.creatures_damaged_by_
+#: source_this_turn` lookup keyed on this ability's own source). Only
+#: "dies" appears on real cards; the dying creature is anyone's ("a
+#: creature", no "you control").
+_DAMAGED_BY_SOURCE_SUBJECT_RE = re.compile(
+    r"^a\s+creature\s+dealt\s+damage\s+by\s+~\s+this\s+turn\s+dies$"
+)
+
 #: RULE 603.1's condition subject, scoped by a **creature subtype** instead
 #: of `_GROUP_TYPE_WORDS`'s closed main-type vocabulary (The Ghoul,
 #: Gunslinger: "another nontoken Zombie or Mutant you control dies" — a
@@ -2381,6 +2393,17 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             "nontoken": bool(m.group("nontoken")),
             "controller": "you",
             "other": True,
+        }
+    # MEC-49 — "a creature dealt damage by ~ this turn dies" (before
+    # `_GROUP_SUBJECT_RE`, which would stop at "creature" and choke on the
+    # "dealt damage by ~ this turn" tail).
+    if _DAMAGED_BY_SOURCE_SUBJECT_RE.match(cond):
+        return {
+            "subject": "group",
+            "type": "creature",
+            "controller": "any",
+            "other": False,
+            "damaged_by_source_this_turn": True,
         }
     # Before `_GROUP_SUBJECT_RE`, which would otherwise fail on the "goaded"
     # word entirely (it isn't in `_GROUP_TYPE_WORDS`) and leave the clause

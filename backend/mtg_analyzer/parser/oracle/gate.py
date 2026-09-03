@@ -2247,7 +2247,19 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `FaceVillainousChoiceEffect.subject_min_life_lost` (`_VILLAINOUS_HEADER_RE`
 #: "each opponent **who lost N or more life this turn**"). +1 covered.
 #: `tests/test_mec52_davros_life_lost.py`.
-PARSER_VERSION = "218"
+#: v219 — MEC-49 (per-turn damage-source attribution). "Whenever a creature
+#: **dealt damage by ~ this turn** dies, `<effect>`." (Baron Sengir /
+#: Abattoir Ghoul / Blood Cultist / Sengir Vampire family). New
+#: `GameState.creatures_damaged_by_source_this_turn` — a per-damaged-object
+#: set of source `instance_id`s, recorded by `RulesEngine.deal_damage` for
+#: any damage to a creature (combat or not, infect/wither included), reset
+#: game-wide each `begin_turn` (the per-source hit-set sibling of
+#: `combat_damage_to_players_this_turn`). Segmenter
+#: `_DAMAGED_BY_SOURCE_SUBJECT_RE` → a RULE 603.1 group DIES condition with
+#: `effect_binder._build_group_ok`'s new `damaged_by_source_this_turn`
+#: key (a pure history lookup keyed on this ability's own source, like
+#: `crewed_by_self`). +8 covered. `tests/test_mec49_damaged_by_source.py`.
+PARSER_VERSION = "219"
 
 
 def parser_source_hash() -> str:

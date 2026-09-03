@@ -901,6 +901,18 @@ class GameState:
         #: restriction) is a *history* question — the creature is long gone
         #: from every zone a live board scan could reach.
         self.creatures_died_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: MEC-49: for each creature that took damage *this turn*, the set of
+        #: `instance_id`s of the sources that dealt it — ``{damaged_obj_id:
+        #: {source_id, …}}``. A *history* question no live board can answer:
+        #: "whenever a creature dealt damage by ~ this turn dies, …" (Baron
+        #: Sengir, Abattoir Ghoul, Blood Cultist &c.) is asked off the DIES
+        #: event, after the creature is gone. Recorded by `RulesEngine.
+        #: deal_damage` for any damage to a creature (combat *or* not, from
+        #: any source), read by `effect_binder._build_group_ok`'s
+        #: ``damaged_by_source_this_turn`` filter, cleared wholesale in
+        #: `GameEngine.begin_turn` (the per-source hit-*set* sibling of
+        #: `combat_damage_to_players_this_turn`).
+        self.creatures_damaged_by_source_this_turn: dict[int, set[int]] = {}
 
         #: Player ids granted "you have no maximum hand size **for the rest
         #: of the game**" by a resolving spell/ability (Spirit Water

@@ -546,6 +546,12 @@ def _build_group_ok(
     # the printed default is "wasn't put here", so an inconclusive lookup
     # shouldn't silently suppress an otherwise-legal trigger.
     want_not_entered_via_self = bool(condition.get("not_entered_via_self"))
+    # MEC-49: "whenever a creature **dealt damage by ~ this turn** dies, …"
+    # (Baron Sengir, Abattoir Ghoul) — the acting object's `instance_id`
+    # must be in `GameState.creatures_damaged_by_source_this_turn` keyed
+    # under this ability's own source. A pure history lookup (the object is
+    # gone by DIES), keyed on this ability's source like `crewed_by_self`.
+    want_damaged_by_self = bool(condition.get("damaged_by_source_this_turn"))
 
     def _group_ok(
         event: Any,
@@ -568,6 +574,7 @@ def _build_group_ok(
         want_nonbasic=want_nonbasic,
         want_nonland=want_nonland,
         want_not_entered_via_self=want_not_entered_via_self,
+        want_damaged_by_self=want_damaged_by_self,
     ) -> bool:
         event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
@@ -659,6 +666,16 @@ def _build_group_ok(
             state = getattr(context, "state", None)
             obj = state.find_object(event_instance) if state is not None else None
             if obj is not None and getattr(obj, "entered_via_ability_id", None) == iid:
+                return False
+        if want_damaged_by_self:
+            if iid is None or event_instance is None:
+                return False
+            state = getattr(context, "state", None)
+            hit_by = (
+                getattr(state, "creatures_damaged_by_source_this_turn", {}).get(event_instance, ())
+                if state is not None else ()
+            )
+            if iid not in hit_by:
                 return False
         if want_goaded or want_in_combat:
             snapshot_goaded = event.get("goaded")

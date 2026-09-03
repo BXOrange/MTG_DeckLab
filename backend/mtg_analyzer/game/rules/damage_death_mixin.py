@@ -370,6 +370,19 @@ class DamageDeathMixin:
                 toxic_n = toxic_value(source)
                 if toxic_n:
                     self.add_player_counters(final_target, toxic_n, "poison", source=source)
+            # MEC-49: remember which sources dealt damage to this creature
+            # this turn — "whenever a creature dealt damage by ~ this turn
+            # dies, …" (`GameState.creatures_damaged_by_source_this_turn`).
+            # Any damage to a creature, combat or not, infect/wither
+            # included (RULE 702.90b/702.91a still deal damage, just recolor
+            # its result), so it sits here rather than in a type-specific
+            # branch above.
+            if not final_is_player and source is not None and getattr(
+                final_target, "is_creature", False
+            ):
+                self.state.creatures_damaged_by_source_this_turn.setdefault(
+                    final_target.instance_id, set()
+                ).add(source.instance_id)
             # `copy_with` (not a fresh `GameEvent`) so `source_id`/`combat`/
             # `source_controller_id` survive onto the broadcast event — a
             # "whenever equipped creature deals combat damage to a player"

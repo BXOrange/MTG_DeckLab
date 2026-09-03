@@ -259,6 +259,9 @@ class TurnLoopMixin:
         # RULE 700.4 history ("unless a creature died under your control this
         # turn", Bontu the Glorified) — game-wide for the same reason.
         self.state.creatures_died_this_turn.clear()
+        # MEC-49 history ("whenever a creature dealt damage by ~ this turn
+        # dies", Baron Sengir) — game-wide, same reason.
+        self.state.creatures_damaged_by_source_this_turn.clear()
         # RULE 701.6x history ("then if you've done all four this turn",
         # Avatar Aang) — game-wide, same as the row above; a bend by any
         # player is a per-turn fact none of them carry on the board.
