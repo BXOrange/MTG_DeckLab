@@ -293,7 +293,16 @@ class ActivationCost:
     remove_counters: Optional[tuple[str, int]] = None
     #: RULE 702.138b (Escape): how many *other* cards must be exiled from the
     #: payer's own graveyard — "Exile four other cards from your graveyard".
+    #: Also RULE 601.2b's "as an additional cost to cast this spell, exile N
+    #: [<type>] cards from your graveyard" (Cobbled Lancer / Abhorrent
+    #: Oculus / Makeshift Mauler), narrowed by ``exile_from_graveyard_
+    #: filter`` when set.
     exile_from_graveyard: int = 0
+    #: A card-type word ("creature") the ``exile_from_graveyard`` cards must
+    #: match — "exile **a creature card** from your graveyard" (PAR-41).
+    #: ``None`` = any card (Escape's own cost, Abhorrent Oculus's untyped
+    #: "exile 6 cards").
+    exile_from_graveyard_filter: Optional[str] = None
     #: RULE 701.59a (Collect Evidence, PAR-29 — Murders at Karlov Manor): the
     #: **total-mana-value threshold** — "exile any number of cards with total
     #: mana value N or greater from your graveyard". The MV-sum sibling of
@@ -742,6 +751,7 @@ class ActivationCost:
             "is_cycling": self.is_cycling,
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
             "exile_from_graveyard": self.exile_from_graveyard,
+            "exile_from_graveyard_filter": self.exile_from_graveyard_filter,
             "collect_evidence": self.collect_evidence,
             "forage": self.forage,
             "behold": self.behold,
@@ -823,7 +833,17 @@ def parse_activation_cost(
         else:
             parsed.loyalty = int(raw_loyalty)
     if "exile_from_graveyard" in cost:
-        parsed.exile_from_graveyard = int(cost["exile_from_graveyard"])
+        raw = cost["exile_from_graveyard"]
+        if isinstance(raw, dict):
+            # RULE 601.2b additional-cost shape (PAR-41): {"count", "type"?}.
+            parsed.exile_from_graveyard = int(raw.get("count", 0))
+            if raw.get("type"):
+                parsed.exile_from_graveyard_filter = str(raw["type"])
+        else:
+            # Escape's own dict form (`grant`), a bare int.
+            parsed.exile_from_graveyard = int(raw)
+    if cost.get("exile_from_graveyard_filter"):
+        parsed.exile_from_graveyard_filter = str(cost["exile_from_graveyard_filter"])
     if cost.get("collect_evidence"):
         parsed.collect_evidence = int(cost["collect_evidence"])
     if cost.get("forage"):

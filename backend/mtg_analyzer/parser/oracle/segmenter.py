@@ -1769,6 +1769,18 @@ _ADDITIONAL_COST_SACRIFICE_ARTIFACT_OR_CREATURE_RE = re.compile(
     r"^sacrifice an? (?:artifact or creature|creature or artifact)$", re.IGNORECASE
 )
 _ADDITIONAL_COST_DISCARD_RE = re.compile(r"^discard an?\s+card$", re.IGNORECASE)
+#: RULE 601.2b: "exile N [<type>] cards from your graveyard" as an
+#: additional cast cost (Cobbled Lancer / Headless Skaab / Makeshift Mauler
+#: — "exile a creature card …"; Abhorrent Oculus — "exile 6 cards …"). A
+#: hard gate, no "or pay {N}" alternative here. Only the fixed-digit /
+#: "a"/"an" count is recognised (the "exile **x** cards" variant — Harvest
+#: Pyre / Haunting Misery — needs an X-scaled additional cost this field
+#: doesn't carry yet, so it stays UNMODELED). ``type`` is a single main-
+#: type word ("creature" is the only one real cards print in this shape).
+_ADDITIONAL_COST_EXILE_GRAVEYARD_RE = re.compile(
+    r"^exile\s+(?P<n>an?|\d+)\s+(?P<type>creature\s+)?cards?\s+from your graveyard$",
+    re.IGNORECASE,
+)
 _ADDITIONAL_COST_PAY_LIFE_RE = re.compile(r"^pay\s+(x|\d+)\s+life$", re.IGNORECASE)
 #: "pay N life or pay `<cost>`" (Redirect Lightning) — RULE 601.2b's
 #: alternative-additional-cost shape has no `AbilitySpec.additional_cost`
@@ -2133,6 +2145,15 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
         return {"sacrifice": sac.group(1)}
     if _ADDITIONAL_COST_DISCARD_RE.match(text):
         return {"discard": 1}
+    exile_gy = _ADDITIONAL_COST_EXILE_GRAVEYARD_RE.match(text)
+    if exile_gy is not None:
+        n = exile_gy.group("n").lower()
+        # Single-key dict (RULE 601.2b `AbilitySpec.additional_cost` shape),
+        # value structured as ``{"count", "type"?}``.
+        value: dict[str, Any] = {"count": 1 if n in ("a", "an") else int(n)}
+        if exile_gy.group("type"):
+            value["type"] = "creature"
+        return {"exile_from_graveyard": value}
     life = _ADDITIONAL_COST_PAY_LIFE_RE.match(text)
     if life is not None:
         amount = life.group(1)

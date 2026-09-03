@@ -124,8 +124,14 @@ its block back into the matching section here.
   - **PAR-39** — old two-sentence O-Ring templating (`when ~ leaves the
     battlefield, return the exiled card to the battlefield under its
     owner's control`) (#12) — **reuse the PAR-30 Threaten/O-Ring cluster**.
-  - **PAR-41** — additional cost `{X}` / from graveyard (`discard x
-    cards` #10, `exile a creature card from your graveyard` #8).
+  - **PAR-41** — additional cost `{X}` / from graveyard. Done: `exile N
+    [<type>] cards from your graveyard` (`ActivationCost.exile_from_
+    graveyard_filter` + `_can_pay_/_pay_additional_cast_cost` wiring,
+    PARSER_VERSION 234, +9 — Cobbled Lancer / Skaab family). Left: `discard
+    x cards` and `exile x [creature] cards from your graveyard` — both need
+    an **X-scaled additional cost** (the `additional_cost` fields carry a
+    fixed int / the `pay_life` `"x"` sentinel, no general X-scaled
+    non-mana-cost path yet).
   - **PAR-42** — conditional / dynamic enters-tapped & entry counters.
     Done: `enters tapped unless a player has <n> or less life` (the
     Innistrad slow-land life cycle — `lands.py`'s `unless_life` kind,

@@ -1769,6 +1769,17 @@ class CastingMixin:
             player, obj, cost.behold_exile
         ) is None:
             return False
+        # RULE 601.2b (PAR-41): "exile N [<type>] cards from your graveyard"
+        # (Cobbled Lancer / Abhorrent Oculus) — a hard gate, no alternative:
+        # the caster's graveyard must hold at least N matching cards. The
+        # spell itself is still in hand at check time, so it's never one of
+        # them anyway.
+        if cost.exile_from_graveyard and len(
+            self._graveyard_exile_cost_candidates(
+                player, cost.exile_from_graveyard, cost.exile_from_graveyard_filter
+            )
+        ) < cost.exile_from_graveyard:
+            return False
         # RULE 701.4a (PAR-30, Celestial Reunion): "you may choose a creature
         # type and behold two creatures of that type." — an *optional*
         # additional cost. Only its `pay_additional` cast variant needs the
@@ -1907,6 +1918,13 @@ class CastingMixin:
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             self.rules.lose_life(player, amount, cause="cost")
+        if cost.exile_from_graveyard:
+            # RULE 601.2b (PAR-41): `_can_pay_additional_cast_cost` already
+            # confirmed enough matching cards are there.
+            for victim in self._graveyard_exile_cost_candidates(
+                player, cost.exile_from_graveyard, cost.exile_from_graveyard_filter
+            ):
+                self.rules.exile(victim)
         if cost.behold:
             # RULE 701.4a (PAR-29): reveal a matching permanent/hand card if
             # one exists. Non-blocking — `_can_pay_additional_cast_cost`
@@ -2164,6 +2182,25 @@ class CastingMixin:
                 o for o in self.state.permanents_controlled_by(player.id) if continuous.has_subtype(o, subtype)
             ]
         return pool[:count] if len(pool) >= count else None
+    def _graveyard_exile_cost_candidates(
+        self, player: Player, count: int, filter_word: Optional[str],
+    ) -> list[GameObject]:
+        """Up to ``count`` cards from ``player``'s graveyard eligible to pay
+        a RULE 601.2b "exile N [<type>] cards from your graveyard" additional
+        cast cost (PAR-41). ``filter_word`` ("creature") narrows by main
+        type; ``None`` accepts any card. Auto-picked (the first matches) —
+        cost payment can't pause for a chooser, the same MVP simplification
+        `_pay_escape_graveyard_cost` already makes.
+        """
+        out: list[GameObject] = []
+        for card_obj in player.graveyard:
+            if filter_word and filter_word not in card_obj.card.type_line.lower():
+                continue
+            out.append(card_obj)
+            if len(out) >= count:
+                break
+        return out
+
     def _pay_escape_graveyard_cost(self, player: Player, count: int) -> None:
         """RULE 702.138b: exile ``count`` other cards from ``player``'s
         graveyard as part of casting via Escape — an auto-choice (the first

@@ -808,6 +808,24 @@ class AbilitySpec:
                 raise SpecValidationError(
                     "'additional_cost' pay_life must be a positive int or 'x'"
                 )
+        elif key == "exile_from_graveyard":
+            # RULE 601.2b (PAR-41): "exile N [<type>] cards from your
+            # graveyard." — value is ``{"count": <positive int>, "type":
+            # <word>?}``.
+            if not isinstance(value, dict):
+                raise SpecValidationError(
+                    "'additional_cost' exile_from_graveyard must be a {count, type?} dict"
+                )
+            cnt = value.get("count")
+            if isinstance(cnt, bool) or not isinstance(cnt, int) or cnt <= 0:
+                raise SpecValidationError(
+                    "'additional_cost' exile_from_graveyard count must be a positive int"
+                )
+            gy_type = value.get("type")
+            if gy_type is not None and (not isinstance(gy_type, str) or not gy_type.strip()):
+                raise SpecValidationError(
+                    "'additional_cost' exile_from_graveyard type must be a non-empty word"
+                )
         elif key == "behold":
             # RULE 701.4a (PAR-29): "behold a `<type>` or pay {N}." — the
             # value is the type word to reveal. The "or pay {N}" alternative

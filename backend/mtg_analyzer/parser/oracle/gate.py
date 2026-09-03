@@ -2396,7 +2396,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `discard` / `that_player_discards` handlers gain an optional "at random"
 #: tail. +23 (Hymn to Tourach / Hypnotic Specter / Black Cat / Stupor /
 #: Burning Inquiry / Goblin Lore / Bottomless Pit / Gwendlyn Di Corci / …).
-PARSER_VERSION = "233"
+#: v234 — PAR-41 — "as an additional cost to cast this spell, exile N
+#: [<type>] cards from your graveyard" (RULE 601.2b — Cobbled Lancer /
+#: Headless Skaab / Makeshift Mauler / Abhorrent Oculus). `ActivationCost`
+#: gains `exile_from_graveyard_filter` alongside the Escape-only
+#: `exile_from_graveyard` count; `segmenter._ADDITIONAL_COST_EXILE_
+#: GRAVEYARD_RE` + `_additional_cost_dict` emit a single-key
+#: `{"exile_from_graveyard": {"count", "type"?}}`; `GameEngine._can_pay_/
+#: _pay_additional_cast_cost` gate the cast on the graveyard holding enough
+#: matching cards and exile them (auto-picked). The "exile **x** cards"
+#: variant stays UNMODELED. +9.
+PARSER_VERSION = "234"
 
 
 def parser_source_hash() -> str:
