@@ -116,8 +116,10 @@ its block back into the matching section here.
   - **PAR-40** — `~ deals <n> damage to each creature and each player`
     symmetric selector (#11) + `~ deals <n> damage to target creature. if
     that creature would die this turn, exile it instead` damage rider (#11,
-    reuse the exile-instead-of-death replacement) + `~ deals <n> damage to
-    target creature with flying` modal body (#14).
+    reuse the exile-instead-of-death replacement). (The `~ deals <n> damage
+    to target creature with flying` / `…with power 4 or greater` quality
+    filter shipped at PARSER_VERSION 225 — `damage_creature_filter`,
+    `Done_Backend.md`; +19.)
   - **PAR-41** — additional cost `{X}` / from graveyard (`discard x
     cards` #10, `exile a creature card from your graveyard` #8).
   - **PAR-42** — conditional / dynamic enters-tapped & entry counters

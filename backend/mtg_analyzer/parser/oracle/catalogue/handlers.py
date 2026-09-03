@@ -2078,6 +2078,35 @@ _destroy_creature_filter = _quality_filter_builder("destroy")
 _exile_creature_filter = _quality_filter_builder("exile")
 
 
+#: "~ deals N damage to target creature with flying" / "…with power 4 or
+#: greater" (RULE 115/601.2c power/toughness/keyword quality filter on a
+#: *damage* target — the sibling of `_destroy_creature_filter`/
+#: `_exile_creature_filter`, ~13 SOLO: Leaf Arrow / Pierce the Sky /
+#: Shredding Winds / Collision // Colossus / Centaur Archer / Grapeshot
+#: Catapult / …). Shares `_CREATURE_FILTER_SUFFIX` and
+#: `_creature_quality_filter` with them; only the leading subject-word
+#: prefix (a triggered/activated body's own "~"/"it"/"this creature")
+#: differs, mirrored from the plain `_damage` row's own regex. Registered
+#: before the plain `damage` handler for the same "strict superset of
+#: 'target creature'" reason `destroy_creature_filter` sits before
+#: `destroy`. Amount is a bare digit here (no {X} form has surfaced with a
+#: quality filter); `optional` isn't read since this phrasing has no
+#: "up to one target creature with flying" card.
+_DAMAGE_CREATURE_FILTER_RE = _c(
+    rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+    rf"deals? {NUMBER} damage to target creature {_CREATURE_FILTER_SUFFIX}"
+)
+
+
+def _damage_creature_filter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    filt = _creature_quality_filter(m)
+    if filt is None:
+        return None
+    return [EffectSpec("damage", {
+        "amount": int(m.group("n")), "target_kind": "creature", "creature_filter": filt,
+    })]
+
+
 #: "destroy target non<word> creature[, optionally 'It can't be
 #: regenerated.']" (RULE 105's colour-hoser *negated* adjective form,
 #: Doom Blade/Dark Banishing/Cast Down-shaped — the single most repeated
@@ -8727,6 +8756,15 @@ HANDLERS: list[EffectHandler] = [
         "damage_target_two_color",
         _DAMAGE_TARGET_TWO_COLOR_RE,
         _damage_target_two_color,
+    ),
+    # "~ deals 3 damage to target creature with flying" / "…with power 4 or
+    # greater" (RULE 115/601.2c quality filter) — before the plain `damage`
+    # row for the same "strict superset of 'target creature'" reason
+    # `destroy_creature_filter` precedes `destroy`.
+    EffectHandler(
+        "damage_creature_filter",
+        _DAMAGE_CREATURE_FILTER_RE,
+        _damage_creature_filter,
     ),
     # "~ deals 3 damage to any target" / "deal 2 damage to target creature" /
     # "it deals 2 damage to target opponent" (a triggered-ability body's own

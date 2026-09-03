@@ -2309,7 +2309,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Mindslaver / Worst Fears / Sorin Markov (−7) / Emrakul, the Promised
 #: End / Secret of Bloodbending (combat scope). RULE 720.x carve-outs are a
 #: documented simplification.
-PARSER_VERSION = "224"
+#: v225 — PAR-40 (RULE 115/601.2c) — "~ deals N damage to target creature
+#: with flying / …with power 4 or greater" — the creature-quality target
+#: filter `destroy_creature_filter`/`exile_creature_filter` already carried,
+#: extended to *damage*. New `damage_creature_filter` handler
+#: (`_DAMAGE_CREATURE_FILTER_RE` + `_damage_creature_filter`), registered
+#: before the plain `damage` row, reusing `_CREATURE_FILTER_SUFFIX` /
+#: `_creature_quality_filter`; `effects.DealDamageEffect` gained a
+#: `creature_filter` param threaded into its `TargetSpec`. +19 (Leaf Arrow /
+#: Pierce the Sky / Shredding Winds / Collision // Colossus / Centaur Archer
+#: / Grapeshot Catapult / Skyway Sniper / Thunderbolt / Tangletrap / …).
+PARSER_VERSION = "225"
 
 
 def parser_source_hash() -> str:

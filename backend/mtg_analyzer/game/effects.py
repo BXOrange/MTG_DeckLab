@@ -3086,6 +3086,7 @@ class DealDamageEffect(GameEffect):
         count: int = 1,
         count_max: Optional[int] = None,
         colors: Optional[list[str]] = None,
+        creature_filter: Optional[dict[str, Any]] = None,
         divided: bool = False,
         double_at: Optional[int] = None,
         amount_if_kicked: Optional[int] = None,
@@ -3215,6 +3216,11 @@ class DealDamageEffect(GameEffect):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
                 colors=tuple(colors) if colors else None,
+                # RULE 115/601.2c power/toughness/keyword quality filter —
+                # "target creature with flying"/"…with power 4 or greater"
+                # (PAR-40), the same `TargetSpec.creature_filter` narrowing
+                # `destroy`/`exile` already carry.
+                creature_filter=creature_filter,
             )
 
     @property
@@ -19987,6 +19993,7 @@ EffectRegistry.register(
         count=p.get("count", 1),
         count_max=p.get("count_max"),
         colors=p.get("colors"),
+        creature_filter=p.get("creature_filter"),
         divided=bool(p.get("divided", False)),
         double_at=p.get("double_at"),
         amount_if_kicked=p.get("amount_if_kicked"),
