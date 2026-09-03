@@ -2804,6 +2804,34 @@ def mana_type_override_for(
     return None
 
 
+def life_gain_prohibited_for(state: "GameState", player: "Player") -> bool:
+    """Whether ``player`` currently can't gain life because of a standing
+    battlefield static — "Players can't gain life." (Everlasting Torment /
+    Forsaken Wastes / Havoc Festival / Leyline of Punishment / Sulfuric
+    Vortex, unscoped: stops *everyone*, including the static's own
+    controller) or "Your opponents can't gain life." (Erebos, God of the
+    Dead — scoped to the static's controller's opponents). Consulted by
+    `RulesEngine.gain_life`. Same "live battlefield read, no separate
+    lifecycle" shape as `skipped_steps_for` / `mana_type_override_for`.
+    Honours any `active_if` gate (Erebos-shaped "as long as your devotion …").
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "life_gain_prohibition":
+            continue
+        active_if = ability.params.get("active_if")
+        src_controller = getattr(ability.source, "controller_id", None)
+        if active_if and not static_conditions.condition_holds(
+            active_if, state, ability.source, src_controller
+        ):
+            continue
+        if ability.params.get("scope") == "opponents":
+            if player.id != src_controller:
+                return True
+        else:
+            return True
+    return False
+
+
 def cost_floor_for(state: "GameState", player: "Player", obj: Optional["GameObject"] = None) -> int:
     """"Each spell that would cost less than N mana to cast costs N mana to
     cast instead." (Trinisphere) — a floor, not a delta, so it's kept out of
@@ -4051,7 +4079,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
      "uncast_creature_entry_exile",
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
-     "cost_restriction"}
+     "cost_restriction", "life_gain_prohibition"}
 )
 
 

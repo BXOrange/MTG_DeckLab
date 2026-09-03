@@ -4789,9 +4789,14 @@ class PreventLifeGainEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         controller = _controller_of(self.source, context)
-        if controller is None:
+        if self.recipient == "all":
+            # "Players can't gain life this turn." (Skullcrack / Erebos's
+            # Intervention / Rain of Gore) — every living player, no
+            # controller needed.
+            players = list(context.state.living_players())
+        elif controller is None:
             return
-        if self.recipient == "opponents":
+        elif self.recipient == "opponents":
             players = [p for p in context.state.living_players() if p.id != controller.id]
         else:
             players = [controller]
@@ -23010,6 +23015,27 @@ EffectRegistry.register(
         "skip_step",
         affects="self",
         params={"step": p.get("step", "draw")},
+    ),
+)
+EffectRegistry.register(
+    # RULE 119.3-adjacent: "Players can't gain life." (Everlasting Torment /
+    # Forsaken Wastes / Havoc Festival / Leyline of Punishment / Sulfuric
+    # Vortex) — a standing, board-wide rule modification (distinct from
+    # `prevent_life_gain`'s turn-scoped, opponent-scoped Roiling Vortex
+    # rider). A marker static consulted live by `RulesEngine.gain_life` via
+    # `continuous.life_gain_globally_prohibited`, the same "not a RULE 613
+    # layer, read off the battlefield" shape as `skip_step` above.
+    "prevent_all_life_gain",
+    lambda p: StaticAbility(
+        "life_gain_prohibition",
+        affects="all",
+        params={
+            # ``"opponents"`` (Erebos, God of the Dead) narrows the ban to
+            # the static's controller's opponents; anything else = unscoped
+            # (Forsaken Wastes et al., stops everyone).
+            **({"scope": "opponents"} if p.get("scope") == "opponents" else {}),
+            **({"active_if": p["active_if"]} if p.get("active_if") else {}),
+        },
     ),
 )
 EffectRegistry.register(

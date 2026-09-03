@@ -558,6 +558,20 @@ _NO_MAX_HAND_SIZE_RE = re.compile(
 # capture.
 _SKIP_UNTAP_STEPS_RE = re.compile(r"players skip their untap steps", re.IGNORECASE)
 
+# "Players can't gain life." (Everlasting Torment / Forsaken Wastes / Havoc
+# Festival / Leyline of Punishment) / "Your opponents can't gain life."
+# (Erebos, God of the Dead) / "If a player would gain life, that player
+# gains no life instead." (Sulfuric Vortex — a replacement-phrased
+# equivalent) — a standing, board-wide RULE 119.3-adjacent rule
+# modification, distinct from `handlers._CANT_GAIN_LIFE_RE`'s turn-scoped
+# rider. Consulted live by `RulesEngine.gain_life` via
+# `continuous.life_gain_prohibited_for`.
+_PLAYERS_CANT_GAIN_LIFE_RE = re.compile(
+    r"(?:(?P<scope>players|your opponents) can'?t gain life"
+    r"|if a player would gain life, that player gains no life instead)",
+    re.IGNORECASE,
+)
+
 # "Skip your draw step." (MEC-38, Necropotence / Yawgmoth's Bargain /
 # Solitary Confinement / Dragon Appeasement) — the *self*-scoped, standing
 # step skip, `EffectSpec("skip_step", …)` (a `StaticAbility` layer read live
@@ -2960,6 +2974,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     if _SKIP_UNTAP_STEPS_RE.fullmatch(text):
         return [EffectSpec("skip_untap_step", {})]
+
+    m = _PLAYERS_CANT_GAIN_LIFE_RE.fullmatch(text)
+    if m is not None:
+        params = {"scope": "opponents"} if (m.group("scope") or "").lower() == "your opponents" else {}
+        return [EffectSpec("prevent_all_life_gain", params)]
 
     m = _SKIP_YOUR_STEP_RE.fullmatch(text)
     if m is not None:

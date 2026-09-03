@@ -901,6 +901,12 @@ class DamageDeathMixin:
             return
         if self._life_locked(player):
             return  # RULE 119.6 — see `lose_life`
+        # "Players can't gain life." (Everlasting Torment / Forsaken Wastes /
+        # Leyline of Punishment) — a standing board-wide rule modification,
+        # read live off the battlefield (`continuous.life_gain_globally_
+        # prohibited`); cancels the gain outright, no replacement/event.
+        if continuous.life_gain_prohibited_for(self.state, player):
+            return
         # RULE 119.3/616.1: a life gain is routed through `apply_replacements`
         # first, so a "you gain that much life plus N / twice that much
         # instead" replacement (Angel of Vitality/Boon Reflection) can

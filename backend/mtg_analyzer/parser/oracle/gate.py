@@ -2437,7 +2437,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `{"colors_spent_scale": True}`; `RulesEngine._apply_entry_counters`
 #: multiplies `count` by `len(GameObject.colors_spent_to_cast)` (the
 #: frozenset the mana-payment solver already records). +9.
-PARSER_VERSION = "238"
+#: v239 — "Players can't gain life." as a standing static (RULE
+#: 119.3-adjacent — Forsaken Wastes / Everlasting Torment / Havoc Festival
+#: / Leyline of Punishment), plus "Your opponents can't gain life."
+#: (Erebos, God of the Dead — `scope="opponents"`) and Sulfuric Vortex /
+#: Rain of Gore's replacement-phrased "if a player would gain life, that
+#: player gains no life instead". New `prevent_all_life_gain` marker
+#: `StaticAbility` (`life_gain_prohibition` layer), consulted by
+#: `RulesEngine.gain_life` via `continuous.life_gain_prohibited_for`. The
+#: turn-scoped burn-spell rider ("Players can't gain life this turn." —
+#: Skullcrack / Call In a Professional) reuses `PreventLifeGainEffect` with
+#: a new `recipient="all"`. +7.
+PARSER_VERSION = "239"
 
 
 def parser_source_hash() -> str:

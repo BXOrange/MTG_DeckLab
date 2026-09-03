@@ -2479,14 +2479,17 @@ def _cant_be_countered(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("cant_be_countered", {})]
 
 
-#: RULE 119.3's "can't gain life this turn" rider (Roiling Vortex's
-#: activated-ability effect) — `PreventLifeGainEffect`'s only printed
-#: ``recipient`` so far.
-_CANT_GAIN_LIFE_RE = _c(r"your opponents can'?t gain life this turn")
+#: RULE 119.3's "can't gain life this turn" rider — "your opponents"
+#: (Roiling Vortex's activated-ability effect) or "players" (Skullcrack /
+#: Call In a Professional / Rain of Gore — a burn spell's own rider). The
+#: bare, *permanent* "Players can't gain life." is a standing static
+#: (`static_handlers._PLAYERS_CANT_GAIN_LIFE_RE` → `prevent_all_life_gain`).
+_CANT_GAIN_LIFE_RE = _c(r"(?P<who>your opponents|players) can'?t gain life this turn")
 
 
 def _cant_gain_life(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("prevent_life_gain", {"recipient": "opponents"})]
+    who = "all" if m.group("who").lower() == "players" else "opponents"
+    return [EffectSpec("prevent_life_gain", {"recipient": who})]
 
 
 def _change_target(m: re.Match[str]) -> list[EffectSpec]:
