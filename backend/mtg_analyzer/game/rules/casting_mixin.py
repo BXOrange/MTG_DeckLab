@@ -311,6 +311,13 @@ class CastingResolutionMixin:
                 obj.tapped = not (opponent_lands <= condition["count"])
             else:
                 obj.tapped = not (opponent_lands >= condition["count"])
+        elif kind == "unless_life":
+            # Innistrad "slow land" life cycle (Abandoned Campground &c):
+            # untapped iff *any* player (RULE 614.1 — "a player", not
+            # scoped to the controller) is at or below the threshold.
+            obj.tapped = not any(
+                p.life <= condition["count"] for p in self.state.living_players()
+            )
         elif kind == "unless_turn_at_most":
             # Starting Town (MEC-43): untapped iff the game is still early.
             # **Documented simplification**: RULE 614.1's "your Nth turn"
@@ -420,6 +427,10 @@ class CastingResolutionMixin:
             tapped = not (
                 opponent_lands <= condition["count"] if condition["cmp"] == "le"
                 else opponent_lands >= condition["count"]
+            )
+        elif kind == "unless_life":
+            tapped = not any(
+                p.life <= condition["count"] for p in self.state.living_players()
             )
         elif kind == "unless_turn_at_most":
             tapped = not (self.state.round_number <= condition["count"])

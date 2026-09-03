@@ -90,6 +90,17 @@ _UNLESS_OPPONENTS_COUNT_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} tapped unless your opponents control (\d+) or (more|fewer) lands\.?$",
     re.IGNORECASE,
 )
+#: The Innistrad-block "slow land" life cycle (Abandoned Campground /
+#: Bleeding Woods / Lakeside Shack / Peculiar Lighthouse / …, 10 cards):
+#: "~ enters tapped unless a player has N or less life." — deterministic on
+#: the current life totals of *any* player (the controller or an opponent),
+#: read off the game state exactly as `unless_opponents_count` reads the
+#: board. Only the "N or less" form is printed; "N or more" would flip
+#: `cmp`, kept out until a real card needs it.
+_UNLESS_LIFE_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped unless a player has (\d+) or less life\.?$",
+    re.IGNORECASE,
+)
 #: The mirror image of a shock land (Mariposa Military Base): untapped by
 #: default, with a *bonus* for choosing tapped instead of a cost to avoid
 #: it — "You may have this land enter tapped. If you do, you get two rad
@@ -157,6 +168,9 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
       — the "Turbulent" land cycle: untapped iff the *total* count of lands
       across all opponents compares as stated (unlike ``unless_count``,
       which counts the controller's own other lands).
+    - ``{"kind": "unless_life", "cmp": "le", "count": N}`` — the Innistrad
+      "slow land" life cycle: untapped iff *any* player's life total is
+      ``N`` or less.
     - ``{"kind": "reveal_types", "types": [...]}`` — the "reveal land" cycle:
       the controller may reveal a card of one of these types from hand to
       keep it untapped, a genuine interactive choice (like ``pay_life``),
@@ -173,6 +187,9 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     if match:
         cmp_op = "le" if match.group(2).lower() == "fewer" else "ge"
         return {"kind": "unless_opponents_count", "cmp": cmp_op, "count": int(match.group(1))}
+    match = _UNLESS_LIFE_RE.match(line)
+    if match:
+        return {"kind": "unless_life", "cmp": "le", "count": int(match.group(1))}
     match = _UNLESS_TURN_AT_MOST_RE.match(line)
     if match:
         listed = re.findall("|".join(_ORDINALS), match.group(1), re.IGNORECASE)

@@ -2363,7 +2363,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Symbiotic Deployment / Wild Wasteland / Yawgmoth's Bargain, +3). +22
 #: total. PAR-38's upkeep-damage `for each`/`unless you pay` riders stay
 #: open.
-PARSER_VERSION = "229"
+#: v230 — PAR-42 — the Innistrad "slow land" life cycle: "~ enters tapped
+#: unless a player has N or less life." `catalogue/lands.py` gains
+#: `_UNLESS_LIFE_RE` → `{"kind": "unless_life", "cmp": "le", "count": N}`;
+#: `RulesEngine.enter_land_tapped` + `predict_land_tapped` get the matching
+#: deterministic branch (untapped iff *any* living player is at/below the
+#: threshold — RULE 614.1 "a player"). +10 (Abandoned Campground / Bleeding
+#: Woods / Lakeside Shack / Peculiar Lighthouse / Razortrap Gorge / …, the
+#: whole 10-card cycle).
+PARSER_VERSION = "230"
 
 
 def parser_source_hash() -> str:

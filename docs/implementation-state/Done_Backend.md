@@ -1239,6 +1239,11 @@ is in the rules-engine categories below them.
 - **What:** "~ enters tapped unless your opponents control N or more lands" (the Turbulent cycle) — a new `unless_opponents_count` kind summing lands across every player except the controller, distinct from the existing controller-own-lands and opponent-*player*-count shapes.
 - **Files:** `parser/oracle/catalogue/lands.py`, `game/rules_engine.py`
 
+### Fifth land-tapped clause variant: life-total (PAR-42, v230)
+
+- **What:** "~ enters tapped unless a player has N or less life." — the Innistrad-block "slow land" life cycle (Abandoned Campground / Bleeding Woods / Lakeside Shack / Peculiar Lighthouse / Razortrap Gorge / …, the full 10-card cycle). New `lands.py` `_UNLESS_LIFE_RE` → `{"kind": "unless_life", "cmp": "le", "count": N}`; `RulesEngine.enter_land_tapped` and the read-only `predict_land_tapped` mirror both get the matching deterministic branch — **untapped iff *any* living player** (`state.living_players()`) is at or below the threshold, per RULE 614.1's literal "a player" (not scoped to the controller). Only the "or less" comparison is printed on a real card; "or more" would just flip `cmp`, left unwired. **+10.** `tests/test_land_tap_conditions.py`.
+- **Files:** `parser/oracle/catalogue/lands.py`, `game/rules/casting_mixin.py`
+
 ### Replacement-clause oracle-text recognition (double_tokens/double_counters/additional_damage)
 
 - **What:** New `parser/oracle/catalogue/replacements.py` recognizes 3 of the 5 already-bound `ReplacementRegistry` families straight from oracle text — Doubling Season's token/counter doubling and Torbran/Mechanized Warfare's single-color "plus N damage" clause.

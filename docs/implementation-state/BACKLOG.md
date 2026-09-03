@@ -122,11 +122,13 @@ its block back into the matching section here.
     owner's control`) (#12) — **reuse the PAR-30 Threaten/O-Ring cluster**.
   - **PAR-41** — additional cost `{X}` / from graveyard (`discard x
     cards` #10, `exile a creature card from your graveyard` #8).
-  - **PAR-42** — conditional / dynamic enters-tapped & entry counters
-    (`enters tapped unless a player has <n> or less life` #10, `enters
-    tapped. as it enters, choose a color` #8, `with a +1/+1 counter for
-    each color of mana spent to cast it` = Sunburst #9, `if it's neither
-    day nor night, it becomes day as ~ enters` #10).
+  - **PAR-42** — conditional / dynamic enters-tapped & entry counters.
+    Done: `enters tapped unless a player has <n> or less life` (the
+    Innistrad slow-land life cycle — `lands.py`'s `unless_life` kind,
+    PARSER_VERSION 230, +10). Left: `enters tapped. as it enters, choose a
+    color` (#8), `with a +1/+1 counter for each color of mana spent to
+    cast it` = Sunburst (#9), `if it's neither day nor night, it becomes
+    day as ~ enters` (#10).
   - **PAR-43** — self CDA / `for each` P/T. `~'s power is equal to the
     number of creatures you control` (#10) — the CDA form, still open.
     The `~ gets +N/+N for each <X>` standing self-anthem form has its
