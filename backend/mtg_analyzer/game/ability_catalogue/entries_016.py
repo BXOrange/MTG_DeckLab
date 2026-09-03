@@ -2109,8 +2109,24 @@ def _cond_marker(kind: str) -> EffectSpec:
     return EffectSpec("activation_condition_marker", {"condition": {"kind": kind}})
 
 
-def _licid(name: str, cost: str, end_cost: str, granted: list[EffectSpec],
-           granted_raw: str) -> list[AbilitySpec]:
+def _licid(name: str, cost: str, end_cost: str, granted, granted_raw: str,
+           granted_kind: str = "static", trigger=None,
+           granted_cost=None) -> list[AbilitySpec]:
+    """``granted`` — the `EffectSpec`s of the Licid's "Enchanted creature …"
+    ability. ``granted_kind`` is ``"static"`` (the anthem/keyword/control
+    grants — inert until `attached_to` is set), ``"triggered"`` (Leeching /
+    Stinging — needs ``trigger``) or ``"activated"`` (Nurturing — needs
+    ``granted_cost``)."""
+    granted_specs = [EffectSpec(s.type, dict(s.params)) for s in granted]
+    if granted_kind == "triggered":
+        granted_ability = AbilitySpec("triggered", granted_specs,
+                                      trigger=dict(trigger or {}), raw_text=granted_raw)
+    elif granted_kind == "activated":
+        granted_ability = AbilitySpec("activated", granted_specs,
+                                      cost={"text": granted_cost or "{0}"},
+                                      raw_text=granted_raw)
+    else:
+        granted_ability = AbilitySpec("static", granted_specs, raw_text=granted_raw)
     return [
         AbilitySpec(
             "activated",
@@ -2126,8 +2142,7 @@ def _licid(name: str, cost: str, end_cost: str, granted: list[EffectSpec],
             cost={"text": end_cost},
             raw_text=f"Du kannst {end_cost} bezahlen, um diesen Effekt zu beenden.",
         ),
-        AbilitySpec("static", [EffectSpec(s.type, dict(s.params)) for s in granted],
-                    raw_text=granted_raw),
+        granted_ability,
     ]
 
 
@@ -2159,3 +2174,29 @@ for _lname, _lcost, _lend, _lspecs, _lraw in [
 ]:
     register(_lname, (lambda n, c, e, s, r: (lambda: _licid(n, c, e, s, r)))(
         _lname, _lcost, _lend, _lspecs, _lraw))
+
+
+# The trigger/activated-grant Licids (MEC-47 pass 3).
+register("Nurturing Licid", lambda: _licid(
+    "Nurturing Licid", "{G}", "{G}",
+    [EffectSpec("regenerate", {"target_kind": "attached_permanent"})],
+    "{G}: Regenerate enchanted creature.",
+    granted_kind="activated", granted_cost="{G}",
+))
+register("Leeching Licid", lambda: _licid(
+    "Leeching Licid", "{B}", "{B}",
+    [EffectSpec("damage", {"amount": 1, "recipient_subject": "attached_permanent_controller"})],
+    "At the beginning of the upkeep of enchanted creature's controller, this "
+    "creature deals 1 damage to that player.",
+    granted_kind="triggered",
+    trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"},
+             "phase_relation": "attached_permanent"},
+))
+register("Stinging Licid", lambda: _licid(
+    "Stinging Licid", "{1}{U}", "{U}",
+    [EffectSpec("damage", {"amount": 2, "recipient_subject": "trigger_subject_controller"})],
+    "Whenever enchanted creature becomes tapped, this creature deals 2 damage "
+    "to that creature's controller.",
+    granted_kind="triggered",
+    trigger={"event": EventType.TAPPED, "condition": {"subject": "attached_permanent"}},
+))

@@ -64,17 +64,21 @@ def _bear(st, name, pid="p2"):
 _ALL_LICIDS = (
     "Gliding Licid", "Enraging Licid", "Quickening Licid", "Corrupting Licid",
     "Calming Licid", "Convulsing Licid", "Tempting Licid", "Dominating Licid",
-    "Transmogrifying Licid",
+    "Transmogrifying Licid", "Nurturing Licid", "Leeching Licid", "Stinging Licid",
 )
 
 
-def test_licids_registered_with_two_activated_and_a_static():
+def test_licids_registered_with_two_activated_and_a_granted_ability():
     for n in _ALL_LICIDS:
         card = Card(id=n[:6], name=n, type_line="Creature — Licid",
                     is_creature=True, power=1, toughness=1)
         specs = ac.specs_for(card)
-        kinds = sorted(s.ability_kind for s in specs)
-        assert kinds[:2] == ["activated", "activated"] and "static" in kinds, n
+        assert len(specs) == 3, n
+        # the two shared activated abilities (transform + "pay to end"),
+        # then the Licid's own granted ability (static / triggered /
+        # activated depending on the Licid).
+        assert [s.ability_kind for s in specs[:2]] == ["activated", "activated"], n
+        assert specs[2].ability_kind in ("static", "triggered", "activated"), n
         # fresh objects each call
         assert ac.specs_for(card) is not specs
 
@@ -127,6 +131,55 @@ def test_transmogrifying_licid_pumps_and_adds_artifact():
 
     assert (host.power, host.toughness) == (3, 3)
     assert "artifact" in {t.lower() for t in host.type_words}
+
+
+def test_nurturing_licid_regenerates_the_enchanted_creature():
+    eng, st = _engine()
+    licid = _licid_on_battlefield(st, "Nurturing Licid", "{G}: Regenerate enchanted creature.")
+    host = _bear(st, "Host")
+    p1 = st.player_by_id("p1")
+    p1.mana_pool.add_many({"G": 4})
+
+    eng.activate_ability(p1, licid, 0, targets=[host])
+    eng.resolve_until_stable()
+    eng.activate_ability(p1, licid, 2)   # {G}: regenerate enchanted creature
+    eng.resolve_until_stable()
+    eng.rules.destroy(host)              # the regen shield eats it
+    eng.resolve_until_stable()
+    assert host in st.battlefield and host.zone == Zone.BATTLEFIELD
+
+
+def test_stinging_licid_pings_the_controller_when_the_enchanted_creature_taps():
+    eng, st = _engine()
+    licid = _licid_on_battlefield(
+        st, "Stinging Licid",
+        "Whenever enchanted creature becomes tapped, this creature deals 2 "
+        "damage to that creature's controller.",
+    )
+    host = _bear(st, "Host", pid="p2")
+    p1 = st.player_by_id("p1")
+    p1.mana_pool.add_many({"U": 6})
+
+    eng.activate_ability(p1, licid, 0, targets=[host])
+    eng.resolve_until_stable()
+    eng.rules.set_tapped(host, True)
+    eng.resolve_until_stable()
+    assert st.player_by_id("p2").life == 18
+
+
+def test_host_leaving_bins_the_licid_and_clears_the_flag():
+    eng, st = _engine()
+    licid = _licid_on_battlefield(st, "Gliding Licid", "Enchanted creature has flying.")
+    host = _bear(st, "Host")
+    st.player_by_id("p1").mana_pool.add_many({"U": 1})
+    eng.activate_ability(st.player_by_id("p1"), licid, 0, targets=[host])
+    eng.resolve_until_stable()
+
+    eng.rules.destroy(host, can_be_regenerated=False)
+    eng.resolve_until_stable()
+
+    assert licid.zone == Zone.GRAVEYARD, "RULE 704.5m — Aura attached to nothing"
+    assert licid.is_licid_aura is False
 
 
 # --- transform ------------------------------------------------------

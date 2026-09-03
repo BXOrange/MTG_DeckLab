@@ -907,6 +907,11 @@ class CastingResolutionMixin:
             if attached.attached_to != host.instance_id:
                 continue
             attached.attached_to = None
+            if getattr(attached, "is_licid_aura", False):
+                # MEC-47: a Licid whose host left — clear the flag so its
+                # `for_as_long_as` type-change static self-sweeps and a
+                # later reanimation comes back a plain creature.
+                attached.is_licid_aura = False
             if getattr(attached, "bestowed", False):
                 # RULE 702.103f: a bestowed Aura that becomes unattached
                 # ceases to be bestowed and stays on the battlefield as a
@@ -947,6 +952,12 @@ class CastingResolutionMixin:
                 # creature rather than being put into its owner's graveyard.
                 self._end_bestow(attached)
                 return True
+            if getattr(attached, "is_licid_aura", False):
+                # MEC-47: a Licid whose host left is an Aura attached to
+                # nothing → owner's graveyard (RULE 704.5m). Clear the flag
+                # so its `for_as_long_as` type-change static self-sweeps and
+                # a later reanimation comes back a plain creature.
+                attached.is_licid_aura = False
             if self._attachment_kind(attached) == "enchant":
                 self._move_to_graveyard(attached)  # RULE 704.5m
             return True  # RULE 704.5n: Equipment/Fortification just unattaches

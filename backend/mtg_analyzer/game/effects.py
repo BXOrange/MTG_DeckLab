@@ -3316,7 +3316,13 @@ class DealDamageEffect(GameEffect):
         if self.recipient_subject is not None:
             who = self.recipient_subject.rpartition("_")[0]  # strip trailing "_controller"
             obj = None
-            if who == "previous_subject":
+            if who == "attached_permanent":
+                # MEC-47 (Leeching Licid): "…deals 1 damage to that player."
+                # where "that player" is the enchanted creature's
+                # controller — read live off the Aura's own `attached_to`.
+                host_id = getattr(self.source, "attached_to", None)
+                obj = context.state.find_object(host_id) if host_id is not None else None
+            elif who == "previous_subject":
                 prev = list(context.previous_targets)
                 obj = prev[0] if prev else None
             elif who == "trigger_subject":
@@ -4372,6 +4378,9 @@ class RegenerateEffect(GameEffect):
     ``target_kind=None`` (unlike the default ``"creature"``) makes it act on
     the effect's own source with no player choice involved — "Regenerate
     ~."/"Regenerate this creature.", mirroring `TapEffect`'s self mode.
+    ``target_kind="attached_permanent"`` regenerates whatever this Aura/
+    Equipment is attached to ("{G}: Regenerate enchanted creature." —
+    Nurturing Licid), read live off ``source.attached_to``.
     """
 
     def __init__(
@@ -4383,15 +4392,22 @@ class RegenerateEffect(GameEffect):
     ) -> None:
         super().__init__(source)
         self.target = target
+        self._attached_mode = target_kind == "attached_permanent"
         self.target_spec = (
             TargetSpec(kind=target_kind, creature_filter=creature_filter)
-            if target_kind is not None else None
+            if target_kind is not None and not self._attached_mode else None
         )
 
     def target_polarity(self) -> Optional[str]:
         return "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self._attached_mode:
+            host_id = getattr(self.source, "attached_to", None)
+            host = context.state.find_object(host_id) if host_id is not None else None
+            if host is not None:
+                context.regenerate(host)
+            return
         target = (targets[0] if targets else None) or self.target
         if target is None and self.target_spec is None:
             target = self.source

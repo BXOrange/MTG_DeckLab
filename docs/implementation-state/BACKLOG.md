@@ -221,18 +221,12 @@ Plan-level sequencing lives in
   state-change primitive is **built** (hand-authored, no version bump —
   `LicidBecomeAuraEffect`/`LicidRevertEffect` + `GameObject.is_licid_aura`
   + `static_conditions` `is_licid_aura`/`not_licid_aura`; see
-  `Done_Backend.md`). **9 of 13 shipped** — Gliding/Enraging/Quickening/
-  Corrupting (flying/haste/first strike/fear), Calming/Convulsing
-  (`cant_attack`/`cant_block`), Tempting (`all_must_block`), Dominating
-  (`control_change`), Transmogrifying (compound `anthem` + `type_change`
-  add-artifact). Left: **Nurturing** ("{G}: Regenerate enchanted creature"
-  — an activated ability *on the Aura*), **Leeching** ("At the beginning of
-  the upkeep of enchanted creature's controller, this creature deals 1
-  damage to that player" — a phase trigger scoped to the *host's*
-  controller), **Stinging** ("whenever enchanted creature becomes tapped, …"
-  — a BECOMES_TAPPED trigger on the attached permanent), and **Flanking
-  Licid** (the odd old-templating one). Also open: RULE 704.5n (the Licid
-  Aura's host leaving → the Licid to graveyard).
+  `Done_Backend.md`). **12 of 13 shipped** — every Licid except **Flanking
+  Licid**, whose old "Summon Licid" templating ("becomes a creature
+  enchantment that reads '…'") is a one-off worth its own tiny catalogue
+  entry when convenient. RULE 704.5n is done (`_detach_attachments_from`
+  clears `is_licid_aura` so the host leaving bins the Licid and its
+  type-change static self-sweeps).
 - **MEC-48 · Specialize (Duskmourn, ~RULE 702.166).** ~50 cache cards, the
   `PARSER_LONG_TAIL.md` "Two tracks" table's largest still-open
   set-specific mechanic. Needs the "exile the specialize card, it comes
