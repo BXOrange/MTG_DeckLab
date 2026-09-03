@@ -65,6 +65,7 @@ _ALL_LICIDS = (
     "Gliding Licid", "Enraging Licid", "Quickening Licid", "Corrupting Licid",
     "Calming Licid", "Convulsing Licid", "Tempting Licid", "Dominating Licid",
     "Transmogrifying Licid", "Nurturing Licid", "Leeching Licid", "Stinging Licid",
+    "Flanking Licid",
 )
 
 
@@ -165,6 +166,36 @@ def test_stinging_licid_pings_the_controller_when_the_enchanted_creature_taps():
     eng.rules.set_tapped(host, True)
     eng.resolve_until_stable()
     assert st.player_by_id("p2").life == 18
+
+
+def test_flanking_licid_becomes_an_aura_but_stays_a_creature():
+    # The one "Summon Licid" card — never erratad to a pure Aura. It gains
+    # Enchantment—Aura on top of Creature (Gatherer 2004-10-04).
+    eng, st = _engine()
+    licid = _licid_on_battlefield(st, "Flanking Licid",
+                                  "Enchanted creature gains flanking.")
+    host = _bear(st, "Host")
+    p1 = st.player_by_id("p1")
+    p1.mana_pool.add_many({"R": 2})
+
+    eng.activate_ability(p1, licid, 0, targets=[host])
+    eng.resolve_until_stable()
+    eng.recompute_continuous_effects()
+
+    assert licid.is_licid_aura is True
+    assert licid.attached_to == host.instance_id
+    assert licid.is_creature is True, "Flanking Licid keeps 'creature'"
+    assert "enchantment" in {t.lower() for t in licid.type_words}
+    from mtg_analyzer.game import continuous
+    assert continuous._has_subtype(licid, "aura")
+    assert "flanking" in host.granted_keywords
+
+    eng.activate_ability(p1, licid, 1)   # pay {R} to end
+    eng.resolve_until_stable()
+    eng.recompute_continuous_effects()
+    assert licid.is_licid_aura is False
+    assert licid.attached_to is None
+    assert "flanking" not in host.granted_keywords
 
 
 def test_host_leaving_bins_the_licid_and_clears_the_flag():

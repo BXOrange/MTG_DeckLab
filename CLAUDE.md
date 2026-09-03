@@ -21,10 +21,13 @@ Two halves:
   (**Setup** = lobby + game configuration, **Board** = the shared game,
   disabled until you're at a table), and
   an **"Engine-Status"** tab documenting engine coverage, plus two header icon
-  buttons: **"Einstellungen"** (server address, player-uploaded token art,
-  card-back sleeves) and **"Profil"** (`profileView.js` — just the player
-  name, split out of Einstellungen so it reads as "who you are" rather than
-  a connection setting). UI language is **German**; MTG keyword names stay
+  buttons: **"Einstellungen"** (`connectionSettingsView.js` — *only* the
+  backend server address + connection test now) and **"Profil"**
+  (`profileView.js` — everything player-facing: player name, multiplayer
+  default settings, auto-pass / board-comfort toggles, player-uploaded token
+  art + card-back sleeves, favorite decks). Anything about *who you are* /
+  *how you play* is Profil; anything about *reaching the server* is
+  Einstellungen. UI language is **German**; MTG keyword names stay
   English ("Flying", "Trample").
 
 The **Replay/Puzzle mode** is the goldfish's sibling: instead of playing a
@@ -138,7 +141,7 @@ run from the app's lifespan. Client-side, **auto-pass** (settings.js
 cookies, default on / 3s / opponent-turns-only) counts down whenever this
 client holds priority and passes at zero; touching the board cancels that
 window, and both the toggle and the seconds are adjustable on the board
-itself as well as in Einstellungen.
+itself as well as on the **Profil** tab.
 
 **Bots (UC5, `services/bots.py`)** fill a seat at such a table — they are
 players, not a mode. The load-bearing rule is that a bot plays through the
@@ -165,11 +168,11 @@ counts as ready, bots are kept out of presence sweeps, the host acts for
 them (`add_bot`/`remove_bot`/`set_deck(seat_id=…)`), and a table whose last
 *human* leaves is dropped rather than left playing itself.
 
-**Player-uploaded art** (Einstellungen tab): a player can upload art for
+**Player-uploaded art** (**Profil** tab): a player can upload art for
 tokens that have no real Scryfall art (matched by token name) and a
 library of card-back "sleeve" designs, one of which can be picked per
 saved deck (`Deck.sleeve_id`). Stored server-side keyed by the free-text
-player name (this app has no auth) — set on the **Profil** tab
+player name (this app has no auth) — set on the same **Profil** tab
 (`profileView.js`), read via `getSettings().playerName` — via `services/
 player_assets.py` / `api/player_assets.py` rather than client-side,
 specifically so a shared backend can serve them to an opponent too at a
@@ -181,8 +184,8 @@ DFCs keep their genuine Scryfall back-face art, so the sleeve fallback
 has no visible effect yet until a face-down permanent state
 (morph/manifest, not yet modeled) can reach that branch.
 
-The **Profil** tab also carries two smaller per-player preferences
-alongside the player name: **favorite decks** — a starred subset of the
+The **Profil** tab also carries two more per-player preferences
+alongside the player name and asset uploads: **favorite decks** — a starred subset of the
 saved-decks list (`services/player_assets.py`'s third table,
 `favorite_decks`, same `player_name`-keyed storage as sleeves/token
 art — decks aren't owned in this single shared `DeckDatabase`, so the
@@ -190,7 +193,7 @@ star can't live on `Deck` itself) that `goldfishView.js`'s and
 `multiplayerView.js`'s deck pickers list first; and **multiplayer
 default settings** (format, mulligan style, takebacks, RULE 103.1/103.2
 randomization) — purely client-side cookies (`settings.js`, same
-convention as auto-pass in Einstellungen), applied once by
+convention as the auto-pass toggles on the same tab), applied once by
 `multiplayerView.js`'s `createGame()` via the same host-only
 `setMultiplayerOptions` call the table's own option rows use, right
 after a table is created.
@@ -413,12 +416,12 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 39.1% (13,594 / 34,811) as of 2026-09-03, PARSER_VERSION 222**
+**Coverage: 39.1% (13,595 / 34,811) as of 2026-09-03, PARSER_VERSION 222**
 (parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is ~40.9% (13,011 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is ~40.9% (13,012 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring
@@ -660,7 +663,7 @@ English and German.
 | Archidekt deck import proxy | `backend/mtg_analyzer/services/archidekt_client.py`, `api/import_external.py` (Moxfield was tried and reverted twice — Cloudflare-blocked; don't re-add it without checking that's changed) |
 | Refreshing the full Oracle card pool (new set) | `backend/scripts/update_card_pool.py` — re-downloads the Scryfall `oracle_cards` bulk dump, merges it into `RawCardStore`, reseeds the app cache, and prints a ban-list drift heads-up (`scripts/import_bulk.py` is first-load only; its default reuses an on-disk dump) |
 | Applying a ban-list update | `backend/scripts/update_ban_lists.py` — rewrites a hand-maintained ban-list constant (`BAN_LIST_TARGETS`, just `services/commander_legality.py`'s `BANNED_COMMANDER_CARDS` today) straight from the raw store's live `legalities` data; no network of its own, run `update_card_pool.py` first. `--format <key>`/`--dry-run` |
-| Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/connectionSettingsView.js`, `frontend/src/js/profileView.js` (player name), `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |
+| Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/profileView.js` (upload UI + player name), `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |
 | Engine coverage doc (user-facing) | `frontend/src/js/implementationStatusView.js` |
 | What's still open (any area) | [docs/implementation-state/BACKLOG.md](docs/implementation-state/BACKLOG.md) — tickets by category |
 | Why shipped work looks the way it does | [Done_Backend.md](docs/implementation-state/Done_Backend.md) / [Done_Frontend.md](docs/implementation-state/Done_Frontend.md) |

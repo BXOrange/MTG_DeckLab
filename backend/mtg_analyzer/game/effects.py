@@ -13030,9 +13030,15 @@ class LicidBecomeAuraEffect(GameEffect):
     `continuous._selector_objects`'s ``attached_permanent`` branch).
     """
 
-    def __init__(self, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, source: Optional["GameObject"] = None,
+                 keep_creature: bool = False) -> None:
         super().__init__(source)
         self.target_spec = TargetSpec(kind="creature")
+        # Flanking Licid alone kept the pre-errata "becomes a creature
+        # enchantment …" templating — it stays a creature and merely gains
+        # the Enchantment—Aura type on top (Gatherer ruling 2004-10-04),
+        # unlike every other Licid, which loses "creature".
+        self._keep_creature = keep_creature
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         src = self.source
@@ -13057,7 +13063,7 @@ class LicidBecomeAuraEffect(GameEffect):
         ability = EffectRegistry.create("type_change", {
             "add_types": ["enchantment"],
             "add_subtypes": ["aura"],
-            "remove_types": ["creature"],
+            "remove_types": [] if self._keep_creature else ["creature"],
         })
         if isinstance(ability, StaticAbility):
             ability.source = src
@@ -21530,7 +21536,7 @@ EffectRegistry.register(
 EffectRegistry.register(
     # MEC-47 (Tempest Licid cycle) — see `LicidBecomeAuraEffect`.
     "licid_become_aura",
-    lambda p: LicidBecomeAuraEffect(),
+    lambda p: LicidBecomeAuraEffect(keep_creature=bool(p.get("keep_creature", False))),
 )
 EffectRegistry.register(
     "licid_revert",  # MEC-47 — "you may pay {cost} to end this effect"

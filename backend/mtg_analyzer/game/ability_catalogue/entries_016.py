@@ -2111,7 +2111,7 @@ def _cond_marker(kind: str) -> EffectSpec:
 
 def _licid(name: str, cost: str, end_cost: str, granted, granted_raw: str,
            granted_kind: str = "static", trigger=None,
-           granted_cost=None) -> list[AbilitySpec]:
+           granted_cost=None, keep_creature: bool = False) -> list[AbilitySpec]:
     """``granted`` — the `EffectSpec`s of the Licid's "Enchanted creature …"
     ability. ``granted_kind`` is ``"static"`` (the anthem/keyword/control
     grants — inert until `attached_to` is set), ``"triggered"`` (Leeching /
@@ -2130,7 +2130,8 @@ def _licid(name: str, cost: str, end_cost: str, granted, granted_raw: str,
     return [
         AbilitySpec(
             "activated",
-            [EffectSpec("licid_become_aura", {}), _cond_marker("not_licid_aura")],
+            [EffectSpec("licid_become_aura", {"keep_creature": True} if keep_creature else {}),
+             _cond_marker("not_licid_aura")],
             cost={"text": f"{cost}, {{T}}"},
             raw_text=(f"{cost}, {{T}}: Diese Kreatur verliert diese Fähigkeit und "
                       "wird eine Aura-Verzauberung mit Verzaubert Kreatur. Lege sie "
@@ -2199,4 +2200,14 @@ register("Stinging Licid", lambda: _licid(
     "to that creature's controller.",
     granted_kind="triggered",
     trigger={"event": EventType.TAPPED, "condition": {"subject": "attached_permanent"}},
+))
+# Flanking Licid (Stronghold) — the one "Summon Licid" card, never given the
+# errata that turned the others into pure Auras. "{R}, {T}: ~ loses this
+# ability and becomes a creature enchantment that reads 'Enchanted creature
+# gains flanking' instead of a creature." — it *stays a creature* (Gatherer
+# 2004-10-04), so `keep_creature=True` keeps the parked layer-4 type change
+# from stripping "creature".
+register("Flanking Licid", lambda: _licid(
+    "Flanking Licid", "{R}", "{R}", [_kw_at("flanking")],
+    "Enchanted creature gains flanking.", keep_creature=True,
 ))

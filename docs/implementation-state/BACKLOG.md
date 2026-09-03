@@ -217,16 +217,6 @@ Plan-level sequencing lives in
 
 ## MEC — Game mechanics
 
-- **MEC-47 · Licid — remaining cards.** The creature↔Aura in-place
-  state-change primitive is **built** (hand-authored, no version bump —
-  `LicidBecomeAuraEffect`/`LicidRevertEffect` + `GameObject.is_licid_aura`
-  + `static_conditions` `is_licid_aura`/`not_licid_aura`; see
-  `Done_Backend.md`). **12 of 13 shipped** — every Licid except **Flanking
-  Licid**, whose old "Summon Licid" templating ("becomes a creature
-  enchantment that reads '…'") is a one-off worth its own tiny catalogue
-  entry when convenient. RULE 704.5n is done (`_detach_attachments_from`
-  clears `is_licid_aura` so the host leaving bins the Licid and its
-  type-change static self-sweeps).
 - **MEC-48 · Specialize (Duskmourn, ~RULE 702.166).** ~50 cache cards, the
   `PARSER_LONG_TAIL.md` "Two tracks" table's largest still-open
   set-specific mechanic. Needs the "exile the specialize card, it comes
