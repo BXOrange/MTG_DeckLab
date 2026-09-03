@@ -68,6 +68,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "source_tapped",  # "as long as ~ is tapped"
         "source_untapped",  # "as long as ~ is untapped"
         "source_monstrous",  # RULE 701.37b
+        "is_licid_aura",  # MEC-47 — this Licid is currently an Aura
+        "not_licid_aura",  # MEC-47 — this Licid is still a creature
         "source_attacking",  # "as long as ~ is attacking"
         # PAR-28: RULE 702.142a Boast — "Activate only if this creature
         # attacked this turn." A per-object flag set in declare-attackers,
@@ -282,6 +284,10 @@ def condition_holds(
         return subject is not None and not getattr(subject, "tapped", False)
     if kind == "source_monstrous":
         return bool(getattr(subject, "is_monstrous", False))
+    if kind == "is_licid_aura":  # MEC-47 — this Licid is currently an Aura
+        return bool(getattr(subject, "is_licid_aura", False))
+    if kind == "not_licid_aura":  # MEC-47 — this Licid is still a creature
+        return not bool(getattr(subject, "is_licid_aura", False))
     if kind == "source_attacking":
         return bool(getattr(subject, "attacking", False))
     if kind == "source_attacked_this_turn":  # PAR-28 RULE 702.142a

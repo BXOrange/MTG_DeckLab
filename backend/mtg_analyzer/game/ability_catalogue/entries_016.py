@@ -2091,3 +2091,57 @@ def _the_master_gallifreys_end() -> list[AbilitySpec]:
 
 
 register("The Master, Gallifrey's End", _the_master_gallifreys_end)
+
+
+#: MEC-47 — the Tempest Licid cycle. Every Licid shares the same activation
+#: line ("{cost}, {T}: This creature loses this ability and becomes an Aura
+#: enchantment with enchant creature. Attach it to target creature. You may
+#: pay {end_cost} to end this effect.") and differs only in its "Enchanted
+#: creature …" clause. `LicidBecomeAuraEffect`/`LicidRevertEffect` +
+#: `GameObject.is_licid_aura` + the `is_licid_aura`/`not_licid_aura`
+#: `static_conditions` do the transform; the granted clause is an ordinary
+#: `affects="attached_permanent"` static that only bites once
+#: `attached_to` is set.
+_LICID_NOT_AURA = EffectSpec("activation_condition_marker",
+                             {"condition": {"kind": "not_licid_aura"}})
+_LICID_IS_AURA = EffectSpec("activation_condition_marker",
+                            {"condition": {"kind": "is_licid_aura"}})
+
+
+def _licid(name: str, cost: str, end_cost: str, granted: list[EffectSpec],
+           granted_raw: str) -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("licid_become_aura", {}), _LICID_NOT_AURA],
+            cost={"text": f"{cost}, {{T}}"},
+            raw_text=(f"{cost}, {{T}}: Diese Kreatur verliert diese Fähigkeit und "
+                      "wird eine Aura-Verzauberung mit Verzaubert Kreatur. Lege sie "
+                      "an eine Zielkreatur an."),
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("licid_revert", {}), _LICID_IS_AURA],
+            cost={"text": end_cost},
+            raw_text=f"Du kannst {end_cost} bezahlen, um diesen Effekt zu beenden.",
+        ),
+        AbilitySpec("static", list(granted), raw_text=granted_raw),
+    ]
+
+
+for _lname, _lcost, _lend, _lspecs, _lraw in [
+    ("Gliding Licid", "{U}", "{U}",
+     [EffectSpec("grant_keyword", {"keywords": ["flying"], "affects": "attached_permanent"})],
+     "Enchanted creature has flying."),
+    ("Enraging Licid", "{R}", "{R}",
+     [EffectSpec("grant_keyword", {"keywords": ["haste"], "affects": "attached_permanent"})],
+     "Enchanted creature has haste."),
+    ("Quickening Licid", "{1}{W}", "{W}",
+     [EffectSpec("grant_keyword", {"keywords": ["first strike"], "affects": "attached_permanent"})],
+     "Enchanted creature has first strike."),
+    ("Corrupting Licid", "{B}", "{B}",
+     [EffectSpec("grant_keyword", {"keywords": ["fear"], "affects": "attached_permanent"})],
+     "Enchanted creature has fear."),
+]:
+    register(_lname, (lambda n, c, e, s, r: (lambda: _licid(n, c, e, s, r)))(
+        _lname, _lcost, _lend, _lspecs, _lraw))

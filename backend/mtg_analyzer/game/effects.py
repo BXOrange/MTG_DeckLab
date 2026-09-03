@@ -12991,6 +12991,93 @@ class BecomeAuraEffect(GameEffect):
         self.source.parametric_keywords["enchant"] = {"quality": self.quality}
 
 
+class LicidBecomeAuraEffect(GameEffect):
+    """MEC-47 (Tempest Licid cycle): "{cost}, {T}: This creature loses this
+    ability and becomes an Aura enchantment with enchant creature. Attach it
+    to target creature. …"
+
+    Attaches the Licid to the chosen creature (``attached_to``) and sets
+    `GameObject.is_licid_aura`, which two things read: (1) a
+    ``for_as_long_as`` floating `type_change` static parked here — strips
+    the Creature type and adds Enchantment—Aura for as long as the flag
+    holds (RULE 613 layer 4; `game/durations.py` sweeps it the instant
+    `LicidRevertEffect` clears the flag, so nothing has to un-park it by
+    hand); (2) the ``not_licid_aura`` / ``is_licid_aura`` `static_
+    conditions` gating the Licid's own two activated abilities, so the
+    transform is "lost" while attached and the "pay {cost} to end" only
+    appears then.
+
+    The "Enchanted creature has flying/haste/…" clause is an ordinary
+    ``affects="attached_permanent"`` static bound off the card's own text —
+    it does nothing while ``attached_to`` is ``None`` and starts applying
+    the moment this sets it, no Aura-ness check of its own (see
+    `continuous._selector_objects`'s ``attached_permanent`` branch).
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="creature")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        target = targets[0] if targets else None
+        if src is None or target is None:
+            return
+        host_id = getattr(target, "instance_id", None)
+        if host_id is None or src.zone != Zone.BATTLEFIELD:
+            return
+        src.attached_to = host_id
+        src.is_licid_aura = True
+        # "…an Aura enchantment with **enchant creature**" — the attachment
+        # restriction every `_attachment_kind`/`_attachment_legal` reader
+        # (and the RULE 704.5n SBA that would otherwise detach a
+        # restriction-less "Aura") reads off `parametric_keywords["enchant"]`
+        # live, the same field `BecomeAuraEffect` writes.
+        src.parametric_keywords = dict(src.parametric_keywords or {})
+        src.parametric_keywords["enchant"] = {"quality": "creature"}
+        # Park the indefinite layer-4 type change (RULE 305.1c) — condition-
+        # bounded so it self-ends with the flag (`GrantUntilEffect._park_
+        # static`'s own idiom, inlined for the one payload).
+        ability = EffectRegistry.create("type_change", {
+            "add_types": ["enchantment"],
+            "add_subtypes": ["aura"],
+            "remove_types": ["creature"],
+        })
+        if isinstance(ability, StaticAbility):
+            ability.source = src
+            ability.timestamp = context.state.next_timestamp()
+            ability.duration = "for_as_long_as"
+            ability.duration_data = {
+                "player_id": src.controller_id,
+                "condition": {"kind": "is_licid_aura"},
+            }
+            ability.affects = "objects"
+            ability.object_ids = [src.instance_id]
+            context.state.floating_statics.append(ability)
+        context.recompute()
+
+
+class LicidRevertEffect(GameEffect):
+    """MEC-47: "You may pay {cost} to end this effect." — the Licid stops
+    being an Aura and is a creature again. Clearing `is_licid_aura` is all
+    that's needed: the ``for_as_long_as`` type-change static
+    `LicidBecomeAuraEffect` parked expires on the next layer pass, and
+    ``attached_to`` is cleared here so RULE 704.5n doesn't then bin it as an
+    Aura attached to nothing."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None or not getattr(src, "is_licid_aura", False):
+            return
+        src.is_licid_aura = False
+        src.attached_to = None
+        if src.parametric_keywords:
+            src.parametric_keywords = {
+                k: v for k, v in src.parametric_keywords.items() if k != "enchant"
+            }
+        context.recompute()
+
+
 class AttachEffect(GameEffect):
     """Attach a permanent to another permanent as an Aura/Equipment-style effect.
 
@@ -21423,6 +21510,15 @@ EffectRegistry.register(
     # 303.4f, MEC-44 — Necromancy) — see `BecomeAuraEffect`.
     "become_aura",
     lambda p: BecomeAuraEffect(quality=p.get("quality", "creature")),
+)
+EffectRegistry.register(
+    # MEC-47 (Tempest Licid cycle) — see `LicidBecomeAuraEffect`.
+    "licid_become_aura",
+    lambda p: LicidBecomeAuraEffect(),
+)
+EffectRegistry.register(
+    "licid_revert",  # MEC-47 — "you may pay {cost} to end this effect"
+    lambda p: LicidRevertEffect(),
 )
 EffectRegistry.register(
     # "Whenever a[n] <X> you control enters, you may attach it to target

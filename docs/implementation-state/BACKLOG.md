@@ -217,15 +217,26 @@ Plan-level sequencing lives in
 
 ## MEC — Game mechanics
 
-- **MEC-47 · Licid — a creature that turns itself into an Aura.** `{cost}:
-  ~ loses this ability and becomes an Aura enchantment with enchant
-  creature. Attach it to target creature. You may pay {cost} to end this
-  effect.` (~12 Commander-legal cards, the whole Tempest Licid cycle +
-  reprints — `scripts/commander_tail_report.py` Bucket D). Needs a
-  creature↔Aura in-place state-change primitive (type line + attachment
-  swapped on the *same* object, reversible), which no existing effect does
-  — grep `game/effects.py` for `becomes`/attachment before building. Parser
-  half: one `catalogue/handlers.py` activated-ability handler emitting it.
+- **MEC-47 · Licid — remaining cards.** The creature↔Aura in-place
+  state-change primitive is **built** (hand-authored, no version bump —
+  `LicidBecomeAuraEffect`/`LicidRevertEffect` + `GameObject.is_licid_aura`
+  + `static_conditions` `is_licid_aura`/`not_licid_aura`; see
+  `Done_Backend.md`). Shipped: **Gliding / Enraging / Quickening /
+  Corrupting Licid** (flying / haste / first strike / fear). Left, each a
+  `_licid(...)` catalogue entry with its own granted clause — the
+  keyword-grant ones (**Calming** "can't attack", **Convulsing** "can't
+  block") are trivial adds; **Transmogrifying** (grants +1/+1 and "is an
+  artifact in addition to its other types" — a compound static), **Nurturing**
+  ("{G}: Regenerate enchanted creature" — an activated ability *on the
+  Aura*, PAR-33-shaped), **Leeching** (upkeep-damage trigger on the
+  enchanted creature's controller), **Stinging** ("whenever enchanted
+  creature becomes tapped, …" trigger), **Tempting** ("all creatures able
+  to block enchanted creature do so" — a lure static), **Dominating**
+  ("you control enchanted creature"), and **Flanking Licid** (the odd
+  old-templating one, "becomes a creature enchantment that reads …") each
+  need their own granted-ability spec. Also open: RULE 704.5n (the Licid
+  Aura's host leaving the battlefield → the Licid to graveyard) and
+  targeting legality when no creature is on board.
 - **MEC-48 · Specialize (Duskmourn, ~RULE 702.166).** ~50 cache cards, the
   `PARSER_LONG_TAIL.md` "Two tracks" table's largest still-open
   set-specific mechanic. Needs the "exile the specialize card, it comes

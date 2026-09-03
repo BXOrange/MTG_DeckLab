@@ -896,6 +896,20 @@ class GameObject:
         #: by `reset_as_new_object` — 701.37b's "stays monstrous until it
         #: leaves the battlefield" is exactly RULE 400.7's new object.
         self.is_monstrous: bool = False
+        #: MEC-47: a Licid (Tempest — Gliding/Enraging/Corrupting/…) has used
+        #: its "{cost}, {T}: this creature loses this ability and becomes an
+        #: Aura enchantment … attach it to target creature. You may pay
+        #: {cost} to end this effect." ability and is currently an Aura
+        #: attached to `attached_to`. Drives: (1) a `for_as_long_as`
+        #: floating `type_change` static that strips Creature / adds
+        #: Enchantment—Aura while this holds (self-sweeps the instant this
+        #: goes ``False``); (2) `static_conditions` `is_licid_aura` /
+        #: `not_licid_aura`, which gate the two activated abilities so the
+        #: transform is offered only as a creature and the "pay to end" only
+        #: as an Aura. Cleared by `LicidRevertEffect` and by
+        #: `reset_as_new_object` (RULE 400.7 — a Licid that leaves and
+        #: returns is a fresh creature).
+        self.is_licid_aura: bool = False
         #: RULE 701.37c: the value of X as this permanent became monstrous,
         #: so another of its abilities that refers to that X (Death Kiss's
         #: "when ~ becomes monstrous, goad up to X target creatures") reads
@@ -1227,6 +1241,9 @@ class GameObject:
         #: no longer monstrous and its monstrosity X is forgotten with it.
         self.is_monstrous = False
         self.monstrosity_x = 0
+        #: MEC-47/400.7: a Licid that left the battlefield comes back a plain
+        #: creature — the "became an Aura" effect ended with the object.
+        self.is_licid_aura = False
         #: RULE 701.60a/400.7: suspected ends when the creature leaves the
         #: battlefield — leaving *is* this transition, so the new object is
         #: no longer suspected.
