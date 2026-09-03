@@ -2382,6 +2382,19 @@ def _regenerate_self(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("regenerate", {"target_kind": None})]
 
 
+#: "regenerate enchanted creature" (RULE 701.16 / 303 — an Aura's own
+#: activated ability regenerating its host: Regeneration / Gaea's Embrace /
+#: Blessing of Leeches / Dark Privilege). No RULE 115 target — the host is
+#: `RegenerateEffect`'s existing ``target_kind="attached_permanent"`` mode,
+#: the same "act on whatever this Aura is attached to" resolution
+#: `PumpEffect`/`GrantKeywordEffect`'s attached forms use.
+_REGENERATE_ATTACHED_RE = _c(r"regenerate (?:enchanted|equipped) creature")
+
+
+def _regenerate_attached(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("regenerate", {"target_kind": "attached_permanent"})]
+
+
 #: "Regenerate another target Elf." (Ezuri, Renegade Leader/Mad Auntie/
 #: Baron Sengir-shaped) — a creature-subtype-filtered target. "another" is
 #: cosmetic here: the plain ``"creature"`` target kind's own `legal_targets`
@@ -9335,6 +9348,15 @@ HANDLERS: list[EffectHandler] = [
         "regenerate_another_target",
         _REGENERATE_ANOTHER_TARGET_RE,
         _regenerate_another_target,
+    ),
+    # "regenerate enchanted/equipped creature" — an Aura/Equipment's own
+    # activated ability on its host (RULE 303), tried before the plain
+    # `regenerate` row (whose `TARGET` grammar has no "enchanted creature"
+    # entry anyway, so no overlap — ordered here for locality).
+    EffectHandler(
+        "regenerate_attached",
+        _REGENERATE_ATTACHED_RE,
+        _regenerate_attached,
     ),
     # "regenerate target creature" (RULE 701.16).
     EffectHandler(

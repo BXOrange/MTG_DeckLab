@@ -89,8 +89,11 @@ its block back into the matching section here.
     commander-matters anthem (#22).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
-    `enchanted land has "…"`, `<cost>: regenerate enchanted creature`)
-    (~#21+9+9+8).
+    `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate
+    enchanted creature` shape shipped at PARSER_VERSION 236
+    (`_REGENERATE_ATTACHED_RE` → `RegenerateEffect`'s existing
+    `attached_permanent` mode, +14 — Regeneration / Gaea's Embrace / Dark
+    Privilege / Serpent Skin).
   - **PAR-34** — tribal / state lord (`all slivers have "…"`, `each
     creature you control with a +1/+1 counter has trample`, Threshold
     `as long as <n>+ cards in your graveyard, ~ has/gets …`) (~#15+9+9).

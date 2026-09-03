@@ -2413,7 +2413,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: spec with only `power_count` (or `toughness_count`); `continuous.
 #: recompute`'s 7a pass already applies the two independently, so no
 #: engine change. Same `_PT_CDA_SELECTORS` whitelist as `_PT_CDA_RE`. +12.
-PARSER_VERSION = "235"
+#: v236 — PAR-33 — "regenerate enchanted/equipped creature" as an Aura's
+#: own activated ability (RULE 701.16 / 303 — Regeneration / Gaea's Embrace
+#: / Blessing of Leeches / Dark Privilege / Serpent Skin). New
+#: `handlers._REGENERATE_ATTACHED_RE` → `EffectSpec("regenerate",
+#: {"target_kind": "attached_permanent"})`, routing to `RegenerateEffect`'s
+#: pre-existing `attached_permanent` mode (reads `source.attached_to`
+#: live). No engine change. +14.
+PARSER_VERSION = "236"
 
 
 def parser_source_hash() -> str:
