@@ -2319,7 +2319,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `creature_filter` param threaded into its `TargetSpec`. +19 (Leaf Arrow /
 #: Pierce the Sky / Shredding Winds / Collision // Colossus / Centaur Archer
 #: / Grapeshot Catapult / Skyway Sniper / Thunderbolt / Tangletrap / …).
-PARSER_VERSION = "225"
+#: v226 — PAR-40 (RULE 601.2c) — symmetric mass-damage board wipes: "~
+#: deals N damage to each creature and each player" (`each_creature_and_
+#: player`) / "… to each creature and each planeswalker"
+#: (`each_creature_and_planeswalker`) — two global-scope union selectors
+#: `DealDamageEffect` already resolved, added to `_SELECTOR_WORD_MAP` and
+#: the `damage_selector` handler's regex alternation (the "and each …"
+#: unions first so the bare "each creature" branch can't prefix-match then
+#: fail the fullmatch). No engine change. +27 (Cave-In / Fire Tempest /
+#: Inferno / Star of Extinction / Storm's Wrath / Pestilence Demon / …).
+PARSER_VERSION = "226"
 
 
 def parser_source_hash() -> str:

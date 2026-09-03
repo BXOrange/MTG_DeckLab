@@ -113,13 +113,22 @@ its block back into the matching section here.
   - **PAR-39** — old two-sentence O-Ring templating (`when ~ leaves the
     battlefield, return the exiled card to the battlefield under its
     owner's control`) (#12) — **reuse the PAR-30 Threaten/O-Ring cluster**.
-  - **PAR-40** — `~ deals <n> damage to each creature and each player`
-    symmetric selector (#11) + `~ deals <n> damage to target creature. if
-    that creature would die this turn, exile it instead` damage rider (#11,
-    reuse the exile-instead-of-death replacement). (The `~ deals <n> damage
-    to target creature with flying` / `…with power 4 or greater` quality
-    filter shipped at PARSER_VERSION 225 — `damage_creature_filter`,
-    `Done_Backend.md`; +19.)
+  - **PAR-40** — the `if that creature would die this turn, exile it
+    instead` damage/pump/fight rider (~18 SOLO — Magma Spray / Feed the
+    Flames / Bleed Dry / Elspeth's Smite). The `grant_die_to_exile_this_
+    turn` effect + its `die_to_exile` replacement already exist
+    (`GrantDieToExileThisTurnEffect`, hand-authored today for Lava Coil /
+    Torch the Tower); the real blocker is that `segmenter` does **not**
+    split `"<verb clause>. If that creature would die this turn, exile it
+    instead."` into two clauses — it needs the trailing sentence recognised
+    as a `previous_subject=True` follow-on (the same recursion the
+    "untap that creature" / Whirlpool-Whelm tails already get), plus a
+    `previous_subject` param on `GrantDieToExileThisTurnEffect`.
+    (Shipped already: `~ deals <n> damage to target creature with flying` /
+    `…with power 4 or greater` quality filter — `damage_creature_filter`,
+    PARSER_VERSION 225, +19; `~ deals <n> damage to each creature and each
+    player` / `…and each planeswalker` symmetric selectors —
+    PARSER_VERSION 226, +27. See `Done_Backend.md`.)
   - **PAR-41** — additional cost `{X}` / from graveyard (`discard x
     cards` #10, `exile a creature card from your graveyard` #8).
   - **PAR-42** — conditional / dynamic enters-tapped & entry counters
