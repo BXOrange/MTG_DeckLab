@@ -85,7 +85,8 @@ from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, DEVOTION, count_of, devoti
 #: permanent's own controller" way `game/continuous.py`'s
 #: `_PLAYER_SUBJECT_GRANTED_EVENTS` documents.
 _GRANTABLE_TRIGGER_EVENTS = frozenset(
-    {"ENTERS_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE", "STEP_BEGIN", "LIFE_GAINED"}
+    {"ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE",
+     "STEP_BEGIN", "LIFE_GAINED"}
 )
 
 #: Type words that are *not* creature subtypes — a scope built on one of these
@@ -1750,25 +1751,37 @@ def _granted_mana_options(inner: str) -> Optional[list[dict[str, int]]]:
 
 
 def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
-    """Recursively parse a quoted granted-ability body into a
+    """Recursively parse a quoted granted-ability body into a single
     `grant_triggered_ability`/`grant_activated_ability`/`grant_mana_ability`
-    `EffectSpec`, or ``None`` if it isn't a plain self-scoped trigger on a
-    `_GRANTABLE_TRIGGER_EVENTS` event, a controller-scoped phase trigger, a
-    plain `<cost>: <effect>` activated ability, or a bare `{T}: Add <mana>`
-    mana ability (see the module comment above `_ATTACHED_QUOTED_GRANT_RE`)."""
+    `EffectSpec`, or ``None``. Thin wrapper over `_quoted_ability_grant_
+    effects_list` for the callers that only ever expect one spec — returns
+    ``None`` when the body would produce more than one (a compound-event
+    trigger; those callers pass through the list-returning helper instead)."""
+    specs = _quoted_ability_grant_effects_list(inner)
+    return specs[0] if specs and len(specs) == 1 else None
+
+
+def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
+    """Recursively parse a quoted granted-ability body into one or more
+    grant `EffectSpec`s, or ``None`` if it isn't a plain self-scoped trigger
+    on a `_GRANTABLE_TRIGGER_EVENTS` event (incl. a compound "enters or
+    leaves the battlefield" one → one `grant_triggered_ability` per event),
+    a controller-scoped phase trigger, a plain `<cost>: <effect>` activated
+    ability, or a bare `{T}: Add <mana>` mana ability (see the module
+    comment above `_ATTACHED_QUOTED_GRANT_RE`)."""
     from ..segmenter import segment_line  # lazy: segmenter imports this module
 
     mana = _granted_mana_options(inner)
     if mana is not None:
-        return EffectSpec("grant_mana_ability", {
+        return [EffectSpec("grant_mana_ability", {
             "mana": mana, "affects": "attached_permanent",
-        })
+        })]
 
     ward = _GRANTED_WARD_RE.fullmatch(inner.strip().rstrip("."))
     if ward is not None:
-        return EffectSpec("grant_keyword", {
+        return [EffectSpec("grant_keyword", {
             "ward_cost": ward.group("cost").strip(), "affects": "attached_permanent",
-        })
+        })]
 
     segment = segment_line(
         inner.strip(),
@@ -1795,26 +1808,34 @@ def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
             e for e in effect_specs
             if e.type not in (ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER)
         ]
-        return EffectSpec("grant_activated_ability", {
+        return [EffectSpec("grant_activated_ability", {
             "cost": dict(spec.cost or {}),
             "grant_effects": [{"type": e.type, "params": e.params} for e in effect_specs],
             "once_per_turn": once_per_turn,
             "sorcery_speed_only": sorcery_speed_only,
             "affects": "attached_permanent",
-        })
+        })]
 
     if spec.ability_kind != "triggered":
         return None
     trigger = spec.trigger or {}
     event = trigger.get("event")
-    # A compound "enters or leaves the battlefield"/"scry or surveil" inner
-    # trigger (`segmenter._SELF_MULTI_EVENT_RE`/`_player_trigger_event`)
-    # stamps a *list* of events on `AbilitySpec.trigger` — re-granting a
-    # multi-event ability isn't supported (nothing downstream re-scopes more
-    # than one event per grant), so this must fail closed rather than crash
-    # on the unhashable-list membership check below.
-    if isinstance(event, list) or event not in _GRANTABLE_TRIGGER_EVENTS:
+    # A compound "enters or leaves the battlefield" inner trigger
+    # (`segmenter._SELF_MULTI_EVENT_RE`) stamps a *list* of events on
+    # `AbilitySpec.trigger`. Re-grant it as one `grant_triggered_ability`
+    # per event (each independently identity-scoped by
+    # `_granted_trigger_condition`) — every event in the list must itself be
+    # grantable and `{"subject": "self"}`, else fail closed for the whole
+    # body. `LEAVES_BATTLEFIELD` fires *before* removal (RULE 603.6a), so
+    # the granted-to permanent (and its granted ability) still exists when
+    # the trigger is collected.
+    events = event if isinstance(event, list) else [event]
+    if any(e not in _GRANTABLE_TRIGGER_EVENTS for e in events):
         return None
+    if len(events) > 1 and trigger.get("condition") != {"subject": "self"}:
+        return None
+    if len(events) == 1:
+        event = events[0]
     if event == "STEP_BEGIN":
         # A RULE 500.7 phase trigger carries no object subject to re-scope
         # (see `_GRANTABLE_TRIGGER_EVENTS`) — only a `phase_relation`, which
@@ -1833,19 +1854,23 @@ def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
         # granted-to permanent's own controller once regranted.
         if trigger.get("condition") != {"subject": "you"}:
             return None
-    elif trigger.get("condition") != {"subject": "self"}:
+    elif len(events) == 1 and trigger.get("condition") != {"subject": "self"}:
         return None  # a "group"/other subject wouldn't mean the same thing once regranted
-    params: dict = {
-        "trigger_event": event,
-        "grant_effects": [{"type": e.type, "params": e.params} for e in spec.effects],
-        "optional": spec.optional,
-        "affects": "attached_permanent",
-    }
-    if trigger.get("filter"):  # RULE 120.3 DAMAGE combat/is_player, STEP_BEGIN's step
-        params["filter"] = dict(trigger["filter"])
-    if trigger.get("phase_relation"):
-        params["phase_relation"] = trigger["phase_relation"]
-    return EffectSpec("grant_triggered_ability", params)
+    grant_effects = [{"type": e.type, "params": e.params} for e in spec.effects]
+    out: list[EffectSpec] = []
+    for ev in events:
+        params: dict = {
+            "trigger_event": ev,
+            "grant_effects": grant_effects,
+            "optional": spec.optional,
+            "affects": "attached_permanent",
+        }
+        if trigger.get("filter"):  # RULE 120.3 DAMAGE combat/is_player, STEP_BEGIN's step
+            params["filter"] = dict(trigger["filter"])
+        if trigger.get("phase_relation"):
+            params["phase_relation"] = trigger["phase_relation"]
+        out.append(EffectSpec("grant_triggered_ability", params))
+    return out
 
 
 # RULE 702.16 **standing** protection grants — the layer-6 sibling of the
@@ -3549,11 +3574,12 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _SOULBOND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
-        grant = _quoted_ability_grant_effects(m.group("inner"))
-        if grant is None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
             return None
-        grant.params["affects"] = "soulbond_pair"
-        return [grant]
+        for g in grants:
+            g.params["affects"] = "soulbond_pair"
+        return grants
 
     m = _SOULBOND_ANTHEM_RE.fullmatch(text)
     if m is not None:
@@ -3577,21 +3603,21 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _ATTACHED_QUOTED_ANTHEM_GRANT_RE.fullmatch(text)
     if m is not None:
-        grant = _quoted_ability_grant_effects(m.group("inner"))
-        if grant is None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
             return None
         return [
             EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
                                    "affects": "attached_permanent"}),
-            grant,
+            *grants,
         ]
 
     m = _ATTACHED_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
-        grant = _quoted_ability_grant_effects(m.group("inner"))
-        if grant is None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
             return None
-        return [grant]
+        return grants
 
     m = _ANTHEM_RE.fullmatch(text)
     if m is not None:
@@ -3622,11 +3648,12 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _COMMANDER_CREATURES_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
-        grant = _quoted_ability_grant_effects(m.group("inner"))
-        if grant is None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
             return None
-        grant.params["affects"] = "commander_creatures_you_own"
-        return [grant]
+        for g in grants:
+            g.params["affects"] = "commander_creatures_you_own"
+        return grants
 
     m = _QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
@@ -3644,11 +3671,12 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             if word is None:
                 return None
             scope_params = _permanent_scope_params(word, m)
-        grant = _quoted_ability_grant_effects(m.group("inner"))
-        if grant is None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
             return None
-        grant.params.update(scope_params)
-        return [grant]
+        for g in grants:
+            g.params.update(scope_params)
+        return grants
 
     m = _GROUP_COUNTER_GRANT_RE.fullmatch(text)
     if m is not None:

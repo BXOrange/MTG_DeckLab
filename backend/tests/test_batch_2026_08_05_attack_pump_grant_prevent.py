@@ -206,14 +206,19 @@ def test_commander_creatures_grant_with_a_group_subject_inner_stays_unclaimed():
     ) is None
 
 
-def test_commander_creatures_grant_with_a_compound_event_inner_does_not_crash():
-    # Regression for the `TypeError: unhashable type: 'list'` crash — a
-    # compound "enters or leaves the battlefield" inner trigger must fail
-    # closed (`None`), not raise.
-    assert static_effect_specs(
+def test_commander_creatures_grant_with_a_compound_event_inner():
+    # Regression for the `TypeError: unhashable type: 'list'` crash, and
+    # PAR-32 slice 1: a compound "enters or leaves the battlefield" inner
+    # trigger now re-grants as one `grant_triggered_ability` per event
+    # (`_quoted_ability_grant_effects_list`), no longer fail-closed.
+    specs = static_effect_specs(
         'commander creatures you own have '
         '"when ~ enters or leaves the battlefield, draw a card."'
-    ) is None
+    )
+    assert specs is not None
+    assert {s.params["trigger_event"] for s in specs} == {
+        "ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD"
+    }
 
 
 def test_commander_creatures_selector_only_picks_owned_commander_creatures():

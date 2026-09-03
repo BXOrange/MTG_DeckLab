@@ -85,7 +85,29 @@ its block back into the matching section here.
   Bucket B (recurring effect-body / static templates, `extend-parser` loop):
 
   - **PAR-32** — static `commander creatures you own have "<ability>"` /
-    commander-matters anthem (#22).
+    commander-matters anthem (24 SOLO). The wrapper + selector
+    (`_COMMANDER_CREATURES_QUOTED_GRANT_RE` → `commander_creatures_you_own`)
+    already existed; the residue is inner-body shapes
+    `_quoted_ability_grant_effects` can't recurse. Done: **compound-event
+    self-triggers** — "when ~ enters or leaves the battlefield, `<effect>`"
+    → one `grant_triggered_ability` per event
+    (`_quoted_ability_grant_effects_list`, `LEAVES_BATTLEFIELD` added to
+    `_GRANTABLE_TRIGGER_EVENTS`), PARSER_VERSION 247, +1 Candlekeep Sage
+    (the LTB half works end-to-end; the ETB half shares the engine's
+    pre-existing granted-ETB-timing gap, same as any Dionus-style grant).
+    Left: **static inner bodies** (anthem/lord — Inspiring Leader; needs a
+    `grant_static_ability` regrant primitive → likely a MEC ticket);
+    **group-subject trigger regrant** ("whenever an artifact or creature
+    you control dies …" — Agent of the Iron Throne; the group filter is
+    dropped by `_granted_trigger_condition` today); the **"whenever ~
+    attacks a player, if no opponent has more life than that player,
+    `<payoff>`"** cluster (Agent of the Shadow Thieves / Guild Artisan /
+    Hardy Outlander / Sword Coast Sailor / Veteran Soldier — a new trigger
+    condition + varied payoffs); **cast-spell triggers** (Acolyte of
+    Bahamut / Folk Hero / Passionate Archaeologist); **combat-damage
+    triggers** (Feywild Visitor / Popular Entertainer); and a bespoke tail
+    (Dungeon Delver / Scion of Halaster / Shameless Charlatan / Noble
+    Heritage / Haunted One / Tavern Brawler / Master Chef's twin-body).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
     `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate
