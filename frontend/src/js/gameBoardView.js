@@ -265,7 +265,7 @@ export function createGameBoardView(opts = {}) {
     // Scope: by default the timer only runs when you're *responding* in
     // someone else's turn, which is what auto-pass means everywhere else in
     // Magic. Your own turn stays yours unless you asked for "always".
-    if (getAutoPassScope() !== 'always' && s.active_player_id === view.perspective) return false;
+    if (getAutoPassScope() !== 'always' && s.active_player_id === actingSeat()) return false;
     return true;
   }
 
@@ -959,6 +959,8 @@ export function createGameBoardView(opts = {}) {
           </div>
         </div>
 
+        ${turnControlBannerHtml(s)}
+
         ${dummy ? opponentStripHtml(dummy) : ''}
 
         ${planechaseHtml(s, actions)}
@@ -1167,7 +1169,7 @@ export function createGameBoardView(opts = {}) {
     // Whether *this* client may drive the turn. In a shared game only the
     // active player can (RULE 500.1, enforced server-side too); solo modes
     // have no perspective and always can.
-    const myTurn = !view.perspective || view.state.active_player_id === view.perspective;
+    const myTurn = !view.perspective || view.state.active_player_id === actingSeat();
     return `
       <div class="gf-controls">
         <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>Nächster Schritt →</button>
@@ -1184,9 +1186,23 @@ export function createGameBoardView(opts = {}) {
     return !!view?.priority?.interactive && !view.observer;
   }
 
+  /**
+   * The seat this client currently acts as (MEC-51 / RULE 720): its own,
+   * or another player's whose turn/combat it controls. The server sets
+   * `view.acting_as` (= `perspective` when not controlling anyone).
+   */
+  function actingSeat() {
+    return view?.acting_as || view?.perspective || null;
+  }
+
   /** Whether this client is the one the game is currently waiting on. */
   function hasPriority() {
-    return !!view?.perspective && view.priority?.player_id === view.perspective;
+    if (!view?.priority) return false;
+    const pid = view.priority.player_id;
+    return (
+      (!!actingSeat() && pid === actingSeat()) ||
+      (!!view.perspective && pid === view.perspective)
+    );
   }
 
   // The shared-game toolbar. "Passen" is the only way forward: a step ends
@@ -1287,9 +1303,32 @@ export function createGameBoardView(opts = {}) {
   function waitingOnChoiceHtml(s) {
     const waiting = s.waiting_on_choice;
     if (!waiting) return '';
-    const who = playerName(waiting.player_id);
+    const who = playerName(waiting.decider_id || waiting.player_id);
     const what = waiting.prompt ? ` (${escapeHtml(waiting.prompt)})` : '';
     return `<p class="server-status pending gf-waiting-choice">⏳ ${escapeHtml(who)} trifft gerade eine Entscheidung${what} …</p>`;
+  }
+
+  // MEC-51 / RULE 720: "Du kontrollierst den Zug von X" (Mindslaver, Sorin
+  // Markov, Emrakul, Worst Fears) / "…die Kampfphase von X" (Secret of
+  // Bloodbending). Shows on the controller's board while a window is active
+  // — and the mirror notice on the controlled player's own board.
+  function turnControlBannerHtml(s) {
+    const controls = (s.turn_controls || []).filter((c) => c.phase === 'active');
+    if (!controls.length) return '';
+    const me = view.perspective;
+    // I'm driving someone else's turn/combat.
+    const mine = controls.find((c) => c.controller_id === me && c.controlled_id !== me);
+    if (mine) {
+      const scopeWord = mine.scope === 'combat' ? 'die Kampfphase' : 'den Zug';
+      return `<p class="server-status gf-turn-control gf-turn-control-driving">🎛️ Du kontrollierst ${scopeWord} von <strong>${escapeHtml(playerName(mine.controlled_id))}</strong>${mine.source_name ? ` (${escapeHtml(mine.source_name)})` : ''} – du triffst alle Entscheidungen und siehst die Handkarten.</p>`;
+    }
+    // My own turn/combat is being controlled by someone else.
+    const over = controls.find((c) => c.controlled_id === me && c.controller_id !== me);
+    if (over) {
+      const scopeWord = over.scope === 'combat' ? 'deine Kampfphase' : 'deinen Zug';
+      return `<p class="server-status pending gf-turn-control gf-turn-control-locked">🔒 <strong>${escapeHtml(playerName(over.controller_id))}</strong> kontrolliert gerade ${scopeWord}. Du triffst währenddessen keine Entscheidungen.</p>`;
+    }
+    return '';
   }
 
   // RULE 509.1a: the defending player assigns blockers. Each offer from

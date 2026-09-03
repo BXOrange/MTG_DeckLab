@@ -303,6 +303,8 @@ def _redact_hidden_zones(
     state_dict: dict[str, Any],
     perspective: Optional[str],
     top_library_visible: Optional[dict[str, bool]] = None,
+    also_visible_hand_ids: Optional[set[str]] = None,
+    choice_decider_id: Optional[str] = None,
 ) -> None:
     """Strip every player's hidden zones from a serialized state, in place.
 
@@ -322,8 +324,15 @@ def _redact_hidden_zones(
     whole zone, since the object itself (and the fact that something is
     exiled face down) stays visible, only its identity is hidden.
     """
+    # MEC-51 (RULE 720.2): the controller of a player's turn/combat may look
+    # at that player's hand for the window (needed to actually make their
+    # decisions). Modelled as an extra hand-reveal here; the finer
+    # 720.3-720.7 hidden-info edges are an accepted simplification.
+    reveal_hands = set(also_visible_hand_ids or ())
     for player in state_dict.get("players", []):
-        own = perspective is not None and player.get("id") == perspective
+        own = perspective is not None and (
+            player.get("id") == perspective or player.get("id") in reveal_hands
+        )
         if not own:
             player["hand"] = []
         # A library is hidden even from its owner (they don't know their own
@@ -337,10 +346,15 @@ def _redact_hidden_zones(
     # see its options (they can name cards in a hidden zone). Everyone else
     # gets a passive "waiting on X" marker instead — see `view`.
     pending = state_dict.get("pending_choice")
-    if pending and pending.get("player_id") != perspective:
+    # MEC-51: the choice is answered by its *decider* — normally the player
+    # it names, but the controller of that player's turn/combat while a
+    # window is active (`GameState.decider_for`, resolved by the caller).
+    decider = choice_decider_id or (pending.get("player_id") if pending else None)
+    if pending and decider != perspective:
         state_dict["pending_choice"] = None
         state_dict["waiting_on_choice"] = {
             "player_id": pending.get("player_id"),
+            "decider_id": decider,
             "kind": pending.get("kind"),
             "prompt": pending.get("prompt") or pending.get("description") or "",
         }
@@ -607,7 +621,16 @@ class GameSession:
         # as clicking "Next step" would, and undo/replay stay deterministic
         # even with the opponent present. It manages its own history entries.
         if action["type"] in ("advance_to_decision", "next_decision"):
-            if actor is not self.engine.state.active_player:
+            # MEC-51 (RULE 720): the controller of the active player's turn
+            # may fast-forward it, exactly as the active player could.
+            _acting = actor
+            _driven = self.engine.state.driving_seat_for(actor.id)
+            if _driven is not None:
+                try:
+                    _acting = self.engine.state.player_by_id(_driven)
+                except KeyError:
+                    pass
+            if _acting is not self.engine.state.active_player:
                 raise GameActionError("only the active player can advance the turn")
             if self.interactive_priority:
                 # RULE 117.4, same refusal `_dispatch` gives a plain
@@ -690,6 +713,23 @@ class GameSession:
         active = actor if actor is not None else state.active_player
         kind = action["type"]
 
+        # MEC-51 (RULE 720): a player controlling another seat's turn/combat
+        # acts *through* that seat — their action arrives as if the
+        # controlled player took it. `driving_seat_for` only yields a seat
+        # while a control window is genuinely active and `actor` is its
+        # controller, so a client can't spoof it. `concede`/`take_back` stay
+        # with the real seat (720.1); `choose`/`decline` route via
+        # `decider_for` in their own gate below.
+        if actor is not None and kind not in (
+            "concede", "take_back", "choose", "decline",
+        ) and not kind.startswith("edit_"):
+            driven = state.driving_seat_for(actor.id)
+            if driven is not None:
+                try:
+                    active = state.player_by_id(driven)
+                except KeyError:
+                    pass
+
         # Replay/puzzle board editing (mode == REPLAY): direct state
         # mutations that bypass rules validation, so an arbitrary — even
         # rules-illegal — position can be constructed. Allowed at any time.
@@ -734,6 +774,24 @@ class GameSession:
         # only the choice may be answered.
         if state.pending_choice and kind not in ("choose", "decline"):
             raise GameActionError("a choice is pending — answer it first")
+
+        # MEC-51 (RULE 720): a choice addressed to a player whose turn/combat
+        # is being controlled is answered by the *controller*. Only enforced
+        # when a control window is actually redirecting it (`decider` differs
+        # from the named player), so ordinary multiplayer is untouched.
+        if (
+            state.pending_choice
+            and kind in ("choose", "decline")
+            and actor is not None
+        ):
+            pc_owner = state.pending_choice.get("player_id")
+            if pc_owner is not None:
+                decider = state.decider_for(pc_owner)
+                if decider != pc_owner and actor.id != decider:
+                    raise ValueError(
+                        f"{actor.name} is not answering this choice — "
+                        f"it is controlled by another player"
+                    )
 
         # RULE 117.1: with priority genuinely being passed around, only the
         # player holding it may take an action. `legal_actions` already
@@ -1479,9 +1537,30 @@ class GameSession:
 
         resolved = self.engine.pass_priority(player)
         if resolved or not completes_round or not stack_was_empty:
+            self._auto_pass_turn_controllers()
             return
         # Everyone passed on an empty stack → the step ends.
         self._advance_to_priority_window()
+        self._auto_pass_turn_controllers()
+
+    def _auto_pass_turn_controllers(self) -> None:
+        """MEC-51 (RULE 720): while a player controls the *active* player's
+        turn, they act only *as* that seat — so any priority window they
+        would hold *as themselves* during it is auto-passed, letting the
+        controller drive the turn with a single "Passen" per pass. Their own
+        instant-speed responses during a controlled turn are the documented
+        simplification. Recurses through `_pass_priority` so a pass that
+        completes the round still ends the step."""
+        state = self.engine.state
+        for _ in range(len(state.players) + 2):
+            holder = state.priority_player
+            if holder is None or state.game_over:
+                return
+            driven = state.driving_seat_for(holder.id)
+            if driven is None or driven == holder.id:
+                return
+            self._pass_priority(holder)
+            return
 
     def _advance_to_priority_window(self) -> None:
         """Run steps until one opens a priority window (or the game ends).
@@ -1707,6 +1786,23 @@ class GameSession:
         """
         state = self.engine.state
         seat = self._actor(perspective) if perspective is not None else state.active_player
+        # MEC-51 (RULE 720): while `perspective` controls another seat's
+        # turn (or combat, during combat), they are offered *that* seat's
+        # actions — priority, casting, declare-attackers, and any pending
+        # choice addressed to it. Their own instant-speed responses during
+        # that window are a documented simplification (not offered here).
+        if perspective is not None:
+            _driven = state.driving_seat_for(perspective)
+            if _driven is not None:
+                try:
+                    seat = state.player_by_id(_driven)
+                except KeyError:
+                    pass
+            # ...and conversely, a player whose own decisions are currently
+            # routed away (their turn/combat is being controlled) is offered
+            # nothing here — the controller acts for them.
+            elif state.decider_for(perspective) != perspective:
+                return []
         if not self._setup_complete:
             if seat.id not in self._setup_pending:
                 return []  # already kept; waiting on the rest of the table
@@ -1829,12 +1925,32 @@ class GameSession:
             for pid in visible_ids
         }
         _annotate_castable(state_dict, self.engine, visible_ids)
+        # MEC-51 (RULE 720): the seat `perspective` is currently entitled to
+        # drive — their own, or another player's whose turn/combat they
+        # control. The frontend swaps `perspective` → `acting_as` for every
+        # "is it me to act" check (turn, priority, pending choice).
+        acting_as = perspective
+        reveal_hands: set[str] = set()
+        choice_decider: Optional[str] = None
         if perspective is not None:
-            _redact_hidden_zones(state_dict, perspective, top_visible)
+            driven = self.engine.state.driving_seat_for(perspective)
+            if driven is not None:
+                acting_as = driven
+                reveal_hands.add(driven)
+            pc = state_dict.get("pending_choice")
+            if pc and pc.get("player_id"):
+                choice_decider = self.engine.state.decider_for(pc["player_id"])
+        if perspective is not None:
+            _redact_hidden_zones(
+                state_dict, perspective, top_visible,
+                also_visible_hand_ids=reveal_hands,
+                choice_decider_id=choice_decider,
+            )
         return {
             "session_id": self.id,
             "mode": self.mode,
             "perspective": perspective,
+            "acting_as": acting_as,
             "state": state_dict,
             "legal_actions": self.legal_actions(perspective),
             "pending_choice": state_dict.get("pending_choice"),

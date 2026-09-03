@@ -2211,3 +2211,240 @@ register("Flanking Licid", lambda: _licid(
     "Flanking Licid", "{R}", "{R}", [_kw_at("flanking")],
     "Enchanted creature gains flanking.", keep_creature=True,
 ))
+
+
+# --- MEC-51 (RULE 720): "You control target player during that player's
+#     next turn / next combat phase." -------------------------------------
+# `EffectSpec("control_player", {"scope": "turn"|"combat", "target_kind":
+# "player"|"opponent"})` installs a `GameState.TurnControl`;
+# `RulesEngine._advance_turn_controls` runs the `TURN_BEGIN` state machine
+# and `services/game_session.py` routes the controlled seat's decisions,
+# priority and turn-based actions to the controller for the window. The
+# RULE 720.x carve-outs (the controlled player still concedes for
+# themselves, the finer hidden-info edges) are a documented simplification —
+# see `Done_Backend.md`.
+
+register("Mindslaver", lambda: [
+    AbilitySpec(
+        "activated",
+        [EffectSpec("control_player", {"scope": "turn", "target_kind": "player"})],
+        cost={"text": "{4}, {T}, Sacrifice ~"},
+        raw_text="{4}, {T}, Mindslaver opfern: Du kontrollierst einen Zielspieler "
+                 "während dessen nächstem Zug.",
+    ),
+])
+
+register("Worst Fears", lambda: [
+    AbilitySpec(
+        "spell_effect",
+        [
+            EffectSpec("control_player", {"scope": "turn", "target_kind": "player"}),
+            EffectSpec("exile", {"target_kind": None}),
+        ],
+        raw_text="Du kontrollierst einen Zielspieler während dessen nächstem Zug. "
+                 "Exiliere Worst Fears.",
+    ),
+])
+
+register("Sorin Markov", lambda: [
+    AbilitySpec(
+        "activated",
+        [EffectSpec("damage", {"amount": 2, "target_kind": "any"}),
+         EffectSpec("gain_life", {"amount": 2})],
+        cost={"loyalty": 2},
+        raw_text="+2: Sorin Markov fügt einem beliebigen Ziel 2 Schaden zu und du "
+                 "erhältst 2 Lebenspunkte.",
+    ),
+    AbilitySpec(
+        "activated",
+        [EffectSpec("set_life", {"amount": 10, "target_kind": "opponent"})],
+        cost={"loyalty": -3},
+        raw_text="−3: Die Lebenspunkte eines Zielgegners werden 10.",
+    ),
+    AbilitySpec(
+        "activated",
+        [EffectSpec("control_player", {"scope": "turn", "target_kind": "player"})],
+        cost={"loyalty": -7},
+        raw_text="−7: Du kontrollierst einen Zielspieler während dessen nächstem Zug.",
+    ),
+])
+
+register("Emrakul, the Promised End", lambda: [
+    AbilitySpec(
+        "triggered",
+        [EffectSpec("control_player", {
+            "scope": "turn", "target_kind": "opponent",
+            "grant_extra_turn_after": True,
+        })],
+        trigger={"event": EventType.SPELL_CAST, "condition": {"subject": "self"}},
+        raw_text="Wenn du diesen Zauberspruch wirkst, übernimmst du die Kontrolle "
+                 "über einen Zielgegner während dessen nächstem Zug. Nach jenem Zug "
+                 "macht jener Spieler einen zusätzlichen Zug.",
+    ),
+])
+
+register("Secret of Bloodbending", lambda: [
+    # "You control target opponent during their next combat phase." The
+    # "If this spell's additional cost was paid (waterbend {10}), you
+    # control that player during their next turn instead." upgrade is a
+    # documented card-specific simplification — waterbend additional-cost
+    # conditionals are their own unmodeled mechanism (`BACKLOG.md`).
+    AbilitySpec(
+        "spell_effect",
+        [
+            EffectSpec("control_player", {"scope": "combat", "target_kind": "opponent"}),
+            EffectSpec("exile", {"target_kind": None}),
+        ],
+        raw_text="Du kontrollierst einen Zielgegner während dessen nächster "
+                 "Kampfphase. Exiliere Secret of Bloodbending.",
+    ),
+])
+
+
+# ---------------------------------------------------------------------------
+# MEC-52 — Reanimator-token & villainous-choice residue (PAR-29's keyword
+# trail, PAR-30 close-out). The three cards left after The Master, Gallifrey's
+# End: each blocks on a distinct engine primitive, not oracle grammar, so
+# they're hand-authored here (the primitives themselves — the villainous
+# ``previous_target_controller`` per-target sweep, `dig_until`'s
+# ``digger``/``caster`` split, the summed-MV damage source — are general).
+# ---------------------------------------------------------------------------
+
+
+def _hunted_by_the_family() -> list[AbilitySpec]:
+    """Choose up to four target creatures you don't control. For each of
+    them, that creature's controller faces a villainous choice — That
+    creature becomes a 1/1 white Human creature and loses all abilities, or
+    you create a token that's a copy of it.
+
+    — MEC-52. `FaceVillainousChoiceEffect` ``subject="previous_target_
+    controller"``: the RULE 115 targets are the creatures ("up to four" ⇒
+    ``optional`` + ``count=4`` on the effect's own `target_spec`), and each
+    one's controller gets its *own* queued `villainous_choice`
+    (`request_villainous_choice(rounds=…)`) with that creature baked in as
+    the RULE 608.2 referent. Option A is one indefinite RULE 611 grant
+    (`grant_until` ``previous_subject`` / ``duration="rest_of_game"``) that
+    bundles the layer-4 P/T+type change, the layer-5 colour set and the
+    layer-6 lose-all-abilities — the same three statics Kenrith's
+    Transformation stacks, here aimed at the villainous creature rather
+    than an enchanted one. Option B is PAR-18's `copy_permanent`
+    ``referent="previous"``, made under *your* control ("you create").
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("face_villainous_choice", {
+                "subject": "previous_target_controller",
+                "option_a": [{
+                    "type": "grant_until",
+                    "params": {
+                        "previous_subject": True,
+                        "duration": "rest_of_game",
+                        "static": {"type": "type_change", "params": {
+                            "add_types": ["creature"], "set_subtypes": ["Human"],
+                            "power": 1, "toughness": 1,
+                        }},
+                        "extra_statics": [
+                            {"type": "color_change", "params": {"colors": ["W"], "set": True}},
+                            {"type": "remove_all_abilities", "params": {}},
+                        ],
+                    },
+                }],
+                "option_b": [{
+                    "type": "copy_permanent",
+                    "params": {"target_kind": None, "referent": "previous"},
+                }],
+            })],
+            raw_text="Wähle bis zu vier Zielkreaturen, die du nicht "
+                     "kontrollierst. Für jede von ihnen trifft der Beherrscher "
+                     "jener Kreatur eine schurkische Wahl — Jene Kreatur wird "
+                     "eine 1/1 weiße Kreatur vom Typ Mensch und verliert alle "
+                     "Fähigkeiten, oder du erschaffst einen Marker, der eine "
+                     "Kopie von ihr ist.",
+        ),
+    ]
+
+
+register("Hunted by The Family", _hunted_by_the_family)
+
+
+def _ensnared_by_the_mara() -> list[AbilitySpec]:
+    """Each opponent faces a villainous choice — They exile cards from the
+    top of their library until they exile a nonland card, then you may cast
+    that card without paying its mana cost, or that player exiles the top
+    four cards of their library and Ensnared by the Mara deals damage equal
+    to the total mana value of those exiled cards to that player.
+
+    — MEC-52. A plain ``each_opponent`` villainous choice; both option
+    bodies are past the parser's villainous grammar but reach existing/
+    widened primitives directly: option A is `dig_until` with the new
+    ``digger="facing"`` (the opponent's library) + ``caster="controller"``
+    (RULE 601.3e — *you* become the free-cast card's controller) and
+    ``hit_destination="cast_free_window"`` (a genuine "you may", with the
+    RULE-shaped "return it if uncast" delayed half); option B is the new
+    `exile_top_then_damage_by_mv` summed-mana-value damage source.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("face_villainous_choice", {
+                "subject": "each_opponent",
+                "option_a": [{
+                    "type": "dig_until",
+                    "params": {
+                        "criteria": {"without_type": "land"},
+                        "digger": "facing",
+                        "caster": "controller",
+                        "hit_destination": "cast_free_window",
+                        "rest_destination": "exile",
+                    },
+                }],
+                "option_b": [{
+                    "type": "exile_top_then_damage_by_mv",
+                    "params": {"count": 4},
+                }],
+            })],
+            raw_text="Jeder Gegner trifft eine schurkische Wahl — Er "
+                     "exiliert Karten von seiner Bibliothek oben, bis er eine "
+                     "Nichtland-Karte exiliert, dann darfst du jene Karte "
+                     "wirken, ohne ihre Manakosten zu bezahlen, oder jener "
+                     "Spieler exiliert die obersten vier Karten seiner "
+                     "Bibliothek und Ensnared by the Mara fügt jenem Spieler "
+                     "so viele Schadenspunkte zu, wie die Summe der Manawerte "
+                     "jener exilierten Karten beträgt.",
+        ),
+    ]
+
+
+register("Ensnared by the Mara", _ensnared_by_the_mara)
+
+
+def _back_from_the_brink() -> list[AbilitySpec]:
+    """Exile a creature card from your graveyard and pay its mana cost:
+    Create a token that's a copy of that card. Activate only as a sorcery.
+
+    — MEC-52. The cost is a *pick-then-price* one — a variable mana cost
+    unknowable until the graveyard card is chosen — which `game/costs.py`
+    and the activation flow have no primitive for. Modeled as the
+    resolution of an otherwise-free, ``sorcery_speed_only`` activated
+    ability (`BackFromTheBrinkEffect`): on resolution the controller picks
+    a creature card in their graveyard and exiles it (seeding the RULE
+    608.2 referent), then `PayCostThenPreviousMvEffect` prices "pay its
+    mana cost" off that card and, if paid, `copy_permanent`
+    ``referent="previous"`` makes the token. See the effect's docstring for
+    the (exile-and-payment-at-resolution) simplification.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("back_from_the_brink", {})],
+            cost={"sorcery_speed_only": True},
+            raw_text="Schicke eine Kreaturenkarte aus deinem Friedhof ins "
+                     "Exil und bezahle ihre Manakosten: Erschaffe einen "
+                     "Marker, der eine Kopie jener Karte ist. Aktiviere nur "
+                     "wie eine Hexerei.",
+        ),
+    ]
+
+
+register("Back from the Brink", _back_from_the_brink)

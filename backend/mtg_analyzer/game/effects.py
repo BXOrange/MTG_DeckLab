@@ -4557,6 +4557,39 @@ class GainLifeEffect(GameEffect):
         context.gain_life(player, amount)
 
 
+class SetLifeEffect(GameEffect):
+    """RULE 118.5 / 119.6: "`<player>`'s life total becomes N." (Sorin
+    Markov's −3, Magister Sphinx, Repay in Kind-adjacent) — modelled purely
+    as the resulting gain or loss: current > N loses ``current - N``,
+    current < N gains ``N - current`` (RULE 118.4 — "becomes" is a one-shot
+    set, not a lock). ``target_kind`` picks the player the same way
+    `GainLifeEffect` does; default targets a player.
+    """
+
+    def __init__(
+        self,
+        amount: int = 0,
+        target_kind: Optional[str] = "player",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = int(amount)
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+
+    def target_polarity(self) -> Optional[str]:
+        return None  # can help or hurt depending on the target's current life
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self._resolve_target_or_controller(context, targets)
+        if player is None:
+            return
+        current = int(getattr(player, "life", 0))
+        if current > self.amount:
+            context.lose_life(player, current - self.amount)
+        elif current < self.amount:
+            context.gain_life(player, self.amount - current)
+
+
 class PreventDamageEffect(GameEffect):
     """RULE 615: "Prevent all/the next N damage that would be dealt to you
     this turn" (Riot Control's spell-level "all"; Thought Lash's own
@@ -7377,6 +7410,41 @@ class ExileTopOfLibraryEffect(GameEffect):
                 if self.track_exiled_with and self.source is not None:
                     self.source.exiled_with_ids.append(top.instance_id)
                 context.created_objects.append(top)
+
+
+class ExileTopThenDamageByMvEffect(GameEffect):
+    """MEC-52 (Ensnared by the Mara, villainous option B): "that player
+    exiles the top four cards of their library and ~ deals damage equal to
+    the **total mana value of those exiled cards** to that player."
+
+    Applied inside a villainous choice with ``targets=[the facing player]``
+    (`RulesEngine.request_villainous_choice` hands each option its facing
+    player as the target). Exiles up to ``count`` cards off the top of that
+    player's library and deals damage equal to their summed mana value back
+    to them, from this effect's source — the summed-MV amount source the
+    RULE 701 keyword trail's damage clauses had no primitive for.
+    """
+
+    def __init__(self, count: int = 4, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = int(count)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        victim = targets[0] if targets else None
+        if victim is None or not hasattr(victim, "library"):
+            return
+        total = 0
+        for _ in range(self.count):
+            if not victim.library:
+                break
+            top = victim.library[-1]
+            context.exile(top)
+            total += int(getattr(top.card, "converted_mana_cost", 0) or 0)
+        if total > 0:
+            context.engine.deal_damage(victim, total, source=self.source)
 
 
 class LandOrFreeCastEffect(GameEffect):
@@ -10657,6 +10725,84 @@ class PayEnergyThenEffect(GameEffect):
         context.engine.request_pay_energy_then(player, self.amount, self.inner_specs, self.source)
 
 
+class BackFromTheBrinkEffect(GameEffect):
+    """MEC-52 — Back from the Brink: "Exile a creature card from your
+    graveyard **and pay its mana cost**: Create a token that's a copy of
+    that card. Activate only as a sorcery."
+
+    The cost is a *pick-then-price* one — a variable mana cost the payer
+    can't know until they've chosen the graveyard card. `game/costs.py` and
+    the activation flow have no such cost, so this is modeled as the
+    **resolution** of an otherwise free (sorcery-speed-only) activated
+    ability: on resolution the controller picks a creature card in their
+    graveyard (`request_choose_objects` ``action="exile"``, which now also
+    seeds `GameContext.previous_targets` with the exiled card), then a
+    `PayCostThenPreviousMvEffect` prices the "pay its mana cost" half off
+    that card and, if paid, creates the copy (`copy_permanent`
+    ``referent="previous"``).
+
+    **Documented simplification:** the exile + payment happen as the
+    ability resolves rather than as an activation cost, so (a) the ability
+    can be activated with no eligible creature card in the graveyard (it
+    then resolves into nothing) and (b) the choice/payment can't be
+    responded to between announcement and payment. No printed interaction
+    depends on either in a practice game.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        candidates = [o for o in controller.graveyard if o.card.is_creature]
+        if not candidates:
+            return
+        context.engine.request_choose_objects(
+            controller,
+            candidates,
+            action="exile",
+            count=1,
+            source=self.source,
+            prompt="Kreaturenkarte aus deinem Friedhof ins Exil schicken",
+            then_specs=[{"type": "pay_cost_then_previous_mv", "params": {}}],
+        )
+
+
+class PayCostThenPreviousMvEffect(GameEffect):
+    """MEC-52 — the "and pay its mana cost" half of Back from the Brink: a
+    `request_pay_cost_then` whose cost is the mana cost of whatever card the
+    previous clause of this resolution exiled (`GameContext.previous_
+    targets`). Paid ⇒ ``effects`` (a `copy_permanent` ``referent="previous"``
+    of that same card); declined ⇒ nothing.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..models.mana_cost import ManaCost  # function-scoped: import cycle
+        from .costs import ActivationCost  # function-scoped: import cycle
+
+        prev = [
+            o for o in context.previous_targets
+            if getattr(o, "card", None) is not None
+        ]
+        if not prev:
+            return
+        card_obj = prev[0]
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        cost = ActivationCost(mana=ManaCost.from_card(card_obj.card))
+        context.engine.request_pay_cost_then(
+            controller,
+            cost,
+            effect_specs=[{
+                "type": "copy_permanent",
+                "params": {"target_kind": None, "referent": "previous"},
+            }],
+            source=self.source,
+            prompt=f"Manakosten von {card_obj.name} bezahlen?",
+            captured_previous=[card_obj],
+        )
+
+
 class PayCostThenEffect(GameEffect):
     """RULE 118.3-style resolve-time optional payment: "you may pay
     `<cost>`. If you do, `<effect>`." — the general form of
@@ -11480,13 +11626,29 @@ class FaceVillainousChoiceEffect(GameEffect):
         #: resolves against it once the choice is *answered* — by which point
         #: this resolution's own context is long gone.
         self.capture_previous = bool(capture_previous)
-        self.target_spec = (
-            TargetSpec(kind="player") if subject == "target" else None
-        )
+        if subject == "target":
+            self.target_spec = TargetSpec(kind="player")
+        elif subject == "previous_target_controller":
+            #: "Choose up to four target creatures you don't control. For
+            #: each of them, **that creature's controller** faces a
+            #: villainous choice — …" (MEC-52, Hunted by The Family). The
+            #: RULE 115 targets are the *creatures*; each one's controller
+            #: is the facing player for its own queued choice, and every
+            #: option body acts on that creature (`captured`), not on the
+            #: player. "Up to four" ⇒ ``optional`` + ``count=4`` (0..4, per
+            #: RULE 115.1a generalized).
+            self.target_spec = TargetSpec(
+                kind="creature_you_dont_control", optional=True, count=4,
+            )
+        else:
+            self.target_spec = None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         controller = _controller_of(self.source, context)
         if controller is None or not self.option_a or not self.option_b:
+            return
+        if self.subject == "previous_target_controller":
+            self._face_per_target(context, controller, targets)
             return
         facing: list[Any] = []
         if self.subject == "each_opponent":
@@ -11541,6 +11703,39 @@ class FaceVillainousChoiceEffect(GameEffect):
             captured_previous=(
                 list(context.previous_targets) if self.capture_previous else None
             ),
+        )
+
+    def _face_per_target(
+        self, context: GameContext, controller: Any, targets: Optional[list[Any]],
+    ) -> None:
+        """MEC-52 (Hunted by The Family): one queued villainous choice per
+        chosen creature, faced by *that creature's* controller, with the
+        creature itself baked in as the RULE 608.2 referent (`captured`) so
+        an option body's `grant_until` ``previous_subject`` / `copy_permanent`
+        ``referent="previous"`` acts on the creature, not the facing
+        player."""
+        creatures = [
+            c for c in (targets or []) if getattr(c, "instance_id", None) is not None
+        ]
+        rounds: list[dict[str, Any]] = []
+        for creature in creatures:
+            try:
+                ctrl = context.state.player_by_id(creature.controller_id)
+            except (KeyError, ValueError):
+                continue
+            if ctrl.has_lost:
+                continue
+            rounds.append({
+                "facing_id": ctrl.id,
+                "option_a": self.option_a,
+                "option_b": self.option_b,
+                "labels": self.labels,
+                "captured": [creature],
+            })
+        if not rounds:
+            return
+        context.engine.request_villainous_choice(
+            source=self.source, controller_id=controller.id, rounds=rounds,
         )
 
 
@@ -12409,6 +12604,62 @@ class TakeExtraTurnEffect(GameEffect):
         if player is not None:
             for _ in range(self.count):
                 context.take_extra_turn(player)
+
+
+class ControlPlayerEffect(GameEffect):
+    """MEC-51 (RULE 720): "You control target opponent during that player's
+    next turn." (Mindslaver, Emrakul the Promised End's cast trigger, Sorin
+    Markov's −7, Worst Fears) — and ``scope="combat"`` for "…during their
+    next combat phase." (Secret of Bloodbending).
+
+    Installs a `GameState.TurnControl` (``"waiting"``) naming the effect's
+    controller and the chosen player; `RulesEngine._advance_turn_controls`
+    then runs the `TURN_BEGIN` state machine. A fresh control over a player
+    who already has one replaces it (last effect wins — RULE 720.6-ish),
+    rather than stacking two.
+
+    ``target_kind`` — ``"opponent"`` (the usual "target opponent") or
+    ``"player"`` (Worst Fears' "target player"). A self-target does nothing.
+    """
+
+    def __init__(
+        self,
+        scope: str = "turn",
+        target_kind: str = "opponent",
+        grant_extra_turn_after: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.scope = scope if scope in ("turn", "combat") else "turn"
+        self.grant_extra_turn_after = bool(grant_extra_turn_after)
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..models.game_state import TurnControl
+
+        controller = _controller_of(self.source, context)
+        target = targets[0] if targets else None
+        if controller is None or target is None:
+            return
+        controlled_id = getattr(target, "id", None)
+        if controlled_id is None or controlled_id == controller.id:
+            return
+        state = context.state
+        state.turn_controls = [
+            tc for tc in state.turn_controls if tc.controlled_id != controlled_id
+        ]
+        tc = TurnControl(
+            controlled_id=controlled_id,
+            controller_id=controller.id,
+            install_turn=state.turn_number,
+            scope=self.scope,
+            source_name=getattr(getattr(self.source, "card", None), "name", "") or "",
+        )
+        tc.grant_extra_turn_after = self.grant_extra_turn_after
+        state.turn_controls.append(tc)
 
 
 class ExtraCombatPhaseEffect(GameEffect):
@@ -18260,6 +18511,18 @@ class DigUntilEffect(GameEffect):
     than baked in. The *spell*-derived predicates ("a different name than
     that spell", "shares a card type with it") live on
     `ScrambleSpellEffect` instead, which has the answered spell in hand.
+
+    ``digger`` / ``caster`` (MEC-52 — Ensnared by the Mara, villainous
+    option A: "**They** exile cards from the top of **their** library until
+    they exile a nonland card, then **you** may cast that card without
+    paying its mana cost") split the two players a villainous-option dig
+    involves: ``digger="facing"`` reads off the library of the facing
+    player this option was applied against (``targets[0]``) rather than the
+    effect's own controller, and ``caster="controller"`` routes the free-
+    cast window / free cast to the effect's controller (RULE 601.3e — a
+    player casting a card they don't own becomes its controller) rather
+    than the digger. Both default to the plain "your library, you cast it"
+    shape.
     """
 
     def __init__(
@@ -18268,6 +18531,8 @@ class DigUntilEffect(GameEffect):
         hit_destination: str = "hand",
         rest_destination: str = "exile",
         pre_exile: int = 0,
+        digger: str = "controller",
+        caster: str = "digger",
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -18275,17 +18540,27 @@ class DigUntilEffect(GameEffect):
         self.hit_destination = hit_destination
         self.rest_destination = rest_destination
         self.pre_exile = int(pre_exile)
+        self.digger = digger
+        self.caster = caster
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
-        if player is None:
+        if self.digger == "facing":
+            player = targets[0] if targets else None
+        else:
+            player = _controller_of(self.source, context)
+        if player is None or not hasattr(player, "library"):
             return
+        caster = (
+            _controller_of(self.source, context)
+            if self.caster == "controller" else None
+        )
         context.engine.dig_until(
             player,
             self.criteria,
             hit_destination=self.hit_destination,
             rest_destination=self.rest_destination,
             pre_exile=self.pre_exile,
+            caster=caster,
         )
 
 
@@ -19793,6 +20068,14 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # RULE 118.5/119.6: "<player>'s life total becomes N." — see `SetLifeEffect`.
+    "set_life",
+    lambda p: SetLifeEffect(
+        amount=int(p.get("amount", 0) or 0),
+        target_kind=p.get("target_kind", "player"),
+    ),
+)
+EffectRegistry.register(
     "prevent_damage_shield",
     # RULE 615 one-shot "prevent all/the next N damage that would be dealt
     # to you this turn" (Riot Control/Thought Lash) — NOT the standing-
@@ -20829,6 +21112,30 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # MEC-52 — Back from the Brink: "Exile a creature card from your
+    # graveyard and pay its mana cost: Create a token that's a copy of that
+    # card." The whole ability body, modeled as a resolution-time flow (a
+    # pick-then-price cost the activation flow has no primitive for). See
+    # `BackFromTheBrinkEffect`.
+    "back_from_the_brink",
+    lambda p: BackFromTheBrinkEffect(),
+)
+EffectRegistry.register(
+    # MEC-52 — the "and pay its mana cost" half of Back from the Brink:
+    # `request_pay_cost_then` priced off the just-exiled graveyard card.
+    # Never placed in an `AbilitySpec` directly — only chained by
+    # `BackFromTheBrinkEffect` as a `then_specs` entry.
+    "pay_cost_then_previous_mv",
+    lambda p: PayCostThenPreviousMvEffect(),
+)
+EffectRegistry.register(
+    # MEC-52 — Ensnared by the Mara, villainous option B: "that player
+    # exiles the top four cards of their library and ~ deals damage equal
+    # to the total mana value of those exiled cards to that player."
+    "exile_top_then_damage_by_mv",
+    lambda p: ExileTopThenDamageByMvEffect(count=int(p.get("count", 4) or 4)),
+)
+EffectRegistry.register(
     # MEC-19: "counter it/that spell[or ability] unless that player/its
     # controller pays <cost>" — the un-keyworded-Ward-shaped trigger
     # resolution (EventType.BECOMES_TARGET).
@@ -21089,6 +21396,8 @@ EffectRegistry.register(
         hit_destination=p.get("hit_destination", "hand"),
         rest_destination=p.get("rest_destination", "exile"),
         pre_exile=int(p.get("pre_exile", 0) or 0),
+        digger=str(p.get("digger", "controller")),
+        caster=str(p.get("caster", "digger")),
     ),
 )
 EffectRegistry.register(
@@ -21238,6 +21547,16 @@ EffectRegistry.register(
 EffectRegistry.register(
     "extra_combat_phase",
     lambda p: ExtraCombatPhaseEffect(main_phase_too=bool(p.get("main_phase_too", False))),
+)
+EffectRegistry.register(
+    # MEC-51 (RULE 720): "You control target opponent during that player's
+    # next turn / next combat phase." — see `ControlPlayerEffect`.
+    "control_player",
+    lambda p: ControlPlayerEffect(
+        scope=str(p.get("scope", "turn")),
+        target_kind=str(p.get("target_kind", "opponent")),
+        grant_extra_turn_after=bool(p.get("grant_extra_turn_after", False)),
+    ),
 )
 EffectRegistry.register(
     # "You may sacrifice/tap/return a <kind> you control." — the player

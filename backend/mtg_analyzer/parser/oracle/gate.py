@@ -2298,7 +2298,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: UNMODELED by `_SPECIALIZE_WITH_RIDER_RE` rather than greedily
 #: over-claimed. +6 (the bare-cost cards: Gale/Jaheira/Rasaad/Vhal/
 #: Viconia/Wilson).
-PARSER_VERSION = "223"
+#: v224 — MEC-51 (RULE 720) — "you control target opponent/player during
+#: that player's next turn / combat phase" (`catalogue/handlers.py`'s
+#: `_CONTROL_PLAYER_RE` → `EffectSpec("control_player", {"scope": …})`).
+#: `effects.ControlPlayerEffect` installs a `GameState.TurnControl`;
+#: `RulesEngine._advance_turn_controls` runs the `TURN_BEGIN` state machine
+#: and `services/game_session.py` routes the controlled seat's decisions,
+#: priority and turn-based actions to the controller for the window
+#: (`view.acting_as`, hand reveal per RULE 720.2). Cards hand-authored:
+#: Mindslaver / Worst Fears / Sorin Markov (−7) / Emrakul, the Promised
+#: End / Secret of Bloodbending (combat scope). RULE 720.x carve-outs are a
+#: documented simplification.
+PARSER_VERSION = "224"
 
 
 def parser_source_hash() -> str:

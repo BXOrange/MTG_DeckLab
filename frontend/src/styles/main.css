@@ -4664,6 +4664,23 @@ textarea {
   margin: 0 0 0.6rem;
 }
 
+/* MEC-51 / RULE 720 — "you control that player's turn/combat" banner. */
+.gf-turn-control {
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  font-style: normal;
+}
+.gf-turn-control-driving {
+  background: color-mix(in srgb, var(--accent, #6c8cff) 16%, transparent);
+  border: 1px solid var(--accent, #6c8cff);
+  color: var(--text, inherit);
+}
+.gf-turn-control-locked {
+  background: color-mix(in srgb, var(--warn, #d98b2b) 14%, transparent);
+  border: 1px solid var(--warn, #d98b2b);
+}
+
 /* Blocker declaration (RULE 509.1a) — the defending player's own panel. */
 .gf-block-panel {
   background: var(--panel);

@@ -1825,7 +1825,9 @@ class SearchMixin:
                 GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="graveyard")
             )
         return exiled
-    def grant_free_cast_window_from_exile(self, obj: GameObject) -> None:
+    def grant_free_cast_window_from_exile(
+        self, obj: GameObject, caster: Optional[Player] = None,
+    ) -> None:
         """Open ``obj``'s (already-exiled) "cast it without paying its mana
         cost" window for the rest of the turn — reuses
         `_grant_temp_play_permission`'s same-turn-only temp-cast permission
@@ -1835,14 +1837,22 @@ class SearchMixin:
         the spell gets its full targeting/modal choices rather than a
         stripped-down mid-resolution cast.
 
-        Two callers, both "you may cast this card from exile without paying
-        its mana cost": RULE 702.88b Rebound's delayed half
-        (`ReboundFreeCastWindowEffect`) and Beseech the Mirror's bargained
-        clause (`CastExiledFaceDownEffect`).
+        Callers, all "you may cast this card from exile without paying its
+        mana cost": RULE 702.88b Rebound's delayed half
+        (`ReboundFreeCastWindowEffect`), Beseech the Mirror's bargained
+        clause (`CastExiledFaceDownEffect`), and MEC-52's `dig_until`
+        ``cast_free_window``. ``caster``, when given, is a *different*
+        player than the card's owner (Ensnared by the Mara — "**you** may
+        cast that card" off an opponent's library): they become its
+        controller for the window (RULE 601.3e).
         """
-        controller = self.state.player_by_id(obj.controller_id)
+        controller = caster or self.state.player_by_id(obj.controller_id)
         if controller is None:
             return
+        if caster is not None:
+            # RULE 601.3e: casting a card you don't own makes you its
+            # controller while it's a spell / on the battlefield.
+            obj.controller_id = caster.id
         self._grant_temp_play_permission(
             obj, controller, obj.name, same_turn_only=True, mana_wildcard=None,
         )
@@ -2440,6 +2450,7 @@ class SearchMixin:
         hit_destination: str = "hand",
         rest_destination: str = "exile",
         pre_exile: int = 0,
+        caster: Optional[Player] = None,
     ) -> Optional[GameObject]:
         """Reveal cards from the top of ``player``'s library until one
         matches ``criteria``; put it at ``hit_destination`` and everything
@@ -2457,6 +2468,12 @@ class SearchMixin:
         ``pre_exile`` is Demonic Consultation's "exile the top six cards"
         prologue, which happens *before* the dig and is never part of it.
 
+        ``caster`` (MEC-52 — Ensnared by the Mara's "**you** may cast that
+        card") routes a ``cast_free``/``cast_free_window`` hit to a
+        *different* player than the one whose library was dug — the effect's
+        controller casting a card off an opponent's library. ``None`` keeps
+        the digger as the caster (every other caller).
+
         Returns the matching object, or ``None`` if the library ran out —
         which for Demonic Consultation means the library is now empty, the
         exact state Thassa's Oracle then wins on.
@@ -2465,7 +2482,7 @@ class SearchMixin:
             self.exile(player.library[-1])
         matched, revealed = self._exile_top_until(player, criteria, exclude_lands=False)
         if matched is not None and hit_destination != "exile":
-            self._place_dig_hit(player, matched, hit_destination)
+            self._place_dig_hit(player, matched, hit_destination, caster=caster)
         rest_ids = [o.instance_id for o in revealed if o is not matched]
         if rest_destination == "library_bottom_random":
             self._bottom_remaining(player, rest_ids)
@@ -2496,10 +2513,18 @@ class SearchMixin:
             player.remove_from_zone(obj, Zone.EXILE)
             obj.zone = Zone.GRAVEYARD
             player.graveyard.append(obj)
-    def _place_dig_hit(self, player: Player, obj: GameObject, destination: str) -> None:
-        """Move a `dig_until` hit out of exile to its destination."""
+    def _place_dig_hit(
+        self, player: Player, obj: GameObject, destination: str,
+        caster: Optional[Player] = None,
+    ) -> None:
+        """Move a `dig_until` hit out of exile to its destination.
+
+        ``caster`` (MEC-52) is who casts a ``cast_free``/``cast_free_window``
+        hit when that is a *different* player than ``player`` (the digger) —
+        Ensnared by the Mara's "**you** may cast that card" off an
+        opponent's library. ``None`` keeps the digger as the caster."""
         if destination == "cast_free":
-            self.cast_without_paying(player, obj)
+            self.cast_without_paying(caster or player, obj)
             return
         if destination == "cast_free_window":
             # "That player **may** cast that card without paying its mana
@@ -2509,10 +2534,10 @@ class SearchMixin:
             # action loop. The card stays in exile until cast, and the
             # delayed half below performs the printed "if they don't cast
             # it" fallback at the next end step.
-            self.grant_free_cast_window_from_exile(obj)
+            self.grant_free_cast_window_from_exile(obj, caster=caster)
             self.state.delayed_triggers.append(
                 DelayedTrigger(
-                    controller_id=player.id,
+                    controller_id=(caster or player).id,
                     step="end",
                     scope="any",
                     effects=[ReturnUncastExiledEffect(obj, destination="library_bottom")],

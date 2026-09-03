@@ -48,26 +48,15 @@ its block back into the matching section here.
 ## PAR — Parser
 
 - **PAR-12 · The indefinite long tail (methodology pointer, not a closeable
-  ticket).** Strategy, current coverage, and worked examples all live in
-  [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md) — not duplicated here. Two
-  tracks: **basic mechanics** (generic shapes, worked by raw cache-wide
-  yield) and **set-specific mechanics** (one expansion/precon's own
-  signature keyword, worked deck-first against a saved deck's actual
-  commander/product). As of 2026-08-28 the basic-mechanics track's easy
-  big wins are **exhausted**: a fresh cache-wide `rank` top-N verified
-  card-by-card with `parser_probe.py blocked` came back all-already-claimed
-  (see `PARSER_LONG_TAIL.md`'s "verify before sizing … at scale" lesson —
-  PAR-20, now closed, was the dated finding; its one concrete follow-up,
-  the RULE 604.3 CDA-P/T handler, shipped at PARSER_VERSION 105). So the
-  **deck-first set-specific track is the primary one now** — audit a real
-  saved deck's card list rather than re-mining `rank`. Planechase
-  (901)/Archenemy (904) plane/scheme card *bodies* (13/309 measured
-  2026-08-04) are ordinary long-tail work with a known card list under
-  this same pointer, not a distinct ticket — their trigger conditions are
-  already recognized, only the bodies are exotic even by tail standards.
-  (Reaching a Planechase/Archenemy/Vanguard table at all is wired up end
-  to end already — see Done_Backend.md "PLR-13"; Vanguard's own avatar
-  picker/text is a permanent non-goal, see [DEFERRED.md](DEFERRED.md).)
+  ticket).** Strategy, coverage, and worked examples live in
+  [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Two tracks: **basic
+  mechanics** (generic shapes, cache-wide yield) — easy big wins
+  **exhausted** as of 2026-08-28 — and **set-specific mechanics**
+  (a set/precon's signature keyword, worked deck-first against a saved
+  deck), now the primary track: audit a real deck's card list, don't
+  re-mine `rank`. Planechase/Archenemy plane/scheme card *bodies* fold in
+  here too (triggers already recognized, ~13/309 bodies done) — not a
+  separate ticket.
 
   > **Ticket-id note:** every number from `PAR-1` through `PAR-30` is
   > already a real, shipped, cross-referenced ticket elsewhere in this
@@ -75,7 +64,7 @@ its block back into the matching section here.
   > once-per-turn trigger limiter, `Done_Backend.md`, nothing to do with
   > keywords; `PAR-30` was `PAR-29`'s parser trail, closed PARSER_VERSION
   > 216 — all 24 RULE 701 keyword actions have recognition + an engine
-  > primitive, and its last residue moved to `MEC-52`). The first free
+  > primitive, and its last residue moved to `MEC-52`, closed). The first free
   > parser ticket id is `PAR-54` (`PAR-31…PAR-53` are the Commander-legal
   > tail clusters below).
 
@@ -217,79 +206,16 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-- **MEC-51 · Control another player's turn (or a part of it — e.g. a
-  combat phase).** "You control target opponent during their next turn."
-  (Mindslaver, Sorin Markov's `−7`, Emrakul, the Promised End, Worst
-  Fears) / "…during their next combat phase." (Secret of Bloodbending) /
-  "…play with your hand revealed and you control that player's choices
-  this turn." (Word of Command-adjacent). The engine has no "one player
-  makes another player's decisions for a bounded window" machinery — this
-  is a real spread of touch-points, not one hook:
-  - a `GameState` mapping `{controlled_player_id → (controller_id,
-    scope, armed_turn)}` with `scope ∈ {"turn", "combat"}` and a small
-    state machine (`TemporaryPlayerTrigger`-style: `waiting` → `active` at
-    the controlled player's next matching window → expire), so it
-    survives `GameState.clone` as plain data;
-  - **priority / actions**: `GameSession.apply_action(action, actor_id=…)`
-    and `GameEngine.legal_actions(perspective=…)` must let the controller
-    act *as* the controlled seat while active — the multiplayer actor
-    validation in `_dispatch` already keys on a per-seat id, so this is a
-    redirect there, not a new path;
-  - **interactive choices**: a `pending_choice` raised for the controlled
-    player must be re-addressed to the controller (its `player_id`),
-    including nested sub-choices (search, mode, target) — the single
-    largest sub-task;
-  - **turn-based actions**: declare-attackers / declare-blockers /
-    discard-to-hand-size / mulligan-adjacent are taken by the controller;
-  - **the fenced-off bits** (RULE 720.1): the controlled player still
-    can't be made to concede, and effects that would end the game or
-    reveal/keep their hidden info follow 720.x — a documented-simplification
-    boundary is acceptable for a first cut (model the decision routing,
-    note the 720.x edge cases as unmodeled).
-  Closes **Secret of Bloodbending** (the last Waterbend-residue card,
-  everything else shipped — see `Done_Backend.md`), and unblocks the
-  Mindslaver family cache-wide. One batch: the state + machine + the
-  routing hooks + a hand-authored `EffectSpec("control_player", {"scope":
-  …})` (bespoke enough per card that the parser handler can come later).
-
-- **MEC-52 · Reanimator-token & villainous-choice residue — engine
-  primitives.** The tail of PAR-29's keyword trail (PAR-30, closed
-  PARSER_VERSION 216). The *parser* side of each is one small handler once
-  the primitive below exists — this is engine work, not oracle grammar.
-  Shipped so far: the graveyard-exile-copy piece at v216 (Anikthea, Hour of
-  Eternity, Midnight Ritual); **Sauron, the Necromancer** at v217 (a
-  RULE 603.4 `DelayedTrigger.condition` "…unless ~ is your Ring-bearer" +
-  the "tapped and attacking" / "with `<keyword>`" copy-tail widenings);
-  **Davros, Dalek Creator** at v218 (`GameState.life_lost_this_turn`, a
-  `ConditionalEffect` `opponent_lost_life_this_turn_at_least` key +
-  `FaceVillainousChoiceEffect.subject_min_life_lost`); **The Master,
-  Gallifrey's End** (hand-authored, no bump — `FaceVillainousChoiceEffect`
-  `subject="opponent_with_most_life"` + `capture_previous` so a villainous
-  option's "copy of that card" resolves after the choice is answered). See
-  `Done_Backend.md` "Reanimator-token residue". What's left:
-  - **Back from the Brink** — an activated ability whose cost is "exile a
-    creature card from your graveyard **and pay its mana cost**": a
-    *variable* cost priced off a chosen object (the exiled card's own mana
-    cost, unknown until the graveyard pick). `game/costs.py` + the
-    activation flow have no "pick-then-price" cost. "Activate only as a
-    sorcery" already parses.
-  - **Hunted by The Family** — per-target villainous: "choose up to four
-    target creatures you don't control. For each of them, **that creature's
-    controller** faces a villainous choice — …". Needs
-    `FaceVillainousChoiceEffect` `subject="previous_target_controller"`
-    iterated once per chosen target, and option bodies that act on the
-    *creature*: "becomes a 1/1 white Human creature and loses all
-    abilities" (`base_pt` + `remove_all_abilities` + colour/subtype set,
-    permanent not EOT) / "you create a token that's a copy of it" —
-    `handlers._villainous_option_specs` currently rejects any spec whose
-    `target_kind` isn't `None`/`"player"`.
-  - **Ensnared by the Mara** — villainous option bodies: "exile cards from
-    the top of their library until they exile a nonland card, then you may
-    cast that card without paying its mana cost" (`dig_until` exists —
-    make it villainous-option-legal) and "…exiles the top four cards of
-    their library and ~ **deals damage equal to the total mana value of
-    those exiled cards** to that player" — needs a "damage = summed MV of
-    the cards exiled this way" amount source.
+- **MEC-51b · Word of Command.** The turn/combat-window form shipped in
+  MEC-51 (`control_player`, `GameState.TurnControl`, the `game_session.py`
+  decision/priority routing — see `Done_Backend.md`). What's left is Word
+  of Command's own narrower shape: "Target opponent reveals their hand.
+  You choose a card from it and that player plays it if able, …" — a
+  *single-card*, hand-revealed, "you make one specific decision for them"
+  effect rather than a whole turn. Reuses the `decider_for` routing and
+  the hand-reveal, but needs "you cast/play *this* chosen card from
+  another player's hand, paying its costs from their resources" — no
+  primitive for that yet. One card; low priority.
 
 ## PLR — Player management
 

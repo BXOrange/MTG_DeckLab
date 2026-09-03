@@ -228,6 +228,7 @@ class TriggerCollectionMixin:
         self._collect_rad_counter_damage_triggers(event)
         self._collect_attacks_you_rad_counter_triggers(event)
         self._collect_temporary_player_triggers(event)
+        self._advance_turn_controls(event)
         self._collect_counter_death_return_triggers(event)
         self._collect_undying_persist_triggers(event)
         self._collect_mill_return_from_graveyard_triggers(event)
@@ -723,6 +724,56 @@ class TriggerCollectionMixin:
                 self.pending_triggers.append((ability, event))
             remaining.append(trig)
         self.state.temporary_player_triggers = remaining
+    def _advance_turn_controls(self, event: GameEvent) -> None:
+        """MEC-51 (RULE 720): run the `TURN_BEGIN` state machine for
+        `GameState.turn_controls` — the twin of
+        `_collect_temporary_player_triggers`' own phase machine.
+
+        * ``"waiting"`` → ``"active"`` when the controlled player's own next
+          turn begins (strictly *after* the turn the control was installed
+          on — RULE 720.6: a control taken during that player's turn waits
+          for their following one).
+        * ``"active"`` entry dropped at the next `TURN_BEGIN` after
+          ``active_since_turn`` — "the end of that player's turn".
+        """
+        controls = self.state.turn_controls
+        if not controls:
+            return
+        if event.type == EventType.TURN_END:
+            # Emrakul, the Promised End: "After that turn, that player takes
+            # an extra turn." Queue it as the controlled turn *ends*, so it
+            # is taken at the very next `begin_turn` (RULE 500.7) — right
+            # after the controlled turn, before the normal rotation.
+            ended_id = event.get("player_id")
+            for tc in controls:
+                if (
+                    tc.phase == "active"
+                    and tc.controlled_id == ended_id
+                    and getattr(tc, "grant_extra_turn_after", False)
+                    and tc.controlled_id not in self.state.extra_turns
+                ):
+                    self.state.extra_turns.append(tc.controlled_id)
+            return
+        if event.type != EventType.TURN_BEGIN:
+            return
+        turn = int(event.get("turn", 0))
+        begun_id = event.get("player_id")
+        remaining: list = []
+        for tc in controls:
+            if tc.phase == "waiting":
+                if begun_id == tc.controlled_id and turn > tc.install_turn:
+                    tc.phase = "active"
+                    tc.active_since_turn = turn
+                remaining.append(tc)
+                continue
+            # phase == "active": expire once a later turn than the one it
+            # became active on has begun.
+            if tc.active_since_turn is not None and turn > tc.active_since_turn:
+                continue
+            remaining.append(tc)
+        if len(remaining) != len(controls):
+            self.state.turn_controls = remaining
+
     def _collect_counter_death_return_triggers(self, event: GameEvent) -> None:
         """"Whenever a creature you control with a counter of
         ``counter_kind`` on it dies, return that card to the battlefield

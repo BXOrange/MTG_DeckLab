@@ -227,6 +227,7 @@ class MiscSystemsMixin:
         targets: Optional[list[Any]] = None,
         then_trigger_specs: Optional[list[dict]] = None,
         then_trigger_event: Optional[GameEvent] = None,
+        captured_previous: Optional[list[Any]] = None,
     ) -> None:
         """Open the interactive "you may pay ``cost``. If you do, `<effect>`."
         choice (RULE 118.3-style optional payment mid-resolution).
@@ -258,6 +259,13 @@ class MiscSystemsMixin:
         ordinary placement path gathers targets and it goes on the stack.
         ``then_trigger_event`` is the *outer* trigger's event, carried so a
         payoff that names it ("that player") can read it back.
+
+        ``captured_previous`` (MEC-52 — Back from the Brink) bakes in the
+        RULE 608.2 referent (`GameContext.previous_targets`, the graveyard
+        card whose mana cost this ``cost`` was priced off) so the paid
+        branch's `copy_permanent` ``referent="previous"`` still resolves
+        against it once the choice is *answered* — same re-seed idiom
+        `resolve_villainous_choice` uses.
         """
         specs = [dict(d) for d in effect_specs]
         else_specs = [dict(d) for d in (else_effect_specs or [])]
@@ -274,6 +282,7 @@ class MiscSystemsMixin:
             "targets": list(targets or []),
             "then_trigger_specs": then_trigger,
             "then_trigger_event": then_trigger_event,
+            "captured_previous": list(captured_previous) if captured_previous else None,
         }
         cost_label = cost.label()
         self.state.pending_choice = {
@@ -304,7 +313,19 @@ class MiscSystemsMixin:
             self._apply_effect_specs(pending["else_effect_specs"], pending["source"], targets)
         else:
             self._pay_player_cost(player, pending["cost"])
-            self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
+            captured = pending.get("captured_previous")
+            if captured:
+                # MEC-52: re-seed the RULE 608.2 "that card" referent for a
+                # `copy_permanent` ``referent="previous"`` in the paid
+                # branch (the resolution that opened this choice is gone).
+                saved = list(self.context.previous_targets)
+                self.context.previous_targets = list(captured)
+                try:
+                    self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
+                finally:
+                    self.context.previous_targets = saved
+            else:
+                self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
             self._enqueue_pay_cost_then_trigger(pending)
         # PAR-13: if this single-player choice is one leg of a mass
         # `request_each_player_pay_or` sweep, move on to whoever's next —
@@ -975,11 +996,12 @@ class MiscSystemsMixin:
         self,
         source: Optional[GameObject],
         controller_id: str,
-        facing_ids: list[str],
-        option_a: list[dict[str, Any]],
-        option_b: list[dict[str, Any]],
+        facing_ids: Optional[list[str]] = None,
+        option_a: Optional[list[dict[str, Any]]] = None,
+        option_b: Optional[list[dict[str, Any]]] = None,
         labels: Optional[tuple[str, str]] = None,
         captured_previous: Optional[list[Any]] = None,
+        rounds: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         """RULE 701.55: "`<player>` faces a villainous choice — `<A>`, or
         `<B>`." Each facing player in ``facing_ids`` (already resolved and
@@ -997,19 +1019,48 @@ class MiscSystemsMixin:
         choose the other" is a **documented simplification** — both options
         are always offered; an impossible pick simply does as little as
         RULE 608.2b allows.
+
+        ``rounds`` (MEC-52 — Hunted by The Family: "For each of them, that
+        creature's controller faces a villainous choice — …") is the
+        per-firing sibling of the flat ``facing_ids`` sweep: an explicit
+        list of ``{"facing_id", "option_a", "option_b", "labels",
+        "captured"}`` dicts, one queued choice each, so *different* option
+        bodies / RULE 608.2 referents can face *different* players in one
+        resolution (each chosen creature's own controller decides about
+        that creature). The flat form builds a one-round-per-id queue
+        sharing ``option_a``/``option_b``/``labels``/``captured_previous``.
         """
+        default_labels = tuple(labels) if labels else ("Option A", "Option B")
+        if rounds is None:
+            shared_captured = list(captured_previous) if captured_previous else None
+            rounds = [
+                {
+                    "facing_id": fid,
+                    "option_a": [dict(d) for d in (option_a or [])],
+                    "option_b": [dict(d) for d in (option_b or [])],
+                    "labels": default_labels,
+                    "captured": list(shared_captured) if shared_captured else None,
+                }
+                for fid in (facing_ids or [])
+            ]
+        else:
+            rounds = [
+                {
+                    "facing_id": rnd["facing_id"],
+                    "option_a": [dict(d) for d in rnd.get("option_a", [])],
+                    "option_b": [dict(d) for d in rnd.get("option_b", [])],
+                    "labels": tuple(rnd.get("labels") or default_labels),
+                    "captured": list(rnd["captured"]) if rnd.get("captured") else None,
+                }
+                for rnd in rounds
+            ]
         self._pending_villainous = {
-            "remaining_ids": list(facing_ids),
-            "option_a": [dict(d) for d in option_a],
-            "option_b": [dict(d) for d in option_b],
-            "labels": labels or ("Option A", "Option B"),
+            #: FIFO queue of still-unasked choices; each is popped into
+            #: ``current`` when its prompt opens (`_advance_villainous_choice`).
+            "rounds": rounds,
+            "current": None,
             "source": source,
             "controller_id": controller_id,
-            #: RULE 608.2 referent baked in at request time (The Master,
-            #: Gallifrey's End — the just-exiled card an option's "copy of
-            #: that card" names). Re-seeded onto `self.context.previous_
-            #: targets` around each option's `_apply_effect_specs`.
-            "captured_previous": list(captured_previous) if captured_previous else None,
         }
         self._advance_villainous_choice()
     def _advance_villainous_choice(self) -> None:
@@ -1018,16 +1069,17 @@ class MiscSystemsMixin:
         pending = self._pending_villainous
         if pending is None:
             return
-        remaining: list[str] = pending["remaining_ids"]
-        la, lb = pending["labels"]
-        while remaining:
-            player_id = remaining.pop(0)
+        queue: list[dict[str, Any]] = pending["rounds"]
+        while queue:
+            rnd = queue.pop(0)
             try:
-                player = self.state.player_by_id(player_id)
+                player = self.state.player_by_id(rnd["facing_id"])
             except (KeyError, ValueError):
                 continue
             if player.has_lost:
                 continue
+            pending["current"] = rnd
+            la, lb = rnd["labels"]
             self.state.pending_choice = {
                 "kind": "villainous_choice",
                 "player_id": player.id,
@@ -1050,13 +1102,16 @@ class MiscSystemsMixin:
         pending = self._pending_villainous
         if pending is None:
             return
+        rnd = pending.get("current")
+        if rnd is None:
+            return
         try:
             facing = self.state.player_by_id(choice["player_id"])
         except (KeyError, ValueError):
             facing = None
-        specs = pending["option_b"] if str(answer) == "1" else pending["option_a"]
+        specs = rnd["option_b"] if str(answer) == "1" else rnd["option_a"]
         if facing is not None:
-            captured = pending.get("captured_previous")
+            captured = rnd.get("captured")
             if captured:
                 # Re-seed the RULE 608.2 referent for this option's own
                 # `copy_permanent` ``referent="previous"`` / pronoun specs
@@ -3280,6 +3335,11 @@ class MiscSystemsMixin:
                 self.prevent_damage_from_source(obj, "all")
         elif action == "exile":
             self.exile(obj)
+            # RULE 608.2's "it"/"that card" referent for a following clause
+            # (MEC-52 — Back from the Brink prices "pay its mana cost" off
+            # the just-exiled graveyard card), the same seeding
+            # `ExileEffect`'s own trigger-subject branch does.
+            self.context.previous_targets = [obj]
             if remember and source is not None:
                 # MEC-17: Imprint's own "remember the exiled card" —
                 # `linked_exile_id`'s "keep pointing at the exiled card

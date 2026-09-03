@@ -285,6 +285,82 @@ class TemporaryPlayerTrigger:
         }
 
 
+class TurnControl:
+    """MEC-51 (RULE 720): one player controls another player's **turn** — or
+    just their **combat phase** — for a bounded window. "You control target
+    opponent during that player's next turn." (Mindslaver, Emrakul the
+    Promised End, Sorin Markov's −7, Worst Fears) / "…during their next
+    combat phase." (Secret of Bloodbending).
+
+    A small `TURN_BEGIN`-driven state machine, exactly like
+    `TemporaryPlayerTrigger`:
+
+    * ``"waiting"`` — installed; ``controlled_id``'s next turn hasn't begun
+      yet (a control installed *during* the controlled player's own turn
+      does not take effect until their *following* turn — RULE 720.6).
+    * ``"active"`` — inside that turn. `RulesEngine._advance_turn_controls`
+      flips it here at that turn's `TURN_BEGIN`. While active,
+      `GameState.decider_for` / `driving_seat_for` route the controlled
+      seat's decisions, priority and turn-based actions to
+      ``controller_id`` (`scope == "combat"` additionally gates on the
+      combat phase being current).
+    * Removed at the next `TURN_BEGIN` after ``active_since_turn`` — that
+      next turn beginning is what "the end of [their] turn" means here,
+      the same operational definition `TemporaryPlayerTrigger` uses.
+
+    RULE 720.x carve-outs are a **documented simplification** for this first
+    cut: the controlled player still concedes for themselves (720.1), and
+    "look at cards you couldn't otherwise see" (720.2) is modelled only as
+    the controller seeing the controlled hand for the window
+    (`services/game_session.py`), not the finer 720.3-720.7 edges. Plain
+    data — deep-copies with `GameState.clone`.
+    """
+
+    def __init__(
+        self,
+        controlled_id: str,
+        controller_id: str,
+        install_turn: int,
+        scope: str = "turn",
+        source_name: str = "",
+    ) -> None:
+        self.controlled_id = controlled_id
+        self.controller_id = controller_id
+        self.install_turn = install_turn
+        #: ``"turn"`` — the whole turn. ``"combat"`` — only while the
+        #: controlled player's combat phase is the current phase.
+        self.scope = scope if scope in ("turn", "combat") else "turn"
+        self.source_name = source_name
+        #: Emrakul, the Promised End: "After that turn, that player takes an
+        #: extra turn." — `RulesEngine._advance_turn_controls` queues it onto
+        #: `GameState.extra_turns` at the controlled turn's `TURN_END`.
+        self.grant_extra_turn_after = False
+        self.phase = "waiting"
+        self.active_since_turn: Optional[int] = None
+
+    def is_active(self, current_phase: Optional[str] = None) -> bool:
+        if self.phase != "active":
+            return False
+        if self.scope == "combat":
+            return current_phase == "combat"
+        return True
+
+    def __repr__(self) -> str:
+        return (
+            f"TurnControl({self.controller_id} over {self.controlled_id}, "
+            f"scope={self.scope!r}, phase={self.phase!r})"
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "controlled_id": self.controlled_id,
+            "controller_id": self.controller_id,
+            "scope": self.scope,
+            "phase": self.phase,
+            "source_name": self.source_name,
+        }
+
+
 class GameState:
     """The full state of one game and a light event bus over it."""
 
@@ -555,6 +631,14 @@ class GameState:
         #: prunes expired entries. Plain board state — deep-copies with
         #: `clone`.
         self.temporary_player_triggers: list["TemporaryPlayerTrigger"] = []
+
+        #: MEC-51 (RULE 720): active + waiting "you control that player's
+        #: next turn/combat" windows. `RulesEngine._advance_turn_controls`
+        #: runs the `TURN_BEGIN` state machine; `decider_for` /
+        #: `driving_seat_for` below route a controlled seat's decisions to
+        #: the controller while a window is `is_active`. Plain data —
+        #: deep-copies with `clone`.
+        self.turn_controls: list["TurnControl"] = []
 
         #: RULE 611 continuous effects created by a resolving spell/ability
         #: rather than by a permanent's printed static ability — "Until your
@@ -991,6 +1075,40 @@ class GameState:
     def non_active_players(self) -> list[Player]:
         return [p for i, p in enumerate(self.players) if i != self.active_player_index]
 
+    # --- MEC-51: turn control (RULE 720) ------------------------------------
+
+    def active_turn_control_for(self, player_id: str) -> Optional["TurnControl"]:
+        """The `TurnControl` currently steering ``player_id``'s decisions —
+        an ``"active"`` window whose ``scope`` matches the current phase — or
+        ``None``. If two are somehow active (a second effect layered on),
+        the most recently installed wins (RULE 720.6-adjacent last-one)."""
+        live = {p.id for p in self.players if not p.has_lost}
+        matches = [
+            tc for tc in self.turn_controls
+            if tc.controlled_id == player_id
+            and tc.controller_id in live
+            and tc.is_active(self.current_phase)
+        ]
+        return max(matches, key=lambda tc: tc.install_turn, default=None)
+
+    def decider_for(self, player_id: str) -> str:
+        """Who actually makes ``player_id``'s decisions right now — the
+        controller of an active `TurnControl` over them, else themselves.
+        The one routing chokepoint every caller (`game_session` dispatch /
+        view / choice redaction, `RulesEngine` turn-based actions) goes
+        through."""
+        tc = self.active_turn_control_for(player_id)
+        return tc.controller_id if tc is not None else player_id
+
+    def driving_seat_for(self, actor_id: str) -> Optional[str]:
+        """The controlled seat ``actor_id`` is currently entitled to drive
+        (the inverse of `decider_for`), or ``None`` — used to let a
+        controller's action arrive *as* the controlled player."""
+        for tc in self.turn_controls:
+            if tc.controller_id == actor_id and tc.is_active(self.current_phase):
+                return tc.controlled_id
+        return None
+
     def sync_round_number(self) -> None:
         """Re-derive `round_number` from `turn_number` for a board set outright.
 
@@ -1255,6 +1373,9 @@ class GameState:
             ),
             "planar_deck_count": len(self.planar_deck),
             "pending_choice": self.pending_choice,
+            # MEC-51 (RULE 720): active/waiting "you control that player's
+            # turn/combat" windows, for the board's control banner.
+            "turn_controls": [tc.to_dict() for tc in self.turn_controls],
             "temp_play_permissions": dict(self.temp_play_permissions),
             "temp_play_permission_source": dict(self.temp_play_permission_source),
             "temp_play_permission_player": dict(self.temp_play_permission_player),

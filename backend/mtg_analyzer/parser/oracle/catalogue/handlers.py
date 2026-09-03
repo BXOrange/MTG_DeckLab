@@ -6787,6 +6787,30 @@ def _populate_x_times(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("populate", {"count": "x"})]
 
 
+# "You control target opponent during that player's next turn." (RULE 720,
+# MEC-51) — Mindslaver / Worst Fears / Sorin Markov's −7 / Emrakul the
+# Promised End's cast trigger; "…during their next combat phase." (Secret
+# of Bloodbending) is the ``scope="combat"`` form. `effects.
+# ControlPlayerEffect` installs a `GameState.TurnControl` and `services/
+# game_session.py` routes the controlled seat's decisions/priority to the
+# controller for the window. "you gain control of" is an equivalent
+# wording. Riders the segmenter splits off stay UNMODELED, fail-closed
+# (Emrakul's own "after that turn, that player takes an extra turn" tail is
+# hand-authored on the card, not reached here).
+_CONTROL_PLAYER_RE = _c(
+    r"you (?:gain )?control(?: of)? target (?P<who>opponent|player) during "
+    r"(?:that player's|their) next (?P<scope>turn|combat phase)"
+)
+
+
+def _control_player(m: re.Match[str]) -> list[EffectSpec]:
+    scope = "combat" if m.group("scope") == "combat phase" else "turn"
+    return [EffectSpec("control_player", {
+        "scope": scope,
+        "target_kind": "opponent" if m.group("who") == "opponent" else "player",
+    })]
+
+
 # "Take an extra turn after this one." (RULE 500.7, PAR-30) — the plain
 # Time Walk / Temporal Manipulation / Capture of Jingzhou body, and the
 # modelable half of Plea for Power's vote outcome. `effects.TakeExtraTurn
@@ -10900,6 +10924,9 @@ HANDLERS: list[EffectHandler] = [
         _TAKE_EXTRA_TURN_RE,
         _take_extra_turn,
     ),
+    # "you control target opponent/player during that player's next
+    # turn / combat phase" (RULE 720, MEC-51).
+    EffectHandler("control_player", _CONTROL_PLAYER_RE, _control_player),
     # "starting with you, each player votes for A or B. if A gets more
     # votes, X. if B gets more votes or the vote is tied, Y." (RULE 701.38,
     # PAR-29) — the 2-option majority form. Tried before the per-vote form

@@ -282,13 +282,16 @@ class RulesEngine(
         self._pending_object_vote: Optional[dict[str, Any]] = None
         #: Backing state for a `request_villainous_choice` APNAP sweep (RULE
         #: 701.55 — "`<player>` faces a villainous choice — `<A>`, or
-        #: `<B>`."): the still-to-ask facing-player ids and the two
-        #: serialized option effect-lists. Each facing player picks and
-        #: applies their *own* choice (unlike `_pending_vote`, which tallies
-        #: everyone's and applies one aggregate outcome). Chained one
-        #: `villainous_choice` choice at a time. See
-        #: `request_villainous_choice`/`_advance_villainous_choice`/
-        #: `resolve_villainous_choice`.
+        #: `<B>`."): a FIFO ``rounds`` queue of ``{facing_id, option_a,
+        #: option_b, labels, captured}`` dicts plus the ``current`` one
+        #: being asked. Each facing player picks and applies their *own*
+        #: choice (unlike `_pending_vote`, which tallies everyone's and
+        #: applies one aggregate outcome). A flat "each opponent" sweep
+        #: builds one round per id sharing the option bodies; MEC-52's
+        #: per-target form (Hunted by The Family) queues distinct bodies /
+        #: RULE 608.2 referents per round. Chained one `villainous_choice`
+        #: choice at a time. See `request_villainous_choice`/
+        #: `_advance_villainous_choice`/`resolve_villainous_choice`.
         self._pending_villainous: Optional[dict[str, Any]] = None
         #: Backing state for a `name_card` `pending_choice` (Demonic
         #: Consultation's "choose a card name") — the follow-up effects the
