@@ -18,6 +18,7 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+import random
 import re
 from typing import Any, Callable, Optional, Union
 
@@ -443,6 +444,40 @@ class DrawDiscardMixin:
                     # battlefield object; a hand card obviously isn't one),
                     # so a "permanent card" RULE 603.1 group condition can
                     # tell an instant/sorcery discard apart from the rest.
+                    object_types=_main_type_words(obj.card),
+                )
+            )
+        if discarded:
+            self.state.fire_event(
+                GameEvent(EventType.DISCARD, player_id=player.id, count=discarded)
+            )
+
+    def discard_random(self, player: Player, count: int = 1) -> None:
+        """"…discards a card at random." (RULE 701.8d — Black Cat / Bottomless
+        Pit / Hypnotic Specter family). Non-interactive like `discard`, but
+        the card is chosen uniformly at random from ``player``'s hand rather
+        than auto-picking the last one (which, for a random discard, would
+        be a real rules difference — a chosen random card can be a bomb the
+        player would never have pitched). Fires the same per-card
+        `DISCARD_CARD` + aggregate `DISCARD` events and honours Madness
+        (RULE 702.35a) exactly as `discard` does.
+        """
+        discarded = 0
+        for _ in range(count):
+            if not player.hand:
+                break
+            obj = random.choice(player.hand)
+            player.hand.remove(obj)
+            madness = self._maybe_madness(player, obj)  # RULE 702.35a
+            if not madness:
+                obj.zone = Zone.GRAVEYARD
+                player.graveyard.append(obj)
+                self._flag_commander_zone_choice(obj)  # RULE 903.9a
+            discarded += 1
+            self._note_discarded(player.id)
+            self.state.fire_event(
+                GameEvent(
+                    EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
                     object_types=_main_type_words(obj.card),
                 )
             )

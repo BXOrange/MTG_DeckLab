@@ -2389,7 +2389,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: ordinary connector split — no "drain" effect type needed. +34 (A-Blood
 #: Artist / Zulaport Chainmage / Bump in the Night / Geralf's Messenger /
 #: Vein Ripper / Skymarch Bloodletter / …).
-PARSER_VERSION = "232"
+#: v233 — PAR-36 — "…discards a card at random." (RULE 701.8d). New
+#: `RulesEngine.discard_random` (uniform pick from hand, no chooser — the
+#: random sibling of `discard`/`discard_choice`); `DiscardEffect` gains a
+#: `random` param routing every player-resolution branch to it; the
+#: `discard` / `that_player_discards` handlers gain an optional "at random"
+#: tail. +23 (Hymn to Tourach / Hypnotic Specter / Black Cat / Stupor /
+#: Burning Inquiry / Goblin Lore / Bottomless Pit / Gwendlyn Di Corci / …).
+PARSER_VERSION = "233"
 
 
 def parser_source_hash() -> str:

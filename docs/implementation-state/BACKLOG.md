@@ -101,11 +101,12 @@ its block back into the matching section here.
     (~#14+9+9).
   - **PAR-36** — trigger-condition vocabulary. Done: `whenever ~ deals
     damage, you gain that much life` (`gain_life_from_trigger_amount` +
-    `GainLifeEffect.amount_from_trigger_event`, PARSER_VERSION 231, +17).
-    Left: `whenever you draw your second card each turn` (~#12 — shares
-    with PAR-48), `whenever ~ deals combat damage to a player, that player
-    discards a card` (~#9 — Cabal Slaver / Dreamstealer / Needle Specter;
-    a discard body reading the DAMAGE amount for the "that many" forms),
+    `GainLifeEffect.amount_from_trigger_event`, PARSER_VERSION 231, +17);
+    `…discards a card at random` (`RulesEngine.discard_random` +
+    `DiscardEffect.random`, PARSER_VERSION 233, +23). Left: `whenever you
+    draw your second card each turn` (~#12 — shares with PAR-48),
+    `…discards **that many** cards` reading the DAMAGE amount (Dreamstealer
+    / Needle Specter — a `DiscardEffect.count_from_trigger_event`),
     `whenever you cast a spell that targets ~` (~#8).
   - **PAR-37** — modal `choose <n>. if you control a commander … choose
     both instead` + `choose <n>. you may choose the same mode more than

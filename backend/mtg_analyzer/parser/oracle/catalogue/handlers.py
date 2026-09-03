@@ -1475,6 +1475,8 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
         params["scope"] = "each_player"
     elif who == "each opponent":
         params["scope"] = "each_opponent"
+    if m.groupdict().get("at_random"):
+        params["random"] = True
     return [EffectSpec("discard", params)]
 
 
@@ -7025,15 +7027,16 @@ def _mill_prev_spell_controller(m: re.Match[str]) -> list[EffectSpec]:
 #: (`DiscardEffect.previous_subject`, reads `GameContext.previous_targets[0]`,
 #: a `Player`).
 _THAT_PLAYER_DISCARDS_RE = _c(
-    r"that player discards (?P<n>a|\d+) cards?"
+    r"that player discards (?P<n>a|\d+) cards?(?P<at_random> at random)?"
 )
 
 
 def _that_player_discards(m: re.Match[str]) -> list[EffectSpec]:
     n = m.group("n")
-    return [EffectSpec("discard", {
-        "count": 1 if n == "a" else int(n), "previous_subject": True,
-    })]
+    params: dict = {"count": 1 if n == "a" else int(n), "previous_subject": True}
+    if m.groupdict().get("at_random"):
+        params["random"] = True
+    return [EffectSpec("discard", params)]
 
 
 #: "If you win, **gain control of enchanted creature**. Otherwise, **that
@@ -9071,12 +9074,15 @@ HANDLERS: list[EffectHandler] = [
         _MANA_VALUE_XX_TOKEN_RE,
         _mana_value_xx_token,
     ),
-    # "you discard a card" / "discard 2 cards" / "target player discards a card"
+    # "you discard a card" / "discard 2 cards" / "target player discards a
+    # card" / "…discards a card at random" (RULE 701.8d — Black Cat /
+    # Hypnotic Specter / Bottomless Pit's "that player" via the
+    # `that_player_discards` row).
     EffectHandler(
         "discard",
         _c(
             r"(?P<who>you|target player|target opponent|each player|each opponent)?\s*"
-            rf"discards? {COUNT} cards?"
+            rf"discards? {COUNT} cards?(?P<at_random> at random)?"
         ),
         _discard,
     ),

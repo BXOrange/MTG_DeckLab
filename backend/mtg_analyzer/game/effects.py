@@ -192,6 +192,9 @@ class GameContext:
     def discard(self, player: "Player", count: int = 1) -> None:
         self.engine.discard(player, count)
 
+    def discard_random(self, player: "Player", count: int = 1) -> None:
+        self.engine.discard_random(player, count)
+
     def discard_choice(
         self,
         player: "Player",
@@ -3880,12 +3883,19 @@ class DiscardEffect(GameEffect):
         player_from_trigger_event: bool = False,
         draw_per_discard: bool = False,
         previous_subject: bool = False,
+        random: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.scope = scope
+        #: "…discards a card **at random**." (RULE 701.8d — Black Cat /
+        #: Bottomless Pit / Hypnotic Specter). Routes to
+        #: `RulesEngine.discard_random` (uniform pick, no chooser) instead
+        #: of the interactive `discard_choice`, in every player-resolution
+        #: branch below.
+        self.random = bool(random)
         #: "**That player** discards a card." — the same `Player` an earlier
         #: clause of this resolution RULE 115-targeted (Pulling Teeth's
         #: "…target player discards two cards. Otherwise, that player…"),
@@ -3915,15 +3925,21 @@ class DiscardEffect(GameEffect):
             return None
         return [{"type": "draw", "params": {"count": self.count}}]
 
+    def _discard_from(self, context: GameContext, player: Any) -> None:
+        if self.random:
+            context.discard_random(player, self.count)
+        else:
+            context.discard_choice(
+                player, self.count, source=self.source, then_specs=self._then_specs()
+            )
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.scope:
             controller = _controller_of(self.source, context)
             for other in context.state.living_players():
                 if self.scope == "each_opponent" and other is controller:
                     continue
-                context.discard_choice(
-                    other, self.count, source=self.source, then_specs=self._then_specs()
-                )
+                self._discard_from(context, other)
             return
         player = self.player
         if player is None and self.previous_subject:
@@ -3955,9 +3971,7 @@ class DiscardEffect(GameEffect):
             player = targets[0]
         if player is None:
             player = _controller_of(self.source, context)
-        context.discard_choice(
-            player, self.count, source=self.source, then_specs=self._then_specs()
-        )
+        self._discard_from(context, player)
 
 
 class RevealHandChooseDiscardEffect(GameEffect):
@@ -20076,6 +20090,7 @@ EffectRegistry.register(
         player_from_trigger_event=bool(p.get("player_from_trigger_event", False)),
         draw_per_discard=bool(p.get("draw_per_discard", False)),
         previous_subject=bool(p.get("previous_subject", False)),
+        random=bool(p.get("random", False)),
     ),
 )
 EffectRegistry.register(
