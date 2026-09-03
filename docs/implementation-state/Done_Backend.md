@@ -971,6 +971,16 @@ is in the rules-engine categories below them.
 - **What:** `DealDamageEffect.selector`'s new `each_opponent_and_their_creatures[_and_planeswalkers]` (opponents-only, unlike the existing global `each_creature_and_player`) closes the End the Festivities/Tectonic Hazard/Delayed Blast Fireball board-wipe family.
 - **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`.
 
+### "~ deals N damage to you" self-damage (PAR-38, v229)
+
+- **What:** `_SELECTOR_WORD_MAP` and the `damage_selector` handler's regex alternation gained `"you" → "controller"`, routing to `DealDamageEffect`'s pre-existing `"controller"` selector (the source's own controller, and only them — Mana Vault's shape, previously reachable only via a hand-authored entry). Covers the upkeep-bleed creatures (Fledgling Djinn / Juzám Djinn / Serendib Efreet / Plague Sliver — the phase-trigger wrapper was already recognised, only the body was blocked), the ETB self-damage ones (Blade Juggler / Ravenous Giant / Midnight Reaper) and the spell riders (Aftershock / Dark Bargain / Notion Rain). **+19.** `tests/test_par38_damage_to_you.py`. PAR-38's `for each <X>` / `unless you pay <cost>` upkeep-damage riders stay open.
+- **Files:** `parser/oracle/catalogue/handlers.py`.
+
+### "Skip your draw step." oracle-text route (PAR-38, v229)
+
+- **What:** `static_handlers._SKIP_YOUR_STEP_RE` → `EffectSpec("skip_step", {"step": "draw"})` — the oracle-text front-end for MEC-38's already-shipped self-scoped step-skip `StaticAbility` layer (`continuous.skipped_steps_for` / `RulesEngine.should_skip_step`), which until now only had a hand-authored route (Necropotence / Solitary Confinement stay hand-authored). `should_skip_step` is consulted with every step's own name, so "untap"/"upkeep" would work identically — but "draw" is the only bare form a real card prints, so the regex is deliberately narrowed to it (fail-closed). **+3** — Symbiotic Deployment / Wild Wasteland / Yawgmoth's Bargain.
+- **Files:** `parser/oracle/catalogue/static_handlers.py`.
+
 ### Search/Extra-Turn Prohibition Grants (Stranglehold)
 
 - **What:** `GrantSearchProhibitedEffect`/`RulesEngine.request_search`'s guard (RULE 701.19a: a prohibited player instructed to search simply doesn't) and `GrantSkipExtraTurnsEffect`/`GameEngine.begin_turn`'s extra-turn queue skipping past a grant-matched queued taker.

@@ -2352,7 +2352,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: +0). +14 — Akiri Line-Slinger / Goblin Gaveleer / the Nim cycle / Earth
 #: Servant / Deadeye Plunderers. The Aura form ("enchanted creature gets
 #: +P/+T for each …") and the long selector tail stay open in PAR-43.
-PARSER_VERSION = "228"
+#: v229 — PAR-38 — two self-scoped drawback shapes. (1) "~ deals N damage
+#: to **you**" (RULE 109.5): `_SELECTOR_WORD_MAP` + the `damage_selector`
+#: regex alternation gain `"you" -> "controller"`, routing to
+#: `DealDamageEffect`'s existing `"controller"` selector (Fledgling Djinn /
+#: Juzám Djinn / Midnight Reaper / Blade Juggler / Aftershock, +19). (2)
+#: "Skip your draw step." — `static_handlers._SKIP_YOUR_STEP_RE` ->
+#: `EffectSpec("skip_step", {"step": "draw"})`, the oracle-text route to
+#: MEC-38's already-shipped `should_skip_step`/`skipped_steps_for` layer
+#: (Symbiotic Deployment / Wild Wasteland / Yawgmoth's Bargain, +3). +22
+#: total. PAR-38's upkeep-damage `for each`/`unless you pay` riders stay
+#: open.
+PARSER_VERSION = "229"
 
 
 def parser_source_hash() -> str:

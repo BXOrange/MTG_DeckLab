@@ -814,6 +814,11 @@ _SELECTOR_WORD_MAP: dict[str, str] = {
     # own regex row (`damage_selector`) opts these keys in.
     "each creature and each player": "each_creature_and_player",
     "each creature and each planeswalker": "each_creature_and_planeswalker",
+    # "~ deals N damage to **you**" (RULE 109.5 — the source's own
+    # controller, and only them; Mana Vault / Fledgling Djinn / Juzám Djinn
+    # / Sulfuric Vortex-shaped upkeep bleed). `DealDamageEffect`'s
+    # ``"controller"`` selector.
+    "you": "controller",
     # "each other player" (Urborg Syphon-Mage, lose_life/rad-counter only) —
     # functionally identical to "each opponent" in this engine (no
     # team-variant life sharing, RULE 809/810/811 — PLR-14, still unbuilt).
@@ -8895,16 +8900,17 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "~ deals 2 damage to each creature" / "… to each player" / "… to each
     # opponent" / "… to each creature and each player" / "… to each creature
-    # and each planeswalker" — a mass effect (RULE 601.2c), not RULE 115
-    # targeting. The two "and each …" unions come first in the alternation
-    # so the bare "each creature" branch can't consume a prefix and then
-    # fail the fullmatch on the trailing "and each …".
+    # and each planeswalker" / "… to you" (RULE 109.5 self, the upkeep-bleed
+    # shape) — a mass/self effect (RULE 601.2c), not RULE 115 targeting. The
+    # two "and each …" unions come first in the alternation so the bare
+    # "each creature" branch can't consume a prefix and then fail the
+    # fullmatch on the trailing "and each …".
     EffectHandler(
         "damage_selector",
         _c(
             rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to "
             rf"(?P<selector>each creature and each player|each creature and each planeswalker"
-            rf"|each creature|each player|each opponent|that player|them)"
+            rf"|each creature|each player|each opponent|that player|them|you)"
         ),
         _damage_selector,
     ),

@@ -108,8 +108,15 @@ its block back into the matching section here.
     both instead` + `choose <n>. you may choose the same mode more than
     once` (~#12+12; both currently reach Bucket A/B as wrapper headers —
     confirm they are genuinely unrecognised first).
-  - **PAR-38** — `skip your draw step` drawback static (#12) + `at the
-    beginning of your upkeep, ~ deals <n> damage to you` (#10).
+  - **PAR-38** — residue only. The bare `skip your draw step` static and
+    the bare `~ deals <n> damage to you` body both shipped at
+    PARSER_VERSION 229 (`skip_step` oracle route; `damage_selector`'s
+    `"you" → "controller"`; +22 — `Done_Backend.md`). What's left: the
+    upkeep-damage **riders** — `~ deals <n> damage to you for each <X>`
+    (Black Market Tycoon — needs a count-selector) and `~ deals <n> damage
+    to you unless you pay <cost>` (Force of Nature / Minion of Tevesh Szat
+    — a self-scoped `unless you pay` branch); plus `skip your draw step
+    this turn` as a conditional "if you do" tail (Elfhame Sanctuary).
   - **PAR-39** — old two-sentence O-Ring templating (`when ~ leaves the
     battlefield, return the exiled card to the battlefield under its
     owner's control`) (#12) — **reuse the PAR-30 Threaten/O-Ring cluster**.

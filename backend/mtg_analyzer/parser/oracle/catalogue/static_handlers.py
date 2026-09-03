@@ -530,6 +530,18 @@ _NO_MAX_HAND_SIZE_RE = re.compile(
 # capture.
 _SKIP_UNTAP_STEPS_RE = re.compile(r"players skip their untap steps", re.IGNORECASE)
 
+# "Skip your draw step." (MEC-38, Necropotence / Yawgmoth's Bargain /
+# Solitary Confinement / Dragon Appeasement) — the *self*-scoped, standing
+# step skip, `EffectSpec("skip_step", …)` (a `StaticAbility` layer read live
+# by `RulesEngine.should_skip_step` via `continuous.skipped_steps_for`,
+# unrelated to `_SKIP_UNTAP_STEPS_RE`'s board-wide Stasis effect above). The
+# effect had shipped for MEC-38 but only via a hand-authored catalogue
+# entry; this is its oracle-text route. `should_skip_step` is consulted with
+# every step's own name, so "untap"/"upkeep" work the same way — but "draw"
+# is the only form real cards print, and untap/upkeep are left out until one
+# does (fail-closed).
+_SKIP_YOUR_STEP_RE = re.compile(r"skip your (?P<step>draw) step", re.IGNORECASE)
+
 # "Players can't cast spells from graveyards or libraries." (RULE
 # 601.3a-adjacent, Grafdigger's Cage/Weathered Runestone) — the last open
 # member of MEC-12's "players can't <verb>" family sweep.
@@ -2905,6 +2917,10 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     if _SKIP_UNTAP_STEPS_RE.fullmatch(text):
         return [EffectSpec("skip_untap_step", {})]
+
+    m = _SKIP_YOUR_STEP_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("skip_step", {"step": m.group("step").lower()})]
 
     m = _GRAVEYARD_LIBRARY_CAST_PROHIBITION_RE.fullmatch(text)
     if m is not None:
