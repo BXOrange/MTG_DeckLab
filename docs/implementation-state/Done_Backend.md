@@ -2389,6 +2389,8 @@ is in the rules-engine categories below them.
 
 - **What:** New `_SPELL_COST_TAX_COLOR_RE` parser row reaches `cost_reduction_for`'s already-built `spell_color` param (Medallion cycle); a genuinely new `affects="opponents_spells"` branch on `cost_reduction_for` plus `_SPELL_COST_TAX_OPPONENTS_RE` covers "Spells your opponents cast cost `{N}` more" (Grand Arbiter Augustin IV's third line).
 - **Files:** `parser/oracle/catalogue/static_handlers.py`, `game/continuous.py`
+- **Follow-up (PARSER_VERSION 241) — "…that target ~":** "Spells your opponents cast **that target ~** cost `{N}` more to cast." (Icefall Regent / Boreal Elemental / Sphinx of New Prahv / Syr Elenora — a battlefield permanent taxing spells aimed at *itself*). New `_SPELL_COST_TAX_OPPONENTS_TARGET_RE` → `cost_reduction` with a `targets_source` param; `continuous.cost_reduction_for` gained a `targets` arg (the caster's already-chosen targets — RULE 601.2c precedes 601.2f) and skips the tax unless those targets include the static's own source. `casting_mixin._adjust_cost` threads `targets` through (it already had it for `self_cost_reduction_for`'s `reduce_if_targets`). **+4, 0 regressed.** `tests/test_spell_tax_if_targets_source.py`.
+- **Files:** `parser/oracle/catalogue/static_handlers.py`, `game/continuous.py` (`cost_reduction_for` `targets` + `targets_source` check), `game/effects.py` (`cost_reduction` factory `targets_source` key), `game/engine/casting_mixin.py` (`_adjust_cost` threads `targets`), `parser/oracle/gate.py` (PARSER_VERSION 241).
 
 ### Activation-cost group scope by main card type (Casting & Costs)
 

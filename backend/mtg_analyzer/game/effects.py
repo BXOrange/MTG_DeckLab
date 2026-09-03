@@ -23202,6 +23202,13 @@ EffectRegistry.register(
             # _obj_matches_target_criteria`; only meaningful with
             # ``affects="self"``.
             **({"reduce_if_targets": p["reduce_if_targets"]} if p.get("reduce_if_targets") else {}),
+            # "Spells your opponents cast **that target ~** cost {N} more to
+            # cast." (Icefall Regent / Boreal Elemental / Charix / Elderwood
+            # Scion / Pursued Whale) — a battlefield permanent taxing spells
+            # aimed at *itself*; `continuous.cost_reduction_for` checks the
+            # caster's already-chosen targets (RULE 601.2c precedes 601.2f)
+            # against this static's own source.
+            **({"targets_source": True} if p.get("targets_source") else {}),
             # "Each spell that would cost less than N mana to cast costs N
             # mana to cast instead." (Trinisphere) — a floor rather than a
             # delta, read separately by `continuous.cost_floor_for` (not

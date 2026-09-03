@@ -965,7 +965,7 @@ class CastingMixin:
         precedes 601.2f) lets a "costs {N} less if it targets a `<criteria>`"
         static resolve; ``None`` at every offer-time caller (best case).
         """
-        reduction, _ = continuous.cost_reduction_for(self.state, player, obj)
+        reduction, _ = continuous.cost_reduction_for(self.state, player, obj, targets=targets)
         if obj is not None:
             self_reduction, _ = continuous.self_cost_reduction_for(
                 obj, self.state, caster_id=player.id, targets=targets,

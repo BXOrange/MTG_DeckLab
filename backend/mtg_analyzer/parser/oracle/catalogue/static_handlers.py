@@ -373,6 +373,18 @@ _SPELL_COST_TAX_OPPONENTS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "Spells your opponents cast that target ~ cost {N} more to cast."
+# (Icefall Regent / Boreal Elemental / Charix, the Raging Isle / Elderwood
+# Scion / Pursued Whale / Frost Titan-adjacent) — the "that target ~"
+# narrowing on the opponents-tax above; `continuous.cost_reduction_for`
+# checks the caster's chosen targets against this static's own source
+# (`targets_source` param). Tried before the plain opponents row (whose
+# regex would leave the "that target ~" clause unconsumed and fail).
+_SPELL_COST_TAX_OPPONENTS_TARGET_RE = re.compile(
+    r"spells your opponents cast that target ~ cost \{(?P<n>\d+)\} (?P<dir>more|less) to cast",
+    re.IGNORECASE,
+)
+
 # "Activated abilities of <type> you control cost {N} less to activate[.
 # This effect can't reduce the mana in that cost to less than {M} mana.]"
 # (Training Grounds) — the main-card-type-scoped sibling of Sam, Loyal
@@ -2883,6 +2895,15 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "spell_color": _COLOR_WORDS[m.group("color").lower()],
         }
         return [EffectSpec("cost_reduction", params)]
+
+    m = _SPELL_COST_TAX_OPPONENTS_TARGET_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("cost_reduction", {
+            "affects": "opponents_spells",
+            "generic": int(m.group("n")),
+            "increase": m.group("dir") == "more",
+            "targets_source": True,
+        })]
 
     m = _SPELL_COST_TAX_OPPONENTS_RE.fullmatch(text)
     if m is not None:

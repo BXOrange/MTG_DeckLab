@@ -2455,7 +2455,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `without_keyword` dict, applied to the `each_creature`/`each_creature_
 #: and_player` iteration only — players in a union selector are never
 #: filtered). Digit or {X} amount. +19.
-PARSER_VERSION = "240"
+#: v241 — "Spells your opponents cast that target ~ cost {N} more to cast."
+#: (RULE 601.2f — Icefall Regent / Boreal Elemental / Sphinx of New Prahv).
+#: `static_handlers._SPELL_COST_TAX_OPPONENTS_TARGET_RE` → `cost_reduction`
+#: with a new `targets_source` param; `continuous.cost_reduction_for` gains
+#: a `targets` arg and skips the tax unless the caster's chosen targets
+#: include this static's own source (`_adjust_cost` threads it through). +4.
+PARSER_VERSION = "241"
 
 
 def parser_source_hash() -> str:

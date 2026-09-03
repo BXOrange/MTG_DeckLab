@@ -2511,7 +2511,8 @@ def _spell_type_matches(obj: "GameObject", spell_type: Union[str, list]) -> bool
 
 
 def cost_reduction_for(
-    state: "GameState", player: "Player", obj: Optional["GameObject"] = None
+    state: "GameState", player: "Player", obj: Optional["GameObject"] = None,
+    targets: Optional[list[Any]] = None,
 ) -> tuple[int, list[dict[str, Any]]]:
     """Net generic-mana reduction for a spell ``player`` casts (RULE 601.2f).
 
@@ -2545,6 +2546,17 @@ def cost_reduction_for(
         # permanent's own controller.
         if ability.affects == "opponents_spells" and getattr(ability.source, "controller_id", None) == player.id:
             continue
+        # "…that target ~ cost {N} more to cast." (Icefall Regent) — the
+        # spell being cast must target this static's own source. Targets are
+        # chosen before the cost is locked in (RULE 601.2c precedes
+        # 601.2f), so ``targets`` is the caster's already-picked list.
+        if ability.params.get("targets_source"):
+            src_id = getattr(ability.source, "instance_id", None)
+            chosen_ids = {
+                getattr(t, "instance_id", None) for t in (targets or [])
+            }
+            if src_id is None or src_id not in chosen_ids:
+                continue
         spell_type = ability.params.get("spell_type")
         if spell_type and (obj is None or not _spell_type_matches(obj, spell_type)):
             continue
