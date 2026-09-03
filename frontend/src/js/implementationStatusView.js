@@ -124,7 +124,7 @@ function coverageBySetTableHtml(rows) {
     <div class="coverage-set-table-wrap">
       <table class="coverage-set-table">
         <thead>
-          <tr><th>Set</th><th>Karten</th><th>Abgedeckt</th><th>Anteil</th></tr>
+          <tr><th>${t('status.col.set')}</th><th>${t('status.col.cards')}</th><th>${t('status.col.covered')}</th><th>${t('status.col.share')}</th></tr>
         </thead>
         <tbody>${body}</tbody>
       </table>

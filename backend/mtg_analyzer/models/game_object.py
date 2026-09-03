@@ -965,6 +965,13 @@ class GameObject:
         #: above, same per-relationship cache/rebuild shape (Umbral Mantle/
         #: Squirrel Nest-shaped "<host> has '{cost}: <effect>.'").
         self._granted_activated_abilities: list[Any] = []
+        #: MEC-55: layer-6-granted *static* abilities (RULE 613.7f) — a
+        #: nested anthem/lord/keyword-grant, re-derived per affected object
+        #: each `continuous.recompute`, that `_battlefield_static_abilities`
+        #: then yields as an ordinary static source ("X have '<static>'" —
+        #: Inspiring Leader). Same "re-derived every pass, gone the moment
+        #: the grant stops" shape as `_granted_triggered_abilities`.
+        self._granted_static_abilities: list[Any] = []
         self._added_types: set[str] = set()
         #: Creature *subtypes* a layer-4 "~ is the chosen type in addition to
         #: its other types"/"… of the chosen type …" static ability adds
@@ -1137,6 +1144,7 @@ class GameObject:
         self._granted_mana_upgrades = []
         self._granted_triggered_abilities = []
         self._granted_activated_abilities = []
+        self._granted_static_abilities = []
         self._added_types = set()
         self._added_subtypes = set()
         self._removed_types = set()

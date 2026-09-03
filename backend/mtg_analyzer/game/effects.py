@@ -22969,6 +22969,25 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # MEC-55: "X have '<static ability>'" where the quoted body is itself a
+    # static (anthem / lord / keyword grant) — Inspiring Leader
+    # ("Commander creatures you own have 'Creature tokens you control get
+    # +2/+2.'"). `continuous._apply_layer_6_ability` builds each
+    # ``static_specs`` entry into a `StaticAbility` per affected object
+    # (sourced on that object) and files it on
+    # `GameObject._granted_static_abilities`, which
+    # `_battlefield_static_abilities` then yields as an ordinary source.
+    "grant_static_ability",
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "attached_permanent"),
+        params={
+            "static_specs": [dict(s) for s in p.get("static_specs", [])],
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
     # "Each nonland card in your graveyard has escape. The escape cost is
     # equal to the card's mana cost plus exile N other cards from your
     # graveyard." (Underworld Breach) — RULE 702.138 as a *granted* keyword

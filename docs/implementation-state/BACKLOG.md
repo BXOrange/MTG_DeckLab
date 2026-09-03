@@ -95,9 +95,9 @@ its block back into the matching section here.
     `_GRANTABLE_TRIGGER_EVENTS`), PARSER_VERSION 247, +1 Candlekeep Sage
     (the LTB half works end-to-end; the ETB half shares the engine's
     pre-existing granted-ETB-timing gap, same as any Dionus-style grant).
-    Left: **static inner bodies** (anthem/lord — Inspiring Leader; needs a
-    `grant_static_ability` regrant primitive → likely a MEC ticket);
-    **group-subject trigger regrant** ("whenever an artifact or creature
+    **Static inner bodies** — anthem/lord (Inspiring Leader) — shipped via
+    MEC-55 (`grant_static_ability` regrant primitive), PARSER_VERSION 248,
+    +1. Left: **group-subject trigger regrant** ("whenever an artifact or creature
     you control dies …" — Agent of the Iron Throne; the group filter is
     dropped by `_granted_trigger_condition` today); the **"whenever ~
     attacks a player, if no opponent has more life than that player,
@@ -271,7 +271,7 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-> **(none open.)** MEC-47/49/51/51b/52/53/54 all closed
+> **(none open.)** MEC-47/49/51/51b/52/53/54/55 all closed
 > (`Done_Backend.md`); MEC-48's Specialize-rider tail is parked in
 > [DEFERRED.md](DEFERRED.md).
 

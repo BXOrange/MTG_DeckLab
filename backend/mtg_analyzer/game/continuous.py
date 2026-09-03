@@ -671,6 +671,16 @@ def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
         for ab in getattr(src, "static_effects", [])
         if isinstance(ab, StaticAbility)
     ]
+    # MEC-55: a nested static granted by "X have '<static ability>'"
+    # (Inspiring Leader) — populated per affected battlefield object during
+    # `_apply_layer_6_ability`, then an ordinary static source from here on
+    # (same layers/timestamp ordering). Empty until layer 6 runs, so
+    # `recompute` re-gathers this list after that pass for layers 7+.
+    for obj in state.battlefield:
+        abilities.extend(
+            ab for ab in getattr(obj, "_granted_static_abilities", ())
+            if isinstance(ab, StaticAbility)
+        )
     # RULE 112.7a's own printed exception — "As long as this card is in
     # your graveyard [and `<condition>`], `<static>`." (Anger/Brawn/Filth/
     # Valor/Wonder-shaped) is one of the rare statics that explicitly
@@ -2001,6 +2011,26 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     state._granted_ability_cache[key] = granted_activated
                 obj._granted_activated_abilities.append(granted_activated)
                 _trace(obj, 6, _source_name(ability), "gains an activated ability")
+            static_specs = ability.params.get("static_specs")
+            if static_specs:
+                # MEC-55: "X have '<static ability>'" (Inspiring Leader) —
+                # build the nested static once per affected object, sourced
+                # on that object so its own "you control" selector resolves
+                # against the granted-to permanent's controller. Cached on
+                # `_granted_ability_cache` (identity-stable across passes)
+                # and yielded by `_battlefield_static_abilities`.
+                for i, spec in enumerate(static_specs):
+                    key = (id(ability), obj.instance_id, "static", i)
+                    live_grant_keys.add(key)
+                    granted_static = state._granted_ability_cache.get(key)
+                    if granted_static is None:
+                        granted_static = EffectRegistry.create(
+                            spec["type"], dict(spec.get("params", {}))
+                        )
+                        granted_static.source = obj
+                        state._granted_ability_cache[key] = granted_static
+                    obj._granted_static_abilities.append(granted_static)
+                _trace(obj, 6, _source_name(ability), "gains a static ability")
 
     # ENG-31: "until end of turn" parametric keyword grants from a resolved
     # effect ("target creature gains firebending N until end of turn" — Fire
@@ -2473,6 +2503,13 @@ def recompute(state: "GameState") -> None:
     _apply_layer_5_color(state, abilities)
     _apply_layer_6_ability(state, abilities)
     _apply_borrowed_activated_abilities(state, abilities)
+    # MEC-55: layer 6 may have populated `_granted_static_abilities` on
+    # affected objects ("X have '<anthem/lord>'" — Inspiring Leader). Re-
+    # gather so those nested statics reach layers 7+ in this same pass; an
+    # ability-*layer* granted static (a granted keyword/lord) still settles
+    # on the next recompute (always ≤1 SBA-loop lag).
+    if any(getattr(o, "_granted_static_abilities", None) for o in state.battlefield):
+        abilities = [ab for ab in _battlefield_static_abilities(state) if ab.layer != "cost"]
     _apply_layer_7_pt(state, abilities, animation_pt)
     _apply_post_layer_combat_restrictions_and_goad(state, abilities)
 

@@ -89,6 +89,11 @@ _GRANTABLE_TRIGGER_EVENTS = frozenset(
      "STEP_BEGIN", "LIFE_GAINED"}
 )
 
+#: MEC-55: inner-static `affects` scopes that can't be re-granted to a
+#: group — "self"/"attached_permanent" only mean something relative to a
+#: single host permanent, which a regranted static has no notion of.
+_REGRANT_UNSUPPORTED_AFFECTS = frozenset({"self", "attached_permanent"})
+
 #: Type words that are *not* creature subtypes — a scope built on one of these
 #: isn't a creature anthem/grant, so we don't claim it. ``enchanted``/
 #: ``equipped`` belong here too (PAR-3 spot-check, Greater Auramancy's
@@ -1813,6 +1818,23 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
             "grant_effects": [{"type": e.type, "params": e.params} for e in effect_specs],
             "once_per_turn": once_per_turn,
             "sorcery_speed_only": sorcery_speed_only,
+            "affects": "attached_permanent",
+        })]
+
+    if spec.ability_kind == "static":
+        # MEC-55: "X have '<static ability>'" — an anthem / lord / keyword
+        # grant, re-granted per affected object. The inner static's own
+        # `affects` must be controller-relative (a group selector — "creature
+        # tokens you control get +2/+2", Inspiring Leader); a `self` /
+        # `attached_permanent` inner scope would be meaningless once
+        # regranted, so fail closed.
+        inner_scopes = {e.params.get("affects") for e in spec.effects}
+        if not spec.effects or inner_scopes & _REGRANT_UNSUPPORTED_AFFECTS:
+            return None
+        if any(e.params.get("affects") is None for e in spec.effects):
+            return None
+        return [EffectSpec("grant_static_ability", {
+            "static_specs": [{"type": e.type, "params": e.params} for e in spec.effects],
             "affects": "attached_permanent",
         })]
 
