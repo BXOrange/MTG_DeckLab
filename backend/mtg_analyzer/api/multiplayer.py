@@ -60,7 +60,7 @@ from mtg_analyzer.api.dependencies import (
     get_lazy_card_loader,
     get_lobby,
 )
-from mtg_analyzer.api.game import expand_entries
+from mtg_analyzer.api.game import resolve_seat_deck
 from mtg_analyzer.api.multiplayer_ws import manager as lobby_connections
 from mtg_analyzer.api.schemas import (
     LobbyConnectRequest,
@@ -75,10 +75,8 @@ from mtg_analyzer.api.schemas import (
     MultiplayerReadyRequest,
 )
 from mtg_analyzer.models.game_format import FORMATS
-from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.services.bots import BOT_TYPES, bot_catalogue, bots_for_game, run_bots
 from mtg_analyzer.services.deck_database import DeckDatabase
-from mtg_analyzer.services.deck_validation import apply_legality
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 from mtg_analyzer.services.lobby import Lobby, LobbyError, LobbyGame
@@ -323,7 +321,7 @@ async def start_game(
 
     seats: list[dict[str, Any]] = []
     for seat in game.seating_order():
-        library, commanders, errors = _resolve_seat_deck(seat.deck_id, decks, loader)
+        library, commanders, errors = resolve_seat_deck(seat.deck_id, decks, loader)
         if errors:
             raise HTTPException(
                 422,
@@ -364,36 +362,6 @@ async def start_game(
     # to click "Behalten".
     run_bots(session, bots_for_game(game))
     return await _game_response(lobby, game, sessions, request.player_id)
-
-
-def _resolve_seat_deck(
-    deck_id: Optional[str], decks: DeckDatabase, loader: LazyCardLoader
-) -> tuple[list[Any], list[Any], list[str]]:
-    """One seat's saved deck → (library, commanders, blocking errors).
-
-    Mirrors `api/game.py`'s goldfish resolution exactly: parse the saved
-    sections, resolve the names, apply Commander legality, and refuse
-    anything illegal or unresolvable — a multiplayer game is a real game,
-    so the same gate applies.
-    """
-    if not deck_id:
-        return [], [], ["Kein Deck ausgewählt."]
-    deck = decks.get_deck(deck_id)
-    if deck is None:
-        return [], [], ["Deck existiert nicht mehr."]
-    parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text)
-    resolved = loader.load_cards(
-        [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards]
-    )
-    apply_legality(parsed, resolved)
-    library, missing_lib = expand_entries(parsed.main_deck, resolved.cards)
-    commanders, missing_cmd = expand_entries(parsed.commanders, resolved.cards)
-    if not parsed.validation.is_legal:
-        return [], [], list(parsed.validation.errors)
-    if not library and not commanders:
-        missing = sorted(set(missing_lib) | set(missing_cmd))
-        return [], [], [f"Keine auflösbaren Karten: {', '.join(missing) or '—'}"]
-    return library, commanders, []
 
 
 # -- Playing -------------------------------------------------------------

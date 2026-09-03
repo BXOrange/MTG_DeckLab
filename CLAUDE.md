@@ -16,10 +16,12 @@ Two halves:
 - **`backend/`** — Python (FastAPI). The card model, rules engine, oracle
   effect IR, and the game-session API. This is where the depth is.
 - **`frontend/`** — a static, buildless ES-modules app (no bundler). Tabs for
-  deck import/analysis, saved decks, the goldfish board, the **"Replay"**
-  board editor (a.k.a. puzzle mode), the card cache, Multiplayer
-  (**Setup** = lobby + game configuration, **Board** = the shared game,
-  disabled until you're at a table), and
+  deck import/analysis, saved decks, the goldfish board, **"Solo gegen
+  Bots"** (the Multiplayer engine — real turns, priority, hidden hands —
+  against 1–3 bots, with no lobby/socket; `soloView.js` + `api/solo.py`),
+  the **"Replay"** board editor (a.k.a. puzzle mode), the card cache,
+  Multiplayer (**Setup** = lobby + game configuration, **Board** = the
+  shared game, disabled until you're at a table), and
   an **"Engine-Status"** tab documenting engine coverage, plus two header icon
   buttons: **"Einstellungen"** (`connectionSettingsView.js` — *only* the
   backend server address + connection test now) and **"Profil"**
@@ -660,6 +662,7 @@ English and German.
 | "Play/cast from top of library" permission | `game/top_library.py`, `game/game_engine.py` (`can_play_land`/`can_cast`/`legal_actions`), `gameBoardView.js` (`libraryTopHtml`) |
 | On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
+| Solo vs. bots (Multiplayer engine, no lobby) | `backend/mtg_analyzer/api/solo.py`, `frontend/src/js/soloView.js`; shared picker/mulligan/banner markup in `frontend/src/js/gameSetup.js` (also used by goldfish/multiplayer) |
 | Multiplayer (lobby, seats, shared board) | `backend/mtg_analyzer/services/lobby.py`, `api/multiplayer.py`, `api/multiplayer_ws.py`, `frontend/src/js/multiplayerView.js`, `lobbySocket.js`, `bannerColors.js` (seat banner colours) |
 | Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (`Bot`/`GoldfishBot`/`GreedyBot`/`run_bots`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |

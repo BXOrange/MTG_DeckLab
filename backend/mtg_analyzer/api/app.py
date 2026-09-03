@@ -30,6 +30,7 @@ from mtg_analyzer.api.multiplayer_ws import router as multiplayer_ws_router
 from mtg_analyzer.api.multiplayer_ws import sweeper
 from mtg_analyzer.api.player_assets import router as player_assets_router
 from mtg_analyzer.api.saved_decks import router as saved_decks_router
+from mtg_analyzer.api.solo import router as solo_router
 
 #: The frontend is a plain static server (setup/start.py, default port
 #: 8765, overridable via --port) with no backend origin baked in, so any
@@ -137,6 +138,7 @@ def create_app() -> FastAPI:
     app.include_router(import_external_router)
     app.include_router(multiplayer_router)
     app.include_router(multiplayer_ws_router)
+    app.include_router(solo_router)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

@@ -67,6 +67,15 @@ import {
   bannerGradients,
   normalizeBannerColor,
 } from './bannerColors.js';
+import {
+  escapeHtml,
+  escapeAttr,
+  deckSelectOptionsHtml,
+  formatSelectOptionsHtml,
+  mulliganTileHtml,
+  resultBannerHtml,
+  loadUnmodeledDeckIds,
+} from './gameSetup.js';
 
 const PRESENCE_LABELS = {
   online: { icon: '🟡', text: 'Online' },
@@ -110,6 +119,10 @@ export function createMultiplayerView(hooks = {}) {
   //: This player's starred deck ids (Profil tab) — deckOptionsHtml() lists
   //: them first, same convention as goldfishView.js's picker.
   let favoriteDeckIds = new Set();
+  //: Saved-deck ids holding cards the engine doesn't model yet — drives the
+  //: "⚠️" marker in the deck pickers (own seat + bot seats). Filled
+  //: asynchronously after the deck list loads.
+  let unmodeledDeckIds = new Set();
   //: The bot kinds the server offers (GET /api/multiplayer/bots), fetched
   //: once — they're a property of the backend, not of this table.
   let botKinds = null;
@@ -429,6 +442,11 @@ export function createMultiplayerView(hooks = {}) {
     savedDecks = decks || [];
     favoriteDeckIds = new Set(favorites || []);
     renderSetup();
+    // Coverage marker — non-blocking, repaints once the checks land.
+    loadUnmodeledDeckIds(savedDecks).then((ids) => {
+      unmodeledDeckIds = ids;
+      if (ids.size) renderSetup();
+    });
   }
 
   async function loadBotKinds() {
@@ -1051,33 +1069,21 @@ export function createMultiplayerView(hooks = {}) {
       </div>`;
   }
 
+  // Deck / format `<option>` lists — favorites-first sort + loading/error/
+  // empty states shared with the Goldfisch and Solo pickers (`gameSetup.js`).
   function deckOptionsHtml(selectedId) {
-    if (savedDecks === null) return '<option>Lädt …</option>';
-    if (decksLoadError) return '<option value="">— Server nicht erreichbar —</option>';
-    if (!savedDecks.length) return '<option value="">— keine gespeicherten Decks —</option>';
-    // Favorites (Profil tab) first, stable otherwise — same convention as
-    // goldfishView.js's picker.
-    const ordered = [...savedDecks].sort(
-      (a, b) => (favoriteDeckIds.has(b.id) ? 1 : 0) - (favoriteDeckIds.has(a.id) ? 1 : 0),
-    );
-    return [
-      '<option value="">— Deck wählen —</option>',
-      ...ordered.map((d) => {
-        const name = d.name || 'Unbenanntes Deck';
-        const label = favoriteDeckIds.has(d.id) ? `★ ${name}` : name;
-        return `<option value="${escapeAttr(d.id)}"${d.id === selectedId ? ' selected' : ''}>${escapeHtml(label)}</option>`;
-      }),
-    ].join('');
+    return deckSelectOptionsHtml({
+      savedDecks,
+      selectedId,
+      favoriteDeckIds,
+      unmodeledDeckIds,
+      decksLoadError,
+    });
   }
 
   // PLR-13: the format <select>'s options (GET /api/game/formats).
   function formatOptionsHtml(selectedName) {
-    if (!gameFormats || !gameFormats.length) {
-      return `<option value="commander"${!selectedName || selectedName === 'commander' ? ' selected' : ''}>Commander</option>`;
-    }
-    return gameFormats
-      .map((f) => `<option value="${escapeAttr(f.name)}"${f.name === selectedName ? ' selected' : ''}>${escapeHtml(f.label)}</option>`)
-      .join('');
+    return formatSelectOptionsHtml(gameFormats, selectedName);
   }
 
   // RULE 904: only shown once the table's format actually has the
@@ -1270,21 +1276,11 @@ export function createMultiplayerView(hooks = {}) {
   }
 
   function mulliganCardHtml(o, bottomCount) {
-    const image = getState().imageCache?.get((o.name || '').toLowerCase());
-    const inner = image?.small
-      ? `<img src="${image.small}" alt="${escapeAttr(o.name)}" loading="lazy" />`
-      : escapeHtml(o.name);
-    const selected = mulliganBottom.has(o.instance_id);
-    const classes = ['card'];
-    if (image?.small) classes.push('has-image');
-    if (bottomCount > 0) classes.push('clickable');
-    if (selected) classes.push('selected-bottom');
-    const toggle = bottomCount > 0 ? ` data-bottom-toggle="${o.instance_id}"` : '';
-    return `
-      <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeAttr(o.name)}" title="${escapeAttr(o.name)}"${toggle}>${inner}</div>
-        ${bottomCount > 0 ? `<button type="button" class="gf-card-action" data-bottom-toggle="${o.instance_id}">${selected ? '✓ unten' : 'Nach unten legen'}</button>` : ''}
-      </div>`;
+    return mulliganTileHtml(o, {
+      imageCache: getState().imageCache,
+      selected: mulliganBottom.has(o.instance_id),
+      bottomEnabled: bottomCount > 0,
+    });
   }
 
   function toggleBottomCard(instanceId) {
@@ -1311,18 +1307,10 @@ export function createMultiplayerView(hooks = {}) {
 
   function renderSummary() {
     const s = summary.state;
-    const me = s.players.find((p) => p.id === playerId);
-    const winner = s.winner_id ? s.players.find((p) => p.id === s.winner_id) : null;
-    const won = winner && me && winner.id === me.id;
-    const banner = winner
-      ? won
-        ? '🏆 Gewonnen!'
-        : `Verloren – Sieger: ${escapeHtml(winner.name)}.`
-      : 'Spiel beendet.';
     boardRoot.innerHTML = `
       <div class="goldfish-summary">
         <h3>Partie-Auswertung</h3>
-        <p class="server-status ${won ? 'ok' : 'warning'}">${banner}</p>
+        ${resultBannerHtml(s, playerId)}
         ${analysisHtml(summary.analysis)}
         <div class="gf-controls">
           <button id="mp-summary-board" type="button">🔍 Spielfeld ansehen</button>
@@ -1359,14 +1347,4 @@ export function createMultiplayerView(hooks = {}) {
   }
 
   return { mountSetup, mountBoard, onShown, onHidden };
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str == null ? '' : String(str);
-  return div.innerHTML;
-}
-
-function escapeAttr(str) {
-  return escapeHtml(str).replace(/"/g, '&quot;');
 }

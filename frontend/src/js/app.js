@@ -1,6 +1,7 @@
 import { renderDeckImportView } from './deckImportView.js';
 import { renderImportDeckView } from './importDeckView.js';
 import { createGoldfishView } from './goldfishView.js';
+import { createSoloView } from './soloView.js';
 import { createReplayView } from './replayView.js';
 import { createMultiplayerView } from './multiplayerView.js';
 import { renderCachedCardsView } from './cachedCardsView.js';
@@ -30,6 +31,7 @@ const views = {
   savedDecks: document.getElementById('view-saved-decks'),
   analyze: document.getElementById('view-analyze'),
   goldfish: document.getElementById('view-goldfish'),
+  solo: document.getElementById('view-solo'),
   replay: document.getElementById('view-replay'),
   mpSetup: document.getElementById('view-mp-setup'),
   mpBoard: document.getElementById('view-mp-board'),
@@ -90,6 +92,13 @@ renderImportDeckView(views.importDeck, {
 const goldfish = createGoldfishView();
 goldfish.mount(views.goldfish);
 views.goldfish.addEventListener('view-shown', () => goldfish.onShown());
+
+// "Solo gegen Bots": the Multiplayer rules engine (real turns, priority,
+// hidden hands) driven against bots only — no lobby, no socket. Its own
+// persistent controller, same lifecycle as the goldfish one.
+const solo = createSoloView();
+solo.mount(views.solo);
+views.solo.addEventListener('view-shown', () => solo.onShown());
 
 // The Replay/Puzzle controller likewise persists across tab switches so an
 // in-progress board isn't dropped when navigating away.

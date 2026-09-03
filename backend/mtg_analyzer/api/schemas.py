@@ -299,3 +299,38 @@ class MultiplayerActionRequest(MultiplayerPlayerRequest):
     """
 
     action: dict
+
+
+# -- Solo vs. bots (api/solo.py) -----------------------------------------
+# The Multiplayer engine (real turns, RULE 117 priority, redacted views)
+# minus the lobby: one human, 1-3 bot opponents, plain REST like goldfish.
+
+
+class SoloOpponent(BaseModel):
+    """One bot opponent for POST /api/solo/start."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    #: A `services/bots.py` `Bot.kind` (goldfish / greedy / mana_maximizer).
+    kind: str = "goldfish"
+    #: The saved deck this bot plays — resolved and legality-gated exactly
+    #: like the human's (`api/game.resolve_seat_deck`).
+    deck_id: str = Field(alias="deckId")
+
+
+class SoloStartRequest(BaseModel):
+    """Request body for POST /api/solo/start.
+
+    ``deckId`` is the human's saved deck; ``opponents`` is 1-3 bots (the
+    Multiplayer engine seats 2-4 players). ``startingPlayer`` is ``"you"``
+    (default — the human is on the play) or ``"random"`` (seat order is
+    shuffled).
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    deck_id: str = Field(alias="deckId")
+    opponents: list[SoloOpponent] = Field(default_factory=list)
+    mulligan_style: str = Field(default="london", alias="mulliganStyle")
+    game_format: Optional[str] = Field(default=None, alias="gameFormat")
+    starting_player: str = Field(default="you", alias="startingPlayer")

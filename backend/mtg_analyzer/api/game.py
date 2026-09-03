@@ -60,8 +60,8 @@ router = APIRouter(prefix="/api/game", tags=["game"])
 def expand_entries(entries, cards_by_name: dict[str, Card]) -> tuple[list[Card], list[str]]:
     """Expand ``(name, qty)`` entries into a flat Card list + missing names.
 
-    Public because `api/multiplayer.py` resolves a seat's deck exactly the
-    same way this module resolves a goldfish deck.
+    Public because `api/multiplayer.py` / `api/solo.py` resolve a seat's deck
+    exactly the same way this module resolves a goldfish deck.
     """
     expanded: list[Card] = []
     missing: list[str] = []
@@ -72,6 +72,37 @@ def expand_entries(entries, cards_by_name: dict[str, Card]) -> tuple[list[Card],
             continue
         expanded.extend([card] * entry.qty)
     return expanded, missing
+
+
+def resolve_seat_deck(
+    deck_id, decks: DeckDatabase, loader: LazyCardLoader
+) -> tuple[list, list, list[str]]:
+    """One seat's saved deck → (library, commanders, blocking errors).
+
+    The shared resolution both `api/multiplayer.py` (a table seat) and
+    `api/solo.py` (the human, and each bot opponent) use: parse the saved
+    sections, resolve the names, apply Commander legality, and refuse
+    anything illegal or unresolvable — every real game applies the same gate
+    goldfish's `start_goldfish` above does.
+    """
+    if not deck_id:
+        return [], [], ["Kein Deck ausgewählt."]
+    deck = decks.get_deck(deck_id)
+    if deck is None:
+        return [], [], ["Deck existiert nicht mehr."]
+    parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text)
+    resolved = loader.load_cards(
+        [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards]
+    )
+    apply_legality(parsed, resolved)
+    library, missing_lib = expand_entries(parsed.main_deck, resolved.cards)
+    commanders, missing_cmd = expand_entries(parsed.commanders, resolved.cards)
+    if not parsed.validation.is_legal:
+        return [], [], list(parsed.validation.errors)
+    if not library and not commanders:
+        missing = sorted(set(missing_lib) | set(missing_cmd))
+        return [], [], [f"Keine auflösbaren Karten: {', '.join(missing) or '—'}"]
+    return library, commanders, []
 
 
 @router.post("/goldfish")

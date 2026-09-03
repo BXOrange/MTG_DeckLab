@@ -31,6 +31,13 @@ import { parseDeckSections } from './parser.js';
 import { createGameBoardView } from './gameBoardView.js';
 import { analysisHtml } from './gameStats.js';
 import { mulliganText } from './mulligan.js';
+import {
+  escapeHtml,
+  deckSelectOptionsHtml,
+  formatSelectOptionsHtml,
+  mulliganTileHtml,
+  loadUnmodeledDeckIds,
+} from './gameSetup.js';
 
 /**
  * Create a persistent goldfish controller. Its session survives across
@@ -77,6 +84,10 @@ export function createGoldfishView() {
   //: favorites first. Fetched alongside the deck list; empty when no player
   //: name is set (there's nothing to key favorites by).
   let favoriteDeckIds = new Set();
+  //: Saved-deck ids that hold cards the engine doesn't model yet — drives the
+  //: "⚠️" marker in the picker. Filled asynchronously after the deck list
+  //: loads (one coverage check per deck), so the picker shows without waiting.
+  let unmodeledDeckIds = new Set();
   //: PLR-13: the RULE 8/9 format this goldfish game starts in (GET
   //: /api/game/formats), 'commander' until the catalogue has loaded.
   let gameFormats = null; // null = not loaded yet
@@ -148,6 +159,11 @@ export function createGoldfishView() {
       selectedValidation = null;
     }
     render();
+    // Coverage marker — non-blocking, repaints once the checks land.
+    loadUnmodeledDeckIds(savedDecks).then((ids) => {
+      unmodeledDeckIds = ids;
+      if (ids.size) render();
+    });
   }
 
   // PLR-13: the format catalogue for the picker (GET /api/game/formats) —
@@ -514,38 +530,24 @@ export function createGoldfishView() {
     root.querySelector('#gf-start-btn')?.addEventListener('click', start);
   }
 
-  // Favorites (Profil tab) first, alphabetical order preserved within each
-  // group — `Array.prototype.sort` is stable, so ties keep the server's
-  // original order rather than being re-sorted by name.
-  function decksFavoritesFirst() {
-    if (!savedDecks) return [];
-    return [...savedDecks].sort(
-      (a, b) => (favoriteDeckIds.has(b.id) ? 1 : 0) - (favoriteDeckIds.has(a.id) ? 1 : 0),
-    );
-  }
-
+  // Deck / format `<option>` lists — the favorites-first sort, the loading /
+  // error / empty states, and the format fallback are all shared with the
+  // Solo and Multiplayer pickers (`gameSetup.js`).
   function deckOptionsHtml() {
-    if (decksLoading && savedDecks === null) return '<option>Lädt …</option>';
-    if (decksLoadError) return '<option value="">— Server nicht erreichbar (⟳ erneut versuchen) —</option>';
-    if (!savedDecks || !savedDecks.length) {
-      return '<option value="">— keine gespeicherten Decks —</option>';
-    }
-    const options = ['<option value="">— Deck wählen —</option>'];
-    for (const d of decksFavoritesFirst()) {
-      const name = (d.name || '').trim() || 'Unbenanntes Deck';
-      const label = favoriteDeckIds.has(d.id) ? `★ ${name}` : name;
-      const selected = d.id === selectedDeckId ? ' selected' : '';
-      options.push(`<option value="${escapeHtml(d.id)}"${selected}>${escapeHtml(label)}</option>`);
-    }
-    return options.join('');
+    return deckSelectOptionsHtml({
+      savedDecks,
+      selectedId: selectedDeckId,
+      favoriteDeckIds,
+      unmodeledDeckIds,
+      decksLoading,
+      decksLoadError,
+      errorText: '— Server nicht erreichbar (⟳ erneut versuchen) —',
+    });
   }
 
   function formatOptionsHtml() {
     if (gameFormats === null) return '<option>Lädt …</option>';
-    if (!gameFormats.length) return '<option value="commander">Commander</option>';
-    return gameFormats
-      .map((f) => `<option value="${escapeHtml(f.name)}"${f.name === selectedFormat ? ' selected' : ''}>${escapeHtml(f.label)}</option>`)
-      .join('');
+    return formatSelectOptionsHtml(gameFormats, selectedFormat);
   }
 
   function deckLegalityHtml() {
@@ -611,22 +613,11 @@ export function createGoldfishView() {
   }
 
   function mulliganCardHtml(o, bottomCount) {
-    const imageCache = getState().imageCache;
-    const image = imageCache?.get((o.name || '').toLowerCase());
-    const inner = image?.small
-      ? `<img src="${image.small}" alt="${escapeHtml(o.name)}" loading="lazy" />`
-      : escapeHtml(o.name);
-    const selected = mulliganBottom.has(o.instance_id);
-    const classes = ['card'];
-    if (image?.small) classes.push('has-image');
-    if (bottomCount > 0) classes.push('clickable');
-    if (selected) classes.push('selected-bottom');
-    const toggleAttr = bottomCount > 0 ? ` data-bottom-toggle="${o.instance_id}"` : '';
-    return `
-      <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}"${toggleAttr}>${inner}</div>
-        ${bottomCount > 0 ? `<button type="button" class="gf-card-action" data-bottom-toggle="${o.instance_id}">${selected ? '✓ unten' : 'Nach unten legen'}</button>` : ''}
-      </div>`;
+    return mulliganTileHtml(o, {
+      imageCache: getState().imageCache,
+      selected: mulliganBottom.has(o.instance_id),
+      bottomEnabled: bottomCount > 0,
+    });
   }
 
   // The end-of-match review shown after "Beenden": the final stats digest
@@ -676,10 +667,4 @@ export function createGoldfishView() {
   }
 
   return { mount, onShown };
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str == null ? '' : String(str);
-  return div.innerHTML;
 }
