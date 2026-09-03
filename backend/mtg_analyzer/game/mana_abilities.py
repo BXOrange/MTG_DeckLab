@@ -139,6 +139,18 @@ _LAND_COULD_PRODUCE_RE = re.compile(
     r"any colou?r that a land (?P<scope>you control|an opponent controls) could produce",
     re.IGNORECASE,
 )
+#: "Add one mana of any color in your commander's color identity." (Arcane
+#: Signet, Command Tower, Commander's Sphere, Path of Ancestry, Opal Palace,
+#: Hidden Hideout, …) — same bug/fix shape as `_LAND_COULD_PRODUCE_RE`
+#: above: the bare "any color" substring in `_parse_clause` would otherwise
+#: swallow this and offer all five unconditionally, ignoring the RULE 903.4
+#: colour-identity filter. A board-dependent menu resolved against
+#: `continuous.commander_color_identity`. See `ManaAbility.color_selector`'s
+#: ``"colors_in_commanders_color_identity"``.
+_COMMANDER_IDENTITY_ADD_RE = re.compile(
+    r"any(?: one)? colou?r in your commander'?s colou?r identity",
+    re.IGNORECASE,
+)
 _PIP_RE = re.compile(r"\{([WUBRGC])\}")
 _ALTERNATIVE_SPLIT_RE = re.compile(r",| or ")
 _ALL_COLORS = ("W", "U", "B", "R", "G")
@@ -438,12 +450,14 @@ class ManaAbility:
     #:
     #: ``"colors_of_legendary_creatures_planeswalkers_you_control"``/
     #: ``"colors_of_legendary_permanents_you_control"`` (Mox Amber/Plaza of
-    #: Heroes) and ``"colors_lands_you_control_could_produce"``/
+    #: Heroes), ``"colors_lands_you_control_could_produce"``/
     #: ``"colors_lands_opponents_control_could_produce"`` (Exotic Orchard/
-    #: Fellwar Stone/Harvester Druid) are genuine menus like
-    #: ``"imprinted_card_colors"`` — one option per colour, the payer still
-    #: picks one — just with a board-dependent menu instead of a fixed one;
-    #: see `resolve_options`.
+    #: Fellwar Stone/Harvester Druid) and
+    #: ``"colors_in_commanders_color_identity"`` (Arcane Signet/Command
+    #: Tower/Commander's Sphere/Path of Ancestry — RULE 903.4) are genuine
+    #: menus like ``"imprinted_card_colors"`` — one option per colour, the
+    #: payer still picks one — just with a board-dependent menu instead of a
+    #: fixed one; see `resolve_options`.
     #:
     #: ``"devotion_to_chosen_color"`` (Nykthos, Shrine to Nyx) is the one
     #: kind here where the choice and the amount are coupled: a plain "any
@@ -783,6 +797,27 @@ def _parse_mana_ability_lines(
             abilities.append(ManaAbility(
                 cost=cost,
                 color_selector=f"colors_lands_{scope}_control_could_produce",
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
+        if _COMMANDER_IDENTITY_ADD_RE.search(effect_text):
+            # Dispatched standalone, ahead of the generic `_ADD_CLAUSE_RE`/
+            # `_parse_clause` path, so its "any color" substring isn't
+            # swallowed into an unconditional five-colour menu — same reason
+            # as `_LEGENDARY_AMONG_RE`/`_LAND_COULD_PRODUCE_RE` above. The
+            # amount is always 1 for every real printing of this phrase
+            # (Command Mine's "add two … instead" is a conditional override
+            # we don't model — its leading "add one" clause is what matches
+            # here); `resolve_options` builds the colour menu off
+            # `continuous.commander_color_identity`.
+            cost = parse_activation_cost(cost_text)
+            if cost.exile_self_from_hand != want_hand_exile:
+                continue
+            rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
+            abilities.append(ManaAbility(
+                cost=cost,
+                color_selector="colors_in_commanders_color_identity",
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
                 restriction=_parse_restriction(effect_text),
             ))
@@ -1243,6 +1278,24 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
         if not colors_present:
             return []
         return [{color: 1} for color in colors_present]
+    if ability.color_selector == "colors_in_commanders_color_identity":
+        # Arcane Signet/Command Tower/Commander's Sphere/Path of Ancestry/…:
+        # a menu of exactly the WUBRG colours in this controller's
+        # commander(s)' RULE 903.4 colour identity
+        # (`continuous.commander_color_identity`), not all five. A
+        # colourless-identity commander, a non-Commander game with no
+        # commander at all, or a bare `Card`/`GameObject` query with no
+        # ``state`` → produces nothing, the same shape every other
+        # board-dependent selector here uses.
+        if state is None:
+            return []
+        controller_id = getattr(obj, "controller_id", None)
+        if controller_id is None:
+            return []
+        identity = continuous.commander_color_identity(state, controller_id) & set(_ALL_COLORS)
+        if not identity:
+            return []
+        return [{color: 1} for color in sorted(identity)]
     if ability.amount_selector is None:
         return [dict(opt) for opt in ability.options]
     n = _resolve_amount(ability.amount_selector, obj, state)

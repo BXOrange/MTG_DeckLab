@@ -43,8 +43,27 @@ repointed there.
 
 ### Einstellungen tab + cookie-persisted settings
 
-- **What:** Player-name + server-address fields with "Speichern"/"Verbindung testen"; settings persist device-locally in cookies (`mtg_server_url`, `mtg_player_name`, 1-year expiry).
+- **What:** Server-address field with "Speichern"/"Verbindung testen"; settings persist device-locally in cookies (`mtg_server_url`, `mtg_player_name`, 1-year expiry).
 - **Files:** `connectionSettingsView.js`, `cookies.js`, `settings.js`
+
+### Einstellungen ↔ Profil split (everything player-facing → Profil)
+
+- **What:** The **Einstellungen** header tab is now *only* the backend
+  server address + connection test. Everything about the player moved to
+  the **Profil** tab: player name (already there), multiplayer default
+  settings + favorite decks (already there), and — newly relocated —
+  the **Mehrspieler: Auto-Pass** / **Mehrspieler: Spielfeld** comfort
+  toggles and the **Eigene Token-Bilder** / **Karten-Sleeves** upload
+  sections. No behaviour change: same cookie keys (`settings.js`), same
+  `player_assets.py` routes, same board hooks; only which of the two
+  `render*(container)` views builds the markup and wires the listeners.
+  `connectionSettingsView.js` dropped its `api.js` player-asset imports
+  and its `view-shown` asset-refresh handler; `profileView.js` gained
+  them and now also refreshes token art / sleeves on save and on
+  `view-shown` alongside the favorites list.
+- **Files:** `connectionSettingsView.js`, `profileView.js`
+- **Why:** "Einstellungen" had grown into a catch-all; the mental model
+  is now clean — *reaching the server* vs. *who you are / how you play*.
 
 ### VIS-1: error/loading states for network calls
 
@@ -297,7 +316,7 @@ repointed there.
 
 ### Auto-pass with countdown
 
-- **What:** A visible countdown auto-passes priority at zero when this client holds it; any board interaction cancels the window. Default on, 3s, opponent-turns-only; adjustable in Einstellungen and on the board itself.
+- **What:** A visible countdown auto-passes priority at zero when this client holds it; any board interaction cancels the window. Default on, 3s, opponent-turns-only; adjustable on the Profil tab and on the board itself.
 - **Files:** `gameBoardView.js`, `settings.js`
 
 ### Reconnect keeps your seat

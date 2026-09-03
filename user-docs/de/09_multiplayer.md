@@ -253,7 +253,7 @@ automatisch für dich.
   Wer lieber ein durchgehend festes Tempo möchte, kann auf "alle Züge"
   umstellen.
 
-Alle drei Einstellungen stehen unter **Einstellungen**; Ein/Aus und die
+Alle drei Einstellungen stehen im Tab **Profil**; Ein/Aus und die
 Sekundenzahl findest du zusätzlich direkt am Spielfeld, damit du sie
 mitten in der Partie ändern kannst — meist genau in dem Moment, in dem der
 Auto-Pass dich gerade eine Reaktion gekostet hat.
@@ -264,8 +264,8 @@ Auto-Pass dich gerade eine Reaktion gekostet hat.
   nur die *Anzahl* ("5 verdeckte Karten"). Die Karten selbst bekommt dein
   Browser ohnehin nie zu sehen (Regel 400.2 – der Server schickt sie gar
   nicht erst mit), die Kartenrücken kosteten nur Platz. Über das Häkchen
-  **verdeckte Karten zeigen** an der Handzone (oder in den
-  **Einstellungen**) bekommst du sie zurück. Karten, die ein Effekt
+  **verdeckte Karten zeigen** an der Handzone (oder im Tab
+  **Profil**) bekommst du sie zurück. Karten, die ein Effekt
   wirklich *aufdeckt*, werden immer angezeigt.
 - **⏭ Nächste Aktion**: passt alle Prioritätsfenster durch, in denen dir
   überhaupt keine Handlung offensteht, und hält beim ersten Fenster, in

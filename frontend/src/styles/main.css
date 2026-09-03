@@ -417,17 +417,23 @@ textarea {
   border: 1px solid var(--border);
 }
 
-/* Profil tab: the saved-deck checklist that toggles Deck.id favorites. */
+/* Profil tab: the saved-deck checklist that toggles Deck.id favorites —
+   laid out in two columns (fills row-wise), collapsing to one when the
+   panel is too narrow for both. */
 .profile-favorite-deck-list {
   list-style: none;
   margin: 0.5rem 0 0;
   padding: 0;
   max-height: 16rem;
   overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  column-gap: 1rem;
 }
 
 .profile-favorite-deck-list li {
   padding: 0.2rem 0;
+  min-width: 0;
 }
 
 .profile-favorite-deck-list label {
@@ -438,6 +444,11 @@ textarea {
   font-size: 0.9rem;
   text-transform: none;
   cursor: pointer;
+  min-width: 0;
+}
+
+.profile-favorite-deck-list label input[type='checkbox'] {
+  flex: none;
 }
 
 .player-asset-tile span {
@@ -1154,7 +1165,9 @@ textarea {
   padding: 1rem 1.25rem;
 }
 
-.connection-settings-panel input {
+/* Text-like fields fill the panel; checkboxes/radios keep their native box
+   (a `width: 100%` checkbox is what made the Profil toggles look shifted). */
+.connection-settings-panel input:not([type='checkbox']):not([type='radio']) {
   width: 100%;
   background: var(--bg);
   color: var(--text);
@@ -1162,6 +1175,13 @@ textarea {
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
   font-size: 0.85rem;
+}
+
+.connection-settings-panel input[type='checkbox'],
+.connection-settings-panel input[type='radio'] {
+  width: auto;
+  margin: 0;
+  flex: none;
 }
 
 /* --- Deck analysieren --- */
@@ -4867,4 +4887,20 @@ textarea {
   align-items: center;
   gap: 0.4rem;
   margin: 0.4rem 0;
+}
+
+/* This label wraps its own checkbox and names it beside it — the generic
+   `.deck-section label` (display: block, uppercase, dim) would otherwise
+   flatten it so the checkbox sits above the text. */
+.deck-section label.mp-inline-option {
+  display: flex;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  margin: 0.4rem 0;
+}
+
+.mp-inline-option input[type='checkbox'] {
+  flex: none;
+  margin: 0;
 }

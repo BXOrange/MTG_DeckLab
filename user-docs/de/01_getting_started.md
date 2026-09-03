@@ -62,8 +62,9 @@ Die Seitenleiste links ist in Gruppen unterteilt:
     spielen
   - **Puzzle/Replay** — einen beliebigen Spielzustand bauen und spielen
 - **Multiplayer** — Platzhalter, noch nicht implementiert
-- **Einstellungen** — Spielername, Server-Adresse, eigene
-  Token-Bilder und Karten-Sleeves
+- **Einstellungen** — nur die Backend-Server-Adresse
+- **Profil** — Spielername, Mehrspieler-Vorgaben, eigene Token-Bilder,
+  Karten-Sleeves und Lieblingsdecks
 - **Information**
   - **Karten-Cache** — alle bisher abgefragten Karten durchsuchen
   - **Engine-Status** — eine Übersichtsseite, was die Regel-Engine

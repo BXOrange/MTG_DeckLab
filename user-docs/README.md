@@ -26,7 +26,7 @@ followed by its translation, so you can match what's on screen either way.
 3. Deck Analysis / Deck-Analyse
 4. Goldfish Mode / Goldfisch-Modus
 5. Replay/Puzzle Mode / Replay-/Puzzle-Modus
-6. Settings & Card Art / Einstellungen & Kartenbilder
+6. Settings, Profile & Card Art / Einstellungen, Profil & Kartenbilder
 7. Card Cache / Karten-Cache
 8. Engine Status / Engine-Status
 9. Multiplayer / Multiplayer
@@ -62,7 +62,7 @@ Oberfläche passen.
 3. Deck Analysis / Deck-Analyse
 4. Goldfish Mode / Goldfisch-Modus
 5. Replay/Puzzle Mode / Replay-/Puzzle-Modus
-6. Settings & Card Art / Einstellungen & Kartenbilder
+6. Settings, Profile & Card Art / Einstellungen, Profil & Kartenbilder
 7. Card Cache / Karten-Cache
 8. Engine Status / Engine-Status
 9. Multiplayer / Multiplayer

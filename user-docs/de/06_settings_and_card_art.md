@@ -1,26 +1,60 @@
-# 6. Einstellungen & Kartenbilder
+# 6. Einstellungen, Profil & Kartenbilder
 
-Der Tab **Einstellungen** deckt deine Verbindung zum Backend-Server
-und alle selbst hochgeladenen Bilder ab.
+Zwei Icon-Buttons im Kopfbereich teilen den früheren einzelnen
+Einstellungs-Bildschirm in zwei Teile:
 
-## Spielername & Server-Adresse
+- **Einstellungen** — *nur* wie dieser Browser den Backend-Server
+  erreicht.
+- **Profil** — alles über *dich*: dein Spielername, deine
+  Mehrspieler-Vorgaben und alle selbst hochgeladenen Bilder.
 
-- **Spielername** — freier Text, ohne Konto oder Passwort dahinter.
-  Er dient nur dazu, deine hochgeladenen Token-Bilder und
-  Karten-Sleeves (unten) auf dem Server zuzuordnen, damit ein Gegner
-  auf demselben Server in einem zukünftigen Multiplayer-Spiel sie
-  ebenfalls sehen könnte.
+Als Faustregel: *den Server erreichen* ist Einstellungen, *wer du bist
+und wie du spielst* ist Profil.
+
+## Einstellungen: Server-Adresse
+
 - **Server-Adresse** — wo das Backend läuft (z. B.
   `http://localhost:8000`).
 
-Klicke auf **Speichern**, um beides zu übernehmen — sie werden in
-einem **Browser-Cookie** abgelegt, nicht serverseitig, gelten also nur
-für diesen Browser/dieses Gerät; ein anderer Browser oder Rechner
-startet wieder mit den Standardwerten. **Verbindung testen** prüft die
+Klicke auf **Speichern**, um sie zu übernehmen. Sie wird in einem
+**Browser-Cookie** abgelegt, nicht serverseitig, gilt also nur für
+diesen Browser/dieses Gerät; ein anderer Browser oder Rechner startet
+wieder mit den Standardwerten. **Verbindung testen** prüft die
 Erreichbarkeit auf Wunsch erneut; derselbe Status wird auch live im
 Kopfbereich der Seite angezeigt.
 
-## Eigene Token-Bilder
+## Profil: Spielername
+
+- **Spielername** — freier Text, ohne Konto oder Passwort dahinter. Er
+  dient dazu, deine hochgeladenen Token-Bilder, Karten-Sleeves und
+  Lieblingsdecks (unten) auf dem Server zuzuordnen, damit ein Gegner
+  auf demselben Server in einem Multiplayer-Spiel deine Bilder
+  ebenfalls sehen könnte.
+
+Klicke auf **Speichern** — ebenfalls ein Browser-Cookie, pro Gerät.
+Beim Speichern erhält dieser Browser außerdem eine unsichtbare
+Kennung (90 Tage, verlängert sich bei jedem Speichern), damit ein
+zweiter Browser mit demselben Namen nicht deinen Platz am Tisch belegt.
+
+## Profil: Mehrspieler-Standardeinstellungen
+
+**Mehrspieler: Standardeinstellungen** — Format, Platzanzahl,
+Mulligan-Regel, Take-backs je Spieler und die Auslos-Schalter für
+Regel 103.1/103.2. Sie werden automatisch auf einen Tisch übernommen,
+den *du* eröffnest (im Tab **Multiplayer**); am Tisch selbst bleibt
+das als Host jederzeit änderbar.
+
+## Profil: Auto-Pass & Spielfeld-Komfort
+
+**Mehrspieler: Auto-Pass** und **Mehrspieler: Spielfeld** — die
+Komfort-Schalter dieses Browsers (Auto-Pass ein/aus, Bedenkzeit in
+Sekunden, ob er auch in eigenen Zügen läuft, "sofort passen, wenn
+nichts zu tun ist", und ob die gegnerische Hand als verdeckte Karten
+oder bloß als Zahl gezeichnet wird). All das ist *auch* direkt am
+Spielfeld während einer Partie änderbar. Was sie bewirken, steht in
+Kapitel 9.
+
+## Profil: Eigene Token-Bilder
 
 Manche Token, die ein Effekt im Spielverlauf erzeugt, haben keine
 echte Magic-Karte dahinter (z. B. ein schlichter "1/1 weißer Soldier")
@@ -39,7 +73,7 @@ Dafür muss zuerst ein Spielername gespeichert sein. Hochgeladene
 Bilder erscheinen als Kachel-Raster unter dem Formular, jeweils mit
 einem **Löschen**-Button.
 
-## Karten-Sleeves
+## Profil: Karten-Sleeves
 
 Unter **Karten-Sleeves** kannst du eigene Kartenrückseiten-Designs
 hochladen, jeweils mit einer eigenen Bezeichnung. Nach dem Hochladen
@@ -53,3 +87,9 @@ auf eine echte doppelseitige Karte hat er keine sichtbare Auswirkung
 modellierten verdeckten Zustand (wie Morph) gibt, der ihn bräuchte.
 Betrachte es eher als Vorarbeit für später als als etwas, das sich
 heute schon sichtbar auswirkt.
+
+## Profil: Lieblingsdecks
+
+Unter **Lieblingsdecks** kannst du eine Teilmenge deiner gespeicherten
+Decks mit einem Stern markieren. Markierte Decks stehen in der
+Deck-Auswahl im Goldfisch-Modus und in der Mehrspieler-Lobby zuerst.

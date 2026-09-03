@@ -55,8 +55,9 @@ The sidebar on the left is grouped into sections:
     engine
   - **Puzzle/Replay** — build and play an arbitrary board state
 - **Multiplayer** — stub, not yet implemented
-- **Einstellungen** (settings) — player name, server address, custom
-  token art and card sleeves
+- **Einstellungen** (settings) — the backend server address only
+- **Profil** (profile) — player name, multiplayer preferences, custom
+  token art, card sleeves and favorite decks
 - **Information**
   - **Karten-Cache** (card cache) — browse every card the app has
     looked up so far

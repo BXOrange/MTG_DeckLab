@@ -209,3 +209,107 @@ def test_with_no_state_produces_nothing_rather_than_guessing():
     obj = GameObject(mox_card, owner_id="p1", zone=Zone.BATTLEFIELD)
     ability = mana_abilities.parse_mana_abilities(mox_card)[0]
     assert mana_abilities.resolve_options(ability, obj, state=None) == []
+
+
+# ---------------------------------------------------------------------------
+# Arcane Signet / Command Tower / Commander's Sphere / Path of Ancestry —
+# "any color in your commander's color identity" (RULE 903.4), the same
+# bug/fix shape: the bare "any color" substring made these unconditional
+# 5-colour rocks, ignoring the identity filter entirely.
+# ---------------------------------------------------------------------------
+
+
+def _commander_on_battlefield(eng, identity, controller="p1"):
+    card = Card(
+        id=f"cmdr-{''.join(sorted(identity)) or 'C'}",
+        name="Test Commander",
+        type_line="Legendary Creature — Avatar",
+        color_identity=set(identity),
+    )
+    obj = GameObject(card, owner_id=controller, zone=Zone.BATTLEFIELD, is_commander=True)
+    obj.summoning_sick = False
+    eng.state.add_to_battlefield(obj)
+    return obj
+
+
+def test_arcane_signet_parses_to_a_commander_identity_selector_not_five_colours():
+    ability = mana_abilities.parse_mana_abilities(_card("Arcane Signet"))[0]
+    assert ability.color_selector == "colors_in_commanders_color_identity"
+    assert ability.options == []  # no fixed menu — built off the board
+
+
+def test_arcane_signet_offers_only_the_commanders_identity_colours():
+    eng, p1, p2 = two_player_engine()
+    _commander_on_battlefield(eng, {"W", "U", "B"})
+    signet = battlefield(eng, _card("Arcane Signet"))
+    [ability] = mana_abilities.mana_abilities_for(signet, state=eng.state)
+    assert mana_abilities.resolve_options(ability, signet, eng.state) == [
+        {"B": 1}, {"U": 1}, {"W": 1},
+    ]
+
+
+def test_arcane_signet_mono_colour_commander_offers_exactly_one_colour():
+    eng, p1, p2 = two_player_engine()
+    _commander_on_battlefield(eng, {"B"})
+    signet = battlefield(eng, _card("Arcane Signet"))
+    [ability] = mana_abilities.mana_abilities_for(signet, state=eng.state)
+    assert mana_abilities.resolve_options(ability, signet, eng.state) == [{"B": 1}]
+
+
+def test_arcane_signet_ignores_an_opponents_commander():
+    eng, p1, p2 = two_player_engine()
+    _commander_on_battlefield(eng, {"R", "G"}, controller="p2")
+    signet = battlefield(eng, _card("Arcane Signet"), controller="p1")
+    [ability] = mana_abilities.mana_abilities_for(signet, state=eng.state)
+    assert mana_abilities.resolve_options(ability, signet, eng.state) == []
+
+
+def test_arcane_signet_counts_a_commander_still_in_the_command_zone():
+    eng, p1, p2 = two_player_engine()
+    card = Card(
+        id="cmdr-UG", name="Test Commander",
+        type_line="Legendary Creature — Avatar", color_identity={"U", "G"},
+    )
+    cmdr = GameObject(card, owner_id="p1", zone=Zone.COMMAND, is_commander=True)
+    p1.zones[Zone.COMMAND].append(cmdr)
+    signet = battlefield(eng, _card("Arcane Signet"))
+    [ability] = mana_abilities.mana_abilities_for(signet, state=eng.state)
+    assert mana_abilities.resolve_options(ability, signet, eng.state) == [{"G": 1}, {"U": 1}]
+
+
+def test_arcane_signet_produces_nothing_with_no_commander_at_all():
+    eng, p1, p2 = two_player_engine()
+    signet = battlefield(eng, _card("Arcane Signet"))
+    [ability] = mana_abilities.mana_abilities_for(signet, state=eng.state)
+    assert mana_abilities.resolve_options(ability, signet, eng.state) == []
+
+
+def test_command_tower_and_path_of_ancestry_share_the_shape():
+    for name in ("Command Tower", "Commander's Sphere", "Path of Ancestry"):
+        abilities = mana_abilities.parse_mana_abilities(_card(name))
+        identity_abilities = [
+            a for a in abilities
+            if a.color_selector == "colors_in_commanders_color_identity"
+        ]
+        assert len(identity_abilities) == 1, name
+
+
+def test_arcane_signet_tap_for_mana_produces_an_identity_colour():
+    eng, p1, p2 = two_player_engine()
+    _commander_on_battlefield(eng, {"B"})
+    signet = battlefield(eng, _card("Arcane Signet"))
+    produced = eng.tap_for_mana(p1, signet, option_index=0)
+    assert produced == {"B": 1}
+
+
+def test_arcane_signet_legal_actions_offer_only_identity_colours():
+    eng, p1, p2 = two_player_engine()
+    _commander_on_battlefield(eng, {"W", "B"})
+    signet = battlefield(eng, _card("Arcane Signet"))
+    taps = [
+        a for a in eng.legal_actions(p1)
+        if a.get("type") == "tap_for_mana" and a.get("instance_id") == signet.instance_id
+    ]
+    assert len(taps) == 1
+    produced_colours = {c for opt in taps[0]["options"] for c in opt["mana"]}
+    assert produced_colours == {"W", "B"}
