@@ -23875,8 +23875,15 @@ def _die_to_exile_replacement(params: dict[str, Any]) -> ReplacementEffect:
             return src is not None and controller_id == src.controller_id
         if subject == "opponents_control":
             return src is not None and controller_id not in (None, src.controller_id)
-        if subject == "damaged_by_source_this_turn":
-            return src is not None and getattr(src, "instance_id", None) in (
+        if subject in ("damaged_by_source_this_turn", "damaged_by_attached_this_turn"):
+            if src is None:
+                return False
+            source_id = getattr(src, "instance_id", None)
+            if subject == "damaged_by_attached_this_turn":
+                # "…dealt damage by **enchanted creature**" (Kumano's
+                # Blessing) — the source is this Aura's host.
+                source_id = getattr(src, "attached_to", None)
+            return source_id is not None and source_id in (
                 _context.state.creatures_damaged_by_source_this_turn.get(target_id, ())
             )
         return True  # "any"

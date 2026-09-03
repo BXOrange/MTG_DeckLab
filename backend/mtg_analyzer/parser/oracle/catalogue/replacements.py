@@ -167,10 +167,11 @@ _COUNTERS_YOU_CONTROL_DOUBLE_RE = re.compile(
 _DIE_TO_EXILE_RE = re.compile(
     r"if (?P<subject>this creature|~|a creature you control|"
     r"a creature an opponent controls|"
-    # MEC-49: "a creature/permanent dealt damage by ~ this turn" (Baron
-    # Sengir's back-face family) — scoped by damage history, checked
-    # against `GameState.creatures_damaged_by_source_this_turn`.
-    r"a (?:creature|permanent) dealt damage by ~ this turn|"
+    # MEC-49: "a creature/permanent dealt damage by ~ / enchanted creature
+    # this turn" (Kumano, Master Yamabushi / Kumano's Blessing) — scoped by
+    # damage history, checked against
+    # `GameState.creatures_damaged_by_source_this_turn`.
+    r"a (?:creature|permanent) dealt damage by (?:~|enchanted creature) this turn|"
     r"a creature) would die(?: this turn)?, exile (?:it|that creature|that permanent) instead",
     re.IGNORECASE,
 )
@@ -181,6 +182,8 @@ _DIE_SUBJECT_MAP = {
     "a creature an opponent controls": "opponents_control",
     "a creature dealt damage by ~ this turn": "damaged_by_source_this_turn",
     "a permanent dealt damage by ~ this turn": "damaged_by_source_this_turn",
+    "a creature dealt damage by enchanted creature this turn": "damaged_by_attached_this_turn",
+    "a permanent dealt damage by enchanted creature this turn": "damaged_by_attached_this_turn",
     "a creature": "any",
 }
 

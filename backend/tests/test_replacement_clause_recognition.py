@@ -545,11 +545,14 @@ def test_die_to_exile_subject_recognition():
         "If a creature you control would die, exile it instead.": "you_control",
         "If a creature an opponent controls would die, exile it instead.": "opponents_control",
         "If a creature would die, exile it instead.": "any",
-        # MEC-49 — Baron Sengir / Kumano's back-face family.
+        # MEC-49 — Kumano / Baron Sengir's back-face family.
         "If a creature dealt damage by ~ this turn would die, exile it instead.":
             "damaged_by_source_this_turn",
         "If a permanent dealt damage by ~ this turn would die this turn, exile that permanent instead.":
             "damaged_by_source_this_turn",
+        # …and the Aura-hosted variant (Kumano's Blessing).
+        "If a creature dealt damage by enchanted creature this turn would die, exile it instead.":
+            "damaged_by_attached_this_turn",
     }
     for text, subject in cases.items():
         (spec,) = replacement_clause_specs(text)

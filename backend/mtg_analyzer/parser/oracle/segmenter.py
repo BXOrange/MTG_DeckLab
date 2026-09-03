@@ -1069,8 +1069,11 @@ _GOADED_SUBJECT_RE = re.compile(
 #: source_this_turn` lookup keyed on this ability's own source). Only
 #: "dies" appears on real cards; the dying creature is anyone's ("a
 #: creature", no "you control").
+#: ``by ~`` — this ability's own source; ``by enchanted creature`` — the
+#: Aura's host (Vampiric Embrace), resolved via ``via_attached`` in
+#: `_build_group_ok`.
 _DAMAGED_BY_SOURCE_SUBJECT_RE = re.compile(
-    r"^a\s+creature\s+dealt\s+damage\s+by\s+~\s+this\s+turn\s+dies$"
+    r"^a\s+creature\s+dealt\s+damage\s+by\s+(?P<by>~|enchanted creature)\s+this\s+turn\s+dies$"
 )
 
 #: RULE 603.1's condition subject, scoped by a **creature subtype** instead
@@ -2394,17 +2397,21 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             "controller": "you",
             "other": True,
         }
-    # MEC-49 — "a creature dealt damage by ~ this turn dies" (before
-    # `_GROUP_SUBJECT_RE`, which would stop at "creature" and choke on the
-    # "dealt damage by ~ this turn" tail).
-    if _DAMAGED_BY_SOURCE_SUBJECT_RE.match(cond):
-        return {
+    # MEC-49 — "a creature dealt damage by ~ / enchanted creature this turn
+    # dies" (before `_GROUP_SUBJECT_RE`, which would stop at "creature" and
+    # choke on the "dealt damage by …" tail).
+    dbs = _DAMAGED_BY_SOURCE_SUBJECT_RE.match(cond)
+    if dbs is not None:
+        out = {
             "subject": "group",
             "type": "creature",
             "controller": "any",
             "other": False,
             "damaged_by_source_this_turn": True,
         }
+        if dbs.group("by") == "enchanted creature":
+            out["via_attached"] = True
+        return out
     # Before `_GROUP_SUBJECT_RE`, which would otherwise fail on the "goaded"
     # word entirely (it isn't in `_GROUP_TYPE_WORDS`) and leave the clause
     # unclaimed.

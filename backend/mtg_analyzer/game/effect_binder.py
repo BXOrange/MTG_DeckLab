@@ -552,6 +552,9 @@ def _build_group_ok(
     # under this ability's own source. A pure history lookup (the object is
     # gone by DIES), keyed on this ability's source like `crewed_by_self`.
     want_damaged_by_self = bool(condition.get("damaged_by_source_this_turn"))
+    # "…by **enchanted creature**" (Vampiric Embrace) — the damage source is
+    # this Aura's host, not the Aura itself.
+    damaged_by_via_attached = bool(condition.get("via_attached"))
 
     def _group_ok(
         event: Any,
@@ -575,6 +578,7 @@ def _build_group_ok(
         want_nonland=want_nonland,
         want_not_entered_via_self=want_not_entered_via_self,
         want_damaged_by_self=want_damaged_by_self,
+        damaged_by_via_attached=damaged_by_via_attached,
     ) -> bool:
         event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
@@ -671,11 +675,17 @@ def _build_group_ok(
             if iid is None or event_instance is None:
                 return False
             state = getattr(context, "state", None)
+            source_id = iid
+            if damaged_by_via_attached:
+                aura = state.find_object(iid) if state is not None else None
+                source_id = getattr(aura, "attached_to", None)
+                if source_id is None:
+                    return False
             hit_by = (
                 getattr(state, "creatures_damaged_by_source_this_turn", {}).get(event_instance, ())
                 if state is not None else ()
             )
-            if iid not in hit_by:
+            if source_id not in hit_by:
                 return False
         if want_goaded or want_in_combat:
             snapshot_goaded = event.get("goaded")

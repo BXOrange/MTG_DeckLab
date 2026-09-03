@@ -2278,7 +2278,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: simplification). +8 (Abattoir Ghoul, Baron Sengir, Armor Thrull,
 #: Proper Burial, Shield Sphere, Spirit Shackle, Trostani Selesnya's
 #: Voice, Experiment Five).
-PARSER_VERSION = "221"
+#: v222 — MEC-49 (fully closed) — the Aura-hosted "…dealt damage by
+#: **enchanted creature** this turn" variant (Kumano's Blessing).
+#: `_DAMAGED_BY_SOURCE_SUBJECT_RE` / `_DIE_TO_EXILE_RE` accept "enchanted
+#: creature" as the damage source; `_build_group_ok`'s `via_attached` and
+#: `die_to_exile` `subject="damaged_by_attached_this_turn"` resolve it to
+#: the Aura's `attached_to`. +1. (Vampiric Embrace still needs a "counter
+#: on that creature" body — a dead-on-arrival nonbo, not pursued.)
+PARSER_VERSION = "222"
 
 
 def parser_source_hash() -> str:

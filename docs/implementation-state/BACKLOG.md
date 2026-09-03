@@ -232,15 +232,6 @@ Plan-level sequencing lives in
   back as a colour-chosen copy / a sacrifice-timed token" effect (not yet
   built — see that table's row) plus the keyword-cost recognition. One
   batch: primitive + `catalogue/` handler + `PARSER_VERSION` bump.
-- **MEC-49 · Per-turn damage-source attribution — Aura-hosted tail.** The
-  attribution primitive + DIES trigger condition (v219, +8), the
-  `die_to_exile` replacement form (v220, +4) and the two body gaps —
-  "gain life equal to that creature's toughness" on a group trigger,
-  "+N/+N counter" (v221, +8) — are all done (see `Done_Backend.md`). Only
-  left: the **Aura-hosted** variant "if a creature dealt damage by
-  **enchanted creature** this turn would die, exile it instead" (a
-  `die_to_exile` subject reading the Aura's `attached_to` as the damage
-  source) — one card, low priority.
 - **MEC-51 · Control another player's turn (or a part of it — e.g. a
   combat phase).** "You control target opponent during their next turn."
   (Mindslaver, Sorin Markov's `−7`, Emrakul, the Promised End, Worst

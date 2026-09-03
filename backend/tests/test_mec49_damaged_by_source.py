@@ -89,6 +89,38 @@ def test_trigger_condition_parses_to_the_group_history_shape():
     assert cond.get("controller") == "any"
 
 
+def test_aura_hosted_dealt_damage_by_enchanted_creature_condition_shape():
+    card = Card(
+        id="VE", name="Vampiric Embrace", type_line="Enchantment — Aura",
+        oracle_text=(
+            "Enchant creature\n"
+            "Whenever a creature dealt damage by enchanted creature this turn "
+            "dies, you gain 2 life."
+        ),
+    )
+    res = parse_oracle(card)
+    assert res.modeled, res.unclaimed
+    trig = next(s for s in res.specs if s.ability_kind == "triggered")
+    cond = trig.trigger["condition"]
+    assert cond["damaged_by_source_this_turn"] is True
+    assert cond["via_attached"] is True
+
+
+def test_real_card_kumanos_blessing_is_modeled():
+    card = Card(
+        id="KB", name="Kumano's Blessing", type_line="Enchantment — Aura",
+        oracle_text=(
+            "Flash\nEnchant creature\n"
+            "If a creature dealt damage by enchanted creature this turn would "
+            "die, exile it instead."
+        ),
+    )
+    res = parse_oracle(card)
+    assert res.modeled, res.unclaimed
+    repl = next(s for s in res.specs if s.ability_kind == "replacement")
+    assert repl.effects[0].params == {"subject": "damaged_by_attached_this_turn"}
+
+
 def test_real_card_blood_cultist_is_modeled():
     card = Card(
         id="BC", name="Blood Cultist", type_line="Creature — Human Wizard",
