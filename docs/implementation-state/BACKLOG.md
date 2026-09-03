@@ -22,6 +22,13 @@ Ticket ids are stable; reuse a retired id only for the same subject.
 Plan-level sequencing lives in
 [10_COMPLETION_ROADMAP.md](10_COMPLETION_ROADMAP.md).
 
+**Parked tickets and permanent non-goals live in [DEFERRED.md](DEFERRED.md)**,
+not here — low-priority / large-and-unscheduled work, plus the "never to be
+built" guardrails (Stickers, Attractions, Vanguard avatars). Keeping them out
+of this file is deliberate: `BACKLOG.md` is read in full often, so it holds
+only work that's actually up for scheduling. Promote a parked ticket by moving
+its block back into the matching section here.
+
 | Prefix | Category |
 | --- | --- |
 | `ENG` | Game engine — turn/stack/priority loop, layers, targeting, combat plumbing |
@@ -36,14 +43,7 @@ Plan-level sequencing lives in
 
 ## ENG — Game engine
 
-> **(none open.)** ENG-31 (parametric keyword *grants*, PARSER_VERSION
-> 128), ENG-33 (villainous / vote option bodies, 129–132) and ENG-32
-> (Waterbend, 131) — the three engine primitives PAR-29's keyword-action
-> handlers needed — have all shipped; see `Done_Backend.md`. PAR-30
-> (PAR-29's parser trail) is closed too; the six cards its
-> reanimator-token / villainous-choice residue still couldn't reach are
-> each blocked on a distinct **engine** primitive now, tracked as
-> **MEC-52** under `## MEC` below.
+> **(none open.)**
 
 ## PAR — Parser
 
@@ -67,7 +67,7 @@ Plan-level sequencing lives in
   already recognized, only the bodies are exotic even by tail standards.
   (Reaching a Planechase/Archenemy/Vanguard table at all is wired up end
   to end already — see Done_Backend.md "PLR-13"; Vanguard's own avatar
-  picker/text is a permanent non-goal, see the MEC callout below.)
+  picker/text is a permanent non-goal, see [DEFERRED.md](DEFERRED.md).)
 
   > **Ticket-id note:** every number from `PAR-1` through `PAR-30` is
   > already a real, shipped, cross-referenced ticket elsewhere in this
@@ -217,28 +217,6 @@ Plan-level sequencing lives in
 
 ## MEC — Game mechanics
 
-- **MEC-48 · Specialize riders (Alchemy — digital keyword).** The core
-  Specialize keyword shipped in MEC-48 (v223): parser recognition of a bare
-  "Specialize {cost}" line, `effect_binder._specialize_activated_ability`
-  (a real sorcery-speed "{cost}, Discard a card" activated ability →
-  `SpecializeEffect`, a `GameObject.is_specialized` designation +
-  `EventType.SPECIALIZED`; the per-colour face swap is a documented
-  simplification, no face data in the seed), and the "specializes" trigger
-  verb — see `Done_Backend.md`. **Still open:** a handful of cards print
-  the keyword *with a rules rider on the same line*, held UNMODELED by
-  `segmenter._SPECIALIZE_WITH_RIDER_RE` rather than greedily over-claimed —
-  each is a small activated-ability-modifier follow-up:
-  - "Specialize {5}. This ability costs {3} less to activate if there are
-    2+ instant/sorcery cards in your graveyard." (Imoen) — a conditional
-    activation-cost reduction.
-  - "Specialize {2}. Activate only if a player has 13 or less life." /
-    "…if you control 6 or more lands." (Shadowheart, Lukamina) — an
-    `ACTIVATION_CONDITION_MARKER` gated on a `static_conditions` predicate
-    (needs a `player_life_at_most` kind).
-  - "Specialize {6}. You may also activate this ability if ~ is in your
-    graveyard." (Karlach) — an alternate activation zone on an activated
-    ability (`ActivationCost.graveyard_zone` as an *also*, not a
-    replacement).
 - **MEC-51 · Control another player's turn (or a part of it — e.g. a
   combat phase).** "You control target opponent during their next turn."
   (Mindslaver, Sorin Markov's `−7`, Emrakul, the Promised End, Worst
@@ -313,27 +291,6 @@ Plan-level sequencing lives in
     those exiled cards** to that player" — needs a "damage = summed MV of
     the cards exiled this way" amount source.
 
-> **Permanent non-goals** (never to be built, not gaps): Stickers (RULE
-> 123) and Attractions (RULE 717) — `gate.parse_oracle` classifies mentions
-> of the former `NEVER_SUPPORTED`, a verdict kept out of both the coverage
-> count and the backlog ranking. **Vanguard (RULE 902) beyond its already-
-> shipped hand-size/life-total modifiers** — its ~107 avatars are a small,
-> long-retired supplemental-product pool (not a real deck, no set is
-> designed around it today), so neither a per-seat avatar picker (every
-> seat just gets a random avatar — the modifiers apply regardless of which
-> one) nor parser handlers for individual avatars' extra rules text will be
-> built. Structurally enforced already, not just documented:
-> `scripts/import_bulk.py`'s `_SKIP_LAYOUTS` drops the Scryfall `vanguard`
-> layout from `cache/db/cards.db` entirely (0 of the 34,208 cached cards),
-> so avatar text can never surface in `coverage_report.py`/
-> `processing_list.py`'s ranking in the first place — the committed
-> `services/variant_card_database.py` pool they live in instead is never
-> read by either. `game/effect_binder.bind_from_catalogue` still binds
-> whatever a general-purpose handler happens to already recognize when an
-> avatar is actually boarded (RULE 902.2), same as any other unregistered
-> card — that's ordinary runtime behavior, not scheduled work, and needs no
-> special-casing to stay that way.
-
 ## PLR — Player management
 
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token
@@ -347,16 +304,6 @@ Plan-level sequencing lives in
   opened Profil still resolves purely by name, the original "two people
   sharing a name share a seat" collision. Fine for a LAN table, not for
   anything public.
-- **PLR-14 · Team variants (RULE 809/810/811).** Two-Headed Giant, Emperor
-  and Grand Melee are the part of CR 8 that `models/game_format.py`
-  deliberately doesn't model: unlike the RULE 9 variants (which add a card
-  pool beside the game) these change the **turn structure itself** — a
-  shared life total, two players taking one turn together, a "defending
-  team" in combat, RULE 810.8's shared damage assignment. That's a turn-loop
-  and combat project, not a format record. The seats it needs exist now (a
-  table opens for up to four), so what's left is genuinely the turn loop;
-  reaching it from the UI follows the same already-shipped format-picker
-  pattern the RULE 9 variants use (Done_Backend.md "PLR-13").
 
 ## VIS — Visuals
 
