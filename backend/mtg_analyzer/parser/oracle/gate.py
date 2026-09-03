@@ -2259,7 +2259,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `effect_binder._build_group_ok`'s new `damaged_by_source_this_turn`
 #: key (a pure history lookup keyed on this ability's own source, like
 #: `crewed_by_self`). +8 covered. `tests/test_mec49_damaged_by_source.py`.
-PARSER_VERSION = "219"
+#: v220 — MEC-49 (narrowed) — the *replacement* form. `catalogue/
+#: replacements._DIE_TO_EXILE_RE` widened for "if a creature/permanent
+#: **dealt damage by ~ this turn** would die[ this turn], exile it/that
+#: `<x>` instead" → `die_to_exile` `subject="damaged_by_source_this_turn"`,
+#: a new branch in `_die_to_exile_replacement._applies` checking the dying
+#: object against `GameState.creatures_damaged_by_source_this_turn` keyed
+#: on this ability's source. +4 (Kumano, Master Yamabushi / Kumano's
+#: Pupils / Frostwielder / Incendiary Oracle).
+PARSER_VERSION = "220"
 
 
 def parser_source_hash() -> str:

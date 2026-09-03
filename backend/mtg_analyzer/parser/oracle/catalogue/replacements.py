@@ -166,7 +166,12 @@ _COUNTERS_YOU_CONTROL_DOUBLE_RE = re.compile(
 #: creature" (any). The trailing referent ("it") is along for the ride.
 _DIE_TO_EXILE_RE = re.compile(
     r"if (?P<subject>this creature|~|a creature you control|"
-    r"a creature an opponent controls|a creature) would die, exile it instead",
+    r"a creature an opponent controls|"
+    # MEC-49: "a creature/permanent dealt damage by ~ this turn" (Baron
+    # Sengir's back-face family) — scoped by damage history, checked
+    # against `GameState.creatures_damaged_by_source_this_turn`.
+    r"a (?:creature|permanent) dealt damage by ~ this turn|"
+    r"a creature) would die(?: this turn)?, exile (?:it|that creature|that permanent) instead",
     re.IGNORECASE,
 )
 _DIE_SUBJECT_MAP = {
@@ -174,6 +179,8 @@ _DIE_SUBJECT_MAP = {
     "~": "self",
     "a creature you control": "you_control",
     "a creature an opponent controls": "opponents_control",
+    "a creature dealt damage by ~ this turn": "damaged_by_source_this_turn",
+    "a permanent dealt damage by ~ this turn": "damaged_by_source_this_turn",
     "a creature": "any",
 }
 

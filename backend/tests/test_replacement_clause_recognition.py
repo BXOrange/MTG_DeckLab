@@ -545,10 +545,55 @@ def test_die_to_exile_subject_recognition():
         "If a creature you control would die, exile it instead.": "you_control",
         "If a creature an opponent controls would die, exile it instead.": "opponents_control",
         "If a creature would die, exile it instead.": "any",
+        # MEC-49 — Baron Sengir / Kumano's back-face family.
+        "If a creature dealt damage by ~ this turn would die, exile it instead.":
+            "damaged_by_source_this_turn",
+        "If a permanent dealt damage by ~ this turn would die this turn, exile that permanent instead.":
+            "damaged_by_source_this_turn",
     }
     for text, subject in cases.items():
         (spec,) = replacement_clause_specs(text)
         assert spec.type == "die_to_exile" and spec.params == {"subject": subject}, text
+
+
+def test_die_to_exile_damaged_by_source_only_exiles_what_this_source_hit():
+    eng = _make_engine()
+    kumano = _spirit(
+        "Kumano, Master Yamabushi", "p1",
+        "If a creature dealt damage by ~ this turn would die, exile it instead.",
+    )
+    bind_from_catalogue(kumano)
+    eng.state.add_to_battlefield(kumano)
+
+    hit = GameObject(Card(id="Hit", name="Hit", type_line="Creature — Bear", is_creature=True,
+                          power=2, toughness=2), owner_id="p2", zone=Zone.BATTLEFIELD)
+    missed = GameObject(Card(id="Missed", name="Missed", type_line="Creature — Bear", is_creature=True,
+                             power=2, toughness=2), owner_id="p2", zone=Zone.BATTLEFIELD)
+    eng.state.add_to_battlefield(hit)
+    eng.state.add_to_battlefield(missed)
+
+    eng.rules.deal_damage(hit, 1, source=kumano)
+
+    eng.rules.destroy(hit, can_be_regenerated=False)
+    eng.rules.destroy(missed, can_be_regenerated=False)
+    assert hit.zone == Zone.EXILE
+    assert missed.zone == Zone.GRAVEYARD  # never damaged by Kumano
+
+
+def test_die_to_exile_damaged_by_source_real_card_modeled():
+    card = Card(
+        id="KMY", name="Kumano, Master Yamabushi",
+        type_line="Legendary Creature — Human Monk", is_creature=True, power=4, toughness=4,
+        oracle_text=(
+            "{1}{R}: Kumano, Master Yamabushi deals 1 damage to any target.\n"
+            "If a creature dealt damage by Kumano, Master Yamabushi this turn would "
+            "die, exile it instead."
+        ),
+    )
+    res = parse_oracle(card)
+    assert res.coverage == MODELED, res.unclaimed
+    repl = next(s for s in res.specs if s.ability_kind == "replacement")
+    assert repl.effects[0].params == {"subject": "damaged_by_source_this_turn"}
 
 
 def _spirit(name, controller, text=""):

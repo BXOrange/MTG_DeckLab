@@ -23844,7 +23844,12 @@ def _die_to_exile_replacement(params: dict[str, Any]) -> ReplacementEffect:
     ``target_id``/``controller_id`` against ``effect.source``:
     ``"self"`` (Gloomshrieker — only the source itself), ``"you_control"``
     (a creature its controller controls), ``"opponents_control"``
-    (Corpseweaver Prodigy — a creature an opponent controls), or ``"any"``.
+    (Corpseweaver Prodigy — a creature an opponent controls), ``"any"``, or
+    ``"damaged_by_source_this_turn"`` (MEC-49 — "if a creature/permanent
+    dealt damage by ~ this turn would die, exile it instead" — Baron
+    Sengir's back-face family: the dying object's id must be in
+    `GameState.creatures_damaged_by_source_this_turn` keyed under this
+    ability's own source).
     """
     subject = params.get("subject", "self")
     effect = ReplacementEffect(
@@ -23863,6 +23868,10 @@ def _die_to_exile_replacement(params: dict[str, Any]) -> ReplacementEffect:
             return src is not None and controller_id == src.controller_id
         if subject == "opponents_control":
             return src is not None and controller_id not in (None, src.controller_id)
+        if subject == "damaged_by_source_this_turn":
+            return src is not None and getattr(src, "instance_id", None) in (
+                _context.state.creatures_damaged_by_source_this_turn.get(target_id, ())
+            )
         return True  # "any"
 
     def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:

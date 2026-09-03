@@ -232,18 +232,19 @@ Plan-level sequencing lives in
   back as a colour-chosen copy / a sacrifice-timed token" effect (not yet
   built — see that table's row) plus the keyword-cost recognition. One
   batch: primitive + `catalogue/` handler + `PARSER_VERSION` bump.
-- **MEC-49 · Per-turn damage-source attribution — the *replacement* form.**
-  The attribution primitive shipped PARSER_VERSION 219 (`GameState.
-  creatures_damaged_by_source_this_turn` + the `whenever a creature dealt
-  damage by ~ this turn dies, …` DIES trigger condition, +8 — see
-  `Done_Backend.md`). Still open: **"if a creature dealt damage by ~ this
-  turn would die, exile it instead."** (~4 SOLO — the O-Ring-of-death
-  shape) — a RULE 616 replacement that filters the dying object against
-  the same map, reusing the existing exile-instead-of-death replacement.
-  Plus two per-card body gaps the trigger form left: `put a +2/+2 counter`
-  (Baron Sengir — an `add_counters` kind gap) and `you gain life equal to
-  that creature's toughness` (Abattoir Ghoul — `GainLifeEffect.amount_
-  from_subject` for a group-trigger subject).
+- **MEC-49 · Per-turn damage-source attribution — residue.** The
+  attribution primitive (`GameState.creatures_damaged_by_source_this_turn`)
+  plus the DIES trigger condition shipped v219 (+8), and the `die_to_exile`
+  replacement form ("if a creature/permanent dealt damage by ~ this turn
+  would die, exile it instead") shipped v220 (+4) — see `Done_Backend.md`.
+  Left: the **Aura-hosted** variant "if a creature dealt damage by
+  **enchanted creature** this turn would die, exile it instead" (a
+  `die_to_exile` subject reading `source.attached_to` as the damage
+  source), and two per-card body gaps — `put a +2/+2 counter` (Baron
+  Sengir — an `add_counters` kind gap) and `you gain life equal to that
+  creature's toughness` (Abattoir Ghoul — `GainLifeEffect.amount_from_
+  subject` for a group-trigger subject; the primitive exists, just not
+  wired for this trigger shape).
 - **MEC-51 · Control another player's turn (or a part of it — e.g. a
   combat phase).** "You control target opponent during their next turn."
   (Mindslaver, Sorin Markov's `−7`, Emrakul, the Promised End, Worst
