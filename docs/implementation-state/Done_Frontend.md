@@ -262,6 +262,12 @@ repointed there.
 - **Files:** `goldfishView.js`, `gameBoardView.js`
 - **Bug fixed:** `legal_actions` had surfaced kicker fields since an earlier batch, but neither the board nor `game_session.py`'s `cast_spell` handler ever read/forwarded a `kicked` field — so kicker payment couldn't have worked end-to-end regardless of UI. Fixed both sides together.
 
+### Additional-cost discard picker (RULE 601.2b / 602.1)
+
+- **What:** A spell whose additional cast cost is "discard N cards" (Thrill of Possibility, Cathartic Reunion, Tormenting Voice, Wild Guess, Big Score, …) now opens the same one-pick-at-a-time modal the tap/sacrifice cost choices use, so the player chooses *which* cards pay it, and the picks ride the cast action as `discard_choices`. The modal heading/glyph (🗑️) mark it as a cost choice, not a RULE 115 target.
+- **Files:** `gameBoardView.js` (`data-discard-choice-start` branch + handler, `isDiscardChoice` in `finishCastIfReady`/`castTargetModalHtml`/draft-restore), `game/engine/legal_actions_mixin.py` (`_cast_action` surfaces `discard_cost` = `{count, options}`), `services/game_session.py` (`_dispatch_cast_spell` now resolves and forwards `sacrifice_choice`/`discard_choices`).
+- **Bug fixed:** the engine (`_resolve_discard_cost`, ENG-3) had accepted `discard_choices` on `cast_spell` since the cost-payment-choices batch, but `_dispatch_cast_spell` silently dropped the field (same shape as the earlier `kicked` bug) and the board never prompted — so a rummage spell always auto-discarded the front of the hand with no way to choose. Fixed all three layers together; covered by `test_game_session.py::test_cast_spell_forwards_discard_choices_for_an_additional_cost`.
+
 ## Multiplayer Lobby
 
 ### Setup/Board split + lobby presence

@@ -853,7 +853,7 @@ export function createGameBoardView(opts = {}) {
       const action = findTargetableAction(ct.instanceId, ct.send.type, ct.send.ability_index, ct.send.face, ct.send.mode);
       if (action) {
         const expanded = expandMultiTargetRequirements(action.targets || []);
-        const sameShape = ct.isTapChoice || ct.isSacrificeChoice
+        const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice
           ? Array.isArray(ct.requirements)
           : expanded.requirements.length === (ct.requirements || []).length;
         if (sameShape && Number.isInteger(ct.reqIndex)) castTargeting = ct;
@@ -2290,6 +2290,34 @@ export function createGameBoardView(opts = {}) {
         finishCastIfReady();
       });
     });
+
+    root.querySelectorAll('[data-discard-choice-start]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const info = JSON.parse(el.dataset.discardChoiceStart);
+        const iid = Number(info.iid);
+        const action = findTargetableAction(iid, 'cast_spell', undefined, info.face, info.mode);
+        if (!action || !action.discard_cost) return;
+        const { count, options } = action.discard_cost;
+        // "As an additional cost to cast this spell, discard N cards" (RULE
+        // 601.2b) — which cards pay it is the player's own choice (RULE
+        // 602.1), not an engine auto-pick. Same one-pick-at-a-time modal as
+        // `tap_cost`/`sacrifice_cost` above; `excludePicked` stops the same
+        // card being picked twice, `isDiscardChoice` routes the picks to
+        // `discard_choices` in `finishCastIfReady`.
+        const requirements = Array.from({ length: count }, () => ({
+          label: 'abzuwerfende Karte', options, optional: false,
+        }));
+        const send = {
+          type: 'cast_spell', instance_id: iid, name: action.name,
+          face: info.face, mode: info.mode,
+        };
+        castTargeting = {
+          instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
+          excludePicked: true, isDiscardChoice: true,
+        };
+        finishCastIfReady();
+      });
+    });
   }
 
   // Modal-DFC (RULE 712.10) actions for the same card differ only by
@@ -2346,7 +2374,7 @@ export function createGameBoardView(opts = {}) {
   function finishCastIfReady() {
     if (!castTargeting) return;
     if (castTargeting.reqIndex >= castTargeting.requirements.length) {
-      const { send, targets, groups, x, isTapChoice, isSacrificeChoice } = castTargeting;
+      const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice } = castTargeting;
       castTargeting = null;
       if (isTapChoice) {
         // A "tap N untapped <type>s you control" cost choice (RULE 602.1),
@@ -2357,6 +2385,11 @@ export function createGameBoardView(opts = {}) {
         // A "Sacrifice a <type>" cost choice (RULE 602.1) — always exactly
         // one pick, sent as `sacrifice_choice` instead of `targets`.
         act({ ...send, sacrifice_choice: targets[0].instance_id });
+      } else if (isDiscardChoice) {
+        // A "discard N cards" additional cast cost choice (RULE 601.2b /
+        // 602.1) — the picked hand cards, sent as `discard_choices` instead
+        // of `targets`.
+        act({ ...send, discard_choices: targets.map((t) => t.instance_id) });
       } else if ((groups || []).length > 1) {
         // 2+ requirements: send the per-requirement partition too (RULE
         // 115.1), so each targeting effect resolves against its own pick
@@ -2912,6 +2945,15 @@ export function createGameBoardView(opts = {}) {
         );
       } else if (a.type === 'cast_spell' && a.requires_target) {
         buttons.push(castTargetHtml(a));
+      } else if (a.type === 'cast_spell' && a.discard_cost) {
+        // "As an additional cost to cast this spell, discard N cards" (RULE
+        // 601.2b) — open the picker so the player chooses which cards pay it
+        // (RULE 602.1), instead of the engine auto-discarding from the back
+        // of the hand.
+        const startInfo = JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode });
+        buttons.push(
+          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>✨ Zaubern${modeHint(a)}${faceHint(a)}</button>`
+        );
       } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker)) {
         const xField = a.has_x
           ? `<input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(a.instance_id, a.face)}" />`
@@ -3127,25 +3169,29 @@ export function createGameBoardView(opts = {}) {
       const pickedControllers = new Set((castTargeting.pickedControllers || []).filter((c) => c != null));
       options = options.filter((o) => !pickedControllers.has(o.controller_id));
     }
+    // A cost *choice* (RULE 602.1: tap N / sacrifice / discard for a cost),
+    // not a RULE 115 target — different heading and glyph from "Ziel wählen".
+    const isDiscardChoice = castTargeting.isDiscardChoice;
+    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice;
+    const modalGlyph = isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : (castTargeting.isSacrificeChoice ? '💀' : '🎯'));
     const buttons = options.map((o) => {
       const payload = JSON.stringify({
         instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,
       });
       const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"` : '';
-      const glyph = castTargeting.isTapChoice ? '⟳' : '🎯';
-      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${glyph} ${escapeHtml(o.name)}</button>`;
+      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${modalGlyph} ${escapeHtml(o.name)}</button>`;
     });
     if (req.optional) {
       const skip = JSON.stringify({ instance_id: iid, target: null });
       buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>∅ Kein Ziel</button>`);
     }
-    const heading = castTargeting.isTapChoice ? 'Kosten bezahlen' : 'Ziel wählen';
-    const progress = total > 1 ? `${idx + 1} von ${total}` : (castTargeting.isTapChoice ? 'Auswählen' : 'Ziel wählen');
+    const heading = isCostChoice ? 'Kosten bezahlen' : 'Ziel wählen';
+    const progress = total > 1 ? `${idx + 1} von ${total}` : (isCostChoice ? 'Auswählen' : 'Ziel wählen');
     return `
       <div class="gf-modal-overlay">
         <div class="gf-modal gf-target-modal" role="dialog" aria-modal="true">
           <div class="gf-modal-head">
-            <span class="gf-modal-icon">${castTargeting.isTapChoice ? '⟳' : '🎯'}</span>
+            <span class="gf-modal-icon">${modalGlyph}</span>
             <div>
               <h4>${heading}: ${escapeHtml(req.label || '')}</h4>
               <p class="gf-modal-who">${escapeHtml(progress)}</p>

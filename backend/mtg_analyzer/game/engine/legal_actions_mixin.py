@@ -446,6 +446,26 @@ class LegalActionsMixin:
                     action["locked"] = True
                     action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
 
+                # RULE 601.2b + 602.1: when the additional cost being paid on
+                # *this* offer is a "discard N cards" clause, surface the hand
+                # pool so the UI can prompt for which cards pay it instead of
+                # the engine auto-picking (`_resolve_discard_cost`), mirroring
+                # `_activate_action`'s own `sacrifice_cost`/`tap_cost`. Skipped
+                # on an optional cost's plain "don't pay it" offer — nothing is
+                # discarded there. ``DISCARD_HAND`` ("discard your hand") isn't
+                # a choice, so it's excluded.
+                paying_additional = (not add_optional) or pay_additional
+                discard_n = getattr(additional_cost, "discard", 0)
+                if paying_additional and discard_n and discard_n != DISCARD_HAND:
+                    pool = self._discard_cost_pool(player, exclude=obj)
+                    action["discard_cost"] = {
+                        "count": discard_n,
+                        "options": [
+                            {"instance_id": c.instance_id, "name": c.name}
+                            for c in pool
+                        ],
+                    }
+
         if help_pay:
             # PAR-23: RULE 702.51 Convoke / 702.66 Delve / 702.126 Improvise —
             # a *reduction* of the printed cost paid with a non-mana

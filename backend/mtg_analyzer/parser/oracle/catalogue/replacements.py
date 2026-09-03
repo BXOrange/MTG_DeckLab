@@ -245,6 +245,21 @@ _STANDING_PREVENT_COUNT_RE = re.compile(
 )
 
 
+#: The Phantom cycle (Phantom Centaur / Phantom Flock / Phantom Nantuko /
+#: Phantom Nishoba / Phantom Nomad / Phantom Tiger / Phantom Wurm): "If
+#: damage would be dealt to ~, prevent that damage. Remove a +1/+1 counter
+#: from ~." — a self-shield that pays one +1/+1 counter per damage event
+#: rather than a numeric budget. `_prevent_damage_replacement`'s ``rider``
+#: with the new ``remove_self_counter`` kind (`RulesEngine.
+#: apply_prevent_rider`); these creatures are printed 0/0, so once the last
+#: counter goes the RULE 704.5g SBA finishes them.
+_PHANTOM_PREVENT_RE = re.compile(
+    r"if damage would be dealt to ~, prevent that damage\.\s*"
+    r"remove a (?P<counter>\+1/\+1|-1/-1) counter from ~\.?",
+    re.IGNORECASE,
+)
+
+
 def _prevent_recipient_params(recipient: str) -> Optional[dict]:
     """``recipient`` (already lower-cased) → `_prevent_damage_replacement`'s
     own ``to``/``recipient_filter`` params, or ``None`` if unrecognized."""
@@ -368,6 +383,14 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _DIE_TO_EXILE_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("die_to_exile", {"subject": _DIE_SUBJECT_MAP[m.group("subject").lower()]})]
+
+    m = _PHANTOM_PREVENT_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("prevent_damage", {
+            "to": "self",
+            "amount": "all",
+            "rider": {"kind": "remove_self_counter", "counter": m.group("counter"), "count": 1},
+        })]
 
     m = _STANDING_PREVENT_COUNT_RE.fullmatch(text)
     if m is not None:

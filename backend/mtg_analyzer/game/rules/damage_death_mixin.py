@@ -1417,6 +1417,20 @@ class DamageDeathMixin:
             if shield_source is not None:
                 self.add_counters(shield_source, 1, str(rider.get("counter", "+1/+1")), source=shield_source)
             return
+        if kind == "remove_self_counter":
+            # "…prevent that damage. Remove a +1/+1 counter from ~." (the
+            # Phantom cycle — Phantom Centaur / Phantom Flock / Phantom
+            # Nantuko / Phantom Nishoba / …). A *fixed* count (1 on every
+            # real card), unscaled by ``prevented`` — the counter loss is
+            # the price of the shield, not proportional to the hit. Once the
+            # last +1/+1 counter goes the RULE 704.5g "0 toughness" SBA
+            # (these are printed 0/0) kills it, no extra code.
+            if shield_source is not None:
+                self.add_counters(
+                    shield_source, -int(rider.get("count", 1)),
+                    str(rider.get("counter", "+1/+1")),
+                )
+            return
         if kind == "deal_damage_to_source_controller":
             # Always the *source's* controller, unconditionally — never the
             # generic ``recipient`` resolution below, which would otherwise

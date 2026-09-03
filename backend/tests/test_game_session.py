@@ -107,6 +107,49 @@ class TestStackAndChoices:
         assert state.stack[-1].obj.kicker_count == 1
         assert state.active_player.mana_pool.total() == 0
 
+    def test_cast_spell_forwards_discard_choices_for_an_additional_cost(self):
+        # RULE 601.2b/602.1: a spell's "as an additional cost to cast this
+        # spell, discard a card" — *which* card is the caster's own choice,
+        # round-tripped through the session action as `discard_choices`. The
+        # handler used to drop the field (like `kicked` above), so the engine
+        # silently auto-discarded from the back of the hand and the UI had no
+        # way to prompt. `legal_actions` now also surfaces the pool.
+        from mtg_analyzer.models.game_object import GameObject, Zone
+        from mtg_analyzer.game.costs import ActivationCost
+
+        session = make_session(library=[land()] * 20, hand=0)
+        self._advance_to_main1(session)
+        state = session.engine.state
+        p = state.active_player
+
+        spell_obj = GameObject(shock(), owner_id=p.id, zone=Zone.HAND)
+        p.hand.append(spell_obj)
+        spell_obj.additional_cast_cost = ActivationCost(discard=1)
+        keep = GameObject(bear(), owner_id=p.id, zone=Zone.HAND)
+        p.hand.append(keep)
+        toss = GameObject(land("Mountain"), owner_id=p.id, zone=Zone.HAND)
+        p.hand.append(toss)
+        p.mana_pool.add("R", 1)
+
+        cast = next(
+            a for a in session.legal_actions()
+            if a["type"] == "cast_spell" and a["instance_id"] == spell_obj.instance_id
+        )
+        assert cast["discard_cost"]["count"] == 1
+        # The pool is the rest of the hand — never the spell paying the cost.
+        offered = {o["instance_id"] for o in cast["discard_cost"]["options"]}
+        assert {keep.instance_id, toss.instance_id} <= offered
+        assert spell_obj.instance_id not in offered
+
+        session.apply_action({
+            "type": "cast_spell",
+            "instance_id": spell_obj.instance_id,
+            "discard_choices": [toss.instance_id],
+        })
+
+        assert toss in p.graveyard
+        assert keep in p.hand
+
     def test_tap_for_mana_with_option_index(self):
         session = make_session(library=[land()] * 10, hand=7)
         self._advance_to_main1(session)

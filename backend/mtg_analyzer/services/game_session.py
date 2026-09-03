@@ -920,6 +920,14 @@ class GameSession:
         target_groups = self._resolve_target_groups(action.get("target_groups"))
         x = int(action.get("x", 0))
         face = action.get("face", "front")
+        # RULE 601.2b: the caster's own pick for a spell's "as an additional
+        # cost to cast this spell, sacrifice/discard …" clause — round-trips
+        # from `legal_actions`' `sacrifice_cost`/`discard_cost` offer, the
+        # same shape `activate_ability` already threads for an activated
+        # ability's cost. `None` (no clause, or a non-interactive caller)
+        # falls back to the engine's auto-pick.
+        sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
+        discard_choices = self._resolve_discard_choices(action.get("discard_choices"))
         # RULE 700.2: a modal spell's chosen mode — an index into
         # `obj.spell_modes`, or "both" (RULE 700.2e) — round-trips from
         # the `mode` field `GameEngine._cast_action` stamped on the
@@ -947,6 +955,7 @@ class GameSession:
         self.engine.cast_spell(
             active, self._object(action), targets, x, face=face, mode=mode,
             kicked=kicked, kicker_x=kicker_x, target_groups=target_groups,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             buyback=bool(action.get("buyback", False)),
             mutate=bool(action.get("mutate", False)),
             mutate_under=bool(action.get("mutate_under", False)),

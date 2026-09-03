@@ -2470,7 +2470,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `casting_mixin` stamps `target_instance_ids` (a frozenset) on the
 #: SPELL_CAST event, and `effect_binder`'s new predicate checks the bound
 #: ability's own object is among them. **+37** (coverage crossed 40.0%).
-PARSER_VERSION = "242"
+#: v243 — the **Phantom** cycle (Phantom Centaur / Flock / Nantuko /
+#: Nishoba / Nomad / Tiger / Wurm): "If damage would be dealt to ~, prevent
+#: that damage. Remove a +1/+1 counter from ~." `replacements._PHANTOM_
+#: PREVENT_RE` → `prevent_damage` with the new `remove_self_counter`
+#: ``rider`` kind (`RulesEngine.apply_prevent_rider` — a fixed count of 1,
+#: unscaled by the prevented amount; the 0/0 base + RULE 704.5g SBA
+#: finishes them once the last counter goes). +7.
+PARSER_VERSION = "243"
 
 
 def parser_source_hash() -> str:
