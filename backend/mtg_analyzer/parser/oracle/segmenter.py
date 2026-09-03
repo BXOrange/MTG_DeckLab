@@ -519,6 +519,21 @@ _COUNTER_FREE_SPELL_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: "counter that spell" / "counter it" as the *body* of a SPELL_CAST-
+#: triggered ability — resolves off the firing event's own object
+#: (`CounterSpellEffect.target_from_trigger_event`, same idiom as
+#: `_COUNTER_FREE_SPELL_RE` at line ~3571), not a RULE 115 target.
+#: `parse_effect_body` deliberately doesn't claim this (a bare "counter
+#: that spell" outside a cast trigger has no antecedent), so trigger-row
+#: consumers that can legitimately carry it call this helper first.
+_COUNTER_TRIGGERING_SPELL_RE = re.compile(r"^counter (?:that spell|it)\.?\s*$", re.IGNORECASE)
+
+
+def _counter_triggering_spell_effects(body: str) -> Optional[list["EffectSpec"]]:
+    if _COUNTER_TRIGGERING_SPELL_RE.match(body.strip()):
+        return [EffectSpec("counter", {"target_from_trigger_event": "instance_id"})]
+    return None
+
 #: The general form of the above (RULE 601.2h's "free spell" hate isn't
 #: only Vexing Bauble's "counter it" — Roiling Vortex's own "…this
 #: enchantment deals 5 damage to that player." prints the same trigger
@@ -574,7 +589,11 @@ _DRAW_TRIGGER_PLAIN_RE = re.compile(
 #: Battler) — the ordinal-count sibling of `_CAST_SPELL_TRIGGER_PLAIN_RE`;
 #: only "second" is in scope (the one real printed ordinal), so a small
 #: closed word→int map rather than a general ordinal-word parser.
-_CAST_SPELL_ORDINAL_WORDS: dict[str, int] = {"second": 2, "third": 3, "fourth": 4}
+#: "first" (n=1) rides the same `_nth_spell_ok`/`is_nth_draw_this_turn`
+#: range check as the higher ordinals (`total == n`) — added for PAR-31's
+#: Jace, Unraveler emblem body and the "casts their first spell each turn"
+#: cluster (Mind's Dilation, The Lord of Pain, Pain Distributor).
+_CAST_SPELL_ORDINAL_WORDS: dict[str, int] = {"first": 1, "second": 2, "third": 3, "fourth": 4}
 _CAST_SPELL_TRIGGER_NTH_RE = re.compile(
     r"^whenever (?P<subj>you|an opponent|a player) casts? (?:your|their) "
     rf"(?P<ordinal>{'|'.join(_CAST_SPELL_ORDINAL_WORDS)}) spell each turn,\s*(?P<body>.+)$",
@@ -3584,7 +3603,7 @@ def segment_line(
         subj = cast_spell_trig_nth.group("subj").lower()
         n = _CAST_SPELL_ORDINAL_WORDS[cast_spell_trig_nth.group("ordinal").lower()]
         body, optional = _peel_optional(cast_spell_trig_nth.group("body"))
-        effects = parse_effect_body(body)
+        effects = _counter_triggering_spell_effects(body) or parse_effect_body(body)
         if effects is None:
             return Segment(raw=raw)
         spec = AbilitySpec(

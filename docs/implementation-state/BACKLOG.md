@@ -92,11 +92,14 @@ its block back into the matching section here.
     enchantments, and lands you control have <kw>`
     (`_MULTI_PERMANENT_TYPE_GRANT_RE` → `grant_keyword` on
     `permanents_you_control` + a `card_type` list, PARSER_VERSION 244,
-    +3 — Elspeth, Knight-Errant / Fountain Watch / Spiritual Asylum).
-    Left (each a distinct inner body, one SOLO card apiece): `whenever
-    an opponent casts their first spell each turn, counter that spell`
-    (Jace, Unraveler — trigger vocab, shares PAR-36); `instant and
-    sorcery cards in your graveyard have retrace` (Wrenn and Six —
+    +3 — Elspeth, Knight-Errant / Fountain Watch / Spiritual Asylum);
+    and `whenever an opponent casts their first spell each turn, counter
+    that spell` (Jace, Unraveler — "first" (n=1) added to
+    `_CAST_SPELL_ORDINAL_WORDS`, `_counter_triggering_spell_effects`
+    body for the nth-cast consumer, PARSER_VERSION 245, +2 with Rodeo
+    Pyromancers).
+    Left (each a distinct inner body, one SOLO card apiece): `instant
+    and sorcery cards in your graveyard have retrace` (Wrenn and Six —
     zone-scoped keyword grant); Ob Nixilis of the Black Oath's
     `{1}{b}, sacrifice a creature: you gain X life and draw X cards,
     where X is the sacrificed creature's power` (X-from-sacrifice

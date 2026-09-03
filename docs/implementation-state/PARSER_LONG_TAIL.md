@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**40.0% covered — 13,934 / 34,811 — as of 2026-09-03, PARSER_VERSION 244.**
+**40.0% covered — 13,936 / 34,811 — as of 2026-09-03, PARSER_VERSION 245.**
 (215 + a hand-authored batch = PAR-30, **Waterbend (RULE 701.67) residue —
 closed**. v215's three parser wins: "Whenever you / an opponent draws
 their **second** card each turn, …" (`segmenter._DRAW_CARD_TRIGGER_NTH_RE`
@@ -159,7 +159,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~41.9% — 13,331 / 31,830 (PARSER_VERSION 244).**
+**Commander-legal slice: ~41.9% — 13,333 / 31,830 (PARSER_VERSION 245).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments
