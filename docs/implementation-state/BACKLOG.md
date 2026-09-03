@@ -217,12 +217,28 @@ Plan-level sequencing lives in
 
 ## MEC — Game mechanics
 
-- **MEC-48 · Specialize (Duskmourn, ~RULE 702.166).** ~50 cache cards, the
-  `PARSER_LONG_TAIL.md` "Two tracks" table's largest still-open
-  set-specific mechanic. Needs the "exile the specialize card, it comes
-  back as a colour-chosen copy / a sacrifice-timed token" effect (not yet
-  built — see that table's row) plus the keyword-cost recognition. One
-  batch: primitive + `catalogue/` handler + `PARSER_VERSION` bump.
+- **MEC-48 · Specialize riders (Alchemy — digital keyword).** The core
+  Specialize keyword shipped in MEC-48 (v223): parser recognition of a bare
+  "Specialize {cost}" line, `effect_binder._specialize_activated_ability`
+  (a real sorcery-speed "{cost}, Discard a card" activated ability →
+  `SpecializeEffect`, a `GameObject.is_specialized` designation +
+  `EventType.SPECIALIZED`; the per-colour face swap is a documented
+  simplification, no face data in the seed), and the "specializes" trigger
+  verb — see `Done_Backend.md`. **Still open:** a handful of cards print
+  the keyword *with a rules rider on the same line*, held UNMODELED by
+  `segmenter._SPECIALIZE_WITH_RIDER_RE` rather than greedily over-claimed —
+  each is a small activated-ability-modifier follow-up:
+  - "Specialize {5}. This ability costs {3} less to activate if there are
+    2+ instant/sorcery cards in your graveyard." (Imoen) — a conditional
+    activation-cost reduction.
+  - "Specialize {2}. Activate only if a player has 13 or less life." /
+    "…if you control 6 or more lands." (Shadowheart, Lukamina) — an
+    `ACTIVATION_CONDITION_MARKER` gated on a `static_conditions` predicate
+    (needs a `player_life_at_most` kind).
+  - "Specialize {6}. You may also activate this ability if ~ is in your
+    graveyard." (Karlach) — an alternate activation zone on an activated
+    ability (`ActivationCost.graveyard_zone` as an *also*, not a
+    replacement).
 - **MEC-51 · Control another player's turn (or a part of it — e.g. a
   combat phase).** "You control target opponent during their next turn."
   (Mindslaver, Sorin Markov's `−7`, Emrakul, the Promised End, Worst

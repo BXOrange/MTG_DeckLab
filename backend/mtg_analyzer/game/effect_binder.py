@@ -64,6 +64,7 @@ from .effects import (
     ReturnSelfFromGraveyardToBattlefieldEffect,
     ReturnSelfFromGraveyardToHandEffect,
     SacrificeEffect,
+    SpecializeEffect,
     UnearthEffect,
     StaticAbility,
     TriggeredAbility,
@@ -1903,6 +1904,8 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         return _saddle_activated_ability(obj, spec, keyword)
     if name == "station":
         return _station_activated_ability(obj, spec)
+    if name == "specialize":
+        return _specialize_activated_ability(obj, spec, keyword)
     if name in {"unearth", "embalm", "eternalize"}:
         return _graveyard_keyword_activated_ability(obj, spec, keyword)
     if name not in {"equip", "fortify", "reconfigure"}:
@@ -2001,6 +2004,35 @@ def _graveyard_keyword_activated_ability(
         cost=cost,
         source=obj,
         description=spec.raw_text or name.capitalize(),
+    )
+
+
+def _specialize_activated_ability(
+    obj: Any, spec: AbilitySpec, keyword: dict[str, Any]
+) -> Optional[ActivatedAbility]:
+    """MEC-48: "Specialize {cost}" — an Arena-only digital keyword (no paper
+    CR) = "{cost}, Discard a card: This permanent specializes. Activate only
+    as a sorcery."
+
+    Like Cycling/Crew/Unearth before it, the keyword was parser-recognized
+    (a bare keyword-line claim) but bound to nothing, so Specialize never
+    became an offered action. The cost is the printed mana plus a
+    discard-one-card additional cost (`ActivationCost.discard = 1`, the same
+    `_resolve_discard_cost` auto-pick path a battlefield "discard a card"
+    cost uses) at sorcery speed. The effect is `SpecializeEffect` — a
+    designation + `EventType.SPECIALIZED`, no characteristic swap (the five
+    specialized faces aren't in this repo's card seed).
+    """
+    cost_text = keyword.get("cost")
+    if not cost_text:
+        return None
+    cost = parse_activation_cost(f"{cost_text}, Discard a card")
+    cost.sorcery_speed_only = True  # RULE-analogue: "Activate only as a sorcery."
+    return ActivatedAbility(
+        effects=[SpecializeEffect(source=obj)],
+        cost=cost,
+        source=obj,
+        description=spec.raw_text or "Specialize",
     )
 
 

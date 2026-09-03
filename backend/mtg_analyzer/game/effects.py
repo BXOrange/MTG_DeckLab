@@ -14710,6 +14710,46 @@ class MonstrosityEffect(GameEffect):
         context.monstrosity(self.source, amount)
 
 
+class SpecializeEffect(GameEffect):
+    """MEC-48: the body of "Specialize {cost}" — "{cost}, Discard a card:
+    this permanent specializes." Specialize is an Arena-only digital keyword
+    (no paper CR); its five per-colour specialized faces live in Arena's own
+    card data, which this repo's Scryfall ``oracle_cards`` seed does not
+    carry. So this models the *designation* only: set the persistent
+    ``is_specialized`` flag (read by a "when ~ specializes" self-subject
+    trigger / an "as long as ~ is specialized" static — the `MonstrosityEffect`
+    shape: untargeted, self-scoped) and fire `EventType.SPECIALIZED`. The
+    permanent's characteristics are deliberately left unchanged (documented
+    simplification — there is no face to become).
+
+    ``color`` is a colour of the discarded card when the pay-cost step could
+    determine one (single-coloured discard); otherwise ``None``. It is
+    carried on the event and stamped on the object, not acted on further.
+    """
+
+    def __init__(self, color: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.color = color
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None or getattr(src, "is_specialized", False):
+            return
+        src.is_specialized = True
+        if self.color is not None:
+            src.specialized_color = self.color
+        state = getattr(context, "state", None)
+        if state is not None:
+            state.fire_event(
+                GameEvent(
+                    EventType.SPECIALIZED,
+                    instance_id=src.instance_id,
+                    controller_id=getattr(src, "controller_id", None),
+                    color=self.color,
+                )
+            )
+
+
 class AdaptEffect(GameEffect):
     """RULE 701.46a: "Adapt N" — "if this permanent has no +1/+1 counters on
     it, put N +1/+1 counters on it".
@@ -23284,6 +23324,12 @@ EffectRegistry.register(
     # RULE 701.46a "adapt N".
     "adapt",
     lambda p: AdaptEffect(amount=p.get("amount", 1)),
+)
+EffectRegistry.register(
+    # MEC-48 "Specialize {cost}" — see `SpecializeEffect`. Digital keyword,
+    # designation + event only (no characteristic swap).
+    "specialize",
+    lambda p: SpecializeEffect(color=p.get("color")),
 )
 EffectRegistry.register(
     # RULE 701.15a "goad target creature" — ``target_kind=None`` is the

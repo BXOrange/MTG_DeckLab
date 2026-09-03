@@ -408,6 +408,17 @@ class EventType:
     #: 701.37a's "if this permanent isn't monstrous" means a second
     #: activation does nothing at all, event included.
     BECAME_MONSTROUS = "BECAME_MONSTROUS"
+    #: MEC-48: a permanent just **specialized** (its "Specialize {cost}"
+    #: activated ability resolved) — carries ``instance_id``/
+    #: ``controller_id`` and, when known, ``color`` (a colour of the
+    #: discarded card). Fired by `game/effects.py`'s `SpecializeEffect`.
+    #: Specialize is an Arena-only digital keyword whose five specialized
+    #: faces aren't in this repo's Scryfall seed, so the engine fires this
+    #: event + marks `GameObject.is_specialized` but does **not** swap the
+    #: permanent's characteristics (documented simplification). A
+    #: "when ~ specializes, …" self-subject trigger keys off it exactly like
+    #: `BECAME_MONSTROUS`.
+    SPECIALIZED = "SPECIALIZED"
     #: PAR-28 / RULE 719.3a: a Case just became **solved** — carries the
     #: Case's ``instance_id`` and ``controller_id``. Fired only on the
     #: transition (`BecomeSolvedEffect` guards on ``is_solved``). No card

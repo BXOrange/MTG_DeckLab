@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**39.1% covered — 13,595 / 34,811 — as of 2026-09-03, PARSER_VERSION 222.**
+**39.1% covered — 13,607 / 34,811 — as of 2026-09-03, PARSER_VERSION 223.**
 (215 + a hand-authored batch = PAR-30, **Waterbend (RULE 701.67) residue —
 closed**. v215's three parser wins: "Whenever you / an opponent draws
 their **second** card each turn, …" (`segmenter._DRAW_CARD_TRIGGER_NTH_RE`
@@ -159,7 +159,7 @@ Ferocification, Appa. Residue is header-shape work — repeatable-mode
 Confluences, "if kicked … instead", "that hasn't been chosen this turn",
 haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
 
-**Commander-legal slice: ~40.9% — 13,012 / 31,830 (PARSER_VERSION 222).**
+**Commander-legal slice: ~40.9% — 13,011 / 31,830 (PARSER_VERSION 223).**
 This is the subset the product actually plays; `coverage_report.py
 --commander-legal-only` measures it and records a separate `<v>-commander`
 snapshot row, and `scripts/commander_tail_report.py` (read-only) segments
@@ -1416,7 +1416,7 @@ rules, not one:
   | Magecraft | ability word | Strixhaven | **Done** — `segmenter._MAGECRAFT_RE` |
   | Amass / Mutate / Monstrosity / Adapt / Goad / Bargain / Fading / Soulbond | 701.x / 702.x | War of the Spark / Ikoria / Theros / various | **Done** — see `Done_Backend.md`'s cEDH-cube batch |
   | Day/Night (werewolf transform) | 702.28 (2011+ template) | Innistrad: Midnight Hunt/Crimson Vow | **Done** — the *legacy* pre-2021 template is the one accepted non-goal above |
-  | Specialize | ~702.166 | Duskmourn: House of Horror | **Not done** (checked 2026-08-05) — 50 SOLO cache-wide (`Gut, Bestial/Brutal Fanatic`-shaped); needs a real "the exiled card becomes a copy, sacrifice-timed token" effect, not yet built |
+  | Specialize | digital/Alchemy (no paper CR) | Alchemy Horizons: Baldur's Gate | **Partially done** (2026-09-03, MEC-48) — `catalogue/keywords.py` recognizes a bare "Specialize {cost}" line; `effect_binder._specialize_activated_ability` binds it to a real sorcery-speed "{cost}, Discard a card" activated ability whose body is `SpecializeEffect` (a persistent `GameObject.is_specialized` designation + `EventType.SPECIALIZED` — **no** characteristic swap; the five per-colour specialized faces aren't in this repo's Scryfall seed, documented simplification); `segmenter._TRIGGER_VERBS` gains "specializes" → `SPECIALIZED`. +6 bare-cost cards (Gale/Jaheira/Rasaad/Vhal/Viconia/Wilson) + several specialized faces whose "when ~ specializes, `<modeled effect>`" body now parses. **Still open:** the "Specialize {cost}. `<rider>`" cards (cost-reduction / "activate only if" / alternate-zone riders) are held UNMODELED by `_SPECIALIZE_WITH_RIDER_RE` — each rider is its own small activated-ability-modifier follow-up (~5 cards: Imoen/Karlach/Shadowheart/Lukamina/…). |
   | Starting intensity | Duskmourn's Room-adjacent template | Duskmourn: House of Horror | **Not done** (checked 2026-08-05) — 0 cards SOLO-blocked on the phrase alone (always paired with another unclaimed clause); needs its co-blocker identified before estimating real scope |
   | Learn (Lessons) | 701.50 | Dominaria / Strixhaven | **Partially done** (checked 2026-08-05) — bare "Learn." is a 7-card SOLO cluster; the Lesson-sideboard-zone infrastructure itself (RULE 701.50a "look at your sideboard") isn't built, so a full deck with real Lessons stays out of scope regardless |
   | Investigate | 701.19a | Shadows over Innistrad (**reused across many later sets** — belongs on the *basic* track, listed here only as the worked example that motivated this split) | **Done** (2026-08-05) — a `create_token` alias onto the already-shipped Clue token, 87+ cards in one row; this is the case study for "keyword action, but basic not set-specific" — check *reuse breadth* before filing something here |

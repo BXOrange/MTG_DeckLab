@@ -2285,7 +2285,20 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `die_to_exile` `subject="damaged_by_attached_this_turn"` resolve it to
 #: the Aura's `attached_to`. +1. (Vampiric Embrace still needs a "counter
 #: on that creature" body — a dead-on-arrival nonbo, not pursued.)
-PARSER_VERSION = "222"
+#: v223 — MEC-48 — the Specialize digital keyword (Alchemy Horizons:
+#: Baldur's Gate). `catalogue/keywords.py` gains a `("Specialize", COST)`
+#: row (parser recognition of a bare "Specialize {cost}" line);
+#: `effect_binder._specialize_activated_ability` binds it to a real
+#: sorcery-speed "{cost}, Discard a card" activated ability whose body is
+#: `SpecializeEffect` (a persistent `is_specialized` designation +
+#: `EventType.SPECIALIZED` — no characteristic swap, the five specialized
+#: faces aren't in the card seed); `segmenter._TRIGGER_VERBS` gains
+#: "specializes" → `SPECIALIZED`. A "Specialize {cost}. <rider>" line (the
+#: cost-reduction / "activate only if" / alternate-zone riders) is held
+#: UNMODELED by `_SPECIALIZE_WITH_RIDER_RE` rather than greedily
+#: over-claimed. +6 (the bare-cost cards: Gale/Jaheira/Rasaad/Vhal/
+#: Viconia/Wilson).
+PARSER_VERSION = "223"
 
 
 def parser_source_hash() -> str:

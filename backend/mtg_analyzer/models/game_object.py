@@ -910,6 +910,17 @@ class GameObject:
         #: `reset_as_new_object` (RULE 400.7 — a Licid that leaves and
         #: returns is a fresh creature).
         self.is_licid_aura: bool = False
+        #: MEC-48: this permanent has resolved its "Specialize {cost}"
+        #: activated ability (an Arena-only digital keyword — see
+        #: `EventType.SPECIALIZED`). A designation like `is_monstrous`,
+        #: readable by a "when ~ specializes" trigger / "as long as ~ is
+        #: specialized" static; `specialized_color` is a colour of the
+        #: discarded card when one was determinable, else ``None``. The
+        #: five specialized faces aren't in this repo's card seed, so no
+        #: characteristic swap happens — this flag + the event are the whole
+        #: model. Cleared by `reset_as_new_object` (RULE 400.7).
+        self.is_specialized: bool = False
+        self.specialized_color: Optional[str] = None
         #: RULE 701.37c: the value of X as this permanent became monstrous,
         #: so another of its abilities that refers to that X (Death Kiss's
         #: "when ~ becomes monstrous, goad up to X target creatures") reads
@@ -1244,6 +1255,11 @@ class GameObject:
         #: MEC-47/400.7: a Licid that left the battlefield comes back a plain
         #: creature — the "became an Aura" effect ended with the object.
         self.is_licid_aura = False
+        #: MEC-48/400.7: a specialized permanent that left is a new object;
+        #: whether it re-enters as its base or specialized version is Arena
+        #: card data this repo doesn't model, so it simply re-enters base.
+        self.is_specialized = False
+        self.specialized_color = None
         #: RULE 701.60a/400.7: suspected ends when the creature leaves the
         #: battlefield — leaving *is* this transition, so the new object is
         #: no longer suspected.

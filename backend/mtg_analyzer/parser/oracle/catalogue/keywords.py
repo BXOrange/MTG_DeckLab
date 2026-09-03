@@ -418,6 +418,16 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     ("Paradigm", _F, "702.192"),
     ("Power-up", _F, "702.193"),
     ("Teamwork", _N, "702.194"),
+    # Specialize (Alchemy Horizons: Baldur's Gate) is an Arena-only digital
+    # keyword with no paper CR entry — a COST-shape activated ability,
+    # "Specialize {cost}" = "{cost}, Discard a card: This permanent
+    # specializes (becomes its specialized version for a colour of the
+    # discarded card). Activate only as a sorcery." The five specialized
+    # faces live in Arena's own card data, which this repo's `oracle_cards`
+    # Scryfall seed doesn't carry, so the engine models the activation +
+    # the `SPECIALIZES` event only, not the characteristic swap (MEC-48,
+    # documented simplification).
+    ("Specialize", _C, "digital/Alchemy (no paper CR)"),
 ]
 
 
