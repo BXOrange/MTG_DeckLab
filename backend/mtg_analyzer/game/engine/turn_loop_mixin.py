@@ -1265,6 +1265,12 @@ class TurnLoopMixin:
             # <B>." — the option id is "0"/"1"; a decline/missing answer
             # defaults to option A.
             self.rules.resolve_villainous_choice(None if declined else str(answer))
+        elif kind == "word_of_command":
+            # MEC-51b: the option id is which card in the target's hand the
+            # WoC caster picks (its instance id) — mandatory (the caster
+            # must choose; a missing/invalid answer defaults to the first
+            # card in `resolve_word_of_command_choice`).
+            self.rules.resolve_word_of_command_choice(None if declined else int(answer))
         elif kind == "pay_energy_then":
             # RULE 122: "you may pay {E}{E}. If you do, <effect>." (Aether
             # Chaser) — "pay" spends the energy and resolves the follow-up,

@@ -992,6 +992,80 @@ class MiscSystemsMixin:
                 self.exile(obj)
             elif outcome == "return_to_hand":
                 self.return_to_hand(obj)
+    def request_word_of_command(
+        self,
+        controller: Player,
+        target: Player,
+        source: Optional[GameObject] = None,
+    ) -> None:
+        """MEC-51b (Word of Command): open a `word_of_command`
+        `pending_choice` addressed to ``controller``, listing every card in
+        ``target``'s hand. `GameEngine.resolve_word_of_command_choice` then
+        has ``target`` play the chosen card. No card in hand → nothing to
+        choose, the effect fizzles (RULE 720-adjacent "if able")."""
+        hand = list(target.hand)
+        if not hand:
+            return
+        self.state.word_of_command = {
+            "controller_id": controller.id,
+            "target_id": target.id,
+            "chosen_instance_id": None,
+        }
+        self.state.pending_choice = {
+            "kind": "word_of_command",
+            "player_id": controller.id,   # the *controller* picks
+            "target_player_id": target.id,
+            "prompt": f"Word of Command — wähle eine Karte aus {target.name}s Hand",
+            "description": f"Word of Command: Karte aus {target.name}s Hand",
+            "eligible": [
+                {"instance_id": o.instance_id, "name": o.name} for o in hand
+            ],
+            "options": [
+                {"id": str(o.instance_id), "label": o.name,
+                 "instance_id": o.instance_id}
+                for o in hand
+            ],
+        }
+
+    def resolve_word_of_command_choice(self, instance_id: Optional[int]) -> None:
+        """MEC-51b: the Word of Command caster has picked ``instance_id``
+        from the target's hand — now have the target *play* it "if able".
+
+        A land → straight onto the battlefield under the target's control
+        (`_put_searched_card`; a documented simplification of RULE 305's
+        land-play special action — it doesn't consume the target's
+        land-for-turn). Anything else → `cast_without_paying` under the
+        target's control (the effect-driven free-cast primitive cascade/
+        discover use — no target selection, no mana paid; RULE 720's "only
+        land mana, only for that card" restriction is moot under the free
+        cast). Then the `word_of_command` window closes.
+        """
+        woc = self.state.word_of_command
+        self.state.pending_choice = None
+        if woc is None:
+            return
+        try:
+            target = self.state.player_by_id(woc["target_id"])
+        except KeyError:
+            self.state.word_of_command = None
+            return
+        obj = next((o for o in target.hand if o.instance_id == instance_id), None)
+        # Missing/invalid answer — the first card in hand (RULE 720: the
+        # caster must choose, "nothing" isn't an option).
+        if obj is None and target.hand:
+            obj = target.hand[0]
+        if obj is not None:
+            woc["chosen_instance_id"] = obj.instance_id
+            try:
+                if obj.card.is_land:
+                    target.remove_from_zone(obj, Zone.HAND)
+                    self._put_searched_card(target, obj, "battlefield")
+                else:
+                    self.cast_without_paying(target, obj)
+            except (ValueError, KeyError):
+                pass  # "if able" — a play that can't be made simply doesn't
+        self.state.word_of_command = None
+
     def request_villainous_choice(
         self,
         source: Optional[GameObject],

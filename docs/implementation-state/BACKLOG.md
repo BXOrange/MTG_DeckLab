@@ -206,16 +206,8 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-- **MEC-51b · Word of Command.** The turn/combat-window form shipped in
-  MEC-51 (`control_player`, `GameState.TurnControl`, the `game_session.py`
-  decision/priority routing — see `Done_Backend.md`). What's left is Word
-  of Command's own narrower shape: "Target opponent reveals their hand.
-  You choose a card from it and that player plays it if able, …" — a
-  *single-card*, hand-revealed, "you make one specific decision for them"
-  effect rather than a whole turn. Reuses the `decider_for` routing and
-  the hand-reveal, but needs "you cast/play *this* chosen card from
-  another player's hand, paying its costs from their resources" — no
-  primitive for that yet. One card; low priority.
+> **(none open.)** MEC-47/49/51/51b/52 all closed (`Done_Backend.md`);
+> MEC-48's Specialize-rider tail is parked in [DEFERRED.md](DEFERRED.md).
 
 ## PLR — Player management
 

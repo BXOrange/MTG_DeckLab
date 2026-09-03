@@ -1937,6 +1937,11 @@ class GameSession:
             if driven is not None:
                 acting_as = driven
                 reveal_hands.add(driven)
+            # MEC-51b: the Word of Command caster sees the target's hand
+            # while picking a card from it (RULE 720.2).
+            woc = self.engine.state.word_of_command
+            if woc and woc.get("controller_id") == perspective and woc.get("target_id"):
+                reveal_hands.add(woc["target_id"])
             pc = state_dict.get("pending_choice")
             if pc and pc.get("player_id"):
                 choice_decider = self.engine.state.decider_for(pc["player_id"])

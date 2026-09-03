@@ -640,6 +640,15 @@ class GameState:
         #: deep-copies with `clone`.
         self.turn_controls: list["TurnControl"] = []
 
+        #: MEC-51b (RULE 720 / Word of Command): a resolution-scoped "you
+        #: control that player" window, while the WoC caster picks a card
+        #: from the target's hand and has them play it. ``{"controller_id":
+        #: …, "target_id": …, "chosen_instance_id": …}`` or ``None``.
+        #: `decider_for` routes the target's decisions to the controller
+        #: while set; cleared once the chosen card is played. Plain dict —
+        #: deep-copies with `clone`.
+        self.word_of_command: Optional[dict[str, Any]] = None
+
         #: RULE 611 continuous effects created by a resolving spell/ability
         #: rather than by a permanent's printed static ability — "Until your
         #: next turn, creatures you control get +1/+1", "Target creature
@@ -1093,10 +1102,14 @@ class GameState:
 
     def decider_for(self, player_id: str) -> str:
         """Who actually makes ``player_id``'s decisions right now — the
-        controller of an active `TurnControl` over them, else themselves.
-        The one routing chokepoint every caller (`game_session` dispatch /
-        view / choice redaction, `RulesEngine` turn-based actions) goes
-        through."""
+        controller of an active `TurnControl` over them (MEC-51), or the
+        controller of an in-progress Word of Command (MEC-51b), else
+        themselves. The one routing chokepoint every caller (`game_session`
+        dispatch / view / choice redaction, `RulesEngine` turn-based
+        actions) goes through."""
+        woc = self.word_of_command
+        if woc is not None and woc.get("target_id") == player_id:
+            return woc.get("controller_id") or player_id
         tc = self.active_turn_control_for(player_id)
         return tc.controller_id if tc is not None else player_id
 
@@ -1376,6 +1389,10 @@ class GameState:
             # MEC-51 (RULE 720): active/waiting "you control that player's
             # turn/combat" windows, for the board's control banner.
             "turn_controls": [tc.to_dict() for tc in self.turn_controls],
+            # MEC-51b: an in-progress Word of Command (controller_id /
+            # target_id), for the board's "you are playing a card from X's
+            # hand" banner.
+            "word_of_command": dict(self.word_of_command) if self.word_of_command else None,
             "temp_play_permissions": dict(self.temp_play_permissions),
             "temp_play_permission_source": dict(self.temp_play_permission_source),
             "temp_play_permission_player": dict(self.temp_play_permission_player),

@@ -2300,6 +2300,26 @@ register("Secret of Bloodbending", lambda: [
     ),
 ])
 
+# MEC-51b (RULE 720): "Look at target opponent's hand and choose a card
+# from it. You control that player until Word of Command finishes
+# resolving. The player plays that card if able. …" — `WordOfCommandEffect`
+# opens a `word_of_command` pending choice addressed to the caster over the
+# target's hand; `GameEngine.resolve_word_of_command_choice` then has the
+# target play the pick (`play_land`, else `cast_without_paying`). The RULE
+# 720 mana restriction is moot under the free cast, and (like every
+# effect-driven free cast here — cascade/discover) the spell is cast
+# without target selection: documented simplifications.
+register("Word of Command", lambda: [
+    AbilitySpec(
+        "spell_effect",
+        [EffectSpec("word_of_command", {})],
+        raw_text="Sieh dir die Hand eines Zielgegners an und wähle eine Karte "
+                 "daraus. Du kontrollierst jenen Spieler, bis Word of Command "
+                 "abschließend verrechnet ist. Jener Spieler spielt jene Karte, "
+                 "wenn möglich.",
+    ),
+])
+
 
 # ---------------------------------------------------------------------------
 # MEC-52 — Reanimator-token & villainous-choice residue (PAR-29's keyword

@@ -12662,6 +12662,41 @@ class ControlPlayerEffect(GameEffect):
         state.turn_controls.append(tc)
 
 
+class WordOfCommandEffect(GameEffect):
+    """MEC-51b (RULE 720 / Word of Command): "Look at target opponent's hand
+    and choose a card from it. You control that player until ~ finishes
+    resolving. The player plays that card if able."
+
+    `RulesEngine.request_word_of_command` opens a `word_of_command`
+    `pending_choice` addressed to *this effect's controller* (the hand is
+    revealed to them via `game_session`), listing the target's hand;
+    `resolve_word_of_command_choice` then has the target player play the
+    chosen card — `play_land` if it's a land they can play, else
+    `cast_without_paying` (the same effect-driven free-cast primitive
+    cascade/discover use — see that method).
+
+    **Documented simplifications:** the card is cast *without its mana cost
+    paid* (so the RULE 720 "only land mana, only for that card" restriction
+    is moot) and, like every effect-driven free cast in this engine, it is
+    cast without target selection (RULE 601.2c). "If able" is enforced only
+    for a land (`can_play_land`).
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="opponent")
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        target = targets[0] if targets else None
+        if controller is None or target is None or getattr(target, "id", None) is None:
+            return
+        context.engine.request_word_of_command(controller, target, source=self.source)
+
+
 class ExtraCombatPhaseEffect(GameEffect):
     """"After this combat phase, there is an additional combat phase[,
     followed by an additional main phase]." (RULE 500.4-adjacent —
@@ -21557,6 +21592,11 @@ EffectRegistry.register(
         target_kind=str(p.get("target_kind", "opponent")),
         grant_extra_turn_after=bool(p.get("grant_extra_turn_after", False)),
     ),
+)
+EffectRegistry.register(
+    # MEC-51b (Word of Command) — see `WordOfCommandEffect`.
+    "word_of_command",
+    lambda p: WordOfCommandEffect(),
 )
 EffectRegistry.register(
     # "You may sacrifice/tap/return a <kind> you control." — the player

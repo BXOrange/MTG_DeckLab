@@ -77,6 +77,8 @@ const CHOICE_ICONS = {
   explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️', recruit: '🎖️',
   // RULE 701.38 vote / RULE 701.55 villainous choice (MEC-46 / ENG-33).
   vote: '🗳️', vote_object: '🗳️', villainous_choice: '😈',
+  // RULE 720 / Word of Command — pick a card from the target's hand (MEC-51b).
+  word_of_command: '🗣️',
 };
 
 /**
@@ -1313,9 +1315,18 @@ export function createGameBoardView(opts = {}) {
   // Bloodbending). Shows on the controller's board while a window is active
   // — and the mirror notice on the controlled player's own board.
   function turnControlBannerHtml(s) {
+    const me = view.perspective;
+    // MEC-51b: an in-progress Word of Command — a short "you play a card
+    // from X's hand" window, distinct from the turn/combat control below.
+    const woc = s.word_of_command;
+    if (woc && woc.controller_id === me) {
+      return `<p class="server-status gf-turn-control gf-turn-control-driving">🎛️ Word of Command – du spielst eine Karte aus <strong>${escapeHtml(playerName(woc.target_id))}</strong>s Hand.</p>`;
+    }
+    if (woc && woc.target_id === me) {
+      return `<p class="server-status pending gf-turn-control gf-turn-control-locked">🔒 <strong>${escapeHtml(playerName(woc.controller_id))}</strong> spielt gerade per Word of Command eine Karte aus deiner Hand.</p>`;
+    }
     const controls = (s.turn_controls || []).filter((c) => c.phase === 'active');
     if (!controls.length) return '';
-    const me = view.perspective;
     // I'm driving someone else's turn/combat.
     const mine = controls.find((c) => c.controller_id === me && c.controlled_id !== me);
     if (mine) {
