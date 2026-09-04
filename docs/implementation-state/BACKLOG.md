@@ -146,14 +146,20 @@ its block back into the matching section here.
     carries it; `limit` → `once_per_turn` in the re-grant) → Folk Hero;
     `creature_that_player_controls` target kind + `is_player` on the
     aggregate combat-damage event + a `goad_that_player` handler → Popular
-    Entertainer. Left (each a distinct mini-project — hand-author + MEC as
+    Entertainer. **Permanent become-copy activated** — shipped
+    (PARSER_VERSION 256, +1): `BecomeCopyPermanentEffect` / effect type
+    `become_copy_permanent` (the non-reverting sibling of
+    `become_copy_until_eot`, wrapping `RulesEngine.become_copy`) + a
+    `become_copy_of_target` handler that picks the type by "until end of
+    turn" wording → Shameless Charlatan (also gives Cursed Mirror an oracle
+    route). Left (each a distinct mini-project — hand-author + MEC as
     needed): Acolyte of Bahamut's per-turn-first subtype cost reduction;
     Dungeon Delver (dungeon-room trigger doubling — MEC); Scion of
     Halaster (draw replacement — MEC); Noble Heritage (per-opponent
-    protection + interactive per-player — MEC); Shameless Charlatan
-    (permanent become-copy activated); Haunted One (becomes-tapped tribal
-    pump); Tavern Brawler (impulse + pump-from-exiled-mv); Master Chef's
-    twin-body enters-with-counter grant.
+    protection + interactive per-player — MEC); Haunted One (becomes-tapped
+    tribal pump); Tavern Brawler (impulse + pump-from-exiled-mv); Master
+    Chef's twin-body enters-with-counter grant (a group-scoped ETB-counter
+    replacement static — MEC).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
     `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate

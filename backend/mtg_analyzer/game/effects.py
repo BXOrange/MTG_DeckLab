@@ -16930,6 +16930,25 @@ class BecomeCopyUntilEndOfTurnEffect(GameEffect):
         context.become_copy_until_end_of_turn(self.source, target)
 
 
+class BecomeCopyPermanentEffect(GameEffect):
+    """*This* permanent permanently becomes a copy of a target creature
+    (RULE 706/707.2 — Shameless Charlatan's "{2}{U}: ~ becomes a copy of
+    another target creature."). Unlike `BecomeCopyUntilEndOfTurnEffect`
+    this does *not* revert at cleanup — `RulesEngine.become_copy`."""
+
+    def __init__(self, target: Any = None, source: Optional["GameObject"] = None,
+                 target_kind: str = "creature") -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None or self.source is None or target is self.source:
+            return
+        context.engine.become_copy(self.source, target)
+
+
 class SetCopyTargetEffect(GameEffect):
     """Choose/change the target a layer-1 conditional-copy static ability
     copies (Vesuvan Shapeshifter's "you may have it be a copy of another
@@ -22137,6 +22156,15 @@ EffectRegistry.register(
 EffectRegistry.register(
     "become_copy_until_eot",  # "~ becomes a copy of target creature until end of turn" (Cursed Mirror)
     lambda p: BecomeCopyUntilEndOfTurnEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "creature"),
+    ),
+)
+EffectRegistry.register(
+    # "{2}{U}: ~ becomes a copy of another target creature." (Shameless
+    # Charlatan) — the *permanent* (non-reverting) sibling of the row above.
+    "become_copy_permanent",
+    lambda p: BecomeCopyPermanentEffect(
         target=p.get("target"),
         target_kind=p.get("target_kind", "creature"),
     ),

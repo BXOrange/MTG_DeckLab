@@ -11349,6 +11349,18 @@ HANDLERS: list[EffectHandler] = [
         _c(r"goad target creature that player controls"),
         lambda m: [EffectSpec("goad", {"target_kind": "creature_that_player_controls"})],
     ),
+    # "~ becomes a copy of [another] target creature[ until end of turn]."
+    # (Cursed Mirror's EOT form; Shameless Charlatan's granted permanent
+    # form, PAR-32) — the "another" is enforced by the effect's own
+    # `target is self.source` guard, so no distinct target kind is needed.
+    EffectHandler(
+        "become_copy_of_target",
+        _c(r"~ becomes a copy of (?:another )?target creature(?P<eot> until end of turn)?"),
+        lambda m: [EffectSpec(
+            "become_copy_until_eot" if m.group("eot") else "become_copy_permanent",
+            {"target_kind": "creature"},
+        )],
+    ),
     # "goad target creature [an opponent controls]" (RULE 701.15a).
     EffectHandler(
         "goad",

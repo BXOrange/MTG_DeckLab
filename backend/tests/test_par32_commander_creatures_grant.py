@@ -498,3 +498,47 @@ def test_folk_hero_shares_type_predicate_end_to_end():
     st.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1",
                             instance_id=gob.instance_id, spell="G"))
     assert eng.rules.put_triggers_on_stack() == 0
+
+
+# --- slice 8: permanent become-copy activated ability ---
+
+
+def test_shameless_charlatan_granted_permanent_copy_activated():
+    specs = static_effect_specs(
+        'commander creatures you own have "{2}{u}: ~ becomes a copy of '
+        'another target creature."'
+    )
+    assert specs is not None and len(specs) == 1
+    p = specs[0].params
+    assert p["cost"]["text"] == "{2}{u}"
+    assert p["grant_effects"][0]["type"] == "become_copy_permanent"
+
+
+def test_become_copy_eot_vs_permanent_by_wording():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+    eot = parse_effect_body("~ becomes a copy of target creature until end of turn")
+    assert eot[0].type == "become_copy_until_eot"
+    perm = parse_effect_body("~ becomes a copy of another target creature")
+    assert perm[0].type == "become_copy_permanent"
+
+
+def test_become_copy_permanent_effect_binds_and_mutates():
+    from mtg_analyzer.game.effects import EffectRegistry
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
+    )
+    st = eng.state
+    me = GameObject(Card(id="c", name="Charlatan", type_line="Creature — Human",
+                         is_creature=True, power=1, toughness=1), owner_id="p1",
+                    zone=Zone.BATTLEFIELD)
+    st.add_to_battlefield(me)
+    other = GameObject(Card(id="d", name="Dragon", type_line="Creature — Dragon",
+                            is_creature=True, power=5, toughness=5), owner_id="p2",
+                       zone=Zone.BATTLEFIELD)
+    st.add_to_battlefield(other)
+    eff = EffectRegistry.create("become_copy_permanent", {"target_kind": "creature"})
+    eff.source = me
+    eff.apply(eng.rules.context, targets=[other])
+    eng.recompute_continuous_effects()
+    assert me.name == "Dragon"
+    assert (me.power, me.toughness) == (5, 5)
