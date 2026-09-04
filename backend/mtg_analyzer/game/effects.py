@@ -9706,15 +9706,22 @@ class PeekTopLandBattlefieldTappedEffect(GameEffect):
     """"Look at the top card of your library. If it's a land card, you may
     put it onto the battlefield tapped." (Explorer's Scope) — an "impulse
     peek", distinct from Sword of the Animist's own unconditional library
-    *search* for a basic land."""
+    *search* for a basic land.
+
+    Bug report, 2026-09-04: the actual interactive "you may", plus the
+    library-removal `_put_searched_card` needs before it moves anything
+    onto the battlefield (omitting it used to leave the same `GameObject`
+    sitting in both the library and the battlefield at once — a later draw
+    would then hand that same still-in-library object into hand too), both
+    live in `RulesEngine.peek_top_land_battlefield_tapped`/`resolve_peek_
+    top_land_choice` now — this just opens that choice.
+    """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
-        if player is None or not player.library:
+        if player is None:
             return
-        top = player.library[-1]
-        if top.card.is_land:
-            context.engine._put_searched_card(player, top, "battlefield_tapped")
+        context.engine.peek_top_land_battlefield_tapped(player, source=self.source)
 
 
 class CreateTokenMayAttachEquipmentEffect(GameEffect):
@@ -23180,6 +23187,22 @@ EffectRegistry.register(
             "self_only": bool(p.get("self_only", False)),
         },
     ),
+)
+EffectRegistry.register(
+    # MEC-61: "Room abilities of dungeons you own trigger an additional
+    # time." (Dungeon Delver, PAR-32) — RULE 603.3d trigger doubling, the
+    # `TriggerDoublerEffect`/`trigger_doubler_bonus` idiom (Roaming
+    # Throne, `Done_Backend.md`) narrowed to dungeon-room triggers
+    # specifically rather than "any triggered ability of a permanent you
+    # control": a dungeon's RULE 309.4c room trigger is built in its own
+    # source-less path (`RulesEngine._collect_dungeon_room_triggers`, off
+    # a `Dungeon` in the command zone, never a battlefield `GameObject`),
+    # which `trigger_doubler_bonus`'s own `obj: GameObject` signature has
+    # no way to reach — a bare marker `StaticAbility`, the same
+    # `grant_escape`/`grant_retrace`/`extra_etb_counter` out-of-band idiom,
+    # consulted by `continuous.dungeon_room_trigger_doubler_bonus`.
+    "dungeon_room_trigger_doubler",
+    lambda p: StaticAbility("dungeon_room_trigger_doubler", affects="all", params={}),
 )
 EffectRegistry.register(
     "type_change",  # "Lands you control are 0/0 creatures" (layer 4)

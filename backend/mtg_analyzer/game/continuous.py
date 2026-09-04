@@ -3668,6 +3668,35 @@ def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, i
     return totals
 
 
+def dungeon_room_trigger_doubler_bonus(state: "GameState", player_id: Optional[str]) -> int:
+    """RULE 603.3d: how many *additional* times ``player_id``'s own RULE
+    309.4c dungeon-room triggered ability should be placed on the stack
+    (Dungeon Delver's "Room abilities of dungeons you own trigger an
+    additional time.") — the `trigger_doubler_bonus`/`TriggerDoublerEffect`
+    idiom (Roaming Throne), narrowed to a dungeon-room trigger specifically:
+    that trigger is built off a `Dungeon` in the command zone
+    (`RulesEngine._collect_dungeon_room_triggers`), never a battlefield
+    `GameObject`, so `trigger_doubler_bonus`'s own ``obj: GameObject``
+    signature can't reach it — consulted out-of-band, the
+    `granted_escape_for`/`granted_retrace_for`/`extra_etb_counters_for`
+    convention, instead.
+
+    Every active ``dungeon_room_trigger_doubler`` whose granting source's
+    controller is ``player_id`` contributes ``+1`` (additive stacking,
+    same as every other RULE 603.3d doubler — two Dungeon Delvers make a
+    room trigger three times, not four).
+    """
+    if player_id is None:
+        return 0
+    bonus = 0
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "dungeon_room_trigger_doubler":
+            continue
+        if getattr(ability.source, "controller_id", None) == player_id:
+            bonus += 1
+    return bonus
+
+
 def max_draws_per_turn(state: "GameState", player: Optional["Player"] = None) -> Optional[int]:
     """The most restrictive "Each player can't draw more than N cards each
     turn." cap in play (RULE 121.5-adjacent — Spirit of the Labyrinth), or

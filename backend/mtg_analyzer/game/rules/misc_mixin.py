@@ -2313,7 +2313,16 @@ class MiscSystemsMixin:
             controller_id=player.id,
             description=f"{dungeon.name} — {room.name}: {room.effect_text}",
         )
-        self.pending_triggers.append((ability, event))
+        # MEC-61 (Dungeon Delver): "Room abilities of dungeons you own
+        # trigger an additional time." — same "extra, independent copies"
+        # idiom `triggers_mixin`'s own `trigger_doubler_bonus` call uses
+        # (RULE 603.3b: each copy is separately orderable once 2+ end up
+        # pending together), just via `dungeon_room_trigger_doubler_bonus`
+        # since a dungeon room trigger has no `GameObject` source for the
+        # general doubler to key off.
+        copies = 1 + continuous.dungeon_room_trigger_doubler_bonus(self.state, player.id)
+        for _ in range(copies):
+            self.pending_triggers.append((ability, event))
     def _effects_from_specs(self, specs: list[dict[str, Any]], source: Any) -> list[Any]:
         """Serialized `EffectSpec` dicts → live one-shot `GameEffect`s bound
         against ``source`` — the same lazily-imported binder path

@@ -215,10 +215,22 @@ its block back into the matching section here.
     lowercase subtype words among every spell cast this turn, populated in
     `RulesEngine._track_spell_cast` off the cast object's *live* subtypes,
     which the SPELL_CAST event's own `object_types` never carries — main
-    card types only). Left (each a distinct mini-project — hand-author +
-    MEC as needed): Dungeon Delver (dungeon-room trigger doubling — MEC);
-    Noble Heritage (per-opponent protection + interactive per-player —
-    MEC).
+    card types only). **Dungeon Delver's dungeon-room trigger doubling** —
+    shipped (PARSER_VERSION 262, +1, hand-authored — MEC-61): the RULE
+    603.3d trigger-doubler idiom (`trigger_doubler_bonus`/
+    `TriggerDoublerEffect`, Roaming Throne) narrowed to a dungeon room's
+    own RULE 309.4c trigger, which is built off a `Dungeon` in the command
+    zone (`RulesEngine._collect_dungeon_room_triggers`) rather than a
+    battlefield `GameObject` — the general doubler's own signature can't
+    reach it. New `continuous.dungeon_room_trigger_doubler_bonus` (a bare
+    ``dungeon_room_trigger_doubler`` marker static, the `grant_escape`/
+    `grant_retrace`/`extra_etb_counter` out-of-band convention) applies the
+    same "extra, independent copies" append `triggers_mixin`'s own doubler
+    call already uses; the bottommost room's folded-in `CompleteDungeonEffect`
+    correctly no-ops on its second copy (`player.dungeon` is already
+    `None`), so RULE 309.6 completion still fires exactly once even when
+    the reward doubles. Left: Noble Heritage (per-opponent protection +
+    interactive per-player — MEC).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
     `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate
