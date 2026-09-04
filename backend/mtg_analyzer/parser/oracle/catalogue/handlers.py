@@ -296,6 +296,16 @@ def _damage_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("damage", {"amount": "x", "target_kind": kind, **_optional_param(m)})]
 
 
+def _damage_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None:
+        return None
+    return [EffectSpec("damage", {
+        "amount_from_trigger_event": "mana_value", "target_kind": kind,
+        **_optional_param(m),
+    })]
+
+
 #: "~ [also] deals N damage to **that creature's controller**" — the
 #: controller of a creature an earlier clause targeted ("Destroy target
 #: creature. ~ deals 2 damage to that creature's controller." — Consign to
@@ -8902,6 +8912,19 @@ HANDLERS: list[EffectHandler] = [
         "damage_x",
         _c(rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? x damage to {TARGET}"),
         _damage_x,
+    ),
+    # "~ deals damage equal to that spell's mana value to target opponent."
+    # (Passionate Archaeologist's granted cast trigger, PAR-32) — the
+    # amount is the firing `SPELL_CAST` event's own ``mana_value`` field,
+    # the same "read that spell's MV off the event" idiom `_incubate_x`'s
+    # ``spell_mv`` branch uses (`DealDamageEffect.amount_from_trigger_event`).
+    EffectHandler(
+        "damage_spell_mv",
+        _c(
+            rf"(?:(?:~|it|this creature) )?deals? damage equal to that spell'?s "
+            rf"mana value to {TARGET}"
+        ),
+        _damage_spell_mv,
     ),
     # "~ deals N damage to each creature blocking it" (Fire Juggler-shaped,
     # 4 cards) — `DealDamageEffect`'s `each_creature_blocking_source`

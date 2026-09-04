@@ -451,6 +451,12 @@ _CAST_SPELL_TRIGGER_NEG_RE = re.compile(
 #: needed here — purely a missing recognizer.
 _CAST_SPELL_TRIGGER_PLAIN_RE = re.compile(
     r"^whenever (?P<subj>you|an opponent|a player) casts? a spell"
+    # "…from exile" (Passionate Archaeologist's granted trigger) — RULE
+    # 601.2a's cast zone, read off the `SPELL_CAST` event's ``from_exile``
+    # key (`effect_binder`'s ``spell_from_exile`` predicate), the same
+    # "gate the cast trigger on an event field" idiom as the mana-value /
+    # ``from_hand`` rows.
+    r"(?P<from_exile> from exile)?"
     # "…during an opponent's turn" (Fire Nation Occupation) — the caster
     # isn't the active player, i.e. the trigger's own ``not_controllers_
     # turn`` gate (`effect_binder`, RULE 603.4). "during your turn" has no
@@ -3774,7 +3780,10 @@ def segment_line(
     if cast_spell_trig_plain is not None:
         subj = cast_spell_trig_plain.group("subj").lower()
         body, optional = _peel_optional(cast_spell_trig_plain.group("body"))
-        effects = parse_effect_body(body)
+        # "~ deals damage equal to that spell's mana value …" (Passionate
+        # Archaeologist) — a bare "~" in the body is this ability's own
+        # source, unambiguous for a player-subject cast trigger.
+        effects = parse_effect_body(body, self_subject=True)
         if effects is None:
             return Segment(raw=raw)
         trig: dict[str, Any] = {
@@ -3782,6 +3791,8 @@ def segment_line(
         }
         if cast_spell_trig_plain.group("opp_turn"):
             trig["not_controllers_turn"] = True
+        if cast_spell_trig_plain.group("from_exile"):
+            trig["spell_from_exile"] = True
         spec = AbilitySpec(
             "triggered",
             effects=effects,

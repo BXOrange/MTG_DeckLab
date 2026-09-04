@@ -703,6 +703,9 @@ class CastingResolutionMixin:
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
                 mana_spent=obj.mana_spent_to_cast,
                 from_hand=from_hand,
+                # RULE 601.2a: cast from exile (Passionate Archaeologist's
+                # granted "whenever you cast a spell from exile" trigger).
+                from_exile=getattr(obj, "cast_from_exile", False),
                 # "…where X is that spell's mana value" (Shark Typhoon-shaped
                 # spell-cast payoffs) — read live off the event rather than
                 # requiring a lookup back to a stack item that may have
@@ -789,6 +792,9 @@ class CastingResolutionMixin:
                 free=True,
                 mana_spent=0,
                 from_hand=from_hand,
+                # RULE 601.2a: cast from exile (Passionate Archaeologist's
+                # granted "whenever you cast a spell from exile" trigger).
+                from_exile=getattr(obj, "cast_from_exile", False),
                 # See the matching comment on `cast_spell`'s own SPELL_CAST
                 # firing — a free cast is still a cast (RULE 601.2f/118.9)
                 # for Talion, the Kindly Lord's own "whenever an opponent

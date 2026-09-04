@@ -86,7 +86,15 @@ from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, DEVOTION, count_of, devoti
 #: `_PLAYER_SUBJECT_GRANTED_EVENTS` documents.
 _GRANTABLE_TRIGGER_EVENTS = frozenset(
     {"ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE",
-     "STEP_BEGIN", "LIFE_GAINED"}
+     "STEP_BEGIN", "LIFE_GAINED", "SPELL_CAST"}
+)
+#: PAR-32: trigger-dict gate keys that survive re-granting unchanged — a
+#: filter on the firing event, not on any host-relative state. Passed
+#: straight through to `grant_triggered_ability`'s params; each has its own
+#: `effect_binder` predicate that `continuous._apply_layer_6_ability`
+#: composes onto the re-granted trigger's condition.
+_REGRANT_PASSTHROUGH_TRIGGER_KEYS = frozenset(
+    {"attacked_player_has_lowest_life", "spell_from_exile"}
 )
 
 #: MEC-55: inner-static `affects` scopes that can't be re-granted to a
@@ -1881,13 +1889,14 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
         # so only the two scoped forms are claimed (fail-closed).
         if trigger.get("phase_relation") not in ("you", "not_you"):
             return None
-    elif event == "LIFE_GAINED":
-        # RULE 119.3's "Whenever **you** gain life, …" is itself a
-        # player-subject condition (`{"subject": "you"}`, not the object-
-        # subject the `elif` below requires) — the `LIFE_GAINED` branch of
-        # `game/continuous.py`'s `_granted_trigger_condition` is what
-        # resolves "you" against the granted-to permanent's own controller
-        # once regranted.
+    elif event in ("LIFE_GAINED", "SPELL_CAST"):
+        # A player-subject condition (`{"subject": "you"}`) rather than the
+        # object-subject the `elif` below requires — RULE 119.3's "Whenever
+        # **you** gain life, …" / "Whenever **you** cast a spell …"
+        # (Passionate Archaeologist). `game/continuous.py`'s
+        # `_granted_trigger_condition` resolves "you" against the granted-to
+        # permanent's own controller once regranted
+        # (`_PLAYER_SUBJECT_GRANTED_EVENTS`).
         if trigger.get("condition") != {"subject": "you"}:
             return None
     elif len(events) == 1 and trigger.get("condition") != {"subject": "self"}:
@@ -1918,11 +1927,13 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
             params["filter"] = dict(trigger["filter"])
         if trigger.get("phase_relation"):
             params["phase_relation"] = trigger["phase_relation"]
-        if trigger.get("attacked_player_has_lowest_life"):
-            # PAR-32: "…, if no opponent has more life than that player, …"
-            # (Guild Artisan cycle) — carried through so the re-granted
-            # trigger keeps the RULE 603.4 gate.
-            params["attacked_player_has_lowest_life"] = True
+        # PAR-32: firing-event gate flags that survive re-granting — each has
+        # its own `effect_binder` predicate `_apply_layer_6_ability`
+        # composes onto the granted trigger (the "no opponent has more life
+        # than that player" gate, "cast a spell from exile", …).
+        for key in _REGRANT_PASSTHROUGH_TRIGGER_KEYS:
+            if trigger.get(key):
+                params[key] = trigger[key]
         out.append(EffectSpec("grant_triggered_ability", params))
     return out
 

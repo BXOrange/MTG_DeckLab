@@ -117,12 +117,21 @@ its block back into the matching section here.
     POWER_RE` + `count_selector`'s `source_power` (Hardy Outlander); and
     `parse_effect_body`'s connector-split now carries `self_subject` across
     a clause that only re-references the source (Agent of the Shadow
-    Thieves' "put a +1/+1 counter on ~. it gains …"). Left: **cast-spell
-    triggers** (Acolyte of Bahamut / Folk Hero / Passionate Archaeologist);
-    **combat-damage triggers** (Feywild Visitor / Popular Entertainer); and
-    a bespoke tail (Dungeon Delver / Scion of Halaster / Shameless
-    Charlatan / Noble Heritage / Haunted One / Tavern Brawler / Master
-    Chef's twin-body).
+    Thieves' "put a +1/+1 counter on ~. it gains …"). **Player-subject
+    SPELL_CAST regrant** — shipped (PARSER_VERSION 252, +2): SPELL_CAST
+    joined `_GRANTABLE_TRIGGER_EVENTS` / `_PLAYER_SUBJECT_GRANTED_EVENTS`
+    so "Whenever **you** cast …" re-grants with "you" = the grantee's
+    controller; a `_REGRANT_PASSTHROUGH_TRIGGER_KEYS` set carries firing-
+    event gates (`spell_from_exile` — new `SPELL_CAST` event field +
+    `effect_binder.regrant_trigger_gate_predicate`); `damage_spell_mv`
+    handler ("deals damage equal to that spell's mana value"). Closes
+    Passionate Archaeologist. Left: **cast-spell triggers** (Acolyte of
+    Bahamut's cost reduction / Folk Hero's "shares a creature type with ~"
+    filter); **combat-damage triggers** (Feywild Visitor's nontoken
+    filter / Popular Entertainer's event-player-scoped goad); and a
+    bespoke tail (Dungeon Delver / Scion of Halaster / Shameless Charlatan
+    / Noble Heritage / Haunted One / Tavern Brawler / Master Chef's
+    twin-body).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
     `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate

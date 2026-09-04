@@ -285,3 +285,56 @@ def test_source_power_pump_selector():
         "amount_from_count_selector": "source_power",
         "target_kind": "other_creature_you_control",
     })]
+
+
+# --- slice 4: player-subject SPELL_CAST regrant + "from exile" gate ---
+
+
+def test_cast_from_exile_regrant_carries_the_gate():
+    specs = static_effect_specs(
+        'commander creatures you own have "whenever you cast a spell from '
+        'exile, ~ deals damage equal to that spell\'s mana value to target '
+        'opponent."'
+    )
+    assert specs is not None and len(specs) == 1
+    p = specs[0].params
+    assert p["trigger_event"] == "SPELL_CAST"
+    assert p["spell_from_exile"] is True
+    assert p["grant_effects"][0]["params"]["amount_from_trigger_event"] == "mana_value"
+
+
+def test_passionate_archaeologist_regrant_fires_on_cast_from_exile():
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
+    )
+    st = eng.state
+    p1 = st.player_by_id("p1")
+    granter = GameObject(
+        Card(id="pa", name="Passionate Archaeologist", type_line="Enchantment",
+             oracle_text='Commander creatures you own have "Whenever you cast '
+                         'a spell from exile, this creature deals damage equal '
+                         'to that spell\'s mana value to target opponent."'),
+        owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(granter)
+    st.add_to_battlefield(granter)
+    cmd = GameObject(
+        Card(id="k", name="Cmdr", type_line="Legendary Creature — Human",
+             is_creature=True, power=3, toughness=3),
+        owner_id="p1", zone=Zone.BATTLEFIELD)
+    cmd.is_commander = True
+    cmd.summoning_sick = False
+    st.add_to_battlefield(cmd)
+    eng.recompute_continuous_effects()
+
+    granted = cmd._granted_triggered_abilities
+    assert len(granted) == 1 and granted[0].trigger_event == "SPELL_CAST"
+
+    from mtg_analyzer.models.events import EventType, GameEvent
+    # from a hand cast → the "from exile" gate rejects it
+    st.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1", instance_id=1,
+                            spell="X", mana_value=2, from_exile=False, from_hand=True))
+    assert eng.rules.put_triggers_on_stack() == 0
+    # from exile → it fires
+    st.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1", instance_id=2,
+                            spell="Y", mana_value=3, from_exile=True, from_hand=False))
+    assert eng.rules.put_triggers_on_stack() == 1

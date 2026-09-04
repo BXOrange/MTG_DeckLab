@@ -1383,7 +1383,7 @@ _GRANTED_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id", "COUNTER": "target
 #: granted-to permanent's own controller (the same "resolve 'your' against
 #: `target`, not the granting source's controller" rule `phase_relation`
 #: documents below).
-_PLAYER_SUBJECT_GRANTED_EVENTS = frozenset({"LIFE_GAINED"})
+_PLAYER_SUBJECT_GRANTED_EVENTS = frozenset({"LIFE_GAINED", "SPELL_CAST"})
 
 
 def _granted_trigger_condition(
@@ -1985,17 +1985,23 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                             trigger_event, ability.params.get("filter"),
                             ability.params.get("phase_relation"),
                         )
-                    if ability.params.get("attacked_player_has_lowest_life"):
-                        # PAR-32 (Guild Artisan cycle): AND the RULE 603.4
-                        # "no opponent has more life than that player" gate,
-                        # scoped to the granted-to permanent's controller.
-                        from .effect_binder import attacked_player_lowest_life_predicate
+                    # PAR-32: AND any firing-event gate flags the re-granted
+                    # trigger carried ("no opponent has more life than that
+                    # player" — Guild Artisan; "cast a spell from exile" —
+                    # Passionate Archaeologist), each scoped to the
+                    # granted-to permanent's controller.
+                    from .effect_binder import regrant_trigger_gate_predicate
 
+                    for _gate_key in ("attacked_player_has_lowest_life", "spell_from_exile"):
+                        if not ability.params.get(_gate_key):
+                            continue
+                        _gate = regrant_trigger_gate_predicate(_gate_key, obj.controller_id)
+                        if _gate is None:
+                            continue
                         _base_cond = cond
-                        _low = attacked_player_lowest_life_predicate(obj.controller_id)
 
-                        def cond(event, context, _b=_base_cond, _l=_low):  # noqa: F811
-                            return _b(event, context) and _l(event, context)
+                        def cond(event, context, _b=_base_cond, _g=_gate):  # noqa: F811
+                            return _b(event, context) and _g(event, context)
                     granted = TriggeredAbility(
                         trigger_event=trigger_event,
                         effects=[

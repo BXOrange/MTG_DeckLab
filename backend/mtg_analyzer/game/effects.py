@@ -22958,12 +22958,15 @@ EffectRegistry.register(
             # the *granted-to* permanent as the source, so "you control" /
             # "other" re-scope to it.
             **({"group_condition": dict(p["group_condition"])} if p.get("group_condition") else {}),
-            # PAR-32: "Commander creatures you own have 'Whenever ~ attacks
-            # a player, if no opponent has more life than that player, …'"
-            # (Guild Artisan cycle) — `continuous._apply_layer_6_ability`
-            # ANDs `effect_binder.attacked_player_lowest_life_predicate`.
+            # PAR-32: firing-event gate flags on a re-granted trigger
+            # ("Commander creatures you own have 'Whenever ~ attacks a
+            # player, if no opponent has more life than that player, …'" —
+            # Guild Artisan; "Whenever you cast a spell from exile, …" —
+            # Passionate Archaeologist). `continuous._apply_layer_6_ability`
+            # ANDs `effect_binder.regrant_trigger_gate_predicate`.
             **({"attacked_player_has_lowest_life": True}
                if p.get("attacked_player_has_lowest_life") else {}),
+            **({"spell_from_exile": True} if p.get("spell_from_exile") else {}),
             **_selectors(p),
         },
     ),

@@ -309,6 +309,19 @@ def attacked_player_lowest_life_predicate(controller_id: Optional[str]) -> Calla
     return _ok
 
 
+def regrant_trigger_gate_predicate(key: str, controller_id: Optional[str]) -> Optional[Callable[[Any, Any], bool]]:
+    """A firing-event gate for a *re-granted* trigger (PAR-32 — "Commander
+    creatures you own have 'Whenever …'"), by the trigger-dict key that
+    carried it. `continuous._apply_layer_6_ability` ANDs the result onto the
+    granted `TriggeredAbility.condition`; each gate is the same event-field
+    read the printed-trigger path uses in `_trigger_condition`."""
+    if key == "attacked_player_has_lowest_life":
+        return attacked_player_lowest_life_predicate(controller_id)
+    if key == "spell_from_exile":
+        return lambda event, context: bool((event or {}).get("from_exile"))
+    return None
+
+
 def _subject_event_key(trigger: dict[str, Any]) -> str:
     # RULE 603.1's *recipient*-side damage trigger (MEC-11, Enrage-shaped
     # "whenever ~ is dealt damage" — `parser/oracle/segmenter.py`'s
@@ -1037,6 +1050,15 @@ def _trigger_condition(
             return not event.get("mana_spent")
 
         predicates.append(_spell_no_mana_ok)
+
+    # "Whenever you cast a spell from exile, …" (Passionate Archaeologist's
+    # granted trigger, PAR-32) — RULE 601.2a's cast zone, off the
+    # `SPELL_CAST` event's ``from_exile`` key.
+    if trigger.get("spell_from_exile"):
+        def _spell_from_exile_ok(event: Any, context: Any) -> bool:
+            return bool(event.get("from_exile"))
+
+        predicates.append(_spell_from_exile_ok)
 
     # "Whenever an opponent casts a spell with mana value, power, or
     # toughness equal to the chosen number, …" (Talion, the Kindly Lord,
