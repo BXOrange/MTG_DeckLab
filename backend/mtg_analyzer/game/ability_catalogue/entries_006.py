@@ -1195,7 +1195,12 @@ def _sam_loyal_attendant() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("create_token", {"count": 1, "token_name": "Food"})],
-            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "combat"}, "phase_relation": "you"},
+            # Bug report, 2026-09-04: `GameStep`'s real name for this step
+            # (`game/phases.py`) is "begin_combat", not "combat" — the wrong
+            # filter value meant this `STEP_BEGIN` event, whose `step` field
+            # never carries a bare "combat", could never match, so the Food
+            # token silently never got created at all.
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "begin_combat"}, "phase_relation": "you"},
             raw_text="Zu Beginn des Kampfes in deinem Zug erzeuge einen Nahrungsspielstein.",
         ),
         AbilitySpec(

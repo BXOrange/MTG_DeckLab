@@ -42,5 +42,10 @@
     "server_threads": 40,
     "dynamic_analysis_workers": 5,
     "dynamic_analysis_match_processes": 1
+  },
+
+  "frontend": {
+    "_comment": "origin: internal address the backend reverse-proxies non-/api//ws requests to (setup/start.py's static frontend server by default; a browser only ever needs to reach the backend port). Env MTG_FRONTEND_ORIGIN.",
+    "origin": ""
   }
 }

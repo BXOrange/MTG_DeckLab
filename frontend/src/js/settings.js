@@ -55,10 +55,27 @@ export const MAX_PASS_TIMER_SECONDS = 600;
 export const DEFAULT_BOT_SPEED_MS = 900;
 export const BOT_SPEED_MS_OPTIONS = [0, 900, 2000];
 
-//: Same default/override convention as the rest of the frontend (see
-//: api.js) — set window.MTG_API_BASE_URL before app.js loads (e.g. in
-//: index.html) to change the out-of-the-box default without a cookie.
-const DEFAULT_SERVER_URL = window.MTG_API_BASE_URL || 'http://localhost:8000';
+//: setup/start.py's own --port default for the frontend static server.
+//: Opened directly at this port (the --frontend-only dev path, no backend
+//: proxy in front of it — see api/frontend_proxy.py), window.location.origin
+//: would be the frontend's own origin, not the backend's, so that one case
+//: keeps the old hardcoded guess instead.
+const FRONTEND_DEV_PORT = 8765;
+
+//: Same override convention as the rest of the frontend (see api.js) — set
+//: window.MTG_API_BASE_URL before app.js loads (e.g. in index.html) to
+//: change the out-of-the-box default without a cookie. Absent that, default
+//: to the page's own origin: the backend now reverse-proxies the frontend
+//: (api/frontend_proxy.py), so browser and backend are always same-origin
+//: through that path — local or over the LAN, whatever host/port the page
+//: was actually loaded from. Falls back to the pre-proxy localhost:8000
+//: guess only when loaded directly off the frontend's own dev port, where
+//: window.location.origin would point at the frontend, not the backend.
+const DEFAULT_SERVER_URL =
+  window.MTG_API_BASE_URL ||
+  (window.location.port === String(FRONTEND_DEV_PORT)
+    ? 'http://localhost:8000'
+    : window.location.origin);
 
 function normalizeServerUrl(url) {
   const trimmed = (url || '').trim();

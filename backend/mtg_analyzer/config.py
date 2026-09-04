@@ -53,6 +53,9 @@ Env vars (all optional; defaults reproduce the pre-config-module paths):
   MTG_DYNAMIC_ANALYSIS_WORKERS — how many dynamic-analysis *jobs* run at once
   MTG_DYNAMIC_ANALYSIS_MATCH_WORKERS — how many worker *processes* one job
     fans its independent match simulations across (0 = one per CPU core)
+  MTG_FRONTEND_ORIGIN — internal address the backend reverse-proxies
+    non-/api//ws requests to (see FRONTEND_ORIGIN below); default
+    http://127.0.0.1:8765, setup/start.py's static frontend server
 """
 
 from __future__ import annotations
@@ -332,3 +335,17 @@ DYNAMIC_ANALYSIS_WORKERS = _cfg_int("MTG_DYNAMIC_ANALYSIS_WORKERS", "workers", "
 DYNAMIC_ANALYSIS_MATCH_WORKERS = _cfg_int(
     "MTG_DYNAMIC_ANALYSIS_MATCH_WORKERS", "workers", "dynamic_analysis_match_processes", 0, minimum=0
 )
+
+
+# -- Frontend proxy -------------------------------------------------------
+
+#: Internal address the backend reverse-proxies any request outside
+#: `/api`/`/ws` to (`api/frontend_proxy.py`) — a plain server-to-server
+#: HTTP call, invisible to and not subject to browser CORS. Lets a browser
+#: reach the whole app through the backend's single port instead of two
+#: origins. Default matches `setup/start.py`'s frontend static server
+#: (`no_cache_server.py`, default port 8765); `run_servers()` overrides
+#: this via MTG_FRONTEND_ORIGIN when `--port` picks a different one. Could
+#: later point at a load balancer in front of several such processes —
+#: that's a config change here, not a code change.
+FRONTEND_ORIGIN = _cfg_str("MTG_FRONTEND_ORIGIN", "frontend", "origin", "http://127.0.0.1:8765")

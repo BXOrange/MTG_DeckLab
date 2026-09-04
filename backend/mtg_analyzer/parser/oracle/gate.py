@@ -2477,7 +2477,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: ``rider`` kind (`RulesEngine.apply_prevent_rider` — a fixed count of 1,
 #: unscaled by the prevented amount; the 0/0 base + RULE 704.5g SBA
 #: finishes them once the last counter goes). +7.
-PARSER_VERSION = "263"
+#: v264 — bug report (2026-09-04): "Enchant `<quality>`" now also captures
+#: a printed controller qualifier ("... you control" / "... you don't
+#: control" / "... an opponent controls", RULE 303.4c) as `keyword.
+#: controller` (normalized to "you"/"not_you") instead of discarding it —
+#: `targeting.legal_targets`/`RulesEngine._attachment_legal`'s enchant
+#: dispatch both now enforce it, closing a real targeting-legality gap
+#: (Betrayal's "an opponent controls" restriction let a bot enchant its
+#: own creature). No coverage-count change (a keyword's own MODELED/
+#: UNMODELED classification is unaffected either way) — the parser's own
+#: output shape changed, which is what this lock guards.
+PARSER_VERSION = "264"
 
 
 def parser_source_hash() -> str:

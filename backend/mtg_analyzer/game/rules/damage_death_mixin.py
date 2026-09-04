@@ -1883,4 +1883,19 @@ class DamageDeathMixin:
             return
         owner = self.state.player_by_id(obj.owner_id)
         self._remove_from_current_zone(owner, obj)
+        # RULE 400.7 (bug report, 2026-09-04): a commander redirected here
+        # came from the graveyard/exile/hand/library, each of which only
+        # ever reset `tapped`/`damage_marked` on the way there — its
+        # battlefield-only state (`attacking`/`combat_defender`/`blocking`/
+        # counters/attachments/…) was still sitting on the object,
+        # unnoticed while it stayed off the battlefield. Left alone, that
+        # state survives all the way to a later recast, since `_resolve_
+        # permanent_spell` never resets it either — a commander that died
+        # mid-combat could re-enter the battlefield *this* turn already
+        # "attacking" a defender from a previous combat, corrupting
+        # `attackers()`/every per-attacker aggregate (`_fire_player_
+        # attacked_events` et al.) built from that flag. The same "new
+        # object, no memory" reset `blink`/`return_from_graveyard` already
+        # give a battlefield-bound move applies just as well to this one.
+        obj.reset_as_new_object()
         owner.add_to_zone(obj, Zone.COMMAND)

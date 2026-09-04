@@ -20,6 +20,7 @@ from mtg_analyzer.api.archetypes import router as archetypes_router
 from mtg_analyzer.api.cards import router as cards_router
 from mtg_analyzer.api.decks import router as decks_router
 from mtg_analyzer.api.dynamic_analysis import router as dynamic_analysis_router
+from mtg_analyzer.api.frontend_proxy import router as frontend_proxy_router
 from mtg_analyzer.api.game import router as game_router
 from mtg_analyzer.api.game_ws import router as game_ws_router
 from mtg_analyzer.api.images import router as images_router
@@ -143,6 +144,10 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    # Must be included last: its catch-all `/{path:path}` route would
+    # otherwise shadow every route above it (see frontend_proxy.py).
+    app.include_router(frontend_proxy_router)
 
     return app
 

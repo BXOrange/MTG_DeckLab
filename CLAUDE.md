@@ -263,6 +263,35 @@ step** and no Node toolchain — edit `frontend/src/**` and reload. There is no
 JS test runner, so validate frontend changes by reasoning + reading; validate
 backend changes with pytest (the suite is fast, ~500+ tests, keep it green).
 
+**A browser only ever needs to reach the backend's port.** `setup/start.py`
+still runs two processes (backend `uvicorn`, frontend `no_cache_server.py`),
+but the backend reverse-proxies anything outside `/api`/`/ws` straight
+through to the frontend process (`api/frontend_proxy.py`,
+`config.FRONTEND_ORIGIN`, default `http://127.0.0.1:8765`) — a
+server-to-server call, not subject to CORS. `run_servers()` opens the
+browser at the backend port, not the frontend one; the frontend process
+stays loopback-only and isn't meant to be opened directly. This is why
+`_LOCAL_DEV_ORIGIN_REGEX` in `api/app.py` only ever had to admit
+`localhost`/`127.0.0.1` origins — the two-origin problem it exists for is
+now the exception (`--frontend-only`), not the default path.
+
+**Reachable from other computers on the network is opt-in, via
+`start.py --host HOST`** (passed straight through as uvicorn's own
+`--host`; omitted by default, so uvicorn's loopback-only default applies
+unchanged). This app has **no authentication** — anyone who can reach the
+host/port can read and write saved decks, player uploads, and play in any
+game, so this must never become the default. Only the backend needs to
+bind beyond loopback; `no_cache_server.py` stays loopback-only always (the
+backend proxies it internally, same-machine only). On macOS, binding
+beyond loopback triggers the OS's "Local Network" privacy permission,
+which is unreliable for an unsigned CLI script (see
+`no_cache_server.py`'s own comment on why *it* never does this) — the same
+risk now applies to the one process that does. `settings.js`'s
+`DEFAULT_SERVER_URL` defaults to `window.location.origin` (not a
+hardcoded `localhost:8000`) for exactly this reason: a browser loading the
+app via a LAN IP must have its own API calls resolve to that same IP, not
+to its own machine's `localhost`.
+
 **Starting is offline-safe, and must stay that way.** `start.py` calls
 `setup/install.py`'s `ensure_backend_venv()` on every run, so anything that
 does gets to decide whether the app can start without internet: it installs

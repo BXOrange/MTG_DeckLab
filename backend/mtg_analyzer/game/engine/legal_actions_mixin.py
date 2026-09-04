@@ -888,6 +888,19 @@ class LegalActionsMixin:
             # two-step "pick a defender" choice (RULE 508.1a).
             defenders = self.legal_defenders_for(player)
             for obj in self.state.permanents_controlled_by(player.id):
+                # RULE 508.1a: attackers are declared once per combat. A
+                # creature already attacking (most visibly a vigilant one,
+                # which stays untapped and would otherwise keep satisfying
+                # `_can_attack` forever) must drop out of the offer the same
+                # way `declare_blockers` already excludes an already-
+                # blocking creature just below — omitting this let a bot
+                # that greedily takes every "attack" offer (`GreedyBot`)
+                # re-declare an already-attacking vigilant creature on every
+                # single `legal_actions` poll, re-firing its `ATTACKS`
+                # trigger each time (bug report, 2026-09-04: Frodo,
+                # Adventurous Hobbit — Vigilance — fired 953 times).
+                if obj.attacking:
+                    continue
                 if self._can_attack(player, obj):
                     actions.append(
                         {

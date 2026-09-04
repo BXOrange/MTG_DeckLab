@@ -585,6 +585,18 @@ class CombatMixin:
                 exert = bool(entry.get("exert"))
             else:
                 obj, defender, exert = entry, None, False
+            # RULE 508.1a: a creature is declared as an attacker once per
+            # combat — a second declaration of the same (still-untapped,
+            # e.g. vigilant) creature must never re-run the declaration
+            # (re-tap/re-fire ATTACKS/re-check dethrone). `legal_actions`
+            # no longer offers an already-attacking creature at all (bug
+            # report, 2026-09-04 — Frodo, Adventurous Hobbit's Vigilance
+            # kept it re-offered, and a bot that takes every "attack" offer
+            # re-declared it every poll, firing its trigger 953 times); this
+            # is the same guard kept here too, for a client that submits a
+            # stale offer anyway.
+            if obj.attacking:
+                raise ValueError(f"{obj.name} is already attacking")
             if exert and not combat.has(obj, "exert"):
                 raise ValueError(f"{obj.name} doesn't have exert")
             assigned = self._assign_defender(obj, defender, legal)
