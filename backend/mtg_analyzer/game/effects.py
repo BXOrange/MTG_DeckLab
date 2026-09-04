@@ -555,8 +555,12 @@ class GameContext:
         source_name: Optional[str] = None,
         permission_player: Optional["Player"] = None,
         same_turn_only: bool = False,
-    ) -> None:
-        self.engine.exile_with_play_permission(
+    ) -> list[Any]:
+        # MEC-58: returns the exiled objects (rather than discarding them,
+        # as before) so a caller — `ImpulsiveDrawEffect.apply` — can seed
+        # `created_objects` for a following clause's "that card" referent
+        # (Tavern Brawler's "…where X is that card's mana value").
+        return self.engine.exile_with_play_permission(
             player, count, source_name=source_name,
             permission_player=permission_player, same_turn_only=same_turn_only,
         )
@@ -15641,6 +15645,7 @@ class PumpEffect(GameEffect):
         per_recipient_controller_counter: Optional[str] = None,
         amount_from_count_selector: Optional[str] = None,
         amount_from_count_selector_negative: bool = False,
+        amount_from_created_object_mana_value: bool = False,
         creature_filter: Optional[dict] = None,
         previous_subject: bool = False,
         subtypes: Optional[list[str]] = None,
@@ -15724,6 +15729,18 @@ class PumpEffect(GameEffect):
         #: after reading it, the "-X/-X" sibling of that always-positive
         #: "+X/+X" default rather than a second, duplicated param.
         self.amount_from_count_selector_negative = amount_from_count_selector_negative
+        #: MEC-58: "This creature gets +X/+0 until end of turn, where X is
+        #: that card's mana value." (Tavern Brawler, PAR-32) — "that card"
+        #: is whatever the resolution's own preceding clause just exiled
+        #: (`ImpulsiveDrawEffect` appends it to `GameContext.created_
+        #: objects`, the same "read what a previous clause made available"
+        #: idiom `LandOrFreeCastEffect`/`previous_subject` above already
+        #: use). Unlike `amount_from_trigger_event`/`amount_from_count_
+        #: selector` (which set *both* `power` and `toughness` to the same
+        #: magnitude), this only ever sets `power` — every printed instance
+        #: of this shape is "+X/+0", never symmetric, so `toughness` stays
+        #: whatever was passed in (0 by default).
+        self.amount_from_created_object_mana_value = bool(amount_from_created_object_mana_value)
         #: RULE 701.10/11 "double"/"triple target creature's power and
         #: toughness" (Dragonclaw Strike/Tifa's Limit Break) — a per-object
         #: amount unlike every ``amount_from_*`` above (each recipient's own
@@ -15844,6 +15861,12 @@ class PumpEffect(GameEffect):
             self.power = amount
             self.toughness = amount
             if amount == 0:
+                return
+        if self.amount_from_created_object_mana_value:
+            created = list(getattr(context, "created_objects", []))
+            amount = int(getattr(created[-1].card, "converted_mana_cost", 0) or 0) if created else 0
+            self.power = amount
+            if amount <= 0:
                 return
         if self.selector is not None:
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
@@ -17367,10 +17390,18 @@ class ImpulsiveDrawEffect(GameEffect):
             count = int((event or {}).get(self.count_from_trigger_event) or 0)
         if count <= 0:
             return
-        context.exile_with_play_permission(
+        exiled = context.exile_with_play_permission(
             player, count, source_name=source_name,
             permission_player=permission_player, same_turn_only=self.same_turn_only,
         )
+        # MEC-58: seed `created_objects` (the "the tokens"/"that card"
+        # RULE 608.2 referent idiom this file already uses in several
+        # places) so a following clause in the same ability body can act on
+        # what was just exiled — Tavern Brawler's "…where X is that card's
+        # mana value" (`PumpEffect.amount_from_created_object_mana_value`).
+        # Purely additive: no existing card reads this after an impulsive
+        # draw, so this changes nothing for them.
+        context.created_objects.extend(exiled or [])
 
 
 class DrawRevealCastOneFreeEffect(GameEffect):
@@ -22259,6 +22290,7 @@ EffectRegistry.register(
         per_recipient_controller_counter=p.get("per_recipient_controller_counter"),
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_from_count_selector_negative=bool(p.get("amount_from_count_selector_negative", False)),
+        amount_from_created_object_mana_value=bool(p.get("amount_from_created_object_mana_value", False)),
         creature_filter=p.get("creature_filter"),
         previous_subject=bool(p.get("previous_subject", False)),
         subtypes=p.get("subtypes"),

@@ -184,12 +184,23 @@ its block back into the matching section here.
     unlocks for any future "X have '`<replacement>`'" card, not just this
     one. Which of the two looked-at cards is binned is non-interactive
     (always the second, `_discard_instead_of_non_first_draw_replacement`'s
-    own "auto-chosen, no chooser in MVP" precedent). Left (each a distinct
-    mini-project — hand-author + MEC as needed): Acolyte of Bahamut's
-    per-turn-first subtype cost reduction; Dungeon Delver (dungeon-room
-    trigger doubling — MEC); Noble Heritage (per-opponent protection +
-    interactive per-player — MEC); Haunted One (becomes-tapped tribal
-    pump); Tavern Brawler (impulse + pump-from-exiled-mv).
+    own "auto-chosen, no chooser in MVP" precedent). **Tavern Brawler's
+    impulse-draw + pump-from-exiled-mv granted trigger** — shipped
+    (PARSER_VERSION 259, +1, hand-authored — MEC-58): a two-clause granted
+    STEP_BEGIN/upkeep trigger composing two existing primitives rather than
+    a new one — `impulsive_draw` (`RulesEngine.exile_with_play_permission`)
+    now also seeds `GameContext.created_objects` with the card it exiled
+    (purely additive; no existing card reads it), and `PumpEffect` gained
+    `amount_from_created_object_mana_value` to read that seeded card's mana
+    value for the "+X/+0" (deliberately power-only, unlike `amount_from_
+    trigger_event`/`amount_from_count_selector` which set both stats).
+    `GameContext.exile_with_play_permission` had to start returning the
+    exiled objects (was ``-> None``, discarding them) for any of this to be
+    reachable. Left (each a distinct mini-project — hand-author + MEC as
+    needed): Acolyte of Bahamut's per-turn-first subtype cost reduction;
+    Dungeon Delver (dungeon-room trigger doubling — MEC); Noble Heritage
+    (per-opponent protection + interactive per-player — MEC); Haunted One
+    (becomes-tapped tribal pump).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
     `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate
