@@ -17343,7 +17343,22 @@ class ImpulsiveDrawEffect(GameEffect):
         self.count_from_trigger_event = count_from_trigger_event
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or context.active_player
+        # "you" is this ability's/spell's own controller, not whoever
+        # happens to be on the play right now (Virtue of Courage: a source
+        # its controller controls can deal damage on *any* turn, and
+        # `context.active_player` is only ever correct by coincidence for
+        # a resolution that happens to land on the controller's own turn —
+        # off-turn it silently exiled from, and gave play permission to,
+        # the wrong player). `self.source.controller_id` mirrors the
+        # already-correct pattern `TargetOrDelayedDrawEffect` uses just
+        # above, falling back to `context.active_player` only when no
+        # source is bound at all (a bare fixture-built effect) — the same
+        # "read the source's live controller, not the turn" pattern
+        # `CastExiledFaceDownEffect.apply` already uses above.
+        player = self.player
+        if player is None and self.source is not None:
+            player = context.state.player_by_id(self.source.controller_id)
+        player = player or context.active_player
         permission_player = self.permission_player or player
         source_name = self.source.name if self.source is not None else None
         count = self.count
@@ -23076,6 +23091,35 @@ EffectRegistry.register(
             "nonland_only": bool(p.get("nonland_only", False)),
             "card_types": list(p.get("card_types", []) or []),
             "subtypes": list(p.get("subtypes", []) or []),
+        },
+    ),
+)
+EffectRegistry.register(
+    # MEC-56: "This creature enters with an additional +1/+1 counter on it"
+    # / "Other creatures you control enter with an additional +1/+1 counter
+    # on them." (Master Chef, PAR-32) — a RULE 614.1-style entry-counter
+    # *replacement*, not a trigger: the extra counter must already be on the
+    # object when it enters (so an ETB trigger checking "if it has a +1/+1
+    # counter on it" sees it, and so Undergrowth/proliferate-adjacent counts
+    # are exact) rather than landing a beat late. The `grant_escape`/
+    # `grant_retrace` idiom — a bare marker `StaticAbility` consulted
+    # out-of-band by `continuous.extra_etb_counters_for` from
+    # `RulesEngine._apply_entry_counters`, not routed through the layer 1-7
+    # pass (nothing about *this* object's own characteristics changes).
+    # ``self_only`` picks which half of a twin-quoted grant this instance
+    # is: unset (creatures-you-control, source excluded) for "other
+    # creatures…", set for "this creature enters with…" (checked against
+    # the granting ability's own ``source`` — the affected commander
+    # creature itself, since `grant_static_ability` sources each nested
+    # static on the object it was granted to).
+    "extra_etb_counter",
+    lambda p: StaticAbility(
+        "extra_etb_counter",
+        affects="all",
+        params={
+            "kind": str(p.get("kind", "+1/+1")),
+            "count": int(p.get("count", 1) or 1),
+            "self_only": bool(p.get("self_only", False)),
         },
     ),
 )

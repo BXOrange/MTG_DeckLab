@@ -3610,6 +3610,45 @@ def granted_retrace_for(state: "GameState", obj: "GameObject") -> Optional[dict[
     return None
 
 
+def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, int]:
+    """Extra RULE 614.1-style entry counters ``obj`` gets from any live
+    ``"extra_etb_counter"`` static (MEC-56 — Master Chef's twin-quoted
+    grant), as ``{kind: total_amount}``. Called from `RulesEngine._apply_
+    entry_counters` right after the object's own printed entry-counter
+    condition, so a granted extra counter is present at the same moment a
+    printed one would be — before `obj` is added to the battlefield and
+    before ENTERS_BATTLEFIELD fires.
+
+    Each qualifying ability contributes its own ``count`` for its own
+    ``kind`` (summed across kinds and across multiple granting sources —
+    real Magic doesn't merge two separate replacement effects into one).
+    ``self_only`` scopes to the granting ability's own ``source`` (the
+    commander creature "this creature enters with…" was granted to);
+    unset scopes to every *other* creature that source's controller
+    controls ("other creatures you control enter with…") — creature-only
+    (`obj.is_creature`), matching both printed clauses' own wording.
+    """
+    totals: dict[str, int] = {}
+    if not getattr(obj, "is_creature", False):
+        return totals
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "extra_etb_counter":
+            continue
+        source = ability.source
+        controller_id = getattr(source, "controller_id", None)
+        if controller_id is None:
+            continue
+        if ability.params.get("self_only"):
+            if obj is not source:
+                continue
+        else:
+            if obj.controller_id != controller_id or obj is source:
+                continue
+        kind = str(ability.params.get("kind", "+1/+1"))
+        totals[kind] = totals.get(kind, 0) + int(ability.params.get("count", 1) or 1)
+    return totals
+
+
 def max_draws_per_turn(state: "GameState", player: Optional["Player"] = None) -> Optional[int]:
     """The most restrictive "Each player can't draw more than N cards each
     turn." cap in play (RULE 121.5-adjacent — Spirit of the Labyrinth), or

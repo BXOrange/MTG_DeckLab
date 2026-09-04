@@ -253,6 +253,18 @@ class CastingResolutionMixin:
             amount = x_paid if condition["is_x"] else condition["count"]
         if amount > 0:
             obj.add_counters(condition["counter_type"], amount)
+
+    def _apply_granted_entry_counters(self, obj: GameObject) -> None:
+        """MEC-56: any live ``extra_etb_counter`` static's contribution
+        (Master Chef) — a *granted* sibling of `_apply_entry_counters`'
+        printed-condition read, called at the same site right after it so
+        the extra counter(s) are present before `obj` joins the
+        battlefield/ENTERS_BATTLEFIELD fires, same as a printed one.
+        """
+        for kind, amount in continuous.extra_etb_counters_for(self.state, obj).items():
+            if amount > 0:
+                obj.add_counters(kind, amount)
+
     def enter_land_tapped(self, obj: GameObject) -> None:
         """Resolve ``obj``'s RULE 614.1 tapped-entry as it's played.
 
@@ -1374,6 +1386,7 @@ class CastingResolutionMixin:
                 self.state, obj
             )
             self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
+            self._apply_granted_entry_counters(obj)
             # RULE 702.155b/714.3b: Read Ahead's chosen count (if any —
             # `_offer_read_ahead` stashes it here) replaces the ordinary
             # single lore counter `add_to_battlefield` would otherwise seed —

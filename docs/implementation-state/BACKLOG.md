@@ -152,14 +152,30 @@ its block back into the matching section here.
     `become_copy_until_eot`, wrapping `RulesEngine.become_copy`) + a
     `become_copy_of_target` handler that picks the type by "until end of
     turn" wording → Shameless Charlatan (also gives Cursed Mirror an oracle
-    route). Left (each a distinct mini-project — hand-author + MEC as
-    needed): Acolyte of Bahamut's per-turn-first subtype cost reduction;
-    Dungeon Delver (dungeon-room trigger doubling — MEC); Scion of
-    Halaster (draw replacement — MEC); Noble Heritage (per-opponent
-    protection + interactive per-player — MEC); Haunted One (becomes-tapped
-    tribal pump); Tavern Brawler (impulse + pump-from-exiled-mv); Master
-    Chef's twin-body enters-with-counter grant (a group-scoped ETB-counter
-    replacement static — MEC).
+    route). **Master Chef's twin-body enters-with-counter grant** — shipped
+    (PARSER_VERSION 257, +1, hand-authored — MEC-56): a new
+    ``extra_etb_counter`` static (RULE 614.1 entry-counter *replacement*,
+    the `grant_escape`/`grant_retrace` out-of-band idiom — consulted by
+    `continuous.extra_etb_counters_for` from a new `RulesEngine._apply_
+    granted_entry_counters`, called at both `_apply_entry_counters` call
+    sites) granted twice onto every commander creature the controller owns
+    — once `self_only` ("this creature enters with…"), once not ("other
+    creatures you control enter with…"). The twin-quoted `"A" and "B"` body
+    doesn't fit `_quoted_ability_grant_effects_list`'s single-inner-body
+    recursion, so this is hand-authored rather than widening that grammar
+    for a shape only this card uses. The `self_only` half inherits the same
+    pre-existing granted-ETB-timing gap as Candlekeep Sage's ETB half (a
+    grant onto an object isn't computed until *after* that object is
+    already on the battlefield, so it can't affect its own entry) — the
+    "other creatures" half has no such gap (the granting commander creature
+    is already on the battlefield with its grant settled) and is the half
+    that actually matters at the table. Left (each a distinct mini-project
+    — hand-author + MEC as needed): Acolyte of Bahamut's per-turn-first
+    subtype cost reduction; Dungeon Delver (dungeon-room trigger doubling —
+    MEC); Scion of Halaster (draw replacement — MEC); Noble Heritage
+    (per-opponent protection + interactive per-player — MEC); Haunted One
+    (becomes-tapped tribal pump); Tavern Brawler (impulse +
+    pump-from-exiled-mv).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
     `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate
