@@ -1918,6 +1918,11 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
             params["filter"] = dict(trigger["filter"])
         if trigger.get("phase_relation"):
             params["phase_relation"] = trigger["phase_relation"]
+        if trigger.get("attacked_player_has_lowest_life"):
+            # PAR-32: "…, if no opponent has more life than that player, …"
+            # (Guild Artisan cycle) — carried through so the re-granted
+            # trigger keeps the RULE 603.4 gate.
+            params["attacked_player_has_lowest_life"] = True
         out.append(EffectSpec("grant_triggered_ability", params))
     return out
 

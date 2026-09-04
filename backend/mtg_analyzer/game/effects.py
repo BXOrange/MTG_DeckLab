@@ -15831,7 +15831,14 @@ class PumpEffect(GameEffect):
             from . import continuous  # avoid the continuous↔effects import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
-            amount = continuous.count_selector(context.state, controller_id, self.amount_from_count_selector)
+            # PAR-32: pass ``source`` so a source-relative selector
+            # ("where X is ~'s power" — Hardy Outlander's `source_power`)
+            # resolves; board-count selectors ignore it, unchanged.
+            amount = continuous.count_selector(
+                context.state, controller_id, self.amount_from_count_selector, self.source
+            )
+            if amount is None:
+                return
             if self.amount_from_count_selector_negative:
                 amount = -amount
             self.power = amount
@@ -22951,6 +22958,12 @@ EffectRegistry.register(
             # the *granted-to* permanent as the source, so "you control" /
             # "other" re-scope to it.
             **({"group_condition": dict(p["group_condition"])} if p.get("group_condition") else {}),
+            # PAR-32: "Commander creatures you own have 'Whenever ~ attacks
+            # a player, if no opponent has more life than that player, …'"
+            # (Guild Artisan cycle) — `continuous._apply_layer_6_ability`
+            # ANDs `effect_binder.attacked_player_lowest_life_predicate`.
+            **({"attacked_player_has_lowest_life": True}
+               if p.get("attacked_player_has_lowest_life") else {}),
             **_selectors(p),
         },
     ),

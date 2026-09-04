@@ -188,3 +188,100 @@ def test_step_begin_phase_grant_still_claimed_after_the_refactor():
     )
     assert specs is not None
     assert specs[0].params["trigger_event"] == "STEP_BEGIN"
+
+
+# --- slice 3: self-attack keyword grant, the "no opponent has more life"
+#     gate, two-sentence self body, and source-power pump ---
+
+
+def test_it_gains_kw_until_eot_self_body():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+    assert parse_effect_body(
+        "it gains double strike until end of turn", self_subject=True
+    ) == [__import__("mtg_analyzer.parser.oracle.spec", fromlist=["EffectSpec"]).EffectSpec(
+        "pump", {"keywords": ["double_strike"]}
+    )]
+
+
+def test_flaming_fist_granted_self_attack_trigger():
+    specs = static_effect_specs(
+        'commander creatures you own have '
+        '"whenever ~ attacks, it gains double strike until end of turn."'
+    )
+    assert specs is not None and len(specs) == 1
+    assert specs[0].params["trigger_event"] == "ATTACKS"
+    assert specs[0].params["grant_effects"][0]["params"]["keywords"] == ["double_strike"]
+
+
+def test_two_sentence_self_body_carries_the_source_referent():
+    # Agent of the Shadow Thieves: "put a +1/+1 counter on ~. it gains
+    # deathtouch and indestructible until end of turn." — both clauses are
+    # about the source; the split must carry `self_subject`.
+    specs = static_effect_specs(
+        'commander creatures you own have '
+        '"whenever ~ attacks a player, if no opponent has more life than that '
+        'player, put a +1/+1 counter on ~. it gains deathtouch and '
+        'indestructible until end of turn."'
+    )
+    assert specs is not None and len(specs) == 1
+    effs = specs[0].params["grant_effects"]
+    assert [e["type"] for e in effs] == ["add_counters", "pump"]
+    assert specs[0].params["attacked_player_has_lowest_life"] is True
+
+
+def test_guild_artisan_lowest_life_gate_end_to_end():
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", []), ("p3", "C", [])],
+        starting_life=20, starting_hand=0,
+    )
+    st = eng.state
+    p1, p3 = st.player_by_id("p1"), st.player_by_id("p3")
+    granter = GameObject(
+        Card(id="ga", name="Guild Artisan", type_line="Enchantment",
+             oracle_text='Commander creatures you own have "Whenever ~ attacks '
+                         'a player, if no opponent has more life than that '
+                         'player, you create 2 Treasure tokens."'),
+        owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(granter)
+    st.add_to_battlefield(granter)
+    cmd = GameObject(
+        Card(id="k", name="Cmdr", type_line="Legendary Creature — Human",
+             is_creature=True, power=3, toughness=3),
+        owner_id="p1", zone=Zone.BATTLEFIELD)
+    cmd.is_commander = True
+    cmd.summoning_sick = False
+    st.add_to_battlefield(cmd)
+    eng.recompute_continuous_effects()
+
+    from mtg_analyzer.models.events import EventType, GameEvent
+
+    def _attack(defender_id):
+        before = sum(1 for o in st.battlefield
+                     if "Treasure" in o.name and o.controller_id == "p1")
+        st.fire_event(GameEvent(EventType.ATTACKS, instance_id=cmd.instance_id,
+                                attacker_id=cmd.instance_id,
+                                defending_player_id=defender_id))
+        eng.rules.put_triggers_on_stack()
+        while st.stack:
+            eng.rules.resolve_top_of_stack()
+        return sum(1 for o in st.battlefield
+                   if "Treasure" in o.name and o.controller_id == "p1") - before
+
+    assert _attack("p2") == 2       # everyone at 20 → no opponent has more life
+    p3.lose_life(5)                 # p3 now 15
+    assert _attack("p2") == 0       # p2 (20) is not the lowest
+    assert _attack("p3") == 2       # p3 is the lowest
+
+
+def test_source_power_pump_selector():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+    specs = parse_effect_body(
+        "another target creature you control gets +x/+x until end of turn, "
+        "where x is ~'s power"
+    )
+    assert specs == [__import__(
+        "mtg_analyzer.parser.oracle.spec", fromlist=["EffectSpec"]
+    ).EffectSpec("pump", {
+        "amount_from_count_selector": "source_power",
+        "target_kind": "other_creature_you_control",
+    })]

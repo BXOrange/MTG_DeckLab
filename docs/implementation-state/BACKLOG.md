@@ -105,16 +105,24 @@ its block back into the matching section here.
     SUBJECT_RE` widened to an "X or Y" main-type list (`type: [...]`, which
     `_build_group_ok` already ORs — this also fixed the *printed* form,
     silently mis-scoped as creature subtypes before). PARSER_VERSION 249,
-    +2 (Agent of the Iron Throne / Nurturing Presence). Left: the
-    **"whenever ~ attacks a player, if no opponent has more life than that
-    player,
-    `<payoff>`"** cluster (Agent of the Shadow Thieves / Guild Artisan /
-    Hardy Outlander / Sword Coast Sailor / Veteran Soldier — a new trigger
-    condition + varied payoffs); **cast-spell triggers** (Acolyte of
-    Bahamut / Folk Hero / Passionate Archaeologist); **combat-damage
-    triggers** (Feywild Visitor / Popular Entertainer); and a bespoke tail
-    (Dungeon Delver / Scion of Halaster / Shameless Charlatan / Noble
-    Heritage / Haunted One / Tavern Brawler / Master Chef's twin-body).
+    +2 (Agent of the Iron Throne / Nurturing Presence). **The "whenever ~
+    attacks a player, if no opponent has more life than that player,
+    `<payoff>`" cluster** — shipped (PARSER_VERSION 251, +16 with bonus):
+    `_ATTACKED_PLAYER_LOWEST_LIFE_IF_RE` body-prefix intervening-if →
+    `attacked_player_has_lowest_life` on the trigger, checked by
+    `effect_binder.attacked_player_lowest_life_predicate` (shared with the
+    re-granted path, ANDed in `_apply_layer_6_ability`); a
+    `grant_self_subject_kw` handler for "it gains `<kw>` until end of turn"
+    (Flaming Fist + ~10 self-attack-buff cards); `_PUMP_TARGET_SOURCE_
+    POWER_RE` + `count_selector`'s `source_power` (Hardy Outlander); and
+    `parse_effect_body`'s connector-split now carries `self_subject` across
+    a clause that only re-references the source (Agent of the Shadow
+    Thieves' "put a +1/+1 counter on ~. it gains …"). Left: **cast-spell
+    triggers** (Acolyte of Bahamut / Folk Hero / Passionate Archaeologist);
+    **combat-damage triggers** (Feywild Visitor / Popular Entertainer); and
+    a bespoke tail (Dungeon Delver / Scion of Halaster / Shameless
+    Charlatan / Noble Heritage / Haunted One / Tavern Brawler / Master
+    Chef's twin-body).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
     `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate

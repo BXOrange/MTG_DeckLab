@@ -282,6 +282,33 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
 _SUBJECT_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id", "COUNTER": "target_id"}
 
 
+def attacked_player_lowest_life_predicate(controller_id: Optional[str]) -> Callable[[Any, Any], bool]:
+    """"if no opponent has more life than that player" (PAR-32, Guild
+    Artisan cycle) — a RULE 603.4 gate on an "~ attacks a player" trigger:
+    the attacked player (the ATTACKS event's ``defending_player_id``) has
+    life ≤ every non-eliminated opponent of ``controller_id``. Shared by
+    `_trigger_condition` (printed form) and
+    `continuous._apply_layer_6_ability` (the "Commander creatures you own
+    have '…'" re-granted form)."""
+
+    def _ok(event: Any, context: Any, me=controller_id) -> bool:
+        state = getattr(context, "state", None)
+        did = (event or {}).get("defending_player_id")
+        if state is None or did is None:
+            return False
+        try:
+            defender = state.player_by_id(did)
+        except (KeyError, ValueError):
+            return False
+        opponents = [
+            p for p in state.players
+            if p.id != me and not getattr(p, "has_lost", False)
+        ]
+        return bool(opponents) and all(defender.life <= p.life for p in opponents)
+
+    return _ok
+
+
 def _subject_event_key(trigger: dict[str, Any]) -> str:
     # RULE 603.1's *recipient*-side damage trigger (MEC-11, Enrage-shaped
     # "whenever ~ is dealt damage" — `parser/oracle/segmenter.py`'s
@@ -1394,6 +1421,16 @@ def _trigger_condition(
             return n >= want
 
         predicates.append(_defender_lands_ok)
+
+    # "Whenever ~ attacks a player, if no opponent has more life than that
+    # player, …" (Baldur's Gate "attack whoever's behind" cycle — Guild
+    # Artisan &c, PAR-32). RULE 603.4 intervening-if: the attacked player's
+    # life is ≤ every *other* opponent's (of this ability's controller),
+    # read live off the ATTACKS event's ``defending_player_id``.
+    if trigger.get("attacked_player_has_lowest_life"):
+        predicates.append(
+            attacked_player_lowest_life_predicate(getattr(source, "controller_id", None))
+        )
 
     # PAR-28 / RULE 702.169c Solved / 702.178a Max Speed on a *triggered*
     # ability: "[Ability text]. This ability triggers only if [condition]."

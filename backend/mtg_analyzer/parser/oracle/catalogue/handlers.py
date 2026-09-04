@@ -6282,6 +6282,26 @@ _GROUP_PUMP_DEVOTION_RE = _c(
 _PUMP_DEVOTION_NEGATIVE_TARGET_RE = _c(
     rf"{TARGET} gets? -x/-x until end of turn, where x is {DEVOTION}"
 )
+#: "Another target creature you control gets +X/+X until end of turn, where
+#: X is ~'s power." (Hardy Outlander's granted attack trigger, PAR-32) —
+#: `continuous.count_selector`'s `source_power`, its own row rather than a
+#: `{DEVOTION}` addition (that subgrammar is reused far too widely).
+_PUMP_TARGET_SOURCE_POWER_RE = _c(
+    rf"{TARGET} gets? \+x/\+x until end of turn, where x is ~'?s power"
+)
+
+
+def _pump_target_source_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector_subject = subject
+    params: dict = {"amount_from_count_selector": "source_power"}
+    if target_kind is not None:
+        params["target_kind"] = target_kind
+    if selector_subject is not None:
+        params["selector"] = selector_subject
+    return [EffectSpec("pump", params)]
 
 
 def _pump_devotion_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -6362,6 +6382,16 @@ def _pump_self_subject(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None  # unmodeled granted ability → fail-closed
         params["keywords"] = keywords
     return [EffectSpec("pump", params)]
+
+
+def _grant_self_subject_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """"Whenever ~ attacks, it gains double strike until end of turn."
+    (Flaming Fist) — a keyword-only self-pump (no P/T delta), `it` bound to
+    the ability's own source (`self_subject_only`)."""
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None  # unmodeled granted ability → fail-closed
+    return [EffectSpec("pump", {"keywords": keywords})]
 
 
 #: The durations a grant may carry beyond "until end of turn", as printed →
@@ -10790,6 +10820,9 @@ HANDLERS: list[EffectHandler] = [
     # below since "x" would otherwise never match that row's `\d+`.
     EffectHandler("pump_devotion_target", _PUMP_DEVOTION_TARGET_RE, _pump_devotion_target),
     EffectHandler(
+        "pump_target_source_power", _PUMP_TARGET_SOURCE_POWER_RE, _pump_target_source_power
+    ),
+    EffectHandler(
         "pump_devotion_negative_target", _PUMP_DEVOTION_NEGATIVE_TARGET_RE, _pump_devotion_negative_target
     ),
     EffectHandler("group_pump_devotion", _GROUP_PUMP_DEVOTION_RE, _group_pump_devotion),
@@ -10813,6 +10846,15 @@ HANDLERS: list[EffectHandler] = [
             rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
         ),
         _pump_self_subject,
+        self_subject_only=True,
+    ),
+    # "Whenever ~ attacks, it gains double strike until end of turn."
+    # (Flaming Fist) — the keyword-only sibling of `pump_self_subject`
+    # above (no P/T delta), `it` bound to the ability's own source.
+    EffectHandler(
+        "grant_self_subject_kw",
+        _c(r"it gains? (?P<kw>[a-z, ]+?) until end of turn"),
+        _grant_self_subject_kw,
         self_subject_only=True,
     ),
     # "It doesn't untap during its controller's untap step for as long as ~

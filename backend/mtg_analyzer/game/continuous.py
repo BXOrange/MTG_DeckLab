@@ -788,6 +788,14 @@ def count_selector(
         # board count. ``source`` required; a fixture without one gets 0,
         # the same safe fallback `exiled_with_count` above takes.
         return int(getattr(source, "x_paid", 0) or 0)
+    if selector == "source_power":
+        # "…gets +X/+X …, where X is ~'s power." (Hardy Outlander's granted
+        # attack trigger, PAR-32) — the source's own *derived* power (RULE
+        # 613), the amount sibling of `dynamic_threshold`'s identically-
+        # named comparison branch. ``source`` required.
+        return int(getattr(source, "power", 0) or 0) if source is not None else 0
+    if selector == "source_toughness":
+        return int(getattr(source, "toughness", 0) or 0) if source is not None else 0
     if selector == "sacrificed_cost_mana_value":
         # "…target player mills cards equal to the sacrificed creature's
         # mana value." (MEC-43) — reads `GameObject.sacrificed_cost_mana_
@@ -1977,6 +1985,17 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                             trigger_event, ability.params.get("filter"),
                             ability.params.get("phase_relation"),
                         )
+                    if ability.params.get("attacked_player_has_lowest_life"):
+                        # PAR-32 (Guild Artisan cycle): AND the RULE 603.4
+                        # "no opponent has more life than that player" gate,
+                        # scoped to the granted-to permanent's controller.
+                        from .effect_binder import attacked_player_lowest_life_predicate
+
+                        _base_cond = cond
+                        _low = attacked_player_lowest_life_predicate(obj.controller_id)
+
+                        def cond(event, context, _b=_base_cond, _l=_low):  # noqa: F811
+                            return _b(event, context) and _l(event, context)
                     granted = TriggeredAbility(
                         trigger_event=trigger_event,
                         effects=[

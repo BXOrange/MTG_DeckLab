@@ -1015,6 +1015,20 @@ _ATTACKS_DEFENDER_LANDS_RE = re.compile(
     r"^(?:~|this creature) attacks a player who controls (?P<n>\d+) or more lands$"
 )
 
+#: RULE 603.4 intervening-if on an "~ attacks a player" trigger, as a body
+#: *prefix*: "…, if no opponent has more life than that player, `<effect>`"
+#: (the Baldur's Gate "attack the player who isn't winning" cycle — Agent
+#: of the Shadow Thieves / Guild Artisan / Hardy Outlander / Sword Coast
+#: Sailor / Veteran Soldier). "that player" is the attacked player; the
+#: gate is that their life is ≤ every opponent's (of this ability's
+#: controller). Stamped as `attacked_player_has_lowest_life` on the
+#: trigger and checked by `effect_binder` off the ATTACKS event's own
+#: `defending_player_id`, the `defender_controls_lands_at_least` idiom.
+_ATTACKED_PLAYER_LOWEST_LIFE_IF_RE = re.compile(
+    r"^if no opponent has more life than that player,\s*(?P<rest>.+)$",
+    re.IGNORECASE | re.S,
+)
+
 #: RULE 508.3a's batch attack trigger: "whenever **one or more** [<filter>]
 #: creatures you control attack[ a player], …" (Winota / A-Winota, Angelic
 #: Guardian, Ancestor Dragon, Alibou, …). Fires once per combat, not per
@@ -3167,9 +3181,20 @@ def parse_effect_body(
             # down (see this function's docstring).
             referent = previous_subject
             referent_selector = previous_selector
-            for part in parts:
+            # PAR-32: a self-subject trigger body ("whenever ~ attacks, put a
+            # +1/+1 counter on ~. it gains deathtouch until end of turn." —
+            # Agent of the Shadow Thieves) — "it" in every sub-clause still
+            # means the source, until a clause introduces a *different*
+            # targeted creature (`_announces_creature_target` flips
+            # ``carry_self`` off). Unlike the source-less `previous_subject`
+            # chain, this survives a clause that only re-references the
+            # source (a counter on "~").
+            carry_self = self_subject
+            for idx, part in enumerate(parts):
                 sub = parse_effect_body(
-                    part, previous_subject=referent, previous_selector=referent_selector,
+                    part,
+                    self_subject=carry_self and not referent,
+                    previous_subject=referent, previous_selector=referent_selector,
                     group_subject=group_subject,
                 )
                 if sub is None:
@@ -3185,6 +3210,11 @@ def parse_effect_body(
                 # unclaimed — rather than letting it drift onto some earlier
                 # clause's pick, which is the ambiguity this gate exists for.
                 referent = _announces_creature_target(sub)
+                # PAR-32: once a clause picks a *different* targeted creature,
+                # the self-subject carry is broken (a later "it" now means
+                # that pick, via ``referent``, not the source).
+                if referent:
+                    carry_self = False
                 # PAR-30: "clash with an opponent" is a *referent-transparent*
                 # interstitial — it neither targets nor creates, so a card
                 # like Gilt-Leaf Ambush ("create 2 tokens. clash with an
@@ -4853,6 +4883,17 @@ def segment_line(
             if condition is None:
                 return Segment(raw=raw)  # unrecognised subject scope → unclaimed (fail-closed)
         body, optional = _peel_optional(trig.group("body"))
+        # RULE 603.4 intervening-if prefix on an "~ attacks a player"
+        # trigger — "…, if no opponent has more life than that player, …"
+        # (Guild Artisan &c). Only for a self-subject ATTACKS trigger;
+        # strip it, parse the rest, and gate the trigger on the attacked
+        # player's life via `attacked_player_has_lowest_life`.
+        attacked_lowest_life = False
+        if event == "ATTACKS" and condition == {"subject": "self"}:
+            low_m = _ATTACKED_PLAYER_LOWEST_LIFE_IF_RE.match(body.strip())
+            if low_m is not None:
+                attacked_lowest_life = True
+                body = low_m.group("rest")
         # "When ~ enters, **it** fights …": with the source as the trigger's
         # own subject, a bare "it" in the body is the source — anything else
         # (a group subject, an attached permanent) leaves the pronoun
@@ -4879,6 +4920,8 @@ def segment_line(
                 **({"limit": True} if limit else {}),
                 **({"defender_controls_lands_at_least": defender_lands_min}
                    if defender_lands_min else {}),
+                **({"attacked_player_has_lowest_life": True}
+                   if attacked_lowest_life else {}),
             },
             optional=optional,
             raw_text=raw,
