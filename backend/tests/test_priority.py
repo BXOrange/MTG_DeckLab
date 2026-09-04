@@ -10,10 +10,12 @@ player's real action reclaims priority for them.
 import pytest
 
 from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.events import EventType
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.mana_cost import ManaCost
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
+from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
 
 
 def land(name="Forest", produces="Forest"):
@@ -241,3 +243,80 @@ def test_interactive_pass_priority_places_a_trigger_the_resolution_just_fired():
     eng.pass_priority(p2)  # resolves the now-stacked triggered ability
     equip_obj = next(o for o in eng.state.battlefield if o.card.name == equip.card.name)
     assert equip_obj.attached_to == knight.instance_id
+
+
+def test_interactive_pass_priority_stops_cleanly_when_a_resolution_ends_the_game():
+    """Bug report: Vraska, Golgari Queen's −9 emblem ("Whenever a creature
+    you control deals combat damage to a player, that player loses the
+    game.") appeared to hang/crash the backend. Reproduced here as closely
+    as a unit test can: the emblem's own triggered ability resolves via the
+    *interactive* `pass_priority(player)` branch (RULE 117.3-4, the one a
+    real multiplayer table uses), and that resolution ends the game outright
+    mid-call — there is no "next window" for a lone remaining opponent.
+
+    Before the fix, `pass_priority` didn't check `state.game_over` after
+    `resolve_top_of_stack()` (unlike `resolve_until_stable`, which already
+    did): it kept going — placing any further triggers, handing priority
+    back to the active player — on a game state that had, a few lines
+    earlier, already ended. That's the asymmetry this test pins down: any
+    resolution that ends the game must make `pass_priority` stop exactly
+    like it already does everywhere else, and a caller (e.g. the
+    multiplayer watchdog's `pass_for_absent_players`) that keeps asking for
+    passes afterward must see `game_over` rather than a still-live-looking
+    priority player.
+    """
+    eng = make_engine()
+    eng.interactive_priority = True
+    eng.start()
+    while eng.state.current_step != "declare_attackers":
+        eng.advance_step()
+    p1 = eng.state.active_player
+    p2 = next(p for p in eng.state.players if p is not p1)
+    attacker = _battlefield_card(eng, Card(
+        id="Fighter", name="Fighter", type_line="Creature — Human",
+        is_creature=True, power=2, toughness=2,
+    ), controller=p1.id)
+    attacker.summoning_sick = False
+
+    emblem_ability = AbilitySpec(
+        "triggered",
+        [EffectSpec("lose_game_trigger_damaged_player", {})],
+        trigger={
+            "event": EventType.DAMAGE,
+            "condition": {"subject": "group", "type": "creature", "controller": "you", "combat": True},
+        },
+        raw_text="Whenever a creature you control deals combat damage to a "
+                 "player, that player loses the game.",
+    )
+    eng.rules.create_emblem(p1, emblem_ability.to_dict())
+
+    eng.declare_attackers(p1, [attacker])
+    eng.advance_step()  # → declare_blockers
+    eng.declare_blockers(p2, [])
+    eng.advance_step()  # → combat_damage: deals damage, queues the trigger
+
+    # RULE 117.5: place the queued trigger, then both players pass on it —
+    # the interactive-priority path a real multiplayer table drives.
+    holder = eng.state.priority_player
+    other = p2 if holder is p1 else p1
+    assert eng.pass_priority(holder) is False  # waiting on the other player
+    assert eng.pass_priority(other) is True  # everyone passed → resolves
+
+    assert p2.has_lost is True
+    assert eng.state.game_over is True
+    assert eng.state.winner_id == p1.id
+    # The concrete bug: without the fix, `pass_priority` fell through to
+    # `give_priority(active_player)` after resolving the game-ending
+    # trigger, leaving `priority_player`/`priority_passed` looking exactly
+    # like a fresh, still-live priority window — `GameSession.view()`
+    # reports both straight off `GameState` with no `game_over` override
+    # (`services/game_session.py`'s `"priority"` block), so a real
+    # multiplayer client would keep showing the active player as still up
+    # and their "Passen" button still enabled for a game that already
+    # ended, rather than a clean, past-tense game-over board.
+    assert eng.state.priority_player is other
+    assert eng.state.priority_passed == {p1.id, p2.id}
+    # A caller that (not knowing the game just ended) asks for one more
+    # pass must get a clean, harmless no-op — not a crash, and not a call
+    # that keeps advancing a game that is already over.
+    assert eng.pass_priority(p1) is False

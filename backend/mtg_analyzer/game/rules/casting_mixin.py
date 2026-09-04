@@ -659,6 +659,7 @@ class CastingResolutionMixin:
         self.lose_life(player, life_spent, cause="cost")
         if free_cast:
             self.state.free_cast_instance_ids.discard(obj.instance_id)
+            self.state.free_cast_ignore_timing_instance_ids.discard(obj.instance_id)
         # RULE 601.2b: remember the announced X on the object itself (not
         # just this ephemeral StackItem) — an "unless its controller pays
         # {X}" tied to *this* spell's own X (Logic Knot's Delve-adjacent

@@ -18,6 +18,7 @@
 import { getState } from './state.js';
 import { sendGameAction, rewindGame, cardImageUrl, saveUiDraft, GENERIC_TOKEN_KEY } from './api.js';
 import { getCookie, setCookie } from './cookies.js';
+import { getBoardScale, onBoardScaleChange } from './boardScale.js';
 import { bannerColorLabel, bannerStyle } from './bannerColors.js';
 import { MANA_SYMBOL_EMOJI } from './cardTile.js';
 import {
@@ -177,6 +178,11 @@ export function createGameBoardView(opts = {}) {
   //: means, so it has to repaint. No teardown: a board view lives as long
   //: as its controller, which lives as long as the page.
   podGridMedia?.addEventListener('change', () => render());
+  // Whole-board zoom (`boardScale.js`) is one app-wide preference — its
+  // control sits at the bottom of the sidebar (`app.js`), not in this
+  // board's own rail — so every instance just repaints when it changes.
+  // Same no-teardown reasoning as `podGridMedia` above.
+  onBoardScaleChange(() => render());
   // The stack lives in the left rail now (`railStackHtml`) — always visible,
   // never overlaying the board, so there is nothing to "push aside" any more.
   // Entries that have just resolved linger for a moment as greyed-out ghosts
@@ -1092,7 +1098,7 @@ export function createGameBoardView(opts = {}) {
     if (!pending) choiceAside = false;
 
     root.innerHTML = `
-      <div class="goldfish${(pending && !choiceAside) || castTargeting ? ' choosing' : ''}">
+      <div class="goldfish${(pending && !choiceAside) || castTargeting ? ' choosing' : ''}" style="--gf-scale: ${(getBoardScale() / 100).toFixed(2)}">
         <aside class="gf-rail">
           <div class="gf-rail-turn">
             <span class="gf-turn" title="${escapeAttr(t('bd.turn.rule500', { n: s.turn_number }))}">${escapeHtml(t('bd.turn.label', { n: s.round_number || s.turn_number }))}</span>
@@ -1352,16 +1358,14 @@ export function createGameBoardView(opts = {}) {
     return `<button type="button" class="gf-end-turn${extraClass}" data-end-turn title="${escapeAttr(t('bd.ctrl.endTurnTitle'))}" ${disabled ? 'disabled' : ''}>${t('bd.ctrl.endTurn')}</button>`;
   }
 
-  // The "du bist dran" / "warte auf X" badge shown on a player's banner
-  // (`playerBoardHtml`). The live countdown that used to sit on it has moved
-  // to the rail's progress bar (`railTimerHtml`).
-  function priorityBadgeHtml(compact = false) {
-    if (!interactivePriority()) return '';
-    const holder = view.priority?.player_id;
-    if (hasPriority()) {
-      return `<span class="gf-priority-badge gf-priority-mine">${compact ? t('bd.priority.mineCompact') : t('bd.priority.mine')}</span>`;
-    }
-    return `<span class="gf-priority-badge">${escapeHtml(t('bd.priority.holder', { name: playerName(holder) }))}</span>`;
+  // The priority indicator on a player's banner (`playerBoardHtml`): a bare
+  // ⚡, shown only on whichever banner currently holds priority — never a
+  // standing "waiting for X" state on anyone else's. The live countdown that
+  // used to sit here has moved to the rail's progress bar (`railTimerHtml`).
+  function priorityBadgeHtml(holdsPriority, isMe, playerName_) {
+    if (!holdsPriority) return '';
+    const title = isMe ? t('bd.priority.mine') : t('bd.priority.holder', { name: playerName_ });
+    return `<span class="gf-priority-badge${isMe ? ' gf-priority-mine' : ''}" title="${escapeAttr(title)}">⚡</span>`;
   }
 
   // VIS-7: a bot's whole turn arrives as one pushed view (`run_bots` answers
@@ -1499,7 +1503,6 @@ export function createGameBoardView(opts = {}) {
     const isActive = s.active_player_id === p.id;
     const seat = seatStatus(p.id);
     const badges = [
-      isMe ? `<span class="gf-seat-badge gf-seat-you">${t('bd.seat.you')}</span>` : '',
       isActive ? `<span class="gf-seat-badge gf-seat-active">${t('bd.seat.active')}</span>` : '',
       p.has_lost
         ? `<span class="gf-seat-badge gf-seat-out">${p.loss_reason === 'conceded' ? t('bd.seat.conceded') : t('bd.seat.out')}</span>`
@@ -1539,10 +1542,8 @@ export function createGameBoardView(opts = {}) {
       : !interactivePriority()
         ? takebackBtn
         : isMe
-          ? `${priorityBadgeHtml(true)}${passButtonHtml(priorityDisabled, ' gf-banner-pass')}${endTurnButtonHtml(priorityDisabled, ' gf-banner-end-turn')}${takebackBtn}`
-          : holdsPriority
-            ? `<span class="gf-priority-badge">${escapeHtml(t('bd.priority.isUp'))}</span>`
-            : '';
+          ? `${priorityBadgeHtml(holdsPriority, true, p.name)}${passButtonHtml(priorityDisabled, ' gf-banner-pass')}${endTurnButtonHtml(priorityDisabled, ' gf-banner-end-turn')}${takebackBtn}`
+          : priorityBadgeHtml(holdsPriority, false, p.name);
     // Folding an opponent away is only offered at a pod-sized table — with
     // one opponent there is nothing to scroll past.
     const opponents = s.players.filter((o) => !o.is_dummy && o.id !== seatId).length;

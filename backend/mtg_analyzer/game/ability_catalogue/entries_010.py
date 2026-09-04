@@ -1461,6 +1461,109 @@ def _ojer_axonil_deepest_might() -> list[AbilitySpec]:
 register("Ojer Axonil, Deepest Might // Temple of Power", _ojer_axonil_deepest_might)
 
 
+def _ojer_taq_deepest_foundation() -> list[AbilitySpec]:
+    """Vigilance
+    If one or more creature tokens would be created under your control,
+    three times that many of those tokens are created instead.
+    When Ojer Taq dies, return it to the battlefield tapped and
+    transformed under its owner's control.
+
+    — Ojer Taq, Deepest Foundation, Ojer Axonil's cycle-mate: same
+    hand-authored bug fix (the whole card was `UNMODELED` — the parser
+    can't claim either of these two clauses — so *nothing* bound at all,
+    including the death trigger every real game needs). The token clause
+    reuses `double_tokens` (Doubling Season/Parallel Lives) with its new
+    ``multiplier`` param (default 2, kept backward-compatible) set to 3 for
+    Ojer Taq's own "three times" rather than "twice". The death trigger is
+    the exact same `return_self_from_graveyard_untargeted` shape as Ojer
+    Axonil's own — see that entry's docstring for the ``tapped`` dormant-bug
+    fix this also benefits from.
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("double_tokens", {"multiplier": 3})],
+            raw_text="Falls ein oder mehrere Kreaturen-Spielsteine unter "
+                     "deiner Kontrolle erzeugt würden, werden stattdessen "
+                     "dreimal so viele dieser Spielsteine erzeugt.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_self_from_graveyard_untargeted", {
+                "destination": "battlefield", "tapped": True, "transformed": True,
+            })],
+            trigger={"event": "DIES", "condition": {"subject": "self"}},
+            raw_text="Wenn Ojer Taq stirbt, bringe sie getappt und "
+                     "verwandelt unter der Kontrolle ihrer Besitzerin "
+                     "oder ihres Besitzers auf das Schlachtfeld zurück.",
+        ),
+    ]
+
+
+register("Ojer Taq, Deepest Foundation // Temple of Civilization", _ojer_taq_deepest_foundation)
+
+
+def _ojer_kaslem_deepest_growth() -> list[AbilitySpec]:
+    """Trample
+    Whenever Ojer Kaslem deals combat damage to a player, reveal that
+    many cards from the top of your library. You may put a creature card
+    and/or a land card from among them onto the battlefield. Put the rest
+    on the bottom in a random order.
+    When Ojer Kaslem dies, return it to the battlefield tapped and
+    transformed under its owner's control.
+
+    — Ojer Kaslem, Deepest Growth, the third of the cycle and, like Ojer
+    Taq, previously `UNMODELED` end-to-end for the same reason (one
+    never-before-modeled clause blocking the death trigger too). The
+    combat-damage clause is a first-of-its-kind template (no cached card
+    shares this "reveal N, up to one creature *and* up to one land, rest
+    to bottom" shape) — new `RevealTopThenCreatureAndOrLandBattlefieldEffect`
+    (`amount_from_trigger_event="amount"` off the firing DAMAGE event, the
+    same idiom Ragavan/Imodane-shaped triggers already use), whose own
+    docstring explains why the "and/or" can't be one `request_choose_
+    objects` call (only one `pending_choice` at a time) and instead chains
+    into a second, `then_specs`/`else_specs`-driven pick
+    (`OjerKaslemLandPickEffect`) — the same continuation shape `ScrollRack
+    Effect`/`ScrollRackFinishEffect` already established for "decide now,
+    act once the player answers". The trigger condition mirrors Ragavan,
+    Nimble Pilferer's own "self deals combat damage to a player" shape
+    exactly. The death trigger is again the shared `return_self_from_
+    graveyard_untargeted` shape.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("reveal_top_then_creature_and_or_land_battlefield", {
+                "amount_from_trigger_event": "amount",
+            })],
+            trigger={
+                "event": "DAMAGE",
+                "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            raw_text="Wenn Ojer Kaslem einer Spielerin oder einem Spieler "
+                     "Kampfschaden zufügt, decke so viele Karten von der "
+                     "Oberseite deiner Bibliothek auf. Du kannst eine "
+                     "Kreaturenkarte und/oder eine Landkarte davon auf das "
+                     "Schlachtfeld legen. Lege den Rest in zufälliger "
+                     "Reihenfolge unter deine Bibliothek.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_self_from_graveyard_untargeted", {
+                "destination": "battlefield", "tapped": True, "transformed": True,
+            })],
+            trigger={"event": "DIES", "condition": {"subject": "self"}},
+            raw_text="Wenn Ojer Kaslem stirbt, bringe sie getappt und "
+                     "verwandelt unter der Kontrolle ihrer Besitzerin "
+                     "oder ihres Besitzers auf das Schlachtfeld zurück.",
+        ),
+    ]
+
+
+register("Ojer Kaslem, Deepest Growth // Temple of Cultivation", _ojer_kaslem_deepest_growth)
+
+
 def _powerbalance() -> list[AbilitySpec]:
     """Whenever an opponent casts a spell, you may reveal the top card of
     your library. If you do, you may cast that card without paying its

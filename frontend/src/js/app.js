@@ -15,6 +15,14 @@ import { renderProfileView } from './profileView.js';
 import { renderImplementationStatusView } from './implementationStatusView.js';
 import { renderConnectionIndicator } from './connectionStatus.js';
 import { initCardHoverDetail } from './cardHoverDetail.js';
+import {
+  getBoardScale,
+  stepBoardScale,
+  resetBoardScale,
+  onBoardScaleChange,
+  BOARD_SCALE_MIN,
+  BOARD_SCALE_MAX,
+} from './boardScale.js';
 
 applyStaticI18n();
 initCardHoverDetail();
@@ -35,6 +43,24 @@ sidebarToggle.addEventListener('click', () => {
 // The burger toggle still overrides either way.
 document.addEventListener('mtg-game-started', () => setSidebarCollapsed(true));
 document.addEventListener('mtg-game-ended', () => setSidebarCollapsed(false));
+
+// Whole-board zoom (see boardScale.js): one app-wide control at the bottom
+// of the sidebar rather than duplicated inside every game mode's own rail,
+// since it's app chrome, not something specific to the game in progress.
+const boardScaleReset = document.getElementById('board-scale-reset');
+const boardScaleDown = document.getElementById('board-scale-down');
+const boardScaleUp = document.getElementById('board-scale-up');
+function paintBoardScale() {
+  const scale = getBoardScale();
+  boardScaleReset.textContent = `${scale}%`;
+  boardScaleDown.disabled = scale <= BOARD_SCALE_MIN;
+  boardScaleUp.disabled = scale >= BOARD_SCALE_MAX;
+}
+boardScaleDown.addEventListener('click', () => stepBoardScale(-1));
+boardScaleUp.addEventListener('click', () => stepBoardScale(1));
+boardScaleReset.addEventListener('click', () => resetBoardScale());
+onBoardScaleChange(paintBoardScale);
+paintBoardScale();
 
 const tabButtons = document.querySelectorAll('.tab-button');
 const navGroups = document.querySelectorAll('.nav-group');

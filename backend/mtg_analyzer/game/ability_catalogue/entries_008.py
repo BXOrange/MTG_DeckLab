@@ -1247,8 +1247,16 @@ def _etali_primal_storm() -> list[AbilitySpec]:
     library, then you may cast any number of spells from among those
     cards without paying their mana costs.
 
-    — Imodane deck batch. The new `exile_top_from_each_player_cast_free`
-    — see its docstring.
+    — Imodane deck batch. `exile_top_from_each_player_cast_free` — see its
+    docstring. **Bug fixed** (checked against Scryfall's own ruling #5,
+    "any cards not cast, including land cards, remain in exile," 2026-09-04):
+    the effect used to grant every exiled card — lands included — a
+    `grant_free_cast_window_from_exile` permission, and that permission is
+    generic enough to also satisfy `GameEngine.can_play_land` (it backs
+    cards like Ragavan/Light Up the Stage that genuinely *do* let a found
+    land be played) — so an exiled land was wrongly playable as a land.
+    The effect now skips the free-cast/-play grant for a land card
+    entirely while still exiling it (dead forever, per the ruling).
     """
     return [
         AbilitySpec(
@@ -1264,6 +1272,110 @@ def _etali_primal_storm() -> list[AbilitySpec]:
 
 
 register("Etali, Primal Storm", _etali_primal_storm)
+
+
+def _etali_primal_conqueror() -> list[AbilitySpec]:
+    """Front face — Etali, Primal Conqueror ({5}{R}{R}, Legendary Creature
+    — Elder Dinosaur, 7/7):
+    Trample
+    When Etali enters, each player exiles cards from the top of their
+    library until they exile a nonland card. You may cast any number of
+    spells from among the nonland cards exiled this way without paying
+    their mana costs.
+    {9}{G/P}: Transform Etali. Activate only as a sorcery.
+
+    — checked against Scryfall's own rulings for this card (2026-09-04):
+    the whole card had no catalogue entry at all, so it fell back to
+    the RULE 702 keyword catalogue's Scryfall-anchored auto-bind alone —
+    which would have been actively *wrong* here, not just incomplete.
+    Scryfall's *card-level* ``keywords`` array on a transform DFC is the
+    union of both faces (this card's is ``["Indestructible", "Transform",
+    "Trample"]``), so an unregistered front face would auto-bind the back
+    face's own Indestructible too; `remove_keyword` cancels that leak
+    explicitly. ("Transform" itself isn't a recognized keyword slug, so it
+    parses to nothing either way.) The ETB trigger reuses Etali, Primal
+    Storm's `exile_top_from_each_player_cast_free`, widened with
+    ``until_nonland=True`` to dig each player's library past any lands to
+    the first nonland card (`RulesEngine._exile_top_until`, the same
+    "keep exiling past lands" shape cascade/discover already use) instead
+    of a fixed single top card — every card exiled along the way,
+    including the lands, stays in exile per the ruling; only the nonland
+    hit gets a free-cast window. The transform ability is a plain
+    `EffectSpec("transform", {})` behind a sorcery-speed Phyrexian-mana
+    cost.
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "trample"}, raw_text="Trampelschaden"),
+        AbilitySpec(
+            "static",
+            [EffectSpec("remove_keyword", {"affects": "self", "keywords": ["indestructible"]})],
+            raw_text="(Nur die Rückseite, Etali, Primal Sickness, ist unzerstörbar — "
+                     "das kartenweite keywords-Array vereinigt beide Kartenseiten.)",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile_top_from_each_player_cast_free", {"until_nonland": True})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn Etali ins Spiel kommt, exiliert jeder Spieler Karten von "
+                     "der Oberseite seiner Bibliothek, bis er eine Nicht-Land-Karte "
+                     "exiliert. Du kannst eine beliebige Anzahl Zaubersprüche von den "
+                     "auf diese Weise exilierten Nicht-Land-Karten wirken, ohne ihre "
+                     "Manakosten zu bezahlen.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("transform", {})],
+            cost={"text": "{9}{G/P}", "sorcery_speed_only": True},
+            raw_text="{9}{G/P}: Transformiere Etali. Aktiviere nur wie einen "
+                     "Hauptzauberspruch.",
+        ),
+    ]
+
+
+register("Etali, Primal Conqueror", _etali_primal_conqueror)
+register("Etali, Primal Conqueror // Etali, Primal Sickness", _etali_primal_conqueror)
+
+
+def _etali_primal_sickness() -> list[AbilitySpec]:
+    """Back face — Etali, Primal Sickness (Legendary Creature — Phyrexian
+    Elder Dinosaur, 11/11):
+    Trample, indestructible
+    Whenever Etali deals combat damage to a player, they get that many
+    poison counters. (A player with ten or more poison counters loses the
+    game — a standing rule, not something this ability itself needs to
+    enforce; RULE 704's SBA pass already checks poison counters on every
+    permission-generating event.)
+
+    — checked against Scryfall's own rulings for this card (2026-09-04).
+    `Card.back_face()` carries no keywords array of its own (the same gap
+    the Daybound/Nightbound cross-check in `parser.oracle.catalogue.
+    keywords.parse_keywords` already works around for other DFCs — see
+    `Done_Backend.md`'s Replay-deserializer entry), so Trample/
+    Indestructible are hand-authored here rather than left to the RULE 702
+    auto-bind, which would otherwise see nothing at all for this face. The
+    poison trigger is the new `add_counters_to_trigger_damaged_player`
+    (``kind="poison"``) — RULE 603.3d's "they"/"that many" pronouns read
+    the firing `DAMAGE` event's own recipient/amount directly, the same
+    shape `LoseGameTriggerDamagedPlayerEffect` (Frodo, Sauron's Bane)
+    already established for a player-scoped pronoun off that event.
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "trample"}, raw_text="Trampelschaden"),
+        AbilitySpec("keyword", [], keyword={"name": "indestructible"}, raw_text="Unzerstörbarkeit"),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters_to_trigger_damaged_player", {"kind": "poison"})],
+            trigger={
+                "event": EventType.DAMAGE, "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            raw_text="Immer wenn Etali einem Spieler Kampfschaden zufügt, erhält "
+                     "dieser Spieler ebenso viele Gift-Marken.",
+        ),
+    ]
+
+
+register("Etali, Primal Sickness", _etali_primal_sickness)
 
 
 def _dual_strike() -> list[AbilitySpec]:

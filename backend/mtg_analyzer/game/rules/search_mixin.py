@@ -1909,7 +1909,7 @@ class SearchMixin:
             )
         return exiled
     def grant_free_cast_window_from_exile(
-        self, obj: GameObject, caster: Optional[Player] = None,
+        self, obj: GameObject, caster: Optional[Player] = None, ignore_timing: bool = False,
     ) -> None:
         """Open ``obj``'s (already-exiled) "cast it without paying its mana
         cost" window for the rest of the turn — reuses
@@ -1923,11 +1923,30 @@ class SearchMixin:
         Callers, all "you may cast this card from exile without paying its
         mana cost": RULE 702.88b Rebound's delayed half
         (`ReboundFreeCastWindowEffect`), Beseech the Mirror's bargained
-        clause (`CastExiledFaceDownEffect`), and MEC-52's `dig_until`
-        ``cast_free_window``. ``caster``, when given, is a *different*
-        player than the card's owner (Ensnared by the Mara — "**you** may
-        cast that card" off an opponent's library): they become its
-        controller for the window (RULE 601.3e).
+        clause (`CastExiledFaceDownEffect`), MEC-52's `dig_until`
+        ``cast_free_window``, and Etali, Primal Storm/Primal Conqueror's
+        own `exile_top_from_each_player_cast_free`. ``caster``, when given,
+        is a *different* player than the card's owner (Ensnared by the
+        Mara — "**you** may cast that card" off an opponent's library):
+        they become its controller for the window (RULE 601.3e).
+
+        ``ignore_timing`` (Etali's own ruling: "timing permissions based on
+        a card's type are ignored, and the spells resolve before blockers
+        are declared") also stamps `GameState.free_cast_ignore_timing_
+        instance_ids`, so `GameEngine.can_cast` offers even a sorcery-speed
+        card the instant this window opens — mid-combat included — rather
+        than only once a later main phase with an empty stack comes
+        around. **Documented simplification** shared with every other
+        caller above: the window still lasts the rest of the turn rather
+        than being a use-it-now-or-lose-it decision at the exact moment of
+        resolution (Etali's own ruling: "you do so as part of the
+        resolution of the triggered ability... you can't wait to cast them
+        later in the turn") — forcing an immediate multi-card, ordered,
+        fully-targeted "cast any number of these" decision inline with
+        resolving one triggered ability would need a dedicated interactive
+        chooser this engine doesn't have yet, so a same-turn window (this
+        primitive's one existing shape) is used instead, same trade-off as
+        Rebound/Beseech the Mirror/MEC-52 already accepted.
         """
         controller = caster or self.state.player_by_id(obj.controller_id)
         if controller is None:
@@ -1940,6 +1959,8 @@ class SearchMixin:
             obj, controller, obj.name, same_turn_only=True, mana_wildcard=None,
         )
         self.state.free_cast_instance_ids.add(obj.instance_id)
+        if ignore_timing:
+            self.state.free_cast_ignore_timing_instance_ids.add(obj.instance_id)
     def put_hand_creature_onto_battlefield(
         self, player: Player, max_total_pt: Optional[int] = None
     ) -> Optional[GameObject]:

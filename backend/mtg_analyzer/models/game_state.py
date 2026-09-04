@@ -592,6 +592,22 @@ class GameState:
         #: (`GameEngine._step_cleanup`).
         self.free_cast_instance_ids: set[int] = set()
 
+        #: "…exile the top card of each player's library, then you may
+        #: cast any number of spells from among those cards without
+        #: paying their mana costs." (Etali, Primal Storm/Primal Conqueror)
+        #: — Scryfall's own ruling: "timing permissions based on a card's
+        #: type are ignored, and the spells resolve before blockers are
+        #: declared" (a mid-combat window even a sorcery-speed card must be
+        #: castable in). A sibling marker to `free_cast_instance_ids`
+        #: rather than a real Flash grant, so it doesn't leak into
+        #: `combat.has(obj, "flash")`/anything that reads the object's own
+        #: keywords. Set by `RulesEngine.grant_free_cast_window_from_exile`
+        #: (``ignore_timing=True``); consulted by `GameEngine.can_cast`'s
+        #: own ``sorcery_speed`` computation; pruned in lockstep with
+        #: `temp_play_permissions` at cleanup, same as `free_cast_instance_
+        #: ids` above.
+        self.free_cast_ignore_timing_instance_ids: set[int] = set()
+
         #: "Target instant or sorcery card in your graveyard gains flashback
         #: until end of turn." (MEC-24 — Recoup/Snapcaster Mage/Sphinx of
         #: Forgotten Lore-shaped) — ``instance_id -> flashback cost``

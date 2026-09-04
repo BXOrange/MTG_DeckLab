@@ -576,34 +576,41 @@ class StateBasedActionsMixin:
             for e in player.player_effects
         )
     def _player_loses(self, player: Player, reason: str) -> None:
+        """A player loses the game — RULE 104.2/104.3, however it happened
+        (a state-based loss such as 0 life/poison/empty library, a
+        concession, an opponent's alternative win condition, or a
+        "target player loses the game" effect all funnel through here).
+
+        The RULE 800.4a cleanup (their objects leave the game with them) is
+        deliberately **deferred** rather than run inline, because a loss can
+        fire mid-turn (a combat-damage SBA, a concession, a resolving spell)
+        and pulling a whole board out from under the remaining players right
+        then is disorienting: the id is parked on
+        `GameState.pending_leave_ids` and swept by `GameEngine.begin_turn`
+        when the next player's turn starts. Once only one living player is
+        left the game is over anyway, so the board is simply left standing
+        for the end-of-match review and the sweep never runs.
+        """
         player.has_lost = True
         player.loss_reason = reason
         self.state.fire_event(
             GameEvent(EventType.PLAYER_LOST, player_id=player.id, reason=reason)
         )
         self._check_game_over()
+        if not self.state.game_over and player.id not in self.state.pending_leave_ids:
+            self.state.pending_leave_ids.append(player.id)
     def concede(self, player: Player) -> None:
         """RULE 104.3a: ``player`` concedes and leaves the game immediately.
 
         Conceding is the one thing a player may do at *any* time, without
         holding priority — it is not an action that uses the stack, so
-        unlike every other action here it isn't gated on timing.
-
-        The RULE 800.4a cleanup (their objects leave the game with them) is
-        deliberately **deferred** rather than run here, because conceding is
-        in practice a sorcery-speed act and pulling a whole board out from
-        under the remaining players mid-turn is disorienting: the id is
-        parked on `GameState.pending_leave_ids` and swept by
-        `GameEngine.begin_turn` when the next player's turn starts. Once
-        only one living player is left the game is over anyway, so the
-        board is simply left standing for the end-of-match review and the
-        sweep never runs.
+        unlike every other action here it isn't gated on timing. The
+        RULE 800.4a board cleanup this triggers is deferred by
+        `_player_loses` itself; see its docstring.
         """
         if player.has_lost:
             return
         self._player_loses(player, "conceded")
-        if not self.state.game_over and player.id not in self.state.pending_leave_ids:
-            self.state.pending_leave_ids.append(player.id)
     def remove_player_from_game(self, player: Player) -> None:
         """RULE 800.4a: every object a departing player owns leaves the game.
 
@@ -612,8 +619,8 @@ class StateBasedActionsMixin:
         modeled at this level the simple reading is used: only *owned*
         objects go) leave the battlefield, their personal zones empty, and
         anything of theirs still on the stack ceases to exist. Called by
-        `GameEngine.begin_turn` for each id `concede` parked on
-        `GameState.pending_leave_ids`, not directly by the concession.
+        `GameEngine.begin_turn` for each id `_player_loses` parked on
+        `GameState.pending_leave_ids`, not directly by the loss itself.
 
         RULE 725.4/726.4 (MEC-9): a departing Monarch/Initiative-holder
         designation passes to the active player rather than simply

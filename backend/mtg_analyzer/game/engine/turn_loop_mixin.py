@@ -993,6 +993,10 @@ class TurnLoopMixin:
             iid for iid in self.state.free_cast_instance_ids
             if iid in self.state.temp_play_permissions
         }
+        self.state.free_cast_ignore_timing_instance_ids = {
+            iid for iid in self.state.free_cast_ignore_timing_instance_ids
+            if iid in self.state.temp_play_permissions
+        }
         # RULE 514.2: MEC-24's targeted "gains flashback until end of turn"
         # grant is a flat per-turn expiry (unlike `temp_play_permissions`'
         # own "until your next turn" survival above) — cleared unconditionally.
@@ -1076,6 +1080,17 @@ class TurnLoopMixin:
         if self.state.stack:
             self.rules.resolve_top_of_stack()
             self.rules.check_state_based_actions()
+            if self.state.game_over:
+                # What just resolved ended the game outright (Vraska, Golgari
+                # Queen's "that player loses the game" emblem, Door to
+                # Nothingness, a lethal SBA sweep, …) — unlike every other
+                # branch here, there is no "next window" to hand priority
+                # into. `resolve_until_stable` already re-checks this on every
+                # loop iteration for the same reason; this single-call sibling
+                # needs the same guard so a caller that keeps prompting for
+                # passes (e.g. `pass_for_absent_players`) sees `game_over`
+                # rather than a still-live-looking priority player.
+                return True
             # RULE 117.5: before any player can receive priority again,
             # state-based actions are performed and triggered abilities are
             # put on the stack. Without this second call, a trigger fired by

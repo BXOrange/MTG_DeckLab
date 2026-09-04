@@ -493,11 +493,18 @@ class CastingMixin:
         has_aluren_free_cast_flash = free and continuous.standing_free_cast_grants_flash(
             self.state, player, card
         )
+        # Etali, Primal Storm/Primal Conqueror (RULE 601.3b analogue):
+        # "timing permissions based on a card's type are ignored" for a
+        # card exiled by one of these — `grant_free_cast_window_from_exile
+        # (ignore_timing=True)`'s own marker, not a real Flash grant, so it
+        # doesn't leak into anything that reads the object's own keywords.
+        has_free_cast_timing_override = obj.instance_id in self.state.free_cast_ignore_timing_instance_ids
         sorcery_speed = not (
             card.is_instant or combat.has(obj, "flash") or has_conditional_flash or has_temp_flash
             or has_top_library_flash
             or continuous.has_standing_flash_permission(self.state, player, card)
             or has_aluren_free_cast_flash
+            or has_free_cast_timing_override
         )
         if continuous.forced_sorcery_speed_only(self.state, player):
             # Teferi, Time Raveler (MEC-42): "each opponent can cast spells

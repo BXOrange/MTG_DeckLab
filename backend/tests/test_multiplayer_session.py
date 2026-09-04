@@ -339,6 +339,32 @@ class TestDeferredLeave:
         advance_until(session, turn=2)
         assert session.engine.state.active_player.id == "cid"
 
+    def test_a_state_based_loss_defers_and_sweeps_the_board_too(self):
+        # RULE 800.4a's board cleanup must fire for *any* loss reason, not
+        # only an explicit concede — a player eliminated by 0 life (or
+        # poison/empty library/commander damage) leaves their permanents
+        # behind just the same.
+        session = self._three_player_game()
+        state = session.engine.state
+        from mtg_analyzer.models.game_object import GameObject, Zone
+
+        obj = GameObject(bear("Bob's Bear"), owner_id="bob", zone=Zone.BATTLEFIELD)
+        obj.controller_id = "bob"
+        state.add_to_battlefield(obj)
+
+        state.player_by_id("bob").life = 0
+        session.engine.rules.check_state_based_actions()
+
+        assert state.player_by_id("bob").has_lost is True
+        assert state.player_by_id("bob").loss_reason == "life"
+        assert state.game_over is False  # ann and cid are still playing
+        assert state.pending_leave_ids == ["bob"]
+        assert obj in state.battlefield  # still standing, mid-turn
+
+        advance_until(session, turn=2)
+        assert session.engine.state.pending_leave_ids == []
+        assert all(o.owner_id != "bob" for o in session.engine.state.battlefield)
+
 
 class TestPriority:
     """RULE 117: priority is genuinely passed around a shared table."""

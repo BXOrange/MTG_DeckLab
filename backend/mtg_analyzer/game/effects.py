@@ -9292,24 +9292,51 @@ class ExileTopFromEachPlayerCastFreeEffect(GameEffect):
     number of spells from among those cards without paying their mana
     costs." (Etali, Primal Storm) — reuses `RulesEngine.grant_free_cast_
     window_from_exile` (Rebound/Beseech the Mirror's own "cast from exile
-    free" window) per exiled card, one per player, all opened for *this*
-    effect's own controller (RAW: "**you** may cast any number of spells
-    from among those cards" — not each card's owner) rather than the
-    method's own default of the card's ``controller_id``, so a control
-    reassignment happens first.
+    free" window) per exiled *nonland* card, one per player, all opened
+    for *this* effect's own controller (RAW: "**you** may cast any number
+    of spells from among those cards" — not each card's owner) rather
+    than the method's own default of the card's ``controller_id``, so a
+    control reassignment happens first. A land card is still exiled
+    unconditionally (that part of the ability has no filter), but never
+    gets a free-cast window — Scryfall's own ruling is explicit that "any
+    cards not cast, including land cards, remain in exile," and since this
+    ability only ever offers to *cast* what it finds (never "play"), a
+    land here must not become playable either; `grant_free_cast_window_
+    from_exile`'s permission is generic enough to also satisfy
+    `GameEngine.can_play_land` (it backs cards like Ragavan/Light Up the
+    Stage that *do* let a found land be played), so leaving lands
+    unfiltered here would have wrongly let Etali play them.
+
+    ``until_nonland`` (Etali, Primal Conqueror's ETB trigger — "each
+    player exiles cards from the top of their library until they exile a
+    nonland card") widens the per-player dig from a fixed single card to
+    `RulesEngine._exile_top_until`'s existing "keep exiling past lands
+    until a nonland hit, or the library empties" shape — the same
+    primitive cascade/discover already use. Every card exiled along the
+    way (lands included) stays in exile; only the nonland hit, if any,
+    opens a free-cast window.
     """
+
+    def __init__(self, source: Optional["GameObject"] = None, until_nonland: bool = False) -> None:
+        super().__init__(source)
+        self.until_nonland = bool(until_nonland)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
             return
         for p in context.state.living_players():
-            if not p.library:
+            if self.until_nonland:
+                card, _exiled = context.engine._exile_top_until(p, {}, exclude_lands=True)
+            else:
+                if not p.library:
+                    continue
+                card = p.library[-1]
+                context.exile(card)
+            if card is None or card.card.is_land:
                 continue
-            card = p.library[-1]
-            context.exile(card)
             card.controller_id = player.id
-            context.engine.grant_free_cast_window_from_exile(card)
+            context.engine.grant_free_cast_window_from_exile(card, ignore_timing=True)
 
 
 class GrantDieToExileThisTurnEffect(GameEffect):
@@ -15076,6 +15103,103 @@ class RevealTopThenMaybeBattlefieldIfLandOrCheapCreatureEffect(GameEffect):
         )
 
 
+class RevealTopThenCreatureAndOrLandBattlefieldEffect(GameEffect):
+    """"Reveal that many cards from the top of your library. You may put a
+    creature card and/or a land card from among them onto the battlefield.
+    Put the rest on the bottom in a random order." (Ojer Kaslem, Deepest
+    Growth's combat-damage trigger) — ``amount_from_trigger_event`` reads
+    "that many" off the firing DAMAGE event's own ``amount`` (`DealDamage
+    Effect`'s established idiom).
+
+    Only one `GameState.pending_choice` can be open at a time (see its own
+    docstring), so the "up to one creature *and* up to one land" pair can't
+    both be offered in this same `apply()` call — they're two independent
+    optional picks over the same revealed batch, chained the way `Scroll
+    RackEffect`/`ScrollRackFinishEffect` chain theirs: the revealed cards
+    are bottomed in random order *immediately* (their final resting place
+    unless a following pick lifts one back out — `LookTopKeepOneOnTopEffect`'s
+    own "commit first, relocate on pick" trick, since `request_choose_
+    objects`'s ``"library_to_battlefield"`` action already finds an object
+    wherever it currently sits in the library), the land candidates' ids are
+    stashed on this ability's own source via `GameObject.exiled_with_ids`
+    (a generic scratch list already reused this way by other single-use
+    continuations), and the creature choice is opened with a `then_specs`/
+    `else_specs` pair that both point at ``ojer_kaslem_land_pick`` — so the
+    land choice opens next regardless of whether a creature was taken
+    (`else_specs` also covers "no creature was even offered").
+    """
+
+    def __init__(
+        self,
+        amount: int = 0,
+        amount_from_trigger_event: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.amount_from_trigger_event = amount_from_trigger_event
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        amount = self.amount
+        if self.amount_from_trigger_event:
+            event = context.trigger_event
+            amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
+        if amount <= 0 or not player.library:
+            return
+        revealed = [player.library.pop() for _ in range(min(amount, len(player.library)))]
+        if not revealed:
+            return
+        random.shuffle(revealed)
+        for obj in revealed:
+            player.library.insert(0, obj)  # bottom of library, per the card
+        self.source.exiled_with_ids = [
+            obj.instance_id for obj in revealed if obj.card.is_land
+        ]
+        creature_candidates = [obj for obj in revealed if obj.card.is_creature]
+        land_pick = [{"type": "ojer_kaslem_land_pick", "params": {}}]
+        context.engine.request_choose_objects(
+            player, creature_candidates, "library_to_battlefield", count=1, optional=True,
+            prompt="Lege bis zu eine der aufgedeckten Kreaturenkarten auf das Schlachtfeld",
+            source=self.source, then_specs=land_pick, else_specs=land_pick,
+        )
+
+
+class OjerKaslemLandPickEffect(GameEffect):
+    """The land half of `RevealTopThenCreatureAndOrLandBattlefieldEffect`,
+    run as that effect's own `then_specs`/`else_specs` continuation once the
+    creature pick resolves (see that class's docstring for why this can't
+    just be the second half of one `apply()` call). Reads the land
+    candidates' ids back off `GameObject.exiled_with_ids` and re-resolves
+    them (`GameState.find_object`, still ``Zone.LIBRARY`` — nothing but this
+    same continuation ever moves them) rather than trusting stale object
+    references, the same caution `ScrollRackFinishEffect` takes with its own
+    stashed ids.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        land_ids = list(getattr(self.source, "exiled_with_ids", None) or [])
+        self.source.exiled_with_ids = []
+        if not land_ids:
+            return
+        land_candidates = [
+            obj for obj in (context.state.find_object(iid) for iid in land_ids)
+            if obj is not None and obj.zone == Zone.LIBRARY
+        ]
+        context.engine.request_choose_objects(
+            player, land_candidates, "library_to_battlefield", count=1, optional=True,
+            prompt="Lege bis zu eine der aufgedeckten Landkarten auf das Schlachtfeld",
+            source=self.source,
+        )
+
+
 class MonstrosityEffect(GameEffect):
     """RULE 701.37a: "Monstrosity N" — the body of ``<cost>: Monstrosity N``.
 
@@ -18584,6 +18708,34 @@ class LoseGameTriggerDamagedPlayerEffect(GameEffect):
         context.lose_game(context.state.player_by_id(event.get("target_id")), self.reason)
 
 
+class AddCountersToTriggerDamagedPlayerEffect(GameEffect):
+    """"Whenever this creature deals combat damage to a player, they get
+    that many poison counters." (Etali, Primal Sickness) — RULE 603.3d's
+    "they"/"that many" pronouns both refer to the `DAMAGE` event's own
+    recipient and amount: the counter-granting mirror of `LoseGameTrigger
+    DamagedPlayerEffect`, sharing its "no target choice, read `GameContext.
+    trigger_event` directly" shape rather than a chosen target and a fixed
+    amount. A damaged creature, a since-departed player, or a zero-amount
+    event (already-prevented/replaced damage) is simply nothing to counter.
+    """
+
+    def __init__(self, kind: str = "poison", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.kind = kind
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event
+        if event is None or not event.get("is_player"):
+            return
+        player = context.state.player_by_id(event.get("target_id"))
+        if player is None:
+            return
+        amount = event.get("amount") or 0
+        if amount <= 0:
+            return
+        context.add_player_counters(player, amount, self.kind, source=self.source)
+
+
 #: RULE 205.2a's permanent card types — the vocabulary "shares a permanent
 #: type with it" (Cloudstone Curio) compares against, so a shared *spell*
 #: type (instant/sorcery, which no permanent has anyway) can never match.
@@ -20682,6 +20834,24 @@ EffectRegistry.register(
     lambda p: RevealTopThenMaybeBattlefieldIfLandOrCheapCreatureEffect(),
 )
 EffectRegistry.register(
+    # "Whenever ~ deals combat damage to a player, reveal that many cards
+    # from the top of your library. You may put a creature card and/or a
+    # land card from among them onto the battlefield. Put the rest on the
+    # bottom in a random order." (Ojer Kaslem, Deepest Growth)
+    "reveal_top_then_creature_and_or_land_battlefield",
+    lambda p: RevealTopThenCreatureAndOrLandBattlefieldEffect(
+        amount=int(p.get("amount", 0) or 0),
+        amount_from_trigger_event=p.get("amount_from_trigger_event"),
+    ),
+)
+EffectRegistry.register(
+    # `RevealTopThenCreatureAndOrLandBattlefieldEffect`'s own land-half
+    # continuation — never placed in a card's own `AbilitySpec`, only in
+    # that effect's own `then_specs`/`else_specs`.
+    "ojer_kaslem_land_pick",
+    lambda p: OjerKaslemLandPickEffect(),
+)
+EffectRegistry.register(
     # "When ~ dies, if it was a creature, return it to the battlefield
     # under its owner's control. It's an enchantment." (Enduring Vitality)
     "dies_return_as_enchantment",
@@ -21147,8 +21317,10 @@ EffectRegistry.register(
     lambda p: ExileHandThenDrawThatManyEffect(),
 )
 EffectRegistry.register(
-    "exile_top_from_each_player_cast_free",  # Etali, Primal Storm
-    lambda p: ExileTopFromEachPlayerCastFreeEffect(),
+    # Etali, Primal Storm (top card only); Etali, Primal Conqueror's ETB
+    # passes until_nonland=True (dig past lands to the first nonland hit).
+    "exile_top_from_each_player_cast_free",
+    lambda p: ExileTopFromEachPlayerCastFreeEffect(until_nonland=bool(p.get("until_nonland", False))),
 )
 EffectRegistry.register(
     "arm_spell_watcher",  # Dual Strike
@@ -22120,6 +22292,10 @@ EffectRegistry.register(
 EffectRegistry.register(
     "lose_game_trigger_damaged_player",
     lambda p: LoseGameTriggerDamagedPlayerEffect(reason=p.get("reason", "effect")),
+)
+EffectRegistry.register(
+    "add_counters_to_trigger_damaged_player",  # Etali, Primal Sickness
+    lambda p: AddCountersToTriggerDamagedPlayerEffect(kind=p.get("kind", "poison")),
 )
 EffectRegistry.register(
     "blink",  # "Exile target permanent, then return it to the battlefield" (Ephemerate)
@@ -24916,7 +25092,12 @@ def _double_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
     Lives' token clause: "if an effect would create one or more tokens
     under your control, it creates twice that many instead". Unlike the
     counter clause above this *is* controller-scoped in the real text.
+
+    ``multiplier`` defaults to 2 (every real "double" card); Ojer Taq,
+    Deepest Foundation's "three times that many" is the only real 3,
+    mirroring `_double_damage_replacement`'s own ``multiplier`` param.
     """
+    multiplier = int(params.get("multiplier", 2) or 2)
     effect = ReplacementEffect(
         event_type=EventType.CREATE_TOKENS,
         replacement_fn=lambda e, c: e,
@@ -24933,7 +25114,7 @@ def _double_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
         amount = int(event.get("amount", 0) or 0)
         if amount <= 0:
             return event
-        return event.copy_with(amount=amount * 2)
+        return event.copy_with(amount=amount * multiplier)
 
     effect.replacement_fn = replace
     effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
