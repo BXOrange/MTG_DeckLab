@@ -124,6 +124,15 @@ class ManaMixin:
             raise ValueError(f"{source.name} has no mana ability #{ability_index}")
         ability = abilities[ability_index]
         cost = ability.cost
+        # RULE 602.5d, printed on a mana ability itself (Vivi Ornitier's
+        # "Activate only during your turn and only once each turn.") — the
+        # stack-based `can_activate`'s own checks
+        # (`_only_during_your_turn_ok`/`once_per_turn`) don't run for this
+        # no-stack path, so they're re-checked here instead.
+        if cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
+            raise ValueError(f"{source.name}'s mana ability can only be activated during your turn")
+        if cost.once_per_turn and ability_index in source.mana_abilities_activated_this_turn:
+            raise ValueError(f"{source.name}'s mana ability has already been activated this turn")
         if not self._can_pay_activation_cost(
             player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
             is_mana_ability=True,
@@ -133,7 +142,12 @@ class ManaMixin:
             raise ValueError(f"{source.name}'s mana ability produces nothing")
         if ability.any_combination and color_split is not None:
             total = sum(ability.options[0].values())
-            produced = validate_color_split(color_split, total)
+            # `ability.options` already carries only the printed colour
+            # subset (one option per allowed colour — Vivi Ornitier's own
+            # {U}/{R}, not full WUBRG), so the same list both offers the
+            # single-colour buttons above and bounds the split here.
+            allowed_colors = {next(iter(opt)) for opt in ability.options}
+            produced = validate_color_split(color_split, total, allowed_colors)
         else:
             if not 0 <= option_index < len(ability.options):
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")
@@ -142,6 +156,8 @@ class ManaMixin:
             player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
             is_mana_ability=True,
         )
+        if cost.once_per_turn:
+            source.mana_abilities_activated_this_turn.add(ability_index)
         if cost.exile_creature:
             # Food Chain (MEC-40): the amount depends on *which* creature
             # just paid this cost — unresolvable at `mana_abilities_for`'s
@@ -259,7 +275,12 @@ class ManaMixin:
             raise ValueError(f"{source.name}'s mana ability produces nothing")
         if ability.any_combination and color_split is not None:
             total = sum(ability.options[0].values())
-            produced = validate_color_split(color_split, total)
+            # `ability.options` already carries only the printed colour
+            # subset (one option per allowed colour — Vivi Ornitier's own
+            # {U}/{R}, not full WUBRG), so the same list both offers the
+            # single-colour buttons above and bounds the split here.
+            allowed_colors = {next(iter(opt)) for opt in ability.options}
+            produced = validate_color_split(color_split, total, allowed_colors)
         else:
             if not 0 <= option_index < len(ability.options):
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")

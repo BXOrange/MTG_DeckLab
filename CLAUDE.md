@@ -94,7 +94,9 @@ stack ends the step — so the session does that (`_advance_to_priority_
 window`, which runs through untap/cleanup since those give nobody
 priority). Consequence worth knowing: **there is no "advance the turn"
 action in a shared game**; `advance_step` is refused and the board's
-primary button becomes "Passen". Only the priority holder may act, enforced
+primary button becomes "Passen" (on the priority holder's own board
+banner — the left rail carries only table/layout controls). Only the
+priority holder may act, enforced
 in `_dispatch` and not merely filtered out of `legal_actions` (a client
 could post an action it was never offered) — except RULE 509.1a's
 declare-blockers, a turn-based action the *defending* player takes while
@@ -139,11 +141,33 @@ holds priority and is silent past `MTG_MULTIPLAYER_IDLE_TIMEOUT` (default
 120s) has their socket closed — not to police slow play, but because a tab
 that died without a clean close would otherwise hold the table forever.
 Both timers are swept once a second by `api/multiplayer_ws.sweep_once`,
-run from the app's lifespan. Client-side, **auto-pass** (settings.js
-cookies, default on / 3s / opponent-turns-only) counts down whenever this
-client holds priority and passes at zero; touching the board cancels that
-window, and both the toggle and the seconds are adjustable on the board
-itself as well as on the **Profil** tab.
+run from the app's lifespan. Client-side, a **per-priority countdown** runs
+whenever this client holds priority **on another player's turn** — the
+response window a phase hands round once the active player passes
+(`gameBoardView.js`'s `autoPassArmed`/`railTimerHtml` gate on
+`reactTimerSuppressedHere()`). On your **own** turn it's suppressed during
+your main phases and combat (you're the one acting there, RULE 117; a
+half-finished turn mustn't tick away under you), but still runs whenever
+there's something on the stack to respond to, or during the passive
+upkeep/draw/end steps — an absent active player otherwise is the
+`MTG_MULTIPLAYER_IDLE_TIMEOUT`'s job. When it does run it auto-passes at
+zero (a shrinking progress bar in the board's left rail —
+`gameBoardView.js`'s repurposed `autoPassArmed`/`syncAutoPass`); any
+interaction with the board, or the rail's "interrupt" button, cancels it
+for that window. It is always on (no opt-in checkbox any more) and its
+length is a **server** setting, not a cookie:
+`config.MULTIPLAYER_SPELL_TIMER_SECONDS` (`MTG_MULTIPLAYER_SPELL_TIMER`,
+default 20s, 0 = off), per-table overridable by the host in Setup
+(`LobbyGame.spell_timer_seconds`, carried to the board on
+`view()["priority"]["timer_seconds"]`). A manual **"End the turn"** button
+next to "Passen" is the deliberate opposite of that suppression: click it
+and every priority window this client holds — main phases and combat
+included — auto-passes for the rest of the current turn regardless of what
+`legal_actions` offers (`endTurnActiveHere`), a speed-up for a player who's
+decided they have nothing left they want to do this turn. It self-disarms
+once that turn ends or on any real board interaction, and never touches a
+`pending_choice` or a turn-based action (declare attackers/blockers) —
+neither goes through `pass_priority`.
 
 **Bots (UC5, `services/bots.py`)** fill a seat at such a table — they are
 players, not a mode. The load-bearing rule is that a bot plays through the
@@ -420,12 +444,12 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 40.2% (13,977 / 34,811) as of 2026-09-04, PARSER_VERSION 263**
+**Coverage: 40.1% (13,971 / 34,811) as of 2026-09-04, PARSER_VERSION 257**
 (parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is ~42.0% (13,373 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is ~42.0% (13,367 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

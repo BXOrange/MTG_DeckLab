@@ -3717,6 +3717,9 @@ def test_legal_actions_surfaces_escape_offer():
 def test_bind_from_catalogue_creates_equipment_ability_from_keyword():
     eng = make_engine([land()], hand=0)
     eng.begin_turn()
+    # RULE 702.6c: Equip is sorcery-speed only — a real main phase, not just
+    # "some point in the turn" (`begin_turn` alone lands in untap/upkeep).
+    eng.state.current_step = "main1"
     p1 = eng.state.active_player
     host = obj_on_battlefield(eng.state, eng, creature(name="Host", cost="{1}"))
     host.summoning_sick = False

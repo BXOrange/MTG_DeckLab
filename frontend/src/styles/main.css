@@ -1843,31 +1843,47 @@ textarea {
   margin-top: 0.75rem;
 }
 
-/* Sticky so turn/phase stays visible while scrolling a two-board game —
-   `main` (app.css) is the scrolling ancestor, and this sticks to its top
-   padding edge. Below the stack overlay's z-index (30) so a resolving
-   stack still visually covers it rather than poking through underneath. */
-.gf-topbar {
+/* The board is a two-column layout: a narrow, sticky left rail (turn/phase,
+   the stack, the countdown, and every board control) and the play area
+   ("stage") beside it. The rail replaced the old sticky topbar + the
+   overlaid stack popup, so player interactions on the stage are never
+   covered any more. */
+.goldfish {
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-  background: var(--felt);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
-  margin-bottom: 0.6rem;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.gf-rail {
+  flex: 0 0 216px;
   position: sticky;
   top: 0;
+  align-self: flex-start;
+  max-height: calc(100vh - 4.5rem);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.55rem;
+  background: var(--felt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   z-index: 20;
 }
 
-.gf-turninfo {
+.gf-stage {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.9rem;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.gf-rail-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
 }
 
 .gf-turn {
@@ -1877,6 +1893,147 @@ textarea {
 .gf-step {
   font-size: 0.8rem;
   color: var(--text-dim);
+}
+
+/* The rail's control block: buttons stack instead of sitting in a row. */
+.gf-rail-controls {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  margin-bottom: 0;
+}
+
+.gf-rail-controls button,
+.gf-rail-controls .gf-autopass,
+.gf-rail-controls select {
+  width: 100%;
+}
+
+/* Below this the two columns are too tight — the rail becomes a plain
+   horizontal strip above the stage (see gameBoardView.js POD_GRID_MIN_WIDTH,
+   deliberately the only place this breakpoint lives besides here). */
+@media (max-width: 1199px) {
+  .goldfish {
+    flex-direction: column;
+  }
+  .gf-rail {
+    flex: 1 1 auto;
+    width: 100%;
+    position: static;
+    max-height: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .gf-rail-turn,
+  .gf-rail-timer,
+  .gf-rail-stack {
+    flex: 1 1 12rem;
+  }
+  .gf-rail-controls {
+    flex: 1 1 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .gf-rail-controls button,
+  .gf-rail-controls .gf-autopass,
+  .gf-rail-controls select {
+    width: auto;
+  }
+}
+
+/* --- Rail: the per-priority countdown, as a shrinking progress bar ------- */
+.gf-rail-timer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.4rem 0.45rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel-alt);
+}
+
+.gf-rail-timer.gf-timer-off {
+  border-color: var(--border);
+  opacity: 0.6;
+}
+
+.gf-rail-timer-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.gf-rail-timer-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.gf-rail-timer-fill {
+  height: 100%;
+  width: calc(var(--gf-timer-frac, 1) * 100%);
+  background: var(--accent);
+  transition: width 1s linear;
+}
+
+.gf-rail-timer.gf-timer-off .gf-rail-timer-fill {
+  background: var(--text-dim);
+  transition: none;
+}
+
+.gf-rail-timer-stop {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.4rem;
+}
+
+/* --- Rail: the stack, compact and always present ------------------------ */
+.gf-rail-stack h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.82rem;
+}
+
+.gf-rail-stack-empty {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Each stack entry is the shared mini card view (`stackItemHtml`): the
+   spell's card, or an ability's source permanent with its text overlaid,
+   plus a type badge and LIFO-position hint. Stacked vertically to fit the
+   narrow rail. */
+.gf-rail-stack-cards {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.gf-rail-stack-cards .gf-stack-item {
+  width: 100%;
+}
+
+/* A touch smaller than the old overlay's ~100px so two or three entries
+   stay visible in the rail without scrolling. */
+.gf-rail-stack-cards .card.has-image {
+  width: 88px;
+}
+
+.gf-rail-stack-cards .gf-stack-badge {
+  max-width: 100%;
+}
+
+/* An entry that has just resolved (or been countered) lingers greyed out
+   for a moment (`resolvedGhosts`) so it stays briefly visible what went on
+   the stack — including in the solo modes, where the engine auto-drains it. */
+.gf-rail-stack-ghost {
+  opacity: 0.5;
+  filter: grayscale(1);
+  transition: opacity 0.4s ease;
 }
 
 .gf-manapool {
@@ -1943,54 +2100,8 @@ textarea {
   text-transform: uppercase;
 }
 
-/* Turn order (RULE 500.1) in the topbar — the seating chart for the boards
-   below, in the same sequence, with the active player marked. Replaced the
-   older single "Aktiv: X" readout, which is why there is no `.gf-active-
-   player` rule here any more. */
-.gf-turnorder {
-  display: inline-flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  font-size: 0.8rem;
-  color: var(--text-dim);
-}
-
-.gf-turnorder-arrow {
-  color: var(--border);
-}
-
-/* Your own seat stays legible when it isn't the active one — the point of
-   the strip is finding yourself in it at a glance. Declared *before*
-   `-active` on purpose: both can apply to the same seat and they carry the
-   same specificity, so being the active player has to be the later rule to
-   win the colour. */
-.gf-turnorder-me {
-  color: var(--text);
-}
-
-.gf-turnorder-active {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-.gf-turnorder-out {
-  text-decoration: line-through;
-  opacity: 0.55;
-}
-
-/* The seat's banner colour, repeated as a dot in the strip so the legend
-   covers the colours as well as the order (gameBoardView's `turnOrderHtml`;
-   the gradient itself is inline, from `bannerColors.js`). */
-.gf-turnorder-dot {
-  display: inline-block;
-  width: 0.55rem;
-  height: 0.55rem;
-  margin-right: 0.3rem;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.45);
-  vertical-align: baseline;
-}
+/* (The old `.gf-turnorder*` seating strip is gone — who is active and who
+   holds priority is shown on each player's own banner now.) */
 
 .gf-daynight {
   display: inline-block;
@@ -2203,9 +2314,8 @@ textarea {
 /* Two-sided play area: a column of static zones (command / library /
    graveyard / exile, stacked) beside the battlefield + hand. `gf-zones-right`
    flips the columns visually while keeping DOM order, so the side is a pure
-   toggle. `position: relative` anchors the stack overlay to this area. */
+   toggle. */
 .gf-play {
-  position: relative;
   display: flex;
   gap: 0.6rem;
   align-items: flex-start;
@@ -2249,88 +2359,8 @@ textarea {
   }
 }
 
-/* The stack, overlaid over the play area ("überblenden") while non-empty:
-   it dims and blocks the board until it resolves — pass priority, or push it
-   aside to interact underneath. */
-.gf-stack-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.75rem;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(2px);
-  border-radius: 8px;
-  animation: gf-modal-fade 0.12s ease-out;
-}
-
-.gf-stack-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  max-width: min(94%, 620px);
-  max-height: 92%;
-  overflow: auto;
-  padding: 0.6rem 0.75rem;
-  background: var(--felt);
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-  transition: transform 0.15s ease, max-width 0.15s ease;
-}
-
-.gf-stack-panel-head,
-.gf-stack-panel-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.gf-stack-panel-head h4 {
-  margin: 0;
-  font-size: 0.9rem;
-}
-
-.gf-stack-aside {
-  font-size: 0.72rem;
-  padding: 0.2rem 0.5rem;
-}
-
-.gf-stack-panel-foot .hint {
-  font-size: 0.72rem;
-}
-
-/* Pushed aside: the backdrop stops capturing clicks (they reach the board),
-   and the panel shrinks to a compact card docked in the corner opposite the
-   zone column. */
-.gf-stack-overlay.aside {
-  pointer-events: none;
-  background: transparent;
-  backdrop-filter: none;
-  align-items: flex-start;
-  justify-content: flex-end;
-  padding: 0.4rem;
-}
-
-.gf-play.gf-zones-right .gf-stack-overlay.aside {
-  justify-content: flex-start;
-}
-
-.gf-stack-overlay.aside .gf-stack-panel {
-  pointer-events: auto;
-  max-width: 230px;
-  transform: scale(0.97);
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
-}
-
-/* The aside card keeps the stack readable but compact. */
-.gf-stack-overlay.aside .gf-stack-grid {
-  max-height: 40vh;
-  overflow: auto;
-}
+/* (The stack used to overlay the play area while non-empty; it lives in the
+   left rail now — `.gf-rail-stack` — and never covers the board.) */
 
 .gf-zone-list {
   list-style: none;
@@ -2377,17 +2407,6 @@ textarea {
 .card.summoning-sick {
   opacity: 0.7;
   border-style: dashed;
-}
-
-.gf-movelog {
-  margin-top: 0.5rem;
-  font-size: 0.75rem;
-  color: var(--text-dim);
-}
-
-.gf-movelog ol {
-  margin: 0.2rem 0 0;
-  padding-left: 1.2rem;
 }
 
 /* --- Goldfisch: optionale Layer-/Statik-Analyse (Regel 613) --- */
@@ -3694,7 +3713,7 @@ textarea {
   color: var(--accent);
 }
 
-/* Push-aside toggle, styled like the stack overlay's own `.gf-stack-aside`. */
+/* Push-aside toggle for the pending-choice modal. */
 .gf-modal-aside {
   flex: 0 0 auto;
   font-size: 0.72rem;
@@ -3712,9 +3731,9 @@ textarea {
   color: var(--text);
 }
 
-/* Pushed aside: same trick as `.gf-stack-overlay.aside` — the backdrop
-   stops capturing clicks so the board underneath is reachable, and the
-   panel shrinks to a compact card docked in a corner. */
+/* Pushed aside: the backdrop stops capturing clicks so the board
+   underneath is reachable, and the panel shrinks to a compact card docked
+   in a corner. */
 .gf-modal-overlay.aside {
   pointer-events: none;
   background: transparent;
@@ -4859,11 +4878,7 @@ textarea {
   border-radius: 5px;
 }
 
-/* --- Interactive priority + auto-pass (RULE 117, multiplayer) --- */
-
-.gf-priority-controls {
-  align-items: center;
-}
+/* --- Interactive priority (RULE 117, multiplayer) --- */
 
 .gf-priority-badge {
   display: inline-flex;
@@ -4883,36 +4898,18 @@ textarea {
   font-weight: 600;
 }
 
-/* The countdown stops as soon as the player touches the board — dim it so
-   it's obvious the clock is no longer running. */
-.gf-priority-badge.gf-autopass-off .gf-autopass-count {
-  opacity: 0.4;
-  text-decoration: line-through;
-}
-
-.gf-autopass-count {
-  font-variant-numeric: tabular-nums;
-  min-width: 1.2em;
-  display: inline-block;
-  text-align: right;
-}
-
+/* The bot-speed control still uses this class in the rail's control block. */
 .gf-autopass {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
   font-size: 0.8rem;
   color: var(--text-dim);
-  margin-left: auto;
 }
 
-.gf-autopass input[type="number"] {
-  width: 3.5rem;
-  padding: 0.2rem 0.3rem;
-  background: var(--panel-alt);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+.gf-banner-takeback {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.82rem;
 }
 
 /* The same priority badge + "Passen" the toolbar carries, repeated on the
@@ -4932,43 +4929,9 @@ textarea {
 }
 
 .gf-banner-pass,
-.gf-banner-skip {
+.gf-banner-end-turn {
   padding: 0.25rem 0.7rem;
   font-size: 0.82rem;
-}
-
-/* VIS-5: a short-lived "Bob hat X gespielt" feed of the opponent's most
-   recent moves, so the auto-pass response window isn't a silent surprise.
-   Fixed near the top of the viewport so it's visible over whichever part
-   of the board you're looking at when it appears. */
-.gf-move-feed {
-  position: fixed;
-  top: 4.5rem;
-  right: 1rem;
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  pointer-events: none;
-  max-width: 20rem;
-}
-
-.gf-move-feed-item {
-  padding: 0.4rem 0.7rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--panel-alt);
-  color: var(--text);
-  font-size: 0.85rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-  animation: gf-move-feed-fade 6s ease-out forwards;
-}
-
-@keyframes gf-move-feed-fade {
-  0% { opacity: 0; transform: translateY(-6px); }
-  8% { opacity: 1; transform: translateY(0); }
-  80% { opacity: 1; }
-  100% { opacity: 0; }
 }
 
 /* Mana pool, life and player counters as one right-aligned group. Grouping

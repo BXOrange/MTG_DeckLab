@@ -107,13 +107,22 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     "hexproof": re.compile(
         r"hexproof from (?P<quality>[a-z][a-z ]*?)(?=[.,;\n)]|$| and |\s\()", re.I
     ),
-    # RULE 702.5 — "Enchant <what it can be attached to>". Stops before a
-    # trailing controller clause ("... you control" / "... an opponent
-    # controls") so ``quality`` is the bare type ("creature"), not the whole
-    # clause — the attachment-legality checks match on that type alone.
+    # RULE 702.5 — "Enchant <what it can be attached to>". ``quality`` stops
+    # before a trailing controller clause ("... you control" / "... you
+    # don't control" / "... an opponent controls" — Betrayal, MEC-63 bug
+    # report 2026-09-04) so it stays the bare type ("creature"), not the
+    # whole clause; that clause is captured separately as ``controller``
+    # (`_extract_param` normalizes it to the "you"/"not_you" vocabulary
+    # `targeting.py`'s enchant dispatch already reads for every other
+    # controller-scoped restriction) rather than dropped on the floor —
+    # RULE 303.4c makes this a real targeting restriction, not cosmetic
+    # flavor text, and a bot picking "first legal target" had nothing
+    # stopping it from enchanting its own creature with a "you don't
+    # control" Aura before this was captured at all.
     "enchant": re.compile(
         r"\benchant\s+(?P<quality>[a-z][a-z ]*?)"
-        r"(?=\s+(?:you|an opponent)\b|[.\n(]|$)",
+        r"(?:\s+(?P<controller>you control|you don'?t control|an opponent controls))?"
+        r"(?=[.\n(]|$)",
         re.I,
     ),
     # RULE 702.14 — "<type>walk"; also matched by slug prefix in parse_keywords.
@@ -556,6 +565,15 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
                 param["cost"] = re.sub(r"\s+", "", groups["cost"])
             if groups.get("quality"):
                 param["quality"] = groups["quality"].strip()
+            if groups.get("controller"):
+                # "Enchant creature **you control**" vs "… **you don't
+                # control**"/"… **an opponent controls**" (RULE 303.4c) —
+                # normalized onto the same "you"/"not_you" vocabulary
+                # `effect_binder`'s trigger-condition ``controller`` field
+                # already uses, so `targeting.py`'s enchant dispatch reads
+                # one shared convention rather than raw clause text.
+                clause = groups["controller"].strip().lower()
+                param["controller"] = "you" if clause == "you control" else "not_you"
     if kdef.slug == "ward" and "cost" not in param:
         fallback = _WARD_TEXT_COST_RE.search(text)
         if fallback:

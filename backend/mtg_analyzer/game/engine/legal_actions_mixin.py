@@ -974,6 +974,14 @@ class LegalActionsMixin:
             for ability_index, ability in enumerate(mana_abilities_for(source, state=self.state)):
                 if not ability.options:
                     continue
+                # RULE 602.5d, printed on the ability itself (Vivi Ornitier's
+                # "Activate only during your turn and only once each turn.")
+                # — `tap_for_mana` re-checks both at payment time too, this
+                # just keeps an already-illegal option off the offer list.
+                if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
+                    continue
+                if ability.cost.once_per_turn and ability_index in source.mana_abilities_activated_this_turn:
+                    continue
                 # Existence-only check here (no chosen tap_others yet — the
                 # player picks those in the UI *after* choosing to activate,
                 # same as a target); `tap_for_mana` re-validates the actual

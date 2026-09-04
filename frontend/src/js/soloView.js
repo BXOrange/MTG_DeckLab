@@ -27,7 +27,13 @@ import {
   tokenImageUrl,
   sleeveImageUrl,
 } from './api.js';
-import { getPlayerName } from './settings.js';
+import {
+  getPlayerName,
+  getPassTimerSeconds,
+  saveSettings,
+  MIN_PASS_TIMER_SECONDS,
+  MAX_PASS_TIMER_SECONDS,
+} from './settings.js';
 import { getState, setState } from './state.js';
 import { preloadCardImages, cacheResolvedCard } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
@@ -84,6 +90,10 @@ export function createSoloView() {
   // the human's deck at start.
   let opponents = [{ kind: '', deckId: '' }];
   let startingPlayer = 'you'; // 'you' | 'random'
+  //: The per-priority auto-pass countdown for this solo session (seconds;
+  //: 0 = off). Sent to POST /api/solo/start as `spellTimerSeconds`; seeded
+  //: from (and saved back to) the client-side preference cookie.
+  let spellTimerSeconds = getPassTimerSeconds();
 
   const board = createGameBoardView({
     // Solo speaks the same shape Multiplayer's transport does: the POST
@@ -119,7 +129,14 @@ export function createSoloView() {
           onClick: exportReplayFile,
         },
       ];
-      if (!view?.state?.game_over) {
+      // While the game is live, "Aufgeben" is the only exit (it ends the
+      // game and drops to the review) — a separate "Beenden" alongside it
+      // was doing the same thing. Once the game is over there's nothing to
+      // concede, so "Beenden" is what takes you from the finished board to
+      // the review / deck picker.
+      if (view?.state?.game_over) {
+        controls.push({ id: 'quit', label: t('play.quit'), onClick: quit });
+      } else {
         controls.push({
           id: 'concede',
           label: t('solo.concede'),
@@ -128,7 +145,6 @@ export function createSoloView() {
           onClick: concede,
         });
       }
-      controls.push({ id: 'quit', label: t('play.quit'), onClick: quit });
       return controls;
     },
     // No lobby → connection state comes from the game state itself (the
@@ -270,6 +286,7 @@ export function createSoloView() {
         opponents: rows,
         gameFormat: selectedFormat,
         startingPlayer,
+        spellTimerSeconds,
       });
       if (res.ok) {
         applyView(res.data);
@@ -576,6 +593,11 @@ export function createSoloView() {
           </select>
         </div>
 
+        <div class="gf-deck-picker" title="${escapeAttr(t('solo.spellTimerTitle'))}">
+          <label for="solo-spell-timer">${t('solo.spellTimer')}</label>
+          <input id="solo-spell-timer" type="number" min="${MIN_PASS_TIMER_SECONDS}" max="${MAX_PASS_TIMER_SECONDS}" value="${spellTimerSeconds}" ${busy ? 'disabled' : ''} />
+        </div>
+
         <button id="solo-start-btn" type="button" class="primary" ${canStart ? '' : 'disabled'}>
           ${t('solo.startBtn')}
         </button>
@@ -589,6 +611,11 @@ export function createSoloView() {
     });
     root.querySelector('#solo-start-who')?.addEventListener('change', (e) => {
       startingPlayer = e.target.value;
+    });
+    root.querySelector('#solo-spell-timer')?.addEventListener('change', (e) => {
+      const saved = saveSettings({ passTimerSeconds: e.target.value });
+      spellTimerSeconds = saved.passTimerSeconds;
+      e.target.value = String(spellTimerSeconds);
     });
     root.querySelector('#solo-add-opponent')?.addEventListener('click', addOpponent);
     root.querySelectorAll('[data-opp-kind]').forEach((el) => {

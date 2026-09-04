@@ -45,6 +45,9 @@ Env vars (all optional; defaults reproduce the pre-config-module paths):
     priority without acting before the server drops their connection
   MTG_MULTIPLAYER_DISCONNECT_GRACE — seconds a disconnected player's seat
     is held open for them to reconnect into
+  MTG_MULTIPLAYER_SPELL_TIMER — seconds the board's per-priority countdown
+    runs before it auto-passes for the player holding priority (0 = off,
+    manual passing only); overridable per table in the Multiplayer setup
   MTG_SERVER_THREAD_WORKERS — size of the server's blocking-request worker
     thread pool; how many games can be mid-step at once (see below)
   MTG_DYNAMIC_ANALYSIS_WORKERS — how many dynamic-analysis *jobs* run at once
@@ -261,6 +264,20 @@ MULTIPLAYER_IDLE_TIMEOUT_SECONDS = _cfg_float(
 #: waited on forever. 0 disables the sweep, holding the seat indefinitely.
 MULTIPLAYER_DISCONNECT_GRACE_SECONDS = _cfg_float(
     "MTG_MULTIPLAYER_DISCONNECT_GRACE", "multiplayer", "disconnect_grace_seconds", 90, minimum=0.0
+)
+
+#: How long the board's per-priority countdown (the shrinking progress bar in
+#: the left rail) runs before it auto-passes for whoever holds priority. It
+#: arms on every priority window a player *could* act in — a spell going on
+#: the stack being the common one — and any interaction with the board (or the
+#: explicit "interrupt" button) cancels it for that window. 0 disables it
+#: entirely: priority is then only ever passed by hand. Only meaningful for
+#: `interactive_priority` sessions (multiplayer / solo-vs-bots); a table can
+#: override it in Setup (`LobbyGame.spell_timer_seconds`). The default is
+#: deliberately generous — it also runs on your own turn, so a short value
+#: would rush the active player.
+MULTIPLAYER_SPELL_TIMER_SECONDS = _cfg_float(
+    "MTG_MULTIPLAYER_SPELL_TIMER", "multiplayer", "spell_timer_seconds", 20, minimum=0.0
 )
 
 #: PLR-4: how long a browser's identity token (`services/lobby.py`'s

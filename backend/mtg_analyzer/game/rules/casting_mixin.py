@@ -898,8 +898,21 @@ class CastingResolutionMixin:
             # RULE 702.67a: "target land you control."
             return target.is_land and target.controller_id == obj.controller_id
         if kind == "enchant":
-            quality = ((obj.parametric_keywords or {}).get(kind) or {}).get("quality", "")
-            quality = str(quality).strip().lower()
+            enchant_params = (obj.parametric_keywords or {}).get(kind) or {}
+            quality = str(enchant_params.get("quality", "")).strip().lower()
+            # RULE 303.4c/704.5m (bug report, 2026-09-04, same gap as
+            # `targeting.legal_targets`' own enchant dispatch): "Enchant
+            # creature you control"/"… you don't control"/"… an opponent
+            # controls" is a real attachment restriction, re-checked here
+            # too so an Aura whose enchanted permanent's controller changes
+            # after attachment (a control-magic effect, say) correctly
+            # becomes illegally attached and falls off via SBA, not just
+            # rejected at the original target-selection offer.
+            enchant_controller = enchant_params.get("controller")
+            if enchant_controller == "you" and target.controller_id != obj.controller_id:
+                return False
+            if enchant_controller == "not_you" and target.controller_id == obj.controller_id:
+                return False
             if not quality or quality in {"permanent", "anything"}:
                 return True
             if quality == "creature":

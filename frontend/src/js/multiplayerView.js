@@ -173,6 +173,11 @@ export function createMultiplayerView(hooks = {}) {
         const res = await sendMultiplayerAction(game.id, playerId, action);
         return { ok: res.ok, status: res.status, data: null, detail: res.data };
       },
+      // The board renders the take-back button on this client's own banner
+      // (only when the table configured a budget and some is left); this is
+      // what the button calls. Repaint comes from the socket push, like
+      // every other action.
+      takeBack: () => takeBack(),
     },
     // Undo and step-skipping are solo-practice affordances: one player can't
     // rewind a shared game, and fast-forwarding would skip the opponent's
@@ -241,7 +246,9 @@ export function createMultiplayerView(hooks = {}) {
         },
       ];
     }
-    const controls = [
+    // Take-back moved onto the player's own banner (`gameBoardView.js`), so
+    // it's no longer one of the rail controls here.
+    return [
       {
         id: 'concede',
         label: t('mp.concede'),
@@ -251,20 +258,6 @@ export function createMultiplayerView(hooks = {}) {
       },
       exportControl(),
     ];
-    // Only shown at all when the host configured a budget (an empty
-    // `takebacks_remaining` means the table has none) — otherwise there's
-    // nothing this button could ever do.
-    const remaining = view?.takebacks_remaining?.[playerId];
-    if (remaining !== undefined) {
-      controls.push({
-        id: 'takeback',
-        label: t('mp.takeback', { count: remaining }),
-        title: t('mp.takebackTitle'),
-        disabled: busy || remaining <= 0,
-        onClick: takeBack,
-      });
-    }
-    return controls;
   }
 
   // Same download-as-file pattern as goldfishView.js's `exportReplayFile`.
@@ -673,6 +666,18 @@ export function createMultiplayerView(hooks = {}) {
     });
   }
 
+  // The board's per-priority auto-pass countdown for this table (seconds;
+  // 0 = off). An empty field is left as-is rather than sent — the server
+  // default then applies (`config.MULTIPLAYER_SPELL_TIMER_SECONDS`).
+  async function changeSpellTimer(raw) {
+    if (!game) return;
+    if (String(raw).trim() === '') return;
+    const n = Math.max(0, Math.min(600, Math.floor(Number(raw)) || 0));
+    await withBusy(t('mp.savingSetting'), async () => {
+      applyLobbyResult(await setMultiplayerOptions(game.id, playerId, { spellTimerSeconds: n }));
+    });
+  }
+
   async function toggleReady(ready) {
     if (!game) return;
     await withBusy(ready ? t('mp.markingReady') : t('mp.unreadying'), async () => {
@@ -940,6 +945,11 @@ export function createMultiplayerView(hooks = {}) {
             <input id="mp-takebacks" type="number" min="0" max="20" value="${game.takebacks_per_player ?? 0}" ${isHost && !busy ? '' : 'disabled'} />
             ${isHost ? '' : `<span class="hint">${t('mp.hostOnly')}</span>`}
           </div>
+          <div class="mp-option-row" title="${escapeAttr(t('mp.spellTimerTitle'))}">
+            <label for="mp-spell-timer">${t('mp.spellTimer')}</label>
+            <input id="mp-spell-timer" type="number" min="0" max="600" placeholder="${escapeAttr(t('mp.spellTimerDefault'))}" value="${game.spell_timer_seconds ?? ''}" ${isHost && !busy ? '' : 'disabled'} />
+            ${isHost ? '' : `<span class="hint">${t('mp.hostOnly')}</span>`}
+          </div>
           <div class="mp-option-row">
             <label for="mp-deck">${t('mp.yourDeck')}</label>
             <select id="mp-deck" ${busy ? 'disabled' : ''}>
@@ -1140,6 +1150,9 @@ export function createMultiplayerView(hooks = {}) {
     setupRoot
       .querySelector('#mp-takebacks')
       ?.addEventListener('change', (e) => changeTakebacksPerPlayer(e.target.value));
+    setupRoot
+      .querySelector('#mp-spell-timer')
+      ?.addEventListener('change', (e) => changeSpellTimer(e.target.value));
     setupRoot
       .querySelector('#mp-random-seating')
       ?.addEventListener('change', (e) => changeRandomization({ randomizeSeating: e.target.checked }));

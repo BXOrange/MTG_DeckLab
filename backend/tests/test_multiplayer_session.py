@@ -359,6 +359,7 @@ class TestPriority:
             "interactive": True,
             "player_id": "ann",
             "passed": [],
+            "timer_seconds": 20.0,
         }
 
     def test_passing_hands_priority_to_the_next_player_in_turn_order(self):
@@ -482,6 +483,111 @@ class TestPriority:
         session.rewind(1)
         assert session.engine.interactive_priority is True
         assert session.engine.state.priority_player.id == "ann"
+
+
+class TestTriggerVisibility:
+    """Bug report, 2026-09-04: Sram, Senior Edificer's "whenever you cast
+    an Aura, Equipment, or Vehicle spell, draw a card" fired — and even
+    resolved, drawing the card — without ever once being visible on the
+    stack. `GameSession.apply_action` never placed a newly-fired trigger
+    until `pass_priority` happened to complete a *later* round, at which
+    point it both placed *and* immediately resolved it in the same call —
+    so no view in between ever showed it sitting there, and the opponent
+    never got a real chance to respond to it either. Fixed by
+    `GameSession._place_pending_triggers` (RULE 117.5), called after every
+    dispatched action in an interactive-priority session.
+    """
+
+    def _playing_with_sram(self):
+        from mtg_analyzer.game.effect_binder import bind_from_catalogue
+        from mtg_analyzer.models.game_object import GameObject, Zone
+
+        session = make_game(mulligan_style="none", library=[land()] * 30)
+        keep_all(session)
+        state = session.engine.state
+        ann = state.player_by_id("ann")
+
+        sram = GameObject(
+            Card(
+                id="Sram, Senior Edificer", name="Sram, Senior Edificer",
+                type_line="Legendary Creature — Human Artificer",
+                is_creature=True, power=1, toughness=2,
+                oracle_text="Whenever you cast an Aura, Equipment, or Vehicle "
+                            "spell, draw a card.",
+            ),
+            owner_id="ann", zone=Zone.BATTLEFIELD,
+        )
+        bind_from_catalogue(sram)
+        state.add_to_battlefield(sram)
+
+        equip = GameObject(
+            Card(
+                id="Sword of the Animist", name="Sword of the Animist",
+                type_line="Artifact — Equipment",
+                mana_cost_string="{3}", converted_mana_cost=3,
+                oracle_text="Equipped creature gets +1/+1.\nWhenever equipped "
+                            "creature attacks, you may search your library for "
+                            "a basic land card, put it onto the battlefield "
+                            "tapped, then shuffle.\nEquip {2}",
+            ),
+            owner_id="ann", zone=Zone.HAND,
+        )
+        ann.hand.append(equip)
+        ann.library.append(
+            GameObject(Card(id="Filler", name="Filler", type_line="Instant", is_instant=True),
+                       owner_id="ann", zone=Zone.LIBRARY)
+        )
+
+        advance_until(session, step="main1", turn=1)
+        ann.mana_pool.add("C", 3)
+        return session, ann, equip
+
+    def test_a_trigger_fired_by_casting_is_on_the_stack_immediately(self):
+        session, ann, equip = self._playing_with_sram()
+        session.apply_action(
+            {"type": "cast_spell", "instance_id": equip.instance_id}, actor_id="ann"
+        )
+        state = session.engine.state
+        assert [it.description for it in state.stack] == [
+            "Sword of the Animist",
+            "Wenn du einen Aura-, Ausrüstungs- oder Fahrzeugzauber wirkst, "
+            "ziehe eine Karte.",
+        ]
+        # Not yet resolved — the caster still just holds priority.
+        assert "Filler" not in [o.name for o in ann.hand]
+        assert state.priority_player.id == "ann"
+
+    def test_the_opponent_can_see_it_before_either_player_passes(self):
+        # The concrete consequence of the old bug: the trigger not existing
+        # on the stack yet meant the opponent's own view had nothing to
+        # respond to, even though RULE 603.3b says it's already placed.
+        session, ann, equip = self._playing_with_sram()
+        session.apply_action(
+            {"type": "cast_spell", "instance_id": equip.instance_id}, actor_id="ann"
+        )
+        bob_view = session.view(perspective="bob")
+        assert len(bob_view["state"]["stack"]) == 2
+
+    def test_the_trigger_resolves_before_the_spell_once_everyone_passes(self):
+        session, ann, equip = self._playing_with_sram()
+        session.apply_action(
+            {"type": "cast_spell", "instance_id": equip.instance_id}, actor_id="ann"
+        )
+        session.apply_action({"type": "pass_priority"}, actor_id="ann")
+        session.apply_action({"type": "pass_priority"}, actor_id="bob")
+        state = session.engine.state
+        # LIFO: the trigger (placed on top) resolved first.
+        assert [it.description for it in state.stack] == ["Sword of the Animist"]
+        assert "Filler" in [o.name for o in ann.hand]
+
+    def test_no_extra_placement_round_when_nothing_fired(self):
+        # A plain pass with an empty stack and no pending triggers must
+        # stay a no-op — `_place_pending_triggers` shouldn't invent work.
+        session, ann, equip = self._playing_with_sram()
+        state = session.engine.state
+        session.apply_action({"type": "pass_priority"}, actor_id="ann")
+        assert state.stack == []
+        assert state.priority_player.id == "bob"
 
 
 class TestRoundNumber:

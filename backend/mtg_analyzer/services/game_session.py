@@ -40,6 +40,7 @@ import json
 import uuid
 from typing import Any, Callable, Optional
 
+from mtg_analyzer import config
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_format import get_format
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -59,6 +60,14 @@ MAX_HISTORY = 100
 #: genuinely nothing to decide for many turns (e.g. mana screw) can't hang
 #: the request; generous relative to ~11 steps/turn.
 _MAX_DECISION_ADVANCE_STEPS = 200
+
+#: Safety cap on `_place_pending_triggers`' SBA/place loop — generous
+#: relative to how many *rounds* of cascading triggers (an SBA death
+#: spawning another SBA death, etc.) a single action could realistically
+#: chain in one go; `resolve_until_stable`'s own `_MAX_RESOLUTIONS` (1000)
+#: bounds a much bigger loop (it also resolves each stack item), so a
+#: smaller cap here is deliberate, not copied wholesale.
+_MAX_PENDING_TRIGGER_ROUNDS = 100
 
 GOLDFISH = "goldfish"
 MULTIPLAYER = "multiplayer"
@@ -399,6 +408,7 @@ class GameSession:
         require_setup: bool = False,
         mulligan_style: str = "london",
         takebacks_per_player: int = 0,
+        spell_timer_seconds: Optional[float] = None,
     ) -> None:
         self.id = session_id or str(uuid.uuid4())
         self.mode = mode
@@ -420,6 +430,21 @@ class GameSession:
             {p.id: max(0, takebacks_per_player) for p in engine.state.players if not p.is_dummy}
             if takebacks_per_player
             else {}
+        )
+        #: The board's per-priority auto-pass countdown, in seconds — the
+        #: frontend arms a shrinking progress bar with it whenever this
+        #: client holds priority and could act, and passes when it hits 0.
+        #: `None` from the caller means "use the server default"; 0 turns
+        #: the countdown off (manual passing only). Only consulted for
+        #: `interactive_priority` sessions; harmless to carry otherwise.
+        #: Floored at 0 here so a stray negative from a caller that doesn't
+        #: clamp (solo — the lobby path already clamps its own input) can't
+        #: produce a nonsense bar.
+        self.spell_timer_seconds: float = max(
+            0.0,
+            float(spell_timer_seconds)
+            if spell_timer_seconds is not None
+            else config.MULTIPLAYER_SPELL_TIMER_SECONDS,
         )
         #: A card loader for Replay-mode `edit_add_object` (resolving a card
         #: name → `Card` on the fly). Set by `create_replay`; None otherwise.
@@ -444,6 +469,18 @@ class GameSession:
         #: dropped as soon as that player's own real action supersedes it
         #: (`apply_action`/`concede`). See `set_ui_draft`.
         self._ui_drafts: dict[str, dict[str, Any]] = {}
+        #: Purely cosmetic per-player banner colour (`services.lobby.
+        #: normalize_banner_color`'s WUBRG-letters/`"c"` vocabulary), keyed
+        #: by player id — the lobby-free counterpart of Multiplayer's
+        #: `Seat.banner_color`. Empty for every session that has a real
+        #: lobby (Multiplayer sources banners from there instead, through
+        #: the frontend's `seatStatus` hook); `api/solo.py` populates it
+        #: at start from each seat's deck colour identity, the same
+        #: "fly the deck's own colours" default `_default_banner_from_deck`
+        #: gives a Multiplayer seat. Injected into each player dict by
+        #: `view()`/`observer_view()` rather than living on `Player` itself,
+        #: keeping the engine model cosmetic-free.
+        self._banner_colors: dict[str, str] = {}
 
         #: Whether a mulligan/keep-hand setup phase gates play (only real
         #: goldfish sessions from `GameSessionManager.create_goldfish` set
@@ -653,6 +690,26 @@ class GameSession:
             _, snapshot, cursor, _actor_id = self._history.pop()
             self._restore(snapshot, cursor)
             raise GameActionError(str(exc)) from exc
+        if self.interactive_priority:
+            # RULE 117.5/603.3b (bug report, 2026-09-04: Sram, Senior
+            # Edificer's own "whenever you cast an Aura, Equipment, or
+            # Vehicle spell, draw a card" fired and even resolved, drawing
+            # the card, but was never once visible on the stack) — a
+            # trigger fired by this action has to actually reach the stack
+            # before the response returns, not just eventually get swept up
+            # the next time `pass_priority` happens to complete a round.
+            # `pass_priority`'s own "everyone has passed" branch already
+            # calls `put_triggers_on_stack` right before resolving, but the
+            # much more common case — an action that fires a trigger while
+            # its actor still holds priority afterward, same turn, nobody
+            # having passed yet — had nothing placing it at all until then;
+            # the trigger sat in `rules.pending_triggers` invisibly, then
+            # got placed *and* immediately resolved together inside that
+            # same later `pass_priority` call, so no response ever saw it
+            # sitting on the stack. `_place_pending_triggers` only *places*
+            # (RULE 117.5's other half, SBAs) — never resolves — so this
+            # can never step on `pass_priority`'s own real priority-passing.
+            self._place_pending_triggers()
         self.move_log.append(label)
         # A real, committed action always supersedes whatever in-progress UI
         # selection led to it (PLR-6) — drop it rather than let a stale
@@ -1571,6 +1628,32 @@ class GameSession:
             self._pass_priority(holder)
             return
 
+    def _place_pending_triggers(self) -> None:
+        """RULE 117.5: before a player next receives (or keeps) priority,
+        perform state-based actions and put any fired triggered abilities
+        on the stack — looped, since placing one, or an SBA (a lethal-
+        damage death, say), can itself cause more to fire.
+
+        Deliberately never resolves anything (that stays exclusively
+        `GameEngine.pass_priority`'s job, via `_pass_priority`) — this only
+        makes an already-fired trigger *visible*, the RULE 117.5 half
+        `resolve_until_stable`'s full auto-drain conflates with actually
+        resolving the stack (fine for a solo/goldfish session, wrong here:
+        a shared game's whole point is that a response window opens before
+        anything resolves). Stops early on `pending_choice` (a trigger's
+        own RULE 603.3c target/mode/"you may" choice, or an SBA-driven one)
+        or `game_over`, same as `resolve_until_stable`.
+        """
+        engine = self.engine
+        for _ in range(_MAX_PENDING_TRIGGER_ROUNDS):
+            engine.rules.check_state_based_actions()
+            if engine.state.game_over or engine.state.pending_choice:
+                return
+            if engine.rules.put_triggers_on_stack() == 0:
+                return
+            if engine.state.pending_choice:
+                return
+
     def _advance_to_priority_window(self) -> None:
         """Run steps until one opens a priority window (or the game ends).
 
@@ -1914,6 +1997,15 @@ class GameSession:
         # (RULE 613) even if nothing triggered an SBA since the last change.
         self.engine.recompute_continuous_effects()
         state_dict = self.engine.state.to_dict()
+        # Lobby-free banner colours (`self._banner_colors`, Solo vs. Bots) —
+        # cosmetic only, so stamped straight onto the already-built player
+        # dicts rather than threaded through `Player.to_dict()`. A no-op
+        # (empty dict) for every session with a real lobby.
+        if self._banner_colors:
+            for p in state_dict.get("players", []):
+                color = self._banner_colors.get(p.get("id"))
+                if color:
+                    p["banner_color"] = color
         top_visible = {
             p.id: may_look_at_top_of_library(p, self.engine.state)
             for p in self.engine.state.players
@@ -2035,6 +2127,11 @@ class GameSession:
                     else None
                 ),
                 "passed": sorted(self.engine.state.priority_passed),
+                # The board arms its per-priority countdown/progress-bar with
+                # this (seconds); 0 turns it off. Sent for every session so
+                # the same client code covers solo modes too, though only an
+                # `interactive` one ever actually runs it.
+                "timer_seconds": self.spell_timer_seconds,
             },
             "setup": {
                 "complete": self._setup_complete,
@@ -2134,6 +2231,7 @@ class GameSessionManager:
         starting_hand: int = 7,
         mulligan_style: str = "london",
         takebacks_per_player: int = 0,
+        spell_timer_seconds: Optional[float] = None,
         game_format: Optional[str] = None,
         archenemy_id: Optional[str] = None,
     ) -> GameSession:
@@ -2155,6 +2253,7 @@ class GameSessionManager:
             require_setup=True,
             mulligan_style=mulligan_style,
             takebacks_per_player=takebacks_per_player,
+            spell_timer_seconds=spell_timer_seconds,
         )
         self._sessions[session.id] = session
         return session

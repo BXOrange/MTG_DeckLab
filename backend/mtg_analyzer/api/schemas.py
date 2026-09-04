@@ -274,6 +274,10 @@ class MultiplayerOptionsRequest(MultiplayerPlayerRequest):
     mulligan_style: Optional[str] = Field(default=None, alias="mulliganStyle")
     num_players: Optional[int] = Field(default=None, alias="numPlayers")
     takebacks_per_player: Optional[int] = Field(default=None, alias="takebacksPerPlayer")
+    #: The board's per-priority auto-pass countdown for this table, in
+    #: seconds (0 = off). Omitted/`None` keeps the current value; the
+    #: server default is `config.MULTIPLAYER_SPELL_TIMER_SECONDS`.
+    spell_timer_seconds: Optional[float] = Field(default=None, alias="spellTimerSeconds")
     #: RULE 103.1/103.2 — see `LobbyGame.seating_order`.
     randomize_seating: Optional[bool] = Field(default=None, alias="randomizeSeating")
     random_starting_player: Optional[bool] = Field(default=None, alias="randomStartingPlayer")
@@ -334,3 +338,7 @@ class SoloStartRequest(BaseModel):
     mulligan_style: str = Field(default="london", alias="mulliganStyle")
     game_format: Optional[str] = Field(default=None, alias="gameFormat")
     starting_player: str = Field(default="you", alias="startingPlayer")
+    #: The board's per-priority auto-pass countdown for this session, in
+    #: seconds (0 = off). Omitted/`None` uses the server default
+    #: (`config.MULTIPLAYER_SPELL_TIMER_SECONDS`).
+    spell_timer_seconds: Optional[float] = Field(default=None, alias="spellTimerSeconds")

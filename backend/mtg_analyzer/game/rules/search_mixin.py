@@ -360,6 +360,68 @@ class SearchMixin:
             choice.get("explorer_id"), choice.get("explorer_controller_id"),
             found_land=False,
         )
+    def peek_top_land_battlefield_tapped(
+        self, player: Player, source: Optional[GameObject] = None
+    ) -> None:
+        """"Look at the top card of your library. If it's a land card, you
+        may put it onto the battlefield tapped." (Explorer's Scope) — RULE
+        701.20's "look" (this player only; unlike `explore`'s *reveal*,
+        nothing here is shown to anyone else).
+
+        Bug report, 2026-09-04, two issues: the old implementation put a
+        found land onto the battlefield *unconditionally* — no "may" at
+        all, so `resolve_peek_top_land_choice` below is what actually makes
+        this interactive now — and, since it never opened any choice, a
+        *non*-land top card produced no visible feedback whatsoever (the
+        player "looked" at nothing they could ever see). Both branches now
+        open a `peek_top_land` `pending_choice` naming the card, whether or
+        not there's an actual decision to make.
+        """
+        if not player.library:
+            return
+        top = player.library[-1]
+        source_name = source.name if source is not None else None
+        prefix = f"{source_name}: " if source_name else ""
+        if top.card.is_land:
+            options = [
+                {"id": "put", "label": "Getappt ins Spiel legen", "instance_id": top.instance_id},
+                {"id": "decline", "label": "Oben liegen lassen"},
+            ]
+            prompt = f'{prefix}„{top.card.name}“ getappt ins Spiel legen?'
+        else:
+            # No real decision — a single acknowledgement button just so
+            # the peeked card is actually shown (see docstring above).
+            options = [{"id": "ok", "label": "OK", "instance_id": top.instance_id}]
+            prompt = f'{prefix}Oberste Karte: „{top.card.name}“ (kein Land).'
+        self.state.pending_choice = {
+            "kind": "peek_top_land",
+            "player_id": player.id,
+            "prompt": prompt,
+            "source_name": source_name,
+            "card_id": top.instance_id,
+            "options": options,
+        }
+    def resolve_peek_top_land_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `peek_top_land` choice (Explorer's Scope):
+        ``"put"`` removes the peeked land from the library and puts it onto
+        the battlefield tapped (`_put_searched_card`, the same mover a real
+        search uses — see that method's own docstring for why the removal
+        has to happen here, before it's called); any other answer
+        (``"decline"``, the non-land ``"ok"``, or a decline) leaves the
+        library untouched.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "peek_top_land":
+            raise ValueError("no pending peek-top-land choice to resolve")
+        self.state.pending_choice = None
+        if answer != "put":
+            return
+        player = self.state.player_by_id(choice["player_id"])
+        top = next((o for o in player.library if o.instance_id == choice["card_id"]), None)
+        if top is None:
+            return
+        player.remove_from_zone(top, top.zone)
+        self._put_searched_card(player, top, "battlefield_tapped")
     def _look_top_choice(
         self,
         player: Player,
@@ -1496,7 +1558,28 @@ class SearchMixin:
     ) -> None:
         if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
             obj.summoning_sick = True
-            obj.tapped = destination != "battlefield"
+            if obj.is_land and destination == "battlefield":
+                # RULE 614.1 (bug report, 2026-09-04): an *unqualified*
+                # "put it onto the battlefield" (Wooded Foothills/Prismatic
+                # Vista-shaped true fetchlands — as opposed to
+                # ``"battlefield_tapped"``'s own explicit instruction,
+                # Evolving Wilds-shaped) doesn't itself say tapped or
+                # untapped, so the found land's *own* printed entry
+                # condition still governs — a check/fast/slow land's
+                # board-state test, or a shock land's genuine "you may pay
+                # N life" choice (`enter_land_tapped`, the same dispatcher
+                # `GameEngine.play_land` already routes an ordinary land
+                # play through). Previously this branch just hardcoded
+                # ``obj.tapped = False``, so a fetched shock land always
+                # entered untapped for free, no choice offered at all.
+                # ``"battlefield_tapped"`` stays a plain unconditional tap
+                # below — real-card ruling (Evolving Wilds vs. a shock
+                # land): the fetch effect's own explicit "tapped" already
+                # decides it, so the land's own conditional ability isn't
+                # separately offered.
+                self.enter_land_tapped(obj)
+            else:
+                obj.tapped = destination != "battlefield"
             self.state.add_to_battlefield(obj)
             self.state.fire_event(
                 GameEvent(

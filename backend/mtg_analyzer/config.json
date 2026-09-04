@@ -30,10 +30,11 @@
   },
 
   "multiplayer": {
-    "_comment": "Seconds. idle_timeout: hold priority without acting before the socket is closed (0 disables). disconnect_grace: seat held open for a reconnect (0 = forever). client_token_validity: browser identity token lifetime, default 90 days.",
+    "_comment": "Seconds. idle_timeout: hold priority without acting before the socket is closed (0 disables). disconnect_grace: seat held open for a reconnect (0 = forever). client_token_validity: browser identity token lifetime, default 90 days. spell_timer: per-priority auto-pass countdown shown on the board (0 disables); per-table overridable in Setup.",
     "idle_timeout_seconds": 120,
     "disconnect_grace_seconds": 90,
-    "client_token_validity_seconds": 7776000
+    "client_token_validity_seconds": 7776000,
+    "spell_timer_seconds": 20
   },
 
   "workers": {

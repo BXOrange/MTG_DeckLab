@@ -2041,6 +2041,12 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
     # (and re-payable) any number of times at sorcery speed. Don't graft a
     # {T} onto it: that would tap the permanent and block re-activation.
     cost = parse_activation_cost(cost_text)
+    # Bug report, 2026-09-04: all three keywords' own reminder text ends
+    # "Activate only as a sorcery." (RULE 702.6c/702.32b/702.151c) — the
+    # comment above already said as much, but nothing here ever actually
+    # set the flag `GameEngine._sorcery_speed_ok` checks, so Equip/Fortify/
+    # Reconfigure were legal to activate at instant speed.
+    cost.sorcery_speed_only = True
     return ActivatedAbility(
         effects=[AttachEffect(target_kind=target_kind)],
         cost=cost,

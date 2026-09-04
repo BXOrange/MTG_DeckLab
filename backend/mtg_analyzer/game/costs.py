@@ -493,6 +493,18 @@ class ActivationCost:
     #: during the combat phase specifically. See `GameEngine.
     #: _not_during_combat_ok`.
     not_during_combat: bool = False
+    #: "… and only once each turn." (Vivi Ornitier's mana ability) — a
+    #: per-*ability*, per-turn activation cap, distinct from RULE 606.3's
+    #: standing "only one loyalty ability per turn" (`GameObject.
+    #: activated_loyalty_this_turn`, unconditional and scoped to the whole
+    #: permanent) and from `ActivatedAbility.once_per_turn` (the stack-based
+    #: activated-ability path's own tracking, keyed on that bound object's
+    #: identity — a mana ability has no such persistent identity, since
+    #: `ManaAbility` is re-parsed fresh every query). Tracked instead on
+    #: `GameObject.mana_abilities_activated_this_turn`, keyed by this
+    #: ability's stable `ability_index` (`mana_abilities_for`'s enumeration
+    #: order) — see `GameEngine.tap_for_mana`/`_only_once_this_turn_ok`.
+    once_per_turn: bool = False
     #: "Any player may activate this ability." (Mercenaries, MEC-30) — RULE
     #: 602.2a's *eligibility* is normally "the permanent's controller only";
     #: this is a standing exception widening it to any player at the table,

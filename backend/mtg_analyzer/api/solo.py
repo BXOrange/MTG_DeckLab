@@ -44,6 +44,7 @@ from mtg_analyzer.services.bots import BOT_ID_PREFIX, BOT_TYPES, create_bot, run
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
+from mtg_analyzer.services.lobby import normalize_banner_color
 
 router = APIRouter(prefix="/api/solo", tags=["solo"])
 
@@ -90,6 +91,11 @@ def start(
         )
 
     seats: list[dict[str, Any]] = []
+    # Same "fly the deck's own colour identity" default Multiplayer gives a
+    # seat (`api/multiplayer.py`'s `_default_banner_from_deck`) — there is no
+    # lobby here to carry `Seat.banner_color`, so it's collected up front and
+    # handed to the session directly (`GameSession._banner_colors`).
+    banner_colors: dict[str, str] = {}
     for player_id, deck_id, _kind, name in plan:
         library, commanders, errors = resolve_seat_deck(deck_id, decks, loader)
         if errors:
@@ -103,6 +109,10 @@ def start(
         seats.append(
             {"player_id": player_id, "name": name, "library": library, "commanders": commanders}
         )
+        deck = decks.get_deck(deck_id)
+        identity = getattr(deck, "color_identity", None)
+        if identity is not None:
+            banner_colors[player_id] = normalize_banner_color("".join(identity))
 
     # RULE 103.2: seat order is turn order; the first seat is on the play.
     # "you" keeps the human there (goldfish's default); "random" rolls for it.
@@ -110,8 +120,12 @@ def start(
         random.shuffle(seats)
 
     session = sessions.create_multiplayer(
-        seats, mulligan_style=request.mulligan_style, game_format=request.game_format
+        seats,
+        mulligan_style=request.mulligan_style,
+        spell_timer_seconds=request.spell_timer_seconds,
+        game_format=request.game_format,
     )
+    session._banner_colors = banner_colors
     session._solo_bots = {
         player_id: create_bot(kind, player_id, name)
         for player_id, _deck, kind, name in plan

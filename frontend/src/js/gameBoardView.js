@@ -18,19 +18,13 @@
 import { getState } from './state.js';
 import { sendGameAction, rewindGame, cardImageUrl, saveUiDraft, GENERIC_TOKEN_KEY } from './api.js';
 import { getCookie, setCookie } from './cookies.js';
-import { bannerColorLabel, bannerGradients, bannerStyle } from './bannerColors.js';
+import { bannerColorLabel, bannerStyle } from './bannerColors.js';
 import { MANA_SYMBOL_EMOJI } from './cardTile.js';
 import {
-  getAutoPassEnabled,
-  getAutoPassScope,
-  getAutoPassSeconds,
-  getAutoSkipEmpty,
   getBotSpeedMs,
   getShowOpponentHand,
   saveSettings,
   BOT_SPEED_MS_OPTIONS,
-  MAX_AUTO_PASS_SECONDS,
-  MIN_AUTO_PASS_SECONDS,
 } from './settings.js';
 import { t, tPlural } from './i18n.js';
 
@@ -76,6 +70,9 @@ const CHOICE_ICONS = {
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
   scry: '🔮', surveil: '🕵️', opening_hand_battlefield: '🌅', dredge: '⚰️',
   explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️', recruit: '🎖️',
+  // Explorer's Scope's "look at the top card, if it's a land you may put
+  // it onto the battlefield tapped" (bug report, 2026-09-04).
+  peek_top_land: '🔭',
   // RULE 701.38 vote / RULE 701.55 villainous choice (MEC-46 / ENG-33).
   vote: '🗳️', vote_object: '🗳️', villainous_choice: '😈',
   // RULE 720 / Word of Command — pick a card from the target's hand (MEC-51b).
@@ -180,9 +177,14 @@ export function createGameBoardView(opts = {}) {
   //: means, so it has to repaint. No teardown: a board view lives as long
   //: as its controller, which lives as long as the page.
   podGridMedia?.addEventListener('change', () => render());
-  // The stack overlays the board while non-empty; can be pushed aside to a
-  // compact corner card so priority actions can be taken on the board below.
-  let stackAside = false;
+  // The stack lives in the left rail now (`railStackHtml`) — always visible,
+  // never overlaying the board, so there is nothing to "push aside" any more.
+  // Entries that have just resolved linger for a moment as greyed-out ghosts
+  // (`resolvedGhosts`) so it stays briefly visible what went on the stack,
+  // even in the solo modes where the engine auto-drains it.
+  let resolvedGhosts = [];
+  const GHOST_LIFETIME_MS = 2200;
+  const GHOST_MAX_ITEMS = 4;
   // A pending-choice popup (search/scry/surveil/ward/…) overlays the board
   // the same way; same "push aside" escape hatch, e.g. to check the
   // graveyard or a permanent's text before answering.
@@ -213,14 +215,24 @@ export function createGameBoardView(opts = {}) {
   // just look at the back of an already-transformed one. Keyed by
   // instance_id, same shape as `attackMenuOpen`.
   const flippedForView = new Set();
-  // --- Auto-pass (RULE 117, shared games) ---------------------------------
-  // When this client holds priority, a countdown runs and passes for them
-  // when it reaches zero, so a game where nobody wants to respond doesn't
-  // need two clicks per step. Deliberately *not* a silent auto-pass: the
-  // remaining seconds are shown, and any interaction with the board cancels
-  // the window (you're clearly still thinking), so it can't pass out from
-  // under someone mid-decision.
-  let autoPassSeconds = getAutoPassSeconds();
+  // --- "Time to react" countdown (RULE 117, interactive-priority sessions) ---
+  // This is a *response* clock, not a turn clock: it always runs while this
+  // client holds priority **on another player's turn**, and on your **own**
+  // turn it runs only in the windows where you're genuinely just watching —
+  // something on the stack to respond to, or the passive upkeep/draw/end
+  // steps (`reactTimerSuppressedHere`). It stays out of your own main
+  // phases and combat, where you're the one developing the board/attacking
+  // (RULE 117) and a half-finished turn must not tick away under you; a
+  // genuinely absent active player is the server idle-timeout's job
+  // (`MTG_MULTIPLAYER_IDLE_TIMEOUT`), not this. When it does run, the left
+  // rail shows a shrinking progress bar and the remaining seconds; at zero
+  // it passes for you. It is deliberately *not* silent, and any interaction
+  // with the board — or the explicit "interrupt" button — cancels it for
+  // that window. The number of seconds is a server setting
+  // (`view.priority.timer_seconds`, `config.MULTIPLAYER_SPELL_TIMER_SECONDS`,
+  // per-table overridable); 0 turns the countdown off entirely (manual
+  // passing only).
+  let autoPassSeconds = 0;
   let autoPassTimer = null;
   let autoPassRemaining = 0;
   //: Set once the player touches the board during a priority window; the
@@ -230,13 +242,11 @@ export function createGameBoardView(opts = {}) {
   //: that doesn't change whose turn it is doesn't restart the clock.
   let autoPassWindowKey = null;
 
-  // --- "Skip to the next real decision" (#2) ------------------------------
-  //: Armed by the ⏭ button (one burst) or by the persisted checkbox
-  //: (always). While armed, a priority window that offers *nothing but*
-  //: `pass_priority` is passed straight through — no countdown, since
-  //: there is by definition nothing to interrupt. Disarms the moment a
-  //: real option shows up, so the burst stops where a decision starts.
-  let skipBurstArmed = false;
+  // --- Auto-skip empty priority windows ---------------------------------
+  //: A priority window that offers *nothing but* `pass_priority` is passed
+  //: straight through, unconditionally — no countdown, since there is by
+  //: definition nothing to interrupt, and it chains through consecutive
+  //: empty windows one render at a time (`skipEmptyArmed`/`syncAutoPass`).
   //: The priority window a skip was already *attempted* for
   //: (`priorityWindowKey()`) — the multiplayer transport intentionally
   //: returns no fresh `data` from `act()` (see multiplayerView.js: it
@@ -258,25 +268,82 @@ export function createGameBoardView(opts = {}) {
     return (view?.legal_actions || []).some((a) => a.type !== 'pass_priority');
   }
 
-  /** Whether an empty priority window should be passed through right now. */
+  /**
+   * Whether a priority window with *nothing to do* should be passed straight
+   * through right now. Always on for an interactive session (there is by
+   * definition nothing to interrupt), so the countdown bar only ever runs on
+   * a window where the player actually has a choice.
+   */
   function skipEmptyArmed() {
-    if (!skipBurstArmed && !getAutoSkipEmpty()) return false;
     if (!interactivePriority() || !hasPriority()) return false;
     const s = view.state;
     if (s.game_over || s.pending_choice || busy) return false;
     return !hasMeaningfulAction();
   }
 
+  //: On your own turn with an empty stack, the countdown still runs in
+  //: these passive steps — upkeep, draw and the end step, where you're
+  //: mostly just watching for a reason to act rather than developing the
+  //: board. (Untap/cleanup give nobody priority — RULE 117.3a — so they
+  //: never reach this check at all.)
+  const OWN_TURN_TIMER_STEPS = new Set(['upkeep', 'draw', 'end']);
+
+  /**
+   * Whether the "time to react" countdown should be silent for the window
+   * this client currently holds. Never on another player's turn. On your
+   * **own** turn it's suppressed unless there's something on the stack to
+   * respond to, or the current step is one of `OWN_TURN_TIMER_STEPS` — your
+   * main phases and combat always suppress it (RULE 117: you're the one
+   * acting there, not reacting).
+   */
+  function reactTimerSuppressedHere() {
+    const mine = actingSeat();
+    const s = view?.state;
+    if (!mine || !s || s.active_player_id !== mine) return false;
+    if (s.stack && s.stack.length > 0) return false;
+    return !OWN_TURN_TIMER_STEPS.has(s.current_step);
+  }
+
   /** Whether the countdown should be running right now. */
   function autoPassArmed() {
-    if (!getAutoPassEnabled() || autoPassCancelled) return false;
+    if (autoPassCancelled || autoPassSeconds <= 0) return false;
     if (!interactivePriority() || !hasPriority()) return false;
     const s = view.state;
     if (s.game_over || s.pending_choice || busy) return false;
-    // Scope: by default the timer only runs when you're *responding* in
-    // someone else's turn, which is what auto-pass means everywhere else in
-    // Magic. Your own turn stays yours unless you asked for "always".
-    if (getAutoPassScope() !== 'always' && s.active_player_id === actingSeat()) return false;
+    if (reactTimerSuppressedHere()) return false;
+    return true;
+  }
+
+  // --- "End the turn" (speed-up, deliberate) ------------------------------
+  //: Armed by the priority holder's own banner button. Once armed, every
+  //: priority window this client holds for the rest of *this* turn
+  //: auto-passes via `pass_priority` — unlike `skipEmptyArmed`, completely
+  //: independent of what `legal_actions` offers: the whole point is "I have
+  //: nothing left I want to do this turn, stop asking". It never answers a
+  //: `pending_choice` or a turn-based action (declare attackers/blockers) —
+  //: neither goes through `pass_priority`, so this can't silently skip one.
+  //: Armed for exactly the turn it was clicked on (`endTurnAtTurnNumber`,
+  //: `GameState.turn_number` — RULE 500.1's per-player count, so it never
+  //: bleeds into anyone else's turn); self-disarms once the turn actually
+  //: moves past that, and on any genuine board interaction (the same
+  //: "you're clearly still deciding" signal the countdown listens to —
+  //: `cancelAutoPassForThisWindow`).
+  let endTurnArmed = false;
+  let endTurnAtTurnNumber = null;
+
+  /** Whether "End the turn" should force-pass the window held right now. */
+  function endTurnActiveHere() {
+    if (!endTurnArmed) return false;
+    if (!interactivePriority() || !hasPriority()) return false;
+    const s = view?.state;
+    if (!s) return false;
+    if (s.turn_number !== endTurnAtTurnNumber) {
+      // The armed turn is over — nothing left to fast-forward.
+      endTurnArmed = false;
+      endTurnAtTurnNumber = null;
+      return false;
+    }
+    if (s.game_over || s.pending_choice || busy) return false;
     return true;
   }
 
@@ -300,24 +367,29 @@ export function createGameBoardView(opts = {}) {
     }
   }
 
+  /** The per-priority countdown length from the server (0 = off). */
+  function serverTimerSeconds() {
+    const n = Number(view?.priority?.timer_seconds);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+  }
+
   /** (Re)start the countdown if this is a new window and it's armed. */
   function syncAutoPass() {
+    // The countdown length is a server setting (per-table overridable);
+    // pick it up fresh from every view.
+    autoPassSeconds = serverTimerSeconds();
     const windowKey = priorityWindowKey();
-    // Skipping wins over the countdown: a window with no options at all
-    // shouldn't cost anyone three seconds of watching a timer. Fired at
+    // Skipping wins over the countdown — a window with no options at all
+    // shouldn't cost anyone three seconds of watching a timer, and "End the
+    // turn" (once armed) forces a pass no matter what's on offer. Fired at
     // most once per window (`skipAttemptedForKey`) — see that field's
     // comment for why a second, third, … attempt against an unchanged
     // window is a bug, not extra safety.
-    if (skipEmptyArmed() && windowKey !== skipAttemptedForKey) {
+    if ((skipEmptyArmed() || endTurnActiveHere()) && windowKey !== skipAttemptedForKey) {
       skipAttemptedForKey = windowKey;
       stopAutoPass();
       act({ type: 'pass_priority' });
       return;
-    }
-    // A real decision (or the end of the game) ends the burst — the point
-    // of ⏭ is to stop exactly here.
-    if (skipBurstArmed && (hasMeaningfulAction() || view?.state?.game_over)) {
-      skipBurstArmed = false;
     }
     const key = windowKey;
     if (key !== autoPassWindowKey) {
@@ -342,25 +414,34 @@ export function createGameBoardView(opts = {}) {
     }, 1000);
   }
 
-  // Repaint just the number, not the board — a full re-render every second
-  // would tear down and rebuild every card tile under the player's cursor.
+  // Repaint just the number + the shrinking bar, not the board — a full
+  // re-render every second would tear down and rebuild every card tile under
+  // the player's cursor.
   function paintCountdown() {
-    root?.querySelectorAll('[data-autopass-count]').forEach((el) => {
-      el.textContent = String(Math.max(0, autoPassRemaining));
+    const remaining = Math.max(0, autoPassRemaining);
+    root?.querySelectorAll('[data-timer-count]').forEach((el) => {
+      el.textContent = String(remaining);
+    });
+    const frac = autoPassSeconds > 0 ? remaining / autoPassSeconds : 0;
+    root?.querySelectorAll('[data-timer-bar]').forEach((el) => {
+      el.style.setProperty('--gf-timer-frac', String(frac));
     });
   }
 
   /** The player is doing something — don't pass out from under them. */
   function cancelAutoPassForThisWindow() {
+    // A genuine board interaction always cancels "End the turn" too — the
+    // player is clearly deciding again, not fast-forwarding past this turn.
+    // Checked unconditionally (not gated by the early return below, which
+    // is about the *countdown* specifically): "End the turn" force-passes
+    // through `syncAutoPass` without ever starting `autoPassTimer`, so that
+    // guard would otherwise never fire here.
+    endTurnArmed = false;
+    endTurnAtTurnNumber = null;
     if (autoPassTimer === null && !autoPassCancelled) return;
     autoPassCancelled = true;
-    // Touching the board is also a "stop skipping" signal — the player is
-    // clearly looking at something.
-    skipBurstArmed = false;
     stopAutoPass();
-    root?.querySelectorAll('[data-autopass-count]').forEach((el) => {
-      el.closest('.gf-priority-badge')?.classList.add('gf-autopass-off');
-    });
+    root?.querySelector('.gf-rail-timer')?.classList.add('gf-timer-off');
   }
 
   // A block being assembled (RULE 509.1a), `blockerInstanceId -> attackerId`.
@@ -381,55 +462,19 @@ export function createGameBoardView(opts = {}) {
   // which always counts as changed (a fresh `start()`).
   let lastDraftMoveLogLen = null;
   let lastDraftSessionId = null;
-  // VIS-5: a short-lived feed of the opponent's most recent moves ("Bob hat
-  // X gespielt"), newest last — built off the exact same "did move_log
-  // actually grow" signal above, so a reconnect rebroadcast of the same
-  // committed position never spams it. Solo modes (`view.perspective` is
-  // null — nobody else to report on) never populate it.
-  let moveFeed = [];
-  const MOVE_FEED_LIFETIME_MS = 6000;
-  const MOVE_FEED_MAX_ITEMS = 3;
-  // VIS-7: how long to wait between revealing consecutive new move-log
-  // entries from the same view (almost always a bot's whole batched turn —
+  // VIS-7: how long to wait between revealing consecutive new rail-stack
+  // ghosts from the same view (almost always a bot's whole batched turn —
   // see `run_bots`/`_after_move` in api/multiplayer.py, which answer a bot
   // to completion before ever broadcasting) — 0 reproduces the old
   // "all at once" behaviour. Adjustable live via `botSpeedControlHtml`.
   let botSpeedMs = getBotSpeedMs();
-  // Guards a staggered `pushMoveFeed` callback from firing into a board
+  // Guards a staggered ghost-reveal callback from firing into a board
   // that has since been torn down (`stop()`) — a `setTimeout` outlives the
   // view switch that scheduled it.
   let stopped = false;
-
-  function pushMoveFeed(text) {
-    const key = `${Date.now()}-${Math.random()}`;
-    moveFeed = [...moveFeed.slice(-(MOVE_FEED_MAX_ITEMS - 1)), { key, text }];
-    setTimeout(() => {
-      moveFeed = moveFeed.filter((entry) => entry.key !== key);
-      render();
-    }, MOVE_FEED_LIFETIME_MS);
-  }
-
-  // Turns a raw `move_log` label ("cast_spell: Lightning Bolt",
-  // "pass_priority", "declare_attackers") into a short German verb phrase.
-  // Anything not in the table falls back to the raw label — same as the
-  // "Verlauf" panel already shows it, just prefixed by who did it.
-  function describeMoveLabel(label) {
-    const sep = label.indexOf(': ');
-    const kind = sep === -1 ? label : label.slice(0, sep);
-    const name = sep === -1 ? '' : label.slice(sep + 2);
-    const templates = {
-      play_land: t('bd.move.playLand', { name: name || t('bd.move.playLandDefault') }),
-      cast_spell: t('bd.move.castSpell', { name: name || t('bd.move.castSpellDefault') }),
-      activate_ability: t('bd.move.activateAbility', { of: name ? t('bd.move.activateOf', { name }) : '' }),
-      pass_priority: t('bd.move.passPriority'),
-      declare_attackers: t('bd.move.declareAttackers'),
-      declare_blockers: t('bd.move.declareBlockers'),
-      keep_hand: t('bd.move.keepHand'),
-      mulligan: t('bd.move.mulligan'),
-    };
-    if (kind === 'concede' || kind.startsWith('concede:')) return t('bd.move.concede');
-    return templates[kind] || t('bd.move.generic', { label });
-  }
+  //: So `mtg-game-ended` (which re-opens the app's side menu) fires once
+  //: when the game finishes, not on every repaint of the finished board.
+  let gameEndAnnounced = false;
   // A single requirement with `count > 1` (RULE 115.1a generalized to N>=2 —
   // "destroy two target creatures"/"up to two target artifacts") is expanded
   // into `count` synthetic one-per-round requirements sharing the same
@@ -741,10 +786,21 @@ export function createGameBoardView(opts = {}) {
 
   /** Begin driving `sessionId`, rendering `initialView` immediately. */
   function start(sid, initialView) {
+    const isNewSession = sid !== sessionId;
     sessionId = sid;
     stopped = false;
     applyView(initialView);
     restoreUiDraft(initialView);
+    // A game just became the thing on screen — let the app shell fold its
+    // side menu away so the board gets the full width (app.js). Once per
+    // session, not on every repaint.
+    if (isNewSession) {
+      resolvedGhosts = [];
+      endTurnArmed = false;
+      endTurnAtTurnNumber = null;
+      document.dispatchEvent(new CustomEvent('mtg-game-started'));
+      gameEndAnnounced = false;
+    }
   }
 
   /** Feed in a view obtained some other way (rare — actions normally do this themselves). */
@@ -757,8 +813,68 @@ export function createGameBoardView(opts = {}) {
     statusKind = kind;
   }
 
+  // A stable-ish signature for one stack item, for spotting which entries
+  // disappeared between two views (i.e. resolved / were countered) so they
+  // can linger a moment as greyed-out ghosts in the rail.
+  function stackItemSig(item) {
+    const obj = item.object || item.source || {};
+    return `${obj.instance_id ?? ''}|${item.description || ''}|${item.kind || ''}|${obj.name || ''}`;
+  }
+
+  function pushResolvedGhost(item) {
+    const key = `${Date.now()}-${Math.random()}`;
+    // Keep the raw stack item so the ghost renders as the same mini card
+    // view as the live entries (`stackItemHtml` with `{ ghost: true }`).
+    resolvedGhosts = [
+      ...resolvedGhosts.slice(-(GHOST_MAX_ITEMS - 1)),
+      { key, item },
+    ];
+    setTimeout(() => {
+      resolvedGhosts = resolvedGhosts.filter((g) => g.key !== key);
+      if (!stopped) render();
+    }, GHOST_LIFETIME_MS);
+  }
+
+  /** A ghost item's card name (spell card, or ability source). */
+  function ghostItemName(item) {
+    return (item.object || item.source || {}).name || '';
+  }
+
+  // A bot opponent's cast/activation is drained off the stack by the server
+  // before the client ever sees a view with it on the stack (`run_bots` in
+  // multiplayer, `_advance_solo_bots` in solo, both answer to completion
+  // before returning) — so the stack-diff above never fires a ghost for it.
+  // Build a minimal synthetic stack item from the `move_log` label instead
+  // so it still flashes up in the rail as a resolved ghost. `null` for
+  // labels that don't put anything on the stack (play_land, pass_priority…).
+  function syntheticStackItemFromMoveLabel(label) {
+    const sep = label.indexOf(': ');
+    const kind = sep === -1 ? label : label.slice(0, sep);
+    const name = sep === -1 ? '' : label.slice(sep + 2);
+    if (!name) return null;
+    if (kind === 'cast_spell') {
+      return { kind: 'spell', object: { name }, type_line: '' };
+    }
+    if (kind === 'activate_ability') {
+      return { kind: 'ability', category: 'activated_ability', source: { name }, description: name };
+    }
+    return null;
+  }
+
   function applyView(data) {
+    const prevStack = view?.state?.stack || [];
+    const samePriorSessionForStack = sessionId === lastDraftSessionId;
     view = data;
+    // Ghost-trail: entries that were on the stack last view and aren't now
+    // (resolved or countered) linger briefly so it stays visible what just
+    // happened — in the solo modes too, where the engine auto-drains it.
+    // Skipped across a session switch (a fresh `start()` shares nothing).
+    if (samePriorSessionForStack && prevStack.length) {
+      const now = new Set((data?.state?.stack || []).map(stackItemSig));
+      for (const item of prevStack) {
+        if (!now.has(stackItemSig(item))) pushResolvedGhost(item);
+      }
+    }
     // PLR-6: only a *real* move — this session's `move_log` actually grew
     // (or shrank, e.g. a take-back) since the last view we invalidated
     // against, or we've switched sessions entirely — invalidates a
@@ -777,9 +893,12 @@ export function createGameBoardView(opts = {}) {
       castTargeting = null;
       blockDraft = new Map();
     }
-    // VIS-5: feed the opponent's newest moves in on the same "move_log
-    // actually grew" signal above (never on a reconnect rebroadcast of the
-    // unchanged position, and never across a session switch).
+    // VIS-7: flash a bot's newest casts/activations up in the rail stack as
+    // ghosts, on the same "move_log actually grew" signal above (never on a
+    // reconnect rebroadcast of the unchanged position, and never across a
+    // session switch). A bot's whole turn arrives as one pushed view
+    // (`run_bots` runs it to completion before the single broadcast), so the
+    // ghosts are staggered by `botSpeedMs` rather than all revealed at once.
     if (
       data?.perspective &&
       samePriorSession &&
@@ -790,28 +909,39 @@ export function createGameBoardView(opts = {}) {
     ) {
       const labels = data.move_log.slice(prevLen, newLen);
       const actors = data.move_actors.slice(prevLen, newLen);
-      // VIS-7: stagger a batch of 2+ new entries (almost always a bot's
-      // whole turn, run to completion before the single broadcast that
-      // carries it — see `run_bots` in services/bots.py) instead of
-      // revealing them all in the same tick. Offset is *within this batch*
-      // only (index 0 fires immediately), so an ordinary single human move
-      // is never delayed.
+      const liveStackNames = new Set(
+        (data?.state?.stack || []).map((it) => (it.object || it.source || {}).name || ''),
+      );
       let revealIndex = 0;
       labels.forEach((label, i) => {
         const actorId = actors[i];
         if (!actorId || actorId === data.perspective) return;
+        // A ghost only for a cast/activation that never showed on this
+        // client's own stack (a mid-stack view means the stack-diff ghosts
+        // it for real when it resolves) and isn't already ghosting.
+        const ghostItem = syntheticStackItemFromMoveLabel(label);
+        if (
+          !ghostItem ||
+          liveStackNames.has(ghostItemName(ghostItem)) ||
+          resolvedGhosts.some((g) => ghostItemName(g.item) === ghostItemName(ghostItem))
+        ) {
+          return;
+        }
         const delay = revealIndex * botSpeedMs;
         revealIndex += 1;
-        const text = `${playerName(actorId)} ${describeMoveLabel(label)}`;
-        if (delay <= 0) {
-          pushMoveFeed(text);
-        } else {
-          setTimeout(() => {
-            if (stopped) return;
-            pushMoveFeed(text);
-          }, delay);
-        }
+        const fire = () => {
+          if (stopped) return;
+          pushResolvedGhost(ghostItem);
+          render();
+        };
+        if (delay <= 0) fire();
+        else setTimeout(fire, delay);
       });
+    }
+    if (data?.state?.game_over && !gameEndAnnounced) {
+      gameEndAnnounced = true;
+      // The game is over — bring the app's side menu back (app.js).
+      document.dispatchEvent(new CustomEvent('mtg-game-ended'));
     }
     onViewChange(data);
     render();
@@ -933,6 +1063,10 @@ export function createGameBoardView(opts = {}) {
   function render() {
     if (!root || !view) return;
     const s = view.state;
+    // Keep the countdown length (a server setting) current before anything
+    // reads it — `railTimerHtml`/`autoPassArmed` both do, and `render()`
+    // runs before `syncAutoPass()`.
+    autoPassSeconds = serverTimerSeconds();
     const dummy = s.players.find((p) => p.is_dummy) || null;
     // The seat this client is playing (multiplayer; null in every solo mode
     // and for an observer). Their board is drawn *last* — i.e. nearest the
@@ -955,49 +1089,52 @@ export function createGameBoardView(opts = {}) {
     }
     setLatestByInstance(byInstance);
     const stackNonEmpty = s.stack.length > 0;
-    if (!stackNonEmpty) stackAside = false;
     if (!pending) choiceAside = false;
 
     root.innerHTML = `
       <div class="goldfish${(pending && !choiceAside) || castTargeting ? ' choosing' : ''}">
-        ${moveFeedHtml()}
-        <div class="gf-topbar">
-          <div class="gf-turninfo">
+        <aside class="gf-rail">
+          <div class="gf-rail-turn">
             <span class="gf-turn" title="${escapeAttr(t('bd.turn.rule500', { n: s.turn_number }))}">${escapeHtml(t('bd.turn.label', { n: s.round_number || s.turn_number }))}</span>
             <span class="gf-step">${escapeHtml(labelPhase(s.current_phase))} · ${escapeHtml(labelStep(s.current_step))}</span>
-            ${turnOrderHtml(live, s)}
             ${s.day_night ? `<span class="gf-daynight gf-daynight-${s.day_night}">${s.day_night === 'night' ? '🌙 Nacht' : '☀️ Tag'}</span>` : ''}
           </div>
+
+          ${railTimerHtml()}
+
+          ${railStackHtml(s)}
+
+          ${controlsHtml(stackNonEmpty, pending, gameOver)}
+        </aside>
+
+        <div class="gf-stage">
+          ${turnControlBannerHtml(s)}
+
+          ${dummy ? opponentStripHtml(dummy) : ''}
+
+          ${planechaseHtml(s, actions)}
+
+          ${gameOver ? gameOverHtml(s, seatId ? s.players.find((p) => p.id === seatId) : live[0]) : ''}
+          ${statusHtml()}
+          ${view.observer ? `<p class="server-status gf-observer-note">${escapeHtml(t('bd.observerNote'))}</p>` : ''}
+          ${waitingOnChoiceHtml(s)}
+          ${pending ? pendingChoiceHtml(pending, choiceAside) : ''}
+          ${castTargeting ? castTargetModalHtml() : ''}
+
+          ${blockerPanelHtml(actions, s)}
+
+          ${boardsHtml(live, s, byInstance, pending, seatId)}
+
+          ${delayedTriggersPanelHtml(view)}
         </div>
-
-        ${turnControlBannerHtml(s)}
-
-        ${dummy ? opponentStripHtml(dummy) : ''}
-
-        ${planechaseHtml(s, actions)}
-
-        ${gameOver ? gameOverHtml(s, seatId ? s.players.find((p) => p.id === seatId) : live[0]) : ''}
-        ${statusHtml()}
-        ${view.observer ? `<p class="server-status gf-observer-note">${escapeHtml(t('bd.observerNote'))}</p>` : ''}
-        ${waitingOnChoiceHtml(s)}
-        ${pending ? pendingChoiceHtml(pending, choiceAside) : ''}
-        ${castTargeting ? castTargetModalHtml() : ''}
-
-        ${controlsHtml(stackNonEmpty, pending, gameOver)}
-
-        ${blockerPanelHtml(actions, s)}
-
-        ${boardsHtml(live, s, byInstance, pending, seatId)}
-
-        ${stackNonEmpty && !pending ? stackOverlayHtml(s, stackAside) : ''}
-
-        ${delayedTriggersPanelHtml(view)}
-
-        ${moveLogHtml(view.move_log)}
       </div>
     `;
     wire();
     syncAutoPass();
+    // A repaint mid-countdown rebuilds the bar at its inline default; catch
+    // it up to the live remaining value straight away so it doesn't flash
+    // back to full for up to a second.
+    if (autoPassTimer !== null) paintCountdown();
   }
 
   // RULE 901: the Planechase strip — the face-up plane (901.7) with its own
@@ -1052,47 +1189,9 @@ export function createGameBoardView(opts = {}) {
     return live.slice(mine + 1).concat(live.slice(0, mine + 1));
   }
 
-  /**
-   * The turn-order strip in the topbar: every seat, in the same sequence as
-   * the boards below it, with the active player marked.
-   *
-   * Deliberately the *board* order rather than "active player first": the
-   * strip is a legend for the layout, so the two have to read as one
-   * statement, and a strip that re-sorts itself every turn is harder to
-   * follow than a fixed seating chart. Replaces the older "Aktiv: X" badge,
-   * which said strictly less (it named the active player; this names them
-   * *and* who is up after them).
-   */
-  function turnOrderHtml(order, s) {
-    if (order.length < 2) return '';
-    const arrow = '<span class="gf-turnorder-arrow" aria-hidden="true">→</span>';
-    const seats = order.map((p) => {
-      const isActive = p.id === s.active_player_id;
-      const classes = ['gf-turnorder-seat'];
-      if (isActive) classes.push('gf-turnorder-active');
-      if (p.id === view.perspective) classes.push('gf-turnorder-me');
-      // A player who has left is skipped by `next_active_index`, so they're
-      // shown struck through rather than dropped: the seating didn't change,
-      // the turn just passes over them now.
-      if (p.has_lost) classes.push('gf-turnorder-out');
-      const title = [
-        isActive ? t('bd.turnOrder.active') : '',
-        p.id === view.perspective ? t('bd.turnOrder.you') : '',
-        p.has_lost ? t('bd.turnOrder.outSkipped2') : '',
-      ].filter(Boolean).join(', ');
-      // The same banner colour as that player's board below, so the strip
-      // is a legend for the *colours* too and not only for the order.
-      const banner = seatStatus(p.id)?.banner_color;
-      const dot = banner
-        ? `<span class="gf-turnorder-dot" style="background: ${escapeAttr(bannerGradients(banner).strip)}" aria-hidden="true"></span>`
-        : '';
-      return `<span class="${classes.join(' ')}"${title ? ` title="${escapeAttr(title)}"` : ''}>${isActive ? '▶ ' : ''}${dot}${escapeHtml(p.name)}</span>`;
-    });
-    return `
-      <span class="gf-turnorder" title="${escapeAttr(t('bd.turnOrder.title'))}">
-        ${seats.join(arrow)}<span class="gf-turnorder-arrow" aria-hidden="true">↻</span>
-      </span>`;
-  }
+  // (The turn-order strip that used to sit in the topbar is gone: who is
+  // active and who holds priority is shown on each player's own banner now,
+  // and the topbar itself has been replaced by the left rail.)
 
   // --- Board layout: stacked column vs. 2x2 pod grid ------------------------
 
@@ -1166,7 +1265,7 @@ export function createGameBoardView(opts = {}) {
     // whatever the caller added (e.g. "Zuschauen beenden") stay useful.
     if (view.observer) {
       return `
-        <div class="gf-controls">
+        <div class="gf-controls gf-rail-controls">
           ${zonesSideButtonHtml()}
           ${extra}
         </div>`;
@@ -1182,7 +1281,7 @@ export function createGameBoardView(opts = {}) {
     // have no perspective and always can.
     const myTurn = !view.perspective || view.state.active_player_id === actingSeat();
     return `
-      <div class="gf-controls">
+      <div class="gf-controls gf-rail-controls">
         <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>${t('bd.ctrl.advance')}</button>
         ${allowFastForward ? `<button id="gf-next-decision" type="button" title="${escapeAttr(t('bd.ctrl.nextDecisionTitle2'))}" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>${t('bd.ctrl.nextDecision')}</button>` : ''}
         ${stackNonEmpty && !pending ? `<button type="button" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>${t('bd.ctrl.passResolveStack')}</button>` : ''}
@@ -1220,80 +1319,55 @@ export function createGameBoardView(opts = {}) {
   // when every player passes in succession on an empty stack (RULE 117.4),
   // so there is deliberately no "advance the turn" button to press.
   function priorityControlsHtml(pending, gameOver, extra) {
-    const mine = hasPriority();
-    const disabled = busy || gameOver || pending || !mine;
+    // "Passen" / "Nächste Aktion" are deliberately *not* here — they live on
+    // this client's own board banner (`playerBoardHtml`'s `priorityBits`),
+    // next to the cards you're actually looking at. The rail keeps only the
+    // layout/table controls.
     return `
-      <div class="gf-controls gf-priority-controls">
-        ${passButtonHtml(disabled)}
-        ${skipToActionButtonHtml(disabled)}
-        ${gameOver ? '' : priorityBadgeHtml()}
+      <div class="gf-controls gf-rail-controls gf-priority-controls">
         ${zonesSideButtonHtml()}
         ${extra}
-        ${gameOver ? '' : autoPassControlHtml()}
+        ${gameOver ? '' : botSpeedControlHtml()}
       </div>`;
   }
 
-  // Both the toolbar and each player's own banner (`playerBoardHtml`) carry
-  // a pass button — on a two-board screen the toolbar can be a long way
-  // from the cards you're looking at. They're the same control, so it's a
-  // data attribute rather than an id, and `wire()` binds all of them.
+  // "Passen" lives only on the priority holder's own board banner
+  // (`playerBoardHtml`) now — right next to the cards, not off in the rail.
+  // Still a data attribute rather than an id so `wire()` can bind however
+  // many the page ends up with.
   function passButtonHtml(disabled, extraClass = '') {
     const label = view.state.stack.length > 0 ? t('bd.ctrl.passResolve') : t('bd.ctrl.pass');
     return `<button type="button" class="primary${extraClass}" data-pass-priority ${disabled ? 'disabled' : ''}>${label}</button>`;
   }
 
-  // The goldfish board's "⏭ Nächste Entscheidung" has no shared-game
-  // equivalent (skipping *steps* would skip the opponent's response
-  // windows), so this is the legal version of the same idea: keep passing
-  // while the only thing on offer is passing, and stop at the first window
-  // that actually asks something of you.
-  //
-  // Like `passButtonHtml`, this is drawn both in the toolbar and on this
-  // client's own board banner, so it's a data attribute rather than an id —
-  // two elements sharing one id would leave the second one dead.
-  function skipToActionButtonHtml(disabled, extraClass = '') {
-    return `<button type="button" class="gf-skip-empty${extraClass}" data-skip-empty title="${escapeAttr(t('bd.ctrl.skipEmptyTitle2'))}" ${disabled ? 'disabled' : ''}>${t('bd.ctrl.nextAction')}</button>`;
+  // Empty priority windows are already skipped automatically and
+  // unconditionally (`skipEmptyArmed`/`syncAutoPass`), so there is no manual
+  // button for *that* any more. This one is different: it force-passes
+  // every window for the rest of the turn regardless of what's on offer
+  // (`endTurnActiveHere`) — a deliberate speed-up for a player who's decided
+  // they have nothing left they want to do this turn, on this client's own
+  // banner right next to "Passen". (Goldfisch's `#gf-next-decision` is
+  // unrelated — a server-side fast-forward over whole *steps*, solo only.)
+  function endTurnButtonHtml(disabled, extraClass = '') {
+    return `<button type="button" class="gf-end-turn${extraClass}" data-end-turn title="${escapeAttr(t('bd.ctrl.endTurnTitle'))}" ${disabled ? 'disabled' : ''}>${t('bd.ctrl.endTurn')}</button>`;
   }
 
+  // The "du bist dran" / "warte auf X" badge shown on a player's banner
+  // (`playerBoardHtml`). The live countdown that used to sit on it has moved
+  // to the rail's progress bar (`railTimerHtml`).
   function priorityBadgeHtml(compact = false) {
     if (!interactivePriority()) return '';
     const holder = view.priority?.player_id;
     if (hasPriority()) {
-      return `<span class="gf-priority-badge gf-priority-mine">${compact ? t('bd.priority.mineCompact') : t('bd.priority.mine')}${autoPassCountdownHtml()}</span>`;
+      return `<span class="gf-priority-badge gf-priority-mine">${compact ? t('bd.priority.mineCompact') : t('bd.priority.mine')}</span>`;
     }
     return `<span class="gf-priority-badge">${escapeHtml(t('bd.priority.holder', { name: playerName(holder) }))}</span>`;
   }
 
-  // The live countdown on the "you're up" badge. Purely cosmetic — the
-  // actual pass is fired by the timer in `restartAutoPass`.
-  function autoPassCountdownHtml() {
-    if (!autoPassArmed()) return '';
-    return ` · <span class="gf-autopass-count" data-autopass-count>${autoPassSeconds}</span>s`;
-  }
-
-  // Auto-pass is a per-player convenience, so it's adjustable right here
-  // rather than only in Einstellungen — you change your mind about it
-  // mid-game, usually the moment it passes on something you wanted.
-  function autoPassControlHtml() {
-    const on = getAutoPassEnabled();
-    return `
-      <label class="gf-autopass" title="${escapeAttr(t('bd.autopass.toggleTitle'))}">
-        <input type="checkbox" id="gf-autopass-toggle" ${on ? 'checked' : ''} />
-        ${t('bd.autopass.toggle')}
-        <input type="number" id="gf-autopass-seconds" min="${MIN_AUTO_PASS_SECONDS}" max="${MAX_AUTO_PASS_SECONDS}"
-               value="${autoPassSeconds}" ${on ? '' : 'disabled'} /> s
-      </label>
-      <label class="gf-autopass" title="${escapeAttr(t('bd.autopass.skipEmptyTitle'))}">
-        <input type="checkbox" id="gf-skip-empty-toggle" ${getAutoSkipEmpty() ? 'checked' : ''} />
-        ${t('bd.autopass.skipEmpty')}
-      </label>
-      ${botSpeedControlHtml()}`;
-  }
-
   // VIS-7: a bot's whole turn arrives as one pushed view (`run_bots` answers
   // it to completion before the single broadcast), so without this its
-  // moves would all show up in the feed at once. Lets a player watching a
-  // bot opponent choose how spread out the "Bot hat X gespielt" reveals
+  // casts would all ghost into the rail stack at once. Lets a player
+  // watching a bot opponent choose how spread out those ghost reveals
   // should be — 0 keeps the old instant behaviour.
   const BOT_SPEED_LABELS = { 0: t('bd.botSpeed.instant'), 900: t('bd.botSpeed.normal'), 2000: t('bd.botSpeed.slow') };
 
@@ -1453,13 +1527,22 @@ export function createGameBoardView(opts = {}) {
     // your own.
     const holdsPriority = interactivePriority() && view.priority?.player_id === p.id;
     const priorityDisabled = busy || !!pending || !hasPriority();
-    const priorityBits = !interactivePriority() || s.game_over
-      ? ''
-      : isMe
-        ? `${priorityBadgeHtml(true)}${passButtonHtml(priorityDisabled, ' gf-banner-pass')}${skipToActionButtonHtml(priorityDisabled, ' gf-banner-skip')}`
-        : holdsPriority
-          ? `<span class="gf-priority-badge">${escapeHtml(t('bd.priority.isUp'))}</span>`
-          : '';
+    // "Zurücknehmen (n)" only for this client's own banner, only when the
+    // table configured a take-back budget and this seat has some left, and
+    // only when the transport actually offers a take-back (multiplayer).
+    const takebacksLeft = isMe ? view.takebacks_remaining?.[view.perspective] : undefined;
+    const takebackBtn = isMe && transport.takeBack && takebacksLeft > 0
+      ? `<button type="button" class="gf-banner-takeback" data-banner-takeback ${busy ? 'disabled' : ''}>${escapeHtml(t('bd.banner.takeback', { count: takebacksLeft }))}</button>`
+      : '';
+    const priorityBits = s.game_over
+      ? takebackBtn
+      : !interactivePriority()
+        ? takebackBtn
+        : isMe
+          ? `${priorityBadgeHtml(true)}${passButtonHtml(priorityDisabled, ' gf-banner-pass')}${endTurnButtonHtml(priorityDisabled, ' gf-banner-end-turn')}${takebackBtn}`
+          : holdsPriority
+            ? `<span class="gf-priority-badge">${escapeHtml(t('bd.priority.isUp'))}</span>`
+            : '';
     // Folding an opponent away is only offered at a pod-sized table — with
     // one opponent there is nothing to scroll past.
     const opponents = s.players.filter((o) => !o.is_dummy && o.id !== seatId).length;
@@ -1615,10 +1698,10 @@ export function createGameBoardView(opts = {}) {
   // (RULE 603.3b), which get a drag-and-drop reorderable list instead (see
   // `replacementOrderHtml`/`triggerOrderHtml`), and `scry`/`surveil`, which
   // get inline card-face thumbnails instead of bare name buttons (see
-  // `lookTopChoiceHtml`). `aside` mirrors `stackOverlayHtml`'s own
-  // push-aside escape hatch (`data-choice-aside` below) — a player deciding
-  // e.g. a surveil may want to check the board (a graveyard, a permanent's
-  // text) before answering rather than being fully blocked.
+  // `lookTopChoiceHtml`). `aside` is a push-aside escape hatch
+  // (`data-choice-aside` below) — a player deciding e.g. a surveil may want
+  // to check the board (a graveyard, a permanent's text) before answering
+  // rather than being fully blocked.
   function pendingChoiceHtml(pending, aside = false) {
     const icon = CHOICE_ICONS[pending.kind] || '❔';
     const heading = pending.prompt || pending.description || t('bd.choice.needed');
@@ -1889,17 +1972,25 @@ export function createGameBoardView(opts = {}) {
     root.querySelectorAll('[data-pass-priority]').forEach((el) => {
       el.addEventListener('click', () => act({ type: 'pass_priority' }));
     });
-    // Every "⏭ Nächste Aktion" on the page (toolbar + own-board banner).
-    root.querySelectorAll('[data-skip-empty]').forEach((el) => {
-      el.addEventListener('click', () => {
-        skipBurstArmed = true;
-        autoPassCancelled = false;
-        syncAutoPass();
-      });
+    // "End the turn": arm the force-pass for the rest of *this* turn
+    // (`endTurnActiveHere`), then let `syncAutoPass` act on it immediately —
+    // the window held right now gets passed too, not just the ones after it.
+    root.querySelector('[data-end-turn]')?.addEventListener('click', () => {
+      endTurnArmed = true;
+      endTurnAtTurnNumber = view?.state?.turn_number ?? null;
+      autoPassCancelled = false;
+      syncAutoPass();
     });
-    root.querySelector('#gf-skip-empty-toggle')?.addEventListener('change', (e) => {
-      saveSettings({ autoSkipEmpty: e.target.checked });
+    // Interrupt the rail countdown for this window (same effect as touching
+    // the board — the player is clearly still deciding).
+    root.querySelector('[data-timer-interrupt]')?.addEventListener('click', () => {
+      cancelAutoPassForThisWindow();
       render();
+    });
+    // The take-back button lives on the player's own banner now (only when
+    // the table configured a budget and this client has some left).
+    root.querySelector('[data-banner-takeback]')?.addEventListener('click', () => {
+      if (transport.takeBack) transport.takeBack();
     });
     root.querySelector('#gf-bot-speed')?.addEventListener('change', (e) => {
       const saved = saveSettings({ botSpeedMs: e.target.value });
@@ -1932,29 +2023,14 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
-    // Auto-pass, adjustable mid-game (it's a per-player convenience, and
-    // people change their mind about it the moment it costs them a
-    // response). Both controls persist to the same cookies Einstellungen
-    // writes, so the change sticks for the next game too.
-    root.querySelector('#gf-autopass-toggle')?.addEventListener('change', (e) => {
-      saveSettings({ autoPass: e.target.checked });
-      autoPassCancelled = false;
-      stopAutoPass();
-      render();
-    });
-    root.querySelector('#gf-autopass-seconds')?.addEventListener('change', (e) => {
-      const saved = saveSettings({ autoPassSeconds: e.target.value });
-      autoPassSeconds = saved.autoPassSeconds;
-      stopAutoPass();
-      render();
-    });
     // Touching the board at all means "I'm still thinking" — the countdown
     // for this window stops rather than passing out from under the player.
     if (interactivePriority()) {
       root.querySelector('.goldfish')?.addEventListener('pointerdown', (e) => {
-        // …except the auto-pass/skip controls themselves, which would
-        // otherwise disable the very thing you just switched on.
-        if (e.target.closest('.gf-autopass') || e.target.closest('[data-skip-empty]')) return;
+        // Only the stage counts as "thinking" — the rail is where you pass /
+        // interrupt / adjust on purpose, so a click in there must not also
+        // silently cancel the countdown.
+        if (e.target.closest('.gf-rail')) return;
         cancelAutoPassForThisWindow();
       });
     }
@@ -2099,14 +2175,7 @@ export function createGameBoardView(opts = {}) {
       render();
     });
 
-    // Push the stack overlay aside (or bring it back).
-    root.querySelector('[data-stack-aside]')?.addEventListener('click', () => {
-      stackAside = !stackAside;
-      render();
-    });
-
-    // Push a pending-choice popup aside (or bring it back) — same escape
-    // hatch as the stack overlay above.
+    // Push a pending-choice popup aside (or bring it back).
     root.querySelector('[data-choice-aside]')?.addEventListener('click', () => {
       choiceAside = !choiceAside;
       render();
@@ -2493,7 +2562,7 @@ export function createGameBoardView(opts = {}) {
   // plus a small 🔗 link back to that source (both the overlay text and the
   // link exist specifically so an ability waiting to resolve is never just
   // an unlabeled text box — see ToDo/Done "Stack source display").
-  function stackItemHtml(item, index, total) {
+  function stackItemHtml(item, index, total, opts = {}) {
     const imageCache = getState().imageCache;
     const isAbility = item.kind === 'ability';
     const visual = item.object || (isAbility ? item.source : null);
@@ -2510,11 +2579,15 @@ export function createGameBoardView(opts = {}) {
     const classes = ['card'];
     if (imageUrl) classes.push('has-image');
     const badge = stackKindBadge(item);
-    const isTop = index === total - 1;
-    const order =
-      total > 1
-        ? `<span class="gf-stack-order">${isTop ? t('bd.stack.topResolves') : `#${total - index}`}</span>`
+    const isTop = !opts.ghost && index === total - 1;
+    // `opts.ghost` = a just-resolved entry lingering for a moment: no LIFO
+    // position, just an "aufgelöst" caption.
+    const orderText = opts.ghost
+      ? t('bd.rail.stackResolved')
+      : total > 1
+        ? (isTop ? t('bd.stack.topResolves') : `#${total - index}`)
         : '';
+    const order = orderText ? `<span class="gf-stack-order">${escapeHtml(orderText)}</span>` : '';
     const overlay = showOverlay
       ? `<div class="gf-stack-ability-overlay">${escapeHtml(abilityText)}</div>`
       : '';
@@ -2522,7 +2595,7 @@ export function createGameBoardView(opts = {}) {
       ? `<button type="button" class="gf-stack-source-link" data-hover-card="${escapeHtml(visual.name)}" title="Quelle: ${escapeHtml(visual.name)}">🔗</button>`
       : '';
     return `
-      <div class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}">
+      <div class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}${opts.ghost ? ' gf-rail-stack-ghost' : ''}">
         <span class="gf-stack-badge gf-stack-badge--${badge.cls}">${badge.icon} ${escapeHtml(badge.label)}</span>
         <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(displayName)}" title="${escapeHtml(displayName)}">
           ${inner}
@@ -2533,25 +2606,58 @@ export function createGameBoardView(opts = {}) {
       </div>`;
   }
 
-  function stackOverlayHtml(s, aside) {
-    const cards = s.stack.map((it, i) => stackItemHtml(it, i, s.stack.length)).join('');
-    const asideLabel = aside ? '⤢ Stack einblenden' : '⤡ Zur Seite schieben';
-    const hint = aside
-      ? t('bd.stack.reactHint')
-      : 'Reagieren? Schiebe den Stack zur Seite.';
+  // The per-priority countdown, as a shrinking progress bar in the rail.
+  // Only for an interactive-priority session, only while this client holds
+  // priority, and only when the server timer is > 0. The bar width is driven
+  // by the `--gf-timer-frac` custom property, updated each second by
+  // `paintCountdown()` without a full re-render.
+  function railTimerHtml() {
+    // Shown for the whole priority window this client holds (given a server
+    // timer > 0), so interrupting it leaves a visibly *stopped* bar rather
+    // than making the whole widget vanish. `paintCountdown()` keeps the
+    // number + bar live from here; `autoPassArmed()` decides whether it is
+    // actually running.
+    if (!interactivePriority() || !hasPriority() || autoPassSeconds <= 0) return '';
+    const s = view.state;
+    if (s.game_over || s.pending_choice) return '';
+    // A response clock: silent during your own main phases/combat — see
+    // `reactTimerSuppressedHere`.
+    if (reactTimerSuppressedHere()) return '';
+    const off = autoPassCancelled;
+    const shown = off ? Math.max(0, autoPassRemaining) : autoPassSeconds;
+    const frac = off ? Math.max(0, autoPassRemaining) / autoPassSeconds : 1;
     return `
-      <div class="gf-stack-overlay${aside ? ' aside' : ''}">
-        <div class="gf-stack-panel">
-          <div class="gf-stack-panel-head">
-            <h4>Stack (${s.stack.length})</h4>
-            <button type="button" class="gf-stack-aside" data-stack-aside>${asideLabel}</button>
-          </div>
-          <div class="card-grid gf-stack-grid">${cards}</div>
-          <div class="gf-stack-panel-foot">
-            <span class="hint">${hint}</span>
-            <button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>${t('bd.ctrl.passPriority')}</button>
-          </div>
+      <div class="gf-rail-timer${off ? ' gf-timer-off' : ''}">
+        <div class="gf-rail-timer-head">
+          <span>${escapeHtml(t('bd.rail.timerLabel'))}</span>
+          <span><span data-timer-count>${shown}</span>s</span>
         </div>
+        <div class="gf-rail-timer-track">
+          <div class="gf-rail-timer-fill" data-timer-bar style="--gf-timer-frac: ${frac}"></div>
+        </div>
+        <button type="button" class="gf-rail-timer-stop" data-timer-interrupt ${off ? 'disabled' : ''}>${escapeHtml(t('bd.rail.timerInterrupt'))}</button>
+      </div>`;
+  }
+
+  // The stack, in the rail — always rendered (every mode), so it stays
+  // visible what is going onto the stack. Each entry is a mini card view
+  // (`stackItemHtml`): the spell's own card, or a triggered/activated
+  // ability's source permanent with the ability text overlaid, plus a badge
+  // saying which it is (Zauber / ausgelöste / aktivierte Fähigkeit) and its
+  // LIFO position. Below the live entries sit the greyed-out ghosts of
+  // entries that resolved in the last couple of seconds (`resolvedGhosts`).
+  function railStackHtml(s) {
+    const items = s.stack.map((it, i) => stackItemHtml(it, i, s.stack.length)).join('');
+    const ghosts = resolvedGhosts
+      .map((g) => stackItemHtml(g.item, 0, 1, { ghost: true }))
+      .join('');
+    const body = items || ghosts
+      ? `<div class="gf-rail-stack-cards">${items}${ghosts}</div>`
+      : `<p class="gf-rail-stack-empty">${escapeHtml(t('bd.rail.stackEmpty'))}</p>`;
+    return `
+      <div class="gf-rail-stack">
+        <h4>${escapeHtml(t('bd.stack.heading', { count: s.stack.length }))}</h4>
+        ${body}
       </div>`;
   }
 
@@ -3194,9 +3300,17 @@ export function createGameBoardView(opts = {}) {
   // `combination_total` before the confirm button sends `color_split`
   // (`kind` picks which action type the confirm dispatches — the shape is
   // otherwise identical for a battlefield `tap_for_mana` ability and a
-  // hand-zone `activate_hand_mana` one).
+  // hand-zone `activate_hand_mana` one). The colour set itself comes from
+  // `a.options` (one option per colour the ability actually prints) rather
+  // than a hardcoded WUBRG list — a *restricted* combination ability (Vivi
+  // Ornitier's own "any combination of {U} and/or {R}") only ever offers
+  // its own printed subset here, same as the single-colour buttons above
+  // already do; a bare "any combination of colours" (Flamebraider/Selvala)
+  // still lists all five, since its own `options` already does too.
   function colorSplitHtml(a, kind) {
-    const colors = ['W', 'U', 'B', 'R', 'G'];
+    const colors = (a.options || [])
+      .map((opt) => Object.keys(opt.mana || {})[0])
+      .filter(Boolean);
     const inputs = colors
       .map(
         (c) =>
@@ -3561,20 +3675,6 @@ export function createGameBoardView(opts = {}) {
     return 'zweckgebunden';
   }
 
-  function moveLogHtml(log) {
-    if (!log || !log.length) return '';
-    const recent = log.slice(-8);
-    return `<div class="gf-movelog"><h4>${t('bd.moveLog.heading')}</h4><ol>${recent.map((m) => `<li>${escapeHtml(m)}</li>`).join('')}</ol></div>`;
-  }
-
-  // VIS-5: the transient "Bob hat X gespielt" toasts `pushMoveFeed` queues.
-  function moveFeedHtml() {
-    if (!moveFeed.length) return '';
-    return `<div class="gf-move-feed" aria-live="polite">${moveFeed
-      .map((entry) => `<div class="gf-move-feed-item">${escapeHtml(entry.text)}</div>`)
-      .join('')}</div>`;
-  }
-
   // The optional static-effects panel (RULE 613): (1) every active static
   // ability in play and (2) the layer-by-layer derivation of each permanent
   // whose characteristics a static effect changed.
@@ -3722,9 +3822,11 @@ export function createGameBoardView(opts = {}) {
   function stop() {
     stopAutoPass();
     autoPassWindowKey = null;
+    endTurnArmed = false;
+    endTurnAtTurnNumber = null;
     sessionId = null;
     view = null;
-    moveFeed = [];
+    resolvedGhosts = [];
     stopped = true;
   }
 

@@ -10,10 +10,13 @@ import { getCookie, setCookie } from './cookies.js';
 const SERVER_URL_COOKIE = 'mtg_server_url';
 const PLAYER_NAME_COOKIE = 'mtg_player_name';
 const CLIENT_TOKEN_COOKIE = 'mtg_client_token';
-const AUTO_PASS_COOKIE = 'mtg_auto_pass';
-const AUTO_PASS_SECONDS_COOKIE = 'mtg_auto_pass_seconds';
-const AUTO_PASS_SCOPE_COOKIE = 'mtg_auto_pass_scope';
-const AUTO_SKIP_EMPTY_COOKIE = 'mtg_auto_skip_empty';
+//: The player's preferred per-priority auto-pass countdown, in seconds
+//: (0 = off). On the board the countdown length is a *server* value
+//: (`view.priority.timer_seconds`); this cookie is only the client-side
+//: preference used where the client gets to pick — Solo vs. Bots passes it
+//: to `POST /api/solo/start` as `spellTimerSeconds`. Cookie name kept from
+//: the retired auto-pass feature for continuity.
+const PASS_TIMER_SECONDS_COOKIE = 'mtg_auto_pass_seconds';
 const BOT_SPEED_MS_COOKIE = 'mtg_bot_speed_ms';
 const SHOW_OPPONENT_HAND_COOKIE = 'mtg_show_opponent_hand';
 //: PLR-13 + "Player Settings" defaults for a *newly created* multiplayer
@@ -33,28 +36,22 @@ const COOKIE_MAX_AGE_DAYS = 365;
 //: cookie, both clocks reset together.
 const CLIENT_TOKEN_VALIDITY_DAYS = 90;
 
-//: Multiplayer auto-pass (RULE 117): how long you get to decide whether to
-//: respond before priority passes for you. Three seconds is the default —
-//: long enough to see that something happened and reach for a card, short
-//: enough that a game where nobody ever responds doesn't crawl.
-export const DEFAULT_AUTO_PASS_SECONDS = 3;
-//: Bounds, so a typo can't make the timer useless in either direction.
-export const MIN_AUTO_PASS_SECONDS = 1;
-export const MAX_AUTO_PASS_SECONDS = 60;
-
-//: Where auto-pass applies. ``opponent`` (the default) only runs the timer
-//: in windows where you are *responding* — someone else's turn — and leaves
-//: your own turn entirely under your control, which is what "auto-pass"
-//: means in every Magic client. ``always`` also runs it on your own turn,
-//: for players who want the game to move at a fixed pace throughout.
-export const AUTO_PASS_SCOPES = ['opponent', 'always'];
+//: Per-priority auto-pass countdown (RULE 117): how long you get to decide
+//: whether to respond before priority passes for you. The default matches
+//: the backend's own (`config.MULTIPLAYER_SPELL_TIMER_SECONDS`), and 0
+//: turns it off (pass by hand only).
+export const DEFAULT_PASS_TIMER_SECONDS = 20;
+//: Bounds — 0 is allowed (off); the ceiling matches the backend's
+//: `MAX_SPELL_TIMER_SECONDS`.
+export const MIN_PASS_TIMER_SECONDS = 0;
+export const MAX_PASS_TIMER_SECONDS = 600;
 
 //: VIS-7: how long the shared board waits between revealing consecutive
-//: `move_log` entries that arrived in the same view (almost always a bot's
-//: whole turn, batched by `run_bots` before the broadcast — see
-//: gameBoardView.js's `applyView`). ``0`` reproduces the old "all at once"
-//: behaviour. Only three presets — this is a pacing preference, not a
-//: value worth fine-tuning.
+//: rail-stack ghosts synthesised from `move_log` entries that arrived in
+//: the same view (almost always a bot's whole turn, batched by `run_bots`
+//: before the broadcast — see gameBoardView.js's `applyView`). ``0``
+//: reproduces the old "all at once" behaviour. Only three presets — this is
+//: a pacing preference, not a value worth fine-tuning.
 export const DEFAULT_BOT_SPEED_MS = 900;
 export const BOT_SPEED_MS_OPTIONS = [0, 900, 2000];
 
@@ -102,34 +99,13 @@ export function ensureClientToken() {
   return token;
 }
 
-/** Whether priority passes by itself after `getAutoPassSeconds()`. */
-export function getAutoPassEnabled() {
-  const raw = getCookie(AUTO_PASS_COOKIE);
-  return raw === null || raw === undefined || raw === '' ? true : raw === '1';
-}
-
-export function getAutoPassSeconds() {
-  const value = Number(getCookie(AUTO_PASS_SECONDS_COOKIE));
-  if (!Number.isFinite(value) || value <= 0) return DEFAULT_AUTO_PASS_SECONDS;
-  return Math.min(MAX_AUTO_PASS_SECONDS, Math.max(MIN_AUTO_PASS_SECONDS, Math.round(value)));
-}
-
-export function getAutoPassScope() {
-  const raw = getCookie(AUTO_PASS_SCOPE_COOKIE);
-  return AUTO_PASS_SCOPES.includes(raw) ? raw : 'opponent';
-}
-
-/** Pass instantly through priority windows offering nothing but "pass".
- *
- * The sibling of auto-pass rather than the same thing: auto-pass is a
- * countdown you can interrupt because there *was* something you could have
- * done, while this one only fires in windows where `legal_actions` holds
- * literally no other option — so there is nothing to interrupt, and it
- * runs on your own turn too. Off by default: it changes how the board
- * feels, and a player should ask for that.
- */
-export function getAutoSkipEmpty() {
-  return getCookie(AUTO_SKIP_EMPTY_COOKIE) === '1';
+/** The client-side preferred auto-pass countdown (seconds; 0 = off). */
+export function getPassTimerSeconds() {
+  const raw = getCookie(PASS_TIMER_SECONDS_COOKIE);
+  if (raw === null || raw === undefined || raw === '') return DEFAULT_PASS_TIMER_SECONDS;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return DEFAULT_PASS_TIMER_SECONDS;
+  return Math.min(MAX_PASS_TIMER_SECONDS, Math.max(MIN_PASS_TIMER_SECONDS, Math.round(value)));
 }
 
 /** Whether an opponent's (face-down) hand is drawn card-by-card.
@@ -186,10 +162,7 @@ export function getSettings() {
     serverUrl: getServerUrl(),
     playerName: getPlayerName(),
     clientToken: getClientToken(),
-    autoPass: getAutoPassEnabled(),
-    autoPassSeconds: getAutoPassSeconds(),
-    autoPassScope: getAutoPassScope(),
-    autoSkipEmpty: getAutoSkipEmpty(),
+    passTimerSeconds: getPassTimerSeconds(),
     showOpponentHand: getShowOpponentHand(),
     botSpeedMs: getBotSpeedMs(),
     mpDefaultFormat: getMpDefaultFormat(),
@@ -202,9 +175,8 @@ export function getSettings() {
 }
 
 /**
- * @param {{serverUrl?: string, playerName?: string, autoPass?: boolean,
- *          autoPassSeconds?: number, autoPassScope?: string,
- *          autoSkipEmpty?: boolean, showOpponentHand?: boolean,
+ * @param {{serverUrl?: string, playerName?: string,
+ *          passTimerSeconds?: number, showOpponentHand?: boolean,
  *          botSpeedMs?: number,
  *          mpDefaultFormat?: string, mpDefaultMulliganStyle?: string,
  *          mpDefaultSeats?: number, mpDefaultTakebacks?: number,
@@ -218,21 +190,13 @@ export function saveSettings(patch) {
   if (patch.playerName !== undefined) {
     setCookie(PLAYER_NAME_COOKIE, patch.playerName.trim(), COOKIE_MAX_AGE_DAYS);
   }
-  if (patch.autoPass !== undefined) {
-    setCookie(AUTO_PASS_COOKIE, patch.autoPass ? '1' : '0', COOKIE_MAX_AGE_DAYS);
-  }
-  if (patch.autoPassSeconds !== undefined) {
+  if (patch.passTimerSeconds !== undefined) {
+    const raw = Number(patch.passTimerSeconds);
     const seconds = Math.min(
-      MAX_AUTO_PASS_SECONDS,
-      Math.max(MIN_AUTO_PASS_SECONDS, Math.round(Number(patch.autoPassSeconds) || DEFAULT_AUTO_PASS_SECONDS)),
+      MAX_PASS_TIMER_SECONDS,
+      Math.max(MIN_PASS_TIMER_SECONDS, Number.isFinite(raw) ? Math.round(raw) : DEFAULT_PASS_TIMER_SECONDS),
     );
-    setCookie(AUTO_PASS_SECONDS_COOKIE, String(seconds), COOKIE_MAX_AGE_DAYS);
-  }
-  if (patch.autoPassScope !== undefined && AUTO_PASS_SCOPES.includes(patch.autoPassScope)) {
-    setCookie(AUTO_PASS_SCOPE_COOKIE, patch.autoPassScope, COOKIE_MAX_AGE_DAYS);
-  }
-  if (patch.autoSkipEmpty !== undefined) {
-    setCookie(AUTO_SKIP_EMPTY_COOKIE, patch.autoSkipEmpty ? '1' : '0', COOKIE_MAX_AGE_DAYS);
+    setCookie(PASS_TIMER_SECONDS_COOKIE, String(seconds), COOKIE_MAX_AGE_DAYS);
   }
   if (patch.showOpponentHand !== undefined) {
     setCookie(SHOW_OPPONENT_HAND_COOKIE, patch.showOpponentHand ? '1' : '0', COOKIE_MAX_AGE_DAYS);

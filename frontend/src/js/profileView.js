@@ -108,30 +108,6 @@ export function renderProfileView(container) {
       </div>
 
       <div class="deck-section">
-        <h3>${t('profile.autoPass.heading')}</h3>
-        <p class="hint">${t('profile.autoPass.hint')}</p>
-        <label class="mp-inline-option">
-          <input type="checkbox" id="auto-pass-toggle" />
-          ${t('profile.autoPass.toggle')}
-        </label>
-        <div class="mp-option-row">
-          <label for="auto-pass-seconds">${t('profile.autoPass.seconds')}</label>
-          <input id="auto-pass-seconds" type="number" min="1" max="60" /> ${t('profile.autoPass.secondsSuffix')}
-        </div>
-        <div class="mp-option-row">
-          <label for="auto-pass-scope">${t('profile.autoPass.scope')}</label>
-          <select id="auto-pass-scope">
-            <option value="opponent">${t('profile.autoPass.scopeOpponent')}</option>
-            <option value="always">${t('profile.autoPass.scopeAlways')}</option>
-          </select>
-        </div>
-        <label class="mp-inline-option" title="${escapeHtml(t('profile.autoPass.skipEmptyTitle'))}">
-          <input type="checkbox" id="auto-skip-empty" />
-          ${t('profile.autoPass.skipEmpty')}
-        </label>
-      </div>
-
-      <div class="deck-section">
         <h3>${t('profile.board.heading')}</h3>
         <p class="hint">${t('profile.board.hint')}</p>
         <label class="mp-inline-option">
@@ -181,10 +157,6 @@ export function renderProfileView(container) {
   const randomStartInput = container.querySelector('#profile-mp-random-start');
   const favoritesEl = container.querySelector('#profile-favorite-decks');
 
-  const autoPassToggle = container.querySelector('#auto-pass-toggle');
-  const autoPassSeconds = container.querySelector('#auto-pass-seconds');
-  const autoPassScope = container.querySelector('#auto-pass-scope');
-  const autoSkipEmpty = container.querySelector('#auto-skip-empty');
   const showOpponentHand = container.querySelector('#show-opponent-hand');
 
   const tokenImagesList = container.querySelector('#token-images-list');
@@ -244,34 +216,17 @@ export function renderProfileView(container) {
     saveSettings({ mpDefaultRandomStartingPlayer: randomStartInput.checked }),
   );
 
-  // --- Auto-pass / board comfort toggles -------------------------------
+  // --- Board comfort toggles -----------------------------------------
+  // (The per-priority countdown is a server setting now — always on, its
+  // length set by the host per table / by `config.MULTIPLAYER_SPELL_TIMER`
+  // — so there is no auto-pass checkbox here any more.)
 
-  const s = getSettings();
-  autoPassToggle.checked = s.autoPass;
-  autoPassSeconds.value = s.autoPassSeconds;
-  autoPassSeconds.disabled = !s.autoPass;
-  autoPassScope.value = s.autoPassScope;
-  autoSkipEmpty.checked = s.autoSkipEmpty;
-  showOpponentHand.checked = s.showOpponentHand;
+  showOpponentHand.checked = getSettings().showOpponentHand;
 
-  // Saved on change rather than behind the "Speichern" button: these only
-  // affect this browser's own play, and a setting you toggled but didn't
-  // save is exactly the kind of thing that bites mid-game.
-  autoPassToggle.addEventListener('change', () => {
-    const saved = saveSettings({ autoPass: autoPassToggle.checked });
-    autoPassSeconds.disabled = !saved.autoPass;
-  });
-  autoPassSeconds.addEventListener('change', () => {
-    autoPassSeconds.value = saveSettings({ autoPassSeconds: autoPassSeconds.value }).autoPassSeconds;
-  });
-  autoSkipEmpty.addEventListener('change', () => {
-    saveSettings({ autoSkipEmpty: autoSkipEmpty.checked });
-  });
+  // Saved on change rather than behind the "Speichern" button: this only
+  // affects this browser's own play.
   showOpponentHand.addEventListener('change', () => {
     saveSettings({ showOpponentHand: showOpponentHand.checked });
-  });
-  autoPassScope.addEventListener('change', () => {
-    saveSettings({ autoPassScope: autoPassScope.value });
   });
 
   // --- Token images / sleeves -----------------------------------------

@@ -162,10 +162,34 @@ class Bot:
         offers a decline and has no least-change option, so the bot picks
         one of the offered options at random (`self._vote_rng`, seeded off
         its id — a bot-vs-bot table still replays the same).
+
+        Bug report, 2026-09-04: a fetch land's sacrifice is its own,
+        already-paid *cost* — by the time this search choice is even open,
+        that land is gone from the battlefield either way, so "declining
+        changes least" is backwards here: declining is strictly worse than
+        finding *any* legal card, not the safe default. A `"search"` choice
+        therefore prefers its first real option over declining (still
+        declines when nothing eligible is offered at all — an empty/
+        wrong-color library, say, where there's genuinely nothing to lose
+        by declining because there's nothing to gain either).
+
+        Bug report, 2026-09-04 (same batch): RULE 903.9a/9b's
+        `"commander_zone"` choice ("put the commander into the command
+        zone instead") is the same shape — "decline" leaves it stuck in
+        the graveyard/exile (or hand/library) it was heading to, which a
+        bot has no way to leverage, while the command zone is always
+        freely recastable. So this always takes ``"command"`` rather than
+        declining, the one choice kind here with a genuine default
+        judgement call (every other kind's "decline" really is the safe,
+        no-opinion answer).
         """
         kind = (view.get("pending_choice") or {}).get("kind")
         if kind in ("vote", "vote_object") and answers:
             return self._vote_rng.choice(answers)
+        if kind in ("search", "commander_zone"):
+            hit = next((a for a in answers if a["type"] == "choose"), None)
+            if hit is not None:
+                return hit
         decline = next((a for a in answers if a["type"] == "decline"), None)
         return decline or answers[0]
 

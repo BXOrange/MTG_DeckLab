@@ -277,6 +277,7 @@ async def set_options(
             request.mulligan_style,
             request.num_players,
             request.takebacks_per_player,
+            request.spell_timer_seconds,
             request.randomize_seating,
             request.random_starting_player,
             request.game_format,
@@ -345,6 +346,8 @@ async def start_game(
         seats,
         mulligan_style=game.mulligan_style,
         takebacks_per_player=game.takebacks_per_player,
+        # None here means "use the server default" — resolved in GameSession.
+        spell_timer_seconds=game.spell_timer_seconds,
         game_format=game.game_format,
         # RULE 904: the host is the Archenemy unless another seat was
         # explicitly picked — `Lobby` stores `None` for "not chosen", the

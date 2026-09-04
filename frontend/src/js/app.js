@@ -22,10 +22,19 @@ renderConnectionIndicator(document.getElementById('header-connection-status'));
 
 const sidebar = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebar-toggle');
-sidebarToggle.addEventListener('click', () => {
-  const collapsed = sidebar.classList.toggle('collapsed');
+function setSidebarCollapsed(collapsed) {
+  sidebar.classList.toggle('collapsed', collapsed);
   sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+}
+sidebarToggle.addEventListener('click', () => {
+  setSidebarCollapsed(!sidebar.classList.contains('collapsed'));
 });
+// A game board (Goldfisch/Solo/Replay-Spielmodus/Multiplayer) folds the
+// side menu away for the full board width when its session starts, and
+// brings it back when the game ends — both dispatched by gameBoardView.js.
+// The burger toggle still overrides either way.
+document.addEventListener('mtg-game-started', () => setSidebarCollapsed(true));
+document.addEventListener('mtg-game-ended', () => setSidebarCollapsed(false));
 
 const tabButtons = document.querySelectorAll('.tab-button');
 const navGroups = document.querySelectorAll('.nav-group');

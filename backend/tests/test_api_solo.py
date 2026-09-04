@@ -57,10 +57,23 @@ def env():
         app.dependency_overrides.pop(dep, None)
 
 
-def _legal_deck(decks, name="Mono-G"):
-    deck = Deck(name=name, commander_text="1 Test Commander\n", mainboard_text="99 Forest\n")
+def _legal_deck(decks, name="Mono-G", color_identity=None):
+    """A playable saved deck. ``color_identity`` is what a deck the client
+    has already listed once carries (`api/saved_decks._ensure_identity`) —
+    left `None` here by default, i.e. not computed yet, mirroring
+    `test_api_multiplayer.py`'s own `_legal_deck`."""
+    deck = Deck(
+        name=name,
+        commander_text="1 Test Commander\n",
+        mainboard_text="99 Forest\n",
+        color_identity=color_identity,
+    )
     decks.save_deck(deck)
     return deck
+
+
+def _player(view, player_id):
+    return next(p for p in view["state"]["players"] if p["id"] == player_id)
 
 
 _SENTINEL = object()
@@ -99,6 +112,50 @@ def test_start_returns_the_human_view_in_setup_with_the_bot_seated(env):
     assert view["setup"] and not view["setup"]["complete"]
     ids = [p["id"] for p in view["state"]["players"]]
     assert SOLO_HUMAN_ID in ids and len(ids) == 2
+
+
+def test_start_carries_the_configurable_pass_timer_into_the_view(env):
+    client, decks = env["client"], env["decks"]
+    deck = _legal_deck(decks)
+    # Default: the server value.
+    view = _start(client, deck.id).json()
+    assert view["priority"]["timer_seconds"] == 20
+    # Explicit override, clamped like the multiplayer one.
+    view = _start(client, deck.id, spellTimerSeconds=5).json()
+    assert view["priority"]["timer_seconds"] == 5
+    view = _start(client, deck.id, spellTimerSeconds=0).json()
+    assert view["priority"]["timer_seconds"] == 0
+
+
+def test_deck_colour_identity_becomes_the_seat_banner(env):
+    # Same "fly the deck's own colours" default Multiplayer gives a seat
+    # (`test_api_multiplayer.py`'s `test_deck_colour_identity_is_the_default_
+    # banner`) — there's no lobby here, so `api/solo.py` computes it at
+    # start and hands it to `GameSession._banner_colors` directly.
+    client, decks = env["client"], env["decks"]
+    deck = _legal_deck(decks, color_identity=["G", "U"])
+    view = _start(client, deck.id).json()
+    assert _player(view, SOLO_HUMAN_ID)["banner_color"] == "ug"
+
+
+def test_an_uncomputed_identity_leaves_the_seat_unpainted(env):
+    client, decks = env["client"], env["decks"]
+    deck = _legal_deck(decks)  # colour identity not computed yet (None)
+    view = _start(client, deck.id).json()
+    assert "banner_color" not in _player(view, SOLO_HUMAN_ID)
+
+
+def test_each_bot_flies_its_own_decks_identity(env):
+    # The human and each bot are independent seats — one seat's colours
+    # must never bleed onto another's banner.
+    client, decks = env["client"], env["decks"]
+    human_deck = _legal_deck(decks, name="Human", color_identity=["R"])
+    bot_deck = _legal_deck(decks, name="Bot", color_identity=["W", "B"])
+    view = _start(
+        client, human_deck.id, opponents=[{"kind": "goldfish", "deckId": bot_deck.id}]
+    ).json()
+    assert _player(view, SOLO_HUMAN_ID)["banner_color"] == "r"
+    assert _player(view, _bot_ids(view)[0])["banner_color"] == "wb"
 
 
 def test_start_rejects_an_unknown_deck(env):

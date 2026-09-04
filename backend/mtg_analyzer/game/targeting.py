@@ -819,8 +819,26 @@ def legal_targets(
                 and _targetable_by(o, source)
             ]
         if attachment_kind == "enchant":
-            quality = ((source.parametric_keywords or {}).get("enchant") or {}).get("quality", "")
-            quality = str(quality).strip().lower()
+            enchant_params = (source.parametric_keywords or {}).get("enchant") or {}
+            quality = str(enchant_params.get("quality", "")).strip().lower()
+            # RULE 303.4c: "Enchant creature **you control**" / "… **you
+            # don't control**" / "Enchant creature **an opponent
+            # controls**" (Betrayal, MEC-63 bug report 2026-09-04) — a real
+            # targeting restriction the parser used to discard entirely
+            # (`keywords.py`'s own regex only ever captured the bare type),
+            # so nothing here ever filtered by it: a bot's "first legal
+            # target" default (or a human clicking without reading closely)
+            # could enchant a creature this Aura can't legally attach to at
+            # all. ``None`` (no qualifier printed, e.g. plain "Enchant
+            # creature") means unrestricted, same as before this existed.
+            enchant_controller = enchant_params.get("controller")
+
+            def controller_ok(o: Any, want=enchant_controller) -> bool:
+                if want == "you":
+                    return o.controller_id == controller_id
+                if want == "not_you":
+                    return o.controller_id != controller_id
+                return True
             if quality.endswith("card in a graveyard"):
                 # RULE 303.4f (MEC-34): "Enchant creature card in a
                 # graveyard" (Animate Dead-shaped reanimator Auras) — the
@@ -844,7 +862,7 @@ def legal_targets(
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o is not source and _targetable_by(o, source)
+                    if o is not source and controller_ok(o) and _targetable_by(o, source)
                 ]
             if " or " in quality:
                 # "Enchant creature or Vehicle" (Swift Reconfiguration,
@@ -864,37 +882,42 @@ def legal_targets(
                         {"instance_id": o.instance_id, "name": o.name}
                         for o in state.permanents()
                         if any(p(o) for p in predicates)
-                        and o is not source and _targetable_by(o, source)
+                        and o is not source and controller_ok(o) and _targetable_by(o, source)
                     ]
             if quality == "creature":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.is_creature and o is not source and _targetable_by(o, source)
+                    if o.is_creature and o is not source
+                    and controller_ok(o) and _targetable_by(o, source)
                 ]
             if quality == "artifact":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.card.is_artifact and o is not source and _targetable_by(o, source)
+                    if o.card.is_artifact and o is not source
+                    and controller_ok(o) and _targetable_by(o, source)
                 ]
             if quality == "enchantment":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.card.is_enchantment and o is not source and _targetable_by(o, source)
+                    if o.card.is_enchantment and o is not source
+                    and controller_ok(o) and _targetable_by(o, source)
                 ]
             if quality == "land":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.is_land and o is not source and _targetable_by(o, source)
+                    if o.is_land and o is not source
+                    and controller_ok(o) and _targetable_by(o, source)
                 ]
             if quality == "planeswalker":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.is_planeswalker and o is not source and _targetable_by(o, source)
+                    if o.is_planeswalker and o is not source
+                    and controller_ok(o) and _targetable_by(o, source)
                 ]
     if kind == "player":
         return [

@@ -1468,6 +1468,12 @@ class TurnLoopMixin:
             # card's N and returning it to hand — "you may", so a plain
             # "draw" option / decline falls back to the deferred draw.
             self.rules.resolve_dredge_choice(None if declined else str(answer))
+        elif kind == "peek_top_land":
+            # Explorer's Scope's "look at the top card, if it's a land you
+            # may put it onto the battlefield tapped" — "put" is the only
+            # option that does anything; a decline, or the non-land "ok"
+            # acknowledgement, both leave the library untouched.
+            self.rules.resolve_peek_top_land_choice(None if declined else str(answer))
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)
