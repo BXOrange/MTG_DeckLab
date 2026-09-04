@@ -148,6 +148,10 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # use (Hall of Oracles/Jin-Gitaxias — only reachable at sorcery speed
         # anyway, but the state itself must stay correct regardless).
         "cast_instant_or_sorcery_this_turn",
+        # PAR-32 phase-trigger intervening-ifs (Cloakwood Hermit / Dragon
+        # Cultist) — new per-turn `GameState` trackers.
+        "creature_card_to_graveyard_this_turn",
+        "you_dealt_damage_this_turn_at_least",
         # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
         # No ``of`` subject: "you" in "as long as you're the monarch" always
         # means the static's controller, the same read `your_turn` already
@@ -460,6 +464,18 @@ def condition_holds(
     if kind == "cast_instant_or_sorcery_this_turn":
         cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
         return bool(cast.get(controller_id, False))
+    if kind == "you_dealt_damage_this_turn_at_least":
+        # PAR-32 (Dragon Cultist): "if a source you controlled dealt N or
+        # more damage this turn" — `GameState.damage_dealt_by_this_turn`,
+        # keyed by the dealing source's controller.
+        by = getattr(state, "damage_dealt_by_this_turn", None) or {}
+        return int(by.get(controller_id, 0) or 0) >= int(condition.get("amount", 1) or 1)
+    if kind == "creature_card_to_graveyard_this_turn":
+        # PAR-32 (Cloakwood Hermit): "if a creature card was put into your
+        # graveyard from anywhere this turn" — `GameState.creature_card_to_
+        # graveyard_this_turn`, a set of owner ids.
+        seen = getattr(state, "creature_card_to_graveyard_this_turn", None) or set()
+        return controller_id in seen
     if kind == "subtype_in_graveyard":
         # PAR-30: "as long as there's a `<subtype>` card in your graveyard."
         # A live scan of the controller's graveyard for a card whose type

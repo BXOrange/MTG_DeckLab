@@ -22967,6 +22967,10 @@ EffectRegistry.register(
             **({"attacked_player_has_lowest_life": True}
                if p.get("attacked_player_has_lowest_life") else {}),
             **({"spell_from_exile": True} if p.get("spell_from_exile") else {}),
+            # PAR-32: a re-granted phase trigger's RULE 603.4 intervening-if
+            # (Cloakwood Hermit / Dragon Cultist).
+            **({"active_if": dict(p["active_if"])}
+               if isinstance(p.get("active_if"), dict) else {}),
             **_selectors(p),
         },
     ),

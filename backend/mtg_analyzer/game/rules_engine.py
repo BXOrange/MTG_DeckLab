@@ -452,6 +452,11 @@ class RulesEngine(
         # Tally creatures that died this turn (RULE 700.4) — see
         # `GameState.creatures_died_this_turn`.
         state.subscribe(self._track_creature_death)
+        # PAR-32: note a *creature card* entering a graveyard from anywhere
+        # this turn (Cloakwood Hermit), and running damage dealt by each
+        # player's sources (Dragon Cultist) — `GameState.creature_card_to_
+        # graveyard_this_turn` / `damage_dealt_by_this_turn`.
+        state.subscribe(self._track_creature_card_to_graveyard)
         # Consume a "when you next cast a spell matching X this turn, …"
         # watcher (Dual Strike-shaped) — see `GameState.spell_watchers`.
         state.subscribe(self._check_spell_watchers)

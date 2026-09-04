@@ -985,6 +985,17 @@ class GameState:
         #: `RulesEngine.deal_damage`, reset game-wide in `GameEngine.
         #: begin_turn`.
         self.damage_dealt_to_players_this_turn: dict[str, int] = {}
+        #: PAR-32: total damage dealt *by* each player's own sources this
+        #: turn, ``{controller_id: amount}`` (Dragon Cultist — "if a source
+        #: you controlled dealt N or more damage this turn"). Incremented in
+        #: `RulesEngine.deal_damage` off ``source.controller_id``, cleared
+        #: game-wide in `begin_turn`.
+        self.damage_dealt_by_this_turn: dict[str, int] = {}
+        #: PAR-32: player ids into whose graveyard a *creature card* went
+        #: from anywhere this turn (Cloakwood Hermit). Added in
+        #: `RulesEngine._move_to_graveyard` (and mill/discard paths), keyed
+        #: by the card's owner; cleared game-wide in `begin_turn`.
+        self.creature_card_to_graveyard_this_turn: set[str] = set()
         #: How many creatures have died under each player's control *this
         #: turn* (RULE 700.4) — ``{player_id: count}``, incremented off the
         #: `DIES` event by `RulesEngine._track_creature_death` and cleared

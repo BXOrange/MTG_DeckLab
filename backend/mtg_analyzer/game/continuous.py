@@ -1990,14 +1990,24 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     # PAR-32: AND any firing-event gate flags the re-granted
                     # trigger carried ("no opponent has more life than that
                     # player" — Guild Artisan; "cast a spell from exile" —
-                    # Passionate Archaeologist), each scoped to the
+                    # Passionate Archaeologist; a phase trigger's RULE 603.4
+                    # intervening-if — Cloakwood Hermit), each scoped to the
                     # granted-to permanent's controller.
-                    from .effect_binder import regrant_trigger_gate_predicate
+                    from .effect_binder import (
+                        regrant_active_if_predicate,
+                        regrant_trigger_gate_predicate,
+                    )
 
-                    for _gate_key in ("attacked_player_has_lowest_life", "spell_from_exile"):
-                        if not ability.params.get(_gate_key):
-                            continue
-                        _gate = regrant_trigger_gate_predicate(_gate_key, obj.controller_id)
+                    _gates = [
+                        regrant_trigger_gate_predicate(_k, obj.controller_id)
+                        for _k in ("attacked_player_has_lowest_life", "spell_from_exile")
+                        if ability.params.get(_k)
+                    ]
+                    if isinstance(ability.params.get("active_if"), dict):
+                        _gates.append(
+                            regrant_active_if_predicate(ability.params["active_if"], obj)
+                        )
+                    for _gate in _gates:
                         if _gate is None:
                             continue
                         _base_cond = cond

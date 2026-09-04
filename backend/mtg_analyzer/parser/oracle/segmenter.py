@@ -979,6 +979,21 @@ _ANOTHER_SUBTYPE_ENTERED_IF_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: PAR-32 phase-trigger intervening-ifs backed by two new per-turn
+#: `static_conditions` trackers (`GameState.creature_card_to_graveyard_
+#: this_turn` / `damage_dealt_by_this_turn`) — Cloakwood Hermit /
+#: Dragon Cultist's granted end-step token makers.
+_CREATURE_CARD_TO_GY_IF_RE = re.compile(
+    r"^if a creature card was put into your graveyard from anywhere this turn,"
+    r"\s*(?P<rest>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_YOU_DEALT_DAMAGE_IF_RE = re.compile(
+    r"^if a source you controlled dealt (?P<n>\d+) or more damage this turn,"
+    r"\s*(?P<rest>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 _PHASE_TRIGGER_RE = re.compile(
     r"^at the beginning of (?:"
     # "each player's upkeep" reads exactly like "each upkeep" to this engine
@@ -4685,12 +4700,23 @@ def segment_line(
         # RULE 603.4 intervening-if into the trigger's own `active_if`.
         phase_active_if: Optional[dict[str, Any]] = None
         entered_if = _ANOTHER_SUBTYPE_ENTERED_IF_RE.match(body)
+        gy_if = _CREATURE_CARD_TO_GY_IF_RE.match(body)
+        dmg_if = _YOU_DEALT_DAMAGE_IF_RE.match(body)
         if entered_if is not None:
             phase_active_if = {
                 "kind": "another_subtype_entered_this_turn",
                 "subtype": entered_if.group("sub").lower(),
             }
             body = entered_if.group("rest").strip()
+        elif gy_if is not None:
+            phase_active_if = {"kind": "creature_card_to_graveyard_this_turn"}
+            body = gy_if.group("rest").strip()
+        elif dmg_if is not None:
+            phase_active_if = {
+                "kind": "you_dealt_damage_this_turn_at_least",
+                "amount": int(dmg_if.group("n")),
+            }
+            body = dmg_if.group("rest").strip()
         if relation is None:
             them_damage = _PHASE_DAMAGE_TO_THEM_RE.match(body)
             if them_damage is not None:

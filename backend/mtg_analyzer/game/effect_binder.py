@@ -322,6 +322,20 @@ def regrant_trigger_gate_predicate(key: str, controller_id: Optional[str]) -> Op
     return None
 
 
+def regrant_active_if_predicate(active_if: dict[str, Any], source: Any) -> Callable[[Any, Any], bool]:
+    """PAR-32: a re-granted phase trigger's RULE 603.4 intervening-if
+    (`static_conditions` `active_if` dict — Cloakwood Hermit / Dragon
+    Cultist), evaluated against the *granted-to* permanent and its
+    controller. `continuous._apply_layer_6_ability` ANDs it."""
+    cid = getattr(source, "controller_id", None)
+
+    def _ok(event: Any, context: Any, cond=dict(active_if), src=source, c=cid) -> bool:
+        state = getattr(context, "state", None)
+        return state is not None and condition_holds(cond, state, src, c)
+
+    return _ok
+
+
 def _subject_event_key(trigger: dict[str, Any]) -> str:
     # RULE 603.1's *recipient*-side damage trigger (MEC-11, Enrage-shaped
     # "whenever ~ is dealt damage" — `parser/oracle/segmenter.py`'s

@@ -131,12 +131,18 @@ its block back into the matching section here.
     Far Traveler; `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` joined
     `_GRANTABLE_TRIGGER_EVENTS` / `_PLAYER_SUBJECT_GRANTED_EVENTS`, and the
     combat step now stamps `contributor_any_nontoken` so "1 or more
-    **nontoken** creatures …" gates → Feywild Visitor. Left (each a
-    distinct mini-project — hand-author + MEC as needed): Acolyte of
-    Bahamut's per-turn-first subtype cost reduction; Folk Hero's "shares a
-    creature type with ~" cast filter; Popular Entertainer's
-    event-player-scoped goad; Cloakwood Hermit / Dragon Cultist's
-    end-step intervening-if conditions (new `static_conditions`);
+    **nontoken** creatures …" gates → Feywild Visitor.
+    **End-step intervening-if conditions** — shipped (PARSER_VERSION 254,
+    +2): two new per-turn `GameState` trackers (`damage_dealt_by_this_turn`
+    /`creature_card_to_graveyard_this_turn`) + `static_conditions` kinds
+    (`you_dealt_damage_this_turn_at_least`/`creature_card_to_graveyard_
+    this_turn`), peeled off a phase-trigger body as `active_if` and carried
+    through the re-grant path (`regrant_active_if_predicate`, ANDed in
+    `_apply_layer_6_ability`) → Cloakwood Hermit / Dragon Cultist. Left
+    (each a distinct mini-project — hand-author + MEC as needed): Acolyte
+    of Bahamut's per-turn-first subtype cost reduction; Folk Hero's "shares
+    a creature type with ~" cast filter; Popular Entertainer's
+    event-player-scoped goad;
     Dungeon Delver (dungeon-room trigger doubling — MEC); Scion of
     Halaster (draw replacement — MEC); Noble Heritage (per-opponent
     protection + interactive per-player — MEC); Shameless Charlatan

@@ -289,6 +289,9 @@ class DamageDeathMixin:
                 counts[final_target.id] = counts.get(final_target.id, 0) + final
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
+                    if source.controller_id is not None:
+                        by = self.state.damage_dealt_by_this_turn
+                        by[source.controller_id] = by.get(source.controller_id, 0) + final
                     if combat and source.is_commander:
                         final_target.add_commander_damage(source.instance_id, source.name, final)
                     if combat:
@@ -314,6 +317,9 @@ class DamageDeathMixin:
                 counts[final_target.id] = counts.get(final_target.id, 0) + final
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
+                    if source.controller_id is not None:
+                        by = self.state.damage_dealt_by_this_turn
+                        by[source.controller_id] = by.get(source.controller_id, 0) + final
                     # RULE 903.10a: combat damage from a commander is tallied
                     # separately toward the 21-damage loss threshold.
                     if combat and source.is_commander:

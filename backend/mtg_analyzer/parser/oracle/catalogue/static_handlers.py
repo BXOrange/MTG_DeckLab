@@ -1928,6 +1928,11 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
             params["filter"] = dict(trigger["filter"])
         if trigger.get("phase_relation"):
             params["phase_relation"] = trigger["phase_relation"]
+        if isinstance(trigger.get("active_if"), dict):
+            # PAR-32: a re-granted phase trigger's RULE 603.4 intervening-if
+            # (Cloakwood Hermit / Dragon Cultist) — evaluated against the
+            # granted-to permanent in `_apply_layer_6_ability`.
+            params["active_if"] = dict(trigger["active_if"])
         # PAR-32: firing-event gate flags that survive re-granting — each has
         # its own `effect_binder` predicate `_apply_layer_6_ability`
         # composes onto the granted trigger (the "no opponent has more life

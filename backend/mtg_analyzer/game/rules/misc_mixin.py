@@ -1915,6 +1915,29 @@ class MiscSystemsMixin:
             return
         counts = self.state.creatures_died_this_turn
         counts[player_id] = counts.get(player_id, 0) + 1
+
+    def _track_creature_card_to_graveyard(self, event: GameEvent) -> None:
+        """PAR-32: record a *creature card* entering a graveyard from
+        anywhere this turn (Cloakwood Hermit — `GameState.creature_card_to_
+        graveyard_this_turn`, keyed by the card's owner). Listens for
+        `DIES` (battlefield), `DISCARD_CARD` (hand) and `MILL_CARD`
+        (library); the card sits in its graveyard by the time each fires,
+        so `is_creature` is read live where the event doesn't snapshot it."""
+        if event.type == EventType.DIES:
+            if "creature" not in (event.get("object_types") or []):
+                return
+            obj = self.state.find_object(event.get("instance_id"))
+            owner_id = obj.owner_id if obj is not None else event.get("owner_id")
+        elif event.type in (EventType.DISCARD_CARD, EventType.MILL_CARD):
+            obj = self.state.find_object(event.get("instance_id"))
+            if obj is None or not getattr(obj, "is_creature", False):
+                return
+            owner_id = obj.owner_id
+        else:
+            return
+        if owner_id is not None:
+            self.state.creature_card_to_graveyard_this_turn.add(owner_id)
+
     def apply_day_night_turn_check(self) -> None:
         """RULE 731.2: as the second part of the untap step, maybe flip
         day/night based on how many spells the *previous* turn's active

@@ -374,3 +374,51 @@ def test_feywild_visitor_nontoken_batch_combat_damage():
         'control deal combat damage to a player, draw a card."'
     )
     assert bare is not None and "filter" not in bare[0].params
+
+
+# --- slice 6: end-step intervening-if conditions (new per-turn trackers) ---
+
+
+def test_end_step_intervening_if_conditions_parse():
+    gy = static_effect_specs(
+        'commander creatures you own have "at the beginning of your end step, '
+        'if a creature card was put into your graveyard from anywhere this '
+        'turn, create 2 tapped 1/1 green squirrel creature tokens."'
+    )
+    assert gy is not None
+    assert gy[0].params["active_if"] == {"kind": "creature_card_to_graveyard_this_turn"}
+
+    dmg = static_effect_specs(
+        'commander creatures you own have "at the beginning of your end step, '
+        'if a source you controlled dealt 5 or more damage this turn, create '
+        'a 4/4 red dragon creature token with flying."'
+    )
+    assert dmg is not None
+    assert dmg[0].params["active_if"] == {
+        "kind": "you_dealt_damage_this_turn_at_least", "amount": 5
+    }
+
+
+def test_you_dealt_damage_this_turn_condition_evaluates():
+    from mtg_analyzer.game import static_conditions
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
+    )
+    st = eng.state
+    cond = {"kind": "you_dealt_damage_this_turn_at_least", "amount": 5}
+    assert static_conditions.condition_holds(cond, st, None, "p1") is False
+    st.damage_dealt_by_this_turn["p1"] = 6
+    assert static_conditions.condition_holds(cond, st, None, "p1") is True
+    assert static_conditions.condition_holds(cond, st, None, "p2") is False
+
+
+def test_creature_card_to_graveyard_condition_evaluates():
+    from mtg_analyzer.game import static_conditions
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
+    )
+    st = eng.state
+    cond = {"kind": "creature_card_to_graveyard_this_turn"}
+    assert static_conditions.condition_holds(cond, st, None, "p1") is False
+    st.creature_card_to_graveyard_this_turn.add("p1")
+    assert static_conditions.condition_holds(cond, st, None, "p1") is True
