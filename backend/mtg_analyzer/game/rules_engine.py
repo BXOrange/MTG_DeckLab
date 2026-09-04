@@ -474,6 +474,12 @@ class RulesEngine(
         effects: list[ReplacementEffect] = []
         for obj in self.state.permanents():
             effects.extend(obj.replacement_effects)
+            # MEC-57: a layer-6 grant whose nested static_specs type
+            # resolves to a `ReplacementEffect` rather than a
+            # `StaticAbility` (Scion of Halaster's granted "first draw
+            # each turn" rewrite) — the `_granted_static_abilities`
+            # sibling, same "re-derived every recompute" shape.
+            effects.extend(getattr(obj, "_granted_replacement_effects", ()))
         for player in self.state.players:
             effects.extend(
                 e for e in player.player_effects if isinstance(e, ReplacementEffect)

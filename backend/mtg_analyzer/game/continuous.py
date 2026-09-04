@@ -77,7 +77,10 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
-from .effects import ActivatedAbility, ConditionalEffect, EffectRegistry, StaticAbility, TriggeredAbility
+from .effects import (
+    ActivatedAbility, ConditionalEffect, EffectRegistry, ReplacementEffect,
+    ReplacementRegistry, StaticAbility, TriggeredAbility,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..models.game_object import GameObject
@@ -2076,12 +2079,28 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     live_grant_keys.add(key)
                     granted_static = state._granted_ability_cache.get(key)
                     if granted_static is None:
-                        granted_static = EffectRegistry.create(
-                            spec["type"], dict(spec.get("params", {}))
-                        )
+                        # MEC-57: the nested spec's ``type`` can also name a
+                        # `ReplacementEffect` (Scion of Halaster's granted
+                        # "first draw each turn" rewrite) rather than a
+                        # `StaticAbility` — `EffectRegistry` stays the
+                        # primary lookup (every existing static_specs user:
+                        # anthem/grant_keyword/extra_etb_counter/…),
+                        # `ReplacementRegistry` a fallback for the shapes
+                        # that only ever exist as a granted replacement.
+                        if EffectRegistry.is_registered(spec["type"]):
+                            granted_static = EffectRegistry.create(
+                                spec["type"], dict(spec.get("params", {}))
+                            )
+                        else:
+                            granted_static = ReplacementRegistry.create(
+                                spec["type"], dict(spec.get("params", {}))
+                            )
                         granted_static.source = obj
                         state._granted_ability_cache[key] = granted_static
-                    obj._granted_static_abilities.append(granted_static)
+                    if isinstance(granted_static, ReplacementEffect):
+                        obj._granted_replacement_effects.append(granted_static)
+                    else:
+                        obj._granted_static_abilities.append(granted_static)
                 _trace(obj, 6, _source_name(ability), "gains a static ability")
 
     # ENG-31: "until end of turn" parametric keyword grants from a resolved

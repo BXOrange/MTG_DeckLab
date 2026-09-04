@@ -169,13 +169,27 @@ its block back into the matching section here.
     already on the battlefield, so it can't affect its own entry) — the
     "other creatures" half has no such gap (the granting commander creature
     is already on the battlefield with its grant settled) and is the half
-    that actually matters at the table. Left (each a distinct mini-project
-    — hand-author + MEC as needed): Acolyte of Bahamut's per-turn-first
-    subtype cost reduction; Dungeon Delver (dungeon-room trigger doubling —
-    MEC); Scion of Halaster (draw replacement — MEC); Noble Heritage
-    (per-opponent protection + interactive per-player — MEC); Haunted One
-    (becomes-tapped tribal pump); Tavern Brawler (impulse +
-    pump-from-exiled-mv).
+    that actually matters at the table. **Scion of Halaster's granted
+    "first draw each turn" replacement** — shipped (PARSER_VERSION 258, +1,
+    hand-authored — MEC-57): a new `first_draw_look_two` `ReplacementEffect`
+    (gated on a new per-turn `GameState.first_draw_replaced_this_turn`
+    tracker, distinct from the existing per-*draw-step* `first_in_draw_
+    step` flag `_steal_non_first_draw_replacement`/Notion Thief already
+    reads), granted the same `grant_static_ability` `static_specs` way as
+    MEC-55/56 — `continuous._apply_layer_6_ability` now also recognises a
+    nested spec whose type resolves to a `ReplacementEffect` rather than a
+    `StaticAbility` and files it onto the new `GameObject._granted_
+    replacement_effects`, read by `RulesEngine._all_replacement_effects`
+    alongside a permanent's own printed ones — the general mechanism this
+    unlocks for any future "X have '`<replacement>`'" card, not just this
+    one. Which of the two looked-at cards is binned is non-interactive
+    (always the second, `_discard_instead_of_non_first_draw_replacement`'s
+    own "auto-chosen, no chooser in MVP" precedent). Left (each a distinct
+    mini-project — hand-author + MEC as needed): Acolyte of Bahamut's
+    per-turn-first subtype cost reduction; Dungeon Delver (dungeon-room
+    trigger doubling — MEC); Noble Heritage (per-opponent protection +
+    interactive per-player — MEC); Haunted One (becomes-tapped tribal
+    pump); Tavern Brawler (impulse + pump-from-exiled-mv).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
     `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate

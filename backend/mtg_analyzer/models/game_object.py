@@ -501,6 +501,18 @@ class GameObject:
         #: has been used this turn — gates its ``once_per_turn`` restriction.
         #: Reset each untap step, same as `activated_loyalty_this_turn`.
         self.graveyard_casts_this_turn: int = 0
+        #: RULE 605.1a mana ability, "… and only once each turn." (Vivi
+        #: Ornitier) — the *indices* (`mana_abilities_for`'s own enumeration
+        #: order, stable per object) of this permanent's mana abilities
+        #: already activated this turn, gating `ActivationCost.once_per_
+        #: turn`. A set rather than `activated_loyalty_this_turn`'s bare
+        #: bool since RULE 606.3's cap is over the whole permanent's loyalty
+        #: abilities together, while this one is per *individual* mana
+        #: ability — a permanent with two, independently-restricted mana
+        #: abilities (none observed in the cache yet) must track them
+        #: separately. Reset each untap step, same as `activated_loyalty_
+        #: this_turn`. See `GameEngine.tap_for_mana`.
+        self.mana_abilities_activated_this_turn: set[int] = set()
         #: "Exile a creature you control: Add X mana of any one color,
         #: where X is 1 plus the exiled creature's mana value." (Food
         #: Chain, MEC-40) — the mana value of whichever creature most
@@ -972,6 +984,14 @@ class GameObject:
         #: Inspiring Leader). Same "re-derived every pass, gone the moment
         #: the grant stops" shape as `_granted_triggered_abilities`.
         self._granted_static_abilities: list[Any] = []
+        #: MEC-57: layer-6-granted *replacement* effects (RULE 613.7f/616) —
+        #: `_granted_static_abilities`' sibling for a nested grant whose
+        #: ``static_specs`` type resolves to a `ReplacementEffect` rather
+        #: than a `StaticAbility` (Scion of Halaster's granted "first draw
+        #: each turn" rewrite). Re-derived per affected object each
+        #: `continuous.recompute`, read by `RulesEngine._all_replacement_
+        #: effects` alongside a permanent's own printed ones.
+        self._granted_replacement_effects: list[Any] = []
         self._added_types: set[str] = set()
         #: Creature *subtypes* a layer-4 "~ is the chosen type in addition to
         #: its other types"/"… of the chosen type …" static ability adds
@@ -1145,6 +1165,7 @@ class GameObject:
         self._granted_triggered_abilities = []
         self._granted_activated_abilities = []
         self._granted_static_abilities = []
+        self._granted_replacement_effects = []
         self._added_types = set()
         self._added_subtypes = set()
         self._removed_types = set()
@@ -1238,6 +1259,7 @@ class GameObject:
         self.combat_defender = None
         self.activated_loyalty_this_turn = False
         self.graveyard_casts_this_turn = 0
+        self.mana_abilities_activated_this_turn = set()
         self.added_mana_with_ability_this_turn = False
         self.blocking = None
         self.additional_blocking = []

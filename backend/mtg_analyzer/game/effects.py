@@ -25047,6 +25047,62 @@ def _discard_instead_of_non_first_draw_replacement(params: dict[str, Any]) -> Re
     return effect
 
 
+def _first_draw_look_two_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"The first time you would draw a card each turn, instead look at the
+    top two cards of your library. Put one of them into your graveyard and
+    the other back on top of your library. Then draw a card." (Scion of
+    Halaster, PAR-32/MEC-57) — unlike `_steal_non_first_draw_replacement`'s
+    ``first_in_draw_step`` (reset every *draw step*), this gates on a new
+    per-*turn* `GameState.first_draw_replaced_this_turn` tracker (cleared in
+    `begin_turn`, so it resets every game turn regardless of whose turn it
+    is — this ability's own controller can draw off an instant-speed effect
+    on someone else's turn too), since the printed text says "each turn",
+    not "each draw step".
+
+    Which of the two looked-at cards is binned is a genuine choice on the
+    printed card; modeled non-interactively (always the *second* card,
+    keeping the top card in place) — the same "auto-chosen, no chooser in
+    MVP" simplification `_discard_instead_of_non_first_draw_replacement`'s
+    own docstring already documents for an untargeted discard. Consumes the
+    original `DRAW` event (returns ``None``, same as every other per-card
+    draw replacement in this file) and performs the look/bin/draw itself.
+    Marks the turn tracker *before* issuing its own compensating draw, so
+    that draw — like every other draw the rest of this turn — is correctly
+    not replaced again.
+    """
+    effect = ReplacementEffect(
+        event_type=EventType.DRAW,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, context: GameContext) -> bool:
+        src = effect.source
+        if src is None:
+            return False
+        if event.get("player_id") != src.controller_id:
+            return False
+        return src.controller_id not in context.state.first_draw_replaced_this_turn
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        state = context.state
+        player = state.player_by_id(src.controller_id)
+        state.first_draw_replaced_this_turn.add(player.id)
+        library = player.library  # bottom-first; library[-1] is the top card
+        if len(library) >= 2:
+            binned = library.pop(-2)
+            binned.zone = Zone.GRAVEYARD
+            player.graveyard.append(binned)
+            context.engine._flag_commander_zone_choice(binned)  # RULE 903.9a
+        context.draw(player, 1)
+        return None
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
 class ReplacementRegistry:
     """Maps a whitelisted replacement-type name to a `ReplacementEffect` factory.
 
@@ -25088,3 +25144,4 @@ ReplacementRegistry.register("win_instead_of_empty_draw", _win_instead_of_empty_
 ReplacementRegistry.register("split_multi_draw", _split_multi_draw_replacement)
 ReplacementRegistry.register("steal_non_first_draw", _steal_non_first_draw_replacement)
 ReplacementRegistry.register("discard_instead_of_non_first_draw", _discard_instead_of_non_first_draw_replacement)
+ReplacementRegistry.register("first_draw_look_two", _first_draw_look_two_replacement)

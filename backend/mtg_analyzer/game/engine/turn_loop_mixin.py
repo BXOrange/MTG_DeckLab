@@ -266,6 +266,9 @@ class TurnLoopMixin:
         # around it.
         self.state.damage_dealt_by_this_turn.clear()
         self.state.creature_card_to_graveyard_this_turn.clear()
+        # MEC-57: "the first time you would draw a card each turn, instead
+        # …" (Scion of Halaster) — game-wide, same reason.
+        self.state.first_draw_replaced_this_turn.clear()
         # MEC-49 history ("whenever a creature dealt damage by ~ this turn
         # dies", Baron Sengir) — game-wide, same reason.
         self.state.creatures_damaged_by_source_this_turn.clear()
@@ -705,6 +708,9 @@ class TurnLoopMixin:
             # ENG-27: "if you haven't added mana with this ability this
             # turn" (Carpet of Flowers) resets the same way too.
             obj.added_mana_with_ability_this_turn = False
+            # RULE 605.1a mana ability "… and only once each turn." (Vivi
+            # Ornitier) resets the same way, per ability index.
+            obj.mana_abilities_activated_this_turn = set()
             # RULE 702.19a: a new turn means "hasn't been exerted this
             # turn" is true again.
             obj.exerted_this_turn = False

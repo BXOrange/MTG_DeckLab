@@ -996,6 +996,13 @@ class GameState:
         #: `RulesEngine._move_to_graveyard` (and mill/discard paths), keyed
         #: by the card's owner; cleared game-wide in `begin_turn`.
         self.creature_card_to_graveyard_this_turn: set[str] = set()
+        #: MEC-57: player ids whose "the first time you would draw a card
+        #: each turn, instead …" replacement (Scion of Halaster) has already
+        #: fired this turn — the gate `effects._first_draw_look_two_
+        #: replacement` reads/sets, distinct from `Player.first_draw_done_
+        #: this_step` (which resets every *draw step*, not every turn).
+        #: Cleared game-wide in `GameEngine.begin_turn`.
+        self.first_draw_replaced_this_turn: set[str] = set()
         #: How many creatures have died under each player's control *this
         #: turn* (RULE 700.4) — ``{player_id: count}``, incremented off the
         #: `DIES` event by `RulesEngine._track_creature_death` and cleared
