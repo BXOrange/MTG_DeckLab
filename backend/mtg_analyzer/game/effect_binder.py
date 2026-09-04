@@ -309,16 +309,33 @@ def attacked_player_lowest_life_predicate(controller_id: Optional[str]) -> Calla
     return _ok
 
 
-def regrant_trigger_gate_predicate(key: str, controller_id: Optional[str]) -> Optional[Callable[[Any, Any], bool]]:
+def regrant_trigger_gate_predicate(
+    key: str, controller_id: Optional[str], source: Any = None
+) -> Optional[Callable[[Any, Any], bool]]:
     """A firing-event gate for a *re-granted* trigger (PAR-32 — "Commander
     creatures you own have 'Whenever …'"), by the trigger-dict key that
     carried it. `continuous._apply_layer_6_ability` ANDs the result onto the
     granted `TriggeredAbility.condition`; each gate is the same event-field
-    read the printed-trigger path uses in `_trigger_condition`."""
+    read the printed-trigger path uses in `_trigger_condition`. ``source``
+    is the granted-to permanent, for the source-relative keys."""
     if key == "attacked_player_has_lowest_life":
         return attacked_player_lowest_life_predicate(controller_id)
     if key == "spell_from_exile":
         return lambda event, context: bool((event or {}).get("from_exile"))
+    if key == "spell_shares_creature_type_with_source":
+        def _shares(event: Any, context: Any, src=source) -> bool:
+            state = getattr(context, "state", None)
+            spell = state.find_object((event or {}).get("instance_id")) if state is not None else None
+            if spell is None or src is None:
+                return False
+
+            def _subs(o: Any) -> set[str]:
+                tl = getattr(getattr(o, "card", None), "type_line", "") or ""
+                return {w.lower() for w in tl.partition("—")[2].split()}
+
+            return bool(_subs(spell) & _subs(src))
+
+        return _shares
     return None
 
 
@@ -1145,6 +1162,26 @@ def _trigger_condition(
             return sid is not None and sid in (event.get("target_instance_ids") or ())
 
         predicates.append(_spell_targets_source_ok)
+
+    # "Whenever you cast a spell that shares a creature type with ~, …"
+    # (Folk Hero's granted trigger, PAR-32) — the spell is still on the
+    # stack (`event["instance_id"]`); compare its creature subtypes with
+    # the ability's own source's.
+    if trigger.get("spell_shares_creature_type_with_source"):
+        def _spell_shares_type_ok(event: Any, context: Any, src=source) -> bool:
+            state = getattr(context, "state", None)
+            spell = state.find_object(event.get("instance_id")) if state is not None else None
+            if spell is None or src is None:
+                return False
+
+            def _subs(o: Any) -> set[str]:
+                tl = getattr(getattr(o, "card", None), "type_line", "") or ""
+                return {w.lower() for w in tl.partition("—")[2].split()}
+
+            shared = _subs(spell) & _subs(src)
+            return bool(shared)
+
+        predicates.append(_spell_shares_type_ok)
 
     # "…a spell with mana value equal to the number of charge counters on
     # this artifact, counter that spell." (Chalice of the Void, MEC-43) —

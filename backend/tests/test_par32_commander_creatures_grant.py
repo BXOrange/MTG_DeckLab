@@ -422,3 +422,79 @@ def test_creature_card_to_graveyard_condition_evaluates():
     assert static_conditions.condition_holds(cond, st, None, "p1") is False
     st.creature_card_to_graveyard_this_turn.add("p1")
     assert static_conditions.condition_holds(cond, st, None, "p1") is True
+
+
+# --- slice 7: cast-shares-type filter + event-player-scoped goad ---
+
+
+def test_folk_hero_shares_type_filter_and_once_per_turn():
+    specs = static_effect_specs(
+        'commander creatures you own have "whenever you cast a spell that '
+        'shares a creature type with ~, draw a card. this ability triggers '
+        'only once each turn."'
+    )
+    assert specs is not None and len(specs) == 1
+    p = specs[0].params
+    assert p["trigger_event"] == "SPELL_CAST"
+    assert p["spell_shares_creature_type_with_source"] is True
+    assert p["once_per_turn"] is True
+
+
+def test_popular_entertainer_event_player_goad():
+    specs = static_effect_specs(
+        'commander creatures you own have "whenever 1 or more creatures you '
+        'control deal combat damage to a player, goad target creature that '
+        'player controls."'
+    )
+    assert specs is not None and len(specs) == 1
+    p = specs[0].params
+    assert p["trigger_event"] == "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"
+    assert p["grant_effects"][0]["type"] == "goad"
+    assert p["grant_effects"][0]["params"]["target_kind"] == "creature_that_player_controls"
+
+
+def test_folk_hero_shares_type_predicate_end_to_end():
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
+    )
+    st = eng.state
+    p1 = st.player_by_id("p1")
+    granter = GameObject(
+        Card(id="fh", name="Folk Hero", type_line="Enchantment",
+             oracle_text='Commander creatures you own have "Whenever you cast '
+                         'a spell that shares a creature type with this '
+                         'creature, draw a card. This ability triggers only '
+                         'once each turn."'),
+        owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(granter)
+    st.add_to_battlefield(granter)
+    cmd = GameObject(
+        Card(id="k", name="Cmdr", type_line="Legendary Creature — Human Wizard",
+             is_creature=True, power=3, toughness=3),
+        owner_id="p1", zone=Zone.BATTLEFIELD)
+    cmd.is_commander = True
+    cmd.summoning_sick = False
+    st.add_to_battlefield(cmd)
+    eng.recompute_continuous_effects()
+    granted = cmd._granted_triggered_abilities
+    assert len(granted) == 1
+
+    from mtg_analyzer.models.events import EventType, GameEvent
+    # a Wizard spell (shares "Wizard" with Cmdr) → fires
+    wiz = GameObject(Card(id="w", name="W", type_line="Creature — Wizard",
+                          is_creature=True), owner_id="p1", zone=Zone.STACK)
+    st.stack_zone_hack = None
+    st._extra_objects = getattr(st, "_extra_objects", [])
+    st._extra_objects.append(wiz)
+    orig_find = st.find_object
+    st.find_object = lambda iid: wiz if iid == wiz.instance_id else orig_find(iid)
+    st.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1",
+                            instance_id=wiz.instance_id, spell="W"))
+    assert eng.rules.put_triggers_on_stack() == 1
+    # a Goblin spell → does not fire
+    gob = GameObject(Card(id="g", name="G", type_line="Creature — Goblin",
+                          is_creature=True), owner_id="p1", zone=Zone.STACK)
+    st.find_object = lambda iid: gob if iid == gob.instance_id else orig_find(iid)
+    st.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1",
+                            instance_id=gob.instance_id, spell="G"))
+    assert eng.rules.put_triggers_on_stack() == 0

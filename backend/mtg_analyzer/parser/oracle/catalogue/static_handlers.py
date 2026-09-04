@@ -94,7 +94,8 @@ _GRANTABLE_TRIGGER_EVENTS = frozenset(
 #: `effect_binder` predicate that `continuous._apply_layer_6_ability`
 #: composes onto the re-granted trigger's condition.
 _REGRANT_PASSTHROUGH_TRIGGER_KEYS = frozenset(
-    {"attacked_player_has_lowest_life", "spell_from_exile"}
+    {"attacked_player_has_lowest_life", "spell_from_exile",
+     "spell_shares_creature_type_with_source"}
 )
 
 #: MEC-55: inner-static `affects` scopes that can't be re-granted to a
@@ -1933,6 +1934,10 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
             # (Cloakwood Hermit / Dragon Cultist) — evaluated against the
             # granted-to permanent in `_apply_layer_6_ability`.
             params["active_if"] = dict(trigger["active_if"])
+        if trigger.get("limit"):
+            # RULE 603.2's once-per-turn cap ("this ability triggers only
+            # once each turn" — Folk Hero) survives re-granting.
+            params["once_per_turn"] = True
         # PAR-32: firing-event gate flags that survive re-granting — each has
         # its own `effect_binder` predicate `_apply_layer_6_ability`
         # composes onto the granted trigger (the "no opponent has more life

@@ -496,6 +496,14 @@ _CAST_SPELL_TARGETS_PERMANENT_TRIGGER_RE = re.compile(
 #: creature. Tried before `_CAST_SPELL_TARGETS_PERMANENT_TRIGGER_RE` — the
 #: "targets ~" and "targets 1 or more permanents" clauses don't overlap,
 #: this is just for locality.
+#: "Whenever you cast a spell that shares a creature type with ~, …"
+#: (Folk Hero's granted trigger) — `effect_binder`'s ``spell_shares_
+#: creature_type_with_source`` predicate compares the still-on-stack
+#: spell's subtypes with the ability's source.
+_CAST_SPELL_SHARES_TYPE_SOURCE_TRIGGER_RE = re.compile(
+    r"^whenever you cast a spell that shares a creature type with ~,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
 _CAST_SPELL_TARGETS_SOURCE_TRIGGER_RE = re.compile(
     r"^whenever you cast a spell that targets ~,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
@@ -3770,6 +3778,28 @@ def segment_line(
                 "event": "SPELL_CAST",
                 "condition": _cast_spell_trigger_condition("you"),
                 "requires_spell_targets_source": True,
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_shares_type = _CAST_SPELL_SHARES_TYPE_SOURCE_TRIGGER_RE.match(raw)
+    if cast_spell_shares_type is not None:
+        body, optional = _peel_optional(cast_spell_shares_type.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": _cast_spell_trigger_condition("you"),
+                "spell_shares_creature_type_with_source": True,
+                **({"limit": True} if body_limit else {}),
             },
             optional=optional,
             raw_text=raw,

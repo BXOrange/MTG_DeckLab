@@ -513,6 +513,10 @@ class CombatMixin:
                     EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
                     player_id=controller_id,
                     target_id=target_id,
+                    # The recipient is always a player by construction — set
+                    # so a "target … that player controls" target kind
+                    # (`targeting`) can scope to it (Popular Entertainer).
+                    is_player=True,
                     max_power=entry["max_power"],
                     amount=entry["amount"],
                     subtypes=sorted(entry["subtypes"]),

@@ -11339,6 +11339,16 @@ HANDLERS: list[EffectHandler] = [
         _c(r"goad up to x target creatures (?:your opponents control|you don't control)"),
         _goad_up_to_x,
     ),
+    # "goad target creature **that player** controls" (Popular Entertainer's
+    # granted trigger, PAR-32 — "that player" = whoever the firing
+    # `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` event named). Tried before
+    # the generic `goad {TARGET}` row, whose `resolve_target_kind` doesn't
+    # know this event-scoped phrase.
+    EffectHandler(
+        "goad_that_player",
+        _c(r"goad target creature that player controls"),
+        lambda m: [EffectSpec("goad", {"target_kind": "creature_that_player_controls"})],
+    ),
     # "goad target creature [an opponent controls]" (RULE 701.15a).
     EffectHandler(
         "goad",

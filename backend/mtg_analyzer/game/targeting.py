@@ -275,6 +275,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # `creature_or_planeswalker_you_control`; only resolvable when
         # `legal_targets` is given the firing ``trigger_event``.
         "creature_or_planeswalker_that_player_controls",
+        # PAR-32: the creature-only sibling (Popular Entertainer's granted
+        # "goad target creature that player controls" — the damaged player
+        # off `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`).
+        "creature_that_player_controls",
         # "target creature or planeswalker" (Imodane deck batch —
         # Stonesplitter Bolt/Lithomantic Barrage/Torch Breath/Torch the
         # Tower, a hugely common modern removal-spell template) — the
@@ -527,6 +531,8 @@ class TargetSpec:
                 "Kreatur oder Planeswalker unter deiner Kontrolle",
             "creature_or_planeswalker_that_player_controls":
                 "Kreatur oder Planeswalker unter der Kontrolle dieses Spielers",
+            "creature_that_player_controls":
+                "Kreatur unter der Kontrolle dieses Spielers",
             "battle_or_opponent": "Schlacht oder Gegner",
             "creature_planeswalker_or_battle": "Kreatur, Planeswalker oder Schlacht",
             "attached_aura_or_equipment_you_control":
@@ -1366,14 +1372,18 @@ def legal_targets(
             and o is not source
             and _targetable_by(o, source)
         ]
-    if kind == "creature_or_planeswalker_that_player_controls":
-        # "target creature or planeswalker **that player** controls"
-        # (Chandra's Incinerator, MEC-45) — "that player" is whoever the
-        # firing DAMAGE trigger event named as its recipient
-        # (``target_id``, only meaningful when ``is_player`` is set); no
-        # event in hand (or a non-player recipient) means no legal player
-        # to scope to, so this fails closed to an empty list rather than
-        # guessing a fixed role.
+    if kind in (
+        "creature_or_planeswalker_that_player_controls",
+        "creature_that_player_controls",
+    ):
+        # "target creature [or planeswalker] **that player** controls"
+        # (Chandra's Incinerator, MEC-45; Popular Entertainer's granted
+        # goad, PAR-32) — "that player" is whoever the firing trigger event
+        # named as its recipient (``target_id``, only meaningful when
+        # ``is_player`` is set); no event in hand (or a non-player
+        # recipient) means no legal player to scope to, so this fails
+        # closed to an empty list rather than guessing a fixed role.
+        planeswalkers_ok = kind == "creature_or_planeswalker_that_player_controls"
         event = trigger_event or {}
         target_player_id = event.get("target_id") if event.get("is_player") else None
         if target_player_id is None:
@@ -1381,7 +1391,7 @@ def legal_targets(
         return [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
-            if (o.is_creature or o.is_planeswalker)
+            if (o.is_creature or (planeswalkers_ok and o.is_planeswalker))
             and o.controller_id == target_player_id
             and o is not source
             and _targetable_by(o, source)

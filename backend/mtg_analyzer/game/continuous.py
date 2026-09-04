@@ -1999,8 +1999,9 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     )
 
                     _gates = [
-                        regrant_trigger_gate_predicate(_k, obj.controller_id)
-                        for _k in ("attacked_player_has_lowest_life", "spell_from_exile")
+                        regrant_trigger_gate_predicate(_k, obj.controller_id, obj)
+                        for _k in ("attacked_player_has_lowest_life", "spell_from_exile",
+                                   "spell_shares_creature_type_with_source")
                         if ability.params.get(_k)
                     ]
                     if isinstance(ability.params.get("active_if"), dict):

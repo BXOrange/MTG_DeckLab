@@ -138,11 +138,16 @@ its block back into the matching section here.
     (`you_dealt_damage_this_turn_at_least`/`creature_card_to_graveyard_
     this_turn`), peeled off a phase-trigger body as `active_if` and carried
     through the re-grant path (`regrant_active_if_predicate`, ANDed in
-    `_apply_layer_6_ability`) → Cloakwood Hermit / Dragon Cultist. Left
-    (each a distinct mini-project — hand-author + MEC as needed): Acolyte
-    of Bahamut's per-turn-first subtype cost reduction; Folk Hero's "shares
-    a creature type with ~" cast filter; Popular Entertainer's
-    event-player-scoped goad;
+    `_apply_layer_6_ability`) → Cloakwood Hermit / Dragon Cultist.
+    **Cast-shares-type filter + event-player goad** — shipped
+    (PARSER_VERSION 255, +2): `spell_shares_creature_type_with_source`
+    trigger key + `effect_binder` predicate (compares the still-on-stack
+    spell's subtypes with the source; `regrant_trigger_gate_predicate`
+    carries it; `limit` → `once_per_turn` in the re-grant) → Folk Hero;
+    `creature_that_player_controls` target kind + `is_player` on the
+    aggregate combat-damage event + a `goad_that_player` handler → Popular
+    Entertainer. Left (each a distinct mini-project — hand-author + MEC as
+    needed): Acolyte of Bahamut's per-turn-first subtype cost reduction;
     Dungeon Delver (dungeon-room trigger doubling — MEC); Scion of
     Halaster (draw replacement — MEC); Noble Heritage (per-opponent
     protection + interactive per-player — MEC); Shameless Charlatan
