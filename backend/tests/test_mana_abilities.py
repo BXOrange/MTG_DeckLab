@@ -35,6 +35,20 @@ def test_multi_pip_colorless_is_one_option():
     assert mana_options(eldrazi) == [{"C": 2}]
 
 
+def test_filter_land_second_ability_has_a_hybrid_cost_and_three_outputs():
+    # Twilight Mire — the "{B/G}, {T}: Add {B}{B}, {B}{G}, or {G}{G}." line
+    # parses as a second mana ability with a mana cost of its own.
+    mire = land(
+        "Twilight Mire",
+        oracle="{T}: Add {C}.\n{B/G}, {T}: Add {B}{B}, {B}{G}, or {G}{G}.",
+    )
+    abilities = parse_mana_abilities(mire)
+    assert len(abilities) == 2
+    assert abilities[0].options == [{"C": 1}] and not abilities[0].cost.mana.symbols
+    assert abilities[1].cost.mana.raw == "{B/G}"
+    assert abilities[1].options == [{"B": 2}, {"B": 1, "G": 1}, {"G": 2}]
+
+
 def test_any_color_offers_all_five():
     tower = land("Command Tower", oracle="{T}: Add one mana of any color.")
     assert mana_options(tower) == [{"W": 1}, {"U": 1}, {"B": 1}, {"R": 1}, {"G": 1}]

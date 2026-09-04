@@ -192,6 +192,35 @@ def test_advance_solo_bots_terminates_on_a_bot_only_stretch(env):
     assert view["legal_actions"] or view["state"]["game_over"]
 
 
+def test_the_human_is_never_handed_an_empty_priority_window_on_the_bots_turn(env):
+    """A bot's turn is auto-passed for the human server-side: the view only
+    comes back when the human has something to do (its own turn, a block, a
+    real option) — never just to click "pass" through the opponent's upkeep,
+    draw, combat and so on, which read as the table hanging (PLR-14)."""
+    client, decks = env["client"], env["decks"]
+    deck = _legal_deck(decks)
+    view = _start(client, deck.id).json()
+    sid = _session_id(view)
+    client.post(f"/api/solo/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []})
+
+    saw_own_turn_again = False
+    for _ in range(60):
+        view = client.post(f"/api/solo/{sid}/action", json={"type": "pass_priority"}).json()
+        state = view["state"]
+        if state["game_over"]:
+            break
+        # Every view handed back is one the human genuinely has to act on.
+        if state["active_player_id"] != SOLO_HUMAN_ID:
+            only_pass = {a["type"] for a in view["legal_actions"]} <= {"pass_priority"}
+            assert not only_pass, (
+                f"handed an empty pass-only window on the bot's turn: "
+                f"{state['turn_number']}/{state['current_step']}"
+            )
+        elif state["turn_number"] > 1:
+            saw_own_turn_again = True
+    assert saw_own_turn_again  # the loop really did cross a bot turn
+
+
 # -- concede / restart / lifecycle ------------------------------------------
 
 

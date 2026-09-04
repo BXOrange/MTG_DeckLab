@@ -29,9 +29,13 @@ behaviour.
 
 Parsing is intentionally simple — it covers basics, guildgates/duals,
 tri-lands, "add one mana of any colour", "any combination of colours",
-multi-pip lands (`{C}{C}`), and the "for each"/"equal to ... power"
-variable-amount family — and approximates the long tail (filter lands)
-rather than modeling every printed ability. RULE 605.1a excludes any
+multi-pip lands (`{C}{C}`), the "for each"/"equal to ... power"
+variable-amount family, and per-line activation costs, so a **filter
+land**'s ``{B/G}, {T}: Add {B}{B}, {B}{G}, or {G}{G}.`` parses fully (a
+`{B/G}` cost + three production options) — it approximates only the
+genuinely bespoke long tail rather than modeling every printed ability.
+The auto-tap planner treats a filter as a net-positive converter
+(`game/mana_potential.py`). RULE 605.1a excludes any
 ability that requires a target from being a mana ability at all (Deathrite Shaman's
 graveyard-exile abilities produce mana but target, so they're deliberately
 never offered here — they belong on the stack like any other activated

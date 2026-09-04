@@ -51,11 +51,14 @@ router = APIRouter(prefix="/api/solo", tags=["solo"])
 #: nothing mistakes it for a lobby-issued one.
 SOLO_HUMAN_ID = "solo:you"
 
-#: How many times `_advance_solo_bots` may re-invoke `run_bots` after it
-#: yields at its own 200-action cap without the human getting a turn — a
-#: guard against a bot loop, never hit in normal play (one bot turn is a
-#: few dozen actions).
-SOLO_BOT_ADVANCE_ROUNDS = 20
+#: How many times `_advance_solo_bots` may loop — one `run_bots` call plus
+#: (on an opponent's turn) one auto-pass for the human seat per iteration —
+#: before yielding a view back to the client. A full bot turn is ~10 human
+#: priority windows, so this comfortably covers three bots taking their
+#: turns back to back; hitting it just means the client repaints slightly
+#: early and its own auto-pass carries on. A guard against a bot loop, not
+#: an error budget.
+SOLO_BOT_ADVANCE_ROUNDS = 120
 
 #: Solo seats 1 human + 1..MAX_BOTS bots (the engine itself is N-player;
 #: this matches Multiplayer's readable ceiling of four seats).
@@ -183,24 +186,55 @@ def delete_session(
 
 
 def _advance_solo_bots(session: GameSession) -> dict[str, Any]:
-    """Run the bots until the human has something to decide (priority, a
-    pending choice, a block) or the game is over, then return the human's
+    """Run the bots — auto-passing the human seat through any opponent-turn
+    priority window where passing is its *only* legal move — until the human
+    has a real decision (a castable card, a block, a pending choice,
+    priority on its own turn) or the game is over, then return the human's
     view.
 
+    Without the auto-pass, every step of a bot's turn hands an empty
+    priority window (RULE 117.3a) straight back to the client, and the game
+    only creeps forward one 3-second board-side auto-pass countdown at a
+    time — which reads as the table hanging for the whole of the bot's turn.
+    This is the server-side twin of the board's own `autoSkipEmpty`
+    (frontend `settings.js`), always on for solo because a bot opponent
+    gives the human nothing to respond to between turns anyway.
+
     `run_bots` already drains up to `MAX_BOT_ACTIONS` per call and stops the
-    moment the human holds priority (it never acts for a non-bot seat), so
-    one call is almost always enough; the loop only matters if a single bot
-    turn is long enough to hit that cap.
+    moment a non-bot seat holds priority (it never acts for the human), so
+    each loop iteration is roughly one step of a bot's turn.
     """
+    bots = getattr(session, "_solo_bots", {})
     for _ in range(SOLO_BOT_ADVANCE_ROUNDS):
         if session.engine.state.game_over:
             break
-        moved = run_bots(session, getattr(session, "_solo_bots", {}))
+        moved = run_bots(session, bots)
+        if _human_only_passes(session):
+            try:
+                session.apply_action({"type": "pass_priority"}, actor_id=SOLO_HUMAN_ID)
+            except GameActionError:
+                break
+            continue
         if not moved:
             break
         if session.legal_actions(perspective=SOLO_HUMAN_ID):
             break
     return session.view(perspective=SOLO_HUMAN_ID)
+
+
+def _human_only_passes(session: GameSession) -> bool:
+    """Whether the human seat holds priority during an opponent's turn with
+    ``pass_priority`` as its single legal action — the one case it is always
+    safe to pass for them (they are being offered nothing else to do, so
+    there is nothing a pass could cost). On the human's *own* turn, stepping
+    stays theirs to drive."""
+    state = session.engine.state
+    if state.game_over:
+        return False
+    if state.active_player is not None and state.active_player.id == SOLO_HUMAN_ID:
+        return False
+    actions = session.legal_actions(perspective=SOLO_HUMAN_ID)
+    return bool(actions) and all(a.get("type") == "pass_priority" for a in actions)
 
 
 def _session(sessions: GameSessionManager, session_id: str) -> GameSession:

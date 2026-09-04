@@ -872,8 +872,8 @@ export function createGameBoardView(opts = {}) {
 
   async function withBusy(fn) {
     busy = true;
-    render();
     try {
+      render();
       await fn();
     } finally {
       busy = false;
@@ -2567,13 +2567,19 @@ export function createGameBoardView(opts = {}) {
 
   function spellTypeLabel(typeLine) {
     const tl = (typeLine || '').toLowerCase();
+    // NB: match on `tl` (the lower-cased type line), not `t` (the i18n
+    // function) — `t.includes(...)` threw `TypeError: t.includes is not a
+    // function` for every non-creature spell, which bubbled out of
+    // `render()` and, because `withBusy` renders before its try block, left
+    // `busy` stuck true and every control disabled the moment a
+    // non-creature spell hit the stack.
     if (tl.includes('creature')) return t('bd.stack.creatureSpell');
-    if (t.includes('instant')) return 'Spontanzauber';
-    if (t.includes('sorcery')) return 'Hexerei';
-    if (t.includes('planeswalker')) return 'Planeswalker';
-    if (t.includes('artifact')) return 'Artefaktzauber';
-    if (t.includes('enchantment')) return 'Verzauberung';
-    return 'Zauberspruch';
+    if (tl.includes('instant')) return t('bd.stack.instantSpell');
+    if (tl.includes('sorcery')) return t('bd.stack.sorcerySpell');
+    if (tl.includes('planeswalker')) return t('bd.stack.planeswalkerSpell');
+    if (tl.includes('artifact')) return t('bd.stack.artifactSpell');
+    if (tl.includes('enchantment')) return t('bd.stack.enchantmentSpell');
+    return t('bd.stack.genericSpell');
   }
 
   function zoneListHtml(objs, empty) {
@@ -2940,6 +2946,16 @@ export function createGameBoardView(opts = {}) {
     // than a redundant repeated name, the same treatment as Fuse above.
     if (a.face === 'bestow') {
       return a.bestow_cost_label ? ` (Bestow — ${escapeHtml(a.bestow_cost_label)})` : ' (Bestow)';
+    }
+    // RULE 702.37a/702.168a: the morph/disguise offer casts the card FACE
+    // DOWN as a nameless 2/2 for its face-down cost ({3}) — a wholly
+    // different play from the ordinary front-face cast (a separate button
+    // with no `face`). Label it as such so the two aren't mistaken for a
+    // redundant pair of "cast" buttons (which is exactly what
+    // ` — <card name>` looked like).
+    if (a.face === 'face_down') {
+      const kind = a.face_down_kind ? t(`bd.faceDown.${a.face_down_kind}`) : t('bd.faceDown.default');
+      return t('bd.faceHint.faceDown', { kind, cost: a.cost_label || '{3}' });
     }
     return a.face ? ` — ${escapeHtml(a.name)}` : '';
   }

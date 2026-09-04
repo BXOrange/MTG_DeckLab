@@ -265,3 +265,82 @@ def test_is_castable_via_potential_reflects_find_tap_plan():
 
     assert mana_potential.is_castable_via_potential(eng, p1, ManaCost.parse("{G}")) is True
     assert mana_potential.is_castable_via_potential(eng, p1, ManaCost.parse("{G}{G}{G}{G}")) is False
+
+
+# ---------------------------------------------------------------------------
+# Filter lands — "{B/G}, {T}: Add {B}{B}, {B}{G}, or {G}{G}." (Twilight Mire)
+# ---------------------------------------------------------------------------
+
+
+def _filter_land(name="Twilight Mire"):
+    card = Card(
+        id=name, name=name, type_line="Land", is_land=True,
+        oracle_text="{T}: Add {C}.\n{B/G}, {T}: Add {B}{B}, {B}{G}, or {G}{G}.",
+    )
+    obj = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    obj.summoning_sick = False
+    return obj
+
+
+def _run_plan(eng, p1, plan):
+    """Actually activate a plan's steps and hand back the resulting pool."""
+    for step in plan.steps:
+        src = next(o for o in eng.state.battlefield if o.instance_id == step.instance_id)
+        eng.tap_for_mana(
+            p1, src, option_index=step.option_index,
+            ability_index=step.ability_index, color_split=step.color_split,
+        )
+    return p1.mana_pool
+
+
+@pytest.mark.parametrize(
+    "lands, cost",
+    [
+        (["Swamp", "Swamp"], "{G}{G}"),       # filter one Swamp's {B} into {G}{G}
+        (["Forest"], "{G}{G}"),               # Forest -> G, filter it into GG (net +1)
+        (["Swamp"], "{B}{G}"),                # keep a B, filter for the missing G
+        (["Swamp", "Swamp"], "{B}{B}{G}"),    # BB + filter one into BG
+        (["Swamp", "Swamp"], "{1}{G}{G}"),
+    ],
+)
+def test_filter_land_tap_plan_covers_a_cost_only_the_filter_can_reach(lands, cost):
+    eng = _make_engine()
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    for i, basic in enumerate(lands):
+        land = _land(basic, basic[0])
+        land.card.id = f"{basic}-{i}"  # keep instance ids distinct
+        eng.state.add_to_battlefield(land)
+    eng.state.add_to_battlefield(_filter_land())
+
+    plan = mana_potential.find_tap_plan(eng, p1, ManaCost.parse(cost))
+    assert plan is not None, f"{lands} + filter should reach {cost}"
+    # the plan must genuinely execute to a payable pool, not merely be "found"
+    assert _run_plan(eng, p1, plan).can_pay(ManaCost.parse(cost))
+
+
+def test_filter_land_does_not_invent_mana_it_cannot_make():
+    eng = _make_engine()
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    s1 = _land("Swamp", "B")
+    s2 = _land("Swamp", "B")
+    s2.card.id = "Swamp-2"
+    eng.state.add_to_battlefield(s1)
+    eng.state.add_to_battlefield(s2)
+    eng.state.add_to_battlefield(_filter_land())
+
+    # 2 Swamps + one filter is at most 3 mana, and at most 2 of {G}.
+    assert mana_potential.find_tap_plan(eng, p1, ManaCost.parse("{G}{G}{G}")) is None
+    assert mana_potential.find_tap_plan(eng, p1, ManaCost.parse("{4}")) is None
+
+
+def test_filter_land_alone_only_makes_colorless():
+    eng = _make_engine()
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    eng.state.add_to_battlefield(_filter_land())
+
+    # No {B}/{G} anywhere to feed the {B/G} activation cost.
+    assert mana_potential.is_castable_via_potential(eng, p1, ManaCost.parse("{G}")) is False
+    assert mana_potential.is_castable_via_potential(eng, p1, ManaCost.parse("{C}")) is True
