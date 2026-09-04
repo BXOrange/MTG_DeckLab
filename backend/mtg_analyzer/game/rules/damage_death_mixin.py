@@ -203,6 +203,12 @@ class DamageDeathMixin:
         # because players carry no printed protection.
         if is_player and self._player_protected_from_everything(target):
             return
+        # MEC-62 (Noble Heritage): "you gain protection from that player" —
+        # the single-player-scoped sibling just above, checked only when a
+        # source is actually known (an unattributed/sourceless damage event
+        # can't match "controlled by that player" either way).
+        if is_player and source is not None and self._player_protected_from_source_controller(target, source):
+            return
         target_id = target.id if is_player else target.instance_id
         event = GameEvent(
             EventType.DAMAGE,
@@ -932,6 +938,21 @@ class DamageDeathMixin:
         damage", the only half a player can actually be subject to here."""
         return any(
             getattr(e, "player_protected_from_everything", False)
+            for e in player.player_effects
+        )
+    @staticmethod
+    def _player_protected_from_source_controller(player: Player, source: GameObject) -> bool:
+        """RULE 702.16e-adjacent: "you gain protection from [that player]"
+        (Noble Heritage, MEC-62) — the single-player-scoped sibling of
+        `_player_protected_from_everything`: only damage from a source
+        ``player`` doesn't control but the *protected-from* player does is
+        prevented, read off each `PlayerShieldEffect.protected_from_
+        player_id` marker."""
+        source_controller = getattr(source, "controller_id", None)
+        if source_controller is None:
+            return False
+        return any(
+            getattr(e, "protected_from_player_id", None) == source_controller
             for e in player.player_effects
         )
     def gain_life(self, player: Player, amount: int) -> None:

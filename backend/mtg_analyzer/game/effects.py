@@ -18362,6 +18362,19 @@ class PlayerShieldEffect(GameEffect):
     `RulesEngine.gain_life`/`lose_life` (life lock, RULE 119.6) and
     `RulesEngine.deal_damage` (protection from everything, RULE 702.16e);
     swept by `GameEngine.begin_turn` via ``until_next_turn_of``.
+
+    ``protected_from_player_id`` (MEC-62 — Noble Heritage: "you gain
+    protection from that player until your next turn") is the narrower,
+    single-player sibling of ``protection_from_everything`` — only damage
+    from a source *that specific player controls* is prevented
+    (`RulesEngine._player_protected_from_source_controller`), rather than
+    every source. Like ``protection_from_everything`` already does, this
+    only ever covers the damage component (RULE 702.16e's "can't be dealt
+    damage" — the only DEBT letter a player, as opposed to a permanent,
+    is actually subject to in this model); "can't be targeted"/"can't be
+    enchanted by that player's stuff" are the same pre-existing scope gap
+    `protection_from_everything` already has (no consultation site exists
+    for either anywhere in this engine), not something new here.
     """
 
     #: Duck-typed markers the engine scans for, so neither `RulesEngine` nor
@@ -18373,6 +18386,7 @@ class PlayerShieldEffect(GameEffect):
         self,
         life_locked: bool = True,
         protection_from_everything: bool = True,
+        protected_from_player_id: Optional[str] = None,
         until_next_turn_of: Optional[str] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
@@ -18380,10 +18394,68 @@ class PlayerShieldEffect(GameEffect):
         self.life_locked = life_locked
         self.player_life_locked = life_locked
         self.player_protected_from_everything = protection_from_everything
+        self.protected_from_player_id = protected_from_player_id
         self.until_next_turn_of = until_next_turn_of
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # a marker consulted by the engine, never applied itself
+
+
+class EachPlayerMayCounterThenProtectionEffect(GameEffect):
+    """"Each player may put two +1/+1 counters on a creature they control.
+    For each opponent who does, you gain protection from that player until
+    your next turn." (Noble Heritage, MEC-62)
+
+    MVP simplification: this engine has no genuine per-player-in-sequence
+    "may" chooser yet (each of several players independently offered a real
+    optional decision, in turn, before the next clause reads the results) —
+    every living player who controls at least one creature is assumed to
+    accept, the same "auto-chosen, no chooser in MVP" call this codebase
+    already makes for an untargeted optional decision elsewhere
+    (`_discard_instead_of_non_first_draw_replacement`'s own docstring, for
+    Chains of Mephistopheles), and a reasonable one here specifically since
+    accepting is pure upside for every player who's offered it. The
+    counters land on that player's own commander if they control one, else
+    the first creature on the battlefield in board order — deterministic,
+    not a real choice.
+
+    "For each opponent who does" then reads back which opponents actually
+    received counters (only players who controlled a creature at all) and
+    grants this effect's own controller one `PlayerShieldEffect` per such
+    opponent (RULE 611.2b "until your next turn", swept in `GameEngine.
+    begin_turn`) — see that class's own docstring for the damage-only scope
+    "protection from a player" covers here.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        state = context.state
+        accepted: list["Player"] = []
+        for player in state.living_players():
+            creatures = [
+                o for o in state.battlefield
+                if o.controller_id == player.id and o.is_creature
+            ]
+            if not creatures:
+                continue
+            chosen = next((o for o in creatures if o.is_commander), creatures[0])
+            chosen.add_counters("+1/+1", 2)
+            accepted.append(player)
+        if accepted:
+            context.recompute()
+        for player in accepted:
+            if player.id == controller.id:
+                continue
+            controller.player_effects.append(PlayerShieldEffect(
+                life_locked=False, protection_from_everything=False,
+                protected_from_player_id=player.id,
+                until_next_turn_of=controller.id, source=self.source,
+            ))
 
 
 class CopySpellAndBounceEffect(GameEffect):
@@ -23203,6 +23275,15 @@ EffectRegistry.register(
     # consulted by `continuous.dungeon_room_trigger_doubler_bonus`.
     "dungeon_room_trigger_doubler",
     lambda p: StaticAbility("dungeon_room_trigger_doubler", affects="all", params={}),
+)
+EffectRegistry.register(
+    # MEC-62: "Each player may put two +1/+1 counters on a creature they
+    # control. For each opponent who does, you gain protection from that
+    # player until your next turn." (Noble Heritage, PAR-32) — see
+    # `EachPlayerMayCounterThenProtectionEffect`'s own docstring for the
+    # MVP "every player accepts" simplification.
+    "each_player_counter_then_protection",
+    lambda p: EachPlayerMayCounterThenProtectionEffect(),
 )
 EffectRegistry.register(
     "type_change",  # "Lands you control are 0/0 creatures" (layer 4)
