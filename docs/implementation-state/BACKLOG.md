@@ -205,10 +205,20 @@ its block back into the matching section here.
     controller controls whose printed subtypes overlap the source's own
     *live* subtypes (RULE 205.3g), computed at resolve time rather than a
     fixed list so it re-scopes correctly per affected commander creature.
-    Left (each a distinct mini-project — hand-author + MEC as needed):
-    Acolyte of Bahamut's per-turn-first subtype cost reduction; Dungeon
-    Delver (dungeon-room trigger doubling — MEC); Noble Heritage
-    (per-opponent protection + interactive per-player — MEC).
+    **Acolyte of Bahamut's per-turn-first subtype cost reduction** —
+    shipped (PARSER_VERSION 261, +1, hand-authored — MEC-60): the granted
+    `cost_reduction` static (MEC-55's `grant_static_ability`) is entirely
+    existing machinery — `spell_subtype`/`active_if` params
+    `continuous.cost_reduction_for` already read — gated by a new
+    `static_conditions` kind `first_subtype_spell_this_turn` + a new
+    `GameState.creature_type_spells_cast_this_turn` tracker (per-player
+    lowercase subtype words among every spell cast this turn, populated in
+    `RulesEngine._track_spell_cast` off the cast object's *live* subtypes,
+    which the SPELL_CAST event's own `object_types` never carries — main
+    card types only). Left (each a distinct mini-project — hand-author +
+    MEC as needed): Dungeon Delver (dungeon-room trigger doubling — MEC);
+    Noble Heritage (per-opponent protection + interactive per-player —
+    MEC).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
     `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate

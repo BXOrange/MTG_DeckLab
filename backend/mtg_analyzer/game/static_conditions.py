@@ -152,6 +152,12 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # Cultist) — new per-turn `GameState` trackers.
         "creature_card_to_graveyard_this_turn",
         "you_dealt_damage_this_turn_at_least",
+        # MEC-60 (Acolyte of Bahamut): "The first `<subtype>` spell you cast
+        # each turn costs `{N}` less to cast." + ``subtype`` — a
+        # `cost_reduction` ``active_if`` gate, true only while `controller_
+        # id` hasn't yet cast a spell of that creature subtype this turn
+        # (`GameState.creature_type_spells_cast_this_turn`).
+        "first_subtype_spell_this_turn",
         # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
         # No ``of`` subject: "you" in "as long as you're the monarch" always
         # means the static's controller, the same read `your_turn` already
@@ -476,6 +482,17 @@ def condition_holds(
         # graveyard_this_turn`, a set of owner ids.
         seen = getattr(state, "creature_card_to_graveyard_this_turn", None) or set()
         return controller_id in seen
+    if kind == "first_subtype_spell_this_turn":
+        # MEC-60 (Acolyte of Bahamut): "The first Dragon spell you cast each
+        # turn costs {2} less to cast." True until `controller_id` has cast
+        # a spell carrying this subtype this turn — checked at cost-
+        # computation time, before the spell being priced is itself
+        # recorded (`RulesEngine._track_spell_cast` only tallies a cast
+        # *after* it commits), so the spell that actually earns the
+        # discount is always "the first" by construction.
+        seen = getattr(state, "creature_type_spells_cast_this_turn", None) or {}
+        subtype = str(condition.get("subtype", "")).lower()
+        return subtype not in seen.get(controller_id, set())
     if kind == "subtype_in_graveyard":
         # PAR-30: "as long as there's a `<subtype>` card in your graveyard."
         # A live scan of the controller's graveyard for a card whose type

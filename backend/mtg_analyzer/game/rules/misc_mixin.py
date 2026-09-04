@@ -1823,6 +1823,14 @@ class MiscSystemsMixin:
             if obj is not None:
                 colors = self.state.spell_colors_cast_this_turn.setdefault(player_id, set())
                 colors.update(obj.colors)
+                # MEC-60 (Acolyte of Bahamut): "the first Dragon spell you
+                # cast each turn …" — read the cast object's *subtypes*
+                # (after the printed em dash), which ``object_types`` above
+                # never carries (main card types only).
+                subtypes = obj.card.type_line.partition("—")[2].strip().lower().split()
+                if subtypes:
+                    seen = self.state.creature_type_spells_cast_this_turn.setdefault(player_id, set())
+                    seen.update(subtypes)
     def arm_spell_watcher(
         self,
         player: Player,

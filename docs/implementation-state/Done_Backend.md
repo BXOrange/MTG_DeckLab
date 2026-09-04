@@ -1910,6 +1910,15 @@ is in the rules-engine categories below them.
 - **Files:** `game/effects.py` (`PumpEffect.apply`'s new selector branch), `game/ability_catalogue/entries_016.py` (`_haunted_one`), `tests/test_par32_haunted_one.py`
 - **Yield:** +1 (Haunted One). Part of PAR-32.
 
+### Per-Turn-First Subtype Cost Reduction — MEC-60
+
+- **What:** "X have '`<static ability>`'" where the quoted body is a cost reduction gated on RULE 601.2f's "the first `<subtype>` spell" pattern — Acolyte of Bahamut: `Commander creatures you own have "The first Dragon spell you cast each turn costs {2} less to cast."`. The granted static itself needed no new plumbing at all — `cost_reduction`'s `spell_subtype` filter (Eye of Ugin's "Colorless Eldrazi spells…") and `active_if` gate (MEC-12's Tithe Taker fix) already existed, and MEC-55's `grant_static_ability` already grants a nested `cost_reduction` correctly. What was missing was a `static_conditions` kind for "haven't cast one of these yet this turn":
+  - New `first_subtype_spell_this_turn` condition (+ `subtype` param): true until the controller has cast a spell carrying that creature-subtype word this turn — read from a new `GameState.creature_type_spells_cast_this_turn` tracker (`{player_id: {subtype, ...}}`, cleared in `begin_turn`).
+  - Populated generically in `RulesEngine._track_spell_cast` (the existing `SPELL_CAST` subscriber, already the choke point for `spells_cast_this_turn`/`noncreature_spells_cast_this_turn`/`cast_instant_or_sorcery_this_turn`) — reads the just-cast object's *subtypes* (after the printed em dash), which the event's own `object_types` field never carries (main card types only, `GameObject.type_words`). Checked at cost-computation time, before the spell being priced is itself recorded, so the spell that actually earns the discount is correctly "the first" by construction — a second Dragon spell the same turn sees the tracker already populated and gets no reduction.
+  - Hand-authored (`game/ability_catalogue/entries_016.py`) since composing an existing static + a new condition kind for one card doesn't warrant widening `_quoted_ability_grant_effects_list`'s grammar.
+- **Files:** `game/static_conditions.py` (`first_subtype_spell_this_turn`), `models/game_state.py` (`creature_type_spells_cast_this_turn`), `game/engine/turn_loop_mixin.py` (`begin_turn` clear), `game/rules/misc_mixin.py` (`_track_spell_cast`), `game/ability_catalogue/entries_016.py` (`_acolyte_of_bahamut`), `tests/test_par32_acolyte_of_bahamut.py`
+- **Yield:** +1 (Acolyte of Bahamut). Part of PAR-32.
+
 ### Per-Count Static Anthem Multiplier
 
 - **What:** Layer 7d `pt_mod` gained optional `power_count`/`toughness_count` params for "+1/+1 for each land you control" (Blackblade Reforged, reusing the controller-scoped count-selector vocabulary), a per-object `_equipment_attached_count` for "+2/+0 for each Equipment attached to *it*" (Bruenor Battlehammer), and a `plus_one_counters_on_self` selector (Lion Sash).

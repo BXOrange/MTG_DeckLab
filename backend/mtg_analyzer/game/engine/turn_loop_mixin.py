@@ -269,6 +269,9 @@ class TurnLoopMixin:
         # MEC-57: "the first time you would draw a card each turn, instead
         # …" (Scion of Halaster) — game-wide, same reason.
         self.state.first_draw_replaced_this_turn.clear()
+        # MEC-60: "the first `<subtype>` spell you cast each turn …"
+        # (Acolyte of Bahamut) — game-wide, same reason.
+        self.state.creature_type_spells_cast_this_turn.clear()
         # MEC-49 history ("whenever a creature dealt damage by ~ this turn
         # dies", Baron Sengir) — game-wide, same reason.
         self.state.creatures_damaged_by_source_this_turn.clear()

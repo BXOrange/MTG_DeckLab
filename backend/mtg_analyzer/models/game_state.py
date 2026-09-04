@@ -1003,6 +1003,17 @@ class GameState:
         #: this_step` (which resets every *draw step*, not every turn).
         #: Cleared game-wide in `GameEngine.begin_turn`.
         self.first_draw_replaced_this_turn: set[str] = set()
+        #: MEC-60: each player's own creature-*subtype* words (lowercase)
+        #: among every spell they've cast this turn — ``{player_id:
+        #: {subtype, ...}}`` — the general "have you cast a `<subtype>`
+        #: spell yet this turn" tracker `static_conditions`'
+        #: ``first_subtype_spell_this_turn`` reads (Acolyte of Bahamut:
+        #: "The first Dragon spell you cast each turn costs {2} less").
+        #: Populated in `RulesEngine._track_spell_cast` off the just-cast
+        #: object's live subtypes (not the SPELL_CAST event's own
+        #: ``object_types``, which only carries *main* card types); cleared
+        #: game-wide in `GameEngine.begin_turn`.
+        self.creature_type_spells_cast_this_turn: dict[str, set[str]] = {}
         #: How many creatures have died under each player's control *this
         #: turn* (RULE 700.4) — ``{player_id: count}``, incremented off the
         #: `DIES` event by `RulesEngine._track_creature_death` and cleared
