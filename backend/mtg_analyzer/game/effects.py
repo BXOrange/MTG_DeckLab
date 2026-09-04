@@ -15883,8 +15883,34 @@ class PumpEffect(GameEffect):
                 selector = context.previous_selector
                 if not selector:
                     return
-            controller_id = getattr(self.source, "controller_id", None)
-            group = group_selector_objects(context.state, controller_id, selector, src=self.source)
+            if selector == "self_and_shared_creature_type_you_control":
+                # MEC-59: RULE 205.3g "shares a creature type with ~" —
+                # "it and other creatures you control that share a
+                # creature type with it" (Haunted One) is self **plus**
+                # every *other* creature this source's controller controls
+                # whose printed subtypes overlap the source's own — read
+                # directly off the source's *live* subtypes rather than a
+                # fixed list, unlike every other selector here (which all
+                # take their subtype filter from `self.subtypes`, a param
+                # baked in at parse time).
+                src = self.source
+                if src is None:
+                    return
+                own_subtypes = set(
+                    src.card.type_line.partition("—")[2].strip().lower().split()
+                )
+                group = [src] + [
+                    obj for obj in context.state.battlefield
+                    if obj is not src
+                    and obj.controller_id == src.controller_id
+                    and obj.is_creature
+                    and own_subtypes & set(
+                        obj.card.type_line.partition("—")[2].strip().lower().split()
+                    )
+                ]
+            else:
+                controller_id = getattr(self.source, "controller_id", None)
+                group = group_selector_objects(context.state, controller_id, selector, src=self.source)
             if self.subtypes is not None:
                 group = [
                     obj for obj in group

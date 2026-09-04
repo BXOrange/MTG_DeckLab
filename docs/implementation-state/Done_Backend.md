@@ -1902,6 +1902,14 @@ is in the rules-engine categories below them.
 - **Files:** `game/effects.py` (`ImpulsiveDrawEffect.apply`, `GameContext.exile_with_play_permission`, `PumpEffect.amount_from_created_object_mana_value`), `game/ability_catalogue/entries_016.py` (`_tavern_brawler`), `tests/test_par32_tavern_brawler.py`
 - **Yield:** +1 (Tavern Brawler). Part of PAR-32.
 
+### Becomes-Tapped Tribal Pump — MEC-59
+
+- **What:** "X have '`<static ability>`'" where the quoted body is a granted `TAPPED` trigger pumping a *dynamic* tribal group — Haunted One: `Commander creatures you own have "Whenever this creature becomes tapped, it and other creatures you control that share a creature type with it each get +2/+0 and gain undying until end of turn."`. RULE 603.2's "becomes tapped" (`EventType.TAPPED`) was already grantable-shaped — `continuous._granted_trigger_condition`'s default `instance_id` key (`_GRANTED_EVENT_KEYS`) already scopes it correctly per affected object, the same self-subject convention every other RULE 603.1 object-subject grant uses (no engine change needed for the trigger side at all). What was missing was the *group*: "it and other creatures you control that share a creature type with it" reads the granting object's own live subtypes, not a fixed list — `PumpEffect`'s existing `subtypes` filter (and every `selector` this file already had) only ever checks against subtypes baked in at parse time.
+  - New `PumpEffect` selector `self_and_shared_creature_type_you_control`: self plus every other creature the same controller controls whose printed subtypes (`Card.type_line`, the same "after the em dash" reading `PumpEffect.subtypes`/`AddCountersEffect.subtypes` already use) overlap the source's own, computed fresh at resolve time — so a single grant re-scopes correctly per affected commander creature (a Zombie commander pumps Zombies, an Elf commander pumps Elves) without any card-specific code.
+  - Hand-authored (`game/ability_catalogue/entries_016.py`): the "it **and** other creatures … that share a creature type with it" compound subject is outside `static_handlers._quoted_ability_grant_effects_list`'s recursion (built for a single RULE 603.1 subject, not a self-plus-dynamic-group one).
+- **Files:** `game/effects.py` (`PumpEffect.apply`'s new selector branch), `game/ability_catalogue/entries_016.py` (`_haunted_one`), `tests/test_par32_haunted_one.py`
+- **Yield:** +1 (Haunted One). Part of PAR-32.
+
 ### Per-Count Static Anthem Multiplier
 
 - **What:** Layer 7d `pt_mod` gained optional `power_count`/`toughness_count` params for "+1/+1 for each land you control" (Blackblade Reforged, reusing the controller-scoped count-selector vocabulary), a per-object `_equipment_attached_count` for "+2/+0 for each Equipment attached to *it*" (Bruenor Battlehammer), and a `plus_one_counters_on_self` selector (Lion Sash).

@@ -196,11 +196,19 @@ its block back into the matching section here.
     trigger_event`/`amount_from_count_selector` which set both stats).
     `GameContext.exile_with_play_permission` had to start returning the
     exiled objects (was ``-> None``, discarding them) for any of this to be
-    reachable. Left (each a distinct mini-project — hand-author + MEC as
-    needed): Acolyte of Bahamut's per-turn-first subtype cost reduction;
-    Dungeon Delver (dungeon-room trigger doubling — MEC); Noble Heritage
-    (per-opponent protection + interactive per-player — MEC); Haunted One
-    (becomes-tapped tribal pump).
+    reachable. **Haunted One's becomes-tapped tribal pump** — shipped
+    (PARSER_VERSION 260, +1, hand-authored — MEC-59): a granted `TAPPED`
+    trigger (RULE 603.2, already grantable-shaped — self-subject,
+    `instance_id`-keyed, same as every other RULE 603.1 object-subject
+    grant) whose pump uses a new `PumpEffect` selector `self_and_shared_
+    creature_type_you_control` — self plus every *other* creature the same
+    controller controls whose printed subtypes overlap the source's own
+    *live* subtypes (RULE 205.3g), computed at resolve time rather than a
+    fixed list so it re-scopes correctly per affected commander creature.
+    Left (each a distinct mini-project — hand-author + MEC as needed):
+    Acolyte of Bahamut's per-turn-first subtype cost reduction; Dungeon
+    Delver (dungeon-room trigger doubling — MEC); Noble Heritage
+    (per-opponent protection + interactive per-player — MEC).
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
     `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate
