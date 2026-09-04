@@ -454,10 +454,16 @@ class CombatMixin:
                 entry = player_hits.setdefault(
                     key, {
                         "max_power": 0, "amount": 0, "subtypes": set(), "is_commander": False,
-                        "power_gt_base": False,
+                        "power_gt_base": False, "any_nontoken": False,
                     }
                 )
                 entry["max_power"] = max(entry["max_power"], source.power or 0)
+                # "whenever **1 or more nontoken creatures** you control deal
+                # combat damage to a player" (Feywild Visitor's granted
+                # trigger) — true once any contributor to this pair is a
+                # nontoken creature (RULE 111.9).
+                if not getattr(source, "is_token", False):
+                    entry["any_nontoken"] = True
                 # "…each with power greater than its base power…" (Kutzil,
                 # Malamet Exemplar, MEC-40) — "base power" is the printed
                 # value (`Card.power`, already the *copied* value for a
@@ -512,6 +518,7 @@ class CombatMixin:
                     subtypes=sorted(entry["subtypes"]),
                     contributor_is_commander=entry["is_commander"],
                     contributor_power_gt_base=entry["power_gt_base"],
+                    contributor_any_nontoken=entry["any_nontoken"],
                 )
             )
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:

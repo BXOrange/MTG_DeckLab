@@ -86,7 +86,7 @@ from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, DEVOTION, count_of, devoti
 #: `_PLAYER_SUBJECT_GRANTED_EVENTS` documents.
 _GRANTABLE_TRIGGER_EVENTS = frozenset(
     {"ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE",
-     "STEP_BEGIN", "LIFE_GAINED", "SPELL_CAST"}
+     "STEP_BEGIN", "LIFE_GAINED", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"}
 )
 #: PAR-32: trigger-dict gate keys that survive re-granting unchanged — a
 #: filter on the firing event, not on any host-relative state. Passed
@@ -1889,13 +1889,14 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
         # so only the two scoped forms are claimed (fail-closed).
         if trigger.get("phase_relation") not in ("you", "not_you"):
             return None
-    elif event in ("LIFE_GAINED", "SPELL_CAST"):
+    elif event in ("LIFE_GAINED", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"):
         # A player-subject condition (`{"subject": "you"}`) rather than the
-        # object-subject the `elif` below requires — RULE 119.3's "Whenever
-        # **you** gain life, …" / "Whenever **you** cast a spell …"
-        # (Passionate Archaeologist). `game/continuous.py`'s
-        # `_granted_trigger_condition` resolves "you" against the granted-to
-        # permanent's own controller once regranted
+        # object-subject the `elif` below requires — "Whenever **you** gain
+        # life …" / "Whenever **you** cast a spell …" (Passionate
+        # Archaeologist) / "Whenever 1 or more creatures **you control**
+        # deal combat damage to a player …" (Feywild Visitor). `game/
+        # continuous.py`'s `_granted_trigger_condition` resolves "you"
+        # against the granted-to permanent's own controller once regranted
         # (`_PLAYER_SUBJECT_GRANTED_EVENTS`).
         if trigger.get("condition") != {"subject": "you"}:
             return None

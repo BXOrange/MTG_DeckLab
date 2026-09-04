@@ -1383,7 +1383,9 @@ _GRANTED_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id", "COUNTER": "target
 #: granted-to permanent's own controller (the same "resolve 'your' against
 #: `target`, not the granting source's controller" rule `phase_relation`
 #: documents below).
-_PLAYER_SUBJECT_GRANTED_EVENTS = frozenset({"LIFE_GAINED", "SPELL_CAST"})
+_PLAYER_SUBJECT_GRANTED_EVENTS = frozenset(
+    {"LIFE_GAINED", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"}
+)
 
 
 def _granted_trigger_condition(

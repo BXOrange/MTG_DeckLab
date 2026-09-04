@@ -292,6 +292,13 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # this exact shape, only the oracle-text recognition was missing.
     (re.compile(r"^1 or more creatures you control deal combat damage to a player$"),
      "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"),
+    # "…1 or more **nontoken** creatures you control…" (Feywild Visitor's
+    # granted trigger) — same aggregate event, gated on the
+    # ``contributor_any_nontoken`` flag the combat step now stamps (RULE
+    # 111.9). Carried as a trailing filter marker `_player_trigger_event`'s
+    # caller lifts onto the trigger dict.
+    (re.compile(r"^1 or more nontoken creatures you control deal combat damage to a player$"),
+     ("CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", {"contributor_any_nontoken": True})),
     # RULE 701.30: "Whenever you clash, …" (Entangling Trap/Rebellion of the
     # Flamekin) and its favourable-outcome sibling "Whenever you win a
     # clash, …" (Marvo, Deep Operative) / "Whenever you clash and win, …"
@@ -4840,6 +4847,11 @@ def segment_line(
             # same one-spec-per-event shape as the compound above, but every
             # spec carries the ``{"subject": "you"}`` scoping that makes it
             # this controller's scry rather than anybody's.
+            # A `(event_name, filter_dict)` tuple carries an aggregate-event
+            # gate ("1 or more **nontoken** creatures …" — Feywild Visitor).
+            player_event_filter: Optional[dict[str, Any]] = None
+            if isinstance(player_event, tuple):
+                player_event, player_event_filter = player_event
             body, optional = _peel_optional(trig.group("body"))
             # "Whenever you gain life, **~** gets +X/+X …" (Field-Tested
             # Frying Pan's granted ability, Ageless Entity) — a player-
@@ -4859,6 +4871,7 @@ def segment_line(
                         "event": event_name,
                         "condition": {"subject": "you"},
                         **({"limit": True} if limit else {}),
+                        **({"filter": dict(player_event_filter)} if player_event_filter else {}),
                     },
                     optional=optional,
                     raw_text=raw,

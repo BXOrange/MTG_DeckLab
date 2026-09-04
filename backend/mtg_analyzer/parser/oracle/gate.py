@@ -2477,7 +2477,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: ``rider`` kind (`RulesEngine.apply_prevent_rider` — a fixed count of 1,
 #: unscaled by the prevented amount; the 0/0 base + RULE 704.5g SBA
 #: finishes them once the last counter goes). +7.
-PARSER_VERSION = "252"
+PARSER_VERSION = "253"
 
 
 def parser_source_hash() -> str:

@@ -1469,7 +1469,11 @@ def _blink_non_subtype(m: re.Match[str]) -> list[EffectSpec]:
 #: its own pattern either).
 _BLINK_PLAIN_RE = _c(
     r"exile (?:up to (?P<up_to>one|[0-9]+) )?(?:another )?target "
-    r"(?P<kind>nonland permanent|permanent|creature) you control, "
+    # "…target **tapped** creature you control…" (Far Traveler's granted
+    # end-step blink) — a state filter on the target, `BlinkEffect.
+    # creature_filter` (the same param `_blink_non_subtype` uses for its
+    # subtype exclusion).
+    r"(?P<tapped>tapped )?(?P<kind>nonland permanent|permanent|creature) you control, "
     r"then return (?:that card|it) to the battlefield under (?P<who>your|its owner'?s) control"
 )
 
@@ -1484,6 +1488,8 @@ def _blink_plain(m: re.Match[str]) -> list[EffectSpec]:
     params: dict = {"target_kind": target_kind}
     if m.group("who") == "your":
         params["under_your_control"] = True
+    if m.group("tapped"):
+        params["creature_filter"] = {"tapped": True}
     up_to = m.group("up_to")
     if up_to:
         params["optional"] = True

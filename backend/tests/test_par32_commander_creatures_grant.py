@@ -338,3 +338,39 @@ def test_passionate_archaeologist_regrant_fires_on_cast_from_exile():
     st.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1", instance_id=2,
                             spell="Y", mana_value=3, from_exile=True, from_hand=False))
     assert eng.rules.put_triggers_on_stack() == 1
+
+
+# --- slice 5: end-step blink filter + nontoken batch combat damage ---
+
+
+def test_far_traveler_granted_end_step_blink():
+    specs = static_effect_specs(
+        'commander creatures you own have "at the beginning of your end step, '
+        'exile up to 1 target tapped creature you control, then return it to '
+        'the battlefield under its owner\'s control."'
+    )
+    assert specs is not None and len(specs) == 1
+    p = specs[0].params
+    assert p["trigger_event"] == "STEP_BEGIN" and p["filter"] == {"step": "end"}
+    blink = p["grant_effects"][0]
+    assert blink["type"] == "blink"
+    assert blink["params"]["creature_filter"] == {"tapped": True}
+    assert blink["params"]["target_count_max"] == 1
+
+
+def test_feywild_visitor_nontoken_batch_combat_damage():
+    specs = static_effect_specs(
+        'commander creatures you own have "whenever 1 or more nontoken '
+        'creatures you control deal combat damage to a player, you create a '
+        '1/1 blue faerie dragon creature token with flying."'
+    )
+    assert specs is not None and len(specs) == 1
+    p = specs[0].params
+    assert p["trigger_event"] == "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"
+    assert p["filter"] == {"contributor_any_nontoken": True}
+    # the bare form has no such filter
+    bare = static_effect_specs(
+        'commander creatures you own have "whenever 1 or more creatures you '
+        'control deal combat damage to a player, draw a card."'
+    )
+    assert bare is not None and "filter" not in bare[0].params

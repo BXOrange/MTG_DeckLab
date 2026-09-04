@@ -125,13 +125,24 @@ its block back into the matching section here.
     event gates (`spell_from_exile` — new `SPELL_CAST` event field +
     `effect_binder.regrant_trigger_gate_predicate`); `damage_spell_mv`
     handler ("deals damage equal to that spell's mana value"). Closes
-    Passionate Archaeologist. Left: **cast-spell triggers** (Acolyte of
-    Bahamut's cost reduction / Folk Hero's "shares a creature type with ~"
-    filter); **combat-damage triggers** (Feywild Visitor's nontoken
-    filter / Popular Entertainer's event-player-scoped goad); and a
-    bespoke tail (Dungeon Delver / Scion of Halaster / Shameless Charlatan
-    / Noble Heritage / Haunted One / Tavern Brawler / Master Chef's
-    twin-body).
+    Passionate Archaeologist. **End-step blink + nontoken batch combat
+    damage** — shipped (PARSER_VERSION 253, +3): `_BLINK_PLAIN_RE` gained
+    a `tapped` target-state filter (`BlinkEffect.creature_filter`) →
+    Far Traveler; `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` joined
+    `_GRANTABLE_TRIGGER_EVENTS` / `_PLAYER_SUBJECT_GRANTED_EVENTS`, and the
+    combat step now stamps `contributor_any_nontoken` so "1 or more
+    **nontoken** creatures …" gates → Feywild Visitor. Left (each a
+    distinct mini-project — hand-author + MEC as needed): Acolyte of
+    Bahamut's per-turn-first subtype cost reduction; Folk Hero's "shares a
+    creature type with ~" cast filter; Popular Entertainer's
+    event-player-scoped goad; Cloakwood Hermit / Dragon Cultist's
+    end-step intervening-if conditions (new `static_conditions`);
+    Dungeon Delver (dungeon-room trigger doubling — MEC); Scion of
+    Halaster (draw replacement — MEC); Noble Heritage (per-opponent
+    protection + interactive per-player — MEC); Shameless Charlatan
+    (permanent become-copy activated); Haunted One (becomes-tapped tribal
+    pump); Tavern Brawler (impulse + pump-from-exiled-mv); Master Chef's
+    twin-body enters-with-counter grant.
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
     `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate
