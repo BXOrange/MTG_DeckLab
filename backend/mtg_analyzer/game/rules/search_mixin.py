@@ -1558,6 +1558,10 @@ class SearchMixin:
     ) -> None:
         if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
             obj.summoning_sick = True
+            # RULE 614.1: a permanent's own "enters with" replacement applies
+            # no matter whether it was cast or put onto the battlefield.
+            self._apply_entry_counters(obj)
+            self._apply_granted_entry_counters(obj)
             if obj.is_land and destination == "battlefield":
                 # RULE 614.1 (bug report, 2026-09-04): an *unqualified*
                 # "put it onto the battlefield" (Wooded Foothills/Prismatic
