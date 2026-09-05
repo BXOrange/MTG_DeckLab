@@ -2843,9 +2843,13 @@ export function createGameBoardView(opts = {}) {
       ? `<img src="${imageUrl}" alt="${escapeHtml(o.name)}" loading="lazy" />`
       : escapeHtml(o.name);
     const classes = ['card'];
+    // RULE 302.6 only matters for a creature permanent on the battlefield.
+    // A creature with Haste must never carry the visual marker.
+    const hasHaste = (o.keywords || []).some((keyword) => keyword.toLowerCase() === 'haste');
+    const isSummoningSick = o.zone === 'battlefield' && o.is_creature && o.summoning_sick && !hasHaste;
     if (imageUrl) classes.push('has-image');
     if (o.tapped) classes.push('tapped');
-    if (o.summoning_sick) classes.push('summoning-sick');
+    if (isSummoningSick) classes.push('summoning-sick');
     if (o.attacking) classes.push('attacking');
     // RULE 115/601.2c: this object is the chosen target of something
     // currently on the stack — `updateTargetOverlays` (called once per
@@ -2871,15 +2875,11 @@ export function createGameBoardView(opts = {}) {
     const attackBadge = o.attacking
       ? `<span class="gf-attacking-badge">⚔️${o.combat_defender ? ` ${escapeHtml(o.combat_defender.label || '')}` : ''}</span>`
       : '';
-    // RULE 302.6: summoning sickness only ever restricts a *creature*
-    // (`_summoning_sick_for_tap` in `combat_mixin.py` is itself gated on
-    // `is_creature` — a mana rock/land keeps the raw flag too but is never
-    // actually restricted by it), so the badge is gated the same way rather
-    // than firing off the raw `o.summoning_sick` flag alone. Inset in the
+    // RULE 302.6: only an actually restricted creature gets a badge. Inset in the
     // top-right corner (not an overhanging pill like the loyalty/battle/
     // attacking badges) so it never collides with them on a hasty attacker
     // that's still nominally summoning-sick.
-    const summoningSickBadge = (o.is_creature && o.summoning_sick)
+    const summoningSickBadge = isSummoningSick
       ? `<span class="gf-sick-badge" title="${escapeAttr(t('bd.badge.summoningSickTitle'))}">💤</span>`
       : '';
     // RULE 115/601.2c: a 🎯 centered on the card for anything currently

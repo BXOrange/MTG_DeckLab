@@ -220,6 +220,10 @@ class Player:
         if zone not in self.zones:
             raise ValueError(f"{zone} is not a personal zone")
         obj.zone = zone
+        # RULE 302.6 only applies while the object is a creature permanent on
+        # the battlefield.  Do not carry a purely battlefield UI/gameplay
+        # marker into a hand, command zone, or any other personal zone.
+        obj.summoning_sick = False
         self.zones[zone].append(obj)
 
     def remove_from_zone(self, obj: GameObject, zone: Zone) -> None:

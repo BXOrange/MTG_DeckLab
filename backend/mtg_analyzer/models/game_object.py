@@ -1709,6 +1709,19 @@ class GameObject:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the instance's game state (for the wire protocol)."""
+        display_keywords = _combat_display_keywords(
+            self.card, self._granted_keywords | self.intrinsic_keywords,
+            self._removed_keywords, self._granted_protections
+        )
+        # A summoning-sickness marker has meaning only for a creature
+        # permanent. Haste removes the restriction immediately (RULE 702.10),
+        # including a Haste grant applied after the permanent entered.
+        is_summoning_sick = (
+            self.zone == Zone.BATTLEFIELD
+            and self.is_creature
+            and self.summoning_sick
+            and "Haste" not in display_keywords
+        )
         return {
             "instance_id": self.instance_id,
             "card_id": self.card.id,
@@ -1725,7 +1738,7 @@ class GameObject:
             # showing the back. The frontend's "🔄 peek other face" toggle
             # uses this to decide whether to offer the button at all.
             "has_back_face": self._front_card.has_back_face,
-            "summoning_sick": self.summoning_sick,
+            "summoning_sick": is_summoning_sick,
             "phased_out": self.phased_out,
             "damage_marked": self.damage_marked,
             "power": self.power,
@@ -1825,10 +1838,7 @@ class GameObject:
             # time: `game.combat` is pure (no runtime model imports), so this
             # reads keywords without turning the model→game boundary into an
             # import cycle.
-            "keywords": _combat_display_keywords(
-                self.card, self._granted_keywords | self.intrinsic_keywords,
-                self._removed_keywords, self._granted_protections
-            ),
+            "keywords": display_keywords,
             "counters": dict(self.counters),
             "attached_to": self.attached_to,
             # Layer-by-layer record of static effects that reshaped this object

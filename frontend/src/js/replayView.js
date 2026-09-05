@@ -760,7 +760,8 @@ export function createReplayView() {
     if (isToken) classes.push('is-token');
     const pt = o.power != null && o.toughness != null ? `${o.power}/${o.toughness}` : '';
     const counters = Object.entries(o.counters || {});
-    const sick = o.is_creature && o.summoning_sick;
+    const hasHaste = (o.keywords || []).some((keyword) => keyword.toLowerCase() === 'haste');
+    const sick = o.zone === 'battlefield' && o.is_creature && o.summoning_sick && !hasHaste;
     const badges = [
       pt ? `<span class="replay-badge">${escapeHtml(pt)}</span>` : '',
       o.loyalty != null ? `<span class="replay-badge">♦${o.loyalty}</span>` : '',
@@ -780,7 +781,7 @@ export function createReplayView() {
           <button type="button" data-card-act="plus" title="+1/+1 Marke">＋</button>
           <button type="button" data-card-act="minus" title="−1/−1 Marke">−</button>
           <button type="button" data-card-act="counter" title="${escapeAttr(t('rp.counterAnyTitle'))}">✦</button>
-          ${o.is_creature ? `<button type="button" data-card-act="sick" class="${sick ? 'active' : ''}" title="${escapeAttr(t('rp.sickToggleTitle'))}">💤</button>` : ''}
+          ${o.zone === 'battlefield' && o.is_creature ? `<button type="button" data-card-act="sick" class="${sick ? 'active' : ''}" title="${escapeAttr(t('rp.sickToggleTitle'))}">💤</button>` : ''}
           <button type="button" data-card-act="remove" title="${escapeAttr(t('rp.removeTitle'))}">✕</button>
         </div>
       </div>`;
