@@ -379,7 +379,7 @@ class AbilitySpec:
     #: fast-path handler class"). ``name`` is a catalogue slug (RULE 702.x).
     keyword: Optional[dict[str, Any]] = None
     #: A modal "Choose one —" block (RULE 700.2), ``spell_effect`` or
-    #: ``triggered``: ``{"or_both": bool, "at_least": bool, "choose": int,
+    #: ``triggered``: ``{"or_both": bool, "at_least": bool, "repeatable": bool, "choose": int,
     #: "options": [[EffectSpec, ...], ...], "descriptions": [str, ...]}`` —
     #: one entry per printed mode, in printed order. ``or_both`` is RULE
     #: 700.2e ("Choose one or both —"): the engine also offers casting/
@@ -749,6 +749,12 @@ class AbilitySpec:
             )
         if self.modes.get("or_both") and self.modes.get("at_least"):
             raise SpecValidationError("'modes' or_both and at_least are mutually exclusive")
+        if self.modes.get("repeatable") and (
+            self.modes.get("or_both") or self.modes.get("at_least") or choose < 2
+        ):
+            raise SpecValidationError(
+                "'modes' repeatable requires a fixed 'choose N' block where N >= 2"
+            )
         if self.modes.get("optional") and (
             self.modes.get("or_both") or self.modes.get("at_least") or choose != 1
         ):
@@ -1142,6 +1148,7 @@ class AbilitySpec:
         return {
             "or_both": bool(self.modes.get("or_both", False)),
             "at_least": bool(self.modes.get("at_least", False)),
+            "repeatable": bool(self.modes.get("repeatable", False)),
             "choose": int(self.modes.get("choose", 1)),
             "options": [[e.to_dict() for e in opt] for opt in self.modes.get("options", [])],
             "descriptions": list(self.modes.get("descriptions") or []),
@@ -1155,6 +1162,7 @@ class AbilitySpec:
         return {
             "or_both": bool(data.get("or_both", False)),
             "at_least": bool(data.get("at_least", False)),
+            "repeatable": bool(data.get("repeatable", False)),
             "choose": int(data.get("choose", 1)),
             "options": [
                 [EffectSpec.from_dict(e) for e in opt] for opt in (data.get("options") or [])

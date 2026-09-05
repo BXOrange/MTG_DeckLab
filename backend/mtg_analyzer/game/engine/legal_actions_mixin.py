@@ -513,6 +513,7 @@ class LegalActionsMixin:
         modes = list(getattr(obj, "spell_modes", None) or [])
         choose = getattr(obj, "spell_modes_choose", 1)
         at_least = getattr(obj, "spell_modes_at_least", False)
+        repeatable = getattr(obj, "spell_modes_repeatable", False)
         if choose <= 1 and not at_least:
             actions = [self._cast_action(player, obj, mode=i) for i in range(len(modes))]
             if getattr(obj, "spell_modes_or_both", False) and len(modes) == 2:
@@ -522,6 +523,11 @@ class LegalActionsMixin:
                 # than given — see `_cast_action`'s ``entwine`` branch.
                 actions.append(self._cast_action(player, obj, mode="both", entwine=True))
             return actions
+        if repeatable:
+            return [
+                self._cast_action(player, obj, mode=list(combo))
+                for combo in itertools.combinations_with_replacement(range(len(modes)), choose)
+            ]
         sizes = range(choose, len(modes) + 1) if at_least else [choose]
         return [
             self._cast_action(player, obj, mode=list(combo))

@@ -56,6 +56,19 @@ def choose_two_of_four_instant(name="Test Command"):
                 mana_cost_string="{1}{U}", converted_mana_cost=2, oracle_text=oracle)
 
 
+def repeatable_choose_three_instant(name="Test Confluence"):
+    return Card(
+        id=name, name=name, type_line="Instant", is_instant=True,
+        mana_cost_string="{1}{U}", converted_mana_cost=2,
+        oracle_text=(
+            "Choose three. You may choose the same mode more than once.\n"
+            "• Draw a card.\n"
+            "• You gain 3 life.\n"
+            "• Mill two cards."
+        ),
+    )
+
+
 def make_engine(p1_library=()):
     return GameEngine.new_game(
         [("p1", "Alice", list(p1_library)), ("p2", "Bob", [])],
@@ -114,6 +127,26 @@ def test_choose_n_exceeding_mode_count_stays_unclaimed():
                 oracle_text="Choose three —\n• Draw a card.\n• Gain 3 life.")
     r = parse_oracle(card)
     assert r.coverage != MODELED
+
+
+def test_repeatable_choose_n_header_is_recognized():
+    # Fiery Confluence is one of the actual PAR-54 cards; its already-known
+    # body handlers prove this closes the header gap rather than only a
+    # synthetic spelling.
+    card = Card(
+        id="Fiery Confluence", name="Fiery Confluence", type_line="Sorcery", is_sorcery=True,
+        oracle_text=(
+            "Choose three. You may choose the same mode more than once.\n"
+            "• Fiery Confluence deals 1 damage to each creature.\n"
+            "• Fiery Confluence deals 2 damage to each opponent.\n"
+            "• Destroy target artifact."
+        ),
+    )
+    r = parse_oracle(card)
+    assert r.coverage == MODELED
+    (spec,) = r.specs
+    assert spec.modes["choose"] == 3
+    assert spec.modes["repeatable"] is True
 
 
 def test_choose_two_triggered_ability_is_recognized():
@@ -258,6 +291,24 @@ def test_cast_with_duplicate_index_raises():
     p1.mana_pool.add_many({"U": 1, "C": 1})
     with pytest.raises(ValueError):
         eng.cast_spell(p1, obj, mode=[1, 1])
+
+
+def test_repeatable_modes_offer_and_resolve_duplicate_selection():
+    eng = make_engine(p1_library=[land(), land(), land(), land(), land()])
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, repeatable_choose_three_instant())
+    bind_from_catalogue(obj)
+    p1.mana_pool.add_many({"U": 1, "C": 1})
+
+    actions = [a for a in eng.legal_actions(p1) if a.get("instance_id") == obj.instance_id]
+    # Multisets of size 3 from 3 modes: C(3 + 3 - 1, 3) = 10.
+    assert len(actions) == 10
+    assert any(a["mode"] == [0, 0, 0] for a in actions)
+
+    hand_before = len(p1.hand) - 1
+    eng.cast_spell(p1, obj, mode=[0, 0, 0])
+    eng.resolve_until_stable()
+    assert len(p1.hand) == hand_before + 3
 
 
 def test_cast_with_out_of_range_index_raises():

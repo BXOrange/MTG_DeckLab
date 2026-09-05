@@ -1299,6 +1299,7 @@ class TriggeredAbility(GameEffect):
         modes_or_both: bool = False,
         modes_choose: int = 1,
         modes_at_least: bool = False,
+        modes_repeatable: bool = False,
         modes_optional: bool = False,
         reflexive: bool = False,
         mana_ability: bool = False,
@@ -1371,6 +1372,7 @@ class TriggeredAbility(GameEffect):
         self.modes_or_both = modes_or_both
         self.modes_choose = modes_choose
         self.modes_at_least = modes_at_least
+        self.modes_repeatable = modes_repeatable
         #: RULE 700.2's "choose *up to* one —" (Hullbreaker Horror) — the
         #: 0-or-1 sibling of the plain "choose one" (always exactly 1,
         #: `modes_choose == 1` alone) and "choose one **or both**"

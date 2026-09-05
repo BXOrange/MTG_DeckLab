@@ -5827,3 +5827,9 @@ table, re-measured after each batch.
 
 - **What:** Marks a saved decklist as a curated card pool rather than a legal Commander deck; parser and legality validation both gained an `is_cube` param that skips structural (100-card/singleton/commander-count) and semantic (ban list/color identity/Partner) checks entirely rather than reporting a cube's inherent "violations."
 - **Files:** `parser/deckliste_parser.py`, `services/deck_validation.py`, `api/saved_decks.py`
+
+### Repeatable modal modes (PAR-54, PARSER_VERSION 265)
+
+- **What:** The Confluence header `Choose N. You may choose the same mode more than once.` now parses as a standard modal block with `modes["repeatable"]`. The cast-action offer uses combinations with replacement, and mode resolution permits duplicated indices while retaining printed-order resolution; Fiery Confluence is covered end-to-end at parser level and duplicate-mode casting is regression-tested.
+- **Yield:** +9 Commander-legal cards; full cache 13,986 / 34,811 (40.2%), Commander-legal 13,382 / 31,830 (42.0%).
+- **Files:** `parser/oracle/catalogue/modal.py`, `parser/oracle/gate.py`, `parser/oracle/spec.py`, `game/effect_binder.py`, `game/engine/legal_actions_mixin.py`, `game/engine/casting_mixin.py`, `game/rules/triggers_mixin.py`, `game/effects.py`, `tests/test_modal_choose_n.py`.

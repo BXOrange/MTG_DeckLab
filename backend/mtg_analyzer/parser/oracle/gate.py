@@ -2487,7 +2487,11 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: own creature). No coverage-count change (a keyword's own MODELED/
 #: UNMODELED classification is unaffected either way) — the parser's own
 #: output shape changed, which is what this lock guards.
-PARSER_VERSION = "264"
+#: v265 — PAR-54: ``Choose N. You may choose the same mode more than once.``
+#: (the Confluence cycle) is a modal header variant. It sets a ``repeatable``
+#: modes flag so the engine offers combinations with replacement rather than
+#: the ordinary distinct-mode combinations.
+PARSER_VERSION = "265"
 
 
 def parser_source_hash() -> str:
@@ -2600,7 +2604,7 @@ def _is_spell(card: Any) -> bool:
 
 def _split_triggered_modal_block(
     lines: list[str], start: int, provenance: ParserProvenance
-) -> Optional[tuple[dict[str, Any], bool, bool, int, list[str], int]]:
+) -> Optional[tuple[dict[str, Any], bool, bool, bool, int, list[str], int]]:
     """A permanent's modal *triggered* ability: "When ~ enters, choose 1 —"
     on one line, then two or more "• " mode lines (RULE 700.2 wrapped in a
     RULE 603.1 trigger) — the trigger-wrapped sibling of `split_modal_block`
@@ -2617,7 +2621,7 @@ def _split_triggered_modal_block(
     ability would claim also drives a modal block (Elder Gargaroth, Ojutai
     Exemplars, Etherwrought Page, Cosmogrand Zenith, …).
 
-    Returns ``(trigger, or_both, or_more, choose, mode_bodies, next_index)``,
+    Returns ``(trigger, or_both, or_more, repeatable, choose, mode_bodies, next_index)``,
     or ``None`` if ``lines[start]`` isn't this shape at all, its wrapper
     isn't a recognised trigger, or ``choose`` exceeds the number of mode
     lines actually printed — fail-closed, the caller falls back to ordinary
@@ -2650,6 +2654,7 @@ def _split_triggered_modal_block(
         trigger,
         bool(header.group("or_both")),
         bool(header.group("or_more")),
+        "same mode more than once" in trig.group("body").strip().lower(),
         choose,
         mode_bodies,
         next_i,
@@ -2916,7 +2921,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             _tag_level_gate(seg.spec, gate, default_affects="self")
 
     def _process_modal_block(
-        header: str, or_both: bool, or_more: bool, choose: int, mode_bodies: list[str]
+        header: str, or_both: bool, or_more: bool, repeatable: bool, choose: int, mode_bodies: list[str]
     ) -> None:
         nonlocal all_claimed
         # RULE 700.2: a modal spell's own bare header. A permanent's modal
@@ -2936,6 +2941,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             modes={
                 "or_both": or_both,
                 "at_least": or_more,
+                "repeatable": repeatable,
                 "choose": choose,
                 "options": options,
                 "descriptions": descriptions,
@@ -2979,6 +2985,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         trigger: dict[str, Any],
         or_both: bool,
         or_more: bool,
+        repeatable: bool,
         choose: int,
         mode_bodies: list[str],
     ) -> None:
@@ -3005,6 +3012,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             modes={
                 "or_both": or_both,
                 "at_least": or_more,
+                "repeatable": repeatable,
                 "choose": choose,
                 "options": options,
                 "descriptions": descriptions,
@@ -3183,15 +3191,15 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 continue
             block = split_modal_block(lines, i) if allow_spell_effect else None
             if block is not None:
-                or_both, or_more, choose, mode_bodies, next_i = block
-                _process_modal_block(lines[i], or_both, or_more, choose, mode_bodies)
+                or_both, or_more, repeatable, choose, mode_bodies, next_i = block
+                _process_modal_block(lines[i], or_both, or_more, repeatable, choose, mode_bodies)
                 i = next_i
                 continue
             trig_block = _split_triggered_modal_block(lines, i, provenance)
             if trig_block is not None:
-                trigger, or_both, or_more, choose, mode_bodies, next_i = trig_block
+                trigger, or_both, or_more, repeatable, choose, mode_bodies, next_i = trig_block
                 _process_triggered_modal_block(
-                    lines[i], trigger, or_both, or_more, choose, mode_bodies
+                    lines[i], trigger, or_both, or_more, repeatable, choose, mode_bodies
                 )
                 i = next_i
                 continue

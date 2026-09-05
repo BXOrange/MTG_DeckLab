@@ -1381,10 +1381,11 @@ class TriggerCollectionMixin:
         """
         options = ability.modes or []
         picked = set(chosen or [])
+        repeatable = bool(getattr(ability, "modes_repeatable", False))
         choice_options: list[dict[str, Any]] = [
             {"id": str(i), "label": opt.get("description") or f"Modus {i + 1}"}
             for i, opt in enumerate(options)
-            if i not in picked
+            if repeatable or i not in picked
         ]
         if ability.modes_or_both and ability.modes_choose == 1 and len(options) == 2 and not picked:
             # RULE 700.2e — only offered for the fixed choose-1-of-2 case.
@@ -1467,7 +1468,10 @@ class TriggerCollectionMixin:
             # for an unrecognized answer).
             effects = []
         else:
-            available = [i for i in range(len(options)) if i not in already_chosen]
+            available = [
+                i for i in range(len(options))
+                if getattr(ability, "modes_repeatable", False) or i not in already_chosen
+            ]
             try:
                 idx = int(answer) if answer is not None else available[0]
             except (TypeError, ValueError):

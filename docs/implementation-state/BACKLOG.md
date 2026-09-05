@@ -217,35 +217,73 @@ its block back into the matching section here.
   Exemplars / Etherwrought Page / Cosmogrand Zenith / Ferocification / Appa,
   +8 cache). What is left, ~26 Commander-legal cards in five shapes:
 
-  - **PAR-54** — `Choose N. You may choose the same mode more than once.`
-    (Fiery / Mystic / Righteous / Verdant / Wretched Confluence, Unite the
-    Coalition). Needs repeatable-mode selection in the engine
-    (`spell_modes` + `_modal_cast_actions` currently assume distinct
-    picks); one `MODAL_HEADER_RE` variant + a `repeatable` modes flag +
-    the engine offer. MEC-scale — file as the next free MEC-* if the
-    engine half dominates.
-  - **`Choose N. If <cond>, choose <more> instead.`** (Inscription of Ruin
-    "if kicked … any number", Flame of Anor "if you control a wizard …",
-    Let's Play a Game, Prophetic Titan, Depth Defiler) — the **existing
-    "kicked … instead override" gap** (see the notable-gaps list in
-    `CLAUDE.md` / this file's PAR-12 pointer); add these as its card list,
-    don't open a new ticket.
-  - **`Choose N. If this spell was cast using Teamwork, choose both
-    instead.`** (Go Nuts!, Widow's Bite) — Teamwork is a Final Fantasy
-    set-specific mechanic already listed **Not done** in
-    `PARSER_LONG_TAIL.md`'s "Two tracks" table; Bucket C, deck-first.
-  - **`… choose N that hasn't been chosen this turn —`** triggered-modal
-    header (The Vision, Monument to Endurance, Galadriel Light of Valinor,
-    Kimoyo Beads, Teval's Judgment, Wardens of the Cycle, Immard, Breeches)
-    — needs the header variant **plus** per-object "modes already chosen"
-    state that persists across the ability's firings. MEC-scale.
-  - **reflexive / haunt-wrapped modal triggers** (Orzhov Pontiff "enters or
-    the creature it haunts dies", Voltstorm Angel / Hylda / Gorbag "you may
-    pay {cost}. when you do, choose one —", Vision Synthezoid Avenger) —
-    fold into the reflexive-trigger and haunt work; not a modal-specific
-    gap.
+  - **PAR-55 · Conditional modal headers.** Parse `Choose N. If <condition>,
+    [you may] choose <more> instead.` into a declarative modal override;
+    covers kicked/additional-cost, cast-time board, graveyard-card-type,
+    life-total, commander and descended conditions. The condition evaluator
+    and choice-count override are **MEC-66**. Seed cards: Inscription of
+    Ruin/Abundance/Insight, Flame of Anor, Let's Play a Game, Prophetic
+    Titan, Depth Defiler, Akroma's Will, and Pyrrhic Strike.
+  - **PAR-56 · Teamwork modal and rider grammar (RULE 702.194).** Route
+    `if this spell was cast using teamwork` modal overrides and ordinary
+    conditional riders to a `teamwork_paid` condition; the optional tapping
+    cost and cast-state marker are **MEC-67**. Seed cards: Go Nuts!, Widow's
+    Bite, HULK SMASH!, Atlantis Attacks, Murdock's Crusade.
+  - **PAR-57 · Per-turn exhausted triggered modes.** Parse `choose N that
+    hasn't been chosen [this turn] —` and carry an ability-stable mode key;
+    mode-history state and trigger chooser filtering are **MEC-68**. Seed
+    cards: The Vision, Monument to Endurance, Galadriel, Light of Valinor,
+    Kimoyo Beads, Teval's Judgment, Wardens of the Cycle, Immard.
+  - **PAR-58 · Reflexive modal trigger wrapper.** Parse `you may pay <cost>.
+    When you do, choose N —` as a `pay_cost_then` continuation whose payoff
+    is a modal triggered ability, retaining RULE 603.11 stack/target order;
+    the continuation plumbing is **MEC-69**. Seed cards: Voltstorm Angel,
+    Hylda of the Icy Crown, Gorbag of Minas Morgul, Vision Synthezoid
+    Avenger.
+  - **PAR-59 · Haunt-trigger modal wrapper (RULE 702.55).** Parse `when ~
+    enters or the creature it haunts dies, choose N —` and the standalone
+    `when the creature this card haunts dies` form. The haunt link/exile
+    mechanic and event are **MEC-70**. Seed cards: Orzhov Pontiff, Absolver
+    Thrull, Belfry Spirit, Blind Hunter, Exhumer Thrull, Graven Dominator.
 
 ## MEC — Game mechanics
+
+- **MEC-66 · Conditional modal-choice overrides (RULE 700.2).** At choice
+  time, evaluate the declarative override emitted by PAR-55 and replace a
+  modal block's base exact/minimum count with `choose both`, a fixed count,
+  or `choose any number`. Conditions must be evaluated at the rules-correct
+  time: cast-state conditions (kicked/additional cost) after costs are paid,
+  `as you cast` board conditions from the pre-cast battlefield, and triggered
+  conditions when the ability is put on the stack. Reuse existing condition
+  primitives where available; do not model an `instead` clause as an
+  additional effect.
+
+- **MEC-67 · Teamwork optional additional cost (RULE 702.194).** Offer a
+  cast variant that taps any number of creatures the caster controls whose
+  total power meets the printed threshold, records `teamwork_paid` on the
+  spell, and fires the corresponding cast/payment signals. It must coexist
+  with ordinary mana, Kicker, Convoke, targets, and cast-time mode selection.
+  PAR-56 owns parser reachability; the remaining Teamwork rider families are
+  separately measured PAR-12 work, not silently claimed here.
+
+- **MEC-68 · Persistent per-object modal history.** Store a mode set keyed
+  by the permanent/ability and current turn, clear it at turn boundary, and
+  exclude those entries from each later `trigger_mode` offer. Record only
+  after a mode is legally chosen; modes from different abilities on the same
+  object must not collide. PAR-57 owns its header grammar.
+
+- **MEC-69 · Modal reflexive continuations (RULE 603.11).** Extend the
+  existing `pay_cost_then` path so a successful optional payment can enqueue
+  a modal triggered payoff, then present its mode choice before its targets
+  and resolve it as an independent stack object. Must not collapse `When you
+  do` into an ordinary same-resolution effect.
+
+- **MEC-70 · Haunt (RULE 702.55).** Implement the death-triggered exile/link
+  to a chosen creature, retain the haunt relationship while that creature
+  remains on the battlefield, and emit the linked creature's death event for
+  the exiled card's haunt abilities. Cover the activated `exile ~ haunting
+  target creature` variant as well. PAR-59 owns the parser forms; unrelated
+  Haunt card bodies remain normal parser-tail work.
 
 - **MEC-64 · Suspend's own "activate from hand" special action (RULE
   702.62a, first ability).** Only the *second/third* abilities are

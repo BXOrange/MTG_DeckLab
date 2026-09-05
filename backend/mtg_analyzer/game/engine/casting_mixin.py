@@ -1192,6 +1192,7 @@ class CastingMixin:
         modes = list(getattr(obj, "spell_modes", None) or [])
         choose = getattr(obj, "spell_modes_choose", 1)
         at_least = getattr(obj, "spell_modes_at_least", False)
+        repeatable = getattr(obj, "spell_modes_repeatable", False)
         if mode == "both":
             # RULE 700.2e gives both modes away for free (and only ever on a
             # two-mode block); RULE 702.42a's Entwine sells "choose *all*"
@@ -1209,7 +1210,7 @@ class CastingMixin:
             count_ok = len(indices) >= choose if at_least else len(indices) == choose
             valid = (
                 count_ok
-                and len(set(indices)) == len(indices)
+                and (repeatable or len(set(indices)) == len(indices))
                 and all(isinstance(i, int) and 0 <= i < len(modes) for i in indices)
             )
             if not valid:

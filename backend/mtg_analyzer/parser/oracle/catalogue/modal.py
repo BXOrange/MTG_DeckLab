@@ -50,7 +50,8 @@ from typing import Optional
 #: "choose 2 or both" isn't a real template); ``or_more`` captures "Choose
 #: *N* or more —" (a variable N from ``choose`` to every mode).
 MODAL_HEADER_RE = re.compile(
-    r"^choose (?P<n>\d+)(?P<or_both> or both)?(?P<or_more> or more)?\s*—\s*$"
+    r"^choose (?P<n>\d+)(?P<or_both> or both)?(?P<or_more> or more)?"
+    r"(?:\s*—\s*|\.\s*you may choose (?:the )?same mode more than once\.?)$"
 )
 
 #: One mode line: "• <effect body>." (Scryfall's modal bullet).
@@ -102,10 +103,10 @@ def collect_mode_bodies(lines: list[str], start: int) -> Optional[tuple[list[str
 
 def split_modal_block(
     lines: list[str], start: int
-) -> Optional[tuple[bool, bool, int, list[str], int]]:
+) -> Optional[tuple[bool, bool, bool, int, list[str], int]]:
     """If ``lines[start]`` is a bare modal header, collect its mode lines.
 
-    Returns ``(or_both, or_more, choose, mode_bodies, next_index)`` where
+    Returns ``(or_both, or_more, repeatable, choose, mode_bodies, next_index)`` where
     ``next_index`` is the index of the first line after the block, and
     ``choose`` is the header's mode count ("Choose two —" → ``2``, or the
     minimum when ``or_more``), or ``None`` when ``lines[start]`` isn't a
@@ -122,7 +123,8 @@ def split_modal_block(
     choose = int(header.group("n"))
     if choose < 1 or choose > len(bodies):
         return None
-    return bool(header.group("or_both")), bool(header.group("or_more")), choose, bodies, next_i
+    repeatable = "same mode more than once" in lines[start].strip().lower()
+    return bool(header.group("or_both")), bool(header.group("or_more")), repeatable, choose, bodies, next_i
 
 
 def split_spree_block(
