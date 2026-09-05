@@ -677,17 +677,23 @@ def _damage_each_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: as an engine primitive — Shatterskull Smashing/Fire Covenant, both
 #: hand-authored (`game/ability_catalogue.py`, cEDH-cube batch 19) — but no
 #: oracle-text recognizer had ever reached it; this is that recognizer, not
-#: a new primitive. "targets" (unqualified, RULE 115.4 "any target") vs.
-#: "target creatures" are the only two real phrasings.
+#: a new primitive. "targets" (unqualified, RULE 115.4 "any target"),
+#: "target creatures", and the Modern Horizons Incarnation wording
+#: "target creatures and/or planeswalkers" are the real phrasings.
 _DIVIDED_DAMAGE_RE = _c(
     rf"(?:(?:~|it|this creature|this land|this permanent) )?"
     rf"deals? {COUNT_X} damage divided as you choose among any number of "
-    r"(?P<target>targets|target creatures)"
+    r"(?P<target>targets|target creatures|target creatures and/or planeswalkers)"
 )
 
 
 def _divided_damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = "creature" if m.group("target") == "target creatures" else "any"
+    target = m.group("target")
+    kind = (
+        "creature" if target == "target creatures"
+        else "creature_or_planeswalker" if target == "target creatures and/or planeswalkers"
+        else "any"
+    )
     return [EffectSpec("damage", {
         "amount": count_or_x_of(m.group("n")), "target_kind": kind,
         "count": _ANY_NUMBER_TARGET_CAP, "optional": True, "divided": True,
@@ -1787,6 +1793,20 @@ def _gain_life_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("gain_life", {"count_selector": dsel})]
 
 
+#: "You gain life equal to the number of creatures/permanents … you
+#: control." This is the non-X wording sibling of `_GAIN_LIFE_DEVOTION_RE`;
+#: both use the existing live count-selector path. It can follow a token
+#: creation clause, where the count includes the just-created tokens.
+_GAIN_LIFE_EQUAL_DEVOTION_RE = _c(rf"you gains? life equal to {DEVOTION}")
+
+
+def _gain_life_equal_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dsel = devotion_selector(m)
+    if not dsel:
+        return None
+    return [EffectSpec("gain_life", {"count_selector": dsel})]
+
+
 _LOSE_LIFE_SELF_DEVOTION_RE = _c(rf"you loses? x life, where x is {DEVOTION}")
 
 
@@ -2198,14 +2218,24 @@ _NEG_CREATURE_FILTER_WORDS: dict[str, tuple[str, str]] = {
     "artifact": ("without_card_type", "artifact"),
 }
 _DESTROY_NON_CREATURE_RE = _c(
-    rf"destroy target non(?P<neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)}) creature"
+    rf"destroy target non(?P<neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)})"
+    rf"(?:, non(?P<second_neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)}))? creature"
     r"(?P<no_regen>\. it can'?t be regenerated)?"
 )
 
 
-def _destroy_non_creature(m: re.Match[str]) -> list[EffectSpec]:
+def _destroy_non_creature(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     key, value = _NEG_CREATURE_FILTER_WORDS[m.group("neg")]
     params: dict = {"target_kind": "creature", "creature_filter": {key: value}}
+    # Terror/Shriekmaw's two independent negatives ("nonartifact,
+    # nonblack") compose two already-supported target filters.  Do not accept
+    # a duplicate filter key yet: no real card needs e.g. two colors here,
+    # and silently choosing one would mis-model that future wording.
+    if m.group("second_neg") is not None:
+        second_key, second_value = _NEG_CREATURE_FILTER_WORDS[m.group("second_neg")]
+        if second_key == key:
+            return None
+        params["creature_filter"][second_key] = second_value
     if m.group("no_regen"):
         params["can_be_regenerated"] = False
     return [EffectSpec("destroy", params)]
@@ -5792,7 +5822,7 @@ _NAMED_COUNTER_KINDS: frozenset[str] = frozenset({
     "charge", "oil", "storage", "verse", "ki", "page", "plan", "soul",
     "fuse", "depletion", "flood", "bounty", "brick", "study", "plague",
     "doom", "growth", "point", "infection", "hatchling", "pressure",
-    "slime", "tide", "ice", "flame", "hour",
+    "slime", "tide", "ice", "flame", "hour", "hoofprint",
 })
 _ADD_NAMED_COUNTER_RE = _c(
     rf"put {COUNT} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
@@ -9250,6 +9280,8 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?P<who>you |target player )?gains? {NUMBER} life"),
         _gain_life,
     ),
+    # Elemental Spectacle / Luminollusk-shaped count-based life gain.
+    EffectHandler("gain_life_equal_devotion", _GAIN_LIFE_EQUAL_DEVOTION_RE, _gain_life_equal_devotion),
     # RULE 119's "drain" idiom trailing sentence — "You gain life equal to
     # the life lost this way." (Gray Merchant of Asphodel-shaped).
     EffectHandler("gain_life_lost_this_way", _GAIN_LIFE_LOST_THIS_WAY_RE, _gain_life_lost_this_way),

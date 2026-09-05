@@ -3777,6 +3777,25 @@ class DrawCardEffect(GameEffect):
         context.draw(player, count)
 
 
+class DrawEachPlayerWithCreaturePowerEffect(GameEffect):
+    """Each player controlling a creature with power at least ``min_power`` draws.
+
+    This is a simultaneous-condition sweep: eligibility is checked before a
+    following board wipe changes the battlefield (Shatter the Sky).
+    """
+    def __init__(self, min_power: int = 4, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.min_power = min_power
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for player in context.state.living_players():
+            if any(
+                obj.is_creature and obj.power >= self.min_power
+                for obj in context.state.permanents_controlled_by(player.id)
+            ):
+                context.draw(player, 1)
+
+
 class SylvanLibraryEffect(GameEffect):
     """"At the beginning of your draw step, you may draw two additional
     cards. If you do, choose two cards in your hand drawn this turn. For
@@ -8135,6 +8154,7 @@ class ExileCreateTokenEffect(GameEffect):
         toughness: Optional[int] = None,
         colors: Optional[list[str]] = None,
         subtypes: Optional[list[str]] = None,
+        keywords: Optional[list[str]] = None,
         token_name: Optional[str] = None,
     ) -> None:
         super().__init__(source)
@@ -8144,6 +8164,7 @@ class ExileCreateTokenEffect(GameEffect):
         self.toughness = toughness
         self.colors = colors or []
         self.subtypes = subtypes or []
+        self.keywords = keywords or []
         self.token_name = token_name or (subtypes[0] if subtypes else "Token")
 
     def target_polarity(self) -> Optional[str]:
@@ -8161,7 +8182,7 @@ class ExileCreateTokenEffect(GameEffect):
             return
         card = synthesize_token_card(
             self.token_name, power=self.power, toughness=self.toughness,
-            colors=self.colors, subtypes=self.subtypes,
+            colors=self.colors, subtypes=self.subtypes, keywords=self.keywords,
         )
         context.create_token(controller_id, card, 1)
 
@@ -8183,6 +8204,7 @@ class DestroyCreateTokenEffect(GameEffect):
         toughness: Optional[int] = None,
         colors: Optional[list[str]] = None,
         subtypes: Optional[list[str]] = None,
+        keywords: Optional[list[str]] = None,
         token_name: Optional[str] = None,
         can_be_regenerated: bool = True,
     ) -> None:
@@ -8193,6 +8215,7 @@ class DestroyCreateTokenEffect(GameEffect):
         self.toughness = toughness
         self.colors = colors or []
         self.subtypes = subtypes or []
+        self.keywords = keywords or []
         self.token_name = token_name or (subtypes[0] if subtypes else "Token")
         self.can_be_regenerated = can_be_regenerated
 
@@ -8211,7 +8234,7 @@ class DestroyCreateTokenEffect(GameEffect):
             return
         card = synthesize_token_card(
             self.token_name, power=self.power, toughness=self.toughness,
-            colors=self.colors, subtypes=self.subtypes,
+            colors=self.colors, subtypes=self.subtypes, keywords=self.keywords,
         )
         context.create_token(controller_id, card, 1)
 
@@ -16175,14 +16198,20 @@ class ManifestEffect(GameEffect):
     engine already parameterizes morph vs. disguise."""
 
     def __init__(
-        self, count: int = 1, kind: str = "manifest", source: Optional["GameObject"] = None
+        self, count: int = 1, kind: str = "manifest", player: Optional[str] = None,
+        source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.kind = kind
+        self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
+        if self.player == "previous_target_controller" and context.previous_targets:
+            controller_id = getattr(context.previous_targets[0], "controller_id", None)
+            if controller_id is not None:
+                player = context.state.player_by_id(controller_id)
         if player is not None:
             context.manifest(player, self.count, kind=self.kind)
 
@@ -20457,6 +20486,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "draw_each_player_with_creature_power",
+    lambda p: DrawEachPlayerWithCreaturePowerEffect(min_power=int(p.get("min_power", 4))),
+)
+EffectRegistry.register(
     "discard",
     lambda p: DiscardEffect(
         count=p.get("count", 1), player=p.get("player"),
@@ -21131,6 +21164,7 @@ EffectRegistry.register(
         target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
         power=p.get("power"), toughness=p.get("toughness"),
         colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
+        keywords=list(p.get("keywords", [])),
         token_name=p.get("token_name"),
     ),
 )
@@ -21140,6 +21174,7 @@ EffectRegistry.register(
         target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
         power=p.get("power"), toughness=p.get("toughness"),
         colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
+        keywords=list(p.get("keywords", [])),
         token_name=p.get("token_name"),
         can_be_regenerated=bool(p.get("can_be_regenerated", True)),
     ),
@@ -22606,7 +22641,8 @@ EffectRegistry.register(
     # param (see `ManifestEffect`).
     "manifest",
     lambda p: ManifestEffect(
-        count=p.get("count", p.get("amount", 1)), kind=p.get("kind", "manifest")
+        count=p.get("count", p.get("amount", 1)), kind=p.get("kind", "manifest"),
+        player=p.get("player"),
     ),
 )
 EffectRegistry.register("manifest_dread", lambda p: ManifestDreadEffect())

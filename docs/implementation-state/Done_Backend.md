@@ -5839,3 +5839,44 @@ table, re-measured after each batch.
 - **What:** `Choose N. If <condition>, [you may] choose <more> instead.` now has a closed declarative override IR, shared by spell and triggered-modal headers. It supports kicked/additional-cost, cast-time subtype or commander, delirium, exact-life and Descend conditions; choice counts are replaced (including `choose any number`) rather than added as an effect. Cast-time facts are snapshotted when the spell is cast, while triggered facts are checked as the trigger is placed on the stack. Descend tracks permanent cards entering their owner's graveyard for the turn.
 - **Yield:** +5 cache cards, 0 regressions: Depth Defiler, Flame of Anor, Inscription of Ruin, Let's Play a Game and Prophetic Titan. Full cache 13,991 / 34,811 (40.2%); Commander-legal 13,387 / 31,830 (42.1%).
 - **Files:** `parser/oracle/catalogue/modal.py`, `parser/oracle/gate.py`, `parser/oracle/spec.py`, `game/effect_binder.py`, `game/effects.py`, `game/engine/casting_mixin.py`, `game/engine/legal_actions_mixin.py`, `game/rules/triggers_mixin.py`, `game/rules/misc_mixin.py`, `models/game_state.py`, `tests/test_modal_choose_n.py`.
+
+### Compound tapped-entry colour choices (PAR-42, PARSER_VERSION 267)
+
+- **What:** The "~ enters tapped. As it enters, choose a color other than …"
+  entry replacement now composes its two independent RULE 614.1/601.2b
+  parts. `lands.py` recognizes the complete, tightly-scoped compound line as
+  an unconditional tapped entry and exposes only its known enter-choice tail;
+  `gate.py` claims the former through the land-entry engine and routes the
+  latter to the existing `ChooseColorReplacement`. This preserves the chosen
+  colour for the mana ability instead of merely marking the card covered.
+- **Yield:** +16, 0 regressions (Thriving Bluff/Grove/Heath/Isle/Moor; the
+  five Baldur's Gate colour Gates; and six siblings). Full cache 14,009 /
+  34,811 (40.2%). `tests/test_oracle_lands.py`.
+
+### Compound non-creature removal filters (PARSER_VERSION 268)
+
+- **What:** The existing Doom Blade / Go for the Throat parser row now
+  composes its already-supported `without_card_type` and `without_color`
+  creature filters for the printed "nonartifact, nonblack creature" shape.
+  Both restrictions are applied while legal targets are offered; duplicate
+  filter categories remain deliberately unclaimed rather than losing one.
+- **Yield:** +5, 0 regressions — Bone Shredder, Expunge, Feast or Famine,
+  Shriekmaw and Terror. Full cache 14,014 / 34,811 (40.3%).
+  `tests/test_modal_creature_filter_family.py`.
+
+### Crib Swap (Dance of the Elements deck batch)
+
+- **What:** Hand-authored the singleton removal spell rather than adding a
+  one-card oracle row. `ExileCreateTokenEffect` now carries token keywords,
+  so its existing target-controller atomic path creates Crib Swap's actual
+  1/1 colourless Shapeshifter with Changeling after exiling the target.
+  `tests/test_dance_elements_batch.py` exercises the registry and a real
+  cast/resolve sequence without relying on the disposable card cache.
+
+### Lamentation (Dance of the Elements deck batch)
+
+- **What:** Hand-authored the singleton's ETB as one ordinary target choice
+  (`creature_you_dont_control`) followed by its untargeted life gain; the
+  existing Encore keyword machinery continues to supply the separate
+  graveyard activation. The end-to-end test answers the triggered target
+  choice and verifies both the destruction and life total.

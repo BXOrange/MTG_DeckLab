@@ -1562,7 +1562,14 @@ def _qualified_combat_restriction_specs(text: str) -> Optional[list[EffectSpec]]
 _CHOOSE_CREATURE_TYPE_ON_ENTER_RE = re.compile(
     r"as ~ enters, choose a creature type", re.IGNORECASE
 )
-_CHOOSE_COLOR_ON_ENTER_RE = re.compile(r"as ~ enters, choose a color", re.IGNORECASE)
+# ``it`` is the immediately preceding permanent in a compound entry clause
+# (Thriving lands: "~ enters tapped. As it enters, choose a color other than
+# red.").  The gate only forwards that form after ``lands.py`` has full-matched
+# the complete entry replacement, so accepting it here does not broaden a
+# free-standing pronoun grammar.
+_CHOOSE_COLOR_ON_ENTER_RE = re.compile(
+    r"as (?:~|it) enters, choose a color(?: other than [a-z]+)?", re.IGNORECASE
+)
 # PAR-4 — Realmwright/A-Thran Portal's "As ~ enters, choose a basic land
 # type.": a third `enter_choice_effects` sibling, alongside creature
 # type/color above. Anchored on "basic land type" specifically (never just

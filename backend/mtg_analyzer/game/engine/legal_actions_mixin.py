@@ -323,6 +323,10 @@ class LegalActionsMixin:
                 evoke_cost = self._evoke_cost(obj) or continuous.granted_evoke_cost_for(self.state, obj)
                 if evoke_cost is not None:
                     action["evoke_cost_label"] = evoke_cost.raw
+                else:
+                    color = self._evoke_exile_hand_color(obj)
+                    if color is not None:
+                        action["evoke_cost_label"] = f"Exile a {color} card from your hand"
         else:
             # RULE 702.42a: the Entwine offer is the same "both modes" action as
             # RULE 700.2e's, but priced — so it carries its cost and locks when
@@ -627,10 +631,7 @@ class LegalActionsMixin:
         # amount), so — unlike free/alt_cost's zero-mana paths above — it
         # needs the same mana-potential probe `_plain_castable_now_or_via_
         # potential` runs for the printed cost, just against the evoke cost.
-        has_evoke = (
-            self._evoke_cost(obj) is not None
-            or continuous.granted_evoke_cost_for(self.state, obj) is not None
-        )
+        has_evoke = self._has_evoke(obj)
         if has_evoke:
             if self.can_cast(player, obj, face=face, evoke=True):
                 return True
@@ -733,10 +734,7 @@ class LegalActionsMixin:
         # RULE 702.74b (MEC-42): a printed or granted Evoke cost is a third,
         # independent payment method — same "offered alongside, never in
         # place of" treatment as free/alt_cost above.
-        has_evoke = (
-            self._evoke_cost(obj) is not None
-            or continuous.granted_evoke_cost_for(self.state, obj) is not None
-        )
+        has_evoke = self._has_evoke(obj)
         if has_evoke and self.can_cast(player, obj, evoke=True):
             actions.append(self._cast_action(player, obj, evoke=True))
         # RULE 702.103 (PAR-26): a creature card with Bestow may instead be

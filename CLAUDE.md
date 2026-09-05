@@ -473,7 +473,7 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 40.2% (13,991 / 34,811) as of 2026-09-05, PARSER_VERSION 266**
+**Coverage: 40.3% (14,029 / 34,811) as of 2026-09-06, PARSER_VERSION 272**
 (parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)

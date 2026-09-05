@@ -357,6 +357,7 @@ DEVOTION = (
     r"|(?P<count_power>creatures) you control with power (?P<count_power_n>\d+) or (?P<count_power_cmp>less|greater)"
     r"|(?P<count_bare>creatures|permanents|artifacts|lands|enchantments|planeswalkers) you control"
     r"|(?P<count_attacking>attacking creatures)(?P<count_attacking_yours> you control)?"
+    r"|(?P<count_colors_among_permanents>colors among permanents you control)"
     r"|tapped (?P<count_tapped_1>[a-z]+)(?: and/or (?P<count_tapped_2>[a-z]+))? you control"
     r"|(?P<count_died_this_turn>creatures that died this turn)"
     r"|(?P<count_subtype>[a-z]+) you control"
@@ -407,6 +408,8 @@ def devotion_selector(m: "re.Match[str]") -> Optional[str]:
             "attacking_creatures_you_control" if m.groupdict().get("count_attacking_yours")
             else "attacking_creatures"
         )
+    if m.groupdict().get("count_colors_among_permanents"):
+        return "colors_among_permanents_you_control"
     if m.groupdict().get("count_died_this_turn"):
         return "creatures_died_this_turn"
     tapped1 = m.groupdict().get("count_tapped_1")

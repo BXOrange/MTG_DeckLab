@@ -146,9 +146,9 @@ its block back into the matching section here.
     each color of mana spent to cast it` = **Sunburst** (`counters.py`'s
     `_SUNBURST_ENTRY_COUNTERS_RE` + `colors_spent_scale` in
     `_apply_entry_counters`, reading `GameObject.colors_spent_to_cast`,
-    PARSER_VERSION 238, +9). Left: `enters tapped. as it enters, choose a
-    color` (#8), `if it's neither day nor night, it becomes day as ~
-    enters` (#10).
+    PARSER_VERSION 238, +9); `enters tapped. as it enters, choose a color`
+    (the Thriving lands — PARSER_VERSION 267, +16 including the Gate cycle).
+    Left: `if it's neither day nor night, it becomes day as ~ enters` (#10).
   - **PAR-43** — self CDA / `for each` P/T. The **single-characteristic
     CDA** — `~'s power is equal to the number of <X>` — shipped at
     PARSER_VERSION 235 (`_PT_CDA_SINGLE_RE` → a `pt_cda` spec with only

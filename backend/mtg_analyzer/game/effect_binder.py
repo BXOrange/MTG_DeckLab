@@ -86,7 +86,9 @@ _SUPPORTED_KINDS: frozenset[str] = frozenset(
 #: time. The rest (kicker/ward/rampage/protection quality/…) are still
 #: carried-but-inert — see `docs/implementation-state/BACKLOG.md` (PAR/MEC
 #: tickets) for which of them are still open.
-_PARAMETRIC_KEYWORD_KEYS: frozenset[str] = frozenset({"n", "cost", "quality"})
+_PARAMETRIC_KEYWORD_KEYS: frozenset[str] = frozenset(
+    {"n", "cost", "quality", "exile_hand_card_color"}
+)
 
 
 class BindError(ValueError):

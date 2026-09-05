@@ -3227,6 +3227,10 @@ def parse_effect_body(
             # source (a counter on "~").
             carry_self = self_subject
             for idx, part in enumerate(parts):
+                # A period split retains the leading "then" from a printed
+                # "… . Then <effect>" sentence, unlike the explicit
+                # `, then` connector. It is sequencing, not effect grammar.
+                part = re.sub(r"^then\s+", "", part.strip(), flags=re.IGNORECASE)
                 sub = parse_effect_body(
                     part,
                     self_subject=carry_self and not referent,

@@ -152,6 +152,15 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     "equip": re.compile(rf"\bEquip\b(?!\s+commander\b){_GAP}(?P<cost>{_COST_RUN})", re.I),
 }
 
+#: RULE 702.74b's Modern Horizons Incarnation cycle uses a non-mana Evoke
+#: payment.  The narrow grammar is intentional: one coloured card from hand
+#: can reuse the engine's existing RULE 118.9 hand-exile cost machinery.
+_EVOKE_EXILE_COLOR_RE = re.compile(
+    r"evoke\s*[—-]\s*exile a (?P<color>white|blue|black|red|green) card from your hand",
+    re.I,
+)
+_COLOR_LETTERS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
+
 #: Ward's cost line may be a non-mana clause ("Ward—Discard a card.",
 #: "Ward—Pay 3 life.", "Ward—Sacrifice a creature.") that the mana-only
 #: ``_auto_regex`` COST pattern above can't see (RULE 702.21 puts no
@@ -584,6 +593,10 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
         fallback = _ESCAPE_TEXT_COST_RE.search(text)
         if fallback:
             param["cost"] = fallback.group("cost").strip()
+    if kdef.slug == "evoke":
+        fallback = _EVOKE_EXILE_COLOR_RE.search(text)
+        if fallback:
+            param["exile_hand_card_color"] = _COLOR_LETTERS[fallback.group("color").lower()]
     return param
 
 

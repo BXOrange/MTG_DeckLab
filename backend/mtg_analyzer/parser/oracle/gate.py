@@ -29,7 +29,7 @@ from typing import Any, Optional
 from .catalogue.counters import entry_counters_condition
 from .catalogue.keywords import parse_keywords
 from .catalogue.kicker_mana import kicker_x_mana_restriction_condition
-from .catalogue.lands import tap_clause_condition
+from .catalogue.lands import tap_clause_condition, tapped_entry_choice_tail
 from .catalogue.levels import (
     CLASS_BECOMES_LEVEL_RE,
     LEVEL_UP_LINE_RE,
@@ -2498,7 +2498,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: now emits a closed modal-override IR for kicker/additional-cost, cast-time
 #: subtype/commander, delirium, life-total and descend conditions.  Triggered
 #: modal headers use the same IR, evaluated at their choice point.
-PARSER_VERSION = "266"
+PARSER_VERSION = "272"
 
 
 def parser_source_hash() -> str:
@@ -2819,7 +2819,15 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # spec — claim the line without emitting one, the same way a mana
         # ability's "add {g}" is covered-without-spec in the segmenter.
         if tap_clause_condition(line) is not None:
-            return
+            # A compound tap-land can additionally make a RULE 601.2b
+            # characteristic choice as it enters (the Thriving cycle).  The
+            # tapped-entry engine consumes the first sentence; continue with
+            # the narrowly extracted second one so its enter replacement is
+            # bound too.
+            choice_tail = tapped_entry_choice_tail(line)
+            if choice_tail is None:
+                return
+            line = choice_tail
         # RULE 614.1-style "enters with N counters" clauses: same split as
         # tapped-entry above — covered by `game/ability_catalogue.
         # entry_counters` (`RulesEngine`'s battlefield-entry resolution),

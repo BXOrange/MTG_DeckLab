@@ -1165,6 +1165,95 @@ def _resculpt() -> list[AbilitySpec]:
 register("Resculpt", _resculpt)
 
 
+def _crib_swap() -> list[AbilitySpec]:
+    """Changeling (This card is every creature type.)
+    Exile target creature. Its controller creates a 1/1 colorless
+    Shapeshifter creature token with changeling.
+
+    The one-card token-replacement shape is not worth a parser row (the
+    cache probe finds Crib Swap alone), but its behaviour is exact: the
+    existing atomic ``exile_create_token`` preserves the exiled creature's
+    last controller and now accepts the token's printed keyword.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exile_create_token", {
+                "target_kind": "creature", "power": 1, "toughness": 1,
+                "subtypes": ["Shapeshifter"], "keywords": ["changeling"],
+                "token_name": "Shapeshifter",
+            })],
+            raw_text="Schicke eine Zielkreatur ins Exil. Ihr Beherrscher erzeugt "
+                     "einen farblosen 1/1-Gestaltwandler-Kreaturenspielstein mit "
+                     "Changeling.",
+        )
+    ]
+
+
+register("Crib Swap", _crib_swap)
+
+
+def _lamentation() -> list[AbilitySpec]:
+    """When this creature enters, destroy target creature an opponent controls.
+    You gain 3 life.
+    Encore {6}{B}{B}
+
+    A singleton precon creature: the engine already composes one targeted
+    destruction with a following untargeted life gain, and the existing
+    Encore keyword binding supplies its graveyard activated ability.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("destroy", {"target_kind": "creature_you_dont_control"}),
+                EffectSpec("gain_life", {"amount": 3}),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, zerstöre eine Zielkreatur, die ein "
+                     "Gegner kontrolliert. Du erhältst 3 Lebenspunkte dazu.",
+        )
+    ]
+
+
+register("Lamentation", _lamentation)
+
+
+def _springleaf_parade() -> list[AbilitySpec]:
+    """When this enchantment enters, create X 1/1 colorless Shapeshifter
+    creature tokens with changeling. (They're every creature type.)
+    Creature tokens you control have "{T}: Add one mana of any color."
+
+    A deck-local singleton: the X-token sentinel and layer-6 mana grant
+    already exist, so a catalogue entry is smaller and safer than widening
+    the oracle token grammar for one card.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count_selector": "source_x_paid", "power": 1, "toughness": 1,
+                "subtypes": ["Shapeshifter"], "keywords": ["changeling"],
+                "token_name": "Shapeshifter",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Verzauberung ins Spiel kommt, erzeuge X farblose "
+                     "1/1-Gestaltwandler-Kreaturenspielsteine mit Changeling.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_mana_ability", {
+                "affects": "creatures_you_control", "tokens": True,
+                "mana": [{"W": 1}, {"U": 1}, {"B": 1}, {"R": 1}, {"G": 1}],
+            })],
+            raw_text='Kreaturenspielsteine, die du kontrollierst, haben "{T}: Erzeuge ein Mana einer beliebigen Farbe."',
+        ),
+    ]
+
+
+register("Springleaf Parade", _springleaf_parade)
+
+
 def _mirage_mirror() -> list[AbilitySpec]:
     """{2}: This artifact becomes a copy of target artifact, creature,
     enchantment, or land until end of turn.
@@ -1568,4 +1657,58 @@ def _power_artifact() -> list[AbilitySpec]:
 
 register("Power Artifact", _power_artifact)
 
+
+def _fertile_ground() -> list[AbilitySpec]:
+    """Enchant land
+    Whenever enchanted land is tapped for mana, its controller adds an
+    additional one mana of any color.
+
+    The attached-land trigger is Wild Growth's existing triggered-mana
+    ability.  ``ANY`` preserves the controller's colour choice and
+    ``event_controller`` correctly follows the enchanted land if control
+    changes.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_mana", {"colors": ["ANY"], "recipient": "event_controller"})],
+            trigger={
+                "event": EventType.TAPPED_FOR_MANA,
+                "condition": {"subject": "attached_permanent"},
+                "mana_ability": True,
+            },
+            raw_text="Whenever enchanted land is tapped for mana, its controller adds an "
+                     "additional one mana of any color.",
+        )
+    ]
+
+
+register("Fertile Ground", _fertile_ground)
+
+
+def _reality_shift() -> list[AbilitySpec]:
+    """Exile target creature. Its controller manifests the top card of their library."""
+    return [AbilitySpec(
+        "spell_effect",
+        [
+            EffectSpec("exile", {"target_kind": "creature"}),
+            EffectSpec("manifest", {"player": "previous_target_controller"}),
+        ],
+        raw_text="Exile target creature. Its controller manifests the top card of their library.",
+    )]
+
+
+register("Reality Shift", _reality_shift)
+
+
+def _shatter_the_sky() -> list[AbilitySpec]:
+    """Each player who controls a creature with power 4 or greater draws a card.
+    Then destroy all creatures."""
+    return [AbilitySpec("spell_effect", [
+        EffectSpec("draw_each_player_with_creature_power", {"min_power": 4}),
+        EffectSpec("destroy", {"selector": "all_creatures"}),
+    ], raw_text="Each player who controls a creature with power 4 or greater draws a card. Then destroy all creatures.")]
+
+
+register("Shatter the Sky", _shatter_the_sky)
 

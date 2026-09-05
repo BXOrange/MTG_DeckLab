@@ -7,7 +7,10 @@ resolved can never drift apart.
 
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.parser.oracle import MODELED, parse_oracle
-from mtg_analyzer.parser.oracle.catalogue.lands import tap_clause_condition
+from mtg_analyzer.parser.oracle.catalogue.lands import (
+    tap_clause_condition,
+    tapped_entry_choice_tail,
+)
 
 # ---------------------------------------------------------------------------
 # tap_clause_condition — direct clause-shape classification
@@ -24,6 +27,12 @@ def test_plain_tapland_enters_the_battlefield_tapped():
 
 def test_plain_tapland_enters_tapped_self_name():
     assert tap_clause_condition("~ enters tapped.") == {"kind": "always"}
+
+
+def test_thriving_land_tapped_entry_and_choice_tail_are_both_recognized():
+    line = "~ enters tapped. as it enters, choose a color other than red."
+    assert tap_clause_condition(line) == {"kind": "always"}
+    assert tapped_entry_choice_tail(line) == "as it enters, choose a color other than red"
 
 
 def test_this_artifact_enters_tapped():
@@ -132,6 +141,18 @@ def test_gate_claims_plain_tapland_as_modeled():
     assert result.coverage == MODELED
     # Covered-without-spec, like a mana ability — no effect spec emitted for it.
     assert result.effect_specs == []
+
+
+def test_gate_claims_thriving_land_and_keeps_its_enter_color_choice():
+    card = _land(
+        "Thriving Bluff",
+        "This land enters tapped. As it enters, choose a color other than red.\n"
+        "{T}: Add {R} or one mana of the chosen color.",
+    )
+    result = parse_oracle(card)
+    assert result.coverage == MODELED
+    [choice] = [spec for spec in result.specs if spec.ability_kind == "enter_replacement"]
+    assert choice.effects[0].type == "choose_color_on_enter"
 
 
 def test_gate_claims_shock_land_as_modeled():

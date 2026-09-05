@@ -148,6 +148,20 @@ class CastingMixin:
         if not param or not param.get("cost"):
             return None
         return ManaCost.parse(str(param["cost"]))
+
+    @staticmethod
+    def _evoke_exile_hand_color(obj: GameObject) -> Optional[str]:
+        """The coloured-card alternative Evoke payment, if printed."""
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("evoke") or {}
+        color = param.get("exile_hand_card_color")
+        return str(color) if color in {"W", "U", "B", "R", "G"} else None
+
+    def _has_evoke(self, obj: GameObject) -> bool:
+        return (
+            self._evoke_cost(obj) is not None
+            or self._evoke_exile_hand_color(obj) is not None
+            or continuous.granted_evoke_cost_for(self.state, obj) is not None
+        )
     @staticmethod
     def _entwine_cost(obj: GameObject) -> Optional["ManaCost"]:
         """RULE 702.42a: ``obj``'s Entwine cost as a `ManaCost`, or ``None``
@@ -553,10 +567,16 @@ class CastingMixin:
         if entwine and self._entwine_cost(obj) is None:
             # RULE 702.42a: Entwine is only payable on a spell that has one.
             return False
-        if evoke and self._evoke_cost(obj) is None and continuous.granted_evoke_cost_for(self.state, obj) is None:
+        if evoke and not self._has_evoke(obj):
             # RULE 702.74b: Evoke is only payable on a spell that carries
             # (or was granted, Ashling the Limitless-shaped) one.
             return False
+        if evoke:
+            evoke_exile_color = self._evoke_exile_hand_color(obj)
+            if evoke_exile_color and self._exile_hand_card_candidate(
+                player, evoke_exile_color, exclude=obj
+            ) is None:
+                return False
         if exile_discount:
             # March of Swirling Mist (MEC-42): only legal on a spell that
             # actually prints this additional cost, and only up to the
@@ -865,6 +885,10 @@ class CastingMixin:
             evoke_cost = self._evoke_cost(obj) or continuous.granted_evoke_cost_for(self.state, obj)
             if evoke_cost is not None:
                 return self._adjust_cost(evoke_cost, player, obj)
+            if self._evoke_exile_hand_color(obj) is not None:
+                # A non-mana alternative cost still receives commander tax
+                # and ordinary cost adjustments (RULE 118.9).
+                return self._adjust_cost(ManaCost.parse("{0}"), player, obj)
         override = self.state.exile_cast_cost_override.get(obj.instance_id)
         if override is not None and getattr(obj, "zone", None) == Zone.EXILE:
             # RULE 701.65 (Airbend, PAR-29): "its owner may cast it for {2}
@@ -1649,6 +1673,16 @@ class CastingMixin:
                     # then pay the (further-reduced) mana cost as normal.
                     cost = self._consume_cast_help(player, obj, cost)
                 result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
+                # RULE 702.74b's Incarnation-cycle Evoke cost is paid while
+                # casting, just like the Force-of-Will-style hand-exile
+                # alternative cost it reuses.  The spell has already left
+                # hand, so the selector can never pay by exiling itself.
+                if evoke:
+                    evoke_exile_color = self._evoke_exile_hand_color(obj)
+                    if evoke_exile_color:
+                        victim = self._exile_hand_card_candidate(player, evoke_exile_color)
+                        if victim is not None:
+                            self.rules.exile(victim)
                 if kicked and kicker_x > 0 and self._kicker_x_distinct_colors(obj):
                     # PAR-7: Kicker's own distinct-color-capped {X} was
                     # excluded from ``cost`` above (`effective_cast_cost`) and

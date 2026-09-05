@@ -397,6 +397,27 @@ def test_resculpt_exiles_and_gives_its_controller_a_4_4_elemental():
     assert tokens[0].power == 4 and tokens[0].toughness == 4
 
 
+def test_crib_swap_exiles_a_creature_and_gives_its_controller_changeling():
+    victim = Card(id="CribSwapVictim", name="CribSwapVictim", type_line="Creature — Bear",
+                  is_creature=True, power=2, toughness=2)
+    eng = _engine(p1_cards=[_card("Crib Swap")])
+    state = eng.state
+    p1 = state.active_player
+    p2 = state.players[1]
+    victim_obj = _battlefield(state, victim, controller="p2")
+
+    spell = p1.hand[0]
+    p1.mana_pool.add_many({"W": 1, "C": 2})
+    eng.cast_spell(p1, spell, targets=[victim_obj])
+    eng.resolve_until_stable()
+
+    assert victim_obj.zone == Zone.EXILE
+    [token] = [o for o in state.battlefield if o.name == "Shapeshifter"]
+    assert token.controller_id == p2.id
+    assert (token.power, token.toughness) == (1, 1)
+    assert "changeling" in token.intrinsic_keywords
+
+
 # ---------------------------------------------------------------------------
 # 10. Mirage Mirror — activated `become_copy_until_eot`
 # ---------------------------------------------------------------------------
