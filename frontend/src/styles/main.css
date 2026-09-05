@@ -1,16 +1,93 @@
 :root {
-  --bg: #1b1e24;
-  --panel: #262a33;
-  --panel-alt: #2f3440;
-  --felt: #1f3b2c;
-  --border: #3a3f4b;
-  --text: #e8e9ec;
-  --text-dim: #9aa0ab;
-  --accent: #c9a53b;
-  --error: #d3564b;
-  --warn: #d3a13a;
-  --ok: #5bb072;
-  --info: #4a90d9;
+  --bg: #071510;
+  --panel: #0d2119;
+  --panel-alt: #143027;
+  --felt: #12442d;
+  --border: #295442;
+  --text: #edf8f1;
+  --text-dim: #a4c2b0;
+  --accent: #08bd59;
+  --accent-text: #06140d;
+  --error: #e96b61;
+  --warn: #dfb44d;
+  --ok: #42cc7b;
+  --info: #52b995;
+}
+
+:root[data-theme='white'] {
+  --bg: #1d1a12;
+  --panel: #2b261a;
+  --panel-alt: #3a3322;
+  --felt: #504327;
+  --border: #766540;
+  --text: #fffbed;
+  --text-dim: #d5cba9;
+  --accent: #f1dfa3;
+  --accent-text: #201b0d;
+  --ok: #9dd889;
+  --info: #9ecae1;
+}
+
+:root[data-theme='blue'] {
+  --bg: #071923;
+  --panel: #0c2837;
+  --panel-alt: #12384d;
+  --felt: #124e68;
+  --border: #28657d;
+  --text: #ebf9ff;
+  --text-dim: #a7cedd;
+  --accent: #45b7e8;
+  --accent-text: #061820;
+  --ok: #58cfb4;
+  --info: #77caff;
+}
+
+:root[data-theme='black'] {
+  --bg: #151718;
+  --panel: #202426;
+  --panel-alt: #2d3336;
+  --felt: #394144;
+  --border: #596367;
+  --text: #f1f5f5;
+  --text-dim: #bec9ca;
+  --accent: #b4c0c1;
+  --accent-text: #121617;
+  --ok: #78c89b;
+  --info: #9bb5b8;
+}
+
+:root[data-theme='red'] {
+  --bg: #24110f;
+  --panel: #351714;
+  --panel-alt: #4a211c;
+  --felt: #662b23;
+  --border: #874238;
+  --text: #fff3ef;
+  --text-dim: #e2b7ac;
+  --accent: #ef705c;
+  --accent-text: #26100d;
+  --ok: #89ca78;
+  --info: #e09a71;
+}
+
+:root[data-theme='white'] .app-brand-logo {
+  filter: grayscale(1) brightness(2.25) contrast(0.75) sepia(0.3);
+}
+
+:root[data-theme='blue'] .app-brand-logo {
+  filter: sepia(1) saturate(5) hue-rotate(155deg) brightness(0.62) contrast(1.65);
+}
+
+:root[data-theme='black'] .app-brand-logo {
+  filter: sepia(0.75) saturate(2.5) hue-rotate(225deg) brightness(0.62) contrast(1.65);
+}
+
+:root[data-theme='red'] .app-brand-logo {
+  filter: sepia(1) saturate(6) hue-rotate(305deg) brightness(0.62) contrast(1.65);
+}
+
+:root[data-theme='green'] .app-brand-logo {
+  filter: brightness(0.62) contrast(1.65);
 }
 
 * {
@@ -40,7 +117,7 @@ body {
      controls stay proportional instead of looking cramped against a
      shrunken bar. */
   padding: calc(1rem * 2 / 3) 1.5rem;
-  background: var(--panel);
+  background: linear-gradient(105deg, var(--panel), color-mix(in srgb, var(--panel) 74%, #000));
   border-bottom: 1px solid var(--border);
 }
 
@@ -52,14 +129,9 @@ body {
 
 .app-brand-logo {
   display: block;
-  width: clamp(150px, 22vw, 270px);
-  height: 38px;
-  max-width: 100%;
-  object-fit: contain;
-  padding: 3px 7px;
-  background: #f4f6f8;
-  border: 1px solid #c9d1d9;
-  border-radius: 6px;
+  width: auto;
+  height: 44px;
+  max-width: min(70vw, 320px);
 }
 
 .app-header-left {
@@ -318,7 +390,7 @@ body {
 
 .tab-button.active {
   background: var(--accent);
-  color: #1b1e24;
+  color: var(--accent-text);
   border-color: var(--accent);
   font-weight: 600;
 }
@@ -450,7 +522,7 @@ button {
 
 button.primary {
   background: var(--accent);
-  color: #1b1e24;
+  color: var(--accent-text);
   border: none;
   font-weight: 600;
 }
@@ -1188,7 +1260,7 @@ textarea {
 
 .card-tile-flip:hover {
   background: var(--accent);
-  color: #1b1e24;
+  color: var(--accent-text);
 }
 
 .card-tile-flip.is-flipped {
@@ -1229,7 +1301,7 @@ textarea {
   top: 0.4rem;
   left: 0.4rem;
   background: var(--accent);
-  color: #1b1e24;
+  color: var(--accent-text);
   font-weight: 700;
   font-size: 0.78rem;
   padding: 0.1rem 0.45rem;
@@ -1372,6 +1444,16 @@ textarea {
   flex: none;
 }
 
+.connection-settings-panel select {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
 /* --- Deck analysieren --- */
 
 .analyze-panel {
@@ -1417,7 +1499,7 @@ textarea {
 
 .analyze-subtab.active {
   background: var(--accent);
-  color: #1b1e24;
+  color: var(--accent-text);
   border-color: var(--accent);
   font-weight: 600;
 }
@@ -3513,7 +3595,7 @@ textarea {
 
 .gf-card-flip:hover {
   background: var(--accent);
-  color: #1b1e24;
+  color: var(--accent-text);
 }
 
 /* Combat/evasion keyword abbreviations, as a pill along a creature's bottom
@@ -4596,7 +4678,7 @@ textarea {
   padding: 0 3px;
   font-size: 0.66rem;
 }
-.replay-badge--counter { background: rgba(201, 165, 59, 0.85); color: #000; }
+.replay-badge--counter { background: color-mix(in srgb, var(--accent) 85%, transparent); color: var(--accent-text); }
 .replay-badge--sick { background: rgba(59, 130, 201, 0.85); }
 .replay-card-tools {
   display: flex;
@@ -4899,7 +4981,7 @@ textarea {
 .mp-banner-pip.is-on {
   opacity: 1;
   background: var(--pip);
-  color: #1b1e24;
+  color: var(--accent-text);
 }
 
 /* `--pip` carries both states (outline when off, fill when on), so each

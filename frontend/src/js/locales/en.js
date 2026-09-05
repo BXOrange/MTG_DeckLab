@@ -117,6 +117,13 @@ export default {
   'settings.language': 'Language',
   'settings.languageChangeConfirm':
     'Switch language and reload the page? Any local game in progress (Goldfish / Solo / Puzzle) will be reset.',
+  'settings.theme': 'Magic color identity',
+  'settings.themeHint': 'Changes the app palette and DeckLab logo immediately. The selection is saved in this browser.',
+  'settings.theme.white': 'White',
+  'settings.theme.blue': 'Blue',
+  'settings.theme.black': 'Black',
+  'settings.theme.red': 'Red',
+  'settings.theme.green': 'Green',
 
   // --- Profile tab (profileView.js) ---------------------------------
   'profile.title': 'Profile',

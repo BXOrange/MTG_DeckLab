@@ -15,6 +15,7 @@ import {
   refreshConnectionStatus,
 } from './connectionStatus.js';
 import { t, getLang, setLang, LANGUAGES } from './i18n.js';
+import { getVisualTheme, setVisualTheme, VISUAL_THEMES } from './theme.js';
 
 const STATUS_LABELS = {
   checking: 'settings.status.checking',
@@ -25,6 +26,9 @@ const STATUS_LABELS = {
 export function renderConnectionSettingsView(container) {
   const langOptions = LANGUAGES.map(
     (l) => `<option value="${l.code}">${l.label}</option>`,
+  ).join('');
+  const themeOptions = VISUAL_THEMES.map(
+    (theme) => `<option value="${theme.code}">${t(theme.labelKey)}</option>`,
   ).join('');
   container.innerHTML = `
     <div class="connection-settings-panel">
@@ -47,6 +51,12 @@ export function renderConnectionSettingsView(container) {
         <label for="lang-select">${t('settings.language')}</label>
         <select id="lang-select">${langOptions}</select>
       </div>
+
+      <div class="deck-section">
+        <label for="theme-select">${t('settings.theme')}</label>
+        <select id="theme-select">${themeOptions}</select>
+        <p class="hint">${t('settings.themeHint')}</p>
+      </div>
     </div>
   `;
 
@@ -55,9 +65,11 @@ export function renderConnectionSettingsView(container) {
   const saveBtn = container.querySelector('#save-settings-btn');
   const testBtn = container.querySelector('#test-connection-btn');
   const langSelect = container.querySelector('#lang-select');
+  const themeSelect = container.querySelector('#theme-select');
 
   urlInput.value = getSettings().serverUrl;
   langSelect.value = getLang();
+  themeSelect.value = getVisualTheme();
 
   function renderStatus() {
     const status = getConnectionStatus();
@@ -88,5 +100,9 @@ export function renderConnectionSettingsView(container) {
     }
     setLang(langSelect.value);
     window.location.reload();
+  });
+
+  themeSelect.addEventListener('change', () => {
+    themeSelect.value = setVisualTheme(themeSelect.value);
   });
 }

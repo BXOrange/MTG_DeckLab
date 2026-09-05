@@ -1,5 +1,6 @@
 // First import: pins i18n init order — its module top-level reads the
 // language cookie and stamps <html lang> before any view module runs.
+import './theme.js';
 import { applyStaticI18n, t } from './i18n.js';
 import { renderDeckImportView } from './deckImportView.js';
 import { renderImportDeckView } from './importDeckView.js';
