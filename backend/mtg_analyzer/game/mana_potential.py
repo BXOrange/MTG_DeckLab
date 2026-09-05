@@ -196,6 +196,26 @@ def _flexible_colors(ability: ManaAbility) -> Optional[set]:
     return None
 
 
+def _candidate_priority(candidate: _Candidate) -> int:
+    """The auto-tap decision tree's source order.
+
+    Creatures are deliberately checked before the colour shape: a creature
+    that makes one colour is still the last-resort source requested by the
+    player.  The same ordering is used by the potential simulations below so
+    their displayed branches describe the decisions auto-tap would make.
+    """
+    obj = candidate.obj
+    if getattr(obj, "is_creature", False):
+        return 3
+    if getattr(obj.card, "is_artifact", False) and not candidate.ability.cost.sacrifice:
+        return 2
+    if getattr(obj.card, "is_land", False) and len(_producible_colors(candidate.ability)) > 1:
+        return 1
+    if len(_producible_colors(candidate.ability)) <= 1:
+        return 0
+    return 4
+
+
 # --------------------------------------------------------------------------
 # Scratch bookkeeping shared across one simulation pass
 # --------------------------------------------------------------------------
@@ -512,7 +532,7 @@ def _maximize_color(engine: Any, player: Player, color: str) -> int:
     output, or fixed output that's already ``color``)."""
     pool = ManaPool()
     commitment = _Commitment.fresh(engine, player)
-    candidates = _all_candidates(engine, player)
+    candidates = _sorted_candidates(_all_candidates(engine, player), {color})
     preferred = {color}
 
     zero_cost = [c for c in candidates if not c.ability.cost.mana.symbols]
@@ -545,6 +565,52 @@ def _maximize_color(engine: Any, player: Player, color: str) -> int:
             break
 
     return pool.pool.get(color, 0)
+
+
+def _maximize_total(
+    engine: Any, player: Player, preferred: Optional[set[str]] = None
+) -> dict[str, int]:
+    """Run the source-priority tree once for a coherent total outcome."""
+    pool = ManaPool()
+    commitment = _Commitment.fresh(engine, player)
+    candidates = _sorted_candidates(_all_candidates(engine, player), set(_ALL_TYPES))
+    preferred = preferred or set(_ALL_TYPES)
+    remaining = candidates
+    for _ in range(len(candidates) + 1):
+        progressed = False
+        still_remaining = []
+        for candidate in remaining:
+            if _try_activate(engine, player, candidate, commitment, pool, preferred) is None:
+                still_remaining.append(candidate)
+            else:
+                progressed = True
+        remaining = still_remaining
+        if not progressed:
+            break
+    return {color: pool.pool.get(color, 0) for color in _ALL_TYPES if pool.pool.get(color, 0)}
+
+
+def _potential_variations(engine: Any, player: Player) -> list[dict[str, Any]]:
+    """Return coherent output branches produced by the same decision tree.
+
+    The total branch is the number the board presents as the maximum. The
+    colour branches preserve the useful answer to "what if I prioritise this
+    colour?" without pretending that six independent colour maxima can all
+    be spent simultaneously.
+    """
+    branches = [_maximize_total(engine, player)]
+    branches.extend(_maximize_total(engine, player, {color}) for color in _ALL_TYPES)
+    unique: dict[tuple[tuple[str, int], ...], dict[str, Any]] = {}
+    for mana in branches:
+        normalized = tuple(sorted(mana.items()))
+        unique[normalized] = {
+            "mana": dict(mana),
+            "total": sum(mana.values()),
+        }
+    return sorted(
+        unique.values(),
+        key=lambda branch: (-branch["total"], tuple(branch["mana"].items())),
+    )
 
 
 def open_potential_summary(engine: Any, player: Player) -> dict[str, int]:
@@ -585,13 +651,19 @@ def used_potential_summary(engine: Any, player: Player) -> dict[str, int]:
     return {color: produced.get(color, 0) for color in _ALL_TYPES}
 
 
-def player_summary(engine: Any, player: Player) -> dict[str, dict[str, int]]:
-    """``{"open": ..., "used": ...}`` — the whole "Mana-Potenzial" block for
+def player_summary(engine: Any, player: Player) -> dict[str, Any]:
+    """The whole "Mana-Potenzial" block for one player.
+
+    ``open``/``used`` remain the per-colour compatibility rows. ``maximum``
+    and ``variations`` are the coherent decision-tree results used by the UI.
     one player, as embedded in `GameSession.view()`'s per-player-id
     ``mana_potential`` dict."""
+    variations = _potential_variations(engine, player)
     return {
         "open": open_potential_summary(engine, player),
         "used": used_potential_summary(engine, player),
+        "maximum": max((branch["total"] for branch in variations), default=0),
+        "variations": variations,
     }
 
 
@@ -686,7 +758,7 @@ def _sorted_candidates(candidates: list[_Candidate], needed_colors: set) -> list
             needed_colors & set(opt) for opt in c.ability.options
         )
         best = max((sum(opt.values()) for opt in c.ability.options), default=0)
-        return (not converter, not matches_need, -best)
+        return (_candidate_priority(c), not converter, not matches_need, -best)
 
     return sorted(candidates, key=key)
 

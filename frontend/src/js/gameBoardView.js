@@ -3693,28 +3693,32 @@ export function createGameBoardView(opts = {}) {
     return `<div class="gf-manapool" title="${escapeAttr(t('bd.mana.poolTitle'))}">${empty ? `<span class="empty-state">${t('bd.mana.noMana')}</span>` : parts.join('') + restrictedParts.join('')}</div>`;
   }
 
-  // "Mana-Potenzial": how much more mana this player could still produce
-  // this turn from untapped/unexiled sources ("offen", a live non-mutating
-  // simulation — `game/mana_potential.py`'s `open_potential_summary`), next
-  // to how much they've already actually produced this turn ("genutzt",
-  // `used_potential_summary`) — the two sum to this turn's total accessed
-  // mana capacity. ``potential`` is `view.mana_potential[player_id]`
+  // "Mana-Potenzial": the maximum mana and coherent source-choice
+  // variations from this player's untapped/unexiled sources. ``potential``
+  // is `view.mana_potential[player_id]`
   // (absent for a seat this view doesn't own — RULE 400.2, same as the
   // hand array itself).
   function manaPotentialHtml(potential) {
     if (!potential) return '';
     const order = ['W', 'U', 'B', 'R', 'G', 'C'];
-    const row = (amounts, label, cls) => {
-      const parts = order
-        .filter((c) => amounts[c] > 0)
-        .map((c) => `<span class="gf-mana">${MANA_SYMBOL_EMOJI[c]}${amounts[c]}</span>`);
-      if (!parts.length) return '';
-      return `<span class="gf-mana-potential-row ${cls}"><span class="gf-mana-potential-label">${label}</span>${parts.join('')}</span>`;
-    };
-    const openRow = row(potential.open || {}, t('bd.mana.open'), 'gf-mana-potential-open');
-    const usedRow = row(potential.used || {}, t('bd.mana.used'), 'gf-mana-potential-used');
-    if (!openRow && !usedRow) return '';
-    return `<div class="gf-mana-potential" title="${escapeAttr(t('bd.mana.potentialTitle'))}">${openRow}${usedRow}</div>`;
+    const manaParts = (amounts) => order
+      .filter((c) => amounts?.[c] > 0)
+      .map((c) => `<span class="gf-mana">${MANA_SYMBOL_EMOJI[c]}${amounts[c]}</span>`)
+      .join('');
+    const variations = (potential.variations || [])
+      .map((variation) => `
+        <li class="gf-mana-potential-variation">
+          <strong>${variation.total}</strong>${manaParts(variation.mana || {})}
+        </li>`)
+      .join('');
+    const details = variations
+      ? `<div class="gf-mana-potential-heading">${escapeHtml(t('bd.mana.variations'))}</div><ul>${variations}</ul>`
+      : '';
+    return `
+      <details class="gf-mana-potential" title="${escapeAttr(t('bd.mana.potentialTitle'))}">
+        <summary><span class="gf-mana-potential-label">${escapeHtml(t('bd.mana.maximum'))}</span><strong>${Number(potential.maximum || 0)}</strong></summary>
+        <div class="gf-mana-potential-details">${details}</div>
+      </details>`;
   }
 
   // RULE 605.3a: mana tagged "spend only on X" (`ManaPool.to_dict`'s additive

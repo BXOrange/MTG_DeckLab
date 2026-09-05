@@ -335,6 +335,103 @@ main {
   display: block;
 }
 
+/* --- Help tab --------------------------------------------------------- */
+
+.help-view {
+  max-width: 1300px;
+  margin: 0 auto;
+}
+
+.help-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.help-heading h2 {
+  margin: 0 0 0.35rem;
+}
+
+.help-heading .hint {
+  margin: 0;
+}
+
+.help-source-link {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.help-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.help-chapters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.help-chapter {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.help-chapter.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.help-document {
+  min-width: 0;
+  padding: 1.25rem 1.5rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  line-height: 1.55;
+}
+
+.help-document > :first-child { margin-top: 0; }
+.help-document > :last-child { margin-bottom: 0; }
+.help-document h1 { font-size: 1.55rem; }
+.help-document h2 { font-size: 1.2rem; margin-top: 1.8rem; }
+.help-document h3 { font-size: 1rem; margin-top: 1.4rem; }
+.help-document li + li { margin-top: 0.3rem; }
+.help-document a { color: var(--accent); }
+.help-document code {
+  padding: 0.1em 0.3em;
+  background: var(--bg);
+  border-radius: 3px;
+}
+.help-document pre {
+  overflow-x: auto;
+  padding: 0.85rem 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.help-document pre code { padding: 0; background: transparent; }
+
+@media (max-width: 720px) {
+  .help-heading { flex-direction: column; }
+  .help-layout { grid-template-columns: 1fr; }
+  .help-chapters { max-height: 13rem; overflow-y: auto; }
+  .help-document { padding: 1rem; }
+}
+
 button {
   font-family: inherit;
 }
@@ -2155,11 +2252,62 @@ textarea {
 /* "Mana-Potenzial": what's still open vs. already produced this turn —
    a compact two-row readout next to the live mana pool. */
 .gf-mana-potential {
+  display: block;
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.gf-mana-potential summary {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.gf-mana-potential summary::-webkit-details-marker {
+  display: none;
+}
+
+.gf-mana-potential summary::after {
+  content: '▾';
+  color: var(--text-dim);
+  font-size: 0.7rem;
+}
+
+.gf-mana-potential[open] summary::after {
+  content: '▴';
+}
+
+.gf-mana-potential-details {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  margin-left: 0.5rem;
-  font-size: 0.8rem;
+  margin-top: 0.2rem;
+}
+
+.gf-mana-potential-heading {
+  margin-top: 0.15rem;
+  color: var(--text-dim);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+}
+
+.gf-mana-potential-details ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gf-mana-potential-variation {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
 }
 
 .gf-mana-potential-row {

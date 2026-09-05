@@ -13,6 +13,7 @@ import { renderAnalyzeView } from './analyzeView.js';
 import { renderConnectionSettingsView } from './connectionSettingsView.js';
 import { renderProfileView } from './profileView.js';
 import { renderImplementationStatusView } from './implementationStatusView.js';
+import { renderHelpView } from './helpView.js';
 import { renderConnectionIndicator } from './connectionStatus.js';
 import { initCardHoverDetail } from './cardHoverDetail.js';
 import {
@@ -78,6 +79,7 @@ const views = {
   connection: document.getElementById('view-connection'),
   profile: document.getElementById('view-profile'),
   status: document.getElementById('view-status'),
+  help: document.getElementById('view-help'),
 };
 
 function showTab(tabName) {
@@ -182,5 +184,6 @@ renderSavedDecksView(views.savedDecks, {
 renderConnectionSettingsView(views.connection);
 renderProfileView(views.profile);
 renderImplementationStatusView(views.status);
+renderHelpView(views.help);
 
 showTab('savedDecks');

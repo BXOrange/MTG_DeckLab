@@ -16,11 +16,29 @@ Used by setup/start.py instead of `python -m http.server`.
 
 import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 DEFAULT_PORT = 8000
+USER_DOCS_DIR = Path(__file__).resolve().parent.parent / "user-docs"
 
 
 class NoCacheHandler(SimpleHTTPRequestHandler):
+    def translate_path(self, path: str) -> str:
+        """Expose the player guide without copying it into the frontend tree.
+
+        The normal document root remains the frontend directory. Only the
+        explicit /user-docs/ prefix may resolve outside it, and the resolved
+        path is kept beneath USER_DOCS_DIR to reject traversal attempts.
+        """
+        request_path = unquote(urlsplit(path).path)
+        if request_path.startswith("/user-docs/"):
+            relative = request_path.removeprefix("/user-docs/")
+            candidate = (USER_DOCS_DIR / relative).resolve()
+            if candidate.is_relative_to(USER_DOCS_DIR):
+                return str(candidate)
+        return super().translate_path(path)
+
     def end_headers(self) -> None:
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
