@@ -2786,12 +2786,25 @@ export function createGameBoardView(opts = {}) {
     // could actually reach it.
     if (o.face_down) return assetsSleeveImageUrl || null;
     const showBack = showsBackFace(o);
+    const isToken = o.is_token || (o.card_id || '').startsWith('token:');
+    // Tokens first try an exact-id match: the same token *name* is reprinted
+    // at different stat lines across Magic's history (several "Shapeshifter"
+    // tokens exist as a 1/1, a 2/2, …), so a same-named-but-different-P/T
+    // token in the same game needs its own art, not whichever variant's
+    // entry happened to land last in the shared by-name cache below (see
+    // `preloadDeckTokens`'s token-art seeding — it sets both keys).
+    if (isToken && o.card_id) {
+      const byId = imageCache?.get(o.card_id);
+      if (byId) {
+        if (showBack && byId.backSmall) return byId.backSmall;
+        if (!showBack && byId.small) return byId.small;
+      }
+    }
     const cached = imageCache?.get((o.name || '').toLowerCase());
     if (cached) {
       if (showBack && cached.backSmall) return cached.backSmall;
       if (!showBack && cached.small) return cached.small;
     }
-    const isToken = o.is_token || (o.card_id || '').startsWith('token:');
     if (isToken) {
       const custom = tokenImages[(o.name || '').toLowerCase()];
       if (custom) return custom;

@@ -20,6 +20,13 @@ Only the JSON (ids, oracle text, types, image *URLs*) lives in the repo;
 the image *bytes* are still lazy-loaded on first use through the same
 `ImageCache`, which is keyed by the Scryfall id every token carries — so
 token art costs nothing until something actually renders it.
+
+`TokenArtLibrary` (below) is a second, much larger, art-*only* dataset
+(`data/token_art.json`, built by `scripts/build_token_art_library.py`) for
+every *vanilla* token — one an effect synthesizes inline from a clause
+("create a 1/1 white Soldier creature token") rather than looking up by
+name, so it has no ability and would otherwise get no art at all. See its
+own docstring for why it exists separately from the curated catalogue above.
 """
 
 from __future__ import annotations
@@ -32,6 +39,9 @@ from mtg_analyzer.models.card import Card
 
 #: The committed token catalogue that ships with the package.
 DEFAULT_TOKENS_PATH = Path(__file__).resolve().parent.parent / "data" / "tokens.json"
+
+#: The committed *art-only* token library — see `TokenArtLibrary`.
+DEFAULT_TOKEN_ART_PATH = Path(__file__).resolve().parent.parent / "data" / "token_art.json"
 
 
 class TokenDatabase:
@@ -85,6 +95,77 @@ def default_token_database() -> TokenDatabase:
     return _default_db
 
 
+class TokenArtLibrary:
+    """Art-only lookup over every *vanilla* token Scryfall has ever printed.
+
+    Built by `scripts/build_token_art_library.py` from Scryfall's own token
+    sheets into `data/token_art.json`: one representative printing per
+    distinct (name, power, toughness, colors) combination. This is
+    deliberately a separate, much larger dataset from `data/tokens.json`
+    (`TokenDatabase`, curated by hand): most tokens an effect creates have no
+    ability of their own — "create a 1/1 white Soldier" — so `TokenDatabase`
+    would never carry one, but a player still expects the token's actual
+    printed art instead of a text tile.
+
+    The (name, power, toughness, colors) key is the whole point of a
+    *library* rather than a flat name → art map: Magic reprints the same
+    token name at different stat lines across sets (a "Shapeshifter" token
+    exists as a 1/1, a 2/2, and others, in different colors) — matching by
+    name alone would show one variant's art on every other variant. Matching
+    ignores ``subtypes``: for a vanilla token, the name *is* its subtypes
+    joined (`synthesize_token_card`'s own ``token_name`` default), so it adds
+    no discriminating power the (name, power, toughness, colors) key doesn't
+    already have.
+
+    This is purely cosmetic — a miss just means the caller keeps building an
+    imageless token exactly as before (the pre-existing behaviour), never a
+    hard failure.
+    """
+
+    def __init__(self, path: Union[str, Path] = DEFAULT_TOKEN_ART_PATH) -> None:
+        self._by_key: dict[tuple, dict] = {}
+        try:
+            raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raw = []
+        for entry in raw:
+            key = self._key(entry["name"], entry["power"], entry["toughness"], entry["colors"])
+            # First entry wins on a key collision — the build script already
+            # de-duplicates by this exact key, so a collision here would only
+            # mean two differently-cased names normalizing to the same key.
+            self._by_key.setdefault(key, entry)
+
+    @staticmethod
+    def _key(
+        name: str, power: Optional[int], toughness: Optional[int], colors: Optional[list[str]]
+    ) -> tuple[str, Optional[int], Optional[int], frozenset[str]]:
+        return (name.strip().casefold(), power, toughness, frozenset(colors or []))
+
+    def find(
+        self,
+        name: Optional[str],
+        power: Optional[int],
+        toughness: Optional[int],
+        colors: Optional[list[str]],
+    ) -> Optional[dict]:
+        """The library entry matching this exact (name, P/T, colors), if any."""
+        if not name:
+            return None
+        return self._by_key.get(self._key(name, power, toughness, colors))
+
+
+#: Lazily-built process-wide default library (reads the JSON once).
+_default_art_library: Optional[TokenArtLibrary] = None
+
+
+def default_token_art_library() -> TokenArtLibrary:
+    """The shared `TokenArtLibrary` over the repo's committed art dataset."""
+    global _default_art_library
+    if _default_art_library is None:
+        _default_art_library = TokenArtLibrary()
+    return _default_art_library
+
+
 def synthesize_token_card(
     name: str,
     power: Optional[int] = None,
@@ -131,8 +212,14 @@ def synthesize_token_card(
     if subtypes:
         type_line += " — " + " ".join(s.capitalize() for s in subtypes)
     token_name = name or (subtypes[0] if subtypes else "Token")
+    # Cosmetic only: a hit gives this ad hoc token its real printed art (and,
+    # so a same-named different-stats variant can't collide on it, that
+    # printing's own Scryfall id in place of the generic `token:name:p/t`
+    # placeholder — see `TokenArtLibrary`). A miss changes nothing; the
+    # caller gets exactly the imageless token it always did.
+    art = default_token_art_library().find(token_name, power, toughness, colors)
     return Card(
-        id=f"token:{token_name}:{power}/{toughness}",
+        id=art["id"] if art else f"token:{token_name}:{power}/{toughness}",
         name=token_name,
         type_line=type_line,
         is_creature=is_creature,
@@ -142,4 +229,8 @@ def synthesize_token_card(
         color_identity=set(colors or []),
         keywords=list(keywords or []),
         oracle_text=oracle_text,
+        image_uri_small=art["image_uri_small"] if art else "",
+        image_uri_normal=art["image_uri_normal"] if art else "",
+        image_uri_large=art["image_uri_large"] if art else "",
+        image_uri_png=art["image_uri_png"] if art else "",
     )

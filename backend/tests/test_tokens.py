@@ -260,8 +260,11 @@ def _anywhere(eng, obj):
 
 
 def test_producible_tokens_synthesized_from_oracle_and_deduped():
-    # An inline creature token parsed off oracle text — synthesized (no art),
-    # and de-duplicated across a deck's repeated copies.
+    # An inline creature token parsed off oracle text — synthesized, and
+    # de-duplicated across a deck's repeated copies. A 1/1 white Soldier is a
+    # real, oft-reprinted token, so `TokenArtLibrary` resolves it real art
+    # (see `test_synthesize_token_card_falls_back_without_art` for the miss
+    # case) — this is exactly what preloading needs, same as a named token.
     from mtg_analyzer.services.deck_tokens import producible_tokens
 
     spell = Card(id="RTA", name="Raise the Alarm", type_line="Instant", is_instant=True,
@@ -269,7 +272,7 @@ def test_producible_tokens_synthesized_from_oracle_and_deduped():
     tokens = producible_tokens([spell, spell])
     assert [t.name for t in tokens] == ["Soldier"]
     assert tokens[0].power == 1 and tokens[0].toughness == 1
-    assert not tokens[0].image_uri_small  # synthesized tokens carry no art
+    assert tokens[0].image_uri_small
 
 
 def test_producible_tokens_named_resolves_curated_art():

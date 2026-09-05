@@ -272,6 +272,21 @@ its block back into the matching section here.
   `back_face()`) — not the same bug, just adjacent code read during that
   investigation; no regression, just a pre-existing unimplemented action.
 
+- **MEC-65 · Exile-cost Evoke (RULE 702.74) on the five modern Elementals**
+  (Solitude, Endurance, Fury, Subtlety, Grief). The existing Evoke mechanism
+  (`_evoke_cost`/`cast_via_evoke`, `game/engine/casting_mixin.py`) only
+  computes an alternative **mana** cost, and only that shape reaches
+  `parametric_keywords` in the first place. These five cards' Evoke instead
+  reads "you may evoke this by exiling a [colour] card from your hand
+  rather than paying its mana cost" — a non-mana alternative cost the
+  parser never produces, so there's no path for `can_cast`/`cast_spell` to
+  even offer it. Their catalogue entries (`game/ability_catalogue/
+  entries_00N.py`, e.g. Solitude) are hand-authored today with an explicit
+  comment noting the alt-cost is unmodeled; the cards are only castable at
+  their real mana cost. Before building a new primitive, check whether a
+  later batch's exile-as-cost work (any "exile a card from hand" cost
+  family) already covers this shape.
+
 > MEC-47/49/51/51b/52/53/54/55/56/57/58/59/60/61/62 all closed
 > (`Done_Backend.md`); MEC-48's Specialize-rider tail is parked in
 > [DEFERRED.md](DEFERRED.md).

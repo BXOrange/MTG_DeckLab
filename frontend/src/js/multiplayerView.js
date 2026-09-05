@@ -24,6 +24,7 @@ import {
   createMultiplayerGame,
   exportReplay,
   fetchBotKinds,
+  fetchDeckTokens,
   fetchGameFormats,
   fetchMultiplayerGame,
   joinMultiplayerGame,
@@ -58,7 +59,7 @@ import { createGameBoardView } from './gameBoardView.js';
 import { t } from './i18n.js';
 import { analysisHtml } from './gameStats.js';
 import { getState, setState } from './state.js';
-import { preloadCardImages } from './cardImages.js';
+import { preloadCardImages, cacheResolvedCard } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
 import { MULLIGAN_LABELS, SEAT_COUNTS, mulliganText } from './mulligan.js';
 import {
@@ -746,6 +747,7 @@ export function createMultiplayerView(hooks = {}) {
     const resolved = await preloadCardImages(names);
     const merged = new Map(getState().imageCache);
     for (const [name, entry] of resolved) merged.set(name, entry);
+    await preloadDecksTokens([deck], merged);
     setState({ imageCache: merged });
   }
 
@@ -765,11 +767,39 @@ export function createMultiplayerView(hooks = {}) {
     for (const deck of decks) {
       for (const card of parseDeckSections(deck).allCards) names.add(card.name);
     }
-    if (!names.size) return;
-    const resolved = await preloadCardImages(Array.from(names));
     const merged = new Map(getState().imageCache);
-    for (const [name, entry] of resolved) merged.set(name, entry);
+    if (names.size) {
+      const resolved = await preloadCardImages(Array.from(names));
+      for (const [name, entry] of resolved) merged.set(name, entry);
+    }
+    // Every seat's *producible* tokens too — an opponent's token effect
+    // shouldn't pop in unwarmed any more than their cards do.
+    await preloadDecksTokens(decks, merged);
     setState({ imageCache: merged });
+  }
+
+  // Preload the token art every one of `decks` can produce into `merged` —
+  // keyed primarily by the token's own id (unique per exact name/P-T/colors
+  // variant, see gameBoardView.js's resolveImageUrl — Magic reprints the same
+  // token name at different stat lines, e.g. several "Shapeshifter" tokens),
+  // plus lowercased name as a same-name fallback and cardImages.js's tooltip
+  // key. Mirrors goldfishView.js's/soloView.js's own `preloadDeckTokens`.
+  // Best-effort: a failed fetch just means a token lazy-loads later.
+  async function preloadDecksTokens(decks, merged) {
+    for (const deck of decks) {
+      const res = await fetchDeckTokens({ deckId: deck.id });
+      const tokens = res.ok ? res.data?.tokens || [] : [];
+      for (const tok of tokens) {
+        if (!tok.image_small && !tok.image_normal) continue;
+        const entry = { small: tok.image_small || null, normal: tok.image_normal || null, card: tok };
+        if (tok.id) merged.set(tok.id, entry);
+        const key = (tok.name || '').toLowerCase();
+        if (key && !merged.has(key)) {
+          merged.set(key, entry);
+          cacheResolvedCard(key, entry);
+        }
+      }
+    }
   }
 
   // --- Setup screen -------------------------------------------------------

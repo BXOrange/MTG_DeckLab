@@ -253,31 +253,43 @@ export function createGoldfishView() {
   }
 
   // Fetch the tokens the selected deck can produce and preload their art into
-  // `merged` (the imageCache), keyed by lowercased token name — the same shape
-  // `objCard` reads — so a token GameObject shows its art the instant an effect
-  // creates it. Synthesized (inline-P/T) tokens carry no art and are skipped;
-  // their board tile keeps the text fallback. Best-effort: a failed fetch just
-  // means tokens lazy-load as before.
+  // `merged` (the imageCache) — keyed primarily by the token's own id (see
+  // `resolveImageUrl` in gameBoardView.js), plus lowercased name as a
+  // secondary/tooltip-cache key — so a token GameObject shows its art the
+  // instant an effect creates it. The backend's token-art library (a real
+  // Scryfall id + art whenever one matches the token's exact name/P/T/colors,
+  // `services/token_database.py`'s `TokenArtLibrary`) covers most vanilla
+  // creature tokens too, not just the small curated-ability set (Treasure,
+  // Clue, …); anything it doesn't cover still has no art and keeps the text
+  // fallback. Best-effort: a failed fetch just means tokens lazy-load as before.
   async function preloadDeckTokens(merged) {
     const res = await fetchDeckTokens({ deckId: selectedDeckId });
     const tokens = res.ok ? res.data?.tokens || [] : [];
     if (!tokens.length) return;
 
     for (const t of tokens) {
-      const key = (t.name || '').toLowerCase();
-      // Don't clobber a real deck card's already-resolved art if a token
-      // happens to share its name — the card entry is authoritative.
-      if (!key || merged.has(key)) continue;
+      if (!t.image_small && !t.image_normal) continue;
       const entry = {
         small: t.image_small || null,
         normal: t.image_normal || null,
         card: t,
       };
-      merged.set(key, entry);
-      // Also seed cardImages.js's own cache — cardHoverDetail.js's tooltip
-      // reads only that one, not this view's local `imageCache`, so without
-      // this a token's hover detail stays stuck at "Lädt …" forever.
-      cacheResolvedCard(key, entry);
+      // Id first: unique per exact (name, power, toughness, colors) variant,
+      // so two same-named tokens printed at different stats (e.g. several
+      // "Shapeshifter" stat lines) each keep their own art instead of
+      // whichever variant's entry happened to land last under a shared name.
+      if (t.id) merged.set(t.id, entry);
+      const key = (t.name || '').toLowerCase();
+      // The by-name entry is a same-name fallback (and cardImages.js's own
+      // tooltip-cache key) — first one in wins, and it never clobbers a real
+      // deck card's already-resolved art under that same name.
+      if (key && !merged.has(key)) {
+        merged.set(key, entry);
+        // Also seed cardImages.js's own cache — cardHoverDetail.js's tooltip
+        // reads only that one, not this view's local `imageCache`, so without
+        // this a token's hover detail stays stuck at "Lädt …" forever.
+        cacheResolvedCard(key, entry);
+      }
     }
 
     const urls = tokens.map((t) => t.image_small).filter(Boolean);

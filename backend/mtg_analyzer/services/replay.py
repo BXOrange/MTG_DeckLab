@@ -149,22 +149,36 @@ def serialize_replay(state: GameState) -> dict[str, Any]:
 def _token_card(token: dict[str, Any]) -> Card:
     """An ad-hoc `Card` for a token block (RULE 111). ``type_line`` is forced
     to start with "Token" so `Card.is_token` holds; P/T only on creatures."""
+    from mtg_analyzer.services.token_database import default_token_art_library
+
     type_line = (token.get("type_line") or "Token Creature").strip()
     if not type_line.lower().startswith("token"):
         type_line = f"Token {type_line}"
     is_creature = "creature" in type_line.lower()
-    power = token.get("power")
-    toughness = token.get("toughness")
+    name = token.get("name") or "Token"
+    power = token.get("power") if is_creature else None
+    toughness = token.get("toughness") if is_creature else None
+    colors = token.get("colors") or []
+    # Same cosmetic-only art lookup as `synthesize_token_card` — a puzzle
+    # board built by hand deserves the same real art a live game gets for the
+    # same token (e.g. typing "Shapeshifter"/2/2/blue into the add-token
+    # form), keyed on the exact name/power/toughness/colors so a same-named
+    # different-stats token can't collide with the wrong printing's picture.
+    art = default_token_art_library().find(name, power, toughness, colors)
     return Card(
-        id=f"token:{token.get('name', 'Token')}:{type_line}",
-        name=token.get("name") or "Token",
+        id=art["id"] if art else f"token:{name}:{type_line}",
+        name=name,
         type_line=type_line,
-        color_identity=set(token.get("colors") or []),
+        color_identity=set(colors),
         is_creature=is_creature,
-        power=power if is_creature else None,
-        toughness=toughness if is_creature else None,
+        power=power,
+        toughness=toughness,
         oracle_text=token.get("oracle_text") or "",
         loyalty=token.get("loyalty"),
+        image_uri_small=art["image_uri_small"] if art else "",
+        image_uri_normal=art["image_uri_normal"] if art else "",
+        image_uri_large=art["image_uri_large"] if art else "",
+        image_uri_png=art["image_uri_png"] if art else "",
     )
 
 

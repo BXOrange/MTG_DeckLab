@@ -337,11 +337,17 @@ export function createSoloView() {
     const res = await fetchDeckTokens({ deckId: selectedDeckId });
     const tokens = res.ok ? res.data?.tokens || [] : [];
     for (const t of tokens) {
-      const key = (t.name || '').toLowerCase();
-      if (!key || merged.has(key)) continue;
+      if (!t.image_small && !t.image_normal) continue;
       const entry = { small: t.image_small || null, normal: t.image_normal || null, card: t };
-      merged.set(key, entry);
-      cacheResolvedCard(key, entry);
+      // Id first (unique per exact name/P-T/colors variant — see
+      // gameBoardView.js's resolveImageUrl); name is a same-name fallback +
+      // the tooltip cache's own key, first one in wins.
+      if (t.id) merged.set(t.id, entry);
+      const key = (t.name || '').toLowerCase();
+      if (key && !merged.has(key)) {
+        merged.set(key, entry);
+        cacheResolvedCard(key, entry);
+      }
     }
     const urls = tokens.map((t) => t.image_small).filter(Boolean);
     if (!urls.length) return;
