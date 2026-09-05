@@ -1,4 +1,4 @@
-# MTG Deck Analyzer: Game Loop, Phases, & Effect System (CRITICAL)
+# DeckLab: Game Loop, Phases, & Effect System (CRITICAL)
 
 ---
 

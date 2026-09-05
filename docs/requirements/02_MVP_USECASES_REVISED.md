@@ -1,4 +1,4 @@
-# MTG Deck Analyzer: MVP Use Cases (Revised)
+# DeckLab: MVP Use Cases (Revised)
 
 ---
 

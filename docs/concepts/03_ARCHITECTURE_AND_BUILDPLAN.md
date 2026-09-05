@@ -1,4 +1,4 @@
-# MTG Deck Analyzer: Architecture & Build Plan
+# DeckLab: Architecture & Build Plan
 
 ---
 

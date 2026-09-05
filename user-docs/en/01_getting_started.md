@@ -2,7 +2,7 @@
 
 ## What this app does
 
-The MTG Deck Analyzer lets you:
+DeckLab lets you:
 
 - Paste in a Commander decklist and check it for basic legality.
 - Save decks and browse them later.

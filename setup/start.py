@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Cross-platform start routine for MTG Deck Analyzer.
+r"""Cross-platform start routine for DeckLab.
 
 Ensures the backend virtual environment is set up (so a single
 `start.py` call works on a fresh checkout without running install.py
@@ -238,7 +238,7 @@ def run_servers(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Start MTG Deck Analyzer.")
+    parser = argparse.ArgumentParser(description="Start DeckLab.")
     parser.add_argument("--port", type=int, default=8765, help="Frontend server port (default: 8765)")
     parser.add_argument("--backend-port", type=int, default=8000, help="Backend API port (default: 8000)")
     parser.add_argument("--backend-tests", action="store_true", help="Run the backend pytest suite first")

@@ -1,6 +1,6 @@
 {
   "_README": [
-    "MTG Deck Analyzer - backend runtime configuration.",
+    "DeckLab - backend runtime configuration.",
     "Precedence:  environment variable  >  this file  >  built-in default.",
     "The matching MTG_* env var always wins (tests and one-off scripts rely",
     "on that). An empty string here means 'not set - use the default', not",

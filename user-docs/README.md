@@ -1,6 +1,6 @@
-# MTG Deck Analyzer — User Guide
+# DeckLab — User Guide
 
-A short guide to using the MTG Deck Analyzer app: importing decks,
+A short guide to using the DeckLab app: importing decks,
 analyzing them, and playing them out solo ("Goldfisch"), on a
 freely-built puzzle board ("Puzzle/Replay") or against another person
 ("Multiplayer").
@@ -33,9 +33,9 @@ followed by its translation, so you can match what's on screen either way.
 
 ---
 
-# MTG Deck Analyzer — Benutzerhandbuch
+# DeckLab — Benutzerhandbuch
 
-Eine kurze Anleitung zur Nutzung des MTG Deck Analyzers: Decks
+Eine kurze Anleitung zur Nutzung von DeckLab: Decks
 importieren, analysieren und solo ("Goldfisch"), auf einem frei
 gebauten Puzzle-Board ("Puzzle/Replay") oder gegen eine andere Person
 ("Multiplayer") ausspielen.

@@ -1,4 +1,4 @@
-# MTG Deck Analyzer
+# DeckLab
 
 A Magic: The Gathering deck analyzer and rules-driven game engine.
 

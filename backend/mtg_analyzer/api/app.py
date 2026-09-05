@@ -1,4 +1,4 @@
-"""FastAPI application factory and instance for the MTG Deck Analyzer backend.
+"""FastAPI application factory and instance for the DeckLab backend.
 
 Reference: docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md (PART 7, Phase 1).
 """
@@ -120,7 +120,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     _configure_logging()
-    app = FastAPI(title="MTG Deck Analyzer API", lifespan=_lifespan)
+    app = FastAPI(title="DeckLab API", lifespan=_lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=_LOCAL_DEV_ORIGIN_REGEX,

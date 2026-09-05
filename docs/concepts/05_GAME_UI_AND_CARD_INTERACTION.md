@@ -1,4 +1,4 @@
-# MTG Deck Analyzer: Game UI & Card Interaction Model
+# DeckLab: Game UI & Card Interaction Model
 
 ---
 

@@ -2,7 +2,7 @@
 
 ## Was diese App kann
 
-Der MTG Deck Analyzer ermöglicht dir:
+DeckLab ermöglicht dir:
 
 - Eine Commander-Deckliste einzufügen und auf grundlegende Legalität
   zu prüfen.
