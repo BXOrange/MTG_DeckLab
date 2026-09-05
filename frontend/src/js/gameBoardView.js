@@ -221,6 +221,47 @@ export function createGameBoardView(opts = {}) {
   // just look at the back of an already-transformed one. Keyed by
   // instance_id, same shape as `attackMenuOpen`.
   const flippedForView = new Set();
+  // RULE 115/601.2c: which battlefield permanents are currently the target
+  // of something on the stack, and which of those form a *mutual* pair — two
+  // permanents each targeting the other (e.g. two Fight-shaped abilities, or
+  // two removal spells that happen to name each other's source). Recomputed
+  // every `render()` from `s.stack` (each item's already-chosen `targets`,
+  // `StackItem.to_dict()` in `models/game_state.py`) rather than stored —
+  // it's derived, view-only state, same footing as `flippedForView` above.
+  let targetedInstanceIds = new Set();
+  let mutualTargetPairIds = new Set();
+
+  function updateTargetOverlays(s) {
+    targetedInstanceIds = new Set();
+    const edges = new Map(); // sourceInstanceId -> Set(targetInstanceId)
+    for (const item of s.stack || []) {
+      for (const tgt of item.targets || []) {
+        if (tgt.instance_id != null) targetedInstanceIds.add(tgt.instance_id);
+      }
+      // The permanent "doing" the targeting: an ability's own source, or a
+      // spell's own object (only meaningful once it's a permanent already on
+      // the battlefield — e.g. an activated/triggered ability off a
+      // creature; a spell still on the stack isn't a permanent yet, so it
+      // can't be the *other* half of a mutual pair on the battlefield).
+      const sourceId = item.source ? item.source.instance_id : null;
+      if (sourceId == null) continue;
+      for (const tgt of item.targets || []) {
+        if (tgt.instance_id == null || tgt.instance_id === sourceId) continue;
+        if (!edges.has(sourceId)) edges.set(sourceId, new Set());
+        edges.get(sourceId).add(tgt.instance_id);
+      }
+    }
+    const mutual = new Set();
+    for (const [a, targets] of edges) {
+      for (const b of targets) {
+        if (edges.get(b)?.has(a)) {
+          mutual.add(a);
+          mutual.add(b);
+        }
+      }
+    }
+    mutualTargetPairIds = mutual;
+  }
   // --- "Time to react" countdown (RULE 117, interactive-priority sessions) ---
   // This is a *response* clock, not a turn clock: it always runs while this
   // client holds priority **on another player's turn**, and on your **own**
@@ -1096,6 +1137,7 @@ export function createGameBoardView(opts = {}) {
     setLatestByInstance(byInstance);
     const stackNonEmpty = s.stack.length > 0;
     if (!pending) choiceAside = false;
+    updateTargetOverlays(s);
 
     root.innerHTML = `
       <div class="goldfish${(pending && !choiceAside) || castTargeting ? ' choosing' : ''}" style="--gf-scale: ${(getBoardScale() / 100).toFixed(2)}">
@@ -2777,6 +2819,15 @@ export function createGameBoardView(opts = {}) {
     if (o.tapped) classes.push('tapped');
     if (o.summoning_sick) classes.push('summoning-sick');
     if (o.attacking) classes.push('attacking');
+    // RULE 115/601.2c: this object is the chosen target of something
+    // currently on the stack — `updateTargetOverlays` (called once per
+    // `render()`) reduces `s.stack[*].targets` to this instance-id set.
+    if (targetedInstanceIds.has(o.instance_id)) classes.push('gf-targeted');
+    // Two permanents each targeting the other (Fight-shaped abilities, or
+    // two removal spells naming each other's source) get a distinct border
+    // instead of just the plain target overlay, so the pairing itself reads
+    // at a glance.
+    if (mutualTargetPairIds.has(o.instance_id)) classes.push('gf-mutual-target');
     // "Mana-Potenzial": server-computed (`services/game_session.py`'s
     // `_annotate_castable`) — whether this hand card could be paid for by
     // tapping/exiling untapped mana sources, purely a mana-affordability
@@ -2791,6 +2842,23 @@ export function createGameBoardView(opts = {}) {
     const buttons = cardActionButtons(cardActions);
     const attackBadge = o.attacking
       ? `<span class="gf-attacking-badge">⚔️${o.combat_defender ? ` ${escapeHtml(o.combat_defender.label || '')}` : ''}</span>`
+      : '';
+    // RULE 302.6: summoning sickness only ever restricts a *creature*
+    // (`_summoning_sick_for_tap` in `combat_mixin.py` is itself gated on
+    // `is_creature` — a mana rock/land keeps the raw flag too but is never
+    // actually restricted by it), so the badge is gated the same way rather
+    // than firing off the raw `o.summoning_sick` flag alone. Inset in the
+    // top-right corner (not an overhanging pill like the loyalty/battle/
+    // attacking badges) so it never collides with them on a hasty attacker
+    // that's still nominally summoning-sick.
+    const summoningSickBadge = (o.is_creature && o.summoning_sick)
+      ? `<span class="gf-sick-badge" title="${escapeAttr(t('bd.badge.summoningSickTitle'))}">💤</span>`
+      : '';
+    // RULE 115/601.2c: a 🎯 centered on the card for anything currently
+    // targeted by a spell/ability on the stack (`gf-targeted` above already
+    // drives the border/outline; this is the actual glyph).
+    const targetOverlay = targetedInstanceIds.has(o.instance_id)
+      ? `<span class="gf-target-overlay" title="${escapeAttr(t(mutualTargetPairIds.has(o.instance_id) ? 'bd.badge.mutualTargetTitle' : 'bd.badge.targetedTitle'))}">🎯</span>`
       : '';
     // RULE 606: a planeswalker's loyalty gets its own badge (mirrors the
     // ♦{loyalty} glyph on the Replay board editor) rather than being read
@@ -2864,7 +2932,7 @@ export function createGameBoardView(opts = {}) {
     const dragAttrs = draggable ? ` draggable="true" data-draggable-card="true"` : '';
     return `
       <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}">
-        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}">${inner}${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${effectsSummary}</div>
+        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}"><span class="gf-card-art">${inner}${summoningSickBadge}${targetOverlay}</span>${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${effectsSummary}</div>
         ${buttons}
       </div>`;
   }

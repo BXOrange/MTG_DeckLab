@@ -75,6 +75,25 @@ class Deck:
     computes and persists them once they're needed, and leaves them alone
     otherwise. An empty list is a real, computed answer (a colorless deck /
     no commander section), distinct from "not computed yet".
+
+    `validation_result`/`unmodeled_coverage` are the same caching pattern,
+    for `GET /api/decks/{id}/validation` and `/coverage` — both also need a
+    resolved `Card` per deck entry, and the frontend fires *both* endpoints
+    for *every* saved deck in parallel whenever the saved-decks list or any
+    of the three game-setup screens render (`savedDecksView.js`,
+    `gameSetup.js`'s `loadUnmodeledDeckIds`), so leaving them uncached turned
+    routine navigation into a full parse+resolve+validate pass over every
+    card of every deck, every time — the concrete source of the Scryfall
+    rate-limit bursts this caching was added to fix. `None` means "not
+    computed yet"; `api/saved_decks.py` resets both to `None` in the exact
+    same `save_deck` branch that already resets `color_identity`/
+    `commanders` (decklist text changed) and additionally whenever `is_cube`
+    changes, since that flag changes what `validation_result` itself means
+    (RULE-checks skipped entirely for a cube). Each is stored as the plain
+    JSON-shaped dict its endpoint already returns (`DeckValidationResult.
+    to_dict()` / `{"unmodeledCount", "unmodeledCardNames"}`), not a richer
+    object, so serving a cache hit is a pure dict return with no
+    re-derivation at all.
     """
 
     def __init__(
@@ -93,6 +112,8 @@ class Deck:
         is_cube: bool = False,
         archetypes: Optional[list[str]] = None,
         favorite_cards: Optional[list[str]] = None,
+        validation_result: Optional[dict[str, Any]] = None,
+        unmodeled_coverage: Optional[dict[str, Any]] = None,
     ) -> None:
         self.id = id or str(uuid.uuid4())
         self.name = name
@@ -108,6 +129,8 @@ class Deck:
         self.is_cube = is_cube
         self.archetypes = archetypes
         self.favorite_cards = favorite_cards
+        self.validation_result = validation_result
+        self.unmodeled_coverage = unmodeled_coverage
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize this deck to a JSON-compatible dict (camelCase, like ParsedDeck)."""
@@ -126,6 +149,8 @@ class Deck:
             "isCube": self.is_cube,
             "archetypes": self.archetypes,
             "favoriteCards": self.favorite_cards,
+            "validationResult": self.validation_result,
+            "unmodeledCoverage": self.unmodeled_coverage,
         }
 
     @classmethod
@@ -146,6 +171,8 @@ class Deck:
             is_cube=data.get("isCube", False),
             archetypes=data.get("archetypes"),
             favorite_cards=data.get("favoriteCards"),
+            validation_result=data.get("validationResult"),
+            unmodeled_coverage=data.get("unmodeledCoverage"),
         )
 
     def __repr__(self) -> str:

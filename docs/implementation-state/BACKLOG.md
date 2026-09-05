@@ -247,7 +247,32 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-> **(none open.)** MEC-47/49/51/51b/52/53/54/55 all closed
+- **MEC-64 · Suspend's own "activate from hand" special action (RULE
+  702.62a, first ability).** Only the *second/third* abilities are
+  implemented — tick down a time counter each upkeep, then free-cast at zero
+  (`SuspendUpkeepEffect`, `game/effects.py`; `_has_suspend`/
+  `_collect_suspend_triggers`, `game/rules/triggers_mixin.py`) — plus
+  Delay's own redirect-with-counters shortcut (`counter_spell`'s
+  `suspend_time_counters` param, `game/rules/misc_mixin.py`). There is no
+  action anywhere that offers a hand card's own printed "Suspend N—cost" as
+  a player-choosable alternative to casting it (checked
+  `legal_actions_mixin.py`/`casting_mixin.py`/`activation_mixin.py` —
+  nothing implements it). Explicitly flagged as a known gap in
+  `game/ability_catalogue/entries_014.py` (Delay's own comment). Ordinary
+  hard-casting of a card that happens to have Suspend is unaffected (e.g.
+  Ancestral Vision casts fine at its own printed — free — cost); this is
+  purely about the alternative "exile it with N time counters instead of
+  casting it" action. Build it the way Escape/Flashback add their own
+  alternate cast-cost path in `game/engine/casting_mixin.py`
+  (`_escape_cost`/`_flashback_cost` + their `legal_actions` offers): parse/
+  read the printed "Suspend N—{cost}" cost, add a special action that pays
+  it, exiles the card with N time counters, and sets whatever bookkeeping
+  `_has_suspend`/the upkeep tick-down already expects to find. Found while
+  fixing the back-face mana-cost bug (2026-09-05, `models/card.py`
+  `back_face()`) — not the same bug, just adjacent code read during that
+  investigation; no regression, just a pre-existing unimplemented action.
+
+> MEC-47/49/51/51b/52/53/54/55/56/57/58/59/60/61/62 all closed
 > (`Done_Backend.md`); MEC-48's Specialize-rider tail is parked in
 > [DEFERRED.md](DEFERRED.md).
 

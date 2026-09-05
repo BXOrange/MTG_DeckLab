@@ -754,6 +754,43 @@ def test_cast_action_reports_targets_for_the_back_face():
     assert obj.spell_effects == []
 
 
+def _mdfc_free_back(name="Testland's Silent Side"):
+    """A back face with a genuinely blank `back_mana_cost_string` — the
+    common shape for most transform backs (a Battle's Siege side, most
+    creature-transform backs), unlike `_mdfc_damage_back`/`_mdfc_destroy_back`
+    above, whose backs both carry a real printed cost. Front is priced high
+    on purpose so a bug that mistakes the back's cost for the front's is
+    unmistakable (it would come out costing {5}, not free)."""
+    return Card(
+        id=name, name=name, type_line="Sorcery",
+        mana_cost_string="{3}{R}{R}", converted_mana_cost=5, is_sorcery=True,
+        layout="modal_dfc",
+        back_name="Testland's Quiet Reverse", back_type_line="Creature — Phyrexian",
+        back_mana_cost_string="",
+        back_power=3, back_toughness=3,
+        back_oracle_text="",
+    )
+
+
+def test_back_face_with_a_blank_cost_is_actually_free():
+    # Regression: `Card.back_face()` used to stamp the *front's*
+    # `converted_mana_cost` onto the back `Card` regardless of the back's own
+    # (often blank) `back_mana_cost_string`. `ManaCost.from_card` treats a
+    # blank `mana_cost_string` as a legacy row predating that field and
+    # reconstructs a cost from `converted_mana_cost` instead (the Sol Ring
+    # bug fix) — so the mismatch resurrected a fake nonzero generic cost on
+    # a back face that should have been free, making it uncastable with an
+    # empty mana pool.
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _mdfc_free_back())
+    assert not eng.can_cast(p1, obj)  # front costs {3}{R}{R}, no mana available
+    assert eng.can_cast(p1, obj, face="back")  # back is genuinely free
+    cost = eng.effective_cast_cost(p1, obj, face="back")
+    assert cost.is_free
+    assert cost.converted_mana_cost == 0
+
+
 def test_rejected_back_face_cast_restores_the_front_face():
     eng = make_engine()
     p1 = _ready_main_phase(eng)

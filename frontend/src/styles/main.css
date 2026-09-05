@@ -2505,6 +2505,68 @@ textarea {
   border-style: dashed;
 }
 
+/* RULE 115/601.2c: a permanent currently targeted by something on the
+   stack gets a subtle blue ring; a *mutual* pair (`updateTargetOverlays` in
+   gameBoardView.js — two permanents each targeting the other) gets a
+   stronger dashed red outline instead, so the pairing itself is visibly
+   distinct from an ordinary one-way target. Both stack on top of
+   .tapped/.attacking/.summoning-sick rather than replacing them. */
+.card.gf-targeted {
+  box-shadow: 0 0 0 2px var(--info);
+}
+
+.card.gf-mutual-target {
+  outline: 3px dashed var(--error);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Wraps a permanent's own art (or its no-art name fallback) so the
+   summoning-sickness/target badges below anchor to the *card itself*,
+   regardless of whether .gf-card-slot also has an action-button row under
+   it (unlike the corner badges further down, which deliberately anchor to
+   the whole slot). */
+.gf-card-art {
+  position: relative;
+  display: block;
+}
+
+/* RULE 302.6: summoning sickness, inset in the top-right corner of the art
+   (mirrors .gf-card-flip's inset-circle look on the opposite corner) rather
+   than an overhanging pill, so it never collides with the loyalty/battle/
+   attacking badges that already claim that corner's overhang. */
+.gf-sick-badge {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  z-index: 1;
+  width: 1.3rem;
+  height: 1.3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  line-height: 1;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  pointer-events: none;
+}
+
+/* RULE 115/601.2c: a target glyph centered on the card art. Purely
+   informational (pointer-events: none) so it never intercepts a click or
+   drag on the card underneath it. */
+.gf-target-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+}
+
 /* --- Goldfisch: optionale Layer-/Statik-Analyse (Regel 613) --- */
 
 .gf-statics {
@@ -3968,6 +4030,15 @@ textarea {
 /* --- Goldfisch: Mulligan-Phase (Starthand behalten oder neu mischen) --- */
 
 .goldfish-mulligan {
+  /* No overall max-width: the hand's own card-grid (.gf-mulligan-hand
+     below) should reflow across the whole available width instead of
+     wrapping at a fixed ~6 cards regardless of how wide the window
+     actually is. Only the intro text stays line-length-capped for
+     readability. */
+}
+
+.goldfish-mulligan > h3,
+.goldfish-mulligan > p.hint {
   max-width: 720px;
 }
 

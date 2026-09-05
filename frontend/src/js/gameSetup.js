@@ -6,7 +6,7 @@
 // exception (it makes network calls), kept here so the "⚠️" deck-picker
 // marker stays a single implementation across all three modes.
 
-import { getDeckCoverage } from './api.js';
+import { getDeckCoverage, cardImageUrl } from './api.js';
 import { t } from './i18n.js';
 
 /** HTML-escape arbitrary text for use as element content. */
@@ -126,11 +126,20 @@ export function formatSelectOptionsHtml(gameFormats, selectedName) {
  */
 export function mulliganTileHtml(o, { imageCache, selected = false, bottomEnabled = false } = {}) {
   const image = imageCache?.get((o.name || '').toLowerCase());
-  const inner = image?.small
-    ? `<img src="${image.small}" alt="${escapeAttr(o.name)}" loading="lazy" />`
+  // A multi-faced card (modal DFC/split/Adventure/transform/flip)'s `name`
+  // is Scryfall's combined "Front // Back" display name (`Card.name`,
+  // `services/scryfall_client.py`) — never the single-face spelling a
+  // decklist (and so `imageCache`, keyed by that spelling) actually used,
+  // so the by-name lookup above routinely misses for these and the tile
+  // fell back to a bare text label. `card_id` has no such mismatch — build
+  // the front-face URL straight from it instead, the same fallback
+  // `gameBoardView.js`'s `resolveImageUrl` already uses for the live board.
+  const imageUrl = image?.small || (o.card_id ? cardImageUrl(o.card_id, 'small') : null);
+  const inner = imageUrl
+    ? `<img src="${imageUrl}" alt="${escapeAttr(o.name)}" loading="lazy" />`
     : escapeHtml(o.name);
   const classes = ['card'];
-  if (image?.small) classes.push('has-image');
+  if (imageUrl) classes.push('has-image');
   if (bottomEnabled) classes.push('clickable');
   if (selected) classes.push('selected-bottom');
   const toggle = bottomEnabled ? ` data-bottom-toggle="${o.instance_id}"` : '';

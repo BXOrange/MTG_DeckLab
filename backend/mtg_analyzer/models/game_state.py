@@ -134,6 +134,20 @@ class StackItem:
             # above already covers it) — the UI shows this card's image with
             # the ability text overlaid, and a link back to it.
             "source": self.source.to_dict() if self.source else None,
+            # This item's already-chosen targets (RULE 115/601.2c), reduced to
+            # bare ids — the board uses it to badge a targeted permanent and
+            # to highlight a pair of stack items that target each other
+            # (`gameBoardView.js`'s target-overlay feature). `self.targets`
+            # holds live `GameObject`/`Player` references (see
+            # `_target_instance_ids` in `casting_mixin.py`), never
+            # serializable as-is.
+            "targets": [
+                {"instance_id": tgt.instance_id}
+                if isinstance(tgt, GameObject)
+                else {"player_id": tgt.id}
+                for tgt in self.targets
+                if isinstance(tgt, (GameObject, Player))
+            ],
         }
 
     def __repr__(self) -> str:

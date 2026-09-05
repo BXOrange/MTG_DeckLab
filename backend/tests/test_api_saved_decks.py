@@ -33,6 +33,25 @@ def _override_loader(cards):
     app.dependency_overrides[get_lazy_card_loader] = lambda: _FakeLoader(cards)
 
 
+class _ExplodingLoader:
+    """A loader that fails the test if `load_cards` is ever called — swapped
+    in after the first `/validation` or `/coverage` call to prove a second
+    call is served purely from the cached `Deck` field, with no re-parse/
+    re-resolve at all (the actual "buffer so checks only happen if the deck
+    changed" behavior, not just that the DB row ends up with something in
+    it)."""
+
+    def load_cards(self, names):
+        raise AssertionError(
+            "load_cards() was called again — the cached result should have "
+            "made this a pure DB read with no re-resolution."
+        )
+
+
+def _override_loader_exploding():
+    app.dependency_overrides[get_lazy_card_loader] = lambda: _ExplodingLoader()
+
+
 class TestSaveDeck:
     def teardown_method(self):
         app.dependency_overrides.pop(get_deck_database, None)
@@ -480,6 +499,77 @@ class TestDeckValidation:
         client = TestClient(app)
         assert client.get("/api/decks/nope/validation").status_code == 404
 
+    def test_second_validation_call_is_served_from_cache(self):
+        # The concrete "checks only take place if a deck was changed" fix:
+        # a repeat call must be a pure DB read, not another parse+resolve+
+        # validate pass — proven here by swapping in a loader that fails
+        # the test if it's ever invoked a second time.
+        database = _override_database()
+        _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Half", "mainboardText": "40 Forest\n"}).json()
+
+        first = client.get(f"/api/decks/{created['id']}/validation")
+        assert database.get_deck(created["id"]).validation_result is not None
+
+        _override_loader_exploding()
+        second = client.get(f"/api/decks/{created['id']}/validation")
+
+        assert second.status_code == 200
+        assert second.json() == first.json()
+
+    def test_editing_decklist_text_invalidates_cached_validation(self):
+        database = _override_database()
+        _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Half", "mainboardText": "40 Forest\n"}).json()
+        client.get(f"/api/decks/{created['id']}/validation")  # populate the cache
+        assert database.get_deck(created["id"]).validation_result is not None
+
+        client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Half", "mainboardText": "41 Forest\n"},
+        )
+
+        assert database.get_deck(created["id"]).validation_result is None
+
+    def test_toggling_is_cube_invalidates_cached_validation_even_with_unchanged_text(self):
+        # is_cube changes what validation *means* (RULE checks skipped
+        # entirely for a cube) even though the decklist text itself didn't
+        # change, so it must invalidate the cache on its own.
+        database = _override_database()
+        _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Half", "mainboardText": "40 Forest\n"}).json()
+        client.get(f"/api/decks/{created['id']}/validation")  # populate the cache
+        assert database.get_deck(created["id"]).validation_result is not None
+
+        client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Half", "mainboardText": "40 Forest\n", "isCube": True},
+        )
+
+        assert database.get_deck(created["id"]).validation_result is None
+
+    def test_unresolved_card_does_not_cache_a_possibly_wrong_validation(self):
+        # A card that failed to resolve means the real ban-list/color-
+        # identity checks were skipped in favor of a warning — caching that
+        # would freeze a possibly-wrong answer until the text next changes,
+        # instead of retrying (and self-healing) on the next view.
+        database = _override_database()
+        _override_loader({})  # nothing resolves
+        client = TestClient(app)
+        created = client.post(
+            "/api/decks/save",
+            json={"name": "Mono-G", "commanderText": "1 Test Commander\n", "mainboardText": "99 Forest\n"},
+        ).json()
+
+        response = client.get(f"/api/decks/{created['id']}/validation")
+
+        assert response.status_code == 200
+        assert response.json()["warnings"]
+        assert database.get_deck(created["id"]).validation_result is None
+
 
 class TestDeckCoverage:
     def teardown_method(self):
@@ -570,6 +660,52 @@ class TestDeckCoverage:
         _override_loader({})
         client = TestClient(app)
         assert client.get("/api/decks/nope/coverage").status_code == 404
+
+    def test_second_coverage_call_is_served_from_cache(self):
+        database = _override_database()
+        _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Lands", "mainboardText": "40 Forest\n"}).json()
+
+        first = client.get(f"/api/decks/{created['id']}/coverage")
+        assert database.get_deck(created["id"]).unmodeled_coverage is not None
+
+        _override_loader_exploding()
+        second = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert second.status_code == 200
+        assert second.json() == first.json()
+
+    def test_editing_decklist_text_invalidates_cached_coverage(self):
+        database = _override_database()
+        _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Lands", "mainboardText": "40 Forest\n"}).json()
+        client.get(f"/api/decks/{created['id']}/coverage")  # populate the cache
+        assert database.get_deck(created["id"]).unmodeled_coverage is not None
+
+        client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Lands", "mainboardText": "41 Forest\n"},
+        )
+
+        assert database.get_deck(created["id"]).unmodeled_coverage is None
+
+    def test_unresolved_card_does_not_cache_a_possible_undercount(self):
+        # A card that fails to resolve is silently excluded from the count
+        # rather than counted as unmodeled — caching that would freeze a
+        # possible undercount instead of retrying on the next view.
+        database = _override_database()
+        _override_loader({})
+        client = TestClient(app)
+        created = client.post(
+            "/api/decks/save", json={"name": "Unknown", "mainboardText": "1 Nonexistent Card\n"}
+        ).json()
+
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert response.status_code == 200
+        assert database.get_deck(created["id"]).unmodeled_coverage is None
 
 
 class TestDeleteDeck:

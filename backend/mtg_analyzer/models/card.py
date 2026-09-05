@@ -8,6 +8,8 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from .mana_cost import ManaCost
+
 #: Colors that may legally appear in a card's color identity.
 VALID_COLORS: frozenset[str] = frozenset({"W", "U", "B", "R", "G"})
 
@@ -345,12 +347,25 @@ class Card:
             return None
         btl = self.back_type_line or self.type_line
         back_is_creature = "creature" in btl.lower()
+        # RULE 202.3: the back's own mana value, from the back's own raw
+        # cost string — *not* the front's `converted_mana_cost`. A back face
+        # commonly has a genuinely blank `back_mana_cost_string` (most
+        # transform backs, e.g. a Battle's Siege side isn't itself cast
+        # normally) — reusing the front's (often nonzero) mana value there
+        # used to leave `mana_cost_string=""` paired with a stale nonzero
+        # `converted_mana_cost`. `ManaCost.from_card` treats a blank
+        # `mana_cost_string` as "pre-field-existing legacy row" and
+        # reconstructs a cost from `converted_mana_cost` (the Sol Ring bug
+        # fix) — so that mismatch silently resurrected a fake nonzero
+        # generic cost on an otherwise-free back face, making it uncastable
+        # for no mana when it should have cost {0}.
+        back_cmc = ManaCost.parse(self.back_mana_cost_string).converted_mana_cost
         return Card(
             id=self.id,  # same physical object (RULE 712.2)
             name=self.back_name or self.name,
             type_line=btl,
             mana_cost_string=self.back_mana_cost_string,
-            converted_mana_cost=self.converted_mana_cost,
+            converted_mana_cost=back_cmc,
             color_identity=set(self.color_identity),
             is_creature=back_is_creature,
             is_instant="instant" in btl.lower(),

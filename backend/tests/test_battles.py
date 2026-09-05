@@ -268,6 +268,33 @@ def test_resolving_the_defeat_ability_exiles_it_transformed_and_castable():
     assert obj not in eng.state.battlefield
 
 
+def test_the_defeated_backs_own_cost_is_free_not_the_fronts():
+    # Regression: `Card.back_face()` used to stamp the *front's*
+    # `converted_mana_cost` onto the transformed back face regardless of the
+    # back's own (blank, per `battle()`'s fixture default) mana cost string
+    # — reusing a nonzero front CMC alongside a blank back cost string made
+    # `ManaCost.from_card` reconstruct a fake nonzero generic cost for what
+    # should have been a free RULE 310.11b recast. This checks the back
+    # face's own cost directly, independent of the free-cast-window bypass
+    # `test_resolving_the_defeat_ability_exiles_it_transformed_and_castable`
+    # already covers (which would mask this bug, since it never re-checks
+    # affordability once that flag is set).
+    eng = make_engine()
+    # A nonzero front cost is the point: `battle()`'s own default (an unset
+    # mana_cost_string/converted_mana_cost, both 0) wouldn't distinguish the
+    # bug from correct behaviour, since a stolen front CMC of 0 looks free
+    # either way.
+    card = battle(defense=1, mana_cost_string="{3}{R}{R}", converted_mana_cost=5)
+    obj = _enter_battle(eng, card)
+    eng.rules.deal_damage(obj, 1, source=_put(eng, creature()))
+    eng.rules.check_state_based_actions()
+    eng.rules.resolve_top_of_stack()
+    assert obj.zone == Zone.EXILE
+    back = card.back_face()
+    assert back.mana_cost_string == ""
+    assert back.converted_mana_cost == 0
+
+
 def test_a_non_siege_battle_at_zero_defense_just_goes_to_the_graveyard():
     # RULE 310.7 without RULE 310.11b's Siege-only defeat ability.
     eng = make_engine()

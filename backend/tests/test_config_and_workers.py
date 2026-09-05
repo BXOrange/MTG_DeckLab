@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 
 import anyio
 import pytest
@@ -22,7 +23,18 @@ from tests.test_dynamic_analysis import _cheap_creature, _commander, _forest
 
 def _reload_config(monkeypatch, *, config_file=None, env=None):
     """Re-import mtg_analyzer.config with a chosen config file / env so the
-    module-level constants are recomputed from scratch."""
+    module-level constants are recomputed from scratch.
+
+    Clears every `MTG_*` env var first, before applying `config_file`/`env`
+    — a "default" assertion here means "as if no such var were set at all",
+    so any ambient `MTG_*` var from *outside* this test (a developer's own
+    shell, or `conftest.py`'s own `MTG_CACHE_DIR` override for the isolated
+    test card cache, see its module docstring) must not leak in just
+    because it happened to be set in the process this test runs under.
+    """
+    for key in list(os.environ):
+        if key.startswith("MTG_"):
+            monkeypatch.delenv(key, raising=False)
     for key in list(env or {}):
         monkeypatch.setenv(key, str(env[key]))
     if config_file is not None:
@@ -84,9 +96,6 @@ class TestConfigFile:
     def test_shipped_config_json_parses_and_is_the_source_of_truth(self, monkeypatch):
         """The committed config.json must parse and actually feed config.py
         (whatever values it currently holds — it's meant to be edited)."""
-        for var in ("MTG_SERVER_THREAD_WORKERS", "MTG_DYNAMIC_ANALYSIS_WORKERS",
-                    "MTG_DYNAMIC_ANALYSIS_MATCH_WORKERS", "MTG_LOG_LEVEL", "MTG_USER_AGENT"):
-            monkeypatch.delenv(var, raising=False)
         cfg = _reload_config(monkeypatch)  # no MTG_CONFIG_FILE override -> the real file
         data = json.loads(cfg.CONFIG_FILE.read_text())
         assert set(data) >= {"logging", "scryfall", "multiplayer", "workers", "paths"}
