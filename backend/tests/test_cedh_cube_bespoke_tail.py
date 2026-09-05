@@ -494,7 +494,7 @@ def test_jeskas_multiplier_lapses_at_your_next_turn():
     engine.activate_ability(p1, jeska, 0, targets=[attacker])
     engine.resolve_until_stable()
 
-    state.turn_number = 1  # p1 is active; their next turn is two begin_turns away
+    state.internal_turn.number = 1  # p1 is active; their next turn is two begin_turns away
     engine.begin_turn()
     assert attacker.replacement_effects
     engine.begin_turn()

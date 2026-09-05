@@ -135,7 +135,7 @@ def test_grant_expires_when_the_turn_moves_on():
     ctx.previous_targets = [victim]
     grant.apply(ctx, None)
 
-    state.turn_number += 2  # a later turn — the baked-in condition no longer matches
+    state.internal_turn.number += 2  # a later turn — the baked-in condition no longer matches
     victim.damage_marked = 9
     eng.rules.check_state_based_actions()
     assert victim.zone == Zone.GRAVEYARD  # ordinary death, no redirect

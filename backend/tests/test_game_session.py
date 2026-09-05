@@ -56,7 +56,7 @@ def advance_until(session, *, turn=None, step=None, limit=80):
     """Single-step the session until (turn, step) is reached (no auto-skip)."""
     for _ in range(limit):
         st = session.engine.state
-        if (turn is None or st.turn_number == turn) and (step is None or st.current_step == step):
+        if (turn is None or st.internal_turn.number == turn) and (step is None or st.current_step == step):
             return
         session.apply_action({"type": "advance_step"})
     raise AssertionError(f"never reached turn={turn} step={step}")
@@ -233,7 +233,7 @@ class TestSetup:
         player = session.engine.state.active_player
         assert len(player.hand) == 7
         assert len(player.command) == 1
-        assert session.engine.state.turn_number == 1
+        assert session.engine.state.internal_turn.number == 1
 
     def test_view_has_state_and_legal_actions(self):
         view = make_session().view()
@@ -670,17 +670,17 @@ class TestActions:
         session.apply_action({"type": "auto_turn"})
         # Auto-turn drives the cursor (not a fresh begin_turn), ending at
         # the next turn without desyncing.
-        assert session.engine.state.turn_number == 2
+        assert session.engine.state.internal_turn.number == 2
         # The whole auto-turn is a single undo step back to the opening.
         session.rewind(1)
-        assert session.engine.state.turn_number == 1
+        assert session.engine.state.internal_turn.number == 1
 
     def test_auto_turn_resumes_from_a_mid_turn_manual_position(self):
         session = make_session()
         advance_until(session, step="main1")  # manually reach main1 of turn 1
         session.apply_action({"type": "auto_turn"})
         # Finishing turn 1 lands on turn 2 — not turn 3 (no double begin_turn).
-        assert session.engine.state.turn_number == 2
+        assert session.engine.state.internal_turn.number == 2
 
 
 class TestSingleStep:
@@ -785,15 +785,15 @@ class TestRewind:
         session = make_session()
         # Single-step just into turn 2, then rewind the boundary crossing.
         advance_until(session, turn=2, step="untap")
-        assert session.engine.state.turn_number == 2
+        assert session.engine.state.internal_turn.number == 2
         session.rewind(1)
         # Restored to the last step of turn 1 (cleanup) — the cursor travels
         # with the snapshot, so the turn counter doesn't jump forward.
-        assert session.engine.state.turn_number == 1
+        assert session.engine.state.internal_turn.number == 1
         assert session.engine.state.current_step == "cleanup"
         # Continuing crosses the boundary again, not an extra turn.
         session.apply_action({"type": "advance_step"})
-        assert session.engine.state.turn_number == 2
+        assert session.engine.state.internal_turn.number == 2
         assert session.engine.state.current_step == "untap"
 
     def test_rewind_more_than_history_restarts(self):
@@ -801,7 +801,7 @@ class TestRewind:
         session.apply_action({"type": "advance_step"})
         session.rewind(10)
         assert not session.can_rewind
-        assert session.engine.state.turn_number == 1
+        assert session.engine.state.internal_turn.number == 1
 
     def test_rewind_requires_positive_steps(self):
         session = make_session()
@@ -818,7 +818,7 @@ class TestRestart:
 
         session.restart()
         state = session.engine.state
-        assert state.turn_number == 1
+        assert state.internal_turn.number == 1
         assert len(state.active_player.hand) == 7
         assert len(state.battlefield) == 0
         assert not session.can_rewind
@@ -831,7 +831,7 @@ class TestRestart:
         # From the restored opening state, single-stepping reaches main1 again.
         advance_until(session, step="main1")
         assert session.engine.state.current_step == "main1"
-        assert session.engine.state.turn_number == 1
+        assert session.engine.state.internal_turn.number == 1
 
 
 class TestCombat:
@@ -906,7 +906,7 @@ class TestGoldfishDummy:
             if session.engine.advance_step() is None:
                 break
         assert session.engine.state.active_player.id == "p1"
-        assert session.engine.state.turn_number >= 2  # turns did advance
+        assert session.engine.state.internal_turn.number >= 2  # turns did advance
 
     def test_view_carries_analysis_digest(self):
         session = GameSessionManager().create_goldfish(library=[land()] * 40)

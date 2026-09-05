@@ -208,7 +208,7 @@ def test_winner_specs_grants_indefinite_protection_from_every_leader():
     assert "B" not in prot and "G" not in prot
     # indefinite — survives a cleanup step (RULE 611, no duration)
     assert len(eng.state.floating_statics) == 2
-    eng.state.turn_number = 1
+    eng.state.internal_turn.number = 1
     from mtg_analyzer.game import durations
     durations.sweep(eng.state, "cleanup")
     assert len(eng.state.floating_statics) == 2   # not swept
@@ -330,10 +330,10 @@ def test_another_subtype_entered_this_turn_condition():
 
     elf = _put(eng, "Llanowar Elves", "Creature — Elf Druid", is_creature=True,
                power=1, toughness=1)
-    elf.turn_entered = eng.state.turn_number
+    elf.turn_entered = eng.state.internal_turn.number
     assert condition_holds(cond, eng.state, gal, "p1")
 
-    elf.turn_entered = eng.state.turn_number - 1   # entered a previous turn
+    elf.turn_entered = eng.state.internal_turn.number - 1   # entered a previous turn
     assert not condition_holds(cond, eng.state, gal, "p1")
 
 

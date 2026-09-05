@@ -191,7 +191,8 @@ class GameState:
     stack: list[StackItem]              # Spells/abilities awaiting resolution
     
     # Turn Info
-    turn_number: int                    # Overall turn count
+    internal_turn: dict                 # number, turn_nr, player_id
+    turn_nr: int                        # Complete circuit around the table
     current_phase: str                  # "beginning", "main1", "combat", "main2", "ending"
     current_step: str                   # "untap", "upkeep", "draw", etc.
     
@@ -705,7 +706,7 @@ class Player:
 
 # GameState
 class GameState:
-    players, stack, turn_number, current_phase, priority_player_index, is_game_over, game_log
+    players, stack, internal_turn, turn_nr, current_phase, priority_player_index, is_game_over, game_log
 
 # Action
 class Action:

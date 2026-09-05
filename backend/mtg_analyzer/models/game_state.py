@@ -17,6 +17,7 @@ from __future__ import annotations
 import copy
 import itertools
 import uuid
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from .events import EventType, GameEvent
@@ -31,6 +32,27 @@ from .player import Player
 #: several of its own abilities on the stack at once). Same counter pattern
 #: as `GameObject.instance_id`.
 _stack_id_counter = itertools.count(1)
+
+
+@dataclass
+class InternalTurn:
+    """The internal turn cursor and its player-facing projection.
+
+    ``number`` advances for every player's turn (RULE 500.1). ``turn_nr``
+    advances once the turn order completes a full circuit. ``player_id`` is
+    the seat whose turn is currently active.
+    """
+
+    number: int = 0
+    turn_nr: int = 0
+    player_id: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "number": self.number,
+            "turn_nr": self.turn_nr,
+            "player_id": self.player_id,
+        }
 
 
 class StackItem:
@@ -194,10 +216,10 @@ class DelayedTrigger:
         #: token unless ~ is your Ring-bearer"). ``None`` (the common case)
         #: always fires. A whitelisted `EffectSpec.condition`-shaped dict.
         self.condition = condition
-        #: The earliest ``turn_number`` this may fire at — 0 means "the very
+        #: The earliest internal turn this may fire at — 0 means "the very
         #: next matching step". Lets "at the beginning of *that* (extra) turn's
         #: end step" (Final Fortune) skip the *current* turn's end step by
-        #: arming with ``min_turn = turn_number + 1``.
+        #: arming with ``min_turn = internal_turn.number + 1``.
         self.min_turn = min_turn
 
     def __repr__(self) -> str:
@@ -384,15 +406,8 @@ class GameState:
         self.id = id or str(uuid.uuid4())
         self.players = players
 
-        self.turn_number = 0
-        #: How many times the turn order has come back around to whoever
-        #: started the game. `turn_number` is the rules-correct count (RULE
-        #: 500.1 — *each* player's turn is a turn of its own, so a two-player
-        #: game is on turn 7 when the starting player takes their fourth);
-        #: `round_number` is what players mean by "we're on turn 4". Purely
-        #: for display: nothing in the rules engine reads it.
-        self.round_number = 0
-        #: Who took turn 1 — the reference point `round_number` counts. Kept
+        self.internal_turn = InternalTurn()
+        #: Who took turn 1 — the reference point `turn_nr` counts. Kept
         #: as an id rather than an index because players leave the game
         #: (RULE 800.4a) and the indices shift under it.
         self.starting_player_id: Optional[str] = None
@@ -981,13 +996,13 @@ class GameState:
         #: RULE 702.8b-adjacent "you may cast spells as though they had
         #: flash this turn" (Borne Upon a Wind-shaped) — ``{player_id: turn_
         #: number}``; a player may cast at flash speed while their entry
-        #: equals the *current* `turn_number`, so this needs no cleanup-step
+        #: equals the *current* internal turn, so this needs no cleanup-step
         #: bookkeeping (it simply stops matching once the turn advances,
         #: unlike the `temp_*` `GameObject` fields `_step_cleanup` clears).
         self.temp_flash_until_turn: dict[str, int] = {}
         #: RULE 116.2a-adjacent (MEC-35, Leonin Arbiter): "Any player may
         #: pay {2} for that player to ignore this effect until end of
-        #: turn." — ``{player_id: turn_number}``, the same "stops matching
+        #: turn." — ``{player_id: internal_turn.number}``, the same "stops matching
         #: once the turn advances, no cleanup bookkeeping" shape as
         #: `temp_flash_until_turn` right above. Consulted by
         #: `RulesEngine._has_search_exemption`, which every `request_
@@ -1108,6 +1123,14 @@ class GameState:
     # -- Players ---------------------------------------------------------
 
     @property
+    def turn_nr(self) -> int:
+        return self.internal_turn.turn_nr
+
+    @turn_nr.setter
+    def turn_nr(self, value: int) -> None:
+        self.internal_turn.turn_nr = int(value)
+
+    @property
     def active_player(self) -> Player:
         return self.players[self.active_player_index]
 
@@ -1194,17 +1217,17 @@ class GameState:
                 return tc.controlled_id
         return None
 
-    def sync_round_number(self) -> None:
-        """Re-derive `round_number` from `turn_number` for a board set outright.
+    def sync_turn_nr(self) -> None:
+        """Re-derive ``turn_nr`` from the internal turn for a board set outright.
 
         Replay/Puzzle positions and the `edit_set_turn` action assign a turn
         number directly instead of reaching it by playing, so there was no
-        wrap around the table for `GameEngine._advance_round_number` to
+        wrap around the table for `GameEngine._advance_turn_nr` to
         count. Derived from how many seats actually take turns (the goldfish
         dummy never does), which makes a solo board's round equal its turn.
         """
         seats = max(1, len([p for p in self.players if not p.is_dummy]))
-        self.round_number = max(1, -(-max(1, self.turn_number) // seats))
+        self.turn_nr = max(1, -(-max(1, self.internal_turn.number) // seats))
         if self.starting_player_id is None and self.players:
             self.starting_player_id = self.players[0].id
 
@@ -1245,7 +1268,7 @@ class GameState:
             return
         self.stats["timeline"].append(
             {
-                "turn": self.turn_number,
+                "turn": self.turn_nr,
                 "player_id": player_id,
                 "kind": kind,
                 "amount": amount,
@@ -1329,7 +1352,7 @@ class GameState:
         obj.timestamp = self.next_timestamp()
         # "As long as ~ entered the battlefield this turn" conditions (The
         # Wandering Emperor-shaped, `game/condition_query.py`).
-        obj.turn_entered = self.turn_number
+        obj.turn_entered = self.internal_turn.number
         # RULE 606.5b: a planeswalker enters with its printed starting loyalty.
         if obj.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
             obj.counters["loyalty"] = obj.card.loyalty
@@ -1432,12 +1455,15 @@ class GameState:
         return event
 
     def to_dict(self) -> dict[str, Any]:
+        self.internal_turn.player_id = self.active_player.id
         return {
             "id": self.id,
-            "turn_number": self.turn_number,
-            # Display-only companion to `turn_number` (see its docstring):
-            # the number of completed times around the table.
-            "round_number": self.round_number,
+            "internal_turn": self.internal_turn.to_dict(),
+            "turn_nr": self.turn_nr,
+            # Legacy wire fields remain during the client migration. New
+            # consumers should use `internal_turn` and `turn_nr`.
+            "internal_turn": self.internal_turn.to_dict(),
+            "turn_nr": self.turn_nr,
             "active_player_id": self.active_player.id,
             "priority_player_id": self.priority_player.id if self.priority_player else None,
             "current_phase": self.current_phase,
@@ -1478,6 +1504,6 @@ class GameState:
 
     def __repr__(self) -> str:
         return (
-            f"GameState(id={self.id!r}, turn={self.turn_number}, "
+            f"GameState(id={self.id!r}, turn={self.internal_turn.number}, "
             f"active={self.active_player.id!r}, step={self.current_step!r})"
         )

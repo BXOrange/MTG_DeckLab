@@ -835,6 +835,7 @@ export default {
   'rp.tool.export': "Exportieren",
   'rp.tool.quit': "Beenden",
   'rp.turn': "Zug",
+  'rp.playerTurn': "Spielerzug",
   'rp.step': "Schritt",
   'rp.active': "Aktiv",
   'rp.tool.rewind': "↶ Rückgängig",

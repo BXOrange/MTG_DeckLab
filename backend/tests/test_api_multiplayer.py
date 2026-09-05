@@ -974,7 +974,7 @@ class TestBots:
         view = body["view"]
         assert view["setup"]["complete"] is True
         for _ in range(40):
-            if view["state"]["turn_number"] > 2:
+            if view["state"]["internal_turn"]["number"] > 2:
                 break
             view = client.post(
                 f"/api/multiplayer/games/{gid}/action",
@@ -995,7 +995,7 @@ class TestBots:
             json={"playerId": ann, "action": {"type": "keep_hand", "bottom_instance_ids": []}},
         ).json()["view"]
         for _ in range(60):
-            if view["state"]["turn_number"] > 2:
+            if view["state"]["internal_turn"]["number"] > 2:
                 break
             view = client.post(
                 f"/api/multiplayer/games/{gid}/action",

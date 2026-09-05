@@ -66,7 +66,7 @@ def advance_until(session, *, step=None, turn=None, limit=400):
     for _ in range(limit):
         state = session.engine.state
         if (step is None or state.current_step == step) and (
-            turn is None or state.turn_number == turn
+            turn is None or state.internal_turn.number == turn
         ):
             return
         holder = state.priority_player
@@ -183,7 +183,7 @@ class TestPodTurnLoop:
         seen = []
         for _ in range(5):
             seen.append(session.engine.state.active_player.id)
-            advance_until(session, turn=session.engine.state.turn_number + 1)
+            advance_until(session, turn=session.engine.state.internal_turn.number + 1)
         assert seen == ["ann", "bob", "cid", "dot", "ann"]
 
     def test_a_priority_round_visits_all_four_seats(self):

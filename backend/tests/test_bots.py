@@ -89,7 +89,7 @@ def drive(session, bots, human_ids=(), limit=400):
 
 def run_to_turn(session, bots, turn, human_ids=(), limit=4000):
     for _ in range(limit):
-        if session.engine.state.game_over or session.engine.state.turn_number >= turn:
+        if session.engine.state.game_over or session.engine.state.internal_turn.number >= turn:
             return
         if run_bots(session, bots, max_actions=20):
             continue
@@ -292,7 +292,7 @@ class TestGreedyBot:
         # is the only one that could have blocked — but the real assertion
         # is simply that a full game with a greedy bot in it runs to turn 6
         # without the bot wedging the table.
-        assert session.engine.state.turn_number >= 6
+        assert session.engine.state.internal_turn.number >= 6
 
     def test_casts_its_commander_instead_of_starving_it_with_cheap_spells(self):
         """A commander must not lose the mana race to hand spells forever.

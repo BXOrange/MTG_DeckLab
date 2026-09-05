@@ -818,7 +818,7 @@ class SearchMixin:
         """RULE 116.2a (MEC-35, Leonin Arbiter): has ``player`` paid {2}
         this turn to ignore a search prohibition? See `GameState.
         search_exempt_until_turn`'s own docstring."""
-        return self.state.search_exempt_until_turn.get(player.id) == self.state.turn_number
+        return self.state.search_exempt_until_turn.get(player.id) == self.state.internal_turn.number
 
     def is_search_prohibited_for(self, player: Player) -> bool:
         """Whether ``player`` is currently barred from searching at all
@@ -1820,7 +1820,7 @@ class SearchMixin:
         why "until the end of **your** next turn" can't be a flat turn-
         number comparison the way "until end of turn" can).
         """
-        self.state.temp_play_permissions[obj.instance_id] = self.state.turn_number
+        self.state.temp_play_permissions[obj.instance_id] = self.state.internal_turn.number
         if same_turn_only:
             self.state.temp_play_permission_same_turn_only.add(obj.instance_id)
         self.state.temp_play_permission_player[obj.instance_id] = permission_player.id

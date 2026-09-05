@@ -1349,9 +1349,9 @@ class GameSession:
 
     def _edit_set_turn(self, action: dict[str, Any]) -> None:
         state = self.engine.state
-        if "turn_number" in action:
-            state.turn_number = max(1, int(action["turn_number"]))
-            state.sync_round_number()
+        if "internal_turn" in action:
+            state.internal_turn.number = max(1, int(action["internal_turn"]))
+            state.sync_turn_nr()
         if action.get("active_player_id"):
             player = state.player_by_id(str(action["active_player_id"]))
             state.active_player_index = state.players.index(player)
@@ -1721,14 +1721,14 @@ class GameSession:
         player has been stepping through), auto-playing the goldfish line
         at each step, and stops once the next turn begins.
         """
-        start_turn = self.engine.state.turn_number
+        start_turn = self.engine.state.internal_turn.number
         for _ in range(60):  # generous per-turn step cap; guards runaway loops
             if self.engine.state.game_over:
                 return
             self.engine.auto_play_step()
             if self.engine.advance_step() is None:
                 return
-            if self.engine.state.turn_number != start_turn:
+            if self.engine.state.internal_turn.number != start_turn:
                 return
 
     def _object(self, action: dict[str, Any]) -> GameObject:
@@ -1980,7 +1980,7 @@ class GameSession:
                 "cmc_curve": curve,
                 "mana_per_turn": mana_per_turn,
             }
-        return {"turns": state.turn_number, "players": per_player}
+        return {"turns": state.turn_nr, "players": per_player}
 
     def view(self, perspective: Optional[str] = None) -> dict[str, Any]:
         """Everything the UI needs to render the session after a change.

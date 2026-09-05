@@ -497,7 +497,8 @@ export function createReplayView() {
           <button type="button" data-tool="quit">${t('rp.tool.quit')}</button>
         </div>
         <div class="replay-toolbar-group">
-          <label>${t('rp.turn')} <input type="number" min="1" value="${s.turn_number}" id="replay-turn" /></label>
+          <span>${t('rp.turn')} ${s.turn_nr}</span>
+          <label>${t('rp.playerTurn')} <input type="number" min="1" value="${s.internal_turn.number}" id="replay-turn" /></label>
           <label>${t('rp.step')} <select id="replay-step">${stepOptions}</select></label>
           <label>${t('rp.active')} <select id="replay-active">${activeOptions}</select></label>
         </div>
@@ -931,7 +932,7 @@ export function createReplayView() {
     q('#replay-import')?.addEventListener('change', (e) => importFile(e.target.files?.[0]));
 
     q('#replay-turn')?.addEventListener('change', (e) =>
-      act({ type: 'edit_set_turn', turn_number: Number(e.target.value) }));
+      act({ type: 'edit_set_turn', internal_turn: Number(e.target.value) }));
     q('#replay-step')?.addEventListener('change', (e) =>
       act({ type: 'edit_set_turn', step: e.target.value }));
     q('#replay-active')?.addEventListener('change', (e) =>

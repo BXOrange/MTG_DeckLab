@@ -226,14 +226,14 @@ def run_one_match(
                 return
             name = getattr(obj, "name", None)
             if name in commander_names and name not in commander_turns:
-                commander_turns[name] = state.turn_number
+                commander_turns[name] = state.turn_nr
         elif event.type == EventType.SPELL_CAST:
             name = event.get("spell")
             # A countered spell was still cast (RULE 601.2i) — SPELL_CAST
             # fires at cast time, before resolution, which is exactly the
             # "was it played" semantics wanted here, not "did it resolve".
             if name in favorite_names and favorite_cast_turn.get(name) is None:
-                favorite_cast_turn[name] = state.turn_number
+                favorite_cast_turn[name] = state.turn_nr
 
     state.subscribe(on_event)
 
@@ -246,7 +246,7 @@ def run_one_match(
         # stops "Nächste Entscheidung" there, so every turn that starts at
         # all reaches this point, and by then that turn's land drop/casts
         # have already happened.
-        turn = state.turn_number
+        turn = state.turn_nr
         if turn < 1 or turn in sampled_turns or state.current_step != "main2":
             return
         sampled_turns.add(turn)
@@ -271,7 +271,7 @@ def run_one_match(
     actions_used = 0
     action_budget = max(200, max_turns * _ACTIONS_PER_TURN_BUDGET)
     while actions_used < action_budget:
-        if state.game_over or state.turn_number > max_turns:
+        if state.game_over or state.turn_nr > max_turns:
             break
         actions = session.legal_actions()
         if not actions:
@@ -284,7 +284,7 @@ def run_one_match(
             hand_names = {o.name for o in player.hand}
             for name in favorite_names:
                 if name in hand_names and favorite_drawn_turn.get(name) is None:
-                    favorite_drawn_turn[name] = state.turn_number
+                    favorite_drawn_turn[name] = state.turn_nr
             # Reuses the engine's own affordability/legality check (an
             # offered, unlocked cast_spell action already means "this can be
             # paid and cast right now") rather than recomputing mana
@@ -294,7 +294,7 @@ def run_one_match(
                     continue
                 name = action.get("name")
                 if name in favorite_names and favorite_castable_turn.get(name) is None:
-                    favorite_castable_turn[name] = state.turn_number
+                    favorite_castable_turn[name] = state.turn_nr
         view = session.view()
         action = bot.decide(view, actions)
         if action is None:
@@ -329,8 +329,8 @@ def run_one_match(
         # its whole snapshot rather than let that one turn's aggregate mean
         # get dragged along with it. Every earlier turn's data is unaffected
         # (sampled before the loop started) and stays in.
-        aborted_turn = state.turn_number
-        per_turn.pop(state.turn_number, None)
+        aborted_turn = state.turn_nr
+        per_turn.pop(state.turn_nr, None)
 
     # Mana actually produced is already tracked per turn — read it back
     # rather than re-deriving it from the timeline ourselves.
@@ -348,7 +348,7 @@ def run_one_match(
     }
 
     return MatchResult(
-        turns_reached=min(state.turn_number, max_turns),
+        turns_reached=min(state.turn_nr, max_turns),
         per_turn=per_turn,
         tutors_resolved=tutors_resolved,
         commander_turns=commander_turns,

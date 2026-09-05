@@ -134,7 +134,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # intervening-if). + ``subtype`` — a live scan of the controller's
         # battlefield for a permanent other than the source whose type line
         # carries the word and that entered this turn (`GameObject.
-        # turn_entered == state.turn_number`, the same read
+        # turn_entered == state.internal_turn.number`, the same read
         # `condition_query.entered_this_turn` makes). No per-turn tracker
         # needed — the per-object entry flag already exists.
         "another_subtype_entered_this_turn",  # + ``subtype``
@@ -515,7 +515,7 @@ def condition_holds(
         if not word:
             return False
         src_id = getattr(source, "instance_id", None)
-        turn = getattr(state, "turn_number", None)
+        turn = getattr(state.internal_turn, "number", None)
         for obj in state.permanents():
             if obj.instance_id == src_id:
                 continue

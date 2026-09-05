@@ -903,7 +903,7 @@ def _trigger_condition(
     if trigger.get("requires_saddled"):
         def _saddled_ok(event: Any, context: Any, src=source) -> bool:
             state = getattr(context, "state", None)
-            turn = getattr(state, "turn_number", None)
+            turn = getattr(state.internal_turn, "number", None)
             return turn is not None and getattr(src, "saddled_until_turn", None) == turn
 
         predicates.append(_saddled_ok)

@@ -49,7 +49,7 @@ def active_graveyard_cast_grants(player: "Player", state: "GameState") -> list[G
                 continue
             if effect.once_per_turn and getattr(obj, "graveyard_casts_this_turn", 0):
                 continue
-            if effect.expires_turn is not None and effect.expires_turn != state.turn_number:
+            if effect.expires_turn is not None and effect.expires_turn != state.internal_turn.number:
                 continue
             grants.append(effect)
     return grants
@@ -91,4 +91,4 @@ def has_temporary_graveyard_play_permission(player: "Player", state: "GameState"
     this one covers the caster's *whole* graveyard, lands included, for
     exactly the turn it was granted on.
     """
-    return player.graveyard_play_permission_until_turn == state.turn_number
+    return player.graveyard_play_permission_until_turn == state.internal_turn.number

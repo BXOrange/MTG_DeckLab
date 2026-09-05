@@ -379,7 +379,7 @@ class DrawDiscardMixin:
             player.remove_from_zone(obj, Zone.HAND)
         player.add_to_zone(obj, Zone.EXILE)
         obj.madness_exiled = True  # `_offer_cast` reads this to suppress the printed-cost offer
-        self.state.temp_play_permissions[obj.instance_id] = self.state.turn_number
+        self.state.temp_play_permissions[obj.instance_id] = self.state.internal_turn.number
         self.state.temp_play_permission_player[obj.instance_id] = player.id
         self.state.temp_play_permission_source[obj.instance_id] = obj.name
         self.state.temp_play_permission_same_turn_only.add(obj.instance_id)

@@ -62,7 +62,7 @@ def test_exiles_exactly_n_and_grants_permission_to_all_of_them():
     assert len(p1.library) == 0
     assert len(p1.exile) == 2
     for obj in exiled:
-        assert eng.state.temp_play_permissions[obj.instance_id] == eng.state.turn_number
+        assert eng.state.temp_play_permissions[obj.instance_id] == eng.state.internal_turn.number
 
 
 def test_stops_early_if_the_library_runs_out():
@@ -156,7 +156,7 @@ def test_permission_lapses_after_the_next_turns_cleanup():
 
 
 def test_permission_survives_the_opponents_intervening_turn():
-    # RULE 500.1: turn_number increments on *every* player's turn, so in a
+    # RULE 500.1: internal_turn.number increments on *every* player's turn, so in a
     # 2-player game the cleanup immediately following the granting one is
     # the opponent's, not the granting player's own "next turn" — the
     # permission must still be alive after it (a bug once made this the

@@ -284,7 +284,7 @@ def test_the_lock_lapses_when_its_controllers_next_turn_begins():
     engine.resolve_until_stable()
     assert p2.player_effects
 
-    state.turn_number = 1          # p1 (Hope's controller) is the active player
+    state.internal_turn.number = 1          # p1 (Hope's controller) is the active player
     engine.begin_turn()            # → p2's turn; p1's next turn hasn't come yet
     assert p2.player_effects
     engine.begin_turn()            # → p1's turn: the duration is up

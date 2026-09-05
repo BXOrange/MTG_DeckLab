@@ -148,11 +148,11 @@ class TurnLoopMixin:
                 hand_mod, life_mod = variants.vanguard_modifiers(avatar.name)
                 player.hand_size_modifier = hand_mod
                 player.life += life_mod  # RULE 902.4
-    def _advance_round_number(self) -> None:
+    def _advance_turn_nr(self) -> None:
         """Bump the display-only round counter when the table wraps around.
 
         RULE 500.1 counts every player's turn separately, which is what
-        `turn_number` is; `round_number` counts how often the turn has come
+        `internal_turn.number` is; `turn_nr` counts how often the turn has come
         back around to whoever started, which is what players mean by
         "we're on turn 4". A player leaving the game (RULE 800.4a) would
         strand a counter keyed on them alone, so the reference point moves
@@ -163,18 +163,18 @@ class TurnLoopMixin:
             state.starting_player_id = state.active_player.id
         elif not any(p.id == state.starting_player_id for p in state.players):
             state.starting_player_id = state.active_player.id
-            state.round_number += 1
+            state.turn_nr += 1
             return
         if state.active_player.id == state.starting_player_id:
-            state.round_number += 1
+            state.turn_nr += 1
     def begin_turn(self) -> None:
         """Advance to the next player's turn and reset per-turn state."""
-        if self.state.turn_number == 0:
-            self.state.turn_number = 1
+        if self.state.internal_turn.number == 0:
+            self.state.internal_turn.number = 1
             self.state.active_player_index = 0
             # The reference point for the display-only round counter: round 1
-            # begins with whoever takes turn 1 (`GameState.round_number`).
-            self.state.round_number = 1
+            # begins with whoever takes turn 1 (`GameState.turn_nr`).
+            self.state.turn_nr = 1
             self.state.starting_player_id = self.state.active_player.id
         else:
             # Capture the outgoing player's final spell count before rotating
@@ -183,7 +183,7 @@ class TurnLoopMixin:
             outgoing = self.state.active_player
             self.state._last_turn_player_id = outgoing.id
             self.state._last_turn_spell_count = self.state.spells_cast_this_turn.get(outgoing.id, 0)
-            self.state.turn_number += 1
+            self.state.internal_turn.number += 1
             # RULE 500.7: a queued extra turn is taken right after this one,
             # before the normal next player — pop the front of the queue and
             # hand that player the turn instead of rotating the round-robin.
@@ -209,7 +209,7 @@ class TurnLoopMixin:
                 # Rotate to the next player, skipping the passive goldfish dummy
                 # (UC3) so a solo game keeps handing turns back to the human.
                 self.state.active_player_index = self.state.next_active_index()
-            self._advance_round_number()
+            self._advance_turn_nr()
         # RULE 800.4a, deferred: a player who conceded during someone else's
         # turn keeps their board standing until the next turn begins, so the
         # position the other players were reading doesn't vanish mid-turn
@@ -223,6 +223,7 @@ class TurnLoopMixin:
                 pass
         self.state.pending_leave_ids.clear()
         active = self.state.active_player
+        self.state.internal_turn.player_id = active.id
         active.lands_played_this_turn = 0
         active.extra_land_plays_this_turn = 0
         # RULE 901.6b: the planar die costs {X} where X is how many times its
@@ -353,7 +354,7 @@ class TurnLoopMixin:
         # interactive multiplayer loop drives via `pass_priority(player)`).
         self.give_priority(active)
         self.state.fire_event(
-            GameEvent(EventType.TURN_BEGIN, player_id=active.id, turn=self.state.turn_number)
+            GameEvent(EventType.TURN_BEGIN, player_id=active.id, turn=self.state.internal_turn.number)
         )
     def run_turn(self) -> None:
         """Run one full turn: walk every step, giving priority where due."""
@@ -592,7 +593,7 @@ class TurnLoopMixin:
         for dt in self.state.delayed_triggers:
             if (
                 _step_matches(dt.step)
-                and self.state.turn_number >= getattr(dt, "min_turn", 0)
+                and self.state.internal_turn.number >= getattr(dt, "min_turn", 0)
                 and (dt.scope != "controller" or dt.controller_id == active_id)
             ):
                 due.append(dt)
@@ -748,7 +749,7 @@ class TurnLoopMixin:
         # setup screen is what clears `skip_first_draw` to put the human on
         # the draw instead.
         skip_draw = (
-            self.state.turn_number == 1
+            self.state.internal_turn.number == 1
             and len(self.state.players) == 2
             and self.state.skip_first_draw
         )
@@ -952,7 +953,7 @@ class TurnLoopMixin:
         # turn" permission (Light Up the Stage-shaped impulsive draw) lapses
         # at *its own holder's* next-turn cleanup — not simply the very next
         # cleanup in turn order, which (RULE 500.1: every player's turn
-        # increments turn_number) is usually an opponent's turn, cutting the
+        # increments internal_turn.number) is usually an opponent's turn, cutting the
         # window a full turn short and to the wrong player's clock in
         # anything but a 1-player game. A same-turn-only entry (Ragavan,
         # Nimble Pilferer/Mnemonic Betrayal's own shorter printed window,
@@ -969,7 +970,7 @@ class TurnLoopMixin:
             return not (
                 holder_id is not None
                 and active_id == holder_id
-                and self.state.turn_number > granted_turn
+                and self.state.internal_turn.number > granted_turn
             )
 
         self.state.temp_play_permissions = {

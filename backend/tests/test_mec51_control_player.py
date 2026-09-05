@@ -49,7 +49,7 @@ def _run_to_controlled_turn(eng, controlled="p2", limit=120):
 
 def test_control_waits_then_activates_on_the_controlled_players_next_turn():
     eng, st = _engine()
-    st.turn_controls.append(TurnControl("p2", "p1", st.turn_number, "turn", "Mindslaver"))
+    st.turn_controls.append(TurnControl("p2", "p1", st.internal_turn.number, "turn", "Mindslaver"))
     assert st.decider_for("p2") == "p2"            # still waiting
     assert st.driving_seat_for("p1") is None
 
@@ -63,13 +63,13 @@ def test_control_waits_then_activates_on_the_controlled_players_next_turn():
 
 def test_control_expires_after_the_controlled_turn():
     eng, st = _engine()
-    st.turn_controls.append(TurnControl("p2", "p1", st.turn_number, "turn", "Mindslaver"))
+    st.turn_controls.append(TurnControl("p2", "p1", st.internal_turn.number, "turn", "Mindslaver"))
     _run_to_controlled_turn(eng)
-    controlled_turn = st.turn_number
+    controlled_turn = st.internal_turn.number
     for _ in range(120):
         if eng.advance_step() is None:
             break
-        if st.turn_number > controlled_turn and not st.turn_controls:
+        if st.internal_turn.number > controlled_turn and not st.turn_controls:
             break
     assert st.turn_controls == []
     assert st.decider_for("p2") == "p2"
@@ -77,7 +77,7 @@ def test_control_expires_after_the_controlled_turn():
 
 def test_combat_scope_only_routes_during_the_combat_phase():
     eng, st = _engine()
-    tc = TurnControl("p2", "p1", st.turn_number, "combat", "Secret of Bloodbending")
+    tc = TurnControl("p2", "p1", st.internal_turn.number, "combat", "Secret of Bloodbending")
     st.turn_controls.append(tc)
     _run_to_controlled_turn(eng)
     # p2's turn, but we may be in a main phase — route only in combat
@@ -96,14 +96,14 @@ def test_combat_scope_only_routes_during_the_combat_phase():
 
 def test_emrakul_grant_extra_turn_after_queues_the_controlled_players_extra_turn():
     eng, st = _engine()
-    tc = TurnControl("p2", "p1", st.turn_number, "turn", "Emrakul, the Promised End")
+    tc = TurnControl("p2", "p1", st.internal_turn.number, "turn", "Emrakul, the Promised End")
     tc.grant_extra_turn_after = True
     st.turn_controls.append(tc)
     _run_to_controlled_turn(eng)
-    controlled_turn = st.turn_number
+    controlled_turn = st.internal_turn.number
     # play through the rest of p2's controlled turn
     for _ in range(120):
-        if eng.advance_step() is None or st.turn_number > controlled_turn:
+        if eng.advance_step() is None or st.internal_turn.number > controlled_turn:
             break
     # the extra turn was queued for p2 at that turn's end
     assert "p2" in st.extra_turns or st.active_player.id == "p2"
@@ -168,7 +168,7 @@ def _mp_game():
 def _arm_control(session, controller, controlled):
     st = session.engine.state
     st.turn_controls.append(
-        TurnControl(controlled, controller, st.turn_number, "turn", "Mindslaver")
+        TurnControl(controlled, controller, st.internal_turn.number, "turn", "Mindslaver")
     )
 
 
@@ -206,15 +206,15 @@ def test_controller_passes_priority_as_the_controlled_seat():
     _advance_session_to_controlled_turn(session, "bob")
     st = session.engine.state
     assert st.priority_player.id == "bob"
-    start_turn = st.turn_number
+    start_turn = st.internal_turn.number
 
     # Ann drives Bob's turn forward by passing "as" Bob; her own priority
     # windows during it are auto-passed.
     for _ in range(60):
-        if st.turn_number > start_turn:
+        if st.internal_turn.number > start_turn:
             break
         session.apply_action({"type": "pass_priority"}, actor_id="ann")
-    assert st.turn_number > start_turn
+    assert st.internal_turn.number > start_turn
 
     # Bob cannot act on his own controlled turn.
     with pytest.raises(GameActionError):

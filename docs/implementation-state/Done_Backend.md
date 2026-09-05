@@ -842,10 +842,10 @@ is in the rules-engine categories below them.
 - **What:** `GameSession(require_setup=True)` starts a goldfish game with only `mulligan`/`keep_hand` legal until every card is kept; `mulligan` reshuffles and draws a fresh 7, `keep_hand` requires bottoming exactly `mulligan_count` cards (London style).
 - **Files:** `services/game_session.py`
 
-### Display-only round number
+### Structured internal turn and player-facing Turn_Nr
 
-- **What:** `GameState.round_number` is a display-only companion to the rules-correct `turn_number` (RULE 500.1 counts every player's turn separately) — bumped when the turn returns to the starting player, and re-derived rather than incremented for an assembled Replay/Puzzle board.
-- **Files:** `game/game_engine.py`, `models/game_state.py`
+- **What:** `GameState.internal_turn` carries the sequential internal turn number, the player-facing `turn_nr` (one complete circuit around the table), and the active player id. Rules-only expiry and "once per turn" checks continue to use the sequential number; session statistics, dynamic analysis, Replay and the board display use `turn_nr`.
+- **Files:** `game/engine/turn_loop_mixin.py`, `models/game_state.py`, `services/dynamic_analysis.py`, `services/replay.py`, `services/game_session.py`
 
 ### First-draw-skip fixed for 3+ player pods (RULE 103.8c)
 
@@ -4800,7 +4800,7 @@ is in the rules-engine categories below them.
   **no catalogue entry needed at all** once the parser recognized the
   clause — confirmed via `MODELED` coverage. **Documented simplification**:
   "your Nth turn" (RULE 500.1, a player's own turn count) has no tracker
-  in this engine; `GameState.round_number` ("how often the turn has come
+  in this engine; `GameState.turn_nr` ("how often the turn has come
   back to whoever started") is used as the proxy — exact for the
   overwhelming common case, wrong only if a player's own turn count ever
   diverges from the table's shared round count (joining/leaving mid-game).

@@ -426,7 +426,7 @@ def test_guardian_sunmare_saddle_then_attack_triggers_search():
 
     eng.activate_ability(p1, sunmare, ability_index=0, tap_choices=[saddler.instance_id])
     eng.resolve_until_stable()
-    assert sunmare.saddled_until_turn == eng.state.turn_number
+    assert sunmare.saddled_until_turn == eng.state.internal_turn.number
 
     eng.state.fire_event(_attacks_event(sunmare))
     eng.resolve_until_stable()

@@ -77,7 +77,7 @@ class Player:
         #: "Until end of turn, you may play lands and cast spells from
         #: your graveyard." (Yawgmoth's Will-shaped, MEC-12) — the turn
         #: number this permission was granted for; a stamped value
-        #: naturally "expires" the moment `GameState.turn_number` moves on,
+        #: naturally "expires" the moment `GameState.internal_turn.number` moves on,
         #: so nothing needs to reset it back to ``None``. Read by
         #: `game/graveyard_cast.py`'s `has_temporary_graveyard_play_
         #: permission`.

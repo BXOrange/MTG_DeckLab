@@ -1857,7 +1857,7 @@ class MiscSystemsMixin:
             "card_types": list(card_types) if card_types else None,
             "then_specs": [dict(spec) for spec in then_specs],
             "source_id": source.instance_id if source is not None else None,
-            "expires_turn": self.state.turn_number,
+            "expires_turn": self.state.internal_turn.number,
             "repeat": repeat,
         })
 
@@ -1874,7 +1874,7 @@ class MiscSystemsMixin:
         """
         if event.type != EventType.SPELL_CAST or not self.state.spell_watchers:
             return
-        turn = self.state.turn_number
+        turn = self.state.internal_turn.number
         player_id = event.get("player_id")
         object_types = event.get("object_types") or []
         instance_id = event.get("instance_id")

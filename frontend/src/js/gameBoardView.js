@@ -370,7 +370,7 @@ export function createGameBoardView(opts = {}) {
   //: `pending_choice` or a turn-based action (declare attackers/blockers) —
   //: neither goes through `pass_priority`, so this can't silently skip one.
   //: Armed for exactly the turn it was clicked on (`endTurnAtTurnNumber`,
-  //: `GameState.turn_number` — RULE 500.1's per-player count, so it never
+  //: `GameState.internal_turn.number` — RULE 500.1's per-player count, so it never
   //: bleeds into anyone else's turn); self-disarms once the turn actually
   //: moves past that, and on any genuine board interaction (the same
   //: "you're clearly still deciding" signal the countdown listens to —
@@ -384,7 +384,8 @@ export function createGameBoardView(opts = {}) {
     if (!interactivePriority() || !hasPriority()) return false;
     const s = view?.state;
     if (!s) return false;
-    if (s.turn_number !== endTurnAtTurnNumber) {
+    const internalTurn = s.internal_turn.number;
+    if (internalTurn !== endTurnAtTurnNumber) {
       // The armed turn is over — nothing left to fast-forward.
       endTurnArmed = false;
       endTurnAtTurnNumber = null;
@@ -399,7 +400,7 @@ export function createGameBoardView(opts = {}) {
     const s = view?.state;
     if (!s) return null;
     return [
-      s.turn_number,
+      s.internal_turn.number,
       s.current_step,
       view.priority?.player_id,
       (view.priority?.passed || []).join(','),
@@ -1143,7 +1144,7 @@ export function createGameBoardView(opts = {}) {
       <div class="goldfish${(pending && !choiceAside) || castTargeting ? ' choosing' : ''}" style="--gf-scale: ${(getBoardScale() / 100).toFixed(2)}">
         <aside class="gf-rail">
           <div class="gf-rail-turn">
-            <span class="gf-turn" title="${escapeAttr(t('bd.turn.rule500', { n: s.turn_number }))}">${escapeHtml(t('bd.turn.label', { n: s.round_number || s.turn_number }))}</span>
+            <span class="gf-turn" title="${escapeAttr(t('bd.turn.rule500', { n: s.internal_turn.number }))}">${escapeHtml(t('bd.turn.label', { n: s.turn_nr }))}</span>
             <span class="gf-step">${escapeHtml(labelPhase(s.current_phase))} · ${escapeHtml(labelStep(s.current_step))}</span>
             ${s.day_night ? `<span class="gf-daynight gf-daynight-${s.day_night}">${s.day_night === 'night' ? '🌙 Nacht' : '☀️ Tag'}</span>` : ''}
           </div>
@@ -2020,7 +2021,7 @@ export function createGameBoardView(opts = {}) {
     // the window held right now gets passed too, not just the ones after it.
     root.querySelector('[data-end-turn]')?.addEventListener('click', () => {
       endTurnArmed = true;
-      endTurnAtTurnNumber = view?.state?.turn_number ?? null;
+      endTurnAtTurnNumber = view?.state?.internal_turn?.number ?? null;
       autoPassCancelled = false;
       syncAutoPass();
     });

@@ -1668,7 +1668,7 @@ class DamageDeathMixin:
         exile it instead" clause (`GraveyardCastPermissionEffect.exile_
         if_would_be_put_into_graveyard`).
         """
-        if obj.cast_via_graveyard_cast_permission_until_turn == self.state.turn_number:
+        if obj.cast_via_graveyard_cast_permission_until_turn == self.state.internal_turn.number:
             self.exile(obj)
             return
         owner = self.state.player_by_id(obj.owner_id)
@@ -1678,7 +1678,7 @@ class DamageDeathMixin:
         # graveyard (RULE 404.4/700.4), which is exactly what "your
         # graveyard" means here; the player-scoped, whole-turn sibling of
         # the per-object check just above.
-        if owner is not None and owner.graveyard_redirect_to_exile_until_turn == self.state.turn_number:
+        if owner is not None and owner.graveyard_redirect_to_exile_until_turn == self.state.internal_turn.number:
             self.exile(obj)
             return
         # "If a card would be put into an opponent's graveyard from

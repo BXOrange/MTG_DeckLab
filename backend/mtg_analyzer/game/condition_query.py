@@ -57,7 +57,7 @@ def conditional_flash_holds(
             if not bool(value):
                 return False
         elif key == "entered_this_turn":
-            if bool(value) != (obj.turn_entered == state.turn_number):
+            if bool(value) != (obj.turn_entered == state.internal_turn.number):
                 return False
         elif key == "controller_beholds_subtype":
             # PAR-30, Molten Exhale: "…flash if you behold a Dragon…" — the

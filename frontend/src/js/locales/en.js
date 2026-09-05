@@ -842,6 +842,7 @@ export default {
   'rp.tool.export': "Export",
   'rp.tool.quit': "Quit",
   'rp.turn': "Turn",
+  'rp.playerTurn': "Player turn",
   'rp.step': "Step",
   'rp.active': "Active",
   'rp.tool.rewind': "↶ Undo",

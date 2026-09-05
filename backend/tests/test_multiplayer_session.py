@@ -67,7 +67,7 @@ def advance_until(session, *, step=None, turn=None, limit=200):
     for _ in range(limit):
         state = session.engine.state
         if (step is None or state.current_step == step) and (
-            turn is None or state.turn_number == turn
+            turn is None or state.internal_turn.number == turn
         ):
             return
         holder = state.priority_player
@@ -619,7 +619,7 @@ class TestTriggerVisibility:
 class TestRoundNumber:
     """RULE 500.1 counts every player's turn; players count trips round the table.
 
-    `GameState.round_number` is display-only — nothing in the engine reads
+    `GameState.turn_nr` is display-only — nothing in the engine reads
     it — but it's what the board shows as "Zug N", because at a real table
     "turn 4" means the fourth time it's come back to you, not the fourth
     player-turn.
@@ -629,20 +629,20 @@ class TestRoundNumber:
         session = make_game()
         keep_all(session)
         state = session.engine.state
-        assert (state.turn_number, state.round_number) == (1, 1)
+        assert (state.internal_turn.number, state.turn_nr) == (1, 1)
         assert state.starting_player_id == "ann"
 
         # Bob's turn is turn 2 — still round 1.
         advance_until(session, turn=2)
-        assert session.engine.state.round_number == 1
+        assert session.engine.state.turn_nr == 1
 
         # Back to Ann: her second turn opens round 2.
         advance_until(session, turn=3)
         assert session.engine.state.active_player.id == "ann"
-        assert session.engine.state.round_number == 2
+        assert session.engine.state.turn_nr == 2
 
         advance_until(session, turn=5)
-        assert session.engine.state.round_number == 3
+        assert session.engine.state.turn_nr == 3
 
     def test_a_solo_game_counts_every_turn_as_a_round(self):
         # The goldfish dummy never takes a turn, so there is only ever one
@@ -651,17 +651,23 @@ class TestRoundNumber:
         session = manager.create_goldfish(library=[land()] * 30)
         session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
         for _ in range(60):
-            if session.engine.state.turn_number >= 4:
+            if session.engine.state.internal_turn.number >= 4:
                 break
             session.apply_action({"type": "advance_step"})
         state = session.engine.state
-        assert state.turn_number == 4
-        assert state.round_number == state.turn_number
+        assert state.internal_turn.number == 4
+        assert state.turn_nr == state.internal_turn.number
 
     def test_it_is_on_the_wire(self):
         session = make_game()
         keep_all(session)
-        assert session.view(perspective="ann")["state"]["round_number"] == 1
+        state = session.view(perspective="ann")["state"]
+        assert state["turn_nr"] == 1
+        assert state["internal_turn"] == {
+            "number": 1,
+            "turn_nr": 1,
+            "player_id": "ann",
+        }
 
 
 class TestTakeBack:

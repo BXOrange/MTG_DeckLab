@@ -355,12 +355,12 @@ class CastingResolutionMixin:
             # **Documented simplification**: RULE 614.1's "your Nth turn"
             # means the controller's *own* turn count (RULE 500.1 — every
             # player's turn is a turn), which this engine tracks nowhere;
-            # `GameState.round_number` ("how often the turn has come back
+            # `GameState.turn_nr` ("how often the turn has come back
             # to whoever started", CLAUDE.md) is used as the proxy instead
             # — exact for the overwhelming common case (every seat started
             # together, nobody's mid-game player count changed), wrong only
             # if players joined/left after turn 1.
-            obj.tapped = not (self.state.round_number <= condition["count"])
+            obj.tapped = not (self.state.turn_nr <= condition["count"])
         elif kind == "pay_life":
             obj.tapped = True
             self._pending_land_choice_obj = obj
@@ -465,7 +465,7 @@ class CastingResolutionMixin:
                 p.life <= condition["count"] for p in self.state.living_players()
             )
         elif kind == "unless_turn_at_most":
-            tapped = not (self.state.round_number <= condition["count"])
+            tapped = not (self.state.turn_nr <= condition["count"])
         elif kind in ("pay_life", "optional_bonus_rad", "reveal_types"):
             return None
         else:

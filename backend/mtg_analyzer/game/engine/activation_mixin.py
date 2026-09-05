@@ -174,7 +174,7 @@ class ActivationMixin:
             # here — a detained permanent's mana ability staying usable is a
             # known minor deviation, no detain target in the cache has one.)
             return False
-        if ability.once_per_turn and ability._last_activated_turn == self.state.turn_number:
+        if ability.once_per_turn and ability._last_activated_turn == self.state.internal_turn.number:
             return False
         if getattr(ability, "once_per_game", False) and (
             ability.description in getattr(source, "used_once_per_game_abilities", set())
@@ -401,7 +401,7 @@ class ActivationMixin:
         if (
             cost is not None
             and getattr(cost, "powerup_cost_reduction", False)
-            and source.turn_entered == self.state.turn_number
+            and source.turn_entered == self.state.internal_turn.number
         ):
             # PAR-28 / Power-up: "Reduce the cost by its mana cost if it
             # entered this turn." — a generic reduction equal to the
@@ -1294,7 +1294,7 @@ class ActivationMixin:
         # same permanent racing on the stack) to accept as-is.
         source.x_paid = x
         if ability.once_per_turn:
-            ability._last_activated_turn = self.state.turn_number
+            ability._last_activated_turn = self.state.internal_turn.number
         if getattr(ability, "once_per_game", False) and ability.description:
             # PAR-28 / RULE 702.177a: mark this Exhaust/Power-up ability used
             # for the rest of the game (keyed on its printed text so a card

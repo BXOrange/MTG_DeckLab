@@ -14,7 +14,8 @@ survive the round-trip without one.
 The descriptor is plain JSON (the format the frontend downloads/uploads):
 
     {"format": "mtg-replay", "version": 1,
-     "turn_number": 1, "active_player_index": 0,
+     "internal_turn": {"number": 1, "turn_nr": 1, "player_id": "p1"},
+     "turn_nr": 1, "active_player_index": 0,
      "current_phase": "precombat_main", "current_step": "main1",
      "players": [{"id","name","life","poison","counters","is_dummy",
                   "commander_damage",
@@ -125,6 +126,7 @@ def _serialize_player(state: GameState, player: Player) -> dict[str, Any]:
 
 def serialize_replay(state: GameState) -> dict[str, Any]:
     """Snapshot a live game as a portable, re-resolvable descriptor."""
+    state.internal_turn.player_id = state.active_player.id
     battlefield = []
     for obj in state.battlefield:
         inst = _serialize_object(obj)
@@ -134,7 +136,8 @@ def serialize_replay(state: GameState) -> dict[str, Any]:
     return {
         "format": FORMAT,
         "version": VERSION,
-        "turn_number": state.turn_number,
+        "internal_turn": state.internal_turn.to_dict(),
+        "turn_nr": state.turn_nr,
         "active_player_index": state.active_player_index,
         "current_phase": state.current_phase or "precombat_main",
         "current_step": state.current_step or "main1",
@@ -314,14 +317,18 @@ def build_replay_engine(
         if obj is not None:
             state.add_to_battlefield(obj)
 
-    state.turn_number = int(descriptor.get("turn_number", 1) or 1)
+    internal_turn = descriptor.get("internal_turn") or {}
+    state.internal_turn.number = int(internal_turn.get("number", 1) or 1)
+    state.turn_nr = int(descriptor.get("turn_nr", internal_turn.get("turn_nr", 0)) or 0)
     idx = int(descriptor.get("active_player_index", 0) or 0)
     state.active_player_index = idx if 0 <= idx < len(players) else 0
+    state.internal_turn.player_id = state.active_player.id
     state.current_phase = descriptor.get("current_phase") or "precombat_main"
     state.current_step = descriptor.get("current_step") or "main1"
-    # A position that was assembled rather than played has no turn history,
-    # so the display-only round counter is derived from the turn number.
-    state.sync_round_number()
+    # A position that was assembled rather than played has no turn history.
+    # A descriptor without a display turn is derived from the internal turn.
+    if state.turn_nr < 1:
+        state.sync_turn_nr()
 
     engine = GameEngine(state)
     engine.resume_at(cursor_after(state.current_step))
@@ -355,7 +362,8 @@ def blank_replay(num_players: int = 1) -> dict[str, Any]:
     return {
         "format": FORMAT,
         "version": VERSION,
-        "turn_number": 1,
+        "internal_turn": {"number": 1, "turn_nr": 1, "player_id": "p1"},
+        "turn_nr": 1,
         "active_player_index": 0,
         "current_phase": "precombat_main",
         "current_step": "main1",

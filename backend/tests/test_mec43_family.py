@@ -355,7 +355,7 @@ def test_starting_town_enters_untapped_on_early_turns_only():
     state = eng.state
     p1 = state.player_by_id("p1")
     town = _to_hand(state, _named("Starting Town"))
-    state.round_number = 2
+    state.turn_nr = 2
 
     eng.begin_turn()
     state.current_step = "main1"
@@ -364,6 +364,6 @@ def test_starting_town_enters_untapped_on_early_turns_only():
 
     town2 = _to_hand(state, _named("Starting Town"))
     p1.lands_played_this_turn = 0
-    state.round_number = 5
+    state.turn_nr = 5
     eng.play_land(p1, town2)
     assert town2.tapped is True

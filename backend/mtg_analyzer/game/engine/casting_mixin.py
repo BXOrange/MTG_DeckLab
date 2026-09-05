@@ -471,7 +471,7 @@ class CastingMixin:
         # grant (`GameState.temp_flash_until_turn`, `GrantFlashUntilEndOf
         # TurnEffect`), independent of any keyword/condition on the object
         # itself.
-        has_temp_flash = self.state.temp_flash_until_turn.get(player.id) == self.state.turn_number
+        has_temp_flash = self.state.temp_flash_until_turn.get(player.id) == self.state.internal_turn.number
         # Elsha of the Infinite-shaped: "you may cast [noncreature spells
         # cast this way] as though [they] had flash" — a standing grant
         # tied to the *permission*, not the object's own printed/granted
@@ -1687,7 +1687,7 @@ class CastingMixin:
             # instead" clause — reassigned every cast (like the flag just
             # above), so a later normal recast this same turn clears it.
             obj.cast_via_graveyard_cast_permission_until_turn = (
-                self.state.turn_number
+                self.state.internal_turn.number
                 if graveyard_grant is not None and graveyard_grant.exile_if_would_be_put_into_graveyard
                 else None
             )

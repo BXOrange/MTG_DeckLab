@@ -1405,7 +1405,7 @@ class TriggeredAbility(GameEffect):
         if self.condition is not None and not self.condition(event, context):
             return False
         if self.once_per_turn:
-            turn = context.state.turn_number
+            turn = context.state.internal_turn.number
             if self._last_triggered_turn == turn:
                 return False
             self._last_triggered_turn = turn
@@ -2121,7 +2121,7 @@ class GraveyardCastPermissionEffect(GameEffect):
         self.instant_sorcery_only = instant_sorcery_only
         #: A one-shot, turn-scoped grant (as opposed to the ordinary
         #: standing-while-attached shape every other consumer uses) —
-        #: `RulesEngine.turn_number` this expires after, appended directly
+        #: the internal turn this expires after, appended directly
         #: onto a still-on-the-battlefield permanent's own
         #: `GameObject.static_effects` (`GrantGraveyardCastPermissionThis
         #: TurnEffect`) rather than tied to a printed static ability's own
@@ -2173,7 +2173,7 @@ class GrantGraveyardCastPermissionThisTurnEffect(GameEffect):
                 permanent_only=False,
                 instant_sorcery_only=True,
                 once_per_turn=False,
-                expires_turn=context.state.turn_number,
+                expires_turn=context.state.internal_turn.number,
                 source=self.source,
             )
         )
@@ -5184,7 +5184,7 @@ class GraveyardPlayPermissionThisTurnEffect(GameEffect):
     permanent. Stamps `Player.graveyard_play_permission_until_turn` to the
     current turn number; `game/graveyard_cast.py`'s `has_temporary_
     graveyard_play_permission` reads it back — a stamped turn number
-    naturally "expires" the moment `GameState.turn_number` advances, so
+    naturally "expires" the moment `GameState.internal_turn.number` advances, so
     nothing needs a separate sweep. Unlike every existing graveyard-cast
     permission source, this one covers lands too.
     """
@@ -5192,7 +5192,7 @@ class GraveyardPlayPermissionThisTurnEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is not None:
-            player.graveyard_play_permission_until_turn = context.state.turn_number
+            player.graveyard_play_permission_until_turn = context.state.internal_turn.number
 
 
 class GraveyardRedirectToExileEffect(GameEffect):
@@ -5214,7 +5214,7 @@ class GraveyardRedirectToExileEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is not None:
-            player.graveyard_redirect_to_exile_until_turn = context.state.turn_number
+            player.graveyard_redirect_to_exile_until_turn = context.state.internal_turn.number
 
 
 class ExchangeLifeTotalsEffect(GameEffect):
@@ -6987,7 +6987,7 @@ class BecomeSaddledEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is not None:
-            self.source.saddled_until_turn = context.state.turn_number
+            self.source.saddled_until_turn = context.state.internal_turn.number
 
 
 class GrantSkipExtraTurnsEffect(GameEffect):
@@ -9375,11 +9375,11 @@ class GrantDieToExileThisTurnEffect(GameEffect):
         )
 
     def _arm(self, target: Any, context: GameContext) -> None:
-        armed_turn = context.state.turn_number
+        armed_turn = context.state.internal_turn.number
         target_id = target.instance_id
 
         def _condition(e: GameEvent, c: GameContext, turn=armed_turn, tid=target_id) -> bool:
-            return c.state.turn_number == turn and e.get("target_id") == tid
+            return c.state.internal_turn.number == turn and e.get("target_id") == tid
 
         def _replace(e: GameEvent, c: GameContext) -> Optional[GameEvent]:
             obj = c.state.find_object(e.get("target_id"))
@@ -9483,7 +9483,7 @@ class GrantFlashUntilEndOfTurnEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is not None:
-            context.state.temp_flash_until_turn[player.id] = context.state.turn_number
+            context.state.temp_flash_until_turn[player.id] = context.state.internal_turn.number
 
 
 class ExileControllerSearchesBasicLandEffect(GameEffect):
@@ -10607,7 +10607,7 @@ class CreateDelayedTriggerEffect(GameEffect):
         self.scope = str(scope)
         self.capture = capture
         # ``min_turn_offset`` arms the trigger to fire no earlier than
-        # ``turn_number + offset`` — 1 makes "at the beginning of *that*
+        # ``internal_turn.number + offset`` — 1 makes "at the beginning of *that*
         # (extra) turn's end step" (Final Fortune) skip the *current* turn's
         # end step, which would otherwise be the very next one.
         self.min_turn_offset = int(min_turn_offset)
@@ -10733,7 +10733,7 @@ class CreateDelayedTriggerEffect(GameEffect):
                 scope=self.scope,
                 targets=list(targets or []),
                 description=self.description,
-                min_turn=context.state.turn_number + self.min_turn_offset,
+                min_turn=context.state.internal_turn.number + self.min_turn_offset,
                 condition=self.condition,
             )
         )
@@ -10817,7 +10817,7 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
                 player_id=player.id,
                 event_type=self.event_type,
                 effects=inner,
-                install_turn=context.state.turn_number,
+                install_turn=context.state.internal_turn.number,
                 description=self.description,
                 duration=self.duration,
                 event_player_scope=self.event_player_scope,
@@ -12789,7 +12789,7 @@ class ControlPlayerEffect(GameEffect):
         tc = TurnControl(
             controlled_id=controlled_id,
             controller_id=controller.id,
-            install_turn=state.turn_number,
+            install_turn=state.internal_turn.number,
             scope=self.scope,
             source_name=getattr(getattr(self.source, "card", None), "name", "") or "",
         )
@@ -24981,7 +24981,7 @@ def _draw_exile_face_up_replacement(params: dict[str, Any]) -> ReplacementEffect
         obj = player.library.pop()
         obj.zone = Zone.EXILE
         player.exile.append(obj)
-        context.state.temp_play_permissions[obj.instance_id] = context.state.turn_number
+        context.state.temp_play_permissions[obj.instance_id] = context.state.internal_turn.number
         return None  # event consumed — the card never reaches hand
 
     effect.replacement_fn = replace

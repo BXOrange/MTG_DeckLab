@@ -87,7 +87,7 @@ def test_skip_next_untap_end_to_end():
     eff.apply(eng.rules.context, [bear])
     assert bear.skip_next_untap is True
 
-    st.turn_number = 1  # p1's turn
+    st.internal_turn.number = 1  # p1's turn
     eng._step_untap()
     assert bear.tapped is True          # the untap step skipped it
     assert bear.skip_next_untap is False  # one-time flag consumed

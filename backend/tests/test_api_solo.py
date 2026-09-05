@@ -229,7 +229,7 @@ def test_passing_through_the_turn_lets_the_bot_play_a_land(env):
     # The GoldfishBot plays a land every one of its turns — by the time the
     # game has come back around to the human a few times, one is on the board.
     assert _controls(view, bot_id, is_land=True), (
-        f"turn {view['state']['turn_number']}, bot board {_controls(view, bot_id)}"
+        f"turn {view['state']['internal_turn']['number']}, bot board {_controls(view, bot_id)}"
     )
 
 
@@ -242,10 +242,10 @@ def test_advance_solo_bots_terminates_on_a_bot_only_stretch(env):
     view = _start(client, deck.id).json()
     sid = _session_id(view)
     client.post(f"/api/solo/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []})
-    start_turn = view["state"]["turn_number"]
+    start_turn = view["state"]["internal_turn"]["number"]
     for _ in range(40):
         view = client.post(f"/api/solo/{sid}/action", json={"type": "pass_priority"}).json()
-    assert view["state"]["turn_number"] > start_turn  # the game moved on
+    assert view["state"]["internal_turn"]["number"] > start_turn  # the game moved on
     assert view["legal_actions"] or view["state"]["game_over"]
 
 
@@ -271,9 +271,9 @@ def test_the_human_is_never_handed_an_empty_priority_window_on_the_bots_turn(env
             only_pass = {a["type"] for a in view["legal_actions"]} <= {"pass_priority"}
             assert not only_pass, (
                 f"handed an empty pass-only window on the bot's turn: "
-                f"{state['turn_number']}/{state['current_step']}"
+                f"{state['internal_turn']['number']}/{state['current_step']}"
             )
-        elif state["turn_number"] > 1:
+        elif state["internal_turn"]["number"] > 1:
             saw_own_turn_again = True
     assert saw_own_turn_again  # the loop really did cross a bot turn
 

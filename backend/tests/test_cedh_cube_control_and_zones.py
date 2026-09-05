@@ -201,7 +201,7 @@ def test_teferis_protection_makes_the_player_undamageable():
 def test_teferis_protections_shield_lapses_at_your_next_turn():
     engine, state, p1, _ = _engine()
     _cast_teferis(engine, state, p1)
-    state.turn_number = 1  # p1 is active, so their *next* turn is two away
+    state.internal_turn.number = 1  # p1 is active, so their *next* turn is two away
 
     engine.begin_turn()
     assert p1.player_effects

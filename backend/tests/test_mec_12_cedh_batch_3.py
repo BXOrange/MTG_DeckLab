@@ -236,7 +236,7 @@ def test_emergence_zone_is_modeled_and_grants_flash_this_turn():
         engine.rules.resolve_pay_cost_then_choice("pay")
         engine.resolve_until_stable()
 
-    assert state.temp_flash_until_turn.get("p1") == state.turn_number
+    assert state.temp_flash_until_turn.get("p1") == state.internal_turn.number
 
 
 # ---------------------------------------------------------------------------
