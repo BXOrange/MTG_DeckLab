@@ -836,6 +836,19 @@ class GameState:
         #: one shared count regardless of whose turn it is), reset in
         #: `GameEngine.begin_turn`.
         self.combats_this_turn: int = 0
+        #: Defending players who have already submitted a `declare_blockers`
+        #: action for the *current* combat (RULE 509.1a — declaring no
+        #: blocks at all is itself a complete, legal answer, so an attacking
+        #: player's own `obj.attacking` flag has no equivalent on the
+        #: defending side: with zero blockers assigned there is no per-object
+        #: state left behind to say "already answered"). Stamped by
+        #: `GameEngine.declare_blockers` regardless of whether `assignments`
+        #: was empty, so `legal_actions_mixin` can stop re-offering
+        #: `declare_blockers` to a player who has already declared for this
+        #: combat. Reset alongside every other per-combat marker in
+        #: `GameEngine._clear_combat` — at `begin_turn` (before the first
+        #: combat) and at `_step_end_combat` (before any extra combat phase).
+        self.declared_blockers_this_combat: set[str] = set()
         #: "When you next cast an instant or sorcery spell with mana value
         #: N or less this turn, `<effect>`." (Dual Strike-shaped) — a
         #: one-shot watch for the *next* qualifying `SPELL_CAST` this turn,

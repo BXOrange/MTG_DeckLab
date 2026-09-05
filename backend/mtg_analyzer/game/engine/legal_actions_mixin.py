@@ -919,6 +919,15 @@ class LegalActionsMixin:
         if (
             player is not self.state.active_player
             and self.state.current_step == "declare_blockers"
+            # RULE 509.1a: "declares no blocks" is itself a complete,
+            # already-submitted answer — a player who assigned zero blockers
+            # leaves no `blocking` flag behind for the per-object check just
+            # below to catch, so without this a defender with no legal block
+            # left (or one who simply chose none) would see the very same
+            # "declare blocks" offer forever (mirrors the `obj.attacking`
+            # drop-out on the attack side above; see `GameState.
+            # declared_blockers_this_combat`'s own docstring).
+            and player.id not in self.state.declared_blockers_this_combat
         ):
             # RULE 509.1a, the mirror of the attack offers above: one entry
             # per creature this *defending* player could block with, carrying

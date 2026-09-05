@@ -91,6 +91,10 @@ class CombatMixin:
             obj.additional_blocking = []
             obj.blocked_by = []
             obj.dealt_deathtouch_damage = False
+        # RULE 509.1a: nobody has "already declared blockers" for a combat
+        # that hasn't happened yet — reset alongside the per-object flags
+        # above (`GameState.declared_blockers_this_combat`'s own docstring).
+        self.state.declared_blockers_this_combat.clear()
     def _enforce_attacks_if_able(self) -> None:
         """RULE 508.1a: a creature under an "attacks each combat if able"
         static must be declared as an attacker if it's able to.
@@ -1084,6 +1088,13 @@ class CombatMixin:
             # `RulesEngine.check_rampage` for why this can't go through the
             # ordinary annihilator/afflict/bushido `TriggeredAbility` path.
             self.rules.check_rampage(attacker, blocker_count)
+        # RULE 509.1a: "declares no blocks" is itself a complete answer, so
+        # this is stamped whether or not `assignments` was empty — the only
+        # way `legal_actions_mixin` can tell "this player is done declaring
+        # blockers for this combat" apart from "hasn't gone yet" once there's
+        # nothing left on the board to mark (`GameState.
+        # declared_blockers_this_combat`'s own docstring).
+        self.state.declared_blockers_this_combat.add(player.id)
     def can_block(self, player: Player, blocker: GameObject, attacker: GameObject) -> bool:
         """RULE 509.1a: an untapped creature ``player`` controls may block an
         attacker that is attacking ``player`` (or a planeswalker they control,
