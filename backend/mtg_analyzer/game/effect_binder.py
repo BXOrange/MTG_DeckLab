@@ -1849,6 +1849,7 @@ def bind_ability(
                 modes_at_least=bool(spec.modes.get("at_least", False)) if spec.modes else False,
                 modes_repeatable=bool(spec.modes.get("repeatable", False)) if spec.modes else False,
                 modes_optional=bool(spec.modes.get("optional", False)) if spec.modes else False,
+                modes_override=spec.modes.get("override") if spec.modes else None,
                 # PAR-30 (Confusion in the Ranks) — "its controller chooses
                 # …": `TriggeredAbility.controller_from_trigger_event`.
                 controller_from_trigger_event=(
@@ -2913,6 +2914,7 @@ def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:
     obj.spell_modes_choose = int(modes.get("choose", 1))
     obj.spell_modes_at_least = bool(modes.get("at_least", False))
     obj.spell_modes_repeatable = bool(modes.get("repeatable", False))
+    obj.spell_modes_override = modes.get("override")
     # RULE 702.42a Entwine: the raw mana cost that upgrades "choose one" to
     # "choose all". Read by `GameEngine._entwine_cost` — the "both" offer it
     # unlocks is priced (and lockable), unlike ``spell_modes_or_both``'s.

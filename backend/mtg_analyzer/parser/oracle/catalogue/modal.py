@@ -54,6 +54,59 @@ MODAL_HEADER_RE = re.compile(
     r"(?:\s*—\s*|\.\s*you may choose (?:the )?same mode more than once\.?)$"
 )
 
+#: RULE 700.2 conditional choice-count suffix.  This is deliberately
+#: structural only: `conditional_modal_override` reduces the recognised
+#: wording to a closed IR vocabulary before the engine ever sees it.
+CONDITIONAL_MODAL_HEADER_RE = re.compile(
+    r"^choose (?P<n>\d+)\.\s*if (?P<condition>.+?),\s*"
+    r"(?:you may )?choose (?P<choice>any number|\d+|both|\d+ or more) instead\.?$"
+)
+
+
+def conditional_modal_override(condition: str, choice: str) -> Optional[dict[str, object]]:
+    """Return safe modal override IR for the recurring RULE 700.2 forms.
+
+    Unknown conditions intentionally return ``None``: accepting prose here
+    without an engine predicate would turn an unimplemented restriction into
+    an unconditional extra mode choice.
+    """
+    condition = condition.strip().lower()
+    condition_key: Optional[dict[str, object]] = {
+        "this spell was kicked": {"kind": "kicked"},
+        "it was kicked": {"kind": "kicked"},
+        "this spell's additional cost was paid": {"kind": "additional_cost_paid"},
+    }.get(condition)
+    if condition_key is None:
+        subtype = re.fullmatch(r"you control a ([a-z]+) as you cast this spell", condition)
+        types = re.fullmatch(
+            r"there are (\d+) or more card types among cards in your graveyard", condition
+        )
+        if condition == "you control a commander as you cast this spell":
+            condition_key = {"kind": "controls_commander_as_cast"}
+        elif subtype is not None:
+            condition_key = {"kind": "controls_subtype_as_cast", "subtype": subtype.group(1)}
+        elif types is not None:
+            condition_key = {
+                "kind": "card_types_in_graveyard_at_least",
+                "amount": int(types.group(1)),
+            }
+        elif condition == "you descended this turn":
+            condition_key = {"kind": "descended_this_turn"}
+        elif (life := re.fullmatch(r"you have exactly (\d+) life", condition)) is not None:
+            condition_key = {"kind": "life_total_exactly", "amount": int(life.group(1))}
+    if condition_key is None:
+        return None
+    choice = choice.strip().lower()
+    if choice == "any number":
+        return {"condition": condition_key, "at_least": True, "choose": 1}
+    if choice == "both":
+        return {"condition": condition_key, "choose": 2}
+    if choice.isdigit():
+        return {"condition": condition_key, "choose": int(choice)}
+    if choice.endswith(" or more") and choice[:-8].isdigit():
+        return {"condition": condition_key, "at_least": True, "choose": int(choice[:-8])}
+    return None
+
 #: One mode line: "• <effect body>." (Scryfall's modal bullet).
 MODE_LINE_RE = re.compile(r"^•\s*(?P<body>.+)$")
 
@@ -103,28 +156,38 @@ def collect_mode_bodies(lines: list[str], start: int) -> Optional[tuple[list[str
 
 def split_modal_block(
     lines: list[str], start: int
-) -> Optional[tuple[bool, bool, bool, int, list[str], int]]:
+) -> Optional[tuple[bool, bool, bool, Optional[dict[str, object]], int, list[str], int]]:
     """If ``lines[start]`` is a bare modal header, collect its mode lines.
 
-    Returns ``(or_both, or_more, repeatable, choose, mode_bodies, next_index)`` where
+    Returns ``(or_both, or_more, repeatable, override, choose, mode_bodies, next_index)`` where
     ``next_index`` is the index of the first line after the block, and
     ``choose`` is the header's mode count ("Choose two —" → ``2``, or the
     minimum when ``or_more``), or ``None`` when ``lines[start]`` isn't a
     modal header, its ``choose`` exceeds the number of mode lines actually
     printed, or it has fewer than two mode lines following it.
     """
-    header = MODAL_HEADER_RE.match(lines[start].strip())
-    if header is None:
+    line = lines[start].strip()
+    header = MODAL_HEADER_RE.match(line)
+    conditional = CONDITIONAL_MODAL_HEADER_RE.match(line)
+    if header is None and conditional is None:
         return None
     collected = collect_mode_bodies(lines, start + 1)
     if collected is None:
         return None
     bodies, next_i = collected
-    choose = int(header.group("n"))
+    choose = int((header or conditional).group("n"))
     if choose < 1 or choose > len(bodies):
         return None
-    repeatable = "same mode more than once" in lines[start].strip().lower()
-    return bool(header.group("or_both")), bool(header.group("or_more")), repeatable, choose, bodies, next_i
+    repeatable = "same mode more than once" in line.lower()
+    override = (
+        conditional_modal_override(conditional.group("condition"), conditional.group("choice"))
+        if conditional is not None else None
+    )
+    if conditional is not None and override is None:
+        return None
+    # The return value remains deliberately small; gate.py reads this
+    # parser-owned attribute from the header matcher for conditional blocks.
+    return bool(header and header.group("or_both")), bool(header and header.group("or_more")), repeatable, override, choose, bodies, next_i
 
 
 def split_spree_block(

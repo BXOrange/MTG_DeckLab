@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**40.2% covered — 13,986 / 34,811 — as of 2026-09-05, PARSER_VERSION 265.**
+**40.2% covered — 13,991 / 34,811 — as of 2026-09-05, PARSER_VERSION 266.**
 (215 + a hand-authored batch = PAR-30, **Waterbend (RULE 701.67) residue —
 closed**. v215's three parser wins: "Whenever you / an opponent draws
 their **second** card each turn, …" (`segmenter._DRAW_CARD_TRIGGER_NTH_RE`

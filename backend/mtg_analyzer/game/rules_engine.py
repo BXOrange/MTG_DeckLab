@@ -457,6 +457,7 @@ class RulesEngine(
         # player's sources (Dragon Cultist) — `GameState.creature_card_to_
         # graveyard_this_turn` / `damage_dealt_by_this_turn`.
         state.subscribe(self._track_creature_card_to_graveyard)
+        state.subscribe(self._track_permanent_card_to_graveyard)
         # Consume a "when you next cast a spell matching X this turn, …"
         # watcher (Dual Strike-shaped) — see `GameState.spell_watchers`.
         state.subscribe(self._check_spell_watchers)

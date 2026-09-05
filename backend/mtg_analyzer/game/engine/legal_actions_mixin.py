@@ -223,6 +223,7 @@ class LegalActionsMixin:
         help_pay: bool = False,
         bestow: bool = False,
         pay_additional: bool = False,
+        bargained: bool = False,
     ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
@@ -290,6 +291,12 @@ class LegalActionsMixin:
                 action["lock_reason"] = "Manakosten nicht bezahlbar"
             return action
         action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
+        if bargained:
+            # RULE 702.166: Bargain is an optional additional cost, so this
+            # is a distinct cast offer rather than a decoration on the plain
+            # one.  Clients must round-trip this flag when casting.
+            action["bargained"] = True
+            action["bargain_cost_label"] = "Bargain"
         if mode is not None:
             action["mode"] = mode
             action["mode_description"] = self._mode_description(obj, mode)
@@ -488,7 +495,9 @@ class LegalActionsMixin:
                 action["locked"] = True
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
         return action
-    def _modal_cast_actions(self, player: Player, obj: GameObject) -> list[dict[str, Any]]:
+    def _modal_cast_actions(
+        self, player: Player, obj: GameObject, kicked: int = 0, include_kicker: bool = True,
+    ) -> list[dict[str, Any]]:
         """One ``cast_spell`` action per mode of a modal spell (RULE 700.2).
 
         For the ordinary "choose one" case (``spell_modes_choose == 1``):
@@ -511,9 +520,12 @@ class LegalActionsMixin:
         here can cost a different amount.
         """
         modes = list(getattr(obj, "spell_modes", None) or [])
-        choose = getattr(obj, "spell_modes_choose", 1)
-        at_least = getattr(obj, "spell_modes_at_least", False)
+        obj._modal_announced_kicked = kicked
+        choose, at_least = self._modal_choice_config(obj)
         repeatable = getattr(obj, "spell_modes_repeatable", False)
+        override = getattr(obj, "spell_modes_override", None) or {}
+        condition = override.get("condition") if isinstance(override, dict) else None
+        condition_kind = condition.get("kind") if isinstance(condition, dict) else condition
         if choose <= 1 and not at_least:
             actions = [self._cast_action(player, obj, mode=i) for i in range(len(modes))]
             if getattr(obj, "spell_modes_or_both", False) and len(modes) == 2:
@@ -522,18 +534,34 @@ class LegalActionsMixin:
                 # RULE 702.42a: the same combined offer, but sold rather
                 # than given — see `_cast_action`'s ``entwine`` branch.
                 actions.append(self._cast_action(player, obj, mode="both", entwine=True))
+            if include_kicker and condition_kind == "kicked" and self._kicker_cost(obj) is not None:
+                kicked_actions = self._modal_cast_actions(player, obj, kicked=1, include_kicker=False)
+                for action in kicked_actions:
+                    action["kicked"] = 1
+                actions.extend(kicked_actions)
+            if include_kicker:
+                delattr(obj, "_modal_announced_kicked")
             return actions
         if repeatable:
-            return [
+            actions = [
                 self._cast_action(player, obj, mode=list(combo))
                 for combo in itertools.combinations_with_replacement(range(len(modes)), choose)
             ]
-        sizes = range(choose, len(modes) + 1) if at_least else [choose]
-        return [
-            self._cast_action(player, obj, mode=list(combo))
-            for size in sizes
-            for combo in itertools.combinations(range(len(modes)), size)
-        ]
+        else:
+            sizes = range(choose, len(modes) + 1) if at_least else [choose]
+            actions = [
+                self._cast_action(player, obj, mode=list(combo))
+                for size in sizes
+                for combo in itertools.combinations(range(len(modes)), size)
+            ]
+        if include_kicker and condition_kind == "kicked" and self._kicker_cost(obj) is not None:
+            kicked_actions = self._modal_cast_actions(player, obj, kicked=1, include_kicker=False)
+            for action in kicked_actions:
+                action["kicked"] = 1
+            actions.extend(kicked_actions)
+        if include_kicker:
+            delattr(obj, "_modal_announced_kicked")
+        return actions
     def _plain_castable_now_or_via_potential(
         self, player: Player, obj: GameObject, face: str = "front",
     ) -> bool:
@@ -670,6 +698,16 @@ class LegalActionsMixin:
         madness_exiled = getattr(obj, "madness_exiled", False) and obj.zone == Zone.EXILE
         if not madness_exiled and self._plain_castable_now_or_via_potential(player, obj):
             actions.append(self._cast_action(player, obj))
+        # RULE 702.166: offer the paid Bargain variant alongside the ordinary
+        # cast when the card actually has Bargain and a legal permanent can
+        # pay its sacrifice cost.  Previously the engine accepted
+        # ``bargained=True`` but never advertised it, leaving the UI with no
+        # way to select the cost.
+        if (
+            "bargain" in getattr(obj, "intrinsic_keywords", set())
+            and self.can_cast(player, obj, bargained=True)
+        ):
+            actions.append(self._cast_action(player, obj, bargained=True))
         # See `_castable_now_or_via_potential`'s matching comment: a
         # standing permission (Aluren) offers the free-cast action just as
         # readily as a per-object `free_cast_condition` does.

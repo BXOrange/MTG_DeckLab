@@ -571,10 +571,17 @@ class CastingMixin:
             )
             if exile_discount > eligible_in_hand:
                 return False
-        if bargained and not self._bargain_candidate(player):
-            # RULE 701.x: Bargain is optional, but *choosing* to bargain
-            # requires something to sacrifice.
-            return False
+        if bargained:
+            # RULE 702.166: the flag is a cost choice only for a spell that
+            # actually has Bargain.  Besides enforcing the rules, this keeps
+            # an arbitrary API caller from sacrificing a permanent to mark an
+            # unrelated spell as bargained.
+            if "bargain" not in getattr(obj, "intrinsic_keywords", set()):
+                return False
+            if not self._bargain_candidate(player):
+                # Bargain is optional, but choosing it requires something to
+                # sacrifice.
+                return False
         if obj in player.graveyard and self._graveyard_cast_keyword(obj) == "escape":
             # RULE 702.138b: "exile N *other* cards from your graveyard" —
             # ``obj`` itself doesn't count toward that N.
@@ -1165,13 +1172,74 @@ class CastingMixin:
             if is_adventure_cast:
                 obj.adventure_snapshot = snapshot
             return result
-        return self._cast_current_face(
-            player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
-            target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
-            mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
-            pay_additional=pay_additional,
-        )
+        # The mode is chosen before costs are paid (RULE 601.2b), but a
+        # conditional modal header can depend on the *announced* Kicker.
+        # Keep that prospective value only for this validation/resolution
+        # window; the successful cast later persists `kicker_count` normally.
+        obj._modal_announced_kicked = kicked
+        # Snapshot non-cost conditional modal headers at the choice point.
+        # In particular, "as you cast" reads the pre-cast battlefield, not
+        # whatever it looks like when the spell eventually resolves.
+        obj._modal_override_condition_met = self._modal_override_active(obj)
+        try:
+            return self._cast_current_face(
+                player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
+                target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
+                mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
+                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
+                pay_additional=pay_additional,
+            )
+        finally:
+            delattr(obj, "_modal_announced_kicked")
+            delattr(obj, "_modal_override_condition_met")
+
+    def _modal_override_active(self, obj: GameObject) -> bool:
+        """Evaluate the closed conditional-modal vocabulary at choice time."""
+        override = getattr(obj, "spell_modes_override", None) or {}
+        condition = override.get("condition")
+        if isinstance(condition, str):  # compatibility with pre-PAR-55 fixtures
+            condition = {"kind": condition}
+        if not isinstance(condition, dict):
+            return False
+        kind = condition.get("kind")
+        if kind == "kicked":
+            return bool(getattr(obj, "_modal_announced_kicked", obj.kicker_count))
+        if kind == "additional_cost_paid":
+            return bool(getattr(obj, "additional_cost_paid", False))
+        if hasattr(obj, "_modal_override_condition_met"):
+            return bool(obj._modal_override_condition_met)
+        player = next((p for p in self.state.players if p.id == obj.controller_id), None)
+        if player is None:
+            return False
+        if kind == "controls_subtype_as_cast":
+            subtype = str(condition.get("subtype", "")).lower()
+            return bool(subtype) and any(
+                o.controller_id == player.id and subtype in o.card.type_line.lower().split()
+                for o in self.state.battlefield
+            )
+        if kind == "controls_commander_as_cast":
+            return any(o.controller_id == player.id and o.is_commander for o in self.state.battlefield)
+        if kind == "card_types_in_graveyard_at_least":
+            types: set[str] = set()
+            for card in player.graveyard:
+                types |= card.type_words
+            types.discard("permanent")
+            return len(types) >= int(condition.get("amount", 0))
+        if kind == "life_total_exactly":
+            return player.life == int(condition.get("amount", -1))
+        if kind == "descended_this_turn":
+            return player.id in (getattr(self.state, "permanent_card_to_graveyard_this_turn", set()) or set())
+        return False
+
+    def _modal_choice_config(self, obj: GameObject) -> tuple[int, bool]:
+        """Return the active exact/minimum count for a modal spell."""
+        choose = int(getattr(obj, "spell_modes_choose", 1))
+        at_least = bool(getattr(obj, "spell_modes_at_least", False))
+        override = getattr(obj, "spell_modes_override", None) or {}
+        if self._modal_override_active(obj):
+            choose = int(override.get("choose", choose))
+            at_least = bool(override.get("at_least", False))
+        return choose, at_least
     def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
         """The `GameEffect`s a modal spell's chosen ``mode`` resolves with.
 
@@ -1190,8 +1258,7 @@ class CastingMixin:
         700.2e's "or both" implies).
         """
         modes = list(getattr(obj, "spell_modes", None) or [])
-        choose = getattr(obj, "spell_modes_choose", 1)
-        at_least = getattr(obj, "spell_modes_at_least", False)
+        choose, at_least = self._modal_choice_config(obj)
         repeatable = getattr(obj, "spell_modes_repeatable", False)
         if mode == "both":
             # RULE 700.2e gives both modes away for free (and only ever on a

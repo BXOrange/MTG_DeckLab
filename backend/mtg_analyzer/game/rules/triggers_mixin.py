@@ -1362,6 +1362,34 @@ class TriggerCollectionMixin:
             choice["options"].append({"id": "stop", "label": "Keine weiteren"})
         self.state.pending_choice = choice
         return False
+    def _trigger_modal_choice_config(self, ability: "TriggeredAbility") -> tuple[int, bool]:
+        """Active count for a triggered conditional modal header."""
+        choose, at_least = ability.modes_choose, ability.modes_at_least
+        override = getattr(ability, "modes_override", None) or {}
+        condition = override.get("condition") if isinstance(override, dict) else None
+        if not isinstance(condition, dict):
+            return choose, at_least
+        player = next((p for p in self.state.players if p.id == ability.controller_id), None)
+        if player is None:
+            return choose, at_least
+        kind = condition.get("kind")
+        active = False
+        if kind == "card_types_in_graveyard_at_least":
+            types: set[str] = set()
+            for card in player.graveyard:
+                types |= card.type_words
+            types.discard("permanent")
+            active = len(types) >= int(condition.get("amount", 0))
+        elif kind == "life_total_exactly":
+            active = player.life == int(condition.get("amount", -1))
+        elif kind == "descended_this_turn":
+            active = player.id in (getattr(self.state, "permanent_card_to_graveyard_this_turn", set()) or set())
+        elif kind == "controls_commander_as_cast":
+            active = any(o.controller_id == player.id and o.is_commander for o in self.state.battlefield)
+        if active:
+            return int(override.get("choose", choose)), bool(override.get("at_least", False))
+        return choose, at_least
+
     def _trigger_mode_choice(
         self, ability: "TriggeredAbility", chosen: Optional[list[int]] = None
     ) -> dict[str, Any]:
@@ -1380,6 +1408,7 @@ class TriggerCollectionMixin:
         ``modes_at_least``).
         """
         options = ability.modes or []
+        choose, at_least = self._trigger_modal_choice_config(ability)
         picked = set(chosen or [])
         repeatable = bool(getattr(ability, "modes_repeatable", False))
         choice_options: list[dict[str, Any]] = [
@@ -1387,10 +1416,10 @@ class TriggerCollectionMixin:
             for i, opt in enumerate(options)
             if repeatable or i not in picked
         ]
-        if ability.modes_or_both and ability.modes_choose == 1 and len(options) == 2 and not picked:
+        if ability.modes_or_both and choose == 1 and len(options) == 2 and not picked:
             # RULE 700.2e — only offered for the fixed choose-1-of-2 case.
             choice_options.append({"id": "both", "label": "Beides"})
-        if ability.modes_at_least and len(picked) >= ability.modes_choose and len(picked) < len(options):
+        if at_least and len(picked) >= choose and len(picked) < len(options):
             # RULE 700.2 "choose N or more" — the minimum is met, so the
             # player may stop here instead of picking every remaining mode.
             choice_options.append({"id": "done", "label": "Fertig"})
@@ -1447,6 +1476,7 @@ class TriggerCollectionMixin:
             return
 
         already_chosen: list[int] = list(choice.get("chosen") or [])
+        choose, at_least = self._trigger_modal_choice_config(ability)
 
         if answer == "both" and ability.modes_or_both and ability.modes_choose == 1 and len(options) == 2:
             effects: list[Any] = []
@@ -1454,8 +1484,8 @@ class TriggerCollectionMixin:
                 effects.extend(opt["effects"])
         elif (
             answer == "done"
-            and ability.modes_at_least
-            and len(already_chosen) >= ability.modes_choose
+            and at_least
+            and len(already_chosen) >= choose
         ):
             effects = []
             for i in sorted(already_chosen):
@@ -1479,8 +1509,8 @@ class TriggerCollectionMixin:
             if idx not in available:
                 idx = available[0]
             picked = already_chosen + [idx]
-            more_needed = len(picked) < ability.modes_choose or (
-                ability.modes_at_least and len(picked) < len(options)
+            more_needed = len(picked) < choose or (
+                at_least and len(picked) < len(options)
             )
             if more_needed:
                 # RULE 700.2 "choose N"/"choose N or more": re-open, excluding what's picked.

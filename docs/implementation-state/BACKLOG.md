@@ -217,13 +217,6 @@ its block back into the matching section here.
   Exemplars / Etherwrought Page / Cosmogrand Zenith / Ferocification / Appa,
   +8 cache). What is left, ~26 Commander-legal cards in five shapes:
 
-  - **PAR-55 · Conditional modal headers.** Parse `Choose N. If <condition>,
-    [you may] choose <more> instead.` into a declarative modal override;
-    covers kicked/additional-cost, cast-time board, graveyard-card-type,
-    life-total, commander and descended conditions. The condition evaluator
-    and choice-count override are **MEC-66**. Seed cards: Inscription of
-    Ruin/Abundance/Insight, Flame of Anor, Let's Play a Game, Prophetic
-    Titan, Depth Defiler, Akroma's Will, and Pyrrhic Strike.
   - **PAR-56 · Teamwork modal and rider grammar (RULE 702.194).** Route
     `if this spell was cast using teamwork` modal overrides and ordinary
     conditional riders to a `teamwork_paid` condition; the optional tapping
@@ -248,15 +241,6 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-- **MEC-66 · Conditional modal-choice overrides (RULE 700.2).** At choice
-  time, evaluate the declarative override emitted by PAR-55 and replace a
-  modal block's base exact/minimum count with `choose both`, a fixed count,
-  or `choose any number`. Conditions must be evaluated at the rules-correct
-  time: cast-state conditions (kicked/additional cost) after costs are paid,
-  `as you cast` board conditions from the pre-cast battlefield, and triggered
-  conditions when the ability is put on the stack. Reuse existing condition
-  primitives where available; do not model an `instead` clause as an
-  additional effect.
 
 - **MEC-67 · Teamwork optional additional cost (RULE 702.194).** Offer a
   cast variant that taps any number of creatures the caster controls whose

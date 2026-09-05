@@ -1054,6 +1054,11 @@ class GameState:
         #: `RulesEngine._move_to_graveyard` (and mill/discard paths), keyed
         #: by the card's owner; cleared game-wide in `begin_turn`.
         self.creature_card_to_graveyard_this_turn: set[str] = set()
+        #: RULE 702.175 (Descend): player ids for whom a permanent card was
+        #: put into their graveyard from anywhere this turn.  Unlike the
+        #: creature-only history above, this includes artifact/enchantment/
+        #: land/planeswalker cards as well.
+        self.permanent_card_to_graveyard_this_turn: set[str] = set()
         #: MEC-57: player ids whose "the first time you would draw a card
         #: each turn, instead …" replacement (Scion of Halaster) has already
         #: fired this turn — the gate `effects._first_draw_look_two_

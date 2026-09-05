@@ -37,7 +37,10 @@ from .catalogue.levels import (
     split_class_blocks,
     split_leveler_blocks,
 )
-from .catalogue.modal import MODAL_HEADER_RE, collect_mode_bodies, split_modal_block, split_spree_block
+from .catalogue.modal import (
+    CONDITIONAL_MODAL_HEADER_RE, MODAL_HEADER_RE, conditional_modal_override,
+    collect_mode_bodies, split_modal_block, split_spree_block,
+)
 from .catalogue.opening_hand import (
     opening_hand_battlefield_conditional_permission_line,
     opening_hand_battlefield_permission_line,
@@ -2491,7 +2494,11 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (the Confluence cycle) is a modal header variant. It sets a ``repeatable``
 #: modes flag so the engine offers combinations with replacement rather than
 #: the ordinary distinct-mode combinations.
-PARSER_VERSION = "265"
+#: v266 — PAR-55: ``Choose N. If <condition>, choose <more> instead.``
+#: now emits a closed modal-override IR for kicker/additional-cost, cast-time
+#: subtype/commander, delirium, life-total and descend conditions.  Triggered
+#: modal headers use the same IR, evaluated at their choice point.
+PARSER_VERSION = "266"
 
 
 def parser_source_hash() -> str:
@@ -2630,8 +2637,16 @@ def _split_triggered_modal_block(
     trig = _TRIGGER_RE.match(lines[start].strip())
     if trig is None:
         return None
-    header = MODAL_HEADER_RE.match(trig.group("body").strip())
-    if header is None:
+    modal_body = trig.group("body").strip()
+    header = MODAL_HEADER_RE.match(modal_body)
+    conditional = CONDITIONAL_MODAL_HEADER_RE.match(modal_body)
+    if header is None and conditional is None:
+        return None
+    override = (
+        conditional_modal_override(conditional.group("condition"), conditional.group("choice"))
+        if conditional is not None else None
+    )
+    if conditional is not None and override is None:
         return None
     probe = segment_line(
         lines[start].strip()[: trig.start("body")] + "draw a card.",
@@ -2647,14 +2662,15 @@ def _split_triggered_modal_block(
     if collected is None:
         return None
     mode_bodies, next_i = collected
-    choose = int(header.group("n"))
+    choose = int((header or conditional).group("n"))
     if choose < 1 or choose > len(mode_bodies):
         return None
     return (
         trigger,
-        bool(header.group("or_both")),
-        bool(header.group("or_more")),
-        "same mode more than once" in trig.group("body").strip().lower(),
+        bool(header and header.group("or_both")),
+        bool(header and header.group("or_more")),
+        "same mode more than once" in modal_body.lower(),
+        override,
         choose,
         mode_bodies,
         next_i,
@@ -2921,7 +2937,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             _tag_level_gate(seg.spec, gate, default_affects="self")
 
     def _process_modal_block(
-        header: str, or_both: bool, or_more: bool, repeatable: bool, choose: int, mode_bodies: list[str]
+        header: str, or_both: bool, or_more: bool, repeatable: bool, override: Optional[dict[str, Any]], choose: int, mode_bodies: list[str]
     ) -> None:
         nonlocal all_claimed
         # RULE 700.2: a modal spell's own bare header. A permanent's modal
@@ -2942,6 +2958,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 "or_both": or_both,
                 "at_least": or_more,
                 "repeatable": repeatable,
+                "override": override,
                 "choose": choose,
                 "options": options,
                 "descriptions": descriptions,
@@ -2986,6 +3003,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         or_both: bool,
         or_more: bool,
         repeatable: bool,
+        override: Optional[dict[str, Any]],
         choose: int,
         mode_bodies: list[str],
     ) -> None:
@@ -3013,6 +3031,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 "or_both": or_both,
                 "at_least": or_more,
                 "repeatable": repeatable,
+                "override": override,
                 "choose": choose,
                 "options": options,
                 "descriptions": descriptions,
@@ -3191,15 +3210,15 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 continue
             block = split_modal_block(lines, i) if allow_spell_effect else None
             if block is not None:
-                or_both, or_more, repeatable, choose, mode_bodies, next_i = block
-                _process_modal_block(lines[i], or_both, or_more, repeatable, choose, mode_bodies)
+                or_both, or_more, repeatable, override, choose, mode_bodies, next_i = block
+                _process_modal_block(lines[i], or_both, or_more, repeatable, override, choose, mode_bodies)
                 i = next_i
                 continue
             trig_block = _split_triggered_modal_block(lines, i, provenance)
             if trig_block is not None:
-                trigger, or_both, or_more, repeatable, choose, mode_bodies, next_i = trig_block
+                trigger, or_both, or_more, repeatable, override, choose, mode_bodies, next_i = trig_block
                 _process_triggered_modal_block(
-                    lines[i], trigger, or_both, or_more, repeatable, choose, mode_bodies
+                    lines[i], trigger, or_both, or_more, repeatable, override, choose, mode_bodies
                 )
                 i = next_i
                 continue

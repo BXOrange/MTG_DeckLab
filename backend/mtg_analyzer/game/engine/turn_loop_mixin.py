@@ -267,6 +267,7 @@ class TurnLoopMixin:
         # around it.
         self.state.damage_dealt_by_this_turn.clear()
         self.state.creature_card_to_graveyard_this_turn.clear()
+        self.state.permanent_card_to_graveyard_this_turn.clear()
         # MEC-57: "the first time you would draw a card each turn, instead
         # …" (Scion of Halaster) — game-wide, same reason.
         self.state.first_draw_replaced_this_turn.clear()

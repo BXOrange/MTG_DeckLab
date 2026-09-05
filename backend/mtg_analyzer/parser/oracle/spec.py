@@ -749,6 +749,23 @@ class AbilitySpec:
             )
         if self.modes.get("or_both") and self.modes.get("at_least"):
             raise SpecValidationError("'modes' or_both and at_least are mutually exclusive")
+        override = self.modes.get("override")
+        if override is not None:
+            condition = override.get("condition") if isinstance(override, dict) else None
+            allowed_conditions = {
+                "kicked", "additional_cost_paid", "controls_subtype_as_cast",
+                "controls_commander_as_cast", "card_types_in_graveyard_at_least",
+                "life_total_exactly", "descended_this_turn",
+            }
+            if (
+                not isinstance(override, dict)
+                or not isinstance(condition, dict)
+                or condition.get("kind") not in allowed_conditions
+                or not isinstance(override.get("choose"), int)
+                or not isinstance(override.get("at_least", False), bool)
+                or not 1 <= override["choose"] <= len(options)
+            ):
+                raise SpecValidationError("malformed modal override")
         if self.modes.get("repeatable") and (
             self.modes.get("or_both") or self.modes.get("at_least") or choose < 2
         ):
@@ -1149,6 +1166,7 @@ class AbilitySpec:
             "or_both": bool(self.modes.get("or_both", False)),
             "at_least": bool(self.modes.get("at_least", False)),
             "repeatable": bool(self.modes.get("repeatable", False)),
+            "override": self.modes.get("override"),
             "choose": int(self.modes.get("choose", 1)),
             "options": [[e.to_dict() for e in opt] for opt in self.modes.get("options", [])],
             "descriptions": list(self.modes.get("descriptions") or []),
@@ -1163,6 +1181,7 @@ class AbilitySpec:
             "or_both": bool(data.get("or_both", False)),
             "at_least": bool(data.get("at_least", False)),
             "repeatable": bool(data.get("repeatable", False)),
+            "override": data.get("override"),
             "choose": int(data.get("choose", 1)),
             "options": [
                 [EffectSpec.from_dict(e) for e in opt] for opt in (data.get("options") or [])

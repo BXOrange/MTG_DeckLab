@@ -1947,6 +1947,25 @@ class MiscSystemsMixin:
         if owner_id is not None:
             self.state.creature_card_to_graveyard_this_turn.add(owner_id)
 
+    def _track_permanent_card_to_graveyard(self, event: GameEvent) -> None:
+        """RULE 702.175: remember a permanent card entering its graveyard."""
+        if event.type == EventType.DIES:
+            types = event.get("object_types") or []
+            owner_id = event.get("owner_id")
+        elif event.type in (EventType.DISCARD_CARD, EventType.MILL_CARD):
+            obj = self.state.find_object(event.get("instance_id"))
+            if obj is None:
+                return
+            types = obj.type_words
+            owner_id = obj.owner_id
+        else:
+            return
+        if owner_id is not None and any(
+            type_word in {"artifact", "battle", "creature", "enchantment", "land", "planeswalker"}
+            for type_word in types
+        ):
+            self.state.permanent_card_to_graveyard_this_turn.add(owner_id)
+
     def apply_day_night_turn_check(self) -> None:
         """RULE 731.2: as the second part of the untap step, maybe flip
         day/night based on how many spells the *previous* turn's active

@@ -69,6 +69,31 @@ def repeatable_choose_three_instant(name="Test Confluence"):
     )
 
 
+@pytest.mark.parametrize(
+    ("condition", "expected"),
+    [
+        ("this spell was kicked", {"kind": "kicked"}),
+        ("you control a Wizard as you cast this spell", {"kind": "controls_subtype_as_cast", "subtype": "wizard"}),
+        ("you control a commander as you cast this spell", {"kind": "controls_commander_as_cast"}),
+        ("there are four or more card types among cards in your graveyard", {"kind": "card_types_in_graveyard_at_least", "amount": 4}),
+        ("you have exactly 13 life", {"kind": "life_total_exactly", "amount": 13}),
+        ("you descended this turn", {"kind": "descended_this_turn"}),
+    ],
+)
+def test_conditional_modal_headers_use_closed_condition_ir(condition, expected):
+    card = Card(
+        id=f"Conditional {condition}", name="Conditional Modal", type_line="Instant",
+        is_instant=True, mana_cost_string="{U}", converted_mana_cost=1,
+        oracle_text=(
+            f"Choose one. If {condition}, you may choose both instead.\n"
+            "• Draw a card.\n• You gain 3 life."
+        ),
+    )
+    parsed = parse_oracle(card)
+    assert parsed.coverage == MODELED
+    assert parsed.specs[0].modes["override"] == {"condition": expected, "choose": 2}
+
+
 def make_engine(p1_library=()):
     return GameEngine.new_game(
         [("p1", "Alice", list(p1_library)), ("p2", "Bob", [])],
@@ -309,6 +334,55 @@ def test_repeatable_modes_offer_and_resolve_duplicate_selection():
     eng.cast_spell(p1, obj, mode=[0, 0, 0])
     eng.resolve_until_stable()
     assert len(p1.hand) == hand_before + 3
+
+
+def test_kicked_modal_override_allows_every_mode():
+    card = Card(
+        id="Kicked Modal", name="Kicked Modal", type_line="Instant", is_instant=True,
+        mana_cost_string="{U}", converted_mana_cost=1, keywords=["Kicker"],
+        oracle_text=(
+            "Kicker {1}\n"
+            "Choose one. If this spell was kicked, choose any number instead.\n"
+            "• Draw a card.\n• You gain 3 life."
+        ),
+    )
+    eng = make_engine(p1_library=[land(), land()])
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, card)
+    bind_from_catalogue(obj)
+    p1.mana_pool.add_many({"U": 1, "C": 1})
+    actions = [a for a in eng.legal_actions(p1) if a.get("instance_id") == obj.instance_id]
+    assert any(a.get("kicked") == 1 and a.get("mode") == [0, 1] for a in actions)
+    life_before = p1.life
+    hand_before = len(p1.hand) - 1
+    eng.cast_spell(p1, obj, mode=[0, 1], kicked=1)
+    eng.resolve_until_stable()
+    assert p1.life == life_before + 3
+    assert len(p1.hand) == hand_before + 1
+
+
+def test_cast_time_commander_override_offers_and_resolves_both_modes():
+    card = Card(
+        id="Commander Modal", name="Commander Modal", type_line="Instant", is_instant=True,
+        mana_cost_string="{U}", converted_mana_cost=1,
+        oracle_text=(
+            "Choose one. If you control a commander as you cast this spell, you may choose both instead.\n"
+            "• Draw a card.\n• You gain 3 life."
+        ),
+    )
+    eng = make_engine(p1_library=[land()])
+    p1 = _ready_main_phase(eng)
+    commander = _put(eng, creature("Commander"))
+    commander.is_commander = True
+    obj = _in_hand(eng, card)
+    bind_from_catalogue(obj)
+    p1.mana_pool.add_many({"U": 1})
+    actions = [a for a in eng.legal_actions(p1) if a.get("instance_id") == obj.instance_id]
+    assert any(a.get("mode") == [0, 1] for a in actions)
+    life_before = p1.life
+    eng.cast_spell(p1, obj, mode=[0, 1])
+    eng.resolve_until_stable()
+    assert p1.life == life_before + 3
 
 
 def test_cast_with_out_of_range_index_raises():
