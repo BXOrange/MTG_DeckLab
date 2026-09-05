@@ -75,6 +75,7 @@ def conditional_modal_override(condition: str, choice: str) -> Optional[dict[str
         "this spell was kicked": {"kind": "kicked"},
         "it was kicked": {"kind": "kicked"},
         "this spell's additional cost was paid": {"kind": "additional_cost_paid"},
+        "this spell was cast using teamwork": {"kind": "teamwork_paid"},
     }.get(condition)
     if condition_key is None:
         subtype = re.fullmatch(r"you control a ([a-z]+) as you cast this spell", condition)

@@ -1206,6 +1206,8 @@ class CastingMixin:
             return bool(getattr(obj, "_modal_announced_kicked", obj.kicker_count))
         if kind == "additional_cost_paid":
             return bool(getattr(obj, "additional_cost_paid", False))
+        if kind == "teamwork_paid":
+            return bool(getattr(obj, "teamwork_paid", False))
         if hasattr(obj, "_modal_override_condition_met"):
             return bool(obj._modal_override_condition_met)
         player = next((p for p in self.state.players if p.id == obj.controller_id), None)

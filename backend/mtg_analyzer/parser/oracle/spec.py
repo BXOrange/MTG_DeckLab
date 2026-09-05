@@ -753,7 +753,7 @@ class AbilitySpec:
         if override is not None:
             condition = override.get("condition") if isinstance(override, dict) else None
             allowed_conditions = {
-                "kicked", "additional_cost_paid", "controls_subtype_as_cast",
+                "kicked", "additional_cost_paid", "teamwork_paid", "controls_subtype_as_cast",
                 "controls_commander_as_cast", "card_types_in_graveyard_at_least",
                 "life_total_exactly", "descended_this_turn",
             }

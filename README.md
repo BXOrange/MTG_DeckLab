@@ -53,6 +53,25 @@ Useful variants:
 ./start.sh --analysis-match-workers 8   # parallelise dynamic analysis over 8 processes
 ```
 
+### Development and test tooling
+
+The normal installer deliberately installs only what is needed to run the
+application. For frontend linting and other development-only tooling, run this
+separate setup once:
+
+```bash
+./setup_dev.sh             # macOS/Linux
+setup_dev.bat              # Windows
+```
+
+It creates a project-local Node runtime in `frontend/.nodeenv` and installs
+ESLint into `frontend/node_modules`; neither is used by `start.sh` and both are
+ignored by Git. Run the frontend check with:
+
+```bash
+(cd frontend && PATH="$PWD/.nodeenv/bin:$PATH" .nodeenv/bin/npm run lint)
+```
+
 Runtime settings (paths, Scryfall, multiplayer timers, worker pool sizes,
 log level) live in `backend/mtg_analyzer/config.json` — edit it, or
 override any value with the matching `MTG_*` environment variable or the

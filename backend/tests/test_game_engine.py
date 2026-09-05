@@ -3475,6 +3475,28 @@ def test_legal_actions_surfaces_kicker_offer():
     assert cast_action["max_kicker"] >= 1
 
 
+def test_legal_actions_surfaces_a_distinct_bargain_cast_offer():
+    eng = make_engine([instant(name="Bargaining Bolt", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.intrinsic_keywords.add("bargain")
+    p1.mana_pool.add("R")
+    obj_on_battlefield(
+        eng.state, eng,
+        Card(id="Treasure", name="Treasure", type_line="Artifact — Treasure"),
+    ).is_token = True
+
+    casts = [
+        action for action in eng.legal_actions(p1)
+        if action["type"] == "cast_spell" and action["instance_id"] == spell.instance_id
+    ]
+
+    assert any(not action.get("bargained") for action in casts)
+    assert any(action.get("bargained") for action in casts)
+
+
 # -- Buyback (RULE 702.27) ----------------------------------------------------
 
 

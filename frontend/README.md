@@ -1,10 +1,18 @@
 # Frontend (Browser Client)
 
-Plain HTML/CSS/JS (ES modules), no build step, no dependencies. This
-machine has no Node/npm installed, so this deliberately avoids a
-bundler — it can be extended to React/Vite later (see
+Plain HTML/CSS/JS (ES modules), no build step and no runtime dependencies.
+Development-only linting is installed separately by `../setup_dev.sh` into a
+project-local `frontend/.nodeenv` and `frontend/node_modules`; it is not needed
+to run the client. The browser client deliberately avoids a bundler — it can
+be extended to React/Vite later (see
 [docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md](../docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md))
 without changing how it's served in the meantime.
+
+After the development setup, run:
+
+```bash
+PATH="$PWD/.nodeenv/bin:$PATH" .nodeenv/bin/npm run lint
+```
 
 ## Run
 

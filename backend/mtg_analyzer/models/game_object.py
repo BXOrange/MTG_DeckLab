@@ -143,6 +143,10 @@ class GameObject:
         #: ``kicker_count`` shape for a different optional additional cost.
         #: A *mandatory* additional cost sets it True too (it was paid).
         self.additional_cost_paid: bool = False
+        #: RULE 702.194: this spell's optional Teamwork additional cost was
+        #: paid.  Kept on the stack object so modal overrides and conditional
+        #: riders consult the actual cast, never merely the printed keyword.
+        self.teamwork_paid: bool = False
         #: RULE 202.1/601.2h: how much mana was actually *spent* casting this
         #: spell — the converted value of the cost that was paid, 0 for a
         #: free/alternative-{0} cast. Reassigned on every cast (like
@@ -1228,6 +1232,7 @@ class GameObject:
         self.kicker_x_paid = 0
         self.buyback_paid = False
         self.additional_cost_paid = False
+        self.teamwork_paid = False
         self.mana_spent_to_cast = 0
         self.was_cast = False
         self.cast_outside_sorcery_speed = False
