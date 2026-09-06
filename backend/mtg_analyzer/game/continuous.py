@@ -253,6 +253,10 @@ def group_selector_objects(
         result = [src] if src is not None and src in battlefield else []
     elif affects == "all_creatures":
         result = [o for o in battlefield if o.is_creature]
+    elif affects == "all_other_creatures":
+        # RULE 109.5 — an unscoped "each other creature" excludes only
+        # the ability's source, irrespective of controller.
+        result = [o for o in battlefield if o.is_creature and o is not src]
     elif affects == "all_permanents":
         result = list(battlefield)
     elif affects == "attached_permanent":
@@ -782,6 +786,10 @@ def count_selector(
     """
     bf = state.battlefield
     _source_card_name = getattr(source, "name", None)
+    if selector == "all_creatures":
+        # Chain Reaction — an unscoped count, unlike the controller-relative
+        # creature selectors below (RULE 107.3 / 608.2h).
+        return sum(1 for obj in bf if obj.is_creature)
     if selector == "exiled_with_count":
         # "Create a token for each permanent exiled this way." (MEC-12,
         # Abdel Adrian, Gorion's Ward) — "that many" always refers back to

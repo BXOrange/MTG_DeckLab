@@ -669,12 +669,32 @@ class TestDeckCoverage:
 
         first = client.get(f"/api/decks/{created['id']}/coverage")
         assert database.get_deck(created["id"]).unmodeled_coverage is not None
+        assert database.get_deck(created["id"]).unmodeled_coverage_version is not None
 
         _override_loader_exploding()
         second = client.get(f"/api/decks/{created['id']}/coverage")
 
         assert second.status_code == 200
         assert second.json() == first.json()
+
+    def test_parser_version_change_recalculates_cached_coverage(self, monkeypatch):
+        database = _override_database()
+        _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Lands", "mainboardText": "40 Forest\n"}).json()
+        client.get(f"/api/decks/{created['id']}/coverage")
+
+        deck = database.get_deck(created["id"])
+        deck.unmodeled_coverage = {"unmodeledCount": 40, "unmodeledCardNames": ["Forest"]}
+        deck.unmodeled_coverage_version = "obsolete"
+        database.save_deck(deck)
+
+        monkeypatch.setattr("mtg_analyzer.api.saved_decks.PARSER_VERSION", "next-version")
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert response.status_code == 200
+        assert response.json() == {"unmodeledCount": 0, "unmodeledCardNames": []}
+        assert database.get_deck(created["id"]).unmodeled_coverage_version == "next-version"
 
     def test_editing_decklist_text_invalidates_cached_coverage(self):
         database = _override_database()

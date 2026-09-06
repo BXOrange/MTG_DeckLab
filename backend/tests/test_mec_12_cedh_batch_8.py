@@ -203,6 +203,30 @@ def test_assassins_trophy_destroys_and_offers_search_to_the_victims_controller()
 
     engine.rules.resolve_search_choice(basic.instance_id)
     assert state.pending_choice is None
+
+
+def test_ghost_quarter_destroys_and_offers_search_to_land_controller():
+    engine, state = _engine()
+    p1 = state.player_by_id("p1")
+    p2 = state.player_by_id("p2")
+    ghost_quarter = _bf(state, _named("Ghost Quarter"), controller="p1")
+    victim = _bf(state, _land("VictimLand", "Island"), controller="p2")
+    basic = GameObject(_land("GhostQuarterBasic"), owner_id="p2", zone=Zone.LIBRARY)
+    p2.library.append(basic)
+    _reach_main(engine)
+
+    engine.activate_ability(p1, ghost_quarter, 0, targets=[victim])
+    engine.resolve_until_stable()
+
+    assert victim not in state.battlefield
+    assert state.pending_choice is not None
+    assert state.pending_choice["kind"] == "search"
+    assert state.pending_choice["player_id"] == "p2"
+    assert any(option["instance_id"] == basic.instance_id for option in state.pending_choice["options"])
+
+    engine.rules.resolve_search_choice(basic.instance_id)
+    assert basic in state.battlefield
+    assert state.pending_choice is None
     assert any(
         o.instance_id == basic.instance_id and o.controller_id == "p2" for o in state.battlefield
     )

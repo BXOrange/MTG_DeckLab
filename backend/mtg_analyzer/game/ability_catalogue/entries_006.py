@@ -1461,18 +1461,19 @@ def _ghost_quarter() -> list[AbilitySpec]:
     search their library for a basic land card, put it onto the
     battlefield, then shuffle.
 
-    Simplified: the destroyed land's controller getting a compensating
-    basic-land fetch isn't modeled (`SearchLibraryEffect` always searches
-    *this* ability's own controller's library, not the target's
-    controller) — narrowed to the land destruction alone, the card's own
-    primary use.
+    The destroy-and-optional-search effect routes the pending library choice
+    to the destroyed land's controller rather than to this ability's source
+    controller.
     """
     return [
         AbilitySpec(
             "activated",
-            [EffectSpec("destroy", {"target_kind": "permanent"})],
+            [EffectSpec(
+                "destroy_controller_may_search_basic_land",
+                {"target_kind": "land"},
+            )],
             cost={"taps_self": True, "sacrifice": "self"},
-            raw_text="{T}, Opfere dieses Land: Zerstöre ein Zielland.",
+            raw_text="{T}, Sacrifice this land: Destroy target land. Its controller may search their library for a basic land card, put it onto the battlefield, then shuffle.",
         ),
     ]
 

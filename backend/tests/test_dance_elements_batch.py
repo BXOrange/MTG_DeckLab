@@ -834,3 +834,29 @@ def test_cavalier_of_thorns_etb_land_to_battlefield_and_rest_to_graveyard_and_di
     assert cav_obj.zone == Zone.EXILE
     assert p1.library[-1] == land2
     assert land2.zone == Zone.LIBRARY
+
+
+def test_cavalier_of_thorns_does_not_trigger_on_another_creature_entering():
+    cav_card = _cavalier_of_thorns()
+    engine = _engine([cav_card])
+    state = engine.state
+    p1 = state.active_player
+    cav_obj = p1.hand[0]
+    bind_from_catalogue(cav_obj)
+    state.add_to_battlefield(cav_obj)
+
+    other = GameObject(
+        Card(id="Other Creature", name="Other Creature", type_line="Creature — Beast", is_creature=True),
+        owner_id=p1.id,
+        zone=Zone.BATTLEFIELD,
+    )
+    state.add_to_battlefield(other)
+    state.fire_event(GameEvent(
+        EventType.ENTERS_BATTLEFIELD,
+        controller_id=p1.id,
+        instance_id=other.instance_id,
+        object=other.name,
+        object_types=["creature"],
+    ))
+
+    assert state.pending_choice is None

@@ -13,7 +13,12 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**40.3% covered — 14,029 / 34,811 — as of 2026-09-06, PARSER_VERSION 274.**
+**40.4% covered — 14,072 / 34,811 — as of 2026-09-06, PARSER_VERSION 275.**
+(v275, Blight Curse: `put X -1/-1 counters on each creature`, plus the
+global `each creature` / `each other creature` / `each creature your
+opponents control` counter selectors, now emit live mass-counter effects.
+Black Sun's Zenith is newly fully modeled; the selector primitives also
+cover Carnifex Demon and Soul Snuffers.)
 (v273, MEC-73: recognizes the full subtype-filtered "put from hand, gain
 haste, sacrifice at the next end step" sequence and routes it to the
 interactive `cheat_creature_from_hand` primitive; Incandescent Soulstoke is

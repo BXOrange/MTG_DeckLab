@@ -1721,7 +1721,10 @@ def _greenwarden_of_murasa() -> list[AbilitySpec]:
             [EffectSpec("return_from_graveyard", {
                 "target_kind": "graveyard_card", "destination": "hand",
             })],
-            trigger={"event": EventType.ENTERS_BATTLEFIELD},
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "self"},
+            },
             raw_text="When this creature enters, you may return target card from your graveyard to your hand.",
             optional=True,
         ),

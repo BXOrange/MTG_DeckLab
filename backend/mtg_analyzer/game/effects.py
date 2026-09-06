@@ -14530,6 +14530,9 @@ _ADD_COUNTERS_SELECTORS: frozenset[str] = frozenset(
     {
         "each_creature_you_control", "each_other_creature_you_control",
         "each_other_planeswalker_you_control",
+        # RULE 122.1a — -1/-1-counter decks commonly affect every creature,
+        # every other creature, or the creatures an opponent controls.
+        "each_creature", "each_other_creature", "each_creature_opponents_control",
     }
 )
 #: Maps each `_ADD_COUNTERS_SELECTORS` member to the `continuous.
@@ -14538,6 +14541,9 @@ _ADD_COUNTERS_SELECTOR_AFFECTS: dict[str, str] = {
     "each_creature_you_control": "creatures_you_control",
     "each_other_creature_you_control": "other_creatures_you_control",
     "each_other_planeswalker_you_control": "other_planeswalkers_you_control",
+    "each_creature": "all_creatures",
+    "each_other_creature": "all_other_creatures",
+    "each_creature_opponents_control": "creatures_opponents_control",
 }
 
 

@@ -2498,7 +2498,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: now emits a closed modal-override IR for kicker/additional-cost, cast-time
 #: subtype/commander, delirium, life-total and descend conditions.  Triggered
 #: modal headers use the same IR, evaluated at their choice point.
-PARSER_VERSION = "274"
+PARSER_VERSION = "275"
 
 
 def parser_source_hash() -> str:

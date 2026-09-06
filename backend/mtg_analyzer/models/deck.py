@@ -93,7 +93,9 @@ class Deck:
     JSON-shaped dict its endpoint already returns (`DeckValidationResult.
     to_dict()` / `{"unmodeledCount", "unmodeledCardNames"}`), not a richer
     object, so serving a cache hit is a pure dict return with no
-    re-derivation at all.
+    re-derivation at all. `unmodeled_coverage_version` records the oracle
+    parser version used for that coverage calculation. A later parser change
+    makes the cache stale even when the deck text itself is unchanged.
     """
 
     def __init__(
@@ -114,6 +116,7 @@ class Deck:
         favorite_cards: Optional[list[str]] = None,
         validation_result: Optional[dict[str, Any]] = None,
         unmodeled_coverage: Optional[dict[str, Any]] = None,
+        unmodeled_coverage_version: Optional[str] = None,
     ) -> None:
         self.id = id or str(uuid.uuid4())
         self.name = name
@@ -131,6 +134,7 @@ class Deck:
         self.favorite_cards = favorite_cards
         self.validation_result = validation_result
         self.unmodeled_coverage = unmodeled_coverage
+        self.unmodeled_coverage_version = unmodeled_coverage_version
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize this deck to a JSON-compatible dict (camelCase, like ParsedDeck)."""
@@ -151,6 +155,7 @@ class Deck:
             "favoriteCards": self.favorite_cards,
             "validationResult": self.validation_result,
             "unmodeledCoverage": self.unmodeled_coverage,
+            "unmodeledCoverageVersion": self.unmodeled_coverage_version,
         }
 
     @classmethod
@@ -173,6 +178,7 @@ class Deck:
             favorite_cards=data.get("favoriteCards"),
             validation_result=data.get("validationResult"),
             unmodeled_coverage=data.get("unmodeledCoverage"),
+            unmodeled_coverage_version=data.get("unmodeledCoverageVersion"),
         )
 
     def __repr__(self) -> str:

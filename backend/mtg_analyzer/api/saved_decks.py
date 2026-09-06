@@ -18,6 +18,7 @@ from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loade
 from mtg_analyzer.api.schemas import SaveDeckRequest
 from mtg_analyzer.models.deck import Deck
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
+from mtg_analyzer.parser.oracle import PARSER_VERSION
 from mtg_analyzer.services.archetype_database import default_archetype_database
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.deck_validation import apply_legality, compute_deck_identity
@@ -116,6 +117,9 @@ def save_deck(
         # above — see `Deck`'s own docstring for why these two exist.
         validation_result=None if validation_stale else (existing.validation_result if existing else None),
         unmodeled_coverage=None if text_changed else (existing.unmodeled_coverage if existing else None),
+        unmodeled_coverage_version=(
+            None if text_changed else (existing.unmodeled_coverage_version if existing else None)
+        ),
     )
     database.save_deck(deck)
     return deck.to_dict()
@@ -210,7 +214,10 @@ def get_deck_coverage(
     deck = database.get_deck(deck_id)
     if deck is None:
         raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
-    if deck.unmodeled_coverage is not None:
+    if (
+        deck.unmodeled_coverage is not None
+        and deck.unmodeled_coverage_version == PARSER_VERSION
+    ):
         return deck.unmodeled_coverage
     parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube)
     resolved = loader.load_cards([e.name for e in parsed.all_cards])
@@ -234,6 +241,7 @@ def get_deck_coverage(
     # self-healing once resolution succeeds on a later view.
     if not resolved.not_found:
         deck.unmodeled_coverage = result
+        deck.unmodeled_coverage_version = PARSER_VERSION
         database.save_deck(deck)
     return result
 

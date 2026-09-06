@@ -6012,10 +6012,22 @@ def _distribute_counters_range(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: grammar deliberately keeps "each ..." selectors out, see
 #: `subgrammars._TARGET_ROWS`'s note).
 def _add_counters_selector(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("add_counters", {
-        "count": count_of(m.group("n")), "kind": _counter_sign(m.group("ckind")),
-        "selector": "each_creature_you_control",
-    })]
+    selector = {
+        "each creature you control": "each_creature_you_control",
+        "each other creature you control": "each_other_creature_you_control",
+        "each other planeswalker you control": "each_other_planeswalker_you_control",
+        "each creature": "each_creature",
+        "each other creature": "each_other_creature",
+        "each creature your opponents control": "each_creature_opponents_control",
+    }[m.group("selector")]
+    amount = count_or_x_of(m.group("n"))
+    params: dict = {"kind": _counter_sign(m.group("ckind")), "selector": selector}
+    if amount == "x":
+        # RULE 107.3c: an X in a resolving spell reads that spell's announced X.
+        params["x_multiplier"] = 1
+    else:
+        params["count"] = amount
+    return [EffectSpec("add_counters", params)]
 
 
 def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str]]]:
@@ -10567,8 +10579,9 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "add_counters_selector",
         _c(
-            rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on "
-            r"each creature you control"
+            rf"put {COUNT_X} (?P<ckind>[+\-−]1/[+\-−]1) counters? on "
+            r"(?P<selector>each other planeswalker you control|each other creature you control"
+            r"|each creature your opponents control|each other creature|each creature you control|each creature)"
         ),
         _add_counters_selector,
     ),

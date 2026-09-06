@@ -728,6 +728,7 @@ export function createGameBoardView(opts = {}) {
     if (action.type === 'cast_spell' && action.has_x) {
       send.x = readX(action.instance_id, action.face);
     }
+    if (action.evoke) send.evoke = true;
     if (action.has_kicker) {
       send.kicker = readKicker(action.instance_id, action.face);
       if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
@@ -785,6 +786,7 @@ export function createGameBoardView(opts = {}) {
       if (action.type === 'cast_spell' && action.has_x) {
         send.x = readX(action.instance_id, action.face);
       }
+      if (action.evoke) send.evoke = true;
       if (action.has_kicker) {
         send.kicker = readKicker(action.instance_id, action.face);
         if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
@@ -1041,7 +1043,10 @@ export function createGameBoardView(opts = {}) {
       if (restored.size) blockDraft = restored;
     } else if (draft.kind === 'cast' && draft.castTargeting?.send) {
       const ct = draft.castTargeting;
-      const action = findTargetableAction(ct.instanceId, ct.send.type, ct.send.ability_index, ct.send.face, ct.send.mode);
+      const action = findTargetableAction(
+        ct.instanceId, ct.send.type, ct.send.ability_index, ct.send.face, ct.send.mode,
+        ct.send.pay_additional, ct.send.bargained, ct.send.evoke,
+      );
       if (action) {
         const expanded = expandMultiTargetRequirements(action.targets || []);
         const sameShape = ct.isTapChoice || ct.isSacrificeChoice || ct.isDiscardChoice
@@ -2255,11 +2260,11 @@ export function createGameBoardView(opts = {}) {
     // click time rather than baking it into a static data-action attribute.
     root.querySelectorAll('[data-cast-x]').forEach((el) => {
       el.addEventListener('click', () => {
-        const { iid, face, mode, entwine, pay_additional, bargained } = JSON.parse(el.dataset.castX);
+        const { iid, face, mode, entwine, evoke, pay_additional, bargained } = JSON.parse(el.dataset.castX);
         const x = readX(iid, face);
         const kicked = readKicker(iid, face);
         const kicker_x = readKickerX(iid, face);
-        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine, pay_additional, bargained });
+        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine, evoke, pay_additional, bargained });
       });
     });
 
@@ -2277,7 +2282,7 @@ export function createGameBoardView(opts = {}) {
         const iid = Number(info.iid);
         const action = findTargetableAction(
           iid, info.type, info.ability_index, info.face, info.mode,
-          info.pay_additional, info.bargained,
+          info.pay_additional, info.bargained, info.evoke,
         );
         if (!action) return;
         const x = action.has_x ? readX(iid, info.face) : 0;
@@ -2287,7 +2292,7 @@ export function createGameBoardView(opts = {}) {
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
           : {
             type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked, kicker_x,
-            mode: info.mode, entwine: info.entwine, pay_additional: action.pay_additional,
+            mode: info.mode, entwine: info.entwine, evoke: action.evoke, pay_additional: action.pay_additional,
             bargained: action.bargained,
           };
         const {
@@ -2419,7 +2424,7 @@ export function createGameBoardView(opts = {}) {
         const iid = Number(info.iid);
         const action = findTargetableAction(
           iid, 'cast_spell', undefined, info.face, info.mode,
-          info.pay_additional, info.bargained,
+          info.pay_additional, info.bargained, info.evoke,
         );
         if (!action || !action.discard_cost) return;
         const { count, options } = action.discard_cost;
@@ -2434,7 +2439,8 @@ export function createGameBoardView(opts = {}) {
         }));
         const send = {
           type: 'cast_spell', instance_id: iid, name: action.name,
-          face: info.face, mode: info.mode, pay_additional: action.pay_additional,
+          face: info.face, mode: info.mode, evoke: action.evoke,
+          pay_additional: action.pay_additional,
           bargained: action.bargained,
         };
         castTargeting = {
@@ -2485,7 +2491,7 @@ export function createGameBoardView(opts = {}) {
   // Compared via JSON (not `===`) since a "choose N" mode is an array of
   // indices; absent on both sides (a non-modal spell/activated ability)
   // normalizes to the same `null` key either way.
-  function findTargetableAction(iid, type, abilityIndex, face, mode, payAdditional, bargained) {
+  function findTargetableAction(iid, type, abilityIndex, face, mode, payAdditional, bargained, evoke) {
     const modeKey = JSON.stringify(mode ?? null);
     return (view?.legal_actions || []).find(
       (a) =>
@@ -2496,6 +2502,7 @@ export function createGameBoardView(opts = {}) {
         JSON.stringify(a.mode ?? null) === modeKey &&
         Boolean(a.pay_additional) === Boolean(payAdditional) &&
         Boolean(a.bargained) === Boolean(bargained),
+        Boolean(a.evoke) === Boolean(evoke),
     );
   }
 
@@ -3237,10 +3244,10 @@ export function createGameBoardView(opts = {}) {
         // of the hand.
         const startInfo = JSON.stringify({
           iid: a.instance_id, face: a.face, mode: a.mode,
-          pay_additional: a.pay_additional, bargained: a.bargained,
+          evoke: a.evoke, pay_additional: a.pay_additional, bargained: a.bargained,
         });
         buttons.push(
-          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${escapeHtml(t('bd.cast.castPlain', { mode: modeHint(a), hint: '', face: faceHint(a) }))}</button>`
+          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${escapeHtml(t(a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: modeHint(a), hint: '', face: faceHint(a) }))}</button>`
         );
       } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker)) {
         const xField = a.has_x
@@ -3255,7 +3262,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             ${xField}${kickerFieldHtml(a)}
-            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, pay_additional: a.pay_additional, bargained: a.bargained }))}'>${escapeHtml(t('bd.cast.castSuffix', { suffix, mode: modeHint(a), face: faceHint(a) }))}</button>
+            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, evoke: a.evoke, pay_additional: a.pay_additional, bargained: a.bargained }))}'>${escapeHtml(t(a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: modeHint(a), face: faceHint(a) }))}</button>
           </div>
         `);
       } else if (a.type === 'cast_spell') {
@@ -3264,8 +3271,8 @@ export function createGameBoardView(opts = {}) {
           : '';
         buttons.push(
           actionButton(
-            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face, mode: a.mode, entwine: a.entwine, pay_additional: a.pay_additional, bargained: a.bargained },
-            t('bd.cast.castPlain', {
+            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face, mode: a.mode, entwine: a.entwine, evoke: a.evoke, pay_additional: a.pay_additional, bargained: a.bargained },
+            t(a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', {
               mode: modeHint(a),
               hint: `${hint}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}`,
               face: faceHint(a),
@@ -3442,12 +3449,12 @@ export function createGameBoardView(opts = {}) {
       : '';
     const startInfo = JSON.stringify({
       iid, type: a.type, ability_index: a.ability_index, face: a.face,
-      mode: a.mode, entwine: a.entwine, pay_additional: a.pay_additional,
+      mode: a.mode, entwine: a.entwine, evoke: a.evoke, pay_additional: a.pay_additional,
       bargained: a.bargained,
     });
     const label = a.type === 'activate_ability'
       ? t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') })
-      : `${t('bd.cast.castLabel', { mode: modeHint(a), face: faceHint(a) })}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}`;
+      : `${t(a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: modeHint(a), face: faceHint(a) })}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}`;
     const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
     return `<div class="gf-cast-targets">${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
   }
