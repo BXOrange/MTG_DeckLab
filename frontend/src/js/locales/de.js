@@ -106,7 +106,7 @@ export default {
   'settings.hintChangesApply':
     'Änderungen gelten sofort für neue Anfragen und werden im Browser (Cookie) gespeichert — nicht serverseitig, ein anderer Browser/Rechner sieht sie nicht.',
   'settings.hintOtherSettings':
-    'Spielername, Mehrspieler-Einstellungen, eigene Token-Bilder, Karten-Sleeves und Lieblingsdecks findest du jetzt im Tab "Profil".',
+    'Spielername, Mehrspieler-Standardeinstellungen, eigene Token-Bilder, Karten-Sleeves und Lieblingsdecks findest du im Tab "Profil". Spielfeld-Einstellungen stehen hier weiter unten.',
   'settings.language': 'Sprache',
   'settings.languageChangeConfirm':
     'Sprache wechseln und die Seite neu laden? Eine laufende lokale Partie (Goldfisch / Solo / Puzzle) wird dabei zurückgesetzt.',
@@ -117,6 +117,11 @@ export default {
   'settings.theme.black': 'Schwarz',
   'settings.theme.red': 'Rot',
   'settings.theme.green': 'Grün',
+  'settings.board.heading': 'Mehrspieler: Spielfeld',
+  'settings.board.hint':
+    'Die Handkarten deines Gegners verlassen den Server nie (Regel 400.2) — hier legst du fest, wie sie und die Karten auf dem Spielfeld dargestellt werden.',
+  'settings.board.showOpponentHand': 'Gegnerische Hand als verdeckte Karten zeigen',
+  'settings.board.compactView': 'Kompakt-View: Karten nur als Artwork anzeigen',
 
   // --- Profile tab (profileView.js) ---------------------------------
   'profile.title': 'Profil',
@@ -136,11 +141,6 @@ export default {
   'profile.mpDefaults.randomize': 'Auslosen',
   'profile.mpDefaults.randomSeating': 'Sitzordnung (Regel 103.1)',
   'profile.mpDefaults.randomStart': 'Startspieler (Regel 103.2)',
-
-  'profile.board.heading': 'Mehrspieler: Spielfeld',
-  'profile.board.hint':
-    'Die Handkarten deines Gegners verlassen den Server nie (Regel 400.2) — die Frage ist nur, ob das Spielfeld die Anzahl als verdeckte Karten zeichnet oder bloß als Zahl. Auch direkt am Spielfeld umschaltbar.',
-  'profile.board.showOpponentHand': 'Gegnerische Hand als verdeckte Karten zeigen',
 
   'profile.tokens.heading': 'Eigene Token-Bilder',
   'profile.tokens.hint':

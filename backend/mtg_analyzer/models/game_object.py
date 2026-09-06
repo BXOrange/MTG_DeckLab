@@ -1757,6 +1757,8 @@ class GameObject:
             "damage_marked": self.damage_marked,
             "power": self.power,
             "toughness": self.toughness,
+            "base_power": self.card.power,
+            "base_toughness": self.card.toughness,
             # Card type info + combat/attachment state the board UI needs to
             # sort permanents into rows, group attachments, and show which
             # creature is attacking whom.

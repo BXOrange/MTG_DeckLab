@@ -113,7 +113,7 @@ export default {
   'settings.hintChangesApply':
     'Changes apply immediately to new requests and are stored in the browser (cookie) — not on the server; another browser/machine will not see them.',
   'settings.hintOtherSettings':
-    'Player name, multiplayer settings, custom token images, card sleeves and favorite decks are now on the "Profile" tab.',
+    'Player name, multiplayer defaults, custom token images, card sleeves and favorite decks are on the "Profile" tab. Board settings are available below.',
   'settings.language': 'Language',
   'settings.languageChangeConfirm':
     'Switch language and reload the page? Any local game in progress (Goldfish / Solo / Puzzle) will be reset.',
@@ -124,6 +124,11 @@ export default {
   'settings.theme.black': 'Black',
   'settings.theme.red': 'Red',
   'settings.theme.green': 'Green',
+  'settings.board.heading': 'Multiplayer: board',
+  'settings.board.hint':
+    'Your opponent’s hand cards never leave the server (rule 400.2) — choose here how they and cards on the board are displayed.',
+  'settings.board.showOpponentHand': 'Show opponent’s hand as face-down cards',
+  'settings.board.compactView': 'Compact view: show cards as artwork only',
 
   // --- Profile tab (profileView.js) ---------------------------------
   'profile.title': 'Profile',
@@ -143,11 +148,6 @@ export default {
   'profile.mpDefaults.randomize': 'Randomize',
   'profile.mpDefaults.randomSeating': 'Seating (rule 103.1)',
   'profile.mpDefaults.randomStart': 'Starting player (rule 103.2)',
-
-  'profile.board.heading': 'Multiplayer: board',
-  'profile.board.hint':
-    'Your opponent’s hand cards never leave the server (rule 400.2) — the only question is whether the board draws the count as face-down cards or just as a number. Also toggleable directly at the board.',
-  'profile.board.showOpponentHand': 'Show opponent’s hand as face-down cards',
 
   'profile.tokens.heading': 'Custom token images',
   'profile.tokens.hint':

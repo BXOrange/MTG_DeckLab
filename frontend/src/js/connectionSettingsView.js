@@ -57,6 +57,19 @@ export function renderConnectionSettingsView(container) {
         <select id="theme-select">${themeOptions}</select>
         <p class="hint">${t('settings.themeHint')}</p>
       </div>
+
+      <div class="deck-section">
+        <h3>${t('settings.board.heading')}</h3>
+        <p class="hint">${t('settings.board.hint')}</p>
+        <label class="mp-inline-option">
+          <input type="checkbox" id="show-opponent-hand" />
+          ${t('settings.board.showOpponentHand')}
+        </label>
+        <label class="mp-inline-option">
+          <input type="checkbox" id="compact-view" />
+          ${t('settings.board.compactView')}
+        </label>
+      </div>
     </div>
   `;
 
@@ -66,10 +79,14 @@ export function renderConnectionSettingsView(container) {
   const testBtn = container.querySelector('#test-connection-btn');
   const langSelect = container.querySelector('#lang-select');
   const themeSelect = container.querySelector('#theme-select');
+  const showOpponentHand = container.querySelector('#show-opponent-hand');
+  const compactView = container.querySelector('#compact-view');
 
   urlInput.value = getSettings().serverUrl;
   langSelect.value = getLang();
   themeSelect.value = getVisualTheme();
+  showOpponentHand.checked = getSettings().showOpponentHand;
+  compactView.checked = getSettings().compactView;
 
   function renderStatus() {
     const status = getConnectionStatus();
@@ -104,5 +121,13 @@ export function renderConnectionSettingsView(container) {
 
   themeSelect.addEventListener('change', () => {
     themeSelect.value = setVisualTheme(themeSelect.value);
+  });
+
+  showOpponentHand.addEventListener('change', () => {
+    saveSettings({ showOpponentHand: showOpponentHand.checked });
+  });
+  compactView.addEventListener('change', () => {
+    saveSettings({ compactView: compactView.checked });
+    window.dispatchEvent(new Event('compact-view-changed'));
   });
 }

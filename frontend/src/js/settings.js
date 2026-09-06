@@ -19,6 +19,7 @@ const CLIENT_TOKEN_COOKIE = 'mtg_client_token';
 const PASS_TIMER_SECONDS_COOKIE = 'mtg_auto_pass_seconds';
 const BOT_SPEED_MS_COOKIE = 'mtg_bot_speed_ms';
 const SHOW_OPPONENT_HAND_COOKIE = 'mtg_show_opponent_hand';
+const COMPACT_VIEW_COOKIE = 'mtg_compact_view';
 //: PLR-13 + "Player Settings" defaults for a *newly created* multiplayer
 //: table (Profil tab) — applied once, right after `POST /api/multiplayer/games`
 //: (see multiplayerView.js's createGame), not read by the engine itself.
@@ -136,6 +137,10 @@ export function getShowOpponentHand() {
   return getCookie(SHOW_OPPONENT_HAND_COOKIE) === '1';
 }
 
+export function getCompactView() {
+  return getCookie(COMPACT_VIEW_COOKIE) === '1';
+}
+
 /** VIS-7: the configured delay (ms) between staggered move-feed reveals. */
 export function getBotSpeedMs() {
   const raw = getCookie(BOT_SPEED_MS_COOKIE);
@@ -181,6 +186,7 @@ export function getSettings() {
     clientToken: getClientToken(),
     passTimerSeconds: getPassTimerSeconds(),
     showOpponentHand: getShowOpponentHand(),
+    compactView: getCompactView(),
     botSpeedMs: getBotSpeedMs(),
     mpDefaultFormat: getMpDefaultFormat(),
     mpDefaultMulliganStyle: getMpDefaultMulliganStyle(),
@@ -194,6 +200,7 @@ export function getSettings() {
 /**
  * @param {{serverUrl?: string, playerName?: string,
  *          passTimerSeconds?: number, showOpponentHand?: boolean,
+ *          compactView?: boolean,
  *          botSpeedMs?: number,
  *          mpDefaultFormat?: string, mpDefaultMulliganStyle?: string,
  *          mpDefaultSeats?: number, mpDefaultTakebacks?: number,
@@ -217,6 +224,9 @@ export function saveSettings(patch) {
   }
   if (patch.showOpponentHand !== undefined) {
     setCookie(SHOW_OPPONENT_HAND_COOKIE, patch.showOpponentHand ? '1' : '0', COOKIE_MAX_AGE_DAYS);
+  }
+  if (patch.compactView !== undefined) {
+    setCookie(COMPACT_VIEW_COOKIE, patch.compactView ? '1' : '0', COOKIE_MAX_AGE_DAYS);
   }
   if (patch.botSpeedMs !== undefined) {
     const speed = BOT_SPEED_MS_OPTIONS.includes(Number(patch.botSpeedMs))

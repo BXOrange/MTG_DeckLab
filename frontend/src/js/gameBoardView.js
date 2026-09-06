@@ -24,6 +24,7 @@ import { MANA_SYMBOL_EMOJI } from './cardTile.js';
 import {
   getBotSpeedMs,
   getShowOpponentHand,
+  getCompactView,
   saveSettings,
   BOT_SPEED_MS_OPTIONS,
 } from './settings.js';
@@ -150,6 +151,7 @@ export function createGameBoardView(opts = {}) {
   // / artifacts+enchantments / lands). Two rows by default; the checkbox
   // promotes lands to their own third row (persisted client-side).
   let threeRows = getCookie('gf_board_rows') === '3';
+  let compactView = getCompactView();
   // Optional, default-hidden "static effects / layer trace" panel (RULE 613).
   let showStatics = getCookie('gf_show_statics') === '1';
   // Play-area layout: the static-zone column (command/library/graveyard/
@@ -183,6 +185,10 @@ export function createGameBoardView(opts = {}) {
   // board's own rail — so every instance just repaints when it changes.
   // Same no-teardown reasoning as `podGridMedia` above.
   onBoardScaleChange(() => render());
+  window.addEventListener('compact-view-changed', () => {
+    compactView = getCompactView();
+    render();
+  });
   // The stack lives in the left rail now (`railStackHtml`) — always visible,
   // never overlaying the board, so there is nothing to "push aside" any more.
   // Entries that have just resolved linger for a moment as greyed-out ghosts
@@ -1169,7 +1175,7 @@ export function createGameBoardView(opts = {}) {
     updateAbilitySourceOverlays(s, pending);
 
     root.innerHTML = `
-      <div class="goldfish${(pending && !choiceAside) || castTargeting ? ' choosing' : ''}" style="--gf-scale: ${(getBoardScale() / 100).toFixed(2)}">
+      <div class="goldfish${compactView ? ' compact-view' : ''}${(pending && !choiceAside) || castTargeting ? ' choosing' : ''}" style="--gf-scale: ${(getBoardScale() / 100).toFixed(2)}">
         <aside class="gf-rail">
           <div class="gf-rail-turn">
             <span class="gf-turn" title="${escapeAttr(t('bd.turn.rule500', { n: s.internal_turn.number }))}">${escapeHtml(t('bd.turn.label', { n: s.turn_nr }))}</span>
@@ -2877,6 +2883,7 @@ export function createGameBoardView(opts = {}) {
     if (o.tapped) classes.push('tapped');
     if (isSummoningSick) classes.push('summoning-sick');
     if (o.attacking) classes.push('attacking');
+    if (compactView) classes.push('compact-card');
     // RULE 115/601.2c: this object is the chosen target of something
     // currently on the stack — `updateTargetOverlays` (called once per
     // `render()`) reduces `s.stack[*].targets` to this instance-id set.
@@ -2898,6 +2905,13 @@ export function createGameBoardView(opts = {}) {
     // highlight is a preview of that, not a separate action to trigger.
     if (o.castable) classes.push('castable-highlight');
     const pt = o.power != null && o.toughness != null ? ` (${o.power}/${o.toughness})` : '';
+    const hasBasePt = o.base_power != null && o.base_toughness != null;
+    const ptChanged = o.power != null && o.toughness != null && hasBasePt
+      && (o.power !== o.base_power || o.toughness !== o.base_toughness);
+    const compactPt = compactView && o.zone === 'battlefield' && o.is_creature
+      && o.power != null && o.toughness != null
+      ? `<span class="gf-compact-pt${ptChanged ? ' is-changed' : ''}" title="${escapeAttr(`${o.power}/${o.toughness}`)}">${o.power}/${o.toughness}</span>`
+      : '';
     const buttons = cardActionButtons(cardActions);
     const attackBadge = o.attacking
       ? `<span class="gf-attacking-badge">⚔️${o.combat_defender ? ` ${escapeHtml(o.combat_defender.label || '')}` : ''}</span>`
@@ -2987,7 +3001,7 @@ export function createGameBoardView(opts = {}) {
     const dragAttrs = draggable ? ` draggable="true" data-draggable-card="true"` : '';
     return `
       <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}">
-        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}"><span class="gf-card-art">${inner}${summoningSickBadge}${targetOverlay}</span>${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${effectsSummary}</div>
+        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}"><span class="gf-card-art">${inner}${summoningSickBadge}${targetOverlay}</span>${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${compactPt}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${effectsSummary}</div>
         ${buttons}
       </div>`;
   }
