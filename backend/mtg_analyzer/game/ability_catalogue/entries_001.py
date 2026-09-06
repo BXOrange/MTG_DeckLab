@@ -607,11 +607,9 @@ def _solitude() -> list[AbilitySpec]:
     (RULE 608.2 — one target requirement gathered once, both effects in
     this trigger share it) — for *who* receives the life, not just how
     much; without it an untargeted `gain_life` falls back to this
-    creature's own controller, not the exiled creature's. Evoke isn't
-    modeled — same documented simplification as Endurance's own entry (no
-    alternative-cast-cost mechanism for it, unlike Kicker/Buyback which
-    `cast_spell` already threads): Solitude is only hard-castable at its
-    full {3}{W}{W}, but its ETB fully functions either way. "Target
+    creature's own controller, not the exiled creature's. MEC-65 binds its
+    printed exile-a-white-card Evoke cost through the shared RULE 702.74
+    alternate-cast path. "Target
     creature" (unqualified by "you control"/"you don't control") already
     excludes the source itself in this engine's `targeting.py` (RULE
     115's own "another" reading, not a new exclusion), matching "up to one
@@ -1601,5 +1599,4 @@ def _embercleave() -> list[AbilitySpec]:
 
 
 register("Embercleave", _embercleave)
-
 

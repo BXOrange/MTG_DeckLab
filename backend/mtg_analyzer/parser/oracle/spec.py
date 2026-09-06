@@ -94,6 +94,10 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # Foretell-gated scry (wired but unreachable — see `effects.py`'s
         # `_condition_holds` for why nothing sets `GameObject.foretold` yet).
         "instant_sorcery_cards_in_graveyard_at_least", "source_was_foretold",
+        # MEC-74: reusable controller-scoped count gate (for example,
+        # Omnath's "if you control eight or more lands") and the distinct
+        # per-creature derived-power existence gate of Garruk's Uprising.
+        "count_selector_at_least", "controls_creature_power_at_least",
         # RULE 701.30d (PAR-29): "clash with an opponent. if you win, … /
         # otherwise, …" — the outcome an earlier `ClashEffect` in the same
         # resolution stashed on `GameContext.clash_won` (or the firing
@@ -1125,6 +1129,24 @@ class AbilitySpec:
                     raise SpecValidationError("'kicked_at_least' condition must be a positive int")
             if key == "source_has_subtype" and (not isinstance(value, str) or not value.strip()):
                 raise SpecValidationError("'source_has_subtype' condition must be a non-empty string")
+            if key == "controls_creature_power_at_least":
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    raise SpecValidationError(
+                        "'controls_creature_power_at_least' condition must be a non-negative int"
+                    )
+            if key == "count_selector_at_least":
+                if (
+                    not isinstance(value, dict)
+                    or set(value) != {"selector", "count"}
+                    or not isinstance(value["selector"], str)
+                    or not value["selector"].strip()
+                    or isinstance(value["count"], bool)
+                    or not isinstance(value["count"], int)
+                    or value["count"] < 0
+                ):
+                    raise SpecValidationError(
+                        "'count_selector_at_least' must be {'selector': <non-empty str>, 'count': <non-negative int>}"
+                    )
 
     @staticmethod
     def _clamp_params(params: dict[str, Any]) -> None:

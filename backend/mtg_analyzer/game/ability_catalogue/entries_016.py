@@ -2849,3 +2849,142 @@ def _noble_heritage() -> list[AbilitySpec]:
 
 
 register("Noble Heritage", _noble_heritage)
+
+
+# ---------------------------------------------------------------------------
+# MEC-74: Dance of the Elements — count-sensitive landfall / Elemental cards
+# ---------------------------------------------------------------------------
+
+
+def _avenger_of_zendikar() -> list[AbilitySpec]:
+    """When this creature enters, create a 0/1 green Plant creature token
+    for each land you control.
+    Landfall — Whenever a land enters under your control, you may put a
+    +1/+1 counter on each Plant creature you control."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count_selector": "lands_you_control", "power": 0,
+                "toughness": 1, "colors": ["G"], "subtypes": ["Plant"],
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, erzeuge für jedes Land, das du "
+                     "kontrollierst, einen grünen 0/1 Pflanze-Kreaturenspielstein.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {
+                "amount": 1, "kind": "+1/+1", "selector": "each_creature_you_control",
+                "subtypes": ["Plant"],
+            })],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "group", "type": "land", "controller": "you"},
+            },
+            raw_text="Landung — Immer wenn ein Land unter deiner Kontrolle ins Spiel kommt, "
+                     "kannst du auf jede Pflanze, die du kontrollierst, eine +1/+1-Marke legen.",
+        ),
+    ]
+
+
+register("Avenger of Zendikar", _avenger_of_zendikar)
+
+
+def _omnath_locus_of_the_roil() -> list[AbilitySpec]:
+    """When this creature enters, it deals damage to any target equal to the
+    number of Elementals you control.
+    Landfall — Whenever a land enters under your control, put a +1/+1 counter
+    on this creature. If you control eight or more lands, draw a card."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {
+                "target_kind": "any",
+                "amount_from_count_selector": "creatures_you_control_of_type_elemental",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, fügt sie einem Ziel deiner Wahl "
+                     "Schaden in Höhe der Anzahl an Elementaren zu, die du kontrollierst.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("add_counters", {"amount": 1, "kind": "+1/+1"}),
+                EffectSpec("draw", {"count": 1}, condition={
+                    "count_selector_at_least": {"selector": "lands_you_control", "count": 8},
+                }),
+            ],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "group", "type": "land", "controller": "you"},
+            },
+            raw_text="Landung — Immer wenn ein Land unter deiner Kontrolle ins Spiel kommt, "
+                     "lege eine +1/+1-Marke auf diese Kreatur. Falls du acht oder mehr Länder "
+                     "kontrollierst, ziehe eine Karte.",
+        ),
+    ]
+
+
+register("Omnath, Locus of the Roil", _omnath_locus_of_the_roil)
+
+
+def _garruks_uprising() -> list[AbilitySpec]:
+    """When this enchantment enters, if you control a creature with power 4
+    or greater, draw a card.
+    Creatures you control have trample."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1}, condition={"controls_creature_power_at_least": 4})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Verzauberung ins Spiel kommt und falls du eine Kreatur mit "
+                     "Stärke 4 oder mehr kontrollierst, ziehe eine Karte.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {"affects": "creatures_you_control", "keywords": ["trample"]})],
+            raw_text="Kreaturen, die du kontrollierst, haben Trampelschaden.",
+        ),
+    ]
+
+
+register("Garruk's Uprising", _garruks_uprising)
+
+
+def _vernal_sovereign() -> list[AbilitySpec]:
+    """Whenever this creature enters or attacks, create a green and white
+    Elemental creature token with "This token's power and toughness are each
+    equal to the number of creatures you control."""
+    effects = [EffectSpec("create_token", {
+        "count": 1, "power": 0, "toughness": 0, "colors": ["G", "W"],
+        "subtypes": ["Elemental"],
+        # This is the token's own characteristic-defining ability, not a
+        # one-time value captured while it is being created.  Giving the
+        # token a self anthem therefore includes the token itself and keeps
+        # changing as its controller's creature count changes.
+        "grant_self_anthem": {
+            "power": 1, "toughness": 1,
+            "power_count": "creatures_you_control",
+            "toughness_count": "creatures_you_control",
+        },
+    })]
+    return [
+        AbilitySpec(
+            "triggered", effects,
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Immer wenn diese Kreatur ins Spiel kommt, erzeuge einen grün-weißen "
+                     "Elementar-Kreaturenspielstein, dessen Stärke und Widerstandskraft jeweils "
+                     "gleich der Anzahl an Kreaturen sind, die du kontrollierst.",
+        ),
+        AbilitySpec(
+            "triggered", effects,
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Immer wenn diese Kreatur angreift, erzeuge einen grün-weißen "
+                     "Elementar-Kreaturenspielstein, dessen Stärke und Widerstandskraft jeweils "
+                     "gleich der Anzahl an Kreaturen sind, die du kontrollierst.",
+        ),
+    ]
+
+
+register("Vernal Sovereign", _vernal_sovereign)

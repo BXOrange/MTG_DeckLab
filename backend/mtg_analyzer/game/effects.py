@@ -2599,6 +2599,36 @@ class ConditionalEffect(GameEffect):
             )
             if count < instant_sorcery_cards_in_graveyard_at_least:
                 return False
+        count_selector_at_least = self.condition.get("count_selector_at_least")
+        if count_selector_at_least is not None:
+            # A controller-scoped board-count gate shared by conditional
+            # triggers: "if you control eight or more lands" (Omnath,
+            # Locus of the Roil) and its tribal siblings.  Keep the selector
+            # vocabulary in `continuous.count_selector`, rather than adding
+            # bespoke condition keys for every counted permanent kind.
+            from . import continuous  # function-scoped: avoid an import cycle
+
+            selector = str(count_selector_at_least.get("selector", ""))
+            threshold = int(count_selector_at_least.get("count", 0))
+            player = _controller_of(self.source, context)
+            count = continuous.count_selector(
+                context.state, getattr(player, "id", None), selector, source=self.source,
+            )
+            if count < threshold:
+                return False
+        controls_creature_power_at_least = self.condition.get("controls_creature_power_at_least")
+        if controls_creature_power_at_least is not None:
+            # "When ~ enters, if you control a creature with power 4 or
+            # greater, draw a card."  This is intentionally evaluated from
+            # derived power at resolution, so continuous buffs count too.
+            threshold = int(controls_creature_power_at_least)
+            controller_id = getattr(_controller_of(self.source, context), "id", None)
+            if not any(
+                obj.controller_id == controller_id and obj.is_creature
+                and int(getattr(obj, "power", 0) or 0) >= threshold
+                for obj in context.state.battlefield
+            ):
+                return False
         entering_object_unique_name = self.condition.get("entering_object_unique_name")
         if entering_object_unique_name:
             # "…if it doesn't have the same name as another creature you

@@ -1009,13 +1009,11 @@ def _ashling_the_limitless() -> list[AbilitySpec]:
     ENTERS_BATTLEFIELD event. This closes the *mana-cost* Evoke family for
     free (Mulldrifter/Shriekmaw/Wall of Reverence-shaped, whose printed
     Evoke line is a plain mana cost parsed straight into `parametric_
-    keywords` like Mutate/Escalate's own cost-bearing keywords) — but NOT
-    Solitude/Endurance/Fury/Subtlety/Grief's, whose Evoke cost is "exile a
-    `<color>` card from your hand" (RULE 118.9's *alternative*-cost shape,
-    not a mana cost at all — the segmenter's cost-run regex never even
-    claims that text into `parametric_keywords` in the first place). Those
-    five still need their own alt-cost hand-authoring; their own catalogue
-    entries' "Evoke isn't modeled" notes stand unchanged.
+    keywords` like Mutate/Escalate's own cost-bearing keywords). MEC-65
+    subsequently extended the same keyword binding and cast path to
+    Solitude/Endurance/Fury/Subtlety/Grief's "exile a `<color>` card from
+    your hand" payment, storing `exile_hand_card_color` in the existing
+    parametric-keyword payload.
     Ashling's own *grant* ("Elemental permanent spells you cast from your
     hand gain evoke {4}") is a new `grant_evoke` static
     (`continuous.granted_evoke_cost_for`, the hand-cast-cost sibling of
@@ -1566,5 +1564,4 @@ register("Tymna the Weaver", _tymna_the_weaver)
 # MEC-43: `cEDH staples 2`'s undiagnosed remainder — first batch, near-free
 # reuses of primitives shipped for entirely different cards.
 # ---------------------------------------------------------------------------
-
 

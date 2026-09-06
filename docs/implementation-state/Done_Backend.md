@@ -4190,7 +4190,7 @@ is in the rules-engine categories below them.
 
 ### Solitude / Parallax Wave / Skyclave Apparition — the O-Ring/exile family's remaining shapes (MEC-12)
 
-- **What:** Three more single-target/leaves-battlefield exile shapes, each needing one small, genuinely reusable addition to the existing O-Ring family (`ExileEffect(remember=True)`/`GameObject.linked_exile_id`, MEC-21's accumulating `exiled_with_ids`) rather than a bespoke build per card. **Solitude** ("exile up to one other target creature. That creature's controller gains life equal to its power.") needed `GainLifeEffect.recipient="target_controller"` — the *who receives* sibling of the already-shipped `amount_from_target_power` (Dazzling Reflection, MEC-30): both read the same shared target (RULE 608.2, one target requirement, two effects), but `recipient` decides who gains the life rather than how much. Evoke isn't modeled (same documented simplification as Endurance's own entry — no alternative-cast-cost mechanism exists for it); "target creature" already excludes the source itself in this engine's `targeting.py` (`kind in ("creature", "permanent")` always filters `o is not source`), so "up to one **other** target creature" needed no new exclusion. **Parallax Wave** ("Remove a fade counter from this enchantment: Exile target creature. When this enchantment leaves the battlefield, each player returns to the battlefield all cards they own exiled with it.") needed `ReturnAllExiledWithEffect`/`"return_all_exiled_with"` — the mass sibling of `ReturnLinkedExileEffect`, reading `exiled_with_ids` (built for a *different* card, Agatha's Soul Cauldron, MEC-21) instead of the single-slot `linked_exile_id`, since a repeatable ability can exile several different creatures owned by several different players over its lifetime, all returning together under their own respective owners. Fading and the "remove a counter" activation cost (`ActivationCost.remove_counters`, `{"remove_counters": ["fade", 1]}`) were both already-shipped primitives. **Skyclave Apparition** ("exile up to one target nonland, nontoken permanent you don't control with mana value 4 or less. When this creature leaves the battlefield, the exiled card's owner creates an X/X blue Illusion creature token, where X is the mana value of the exiled card.") needed two things: `ExileEffect` gained its own `max_mana_value` param (the same target-offer-time cap `DestroyEffect` already had, just never threaded onto exile), and a new `CreateTokenForLinkedExileEffect`/`"create_token_for_linked_exile"` — `ReturnLinkedExileEffect`'s token-creating sibling, reading the same `linked_exile_id` link one last time for the exiled card's owner and mana value, then handing off to `GameContext.create_token` under *that* owner's control rather than the caster's. `target_kind="nonland_permanent_you_dont_control"` doesn't itself exclude tokens (no `exclude_tokens` selector exists yet) — a narrow, documented simplification, the same shape Leonin Relic-Warder's own `target_kind="permanent"` type-union already uses.
+- **What:** Three more single-target/leaves-battlefield exile shapes, each needing one small, genuinely reusable addition to the existing O-Ring family (`ExileEffect(remember=True)`/`GameObject.linked_exile_id`, MEC-21's accumulating `exiled_with_ids`) rather than a bespoke build per card. **Solitude** ("exile up to one other target creature. That creature's controller gains life equal to its power.") needed `GainLifeEffect.recipient="target_controller"` — the *who receives* sibling of the already-shipped `amount_from_target_power` (Dazzling Reflection, MEC-30): both read the same shared target (RULE 608.2, one target requirement, two effects), but `recipient` decides who gains the life rather than how much. Its exile-a-white-card Evoke payment is implemented by MEC-65; "target creature" already excludes the source itself in this engine's `targeting.py` (`kind in ("creature", "permanent")` always filters `o is not source`), so "up to one **other** target creature" needed no new exclusion. **Parallax Wave** ("Remove a fade counter from this enchantment: Exile target creature. When this enchantment leaves the battlefield, each player returns to the battlefield all cards they own exiled with it.") needed `ReturnAllExiledWithEffect`/`"return_all_exiled_with"` — the mass sibling of `ReturnLinkedExileEffect`, reading `exiled_with_ids` (built for a *different* card, Agatha's Soul Cauldron, MEC-21) instead of the single-slot `linked_exile_id`, since a repeatable ability can exile several different creatures owned by several different players over its lifetime, all returning together under their own respective owners. Fading and the "remove a counter" activation cost (`ActivationCost.remove_counters`, `{"remove_counters": ["fade", 1]}`) were both already-shipped primitives. **Skyclave Apparition** ("exile up to one target nonland, nontoken permanent you don't control with mana value 4 or less. When this creature leaves the battlefield, the exiled card's owner creates an X/X blue Illusion creature token, where X is the mana value of the exiled card.") needed two things: `ExileEffect` gained its own `max_mana_value` param (the same target-offer-time cap `DestroyEffect` already had, just never threaded onto exile), and a new `CreateTokenForLinkedExileEffect`/`"create_token_for_linked_exile"` — `ReturnLinkedExileEffect`'s token-creating sibling, reading the same `linked_exile_id` link one last time for the exiled card's owner and mana value, then handing off to `GameContext.create_token` under *that* owner's control rather than the caster's. `target_kind="nonland_permanent_you_dont_control"` doesn't itself exclude tokens (no `exclude_tokens` selector exists yet) — a narrow, documented simplification, the same shape Leonin Relic-Warder's own `target_kind="permanent"` type-union already uses.
 - **Files:** `game/effects.py` (`GainLifeEffect.recipient`, `ReturnAllExiledWithEffect`, `CreateTokenForLinkedExileEffect`, `ExileEffect.max_mana_value`), `game/ability_catalogue.py`.
 - **Tests:** `tests/test_solitude_family.py`, `tests/test_parallax_wave_family.py`, `tests/test_skyclave_apparition_family.py` (all new).
 - **PAR-30 — the parser recognizer for the modern one-sentence shape (PARSER_VERSION 140, +42):** every primitive above was already built, but the classic O-Ring / Banisher Priest / Fiend Hunter clause — "exile `<TARGET>` [an opponent controls] until ~ leaves the battlefield." — had never been reachable from oracle text (Oblivion Ring itself parses as UNMODELED to this day). The obstacle: that one clause is *two* abilities (an ETB/attacks exile + a LEAVES_BATTLEFIELD return), and a body handler emits one ability's effects. `handlers._exile_until_leaves` emits the `exile` spec with `remember=True` plus a new signal param `until_source_leaves`; `segmenter.segment_line`, immediately after building the primary triggered `AbilitySpec`, scans its effects for that param and appends a companion `AbilitySpec("triggered", effects=[return_linked_exile], trigger={"event": "LEAVES_BATTLEFIELD", "condition": {"subject": "self"}})` through the existing `Segment.extra_specs` channel. Target-kind resolution maps a trailing "an opponent controls" onto the `_you_dont_control` kinds ("target artifact or creature an opponent controls" → `permanent_you_dont_control`); "defending player controls" (Colossal Whale) stays a bare kind. Covers Banisher Priest, Banishing Light, Cast Out, Conclave Tribunal, Glass Casket, Fairgrounds Warden, Detention Chariot, Chained to the Rocks, and ~35 more; verified end-to-end (ETB exiles the opponent's creature, the Priest dying returns it). `tests/test_par30_exile_until_leaves.py`.
@@ -4505,12 +4505,10 @@ is in the rules-engine categories below them.
   plus a genuinely new "sacrifice it when it enters" consequence (not a
   replacement — its own ETB trigger fires first) wired right after
   `_resolve_permanent_spell`'s ENTERS_BATTLEFIELD event. This closes the
-  whole *mana-cost* Evoke family for free (Mulldrifter/Shriekmaw-shaped)
-  — but not Solitude/Endurance/Fury/Subtlety/Grief's, whose Evoke cost is
-  "exile a `<color>` card from your hand" (RULE 118.9's alternative-cost
-  shape, never even parsed into `parametric_keywords` since the
-  segmenter's cost-run regex only matches mana symbols); those five keep
-  their own "not modeled" notes, unchanged. Ashling's own *grant*
+  whole *mana-cost* Evoke family for free (Mulldrifter/Shriekmaw-shaped).
+  MEC-65 later extended the same path to the non-mana "exile a `<color>`
+  card from your hand" payment on Solitude, Endurance, Fury, Subtlety, and
+  Grief. Ashling's own *grant*
   ("Elemental permanent spells you cast from your hand gain evoke {4}")
   is a new `grant_evoke` static (`continuous.granted_evoke_cost_for`, the
   hand-cast-cost sibling of `has_standing_flash_permission`'s "permission
@@ -4760,6 +4758,24 @@ is in the rules-engine categories below them.
   Delay's full RULE 702.62 cycle — counter-into-exile-with-suspend, three
   owner's upkeeps counting down, the free-cast window opening, and haste
   on the eventual free cast).
+
+### MEC-65: Exile-cost Evoke (RULE 702.74) — modern Incarnation cycle
+
+- **What:** Solitude, Endurance, Fury, Subtlety, and Grief now parse their
+  printed coloured-card payment into the existing
+  `parametric_keywords["evoke"]` payload as `exile_hand_card_color`. The
+  shared Evoke branch accepts that non-mana alternative cost, requires an
+  eligible *other* hand card, offers it alongside an ordinary cast, exiles
+  the payment while casting, and retains the established ETB-then-sacrifice
+  consequence. This deliberately reuses the existing Force-style coloured
+  hand-exile selector rather than adding a card-specific cost primitive.
+- **Files:** `parser/oracle/catalogue/keywords.py`,
+  `game/engine/casting_mixin.py`, `game/engine/legal_actions_mixin.py`, and
+  the Solitude/Endurance catalogue notes.
+- **Tests:** `tests/test_mec65_evoke_exile_cost.py` covers all five colours,
+  the legal-action offer, payment, sacrifice, and the no-matching-card
+  rejection; `tests/test_dance_elements_batch.py` retains Fury's ETB
+  regression coverage.
 
 ### MEC-43: `cEDH staples 2` — first batch, 9 near-free reuses
 
@@ -6003,3 +6019,24 @@ table, re-measured after each batch.
   `test_eclipsed_flamekin_…`, `test_cream_of_the_crop_…`,
   `test_cavalier_of_thorns_…`) all pass; full backend suite exits 0 with no
   regressions.
+
+### MEC-74 — Dance: tribal/count-sensitive ETB and landfall triggers
+
+- **What:** Hand-authored the four remaining count-sensitive cards in the
+  Dance of the Elements package. **Avenger of Zendikar** reuses the live
+  `lands_you_control` selector for its Plant-token ETB and the existing
+  tribal mass-counter path for Plant landfall. **Omnath, Locus of the Roil**
+  composes an ordinary `any` target with the Elemental subtype count, then
+  uses the new general `count_selector_at_least` conditional for its
+  eight-land draw rider. **Garruk's Uprising** adds the derived-power
+  `controls_creature_power_at_least` conditional and reuses the layer-6
+  `grant_keyword` static for trample. **Vernal Sovereign** creates a 0/0
+  Elemental carrying its own live creature-count anthem, rather than
+  snapshotting P/T while it resolves; it consequently includes itself and
+  updates whenever the controller's creature count changes.
+- **Files:** `game/ability_catalogue/entries_016.py`, `game/effects.py`, and
+  `parser/oracle/spec.py`.
+- **Verification:** `tests/test_mec74_dance_count_triggers.py` covers the
+  land/Elemental/creature counts, targeted damage, Plant-only counters,
+  eight-land conditional draw, Garruk threshold/trample, and Vernal's live
+  token P/T; `tests/test_dance_elements_batch.py` remains green.
