@@ -17,9 +17,12 @@ Die Sidebar-Gruppe **Multiplayer** hat zwei Einträge:
 ## Vorbereitung
 
 Trage deinen Spielernamen im Tab **Profil** ein. Das ist der Name, den
-die anderen in der Lobby sehen. Er ist reine Beschriftung — die App hat
-keine Konten und keine Passwörter —, zwei Personen mit demselben Namen
-sind also trotzdem zwei verschiedene Spieler.
+die anderen in der Lobby sehen. Die App kennt zwar keine Konten oder
+Passwörter, aber sie merkt sich zusätzlich eine versteckte Browser-ID,
+um dich beim erneuten Laden oder bei einer Wiederverbindung wieder an
+denselben Sitz zu erinnern. Zwei Browser mit demselben Anzeigenamen
+können also trotzdem getrennte Spieler sein, während derselbe Browser
+sich genau an denselben Platz zurückholt.
 
 Außerdem brauchst du mindestens ein als **legal** gespeichertes Deck
 (Kapitel 2). Es gilt dieselbe Regel wie im Goldfisch-Modus: Ein nicht
@@ -244,26 +247,21 @@ reagieren will. Deshalb gibt es einen Countdown: Solange du die Priorität
 hast, läuft neben dem Abzeichen eine Zeit herunter und passt bei **0**
 automatisch für dich.
 
-- **Standardmäßig an**, mit **3 Sekunden**.
+- Der Timer ist **standardmäßig immer aktiv** und wird durch die
+  Server-Einstellung **MULTIPLAYER_SPELL_TIMER_SECONDS** gesteuert
+  (Standard **20s**; `0` schaltet ihn aus).
 - **Jede Aktion auf dem Spielfeld stoppt ihn** für dieses Fenster — sobald
-  du irgendwo klickst, wird die Zahl durchgestrichen und der Countdown ist
-  vorbei. Er kann dir also nicht mitten im Überlegen dazwischenfunken.
-- Standardmäßig läuft er **nur in gegnerischen Zügen**, also dort, wo du
-  reagierst. Dein eigener Zug bleibt vollständig unter deiner Kontrolle.
-  Wer lieber ein durchgehend festes Tempo möchte, kann auf "alle Züge"
-  umstellen.
+du irgendwo klickst, wird die Zahl durchgestrichen und der Countdown ist
+vorbei. Er kann dir also nicht mitten im Überlegen dazwischenfunken.
+- Normalerweise läuft er in den **Fenstern, in denen du auf dem Zug eines
+  anderen reagierst**. Dein eigener Zug bleibt unter deiner Kontrolle,
+  aber mit dem Knopf **Ende des Zuges** kannst du für den Rest des Zuges
+  sofort weiterlaufen lassen, wenn du das Tempo erhöhen willst.
 
-Alle drei Einstellungen stehen im Tab **Profil**; Ein/Aus und die
-Sekundenzahl findest du zusätzlich direkt am Spielfeld, damit du sie
-mitten in der Partie ändern kannst — meist genau in dem Moment, in dem der
-Auto-Pass dich gerade eine Reaktion gekostet hat.
-
-### Was am Spielfeld sonst noch einstellbar ist
-
-- **Gegnerische Hand**: standardmäßig steht in der Handzone des Gegners
-  nur die *Anzahl* ("5 verdeckte Karten"). Die Karten selbst bekommt dein
-  Browser ohnehin nie zu sehen (Regel 400.2 – der Server schickt sie gar
-  nicht erst mit), die Kartenrücken kosteten nur Platz. Über das Häkchen
+Der Host kann den Tisch-Timer überschreiben. Im Profil bleiben die
+Browser-Komfort-Schalter erhalten, und das Board zeigt dieselben
+Steuerelemente direkt mitten im Spiel an, damit du ein laufendes Fenster
+bei Bedarf abbrechen oder anpassen kannst.
   **verdeckte Karten zeigen** an der Handzone (oder im Tab
   **Profil**) bekommst du sie zurück. Karten, die ein Effekt
   wirklich *aufdeckt*, werden immer angezeigt.

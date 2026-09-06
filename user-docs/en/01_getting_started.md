@@ -22,9 +22,11 @@ pointed at (see chapter 6, "Settings") is where your saved decks and
 uploaded images live — there's no per-user separation beyond a
 free-text player name.
 
-Multiplayer (two human players against each other) is **not yet
-implemented** — the "Multiplayer" tab exists but will tell you it's not
-available. Don't take that as a bug; it's a documented gap.
+Multiplayer is implemented as a real shared-table mode: you can create
+or join a lobby, set up seats and mulligans, play through normal turn
+priority, and use the same rules engine as Goldfish and Replay.
+Bots can also sit in empty seats, and the server keeps your seat
+through reconnects.
 
 ## Starting the app
 
@@ -54,7 +56,8 @@ The sidebar on the left is grouped into sections:
   - **Goldfisch** (goldfish) — play a saved deck solo against the rules
     engine
   - **Puzzle/Replay** — build and play an arbitrary board state
-- **Multiplayer** — stub, not yet implemented
+- **Multiplayer** — lobby setup, real shared-table play, bots, spectator
+  mode and reconnect handling
 - **Einstellungen** (settings) — the backend server address only
 - **Profil** (profile) — player name, multiplayer preferences, custom
   token art, card sleeves and favorite decks
