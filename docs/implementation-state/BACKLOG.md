@@ -243,16 +243,6 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-- **MEC-71 · Dance — chosen creature type, graveyard return and free cast.**
-  Add a reusable chooser for a creature type that persists for the resolving
-  spell, then support returning a bounded/all set of matching creature cards
-  from its controller's graveyard to the battlefield. It must support an
-  alternative cast history condition (Foretell already supplies that marker)
-  for **Haunting Voyage**. The same package needs the targeted "play/cast an
-  Elemental card from your graveyard without paying its mana cost" permission
-  of **Horde of Notions**, including the normal exile-on-resolution redirect
-  when a spell was free-cast from a graveyard.
-
 - **MEC-72 · Dance — tribal reveal/dig and top-card ordering.**
   Two related library primitives, both chooser-driven and deterministic in
   the session API: (a) reveal until a qualifying creature type, placing the

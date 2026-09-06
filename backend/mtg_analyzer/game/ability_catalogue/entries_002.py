@@ -1840,3 +1840,35 @@ def _raging_ravine() -> list[AbilitySpec]:
 
 
 register("Raging Ravine", _raging_ravine)
+
+
+def _haunting_voyage() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("request_choose_creature_type_grant", {"then_specs": [
+                {"type": "return_chosen_creature_type_from_graveyard", "params": {}},
+            ]})],
+            raw_text="Choose a creature type. Return up to two creature cards of that type from your graveyard to the battlefield. If this spell was foretold, return all creature cards of that type from your graveyard to the battlefield instead.",
+        ),
+        AbilitySpec("keyword", [], keyword={"name": "foretell", "cost": "{5}{B}{B}"}, raw_text="Foretell {5}{B}{B}"),
+    ]
+
+
+register("Haunting Voyage", _haunting_voyage)
+
+
+def _horde_of_notions() -> list[AbilitySpec]:
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "vigilance"}, raw_text="Vigilance"),
+        AbilitySpec("keyword", [], keyword={"name": "trample"}, raw_text="Trample"),
+        AbilitySpec("keyword", [], keyword={"name": "haste"}, raw_text="Haste"),
+        AbilitySpec(
+            "activated", [EffectSpec("cast_target_elemental_from_graveyard_free", {})],
+            cost={"mana": "{W}{U}{B}{R}{G}"},
+            raw_text="{W}{U}{B}{R}{G}: You may play target Elemental card from your graveyard without paying its mana cost.",
+        ),
+    ]
+
+
+register("Horde of Notions", _horde_of_notions)

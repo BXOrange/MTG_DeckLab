@@ -95,6 +95,89 @@ def _poison_the_cup() -> Card:
     )
 
 
+def _haunting_voyage() -> Card:
+    return Card(
+        id="Haunting Voyage", name="Haunting Voyage", type_line="Sorcery",
+        mana_cost_string="{4}{B}{B}", converted_mana_cost=6, is_sorcery=True,
+        oracle_text=("Choose a creature type. Return up to two creature cards of that type "
+                     "from your graveyard to the battlefield. If this spell was foretold, "
+                     "return all creature cards of that type from your graveyard to the battlefield instead.\n"
+                     "Foretell {5}{B}{B}"),
+    )
+
+
+def _grave_creature(name: str, subtype: str, owner: str) -> GameObject:
+    return GameObject(
+        Card(id=name, name=name, type_line=f"Creature — {subtype}", is_creature=True,
+             power=2, toughness=2), owner_id=owner, zone=Zone.GRAVEYARD,
+    )
+
+
+def test_haunting_voyage_chooses_type_then_returns_up_to_two_or_all_if_foretold():
+    engine = _engine([_haunting_voyage()])
+    state = engine.state
+    p1 = state.active_player
+    elf_a, elf_b, elf_c = (_grave_creature(n, "Elf", p1.id) for n in ("Elf A", "Elf B", "Elf C"))
+    goblin = _grave_creature("Goblin", "Goblin", p1.id)
+    for obj in (elf_a, elf_b, elf_c, goblin):
+        p1.add_to_zone(obj, Zone.GRAVEYARD)
+    spell = p1.hand[0]
+    p1.mana_pool.add_many({"B": 2, "C": 4})
+    engine.cast_spell(p1, spell)
+    engine.resolve_until_stable()
+    assert state.pending_choice["kind"] == "choose_type_for_source"
+    engine.resolve_pending_choice("Elf")
+    assert state.pending_choice["kind"] == "choose_objects"
+    engine.resolve_pending_choice(elf_a.instance_id)
+    engine.resolve_pending_choice(elf_b.instance_id)
+    assert elf_a in state.battlefield and elf_b in state.battlefield
+    assert elf_c in p1.graveyard and goblin in p1.graveyard
+
+    # The conditional replaces the bounded chooser with every matching card.
+    spell.foretold = True
+    engine.rules._apply_effect_specs(
+        [{"type": "return_chosen_creature_type_from_graveyard", "params": {}}], spell,
+    )
+    assert elf_c in state.battlefield and goblin in p1.graveyard
+
+
+def test_horde_of_notions_casts_a_target_elemental_from_graveyard_for_free_then_exiles_it():
+    horde = Card(
+        id="Horde of Notions", name="Horde of Notions", type_line="Legendary Creature — Elemental",
+        mana_cost_string="{W}{U}{B}{R}{G}", converted_mana_cost=5, is_creature=True,
+        power=5, toughness=5,
+    )
+    engine = _engine([])
+    state = engine.state
+    p1 = state.active_player
+    horde_obj = GameObject(horde, owner_id=p1.id, zone=Zone.BATTLEFIELD)
+    state.add_to_battlefield(horde_obj)
+    bind_from_catalogue(horde_obj)
+    elemental = _grave_creature("Returned Elemental", "Elemental", p1.id)
+    p1.add_to_zone(elemental, Zone.GRAVEYARD)
+    p1.mana_pool.add_many({"W": 1, "U": 1, "B": 1, "R": 1, "G": 1})
+
+    engine.activate_ability(p1, horde_obj, 0, targets=[elemental])
+    engine.resolve_until_stable()
+    assert elemental in state.battlefield
+
+    # Horde grants no Flashback-style redirect; later zone changes are normal.
+    engine.rules.put_into_graveyard(elemental)
+    assert elemental in p1.graveyard
+
+    # "Elemental card" also includes the older Tribal spell card type.
+    tribal = GameObject(
+        Card(id="Tribal Spark", name="Tribal Spark", type_line="Tribal Instant — Elemental",
+             mana_cost_string="{R}", converted_mana_cost=1, is_instant=True),
+        owner_id=p1.id, zone=Zone.GRAVEYARD,
+    )
+    p1.add_to_zone(tribal, Zone.GRAVEYARD)
+    p1.mana_pool.add_many({"W": 1, "U": 1, "B": 1, "R": 1, "G": 1})
+    engine.activate_ability(p1, horde_obj, 0, targets=[tribal])
+    engine.resolve_until_stable()
+    assert tribal.was_cast and tribal in p1.graveyard
+
+
 def test_foretell_exiles_face_down_then_casts_for_its_alt_cost_on_a_later_turn():
     engine = _engine([_poison_the_cup()])
     state = engine.state

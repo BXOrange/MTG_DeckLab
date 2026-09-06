@@ -10362,6 +10362,59 @@ class ReturnFromGraveyardEffect(GameEffect):
         self._apply_one(context, target)
 
 
+class ReturnChosenCreatureTypeFromGraveyardEffect(GameEffect):
+    """Resolve Haunting Voyage after its creature-type choice.
+
+    The normal branch asks for up to two actual cards.  A foretold source
+    returns the whole matching snapshot, exactly as the printed replacement
+    clause requires.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        chosen = str(getattr(self.source, "chosen_type", "") or "").lower()
+        if not chosen:
+            return
+        cards = [
+            obj for obj in list(player.graveyard)
+            if obj.card.is_creature and chosen in obj.card.type_line.lower().split()
+        ]
+        if getattr(self.source, "foretold", False):
+            for obj in cards:
+                context.return_from_graveyard(obj, "battlefield")
+            return
+        context.engine.request_choose_objects(
+            player, cards, "return_from_graveyard", count=2, optional=True,
+            prompt=f"Bis zu zwei {chosen.capitalize()}-Kreaturenkarten zurückbringen",
+            source=self.source,
+        )
+
+
+class CastTargetElementalFromGraveyardFreeEffect(GameEffect):
+    """Horde of Notions' targeted graveyard permission.
+
+    This follows the engine's existing automatic free-cast family: the
+    selected card is cast as the activated ability resolves.  A creature
+    Elemental has no spell targets; an Elemental instant/sorcery uses the
+    normal first-legal-target fallback shared by `LandOrFreeCastEffect`.
+    The card follows its normal later zone changes; Horde's Oracle text does
+    not contain Flashback's "exile it instead" rider.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="graveyard_card", subtype="Elemental")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets or [None])[0]
+        player = _controller_of(self.source, context)
+        if player is None or target is None or target not in player.graveyard:
+            return
+        context.engine.cast_without_paying(player, target)
+
+
 class BlinkEffect(GameEffect):
     """"Exile target permanent, then return it to the battlefield under its
     owner's control" (RULE 400.7 — Ephemerate/Momentary Blink-shaped).
@@ -20567,6 +20620,14 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "draw_controlled_chosen_creature_type", lambda p: DrawControlledChosenCreatureTypeEffect(),
+)
+EffectRegistry.register(
+    "return_chosen_creature_type_from_graveyard",
+    lambda p: ReturnChosenCreatureTypeFromGraveyardEffect(),
+)
+EffectRegistry.register(
+    "cast_target_elemental_from_graveyard_free",
+    lambda p: CastTargetElementalFromGraveyardFreeEffect(),
 )
 EffectRegistry.register(
     "discard",

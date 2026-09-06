@@ -3008,7 +3008,7 @@ class MiscSystemsMixin:
     #: than passing a continuation closure around.
     CHOOSE_OBJECT_ACTIONS = frozenset(
         {
-            "tap", "sacrifice", "return_to_hand", "soulbond_pair", "library_top", "discard",
+            "tap", "sacrifice", "return_to_hand", "return_from_graveyard", "soulbond_pair", "library_top", "discard",
             # PAR-13 (Dungeon of the Mad Mage's "Mad Wizard's Lair" — "Draw
             # three cards and reveal them. You may cast one of them without
             # paying its mana cost."): a hand-zone pick, unlike every other
@@ -3437,6 +3437,8 @@ class MiscSystemsMixin:
             self.put_into_graveyard(obj)
         elif action == "return_to_hand":
             self.return_to_hand(obj)
+        elif action == "return_from_graveyard":
+            self.return_from_graveyard(obj, "battlefield")
         elif action == "discard":
             # RULE 701.47 (connive, MEC-43 — Ledger Shredder): "if a
             # nonland card was discarded this way, put a +1/+1 counter on

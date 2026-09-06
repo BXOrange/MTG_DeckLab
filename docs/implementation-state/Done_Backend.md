@@ -5929,3 +5929,22 @@ table, re-measured after each batch.
   accepts `{"type":"foretell","instance_id":...}` through the regular API.
 - **Verification:** Deck regression plus session-dispatch coverage in
   `tests/test_dance_elements_batch.py` and `tests/test_game_session.py`.
+
+### MEC-71 — Dance: chosen-type graveyard return and Horde of Notions
+
+- **What:** `ReturnChosenCreatureTypeFromGraveyardEffect` composes the
+  existing resolve-time creature-type chooser with a genuine follow-up object
+  choice from the controller's graveyard. It returns up to two selected
+  matching creatures for **Haunting Voyage**, while its existing Foretell
+  cast-history marker correctly replaces that bounded selection with every
+  matching creature. The generic chooser gained a `return_from_graveyard`
+  action so the cards selected after the type choice go through the ordinary
+  graveyard-to-battlefield rules path.
+- **Horde of Notions:** Added a targeted, free cast of an Elemental *card*
+  from its controller's graveyard. It is a real activated ability and supports
+  Tribal noncreature Elemental cards as well as creatures. The card follows
+  normal later zone changes: Horde's Oracle text has no Flashback-style exile
+  replacement.
+- **Verification:** `tests/test_dance_elements_batch.py` covers both the
+  bounded/all Haunting Voyage branches and Horde's activated cast/resolve
+  path.
