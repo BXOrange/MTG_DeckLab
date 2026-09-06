@@ -2719,6 +2719,8 @@ is in the rules-engine categories below them.
 
 ### Aura / Equipment attachment resolution (RULE 303/301.5)
 
+- **What:** An Aura attaches to its cast
+... [truncated for diff preview]
 - **What:** An Aura attaches to its cast-time target on resolution (fails to attach → straight to graveyard); Equip/Fortify/Reconfigure are sorcery-speed activated abilities, each restricted to their legal attachment targets (creatures/artifacts, lands for Fortify, creatures for Reconfigure). RULE 704.5m/n: an Aura's host leaving sends it to the graveyard, an Equipment/Fortification just becomes unattached. RULE 702.151b: a Reconfigure permanent stops being a creature while attached. The attached buff flows through the layer engine via `affects="attached_permanent"`.
 - **Files:** `game/rules_engine.py`, `game/targeting.py`, `game/continuous.py`
 - **Bug fixed:** `_attachment_legal` had no `fortify` branch, so Fortify wrongly offered any permanent instead of narrowing to lands.
@@ -5948,3 +5950,54 @@ table, re-measured after each batch.
 - **Verification:** `tests/test_dance_elements_batch.py` covers both the
   bounded/all Haunting Voyage branches and Horde's activated cast/resolve
   path.
+
+### MEC-72 — Dance: tribal reveal/dig and top-card ordering
+
+- **What:** Two complementary library-manipulation primitives, both
+  chooser-driven and deterministic in the session API.
+  - **Primitive (a) — `reveal_until_creature_type`** (in
+    `rules/search_mixin.py`): Repeatedly pops from the top of the library and
+    fires a new `EventType.REVEAL` event per card until `count` creatures
+    sharing any of the requested subtypes (or with changeling) are found. The
+    hits land at `hit_destination` (`"battlefield"` or `"hand"`) and the
+    remainder is routed to `rest_destination` — either `"library_bottom_random"`
+    (each non-hit shuffled individually to a random position at the bottom, as
+    Descendants' Fury requires) or `"library_shuffled"` (all non-hits re-added
+    then the whole library shuffled, as Kindred Summons requires).
+  - **Primitive (b) — `inspect_top_n_choose`** (in `rules/search_mixin.py`):
+    Peeks at the top-N cards of the library, applies an optional type-filter to
+    produce the candidate list for a `choose_objects` prompt, then — on
+    resolution — routes the chosen card to its destination and calls
+    `_handle_rest_inspected` to put the rest to `library_bottom_random` or
+    `graveyard` depending on the card's Oracle text.
+- **Effects added** (`game/effects.py`):
+  - `KindredSummonsEffect` — counts X (creatures of chosen type you control),
+    calls `reveal_until_creature_type` with `count=X` and
+    `rest_destination="library_shuffled"`.
+  - `DescendantsFurySacrificeEffect` — reads `contributor_ids` from the
+    triggering `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` event, filters to
+    still-living creatures on the battlefield, and offers an optional
+    `sacrifice_for_descendants_fury` choose-objects prompt. The sacrifice then
+    triggers the reveal-until with `rest_destination="library_bottom_random"`.
+  - `InspectTopChooseEffect` — parameterised by `count`, `filter_types`,
+    `choose_destination`, and `rest_destination`; used by Eclipsed Flamekin,
+    Cream of the Crop, and Cavalier of Thorns.
+- **Catalogue entries** (`ability_catalogue/entries_002.py`): hand-authored for
+  Descendants' Fury, Kindred Summons, Eclipsed Flamekin, Cream of the Crop,
+  and Cavalier of Thorns.
+- **Supporting changes:**
+  - `misc_mixin.py`: `request_choose_objects` / `resolve_choose_objects_choice`
+    gained `rest_ids`, `rest_destination`, and `decline_leaves_untouched`
+    parameters, plus action handlers `"library_to_hand"` and
+    `"sacrifice_for_descendants_fury"`.
+  - `combat_mixin.py`: `_apply_combat_damage` now populates
+    `contributor_ids` in each `player_hits` entry and forwards it on the
+    `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` event so Descendants' Fury can
+    identify exactly which creatures to offer for sacrifice.
+  - `models/events.py`: added `EventType.REVEAL` (informational; no existing
+    trigger watches it, but the event log is now complete for this mechanic).
+- **Verification:** `tests/test_dance_elements_batch.py` — 5 new tests
+  (`test_descendants_fury_…`, `test_kindred_summons_…`,
+  `test_eclipsed_flamekin_…`, `test_cream_of_the_crop_…`,
+  `test_cavalier_of_thorns_…`) all pass; full backend suite exits 0 with no
+  regressions.

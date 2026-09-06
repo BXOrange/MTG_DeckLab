@@ -2686,3 +2686,166 @@ class SearchMixin:
             player.remove_from_zone(obj, Zone.EXILE)
             obj.zone = Zone.LIBRARY
             player.library.insert(0, obj)  # bottom (index 0 — see Player.library)
+
+    def reveal_until_creature_type(
+        self,
+        player: Player,
+        creature_types: Union[list[str], set[str], frozenset[str]],
+        count: int = 1,
+        hit_destination: str = "battlefield",
+        rest_destination: str = "library_bottom_random",
+    ) -> list[GameObject]:
+        """Reveal cards from the top of ``player``'s library until ``count``
+        creature cards matching any of ``creature_types`` are revealed
+        (RULE 701.19 / RULE 702.85e, MEC-72 — Descendants' Fury, Kindred Summons).
+
+        Put those cards at ``hit_destination`` (default "battlefield") and
+        the rest at ``rest_destination`` ("library_bottom_random" or
+        "library_shuffled").
+        """
+        if count <= 0 or not player.library:
+            return []
+        norm_types = {t.lower() for t in creature_types}
+        hits: list[GameObject] = []
+        revealed: list[GameObject] = []
+        while player.library and len(hits) < count:
+            obj = player.library.pop()
+            revealed.append(obj)
+            self.state.fire_event(
+                GameEvent(
+                    EventType.REVEAL,
+                    player_id=player.id,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    from_zone="library",
+                )
+            )
+            if obj.card.is_creature:
+                has_changeling = "changeling" in obj.card.type_line.lower() or "changeling" in obj.intrinsic_keywords
+                if has_changeling:
+                    hits.append(obj)
+                else:
+                    _, _, sub = obj.card.type_line.lower().partition("—")
+                    subs = {s.strip() for s in sub.split() if s.strip()}
+                    if norm_types & subs:
+                        hits.append(obj)
+
+        for obj in hits:
+            if hit_destination == "battlefield":
+                self._put_searched_card(player, obj, "battlefield")
+            elif hit_destination == "hand":
+                obj.zone = Zone.HAND
+                player.add_to_zone(obj, Zone.HAND)
+
+        rest = [o for o in revealed if o not in hits]
+        if rest:
+            if rest_destination == "library_bottom_random":
+                import random
+                random.shuffle(rest)
+                for o in rest:
+                    o.zone = Zone.LIBRARY
+                    player.library.insert(0, o)
+            elif rest_destination == "library_shuffled":
+                for o in rest:
+                    o.zone = Zone.LIBRARY
+                    player.library.append(o)
+                self.shuffle_library(player)
+            elif rest_destination == "graveyard":
+                for o in rest:
+                    o.zone = Zone.GRAVEYARD
+                    player.graveyard.append(o)
+        return hits
+
+    def _handle_rest_inspected(
+        self, player: Player, rest_ids: list[int], destination: str
+    ) -> None:
+        """Handle remaining unpicked cards from a bounded top-N inspect
+        (MEC-72). Move them to ``destination`` ("library_bottom_random" or
+        "graveyard")."""
+        objs: list[GameObject] = []
+        for iid in rest_ids:
+            found = self._object_by_instance_id(iid)
+            if found is not None:
+                objs.append(found)
+        if not objs:
+            return
+        if destination == "library_bottom_random":
+            import random
+            random.shuffle(objs)
+            for o in objs:
+                self._remove_from_current_zone(player, o)
+                o.zone = Zone.LIBRARY
+                player.library.insert(0, o)
+        elif destination == "graveyard":
+            for o in objs:
+                self._remove_from_current_zone(player, o)
+                o.zone = Zone.GRAVEYARD
+                player.graveyard.append(o)
+
+    def inspect_top_n_choose(
+        self,
+        player: Player,
+        count: Union[int, str],
+        action: str,
+        filter_criteria: Optional[dict[str, Any]] = None,
+        rest_destination: str = "library_bottom_random",
+        optional: bool = False,
+        prompt: str = "Wähle eine Karte",
+        source: Optional[GameObject] = None,
+        decline_leaves_untouched: bool = False,
+    ) -> None:
+        """Inspect a bounded top-N group from ``player``'s library, offer a
+        filtered choice among them, and route the rest to ``rest_destination``
+        (MEC-72 — Eclipsed Flamekin, Cream of the Crop, Cavalier of Thorns).
+
+        Preserves cards' actual zones and choices without auto-picking.
+        """
+        if isinstance(count, str) and count == "trigger_power":
+            trigger_event = getattr(self.context, "trigger_event", None)
+            inst_id = trigger_event.get("instance_id") if trigger_event else None
+            entering = self.state.find_object(inst_id) if inst_id is not None else None
+            n = max(0, int(getattr(entering, "power", 0) or 0))
+        else:
+            n = int(count)
+        if n <= 0 or not player.library:
+            return
+
+        inspected = list(reversed(player.library[-n:]))
+
+        def _matches(obj: GameObject) -> bool:
+            if not filter_criteria:
+                return True
+            if filter_criteria.get("is_land"):
+                if not obj.card.is_land:
+                    return False
+            subtypes = filter_criteria.get("subtypes")
+            if subtypes:
+                norm_subtypes = {s.lower() for s in subtypes}
+                has_changeling = "changeling" in obj.card.type_line.lower() or "changeling" in obj.intrinsic_keywords
+                if not has_changeling:
+                    _, _, sub = obj.card.type_line.lower().partition("—")
+                    subs = {s.strip() for s in sub.split() if s.strip()}
+                    if not (norm_subtypes & subs):
+                        return False
+            return True
+
+        candidates = [o for o in inspected if _matches(o)]
+        rest_ids = [o.instance_id for o in inspected]
+
+        if not candidates:
+            if not decline_leaves_untouched:
+                self._handle_rest_inspected(player, rest_ids, rest_destination)
+            return
+
+        self.request_choose_objects(
+            player,
+            candidates,
+            action,
+            count=1,
+            optional=optional,
+            prompt=prompt,
+            source=source,
+            rest_ids=rest_ids,
+            rest_destination=rest_destination,
+            decline_leaves_untouched=decline_leaves_untouched,
+        )

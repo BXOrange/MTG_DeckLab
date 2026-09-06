@@ -1872,3 +1872,112 @@ def _horde_of_notions() -> list[AbilitySpec]:
 
 
 register("Horde of Notions", _horde_of_notions)
+
+
+def _descendants_fury() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("descendants_fury_sacrifice", {})],
+            trigger={
+                "event": EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
+                "condition": {"subject": "you"},
+            },
+            raw_text="Whenever one or more creatures you control deal combat damage to a player, you may sacrifice one of them. If you do, reveal cards from the top of your library until you reveal a creature card that shares a creature type with the sacrificed creature. Put that card onto the battlefield and the rest on the bottom of your library in a random order.",
+        ),
+    ]
+
+
+register("Descendants' Fury", _descendants_fury)
+
+
+def _kindred_summons() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("request_choose_creature_type_grant", {"then_specs": [
+                {"type": "kindred_summons", "params": {}},
+            ]})],
+            raw_text="Choose a creature type. Reveal cards from the top of your library until you reveal X creature cards of the chosen type, where X is the number of creatures you control of that type. Put those cards onto the battlefield, then shuffle the rest of the revealed cards into your library.",
+        ),
+    ]
+
+
+register("Kindred Summons", _kindred_summons)
+
+
+def _eclipsed_flamekin() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("inspect_top_choose", {
+                "count": 4,
+                "filter": {"subtypes": ["Elemental", "Island", "Mountain"]},
+                "action": "library_to_hand",
+                "rest_destination": "library_bottom_random",
+                "optional": True,
+                "prompt": "Elemental-, Island- oder Mountain-Karte wählen",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD},
+            raw_text="When this creature enters, look at the top four cards of your library. You may reveal an Elemental, Island, or Mountain card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+        ),
+    ]
+
+
+register("Eclipsed Flamekin", _eclipsed_flamekin)
+
+
+def _cream_of_the_crop() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("inspect_top_choose", {
+                "count": "trigger_power",
+                "action": "library_top",
+                "rest_destination": "library_bottom_random",
+                "optional": True,
+                "decline_leaves_untouched": True,
+                "prompt": "Eine Karte oben auf die Bibliothek legen (Rest nach unten)",
+            })],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "group", "type": "creature", "controller": "you"},
+            },
+            raw_text="Whenever a creature you control enters, you may look at the top X cards of your library, where X is that creature's power. If you do, put one of those cards on top of your library and the rest on the bottom of your library in any order.",
+        ),
+    ]
+
+
+register("Cream of the Crop", _cream_of_the_crop)
+
+
+def _cavalier_of_thorns() -> list[AbilitySpec]:
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "reach"}, raw_text="Reach"),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("inspect_top_choose", {
+                "count": 5,
+                "filter": {"is_land": True},
+                "action": "library_to_battlefield",
+                "rest_destination": "graveyard",
+                "optional": False,
+                "prompt": "Länderkarte auf das Spielfeld bringen (Rest in den Friedhof)",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD},
+            raw_text="When this creature enters, reveal the top five cards of your library. Put a land card from among them onto the battlefield and the rest into your graveyard.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("may_exile_source_then", {"then_trigger": [
+                {"type": "return_from_graveyard", "params": {
+                    "target_kind": "graveyard_card", "destination": "library_top",
+                }},
+            ]})],
+            trigger={"event": EventType.DIES},
+            raw_text="When this creature dies, you may exile it. If you do, put another target card from your graveyard on top of your library.",
+        ),
+    ]
+
+
+register("Cavalier of Thorns", _cavalier_of_thorns)

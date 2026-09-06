@@ -458,9 +458,10 @@ class CombatMixin:
                 entry = player_hits.setdefault(
                     key, {
                         "max_power": 0, "amount": 0, "subtypes": set(), "is_commander": False,
-                        "power_gt_base": False, "any_nontoken": False,
+                        "power_gt_base": False, "any_nontoken": False, "contributor_ids": [],
                     }
                 )
+                entry["contributor_ids"].append(source.instance_id)
                 entry["max_power"] = max(entry["max_power"], source.power or 0)
                 # "whenever **1 or more nontoken creatures** you control deal
                 # combat damage to a player" (Feywild Visitor's granted
@@ -527,6 +528,7 @@ class CombatMixin:
                     contributor_is_commander=entry["is_commander"],
                     contributor_power_gt_base=entry["power_gt_base"],
                     contributor_any_nontoken=entry["any_nontoken"],
+                    contributor_ids=entry["contributor_ids"],
                 )
             )
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:

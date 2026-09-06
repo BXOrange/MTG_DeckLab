@@ -9,6 +9,7 @@ from mtg_analyzer.game.ability_catalogue import specs_for
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import parse_oracle
 
@@ -556,3 +557,273 @@ def test_shatter_the_sky_draws_only_qualifying_players_before_destroying_creatur
     engine.cast_spell(p1, spell); engine.resolve_until_stable()
     assert len(p1.hand) == 1 and not p2.hand
     assert big.zone == Zone.GRAVEYARD and small.zone == Zone.GRAVEYARD
+
+
+def _descendants_fury() -> Card:
+    return Card(
+        id="Descendants' Fury", name="Descendants' Fury", type_line="Enchantment",
+        mana_cost_string="{3}{R}", converted_mana_cost=4,
+        oracle_text=("Whenever one or more creatures you control deal combat damage to a player, "
+                     "you may sacrifice one of them. If you do, reveal cards from the top of your "
+                     "library until you reveal a creature card that shares a creature type with "
+                     "the sacrificed creature. Put that card onto the battlefield and the rest on "
+                     "the bottom of your library in a random order."),
+    )
+
+
+def _kindred_summons() -> Card:
+    return Card(
+        id="Kindred Summons", name="Kindred Summons", type_line="Instant",
+        mana_cost_string="{5}{G}{G}", converted_mana_cost=7, is_instant=True,
+        oracle_text=("Choose a creature type. Reveal cards from the top of your library until you "
+                     "reveal X creature cards of the chosen type, where X is the number of "
+                     "creatures you control of that type. Put those cards onto the battlefield, "
+                     "then shuffle the rest of the revealed cards into your library."),
+    )
+
+
+def _eclipsed_flamekin() -> Card:
+    return Card(
+        id="Eclipsed Flamekin", name="Eclipsed Flamekin", type_line="Creature — Elemental Scout",
+        mana_cost_string="{2}{U}", converted_mana_cost=3, is_creature=True, power=2, toughness=2,
+        oracle_text=("When this creature enters, look at the top four cards of your library. "
+                     "You may reveal an Elemental, Island, or Mountain card from among them and "
+                     "put it into your hand. Put the rest on the bottom of your library in a random order."),
+    )
+
+
+def _cream_of_the_crop() -> Card:
+    return Card(
+        id="Cream of the Crop", name="Cream of the Crop", type_line="Enchantment",
+        mana_cost_string="{1}{G}", converted_mana_cost=2,
+        oracle_text=("Whenever a creature you control enters, you may look at the top X cards of "
+                     "your library, where X is that creature's power. If you do, put one of those "
+                     "cards on top of your library and the rest on the bottom of your library in any order."),
+    )
+
+
+def _cavalier_of_thorns() -> Card:
+    return Card(
+        id="Cavalier of Thorns", name="Cavalier of Thorns", type_line="Creature — Elemental Knight",
+        mana_cost_string="{2}{G}{G}{G}", converted_mana_cost=5, is_creature=True, power=5, toughness=6,
+        oracle_text=("Reach\nWhen this creature enters, reveal the top five cards of your library. "
+                     "Put a land card from among them onto the battlefield and the rest into your graveyard.\n"
+                     "When this creature dies, you may exile it. If you do, put another target card "
+                     "from your graveyard on top of your library."),
+    )
+
+
+def test_descendants_fury_sacrifices_combat_dealer_and_reveals_sharing_type():
+    fury_card = _descendants_fury()
+    engine = _engine([fury_card])
+    state = engine.state
+    p1, p2 = state.players
+
+    fury_obj = p1.hand[0]
+    p1.mana_pool.add_many({"R": 1, "C": 3})
+    engine.cast_spell(p1, fury_obj)
+    engine.resolve_until_stable()
+    assert fury_obj in state.battlefield
+
+    # Two attacking creatures dealing combat damage to p2
+    elemental_warrior = GameObject(
+        Card(id="Flamekin", name="Flamekin", type_line="Creature — Elemental Warrior", is_creature=True, power=2, toughness=2),
+        owner_id=p1.id, zone=Zone.BATTLEFIELD,
+    )
+    bear = GameObject(
+        Card(id="Grizzly Bears", name="Grizzly Bears", type_line="Creature — Bear", is_creature=True, power=2, toughness=2),
+        owner_id=p1.id, zone=Zone.BATTLEFIELD,
+    )
+    state.add_to_battlefield(elemental_warrior)
+    state.add_to_battlefield(bear)
+
+    # Deck setup: top has Forest, Air Elemental (creature — Elemental), Llanowar Elves
+    forest = GameObject(Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    air_elem = GameObject(Card(id="Air Elemental", name="Air Elemental", type_line="Creature — Elemental", is_creature=True, power=4, toughness=4), owner_id=p1.id, zone=Zone.LIBRARY)
+    elves = GameObject(Card(id="Llanowar Elves", name="Llanowar Elves", type_line="Creature — Elf", is_creature=True, power=1, toughness=1), owner_id=p1.id, zone=Zone.LIBRARY)
+    p1.library.clear()
+    p1.library.extend([elves, air_elem, forest])  # forest is top (index -1)
+
+    # Simulate combat damage step
+    engine._apply_combat_damage([
+        (p2, 2, elemental_warrior),
+        (p2, 2, bear),
+    ])
+    engine.resolve_until_stable()
+
+    # Descendants' Fury triggers and asks to sacrifice one of the contributors
+    assert state.pending_choice is not None
+    assert state.pending_choice["kind"] == "choose_objects"
+    assert state.pending_choice["action"] == "sacrifice_for_descendants_fury"
+
+    # Choose to sacrifice elemental_warrior
+    engine.resolve_pending_choice(elemental_warrior.instance_id)
+
+    assert elemental_warrior.zone == Zone.GRAVEYARD
+    assert air_elem in state.battlefield
+    assert air_elem.zone == Zone.BATTLEFIELD
+    assert forest.zone == Zone.LIBRARY
+    # Forest was put at bottom (index 0)
+    assert p1.library[0] == forest
+
+
+def test_kindred_summons_reveals_x_chosen_type_creatures_and_shuffles_rest():
+    card = _kindred_summons()
+    engine = _engine([card])
+    state = engine.state
+    p1 = state.active_player
+
+    # Control 2 Elementals and 1 Goblin
+    e1 = _grave_creature("Elem1", "Elemental", p1.id)
+    e2 = _grave_creature("Elem2", "Elemental", p1.id)
+    gob = _grave_creature("Gob1", "Goblin", p1.id)
+    for obj in (e1, e2, gob):
+        state.add_to_battlefield(obj)
+
+    # Library setup: from bottom to top:
+    # Goblin2, ElemHit1, Island, ElemHit2, Mountain
+    # Top card is Mountain
+    mtn = GameObject(Card(id="Mountain", name="Mountain", type_line="Basic Land — Mountain", is_land=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    elem_hit2 = _grave_creature("ElemHit2", "Elemental", p1.id)
+    isl = GameObject(Card(id="Island", name="Island", type_line="Basic Land — Island", is_land=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    elem_hit1 = _grave_creature("ElemHit1", "Elemental", p1.id)
+    gob2 = _grave_creature("Gob2", "Goblin", p1.id)
+    p1.library.clear()
+    p1.library.extend([gob2, elem_hit1, isl, elem_hit2, mtn])
+
+    spell = p1.hand[0]
+    p1.mana_pool.add_many({"G": 2, "C": 5})
+    engine.cast_spell(p1, spell)
+    engine.resolve_until_stable()
+
+    # Choice 1: choose creature type
+    assert state.pending_choice["kind"] == "choose_type_for_source"
+    engine.resolve_pending_choice("Elemental")
+
+    # X=2: reveals top until 2 Elementals found (ElemHit2 and ElemHit1).
+    assert elem_hit1 in state.battlefield
+    assert elem_hit2 in state.battlefield
+    # Remaining revealed cards (mtn, isl) were shuffled back into library
+    assert mtn in p1.library and isl in p1.library
+
+
+def test_eclipsed_flamekin_inspects_four_filters_elemental_island_mountain_to_hand():
+    flamekin_card = _eclipsed_flamekin()
+    engine = _engine([flamekin_card])
+    state = engine.state
+    p1 = state.active_player
+
+    c1 = GameObject(Card(id="Forest", name="Forest", type_line="Land", is_land=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    c2 = GameObject(Card(id="Volcanic Island", name="Volcanic Island", type_line="Land — Island Mountain", is_land=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    c3 = GameObject(Card(id="Air Elemental", name="Air Elemental", type_line="Creature — Elemental", is_creature=True, power=4, toughness=4), owner_id=p1.id, zone=Zone.LIBRARY)
+    c4 = GameObject(Card(id="Disenchant", name="Disenchant", type_line="Instant", is_instant=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    c_bottom = GameObject(Card(id="Deep Card", name="Deep Card", type_line="Sorcery", is_sorcery=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    # top 4: c4, c3, c2, c1 (c4 is top)
+    p1.library.clear()
+    p1.library.extend([c_bottom, c1, c2, c3, c4])
+
+    spell = p1.hand[0]
+    p1.mana_pool.add_many({"U": 1, "C": 2})
+    engine.cast_spell(p1, spell)
+    engine.resolve_until_stable()
+
+    # ETB triggers: inspect top 4 cards. Filter: Elemental, Island, Mountain -> c2, c3 match!
+    assert state.pending_choice is not None
+    assert state.pending_choice["kind"] == "choose_objects"
+    # Choose c2 (Volcanic Island) to put into hand
+    engine.resolve_pending_choice(c2.instance_id)
+
+    assert c2 in p1.hand
+    assert c2.zone == Zone.HAND
+    # Other 3 cards (c1, c3, c4) were put on bottom of library
+    assert c1 in p1.library and c3 in p1.library and c4 in p1.library
+    # c_bottom is still in library
+    assert c_bottom in p1.library
+
+
+def test_cream_of_the_crop_triggers_on_creature_power_and_puts_one_on_top():
+    crop_card = _cream_of_the_crop()
+    engine = _engine([crop_card])
+    state = engine.state
+    p1 = state.active_player
+
+    crop_obj = p1.hand[0]
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+    engine.cast_spell(p1, crop_obj)
+    engine.resolve_until_stable()
+    assert crop_obj in state.battlefield
+
+    # Library setup: top 3 cards
+    c_base = GameObject(Card(id="Bottom Card", name="Bottom Card", type_line="Land", is_land=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    card_a = GameObject(Card(id="Card A", name="Card A", type_line="Sorcery", is_sorcery=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    card_b = GameObject(Card(id="Card B", name="Card B", type_line="Instant", is_instant=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    card_c = GameObject(Card(id="Card C", name="Card C", type_line="Creature", is_creature=True, power=1, toughness=1), owner_id=p1.id, zone=Zone.LIBRARY)
+    p1.library.clear()
+    p1.library.extend([c_base, card_a, card_b, card_c])  # card_c is top
+
+    # A 3-power creature enters
+    big = GameObject(Card(id="Big Beast", name="Big Beast", type_line="Creature — Beast", is_creature=True, power=3, toughness=3), owner_id=p1.id, zone=Zone.BATTLEFIELD)
+    state.add_to_battlefield(big)
+    state.fire_event(GameEvent(EventType.ENTERS_BATTLEFIELD, controller_id=p1.id, instance_id=big.instance_id, object=big.name, object_types=["creature"]))
+    engine.resolve_until_stable()
+
+    assert state.pending_choice is not None
+    assert state.pending_choice["kind"] == "choose_objects"
+    # Choose card_b to be on top
+    engine.resolve_pending_choice(card_b.instance_id)
+
+    # card_b is at top of library
+    assert p1.library[-1] == card_b
+    assert card_a in p1.library and card_c in p1.library
+
+
+def test_cavalier_of_thorns_etb_land_to_battlefield_and_rest_to_graveyard_and_dies_trigger():
+    cav_card = _cavalier_of_thorns()
+    engine = _engine([cav_card])
+    state = engine.state
+    p1 = state.active_player
+
+    # Library top 5: Land1, Spell1, Land2, Spell2, Spell3
+    s3 = GameObject(Card(id="S3", name="S3", type_line="Instant", is_instant=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    s2 = GameObject(Card(id="S2", name="S2", type_line="Sorcery", is_sorcery=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    land2 = GameObject(Card(id="Forest2", name="Forest2", type_line="Basic Land — Forest", is_land=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    s1 = GameObject(Card(id="S1", name="S1", type_line="Instant", is_instant=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    land1 = GameObject(Card(id="Forest1", name="Forest1", type_line="Basic Land — Forest", is_land=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    p1.library.clear()
+    p1.library.extend([land2, s3, s2, s1, land1])  # top 5
+
+    spell = p1.hand[0]
+    p1.mana_pool.add_many({"G": 3, "C": 2})
+    engine.cast_spell(p1, spell)
+    engine.resolve_until_stable()
+
+    # ETB choice among the lands (land1 and land2)
+    assert state.pending_choice is not None
+    assert state.pending_choice["kind"] == "choose_objects"
+    engine.resolve_pending_choice(land1.instance_id)
+
+    assert land1 in state.battlefield
+    assert land1.zone == Zone.BATTLEFIELD
+    # The rest (s1, s2, s3, land2) went into graveyard
+    for obj in (s1, s2, s3, land2):
+        assert obj in p1.graveyard
+        assert obj.zone == Zone.GRAVEYARD
+
+    # Dies trigger: Cavalier dies -> may exile it, then put target card from graveyard on top of library
+    cav_obj = spell
+    engine.rules.put_into_graveyard(cav_obj)
+    engine.resolve_until_stable()
+
+    # Offer to exile Cavalier
+    assert state.pending_choice is not None
+    engine.resolve_pending_choice("exile")
+    engine.resolve_until_stable()
+
+    # Target choice from graveyard: pick land2
+    assert state.pending_choice is not None
+    engine.resolve_pending_choice(str(land2.instance_id))
+    engine.resolve_until_stable()
+
+    assert cav_obj.zone == Zone.EXILE
+    assert p1.library[-1] == land2
+    assert land2.zone == Zone.LIBRARY

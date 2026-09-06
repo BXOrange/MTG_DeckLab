@@ -10415,6 +10415,114 @@ class CastTargetElementalFromGraveyardFreeEffect(GameEffect):
         context.engine.cast_without_paying(player, target)
 
 
+class KindredSummonsEffect(GameEffect):
+    """Resolve Kindred Summons after its creature-type choice (MEC-72).
+
+    Counts creatures controller controls of the chosen type, then reveals
+    until that many creature cards of the chosen type are revealed, putting
+    them onto the battlefield and shuffling the rest into the library.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from . import continuous
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        chosen = str(getattr(self.source, "chosen_type", "") or "").lower()
+        if not chosen:
+            return
+        x = sum(
+            1 for o in context.state.battlefield
+            if o.controller_id == player.id and o.is_creature and continuous.has_subtype(o, chosen)
+        )
+        context.engine.reveal_until_creature_type(
+            player,
+            creature_types=[chosen],
+            count=x,
+            hit_destination="battlefield",
+            rest_destination="library_shuffled",
+        )
+
+
+class DescendantsFurySacrificeEffect(GameEffect):
+    """Descendants' Fury triggered ability (MEC-72).
+
+    Prompts the controller with an optional choice to sacrifice one of the
+    creatures that dealt combat damage to a player.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        event = context.trigger_event
+        contributor_ids = event.get("contributor_ids") if event else []
+        candidates = [
+            context.state.find_object(iid)
+            for iid in contributor_ids
+        ]
+        candidates = [
+            c for c in candidates
+            if c is not None and c in context.state.battlefield and c.controller_id == player.id
+        ]
+        if not candidates:
+            return
+        context.engine.request_choose_objects(
+            player,
+            candidates,
+            action="sacrifice_for_descendants_fury",
+            count=1,
+            optional=True,
+            prompt="Kreatur für Nachfahrenzorn opfern",
+            source=self.source,
+        )
+
+
+class InspectTopChooseEffect(GameEffect):
+    """Bounded top-N library inspect and filtered pick (MEC-72).
+
+    Inspects top N cards of the library, offers a filtered choice, and puts
+    the rest to rest_destination (Eclipsed Flamekin, Cream of the Crop,
+    Cavalier of Thorns).
+    """
+
+    def __init__(
+        self,
+        count: Union[int, str] = 1,
+        action: str = "library_to_hand",
+        filter: Optional[dict[str, Any]] = None,
+        rest_destination: str = "library_bottom_random",
+        optional: bool = False,
+        prompt: str = "Wähle eine Karte",
+        decline_leaves_untouched: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        self.action = action
+        self.filter = filter
+        self.rest_destination = rest_destination
+        self.optional = optional
+        self.prompt = prompt
+        self.decline_leaves_untouched = decline_leaves_untouched
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.engine.inspect_top_n_choose(
+            player,
+            count=self.count,
+            action=self.action,
+            filter_criteria=self.filter,
+            rest_destination=self.rest_destination,
+            optional=self.optional,
+            prompt=self.prompt,
+            source=self.source,
+            decline_leaves_untouched=self.decline_leaves_untouched,
+        )
+
+
 class BlinkEffect(GameEffect):
     """"Exile target permanent, then return it to the battlefield under its
     owner's control" (RULE 400.7 — Ephemerate/Momentary Blink-shaped).
@@ -20628,6 +20736,26 @@ EffectRegistry.register(
 EffectRegistry.register(
     "cast_target_elemental_from_graveyard_free",
     lambda p: CastTargetElementalFromGraveyardFreeEffect(),
+)
+EffectRegistry.register(
+    "kindred_summons",
+    lambda p: KindredSummonsEffect(),
+)
+EffectRegistry.register(
+    "descendants_fury_sacrifice",
+    lambda p: DescendantsFurySacrificeEffect(),
+)
+EffectRegistry.register(
+    "inspect_top_choose",
+    lambda p: InspectTopChooseEffect(
+        count=p.get("count", 1),
+        action=p.get("action", "library_to_hand"),
+        filter=p.get("filter"),
+        rest_destination=p.get("rest_destination", "library_bottom_random"),
+        optional=bool(p.get("optional", False)),
+        prompt=p.get("prompt", "Wähle eine Karte"),
+        decline_leaves_untouched=bool(p.get("decline_leaves_untouched", False)),
+    ),
 )
 EffectRegistry.register(
     "discard",

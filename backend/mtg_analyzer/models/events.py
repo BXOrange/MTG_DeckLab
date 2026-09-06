@@ -522,6 +522,15 @@ class EventType:
     #: trigger needs no event ``filter``.
     WON_CLASH = "WON_CLASH"
 
+    #: RULE 701.19: a card is revealed as part of a "reveal cards from the
+    #: top of your library until …" instruction (e.g. Descendants' Fury,
+    #: Kindred Summons, MEC-72). Carries ``player_id`` (the revealing player),
+    #: ``instance_id`` and ``object`` (the card name), and ``from_zone``
+    #: (always ``"library"`` for this source). Currently informational only
+    #: (no card in this set triggers off an individual reveal), but captured
+    #: so the event log stays complete.
+    REVEAL = "REVEAL"
+
     # Win/loss (RULE 104, RULE 704).
     PLAYER_WOULD_LOSE = "PLAYER_WOULD_LOSE"
     PLAYER_LOST = "PLAYER_LOST"

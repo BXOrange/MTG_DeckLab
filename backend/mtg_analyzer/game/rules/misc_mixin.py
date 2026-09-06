@@ -3009,6 +3009,7 @@ class MiscSystemsMixin:
     CHOOSE_OBJECT_ACTIONS = frozenset(
         {
             "tap", "sacrifice", "return_to_hand", "return_from_graveyard", "soulbond_pair", "library_top", "discard",
+            "library_to_hand", "sacrifice_for_descendants_fury",
             # PAR-13 (Dungeon of the Mad Mage's "Mad Wizard's Lair" — "Draw
             # three cards and reveal them. You may cast one of them without
             # paying its mana cost."): a hand-zone pick, unlike every other
@@ -3114,6 +3115,9 @@ class MiscSystemsMixin:
         connive: bool = False,
         else_specs: Optional[list[dict]] = None,
         control_recipient_id: Optional[str] = None,
+        rest_ids: Optional[list[int]] = None,
+        rest_destination: Optional[str] = None,
+        decline_leaves_untouched: bool = False,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -3226,6 +3230,10 @@ class MiscSystemsMixin:
                     redirect_shield=redirect_shield, connive=connive,
                     control_recipient_id=control_recipient_id,
                 )
+            if rest_destination and rest_ids:
+                taken_ids = {o.instance_id for o in pool}
+                unpicked_rest = [iid for iid in rest_ids if iid not in taken_ids]
+                self._handle_rest_inspected(player, unpicked_rest, rest_destination)
             self._apply_choose_objects_tail(
                 source, then_specs, then_specs_if_commander, commander_taken
             )
@@ -3239,6 +3247,8 @@ class MiscSystemsMixin:
             prevent_shield=prevent_shield, redirect_shield=redirect_shield,
             connive=connive, else_specs=else_specs,
             control_recipient_id=control_recipient_id,
+            rest_ids=rest_ids, rest_destination=rest_destination,
+            decline_leaves_untouched=decline_leaves_untouched,
         )
     def _apply_choose_objects_tail(
         self,
@@ -3270,6 +3280,9 @@ class MiscSystemsMixin:
         connive: bool = False,
         else_specs: Optional[list[dict]] = None,
         control_recipient_id: Optional[str] = None,
+        rest_ids: Optional[list[int]] = None,
+        rest_destination: Optional[str] = None,
+        decline_leaves_untouched: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -3327,6 +3340,9 @@ class MiscSystemsMixin:
             # and place a +1/+1 counter on ``source`` — see
             # `request_choose_objects`'s own docstring.
             "connive": connive,
+            "rest_ids": list(rest_ids) if rest_ids else None,
+            "rest_destination": rest_destination,
+            "decline_leaves_untouched": decline_leaves_untouched,
         }
     def resolve_choose_objects_choice(self, instance_id: Optional[int]) -> None:
         """Answer a pending `choose_objects` decision: apply the action to
@@ -3366,6 +3382,12 @@ class MiscSystemsMixin:
         ]
         if declined or len(picked) >= choice["count"] or not remaining_pool:
             self.state.pending_choice = None
+            if choice.get("rest_destination") and choice.get("rest_ids"):
+                if declined and choice.get("decline_leaves_untouched"):
+                    pass
+                else:
+                    unpicked_rest = [iid for iid in choice["rest_ids"] if iid not in picked]
+                    self._handle_rest_inspected(player, unpicked_rest, choice["rest_destination"])
             if picked:
                 # RULE 601.2c: "if you do, …" only fires when something was
                 # actually chosen — a declined optional choice does nothing.
@@ -3390,6 +3412,9 @@ class MiscSystemsMixin:
             prevent_shield=choice.get("prevent_shield"),
             redirect_shield=choice.get("redirect_shield"),
             connive=bool(choice.get("connive")),
+            rest_ids=choice.get("rest_ids"),
+            rest_destination=choice.get("rest_destination"),
+            decline_leaves_untouched=bool(choice.get("decline_leaves_untouched")),
         )
         next_choice["commander_taken"] = commander_taken
         self.state.pending_choice = next_choice
@@ -3538,6 +3563,28 @@ class MiscSystemsMixin:
             if obj in player.library:
                 player.remove_from_zone(obj, Zone.LIBRARY)
             self._put_searched_card(player, obj, "battlefield")
+        elif action == "library_to_hand":
+            # MEC-72 (Eclipsed Flamekin): move the picked card from library to hand.
+            self._remove_from_current_zone(player, obj)
+            obj.zone = Zone.HAND
+            player.add_to_zone(obj, Zone.HAND)
+        elif action == "sacrifice_for_descendants_fury":
+            # MEC-72 (Descendants' Fury): sacrifice the chosen combat damage dealer
+            # and reveal cards until a creature sharing a creature type is revealed.
+            subtypes: set[str] = set()
+            if "changeling" in obj.card.type_line.lower() or "changeling" in obj.intrinsic_keywords:
+                subtypes.add("changeling")
+            else:
+                _, _, sub = obj.card.type_line.lower().partition("—")
+                subtypes.update(s.strip() for s in sub.split() if s.strip())
+            self.put_into_graveyard(obj)
+            self.reveal_until_creature_type(
+                player,
+                creature_types=subtypes,
+                count=1,
+                hit_destination="battlefield",
+                rest_destination="library_bottom_random",
+            )
         elif action == "hand_to_battlefield":
             # MEC-43 round 4D (Kodama of the East Tree): the hand-zone
             # sibling of "library_to_battlefield" just above — the object
