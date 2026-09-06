@@ -68,6 +68,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "source_tapped",  # "as long as ~ is tapped"
         "source_untapped",  # "as long as ~ is untapped"
         "source_monstrous",  # RULE 701.37b
+        "is_licid_aura",  # MEC-47 — this Licid is currently an Aura
+        "not_licid_aura",  # MEC-47 — this Licid is still a creature
         "source_attacking",  # "as long as ~ is attacking"
         # PAR-28: RULE 702.142a Boast — "Activate only if this creature
         # attacked this turn." A per-object flag set in declare-attackers,
@@ -119,6 +121,23 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "life_at_most",
         "cards_in_hand_at_least",
         "cards_in_hand_at_most",
+        # PAR-30: "as long as there's a `<subtype>` card in your graveyard"
+        # (the Avatar: TLA "Lesson" cards — Aang A Lot to Learn, Fire Nation
+        # Cadets, First-Time Flyer, Platypus-Bear). + ``subtype`` (a
+        # lowercase word matched against each graveyard card's type line,
+        # the same `graveyard_has_type` `EffectSpec.condition` uses) and an
+        # optional ``min`` (default 1). The always-active-player "you" read,
+        # like every other resource row here.
+        "subtype_in_graveyard",
+        # MEC-46: "if another `<subtype>` entered the battlefield under your
+        # control this turn" (Galadriel, Elven-Queen's RULE 603.4
+        # intervening-if). + ``subtype`` — a live scan of the controller's
+        # battlefield for a permanent other than the source whose type line
+        # carries the word and that entered this turn (`GameObject.
+        # turn_entered == state.internal_turn.number`, the same read
+        # `condition_query.entered_this_turn` makes). No per-turn tracker
+        # needed — the per-object entry flag already exists.
+        "another_subtype_entered_this_turn",  # + ``subtype``
         "drawn_cards_at_least",  # + ``amount`` — "…you've drawn N cards this turn"
         # "…you've cast an instant or sorcery spell this turn" (PAR-10) —
         # `GameState.cast_instant_or_sorcery_this_turn`, reset for *every*
@@ -129,6 +148,16 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # use (Hall of Oracles/Jin-Gitaxias — only reachable at sorcery speed
         # anyway, but the state itself must stay correct regardless).
         "cast_instant_or_sorcery_this_turn",
+        # PAR-32 phase-trigger intervening-ifs (Cloakwood Hermit / Dragon
+        # Cultist) — new per-turn `GameState` trackers.
+        "creature_card_to_graveyard_this_turn",
+        "you_dealt_damage_this_turn_at_least",
+        # MEC-60 (Acolyte of Bahamut): "The first `<subtype>` spell you cast
+        # each turn costs `{N}` less to cast." + ``subtype`` — a
+        # `cost_reduction` ``active_if`` gate, true only while `controller_
+        # id` hasn't yet cast a spell of that creature subtype this turn
+        # (`GameState.creature_type_spells_cast_this_turn`).
+        "first_subtype_spell_this_turn",
         # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
         # No ``of`` subject: "you" in "as long as you're the monarch" always
         # means the static's controller, the same read `your_turn` already
@@ -265,6 +294,10 @@ def condition_holds(
         return subject is not None and not getattr(subject, "tapped", False)
     if kind == "source_monstrous":
         return bool(getattr(subject, "is_monstrous", False))
+    if kind == "is_licid_aura":  # MEC-47 — this Licid is currently an Aura
+        return bool(getattr(subject, "is_licid_aura", False))
+    if kind == "not_licid_aura":  # MEC-47 — this Licid is still a creature
+        return not bool(getattr(subject, "is_licid_aura", False))
     if kind == "source_attacking":
         return bool(getattr(subject, "attacking", False))
     if kind == "source_attacked_this_turn":  # PAR-28 RULE 702.142a
@@ -437,6 +470,62 @@ def condition_holds(
     if kind == "cast_instant_or_sorcery_this_turn":
         cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
         return bool(cast.get(controller_id, False))
+    if kind == "you_dealt_damage_this_turn_at_least":
+        # PAR-32 (Dragon Cultist): "if a source you controlled dealt N or
+        # more damage this turn" — `GameState.damage_dealt_by_this_turn`,
+        # keyed by the dealing source's controller.
+        by = getattr(state, "damage_dealt_by_this_turn", None) or {}
+        return int(by.get(controller_id, 0) or 0) >= int(condition.get("amount", 1) or 1)
+    if kind == "creature_card_to_graveyard_this_turn":
+        # PAR-32 (Cloakwood Hermit): "if a creature card was put into your
+        # graveyard from anywhere this turn" — `GameState.creature_card_to_
+        # graveyard_this_turn`, a set of owner ids.
+        seen = getattr(state, "creature_card_to_graveyard_this_turn", None) or set()
+        return controller_id in seen
+    if kind == "first_subtype_spell_this_turn":
+        # MEC-60 (Acolyte of Bahamut): "The first Dragon spell you cast each
+        # turn costs {2} less to cast." True until `controller_id` has cast
+        # a spell carrying this subtype this turn — checked at cost-
+        # computation time, before the spell being priced is itself
+        # recorded (`RulesEngine._track_spell_cast` only tallies a cast
+        # *after* it commits), so the spell that actually earns the
+        # discount is always "the first" by construction.
+        seen = getattr(state, "creature_type_spells_cast_this_turn", None) or {}
+        subtype = str(condition.get("subtype", "")).lower()
+        return subtype not in seen.get(controller_id, set())
+    if kind == "subtype_in_graveyard":
+        # PAR-30: "as long as there's a `<subtype>` card in your graveyard."
+        # A live scan of the controller's graveyard for a card whose type
+        # line carries the named word (main type or subtype) — the same
+        # convention `effects.ConditionalEffect`'s `graveyard_has_type`
+        # branch uses, just as an `active_if` static gate.
+        word = str(condition.get("subtype", "")).lower()
+        if not word:
+            return False
+        minimum = int(condition.get("min", 1) or 1)
+        hits = sum(
+            1 for obj in getattr(player, "graveyard", [])
+            if word in obj.card.type_line.lower()
+        )
+        return hits >= minimum
+    if kind == "another_subtype_entered_this_turn":
+        # MEC-46 (Galadriel): a permanent other than the source, controlled
+        # by "you", carrying the named type word, that entered this turn.
+        word = str(condition.get("subtype", "")).lower()
+        if not word:
+            return False
+        src_id = getattr(source, "instance_id", None)
+        turn = getattr(state.internal_turn, "number", None)
+        for obj in state.permanents():
+            if obj.instance_id == src_id:
+                continue
+            if getattr(obj, "controller_id", None) != controller_id:
+                continue
+            if getattr(obj, "turn_entered", None) != turn:
+                continue
+            if word in obj.card.type_line.lower():
+                return True
+        return False
     if kind == "card_types_in_graveyard_at_least":
         # RULE 702.137's "Delirium" — count *distinct printed card types*
         # among cards in your graveyard (Dragon's Rage Channeler/Winter,
@@ -552,6 +641,10 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return f"solange ≥{condition.get('amount', 0)} Karten gezogen"
     if kind == "card_types_in_graveyard_at_least":
         return f"Delirium (≥{condition.get('amount', 0)} Kartentypen im Friedhof)"
+    if kind == "subtype_in_graveyard":
+        return f"solange ≥{condition.get('min', 1)} {condition.get('subtype', '')}-Karte im Friedhof"
+    if kind == "another_subtype_entered_this_turn":
+        return f"falls diesen Zug ein weiterer {condition.get('subtype', '')} ins Spiel kam"
     if kind.startswith("life_"):
         return f"solange Leben {'≥' if kind.endswith('least') else '≤'}{condition.get('amount', 0)}"
     if kind.startswith("cards_in_hand_"):

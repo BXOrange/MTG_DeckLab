@@ -15,11 +15,12 @@
 
 import { fetchBotKinds, getDynamicAnalysisJob, startDynamicAnalysis } from './api.js';
 import { escapeHtml } from './cardTile.js';
+import { t, tPlural, fmtNumber } from './i18n.js';
 
 const POLL_INTERVAL_MS = 1000;
 
 function fmt(n, digits = 1) {
-  return Number(n ?? 0).toLocaleString('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return fmtNumber(n, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 function escapeAttr(str) {
@@ -58,16 +59,11 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
   function panelHtml() {
     return `
       <div class="analyze-chart-card">
-        <h4>Simulation</h4>
-        <p class="hint">
-          Spielt das Deck ${escapeHtml(String(numMatches))}× gegen einen Bot durch (bis zu
-          ${escapeHtml(String(maxTurns))} Züge) und wertet den tatsächlichen Verlauf aus –
-          Mittelwert ± Standardabweichung über alle Partien. Läuft im Hintergrund
-          und kann je nach Partienzahl einige Sekunden bis wenige Minuten dauern.
-        </p>
+        <h4>${t('dyn.simulation')}</h4>
+        <p class="hint">${escapeHtml(t('dyn.intro', { matches: numMatches, turns: maxTurns }))}</p>
         ${formHtml()}
         ${job ? progressHtml() : ''}
-        ${job && job.status === 'error' ? `<p class="issue-list">🛑 ${escapeHtml(job.error || 'Simulation fehlgeschlagen.')}</p>` : ''}
+        ${job && job.status === 'error' ? `<p class="issue-list">🛑 ${escapeHtml(job.error || t('dyn.failedGeneric'))}</p>` : ''}
         ${job && job.status === 'done' && job.result ? resultHtml(job.result) : ''}
       </div>
     `;
@@ -84,17 +80,17 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
     const disabled = starting || inProgress;
     return `
       <form class="analyze-sim-form">
-        <label>Anzahl Partien
+        <label>${t('dyn.numMatches')}
           <input type="number" id="sim-num-matches" min="1" max="200" value="${numMatches}" ${disabled ? 'disabled' : ''} />
         </label>
-        <label>Max. Züge pro Partie
+        <label>${t('dyn.maxTurns')}
           <input type="number" id="sim-max-turns" min="1" max="30" value="${maxTurns}" ${disabled ? 'disabled' : ''} />
         </label>
-        <label>Bot
+        <label>${t('dyn.bot')}
           <select id="sim-bot-kind" ${disabled ? 'disabled' : ''}>${options}</select>
         </label>
         <button type="submit" class="primary" ${disabled ? 'disabled' : ''}>
-          ${job && job.status === 'queued' ? 'Wartet auf freien Worker …' : inProgress ? 'Simulation läuft …' : 'Simulation starten'}
+          ${job && job.status === 'queued' ? t('dyn.waitingWorker') : inProgress ? t('dyn.running') : t('dyn.start')}
         </button>
         ${startError ? `<p class="issue-list">🛑 ${escapeHtml(startError)}</p>` : ''}
       </form>
@@ -106,10 +102,10 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
     const pct = Math.min(100, Math.round(((job.completed || 0) / total) * 100));
     const label =
       job.status === 'queued'
-        ? 'Wartet auf freien Worker …'
+        ? t('dyn.waitingWorker')
         : job.status === 'running'
-          ? `${job.completed || 0} / ${job.total} Partien …`
-          : `${job.total} Partien abgeschlossen`;
+          ? t('dyn.progressRunning', { done: job.completed || 0, total: job.total })
+          : t('dyn.progressDone', { total: job.total });
     return `
       <div class="bar-row">
         <span class="bar-row-label">${escapeHtml(label)}</span>
@@ -126,45 +122,35 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
         ([name, stat]) => `
           <div class="analyze-stat-tile">
             <span class="analyze-stat-value">${fmt(stat.mean)} ± ${fmt(stat.stddev)}</span>
-            <span class="analyze-stat-label">${escapeHtml(name)}: Zug im Spiel</span>
+            <span class="analyze-stat-label">${escapeHtml(t('dyn.commanderTurnLabel', { name }))}</span>
           </div>`
       )
       .join('');
     const aborted = result.matchesAbortedInfiniteMana || 0;
     return `
-      <p class="hint">${result.matchesRun} von ${result.matchesRequested} Partien ausgewertet
-        (Bot: ${escapeHtml(botLabel(result.botKind))}).</p>
+      <p class="hint">${escapeHtml(t('dyn.matchesEvaluated', { run: result.matchesRun, requested: result.matchesRequested, bot: botLabel(result.botKind) }))}</p>
       ${aborted > 0 ? infiniteManaWarningHtml(aborted, result.matchesRun, result.infiniteManaTurn) : ''}
       <div class="analyze-stat-grid">
         <div class="analyze-stat-tile">
           <span class="analyze-stat-value">${fmt(tutors.mean)} ± ${fmt(tutors.stddev)}</span>
-          <span class="analyze-stat-label">Bibliothekssuchen</span>
-          <span class="analyze-stat-hint">Tutoren + Fetches, pro Partie</span>
+          <span class="analyze-stat-label">${t('dyn.tutors')}</span>
+          <span class="analyze-stat-hint">${t('dyn.tutorsHint')}</span>
         </div>
         ${commanderTiles}
       </div>
 
       ${favoriteCardsHtml(result.favoriteCards)}
 
-      <h4>Mana-Potenzial &amp; -Produktion vs. statische Schätzung</h4>
-      <p class="hint">
-        Vergleicht die tatsächlich simulierte offene Mana-Kapazität ("Potenzial") und
-        das tatsächlich verbrauchte Mana ("Produktion") pro Zug mit der statischen Kurve
-        aus "Erwartete verfügbare Mana pro Zug" (Länder + Beschleuniger, realistisch).
-        Schattierter Bereich = ± 1 Standardabweichung über alle Partien.
-      </p>
+      <h4>${t('dyn.manaComparisonHeading')}</h4>
+      <p class="hint">${escapeHtml(t('dyn.manaComparisonHint'))}</p>
       ${manaComparisonSvg(result.perTurn)}
 
-      <h4>Länder gezogen (kumulativ)</h4>
-      ${simpleBarChart(result.perTurn, 'lands_drawn', 'Länder')}
+      <h4>${t('dyn.landsDrawnHeading')}</h4>
+      ${simpleBarChart(result.perTurn, 'lands_drawn', t('dyn.lands'))}
 
-      <h4>Kartenvorteil</h4>
-      <p class="hint">
-        Gezogene Karten abzüglich der Grundlinie von einer Karte pro Zug
-        (RULE 103.7a: der Startspieler setzt den ersten Zug aus) – 0 ist
-        "wie erwartet", ohne Ziehungs-Effekte konstant 0.
-      </p>
-      ${simpleBarChart(result.perTurn, 'card_advantage', 'Kartenvorteil')}
+      <h4>${t('dyn.cardAdvantageHeading')}</h4>
+      <p class="hint">${escapeHtml(t('dyn.cardAdvantageHint'))}</p>
+      ${simpleBarChart(result.perTurn, 'card_advantage', t('dyn.cardAdvantage'))}
     `;
   }
 
@@ -180,7 +166,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
     const rows = entries
       .map(([name, stat]) => {
         const castLabel = stat.castTurn?.n
-          ? `${Math.round(stat.castFraction * 100)}% (⌀ Zug ${fmt(stat.castTurn.mean)})`
+          ? t('dyn.castTurnLabel', { pct: Math.round(stat.castFraction * 100), turn: fmt(stat.castTurn.mean) })
           : `${Math.round(stat.castFraction * 100)}%`;
         return `
           <tr>
@@ -193,17 +179,10 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
       })
       .join('');
     return `
-      <h4>Lieblingskarten</h4>
-      <p class="hint">
-        Wie oft eine im Bearbeiten-Modus markierte Lieblingskarte über alle
-        Partien gezogen, tatsächlich gespielt, oder spielbar war (Mana
-        vorhanden, aber nicht gespielt). "Spielbar, nicht gespielt" ist nur
-        mit dem Greedy-Bot aussagekräftig – der Goldfisch-Bot spielt
-        grundsätzlich keine Nicht-Land-Zauber, daher liest jede
-        Nichtland-Lieblingskarte dort immer als "spielbar, nicht gespielt".
-      </p>
+      <h4>${t('dyn.favoritesHeading')}</h4>
+      <p class="hint">${escapeHtml(t('dyn.favoritesHint'))}</p>
       <table class="analyze-table">
-        <thead><tr><th>Karte</th><th>Gezogen</th><th>Gespielt</th><th>Spielbar, nicht gespielt</th></tr></thead>
+        <thead><tr><th>${t('dyn.favCard')}</th><th>${t('dyn.favDrawn')}</th><th>${t('dyn.favPlayed')}</th><th>${t('dyn.favPlayableNotPlayed')}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     `;
@@ -223,14 +202,10 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
   function infiniteManaWarningHtml(aborted, matchesRun, infiniteManaTurn) {
     const turnHint =
       infiniteManaTurn && infiniteManaTurn.n > 0
-        ? ` Im Schnitt steht die Kombination ab Zug ${fmt(infiniteManaTurn.mean)} (± ${fmt(infiniteManaTurn.stddev)}).`
+        ? t('dyn.infiniteManaTurnHint', { mean: fmt(infiniteManaTurn.mean), stddev: fmt(infiniteManaTurn.stddev) })
         : '';
     return `
-      <p class="issue-list">
-        ⚠️ ${aborted} von ${matchesRun} Partien wurden vorzeitig abgebrochen — das Deck hat
-        offenbar eine Kombination, die unbegrenzt Mana produziert.${turnHint} Die abgebrochenen
-        Züge selbst fehlen in der Auswertung, alle vorherigen Züge derselben Partie zählen weiter.
-      </p>
+      <p class="issue-list">${escapeHtml(t('dyn.infiniteManaWarn', { aborted, run: matchesRun, turnHint }))}</p>
     `;
   }
 
@@ -292,11 +267,11 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
 
     return `
       <div class="line-legend">
-        <span class="line-legend-item"><span class="line-key line-key--context"></span>Statisch erwartet (Länder + Beschleuniger)</span>
-        <span class="line-legend-item"><span class="line-key line-key--info"></span>Simuliert: Mana-Potenzial</span>
-        <span class="line-legend-item"><span class="line-key line-key--accent"></span>Simuliert: Mana-Produktion</span>
+        <span class="line-legend-item"><span class="line-key line-key--context"></span>${t('dyn.legendStatic')}</span>
+        <span class="line-legend-item"><span class="line-key line-key--info"></span>${t('dyn.legendPotential')}</span>
+        <span class="line-legend-item"><span class="line-key line-key--accent"></span>${t('dyn.legendProduction')}</span>
       </div>
-      <svg viewBox="0 0 ${WIDTH} ${HEIGHT}" class="analyze-svg" role="img" aria-label="Mana-Potenzial und -Produktion pro Zug, simuliert vs. statisch erwartet">
+      <svg viewBox="0 0 ${WIDTH} ${HEIGHT}" class="analyze-svg" role="img" aria-label="${escapeAttr(t('dyn.svgAria'))}">
         ${gridLines}
         <polygon points="${bandPolygon(potentialValues)}" class="chart-band--accent" style="fill:var(--info)" />
         <polygon points="${bandPolygon(producedValues)}" class="chart-band--accent" />
@@ -346,7 +321,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
     const res = await getDynamicAnalysisJob(jobId);
     if (!isLive()) return;
     if (!res.ok || !res.data) {
-      job = { status: 'error', completed: 0, total: job?.total || 0, error: 'Verbindung zum Server verloren.' };
+      job = { status: 'error', completed: 0, total: job?.total || 0, error: t('dyn.connectionLost') };
       render();
       return;
     }
@@ -365,7 +340,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
     if (!isLive()) return;
     starting = false;
     if (!res.ok || !res.data?.jobId) {
-      startError = res.data?.detail?.message || res.data?.detail || 'Simulation konnte nicht gestartet werden.';
+      startError = res.data?.detail?.message || res.data?.detail || t('dyn.couldNotStart');
       render();
       return;
     }

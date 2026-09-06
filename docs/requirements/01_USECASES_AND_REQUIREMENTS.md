@@ -1,4 +1,4 @@
-# MTG Deck Analyzer: Use Cases & Architecture Requirements
+# DeckLab: Use Cases & Architecture Requirements
 
 ---
 

@@ -934,6 +934,39 @@ def test_commander_dying_offers_command_zone_choice_and_can_move_there():
     assert eng.state.pending_choice is None
 
 
+def test_commander_moved_to_the_command_zone_forgets_its_battlefield_state():
+    # RULE 400.7 (bug report, 2026-09-04): moving into the command zone is
+    # a zone change like any other — the commander must not carry
+    # combat/counter state from its previous life on the battlefield into
+    # its next one. A commander that died mid-attack once carried a stale
+    # `attacking`/`combat_defender` all the way through a same-turn recast,
+    # corrupting `attackers()`/every per-attacker aggregate built from it.
+    eng = make_engine([land()], [land()], hand=0)
+    p1 = eng.state.active_player
+    commander = GameObject(
+        creature(name="Commander Bear", toughness=1), owner_id="p1", is_commander=True
+    )
+    commander.summoning_sick = False
+    eng.state.add_to_battlefield(commander)
+
+    eng.state.current_step = "declare_attackers"
+    eng.declare_attackers(p1, [commander])
+    assert commander.attacking is True
+    assert commander.combat_defender is not None
+    commander.counters["+1/+1"] = 3  # toughness 1 -> 4; deal_damage below must match
+
+    eng.rules.deal_damage(commander, 4)
+    eng.rules.check_state_based_actions()
+    eng.rules.resolve_commander_zone_choice("command")
+
+    assert commander in p1.command
+    assert commander.attacking is False
+    assert commander.combat_defender is None
+    assert commander.counters == {}
+    assert commander.damage_marked == 0
+    assert commander.summoning_sick is True  # a fresh object, per RULE 400.7
+
+
 def test_commander_dying_choice_declined_stays_in_graveyard():
     eng = make_engine([], hand=0)
     p1 = eng.state.active_player
@@ -1631,6 +1664,12 @@ def test_commander_combat_damage_is_tracked_and_21_is_lethal():
     # damage while still at 19 life (nowhere near dead on life alone).
     for _ in range(3):
         cmdr.tapped = False
+        # RULE 511.3: end the previous fake "combat" before starting the
+        # next one — `declare_attackers` (2026-09-04 fix) now refuses to
+        # redeclare a creature still marked `attacking` from an uncleared
+        # combat, same as the real engine's own `_clear_combat` would have
+        # done between two genuine combats.
+        cmdr.attacking = False
         eng.state.current_step = "declare_attackers"
         eng.declare_attackers(eng.state.active_player, [cmdr])
         eng.state.current_step = "combat_damage"
@@ -3436,6 +3475,28 @@ def test_legal_actions_surfaces_kicker_offer():
     assert cast_action["max_kicker"] >= 1
 
 
+def test_legal_actions_surfaces_a_distinct_bargain_cast_offer():
+    eng = make_engine([instant(name="Bargaining Bolt", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.intrinsic_keywords.add("bargain")
+    p1.mana_pool.add("R")
+    obj_on_battlefield(
+        eng.state, eng,
+        Card(id="Treasure", name="Treasure", type_line="Artifact — Treasure"),
+    ).is_token = True
+
+    casts = [
+        action for action in eng.legal_actions(p1)
+        if action["type"] == "cast_spell" and action["instance_id"] == spell.instance_id
+    ]
+
+    assert any(not action.get("bargained") for action in casts)
+    assert any(action.get("bargained") for action in casts)
+
+
 # -- Buyback (RULE 702.27) ----------------------------------------------------
 
 
@@ -3717,6 +3778,9 @@ def test_legal_actions_surfaces_escape_offer():
 def test_bind_from_catalogue_creates_equipment_ability_from_keyword():
     eng = make_engine([land()], hand=0)
     eng.begin_turn()
+    # RULE 702.6c: Equip is sorcery-speed only — a real main phase, not just
+    # "some point in the turn" (`begin_turn` alone lands in untap/upkeep).
+    eng.state.current_step = "main1"
     p1 = eng.state.active_player
     host = obj_on_battlefield(eng.state, eng, creature(name="Host", cost="{1}"))
     host.summoning_sick = False

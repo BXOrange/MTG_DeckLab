@@ -100,7 +100,12 @@ def _fold_self_reference(text: str) -> str:
 #: Runs after lowercasing, per-line (``^`` anchored with MULTILINE) since the
 #: label only ever opens a line, never appears mid-sentence.
 _ABILITY_WORD_RE = re.compile(
-    r"^(?:landfall|constellation|battalion|enrage|delirium|veil of time|avoidance)\s*—\s*",
+    r"^(?:landfall|constellation|battalion|enrage|delirium|veil of time|avoidance"
+    # "Threshold — As long as seven or more cards are in your graveyard, …"
+    # (Odyssey block) — the label carries no rules meaning of its own
+    # (RULE 207.2c); the "as long as …" body it precedes is an ordinary
+    # RULE 613.6 conditional static once the label is gone.
+    r"|threshold)\s*—\s*",
     re.MULTILINE,
 )
 
@@ -245,7 +250,53 @@ def _fold_self_name(text: str, name: Optional[str]) -> str:
     for form in sorted(forms, key=len, reverse=True):  # longest first
         if form:
             text = re.sub(r"\b" + re.escape(form) + r"\b", SELF, text)
+    text = _fold_given_name_prefix(text, name)
     return text
+
+
+#: A given-name-prefix occurrence *not* to fold: preceded by a tribal/scope
+#: word ("another Cleric you control", "each Knight", "enchanted Angel") or
+#: followed by a type tell (" creature token", " you control") — there it
+#: reads as a creature-type filter that happens to share the card's given
+#: name, not a self-reference. (RULE 201.4 — the card names itself, not its
+#: type.) Kept deliberately small; the unconditional forms above already
+#: cover every unambiguous self-reference.
+_PREFIX_TYPE_BEFORE = re.compile(
+    r"(?:another|other|each|target|enchanted|equipped|a|an|all|gains?|has|have|"
+    r"with|grants?|lose|loses)\s+$",
+    re.IGNORECASE,
+)
+_PREFIX_TYPE_AFTER = re.compile(
+    r"^\s+(?:creature|you control|token|cards?\b|spells?\b|until end of turn)",
+    re.IGNORECASE,
+)
+
+
+def _fold_given_name_prefix(text: str, name: str) -> str:
+    """Fold a comma-less legendary's **given name** — the single word before
+    " of " in "Kaalia of the Vast" — to ``~`` where it's a genuine
+    self-reference. Context-gated (`_PREFIX_TYPE_BEFORE`/`_PREFIX_TYPE_AFTER`)
+    so a name that doubles as a creature type ("Cleric of Life's Bond" →
+    "another **Cleric** you control", "Knight of the New Coalition" → "a …
+    **Knight** creature token") keeps its type reading."""
+    first = name.split(",")[0].strip()
+    if " of " not in first:
+        return text
+    prefix = first.split(" of ")[0].strip()
+    if not prefix or " " in prefix:
+        return text
+    pat = re.compile(r"\b" + re.escape(prefix) + r"\b", re.IGNORECASE)
+
+    def _sub(m: "re.Match[str]") -> str:
+        if _PREFIX_TYPE_BEFORE.search(text[: m.start()]):
+            return m.group(0)
+        if _PREFIX_TYPE_AFTER.match(text[m.end():]):
+            return m.group(0)
+        return SELF
+
+    # Runs inside `_fold_self_name`, before `normalize` lowercases — so match
+    # case-insensitively against the printed-case text.
+    return pat.sub(_sub, text)
 
 
 def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str]] = None) -> str:

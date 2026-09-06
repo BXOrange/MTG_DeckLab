@@ -16,6 +16,7 @@ import pytest
 
 from mtg_analyzer.game.costs import ActivationCost
 from mtg_analyzer.game.effects import ActivatedAbility, DrawCardEffect
+from mtg_analyzer.game import mana_potential
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.mana_cost import ManaCost
@@ -161,6 +162,83 @@ def _spirit_guide(name="Simian Spirit Guide", color="G"):
         id=name, name=name, type_line="Creature — Ape Spirit", is_creature=True,
         oracle_text=f"Exile this card from your hand: Add {{{color}}}.",
     )
+
+
+def _mana_source(name, type_line, oracle_text, *, is_land=False, is_creature=False):
+    obj = GameObject(
+        Card(
+            id=name,
+            name=name,
+            type_line=type_line,
+            oracle_text=oracle_text,
+            is_land=is_land,
+            is_creature=is_creature,
+        ),
+        owner_id="p1",
+        zone=Zone.BATTLEFIELD,
+    )
+    obj.summoning_sick = False
+    return obj
+
+
+def test_auto_tap_uses_creature_mana_abilities_last():
+    eng = _make_engine()
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    sources = [
+        _land("Forest"),
+        _mana_source(
+            "Breeding Pool",
+            "Land",
+            "{T}: Add {G} or {U}.",
+            is_land=True,
+        ),
+        _mana_source("Mana Rock", "Artifact", "{T}: Add {C}."),
+        _mana_source(
+            "Mana Elf",
+            "Creature — Elf",
+            "{T}: Add {G}.",
+            is_creature=True,
+        ),
+    ]
+    for source in sources:
+        eng.state.add_to_battlefield(source)
+
+    plan = mana_potential.find_tap_plan(eng, p1, ManaCost.parse("{4}"))
+
+    assert plan is not None
+    assert [step.instance_id for step in plan.steps] == [source.instance_id for source in sources]
+
+
+def test_mana_potential_reports_maximum_and_decision_tree_variations():
+    eng = _make_engine()
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    sources = [
+        _land("Forest"),
+        _mana_source(
+            "Breeding Pool",
+            "Land",
+            "{T}: Add {G} or {U}.",
+            is_land=True,
+        ),
+        _mana_source("Mana Rock", "Artifact", "{T}: Add {C}."),
+        _mana_source(
+            "Mana Elf",
+            "Creature — Elf",
+            "{T}: Add {R}.",
+            is_creature=True,
+        ),
+    ]
+    for source in sources:
+        eng.state.add_to_battlefield(source)
+
+    summary = mana_potential.player_summary(eng, p1)
+
+    assert summary["maximum"] == 4
+    assert {variation["total"] for variation in summary["variations"]} >= {4}
+    assert any(variation["mana"] == {"C": 1, "U": 1, "R": 1, "G": 1}
+               for variation in summary["variations"])
 
 
 def test_cast_spell_auto_taps_untapped_lands_when_only_mana_blocks():

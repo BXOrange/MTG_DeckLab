@@ -298,7 +298,9 @@ def has_lifelink(obj: "GameObject") -> bool:
 
 
 def has_menace(obj: "GameObject") -> bool:
-    return "menace" in _obj_keywords(obj)
+    # RULE 701.60b: a suspected creature has menace (in addition to any
+    # printed/granted keyword), so `min_blockers` requires 2+ blockers for it.
+    return "menace" in _obj_keywords(obj) or bool(getattr(obj, "is_suspected", False))
 
 
 def has_defender(obj: "GameObject") -> bool:
@@ -336,19 +338,19 @@ def toxic_value(obj: "GameObject") -> Optional[int]:
     have the keyword.
 
     RULE 702.164b's "total toxic value" sums every toxic ability an object
-    has, but `attach_keyword` only ever docks one entry per keyword name —
-    there's no standing "grant Toxic" mechanism yet to stack a second
-    source on top of a printed one — so this is just the single printed N.
-    Consulted by `RulesEngine.deal_damage` (RULE 702.164c), never by this
-    module's own combat predicates: unlike infect/wither, toxic doesn't
-    change how damage is dealt or what it does to a creature, so nothing
-    here needs to branch on it.
+    has. `parametric_keyword_value` (ENG-31) reads a *granted* "toxic N"
+    (`_granted_parametric_keywords`, from a layer-6 or until-EOT grant)
+    ahead of the printed value docked by `attach_keyword`; there's still no
+    card that both prints and is granted toxic, so this stays a single N
+    rather than a real 702.164b sum. Consulted by `RulesEngine.deal_damage`
+    (RULE 702.164c), never by this module's own combat predicates.
     """
     if getattr(obj, "loses_all_abilities", False):
         return None
-    params = getattr(obj, "parametric_keywords", None) or {}
-    toxic = params.get("toxic") or {}
-    n = toxic.get("n")
+    getter = getattr(obj, "parametric_keyword_value", None)
+    n = getter("toxic") if callable(getter) else (
+        (getattr(obj, "parametric_keywords", None) or {}).get("toxic") or {}
+    ).get("n")
     if n is None:
         return None
     try:
@@ -502,6 +504,12 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "keyword", "keyword_any", "without_keyword",
         "subtype", "subtype_any", "without_subtype", "color", "without_color",
         "card_type", "without_card_type", "power_vs_reference", "attacking",
+        # "…that's blocking" / "…that's attacking or blocking" (Surge of
+        # Righteousness) — RULE 509.1 blocker status and the either-of pair,
+        # the siblings of the ``attacking`` boolean above.
+        "blocking", "attacking_or_blocking",
+        # "…if it targets a tapped creature" (RULE 601.2f cost reduction).
+        "tapped",
         "even_mana_value",
         # "a black or red source"/"a source of the chosen colour"/"a creature
         # of the chosen type" (MEC-30 — Greater Realm of Preservation/Story
@@ -594,6 +602,21 @@ def matches_object_filter(
     # a bespoke target kind.
     if filt.get("attacking") and not getattr(obj, "attacking", False):
         return False
+    # "…that's blocking" / "…that's attacking or blocking" (Surge of
+    # Righteousness) — RULE 509.1: a creature is blocking once it has been
+    # assigned to an attacker (`blocking`/`additional_blocking`).
+    _is_blocking = bool(blocking_attacker_ids(obj))
+    if filt.get("blocking") and not _is_blocking:
+        return False
+    if filt.get("attacking_or_blocking") and not (
+        getattr(obj, "attacking", False) or _is_blocking
+    ):
+        return False
+    # "…if it targets a **tapped** creature" (Ajani's Response / the
+    # cost-less-if-it-targets cycle) — RULE 601.2f cost reduction gated on
+    # the chosen target's tap state, a boolean flag like `attacking` above.
+    if filt.get("tapped") is not None and bool(getattr(obj, "tapped", False)) != bool(filt["tapped"]):
+        return False
     # "Equip commander {N}" (RULE 702.6e, Commander's Plate, MEC-43) — the
     # target of this Equip cost must be a commander (RULE 903.4).
     if filt.get("is_commander") and not getattr(obj, "is_commander", False):
@@ -603,6 +626,16 @@ def matches_object_filter(
     # composing with every other filter key here rather than a bespoke
     # sacrifice-only check.
     if filt.get("nontoken") and getattr(obj, "is_token", False):
+        return False
+    # "exchange control of two target **nonlegendary** creatures" (RULE
+    # 205.4a, PAR-30 — Djinn of Infinite Deceits) — reads `Card.is_legendary`
+    # the same boolean-flag way `nontoken` reads `is_token` above.
+    if filt.get("nonlegendary") and getattr(obj.card, "is_legendary", False):
+        return False
+    # "target suspected creature you control" (RULE 701.60, PAR-29 — Deadly
+    # Complication) — reads `GameObject.is_suspected` the same boolean-flag
+    # way `attacking`/`is_commander` do above.
+    if filt.get("is_suspected") and not is_suspected(obj):
         return False
     color = filt.get("color")
     if color is not None and str(color).upper() not in {
@@ -737,6 +770,32 @@ def goaders(obj: "GameObject") -> set[str]:
 def is_goaded(obj: "GameObject") -> bool:
     """Whether ``obj`` is goaded by anyone (RULE 701.15b)."""
     return bool(goaders(obj))
+
+
+def is_suspected(obj: "GameObject") -> bool:
+    """RULE 701.60a: whether ``obj`` carries the **suspected** designation.
+
+    A plain `GameObject.is_suspected` flag (`RulesEngine.suspect` sets it,
+    `RemoveSuspectedEffect` clears it), not a keyword and not read from the
+    layer engine — its two rules consequences (RULE 701.60b: menace, and
+    can't block) are applied by `has_menace` and `combat_mixin._can_block`
+    consulting this directly, mirroring how `is_goaded` feeds the
+    combat-requirement checks.
+    """
+    return bool(getattr(obj, "is_suspected", False))
+
+
+def is_detained(obj: "GameObject") -> bool:
+    """RULE 701.35b: whether ``obj`` is currently **detained** by anyone.
+
+    Reads `GameObject.detained_by` (a set of detaining players, expiring at
+    each detainer's next turn — `GameEngine.begin_turn`). Its three
+    consequences — can't attack, can't block, activated abilities can't be
+    activated — are applied by `_can_attack` / `can_block` / `can_activate`
+    consulting this, the same way `is_goaded` feeds the combat-requirement
+    checks and `is_suspected` feeds the menace/can't-block ones.
+    """
+    return bool(getattr(obj, "detained_by", None))
 
 
 def blocker_allowed(

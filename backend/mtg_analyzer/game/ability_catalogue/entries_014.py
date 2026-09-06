@@ -330,13 +330,10 @@ def _delay() -> list[AbilitySpec]:
       `GameObject.granted_suspend_haste`, stamped alongside the window and
       consumed once at resolution exactly like `cast_via_evoke`.
 
-    Deliberately *not* built: RULE 702.62a's own *first* ability — "pay the
-    Suspend cost rather than the mana cost, exiling it with N time counters,
-    from hand" — since Delay's own path never uses it (the object is
-    exiled directly, already carrying its counters) and no other card in
-    this project's tracked cube pools currently prints a bare "Suspend
-    N—cost" that would need it; a real, separately-scoped gap if a future
-    card needs it, not silently assumed done.
+    RULE 702.62a's first ability (the hand-zone special action) is provided
+    by `GameEngine.suspend` (MEC-64): it pays the printed Suspend cost,
+    exiles the card with its printed number of time counters, and leaves the
+    existing exile-zone upkeep scanner to do the rest.
     """
     return [
         AbilitySpec(
@@ -1587,5 +1584,4 @@ def _tenacious_dead() -> list[AbilitySpec]:
 
 
 register("Tenacious Dead", _tenacious_dead)
-
 

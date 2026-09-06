@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Cross-platform install routine for MTG Deck Analyzer.
+r"""Cross-platform install routine for DeckLab.
 
 Creates the backend's virtual environment (if missing) and installs its
 dependencies. Pure standard library, works the same on macOS/Linux/Windows

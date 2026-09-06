@@ -32,6 +32,17 @@ _ENTERS = r"enters(?: the battlefield)?"
 #: Plain tap-land: "~ enters tapped." / "this land enters the battlefield
 #: tapped." (35+ cards — the single biggest unclaimed cluster).
 _ALWAYS_RE = re.compile(rf"^{_SUBJECT} {_ENTERS} tapped\.?$", re.IGNORECASE)
+#: Thriving lands: "~ enters tapped. As it enters, choose a color other
+#: than red."  The first sentence is still an unconditional RULE 614.1
+#: tapped-entry replacement; ``tapped_entry_choice_tail`` exposes the second
+#: sentence to the ordinary RULE 601.2b enter-choice parser in ``gate.py``.
+#: Keep this deliberately limited to the three existing choice families so a
+#: compound entry line cannot be claimed while silently dropping new text.
+_ALWAYS_THEN_ENTER_CHOICE_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped\.\s*(?P<choice>as it enters, choose a "
+    r"(?:creature type|color|basic land type)(?: other than [a-z]+)?)\.?$",
+    re.IGNORECASE,
+)
 #: Shock lands: "As ~ enters the battlefield, you may pay N life. If you
 #: don't, it enters tapped." — a genuine choice, RULE 614.1 optional cost.
 _PAY_LIFE_RE = re.compile(
@@ -88,6 +99,17 @@ _UNLESS_TURN_AT_MOST_RE = re.compile(
 )
 _UNLESS_OPPONENTS_COUNT_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} tapped unless your opponents control (\d+) or (more|fewer) lands\.?$",
+    re.IGNORECASE,
+)
+#: The Innistrad-block "slow land" life cycle (Abandoned Campground /
+#: Bleeding Woods / Lakeside Shack / Peculiar Lighthouse / …, 10 cards):
+#: "~ enters tapped unless a player has N or less life." — deterministic on
+#: the current life totals of *any* player (the controller or an opponent),
+#: read off the game state exactly as `unless_opponents_count` reads the
+#: board. Only the "N or less" form is printed; "N or more" would flip
+#: `cmp`, kept out until a real card needs it.
+_UNLESS_LIFE_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped unless a player has (\d+) or less life\.?$",
     re.IGNORECASE,
 )
 #: The mirror image of a shock land (Mariposa Military Base): untapped by
@@ -157,11 +179,16 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
       — the "Turbulent" land cycle: untapped iff the *total* count of lands
       across all opponents compares as stated (unlike ``unless_count``,
       which counts the controller's own other lands).
+    - ``{"kind": "unless_life", "cmp": "le", "count": N}`` — the Innistrad
+      "slow land" life cycle: untapped iff *any* player's life total is
+      ``N`` or less.
     - ``{"kind": "reveal_types", "types": [...]}`` — the "reveal land" cycle:
       the controller may reveal a card of one of these types from hand to
       keep it untapped, a genuine interactive choice (like ``pay_life``),
       not a deterministic board check (like ``unless_types``).
     """
+    if _ALWAYS_THEN_ENTER_CHOICE_RE.match(line):
+        return {"kind": "always"}
     match = _PAY_LIFE_RE.match(line)
     if match:
         return {"kind": "pay_life", "amount": int(match.group(1))}
@@ -173,6 +200,9 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     if match:
         cmp_op = "le" if match.group(2).lower() == "fewer" else "ge"
         return {"kind": "unless_opponents_count", "cmp": cmp_op, "count": int(match.group(1))}
+    match = _UNLESS_LIFE_RE.match(line)
+    if match:
+        return {"kind": "unless_life", "cmp": "le", "count": int(match.group(1))}
     match = _UNLESS_TURN_AT_MOST_RE.match(line)
     if match:
         listed = re.findall("|".join(_ORDINALS), match.group(1), re.IGNORECASE)
@@ -213,6 +243,19 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     if _ALWAYS_RE.match(line):
         return {"kind": "always"}
     return None
+
+
+def tapped_entry_choice_tail(line: str) -> Optional[str]:
+    """Return the RULE 601.2b choice part of a recognized compound tap land.
+
+    ``tap_clause_condition`` owns the RULE 614.1 part and the coverage gate
+    must still feed the remaining "as it enters" sentence to the enter-choice
+    parser; otherwise a Thriving land would be marked covered but never retain
+    its chosen colour.  ``None`` means this isn't that tightly-scoped compound
+    shape.
+    """
+    match = _ALWAYS_THEN_ENTER_CHOICE_RE.match(line)
+    return match.group("choice") if match else None
 
 
 def land_tap_condition(card: Any) -> dict[str, Any]:

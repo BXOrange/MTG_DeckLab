@@ -17,6 +17,7 @@ from __future__ import annotations
 import copy
 import itertools
 import uuid
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from .events import EventType, GameEvent
@@ -31,6 +32,27 @@ from .player import Player
 #: several of its own abilities on the stack at once). Same counter pattern
 #: as `GameObject.instance_id`.
 _stack_id_counter = itertools.count(1)
+
+
+@dataclass
+class InternalTurn:
+    """The internal turn cursor and its player-facing projection.
+
+    ``number`` advances for every player's turn (RULE 500.1). ``turn_nr``
+    advances once the turn order completes a full circuit. ``player_id`` is
+    the seat whose turn is currently active.
+    """
+
+    number: int = 0
+    turn_nr: int = 0
+    player_id: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "number": self.number,
+            "turn_nr": self.turn_nr,
+            "player_id": self.player_id,
+        }
 
 
 class StackItem:
@@ -134,6 +156,20 @@ class StackItem:
             # above already covers it) — the UI shows this card's image with
             # the ability text overlaid, and a link back to it.
             "source": self.source.to_dict() if self.source else None,
+            # This item's already-chosen targets (RULE 115/601.2c), reduced to
+            # bare ids — the board uses it to badge a targeted permanent and
+            # to highlight a pair of stack items that target each other
+            # (`gameBoardView.js`'s target-overlay feature). `self.targets`
+            # holds live `GameObject`/`Player` references (see
+            # `_target_instance_ids` in `casting_mixin.py`), never
+            # serializable as-is.
+            "targets": [
+                {"instance_id": tgt.instance_id}
+                if isinstance(tgt, GameObject)
+                else {"player_id": tgt.id}
+                for tgt in self.targets
+                if isinstance(tgt, (GameObject, Player))
+            ],
         }
 
     def __repr__(self) -> str:
@@ -166,6 +202,7 @@ class DelayedTrigger:
         targets: Optional[list[Any]] = None,
         description: str = "",
         min_turn: int = 0,
+        condition: Optional[dict[str, Any]] = None,
     ) -> None:
         self.controller_id = controller_id
         self.step = step
@@ -173,10 +210,16 @@ class DelayedTrigger:
         self.scope = scope
         self.targets = targets or []
         self.description = description
-        #: The earliest ``turn_number`` this may fire at — 0 means "the very
+        #: RULE 603.4 intervening-if re-checked by `GameEngine._fire_delayed_
+        #: triggers` when this would go on the stack — an "…unless <X>" rider
+        #: on the delayed instruction (Sauron, the Necromancer's "exile that
+        #: token unless ~ is your Ring-bearer"). ``None`` (the common case)
+        #: always fires. A whitelisted `EffectSpec.condition`-shaped dict.
+        self.condition = condition
+        #: The earliest internal turn this may fire at — 0 means "the very
         #: next matching step". Lets "at the beginning of *that* (extra) turn's
         #: end step" (Final Fortune) skip the *current* turn's end step by
-        #: arming with ``min_turn = turn_number + 1``.
+        #: arming with ``min_turn = internal_turn.number + 1``.
         self.min_turn = min_turn
 
     def __repr__(self) -> str:
@@ -233,17 +276,38 @@ class TemporaryPlayerTrigger:
         effects: list[Any],
         install_turn: int,
         description: str = "",
+        duration: str = "defending_next_turn",
+        event_player_scope: str = "self",
     ) -> None:
         self.player_id = player_id
         self.event_type = event_type
         self.effects = effects
         self.install_turn = install_turn
-        self.phase = "waiting"
-        self.active_since_turn: Optional[int] = None
+        #: ``"defending_next_turn"`` — the Nuka-Nuke Launcher shape: arm in
+        #: the ``"waiting"`` phase, go ``"active"`` when ``player_id``'s own
+        #: next turn begins, drop after it ends. ``"this_turn"`` (Ruinous
+        #: Waterbending's "whenever a creature dies **this turn**, you gain
+        #: 1 life") — armed ``"active"`` immediately, dropped at the next
+        #: `EventType.TURN_BEGIN` (anyone's).
+        self.duration = duration
+        #: How the installed trigger matches an event to ``player_id``:
+        #: ``"self"`` — only when the event names that player (`event.get(
+        #: "player_id")`, Nuka-Nuke's "whenever **they** cast a spell").
+        #: ``"any"`` — fire on every matching ``event_type`` regardless of
+        #: whose it is (Ruinous Waterbending's "whenever **a** creature
+        #: dies"); the effects still go to ``player_id`` (baked at install).
+        self.event_player_scope = event_player_scope
+        self.phase = "active" if duration == "this_turn" else "waiting"
+        self.active_since_turn: Optional[int] = (
+            install_turn if duration == "this_turn" else None
+        )
         self.description = description
 
     def __repr__(self) -> str:
-        return f"TemporaryPlayerTrigger({self.player_id} @ {self.event_type!r}, phase={self.phase!r})"
+        return (
+            f"TemporaryPlayerTrigger({self.player_id} @ {self.event_type!r}, "
+            f"phase={self.phase!r}, duration={self.duration!r})"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """For the UI's "planned" panel — mirrors `DelayedTrigger.to_dict()`."""
@@ -257,6 +321,82 @@ class TemporaryPlayerTrigger:
         }
 
 
+class TurnControl:
+    """MEC-51 (RULE 720): one player controls another player's **turn** — or
+    just their **combat phase** — for a bounded window. "You control target
+    opponent during that player's next turn." (Mindslaver, Emrakul the
+    Promised End, Sorin Markov's −7, Worst Fears) / "…during their next
+    combat phase." (Secret of Bloodbending).
+
+    A small `TURN_BEGIN`-driven state machine, exactly like
+    `TemporaryPlayerTrigger`:
+
+    * ``"waiting"`` — installed; ``controlled_id``'s next turn hasn't begun
+      yet (a control installed *during* the controlled player's own turn
+      does not take effect until their *following* turn — RULE 720.6).
+    * ``"active"`` — inside that turn. `RulesEngine._advance_turn_controls`
+      flips it here at that turn's `TURN_BEGIN`. While active,
+      `GameState.decider_for` / `driving_seat_for` route the controlled
+      seat's decisions, priority and turn-based actions to
+      ``controller_id`` (`scope == "combat"` additionally gates on the
+      combat phase being current).
+    * Removed at the next `TURN_BEGIN` after ``active_since_turn`` — that
+      next turn beginning is what "the end of [their] turn" means here,
+      the same operational definition `TemporaryPlayerTrigger` uses.
+
+    RULE 720.x carve-outs are a **documented simplification** for this first
+    cut: the controlled player still concedes for themselves (720.1), and
+    "look at cards you couldn't otherwise see" (720.2) is modelled only as
+    the controller seeing the controlled hand for the window
+    (`services/game_session.py`), not the finer 720.3-720.7 edges. Plain
+    data — deep-copies with `GameState.clone`.
+    """
+
+    def __init__(
+        self,
+        controlled_id: str,
+        controller_id: str,
+        install_turn: int,
+        scope: str = "turn",
+        source_name: str = "",
+    ) -> None:
+        self.controlled_id = controlled_id
+        self.controller_id = controller_id
+        self.install_turn = install_turn
+        #: ``"turn"`` — the whole turn. ``"combat"`` — only while the
+        #: controlled player's combat phase is the current phase.
+        self.scope = scope if scope in ("turn", "combat") else "turn"
+        self.source_name = source_name
+        #: Emrakul, the Promised End: "After that turn, that player takes an
+        #: extra turn." — `RulesEngine._advance_turn_controls` queues it onto
+        #: `GameState.extra_turns` at the controlled turn's `TURN_END`.
+        self.grant_extra_turn_after = False
+        self.phase = "waiting"
+        self.active_since_turn: Optional[int] = None
+
+    def is_active(self, current_phase: Optional[str] = None) -> bool:
+        if self.phase != "active":
+            return False
+        if self.scope == "combat":
+            return current_phase == "combat"
+        return True
+
+    def __repr__(self) -> str:
+        return (
+            f"TurnControl({self.controller_id} over {self.controlled_id}, "
+            f"scope={self.scope!r}, phase={self.phase!r})"
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "controlled_id": self.controlled_id,
+            "controller_id": self.controller_id,
+            "scope": self.scope,
+            "phase": self.phase,
+            "source_name": self.source_name,
+        }
+
+
 class GameState:
     """The full state of one game and a light event bus over it."""
 
@@ -266,15 +406,8 @@ class GameState:
         self.id = id or str(uuid.uuid4())
         self.players = players
 
-        self.turn_number = 0
-        #: How many times the turn order has come back around to whoever
-        #: started the game. `turn_number` is the rules-correct count (RULE
-        #: 500.1 — *each* player's turn is a turn of its own, so a two-player
-        #: game is on turn 7 when the starting player takes their fourth);
-        #: `round_number` is what players mean by "we're on turn 4". Purely
-        #: for display: nothing in the rules engine reads it.
-        self.round_number = 0
-        #: Who took turn 1 — the reference point `round_number` counts. Kept
+        self.internal_turn = InternalTurn()
+        #: Who took turn 1 — the reference point `turn_nr` counts. Kept
         #: as an id rather than an index because players leave the game
         #: (RULE 800.4a) and the indices shift under it.
         self.starting_player_id: Optional[str] = None
@@ -374,6 +507,12 @@ class GameState:
         #: `_apply_effects_partitioned`, drained by `RulesEngine.
         #: resume_deferred_effects` from `GameEngine.resolve_until_stable`.
         self.deferred_effects: list[dict[str, Any]] = []
+        #: RULE 700.2 / MEC-68: modes selected by a particular triggered
+        #: ability during the current turn. Keys are stable for the lifetime
+        #: of a bound ability (source instance id + ability object id), and
+        #: values are mode indices. `GameEngine.begin_turn` clears this at
+        #: the turn boundary.
+        self.trigger_mode_history: dict[tuple[str, int], set[int]] = {}
 
         #: A temporary "you may play this card" permission granted to a
         #: card sitting outside hand/command/graveyard/library-top (Light
@@ -439,6 +578,15 @@ class GameState:
         #: swept at cleanup since there's no turn window to expire.
         self.exile_cast_condition: dict[int, tuple[str, dict]] = {}
 
+        #: RULE 701.65 (Airbend, PAR-29): instance id → a *fixed* mana-cost
+        #: string ("{2}") the card's owner pays to cast it from exile
+        #: **instead of** its printed mana cost, for as long as it's exiled
+        #: under a matching `exile_cast_condition` grant. Read by
+        #: `GameEngine.effective_cast_cost`; like `exile_cast_condition`,
+        #: keyed by `instance_id` and never swept — a cast card becomes a
+        #: new object (RULE 400.7) so the stale entry is inert.
+        self.exile_cast_cost_override: dict[int, str] = {}
+
         #: RULE 702.94 Miracle (PAR-26) — instance ids of hand cards whose
         #: same-turn "cast for the miracle cost" window is currently open
         #: (the first card their controller drew this turn). Torn down at
@@ -478,6 +626,22 @@ class GameState:
         #: lockstep with `temp_play_permissions` at cleanup otherwise
         #: (`GameEngine._step_cleanup`).
         self.free_cast_instance_ids: set[int] = set()
+
+        #: "…exile the top card of each player's library, then you may
+        #: cast any number of spells from among those cards without
+        #: paying their mana costs." (Etali, Primal Storm/Primal Conqueror)
+        #: — Scryfall's own ruling: "timing permissions based on a card's
+        #: type are ignored, and the spells resolve before blockers are
+        #: declared" (a mid-combat window even a sorcery-speed card must be
+        #: castable in). A sibling marker to `free_cast_instance_ids`
+        #: rather than a real Flash grant, so it doesn't leak into
+        #: `combat.has(obj, "flash")`/anything that reads the object's own
+        #: keywords. Set by `RulesEngine.grant_free_cast_window_from_exile`
+        #: (``ignore_timing=True``); consulted by `GameEngine.can_cast`'s
+        #: own ``sorcery_speed`` computation; pruned in lockstep with
+        #: `temp_play_permissions` at cleanup, same as `free_cast_instance_
+        #: ids` above.
+        self.free_cast_ignore_timing_instance_ids: set[int] = set()
 
         #: "Target instant or sorcery card in your graveyard gains flashback
         #: until end of turn." (MEC-24 — Recoup/Snapcaster Mage/Sphinx of
@@ -519,6 +683,23 @@ class GameState:
         #: `clone`.
         self.temporary_player_triggers: list["TemporaryPlayerTrigger"] = []
 
+        #: MEC-51 (RULE 720): active + waiting "you control that player's
+        #: next turn/combat" windows. `RulesEngine._advance_turn_controls`
+        #: runs the `TURN_BEGIN` state machine; `decider_for` /
+        #: `driving_seat_for` below route a controlled seat's decisions to
+        #: the controller while a window is `is_active`. Plain data —
+        #: deep-copies with `clone`.
+        self.turn_controls: list["TurnControl"] = []
+
+        #: MEC-51b (RULE 720 / Word of Command): a resolution-scoped "you
+        #: control that player" window, while the WoC caster picks a card
+        #: from the target's hand and has them play it. ``{"controller_id":
+        #: …, "target_id": …, "chosen_instance_id": …}`` or ``None``.
+        #: `decider_for` routes the target's decisions to the controller
+        #: while set; cleared once the chosen card is played. Plain dict —
+        #: deep-copies with `clone`.
+        self.word_of_command: Optional[dict[str, Any]] = None
+
         #: RULE 611 continuous effects created by a resolving spell/ability
         #: rather than by a permanent's printed static ability — "Until your
         #: next turn, creatures you control get +1/+1", "Target creature
@@ -547,6 +728,17 @@ class GameState:
         #: set. Reset at cleanup (`GameEngine._step_cleanup`), the same
         #: RULE 514.2 window every other "this turn" flag clears in.
         self.damage_prevention_disabled: bool = False
+
+        #: MEC-46 (RULE 701.38f): "You choose how each player votes this
+        #: turn." (Illusion of Choice) — the id of the player who answers
+        #: *every* seat's `vote` / `vote_object` choice for the rest of the
+        #: turn. `RulesEngine._advance_vote` / `_advance_object_vote`
+        #: redirect the `pending_choice`'s ``player_id`` to this id while it
+        #: is set (the real voter's name still rides in the prompt). Reset
+        #: at cleanup (`GameEngine._step_cleanup`), the same RULE 514.2
+        #: window every other "this turn" flag clears in. Plain data —
+        #: deep-copies with `clone`.
+        self.forced_vote_controller_id: Optional[str] = None
 
         #: Extra turns to take (RULE 500.7), as a FIFO of player ids —
         #: "take an extra turn after this one" (Final Fortune, the Time Warp
@@ -679,6 +871,19 @@ class GameState:
         #: one shared count regardless of whose turn it is), reset in
         #: `GameEngine.begin_turn`.
         self.combats_this_turn: int = 0
+        #: Defending players who have already submitted a `declare_blockers`
+        #: action for the *current* combat (RULE 509.1a — declaring no
+        #: blocks at all is itself a complete, legal answer, so an attacking
+        #: player's own `obj.attacking` flag has no equivalent on the
+        #: defending side: with zero blockers assigned there is no per-object
+        #: state left behind to say "already answered"). Stamped by
+        #: `GameEngine.declare_blockers` regardless of whether `assignments`
+        #: was empty, so `legal_actions_mixin` can stop re-offering
+        #: `declare_blockers` to a player who has already declared for this
+        #: combat. Reset alongside every other per-combat marker in
+        #: `GameEngine._clear_combat` — at `begin_turn` (before the first
+        #: combat) and at `_step_end_combat` (before any extra combat phase).
+        self.declared_blockers_this_combat: set[str] = set()
         #: "When you next cast an instant or sorcery spell with mana value
         #: N or less this turn, `<effect>`." (Dual Strike-shaped) — a
         #: one-shot watch for the *next* qualifying `SPELL_CAST` this turn,
@@ -705,6 +910,23 @@ class GameState:
         #: on every successful draw, the same shape `spells_cast_this_turn`
         #: uses for `cast_limit`.
         self.cards_drawn_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: Cards discarded by each player *this turn* (RULE 701.8 — "create a
+        #: token that's a copy of ~ for each card you've discarded this
+        #: turn", Living Laser; "draw a card for each card you've discarded
+        #: this turn", Change of Fortune). Same shape/reset as `cards_drawn_
+        #: this_turn` above — zeroed for the incoming active player in
+        #: `GameEngine.begin_turn`, bumped at every `DISCARD_CARD` fire site
+        #: (`RulesEngine.discard`/`discard_specific`, the Pitch-cost discard);
+        #: read by `continuous.count_selector`'s ``"cards_discarded_this_
+        #: turn"``.
+        self.cards_discarded_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: "You can't attack that player this turn." (Call for Aid) —
+        #: ``(attacker_player_id, defending_player_id)`` pairs barred from
+        #: combat for the rest of this turn (RULE 508.1a). Checked by
+        #: `GameEngine._can_attack` against the *assigned* defender only
+        #: (offer-time, with no defender yet, stays permissive); cleared at
+        #: cleanup (RULE 514.2).
+        self.no_attack_pairs_this_turn: set[tuple[str, str]] = set()
         #: The *specific objects* drawn by each player this turn (Sylvan
         #: Library, MEC-40 — "choose two cards in your hand drawn this
         #: turn"), unlike `cards_drawn_this_turn`'s own plain count above:
@@ -735,6 +957,17 @@ class GameState:
         #: attacks" triggers and a creature only ever attacks on its own
         #: controller's turn.
         self.life_gained_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: The life each player has *lost* this turn — the mirror of
+        #: `life_gained_this_turn`, bumped at `RulesEngine.lose_life`'s single
+        #: choke point (damage, life-paid costs, "loses N life" effects all
+        #: funnel through it) and reset for every player each
+        #: `GameEngine.begin_turn`. Read by `ConditionalEffect`'s
+        #: ``opponent_lost_life_this_turn_at_least`` key and
+        #: `FaceVillainousChoiceEffect.subject_min_life_lost` (Davros, Dalek
+        #: Creator — "…if an opponent lost 3 or more life this turn" / "each
+        #: opponent who lost 3 or more life this turn faces a villainous
+        #: choice").
+        self.life_lost_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: Whether each player has cast an instant or sorcery spell *this
         #: turn* (PAR-10 — `game/static_conditions.py`'s
         #: ``cast_instant_or_sorcery_this_turn`` condition: Hall of Oracles/
@@ -769,13 +1002,13 @@ class GameState:
         #: RULE 702.8b-adjacent "you may cast spells as though they had
         #: flash this turn" (Borne Upon a Wind-shaped) — ``{player_id: turn_
         #: number}``; a player may cast at flash speed while their entry
-        #: equals the *current* `turn_number`, so this needs no cleanup-step
+        #: equals the *current* internal turn, so this needs no cleanup-step
         #: bookkeeping (it simply stops matching once the turn advances,
         #: unlike the `temp_*` `GameObject` fields `_step_cleanup` clears).
         self.temp_flash_until_turn: dict[str, int] = {}
         #: RULE 116.2a-adjacent (MEC-35, Leonin Arbiter): "Any player may
         #: pay {2} for that player to ignore this effect until end of
-        #: turn." — ``{player_id: turn_number}``, the same "stops matching
+        #: turn." — ``{player_id: internal_turn.number}``, the same "stops matching
         #: once the turn advances, no cleanup bookkeeping" shape as
         #: `temp_flash_until_turn` right above. Consulted by
         #: `RulesEngine._has_search_exemption`, which every `request_
@@ -816,6 +1049,40 @@ class GameState:
         #: `RulesEngine.deal_damage`, reset game-wide in `GameEngine.
         #: begin_turn`.
         self.damage_dealt_to_players_this_turn: dict[str, int] = {}
+        #: PAR-32: total damage dealt *by* each player's own sources this
+        #: turn, ``{controller_id: amount}`` (Dragon Cultist — "if a source
+        #: you controlled dealt N or more damage this turn"). Incremented in
+        #: `RulesEngine.deal_damage` off ``source.controller_id``, cleared
+        #: game-wide in `begin_turn`.
+        self.damage_dealt_by_this_turn: dict[str, int] = {}
+        #: PAR-32: player ids into whose graveyard a *creature card* went
+        #: from anywhere this turn (Cloakwood Hermit). Added in
+        #: `RulesEngine._move_to_graveyard` (and mill/discard paths), keyed
+        #: by the card's owner; cleared game-wide in `begin_turn`.
+        self.creature_card_to_graveyard_this_turn: set[str] = set()
+        #: RULE 702.175 (Descend): player ids for whom a permanent card was
+        #: put into their graveyard from anywhere this turn.  Unlike the
+        #: creature-only history above, this includes artifact/enchantment/
+        #: land/planeswalker cards as well.
+        self.permanent_card_to_graveyard_this_turn: set[str] = set()
+        #: MEC-57: player ids whose "the first time you would draw a card
+        #: each turn, instead …" replacement (Scion of Halaster) has already
+        #: fired this turn — the gate `effects._first_draw_look_two_
+        #: replacement` reads/sets, distinct from `Player.first_draw_done_
+        #: this_step` (which resets every *draw step*, not every turn).
+        #: Cleared game-wide in `GameEngine.begin_turn`.
+        self.first_draw_replaced_this_turn: set[str] = set()
+        #: MEC-60: each player's own creature-*subtype* words (lowercase)
+        #: among every spell they've cast this turn — ``{player_id:
+        #: {subtype, ...}}`` — the general "have you cast a `<subtype>`
+        #: spell yet this turn" tracker `static_conditions`'
+        #: ``first_subtype_spell_this_turn`` reads (Acolyte of Bahamut:
+        #: "The first Dragon spell you cast each turn costs {2} less").
+        #: Populated in `RulesEngine._track_spell_cast` off the just-cast
+        #: object's live subtypes (not the SPELL_CAST event's own
+        #: ``object_types``, which only carries *main* card types); cleared
+        #: game-wide in `GameEngine.begin_turn`.
+        self.creature_type_spells_cast_this_turn: dict[str, set[str]] = {}
         #: How many creatures have died under each player's control *this
         #: turn* (RULE 700.4) — ``{player_id: count}``, incremented off the
         #: `DIES` event by `RulesEngine._track_creature_death` and cleared
@@ -825,6 +1092,38 @@ class GameState:
         #: restriction) is a *history* question — the creature is long gone
         #: from every zone a live board scan could reach.
         self.creatures_died_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: MEC-49: for each creature that took damage *this turn*, the set of
+        #: `instance_id`s of the sources that dealt it — ``{damaged_obj_id:
+        #: {source_id, …}}``. A *history* question no live board can answer:
+        #: "whenever a creature dealt damage by ~ this turn dies, …" (Baron
+        #: Sengir, Abattoir Ghoul, Blood Cultist &c.) is asked off the DIES
+        #: event, after the creature is gone. Recorded by `RulesEngine.
+        #: deal_damage` for any damage to a creature (combat *or* not, from
+        #: any source), read by `effect_binder._build_group_ok`'s
+        #: ``damaged_by_source_this_turn`` filter, cleared wholesale in
+        #: `GameEngine.begin_turn` (the per-source hit-*set* sibling of
+        #: `combat_damage_to_players_this_turn`).
+        self.creatures_damaged_by_source_this_turn: dict[int, set[int]] = {}
+
+        #: Player ids granted "you have no maximum hand size **for the rest
+        #: of the game**" by a resolving spell/ability (Spirit Water
+        #: Revival) — the durational, resolve-time-granted sibling of the
+        #: battlefield-static `no_max_hand_size` layer (Reliquary Tower).
+        #: Consulted by `continuous.has_no_maximum_hand_size`; never
+        #: cleared (rest of the game), and RULE 400.7-safe (keyed by the
+        #: player, not an object).
+        self.no_max_hand_size_player_ids: set[str] = set()
+
+        #: Which bending keyword actions (RULE 701.6x — Avatar: The Last
+        #: Airbender) each player has performed *this turn*: ``{player_id:
+        #: {"waterbend", "earthbend", "firebend", "airbend"}}``. Populated by
+        #: `RulesEngine.record_bend` (which also fires `EventType.BENT`) and
+        #: cleared wholesale in `GameEngine.begin_turn`, the same
+        #: history-question shape `creatures_died_this_turn` uses above —
+        #: Avatar Aang's "then if you've done all four this turn, transform"
+        #: is exactly such a question (the individual bends leave no board
+        #: trace a live scan could reach).
+        self.bends_this_turn: dict[str, set[str]] = {}
 
         #: Chronological log of everything fired; also the record the
         #: WebSocket layer can diff to build ``game_state_update``s.
@@ -833,6 +1132,14 @@ class GameState:
         self._subscribers: list[Callable[[GameEvent], None]] = []
 
     # -- Players ---------------------------------------------------------
+
+    @property
+    def turn_nr(self) -> int:
+        return self.internal_turn.turn_nr
+
+    @turn_nr.setter
+    def turn_nr(self, value: int) -> None:
+        self.internal_turn.turn_nr = int(value)
 
     @property
     def active_player(self) -> Player:
@@ -883,17 +1190,55 @@ class GameState:
     def non_active_players(self) -> list[Player]:
         return [p for i, p in enumerate(self.players) if i != self.active_player_index]
 
-    def sync_round_number(self) -> None:
-        """Re-derive `round_number` from `turn_number` for a board set outright.
+    # --- MEC-51: turn control (RULE 720) ------------------------------------
+
+    def active_turn_control_for(self, player_id: str) -> Optional["TurnControl"]:
+        """The `TurnControl` currently steering ``player_id``'s decisions —
+        an ``"active"`` window whose ``scope`` matches the current phase — or
+        ``None``. If two are somehow active (a second effect layered on),
+        the most recently installed wins (RULE 720.6-adjacent last-one)."""
+        live = {p.id for p in self.players if not p.has_lost}
+        matches = [
+            tc for tc in self.turn_controls
+            if tc.controlled_id == player_id
+            and tc.controller_id in live
+            and tc.is_active(self.current_phase)
+        ]
+        return max(matches, key=lambda tc: tc.install_turn, default=None)
+
+    def decider_for(self, player_id: str) -> str:
+        """Who actually makes ``player_id``'s decisions right now — the
+        controller of an active `TurnControl` over them (MEC-51), or the
+        controller of an in-progress Word of Command (MEC-51b), else
+        themselves. The one routing chokepoint every caller (`game_session`
+        dispatch / view / choice redaction, `RulesEngine` turn-based
+        actions) goes through."""
+        woc = self.word_of_command
+        if woc is not None and woc.get("target_id") == player_id:
+            return woc.get("controller_id") or player_id
+        tc = self.active_turn_control_for(player_id)
+        return tc.controller_id if tc is not None else player_id
+
+    def driving_seat_for(self, actor_id: str) -> Optional[str]:
+        """The controlled seat ``actor_id`` is currently entitled to drive
+        (the inverse of `decider_for`), or ``None`` — used to let a
+        controller's action arrive *as* the controlled player."""
+        for tc in self.turn_controls:
+            if tc.controller_id == actor_id and tc.is_active(self.current_phase):
+                return tc.controlled_id
+        return None
+
+    def sync_turn_nr(self) -> None:
+        """Re-derive ``turn_nr`` from the internal turn for a board set outright.
 
         Replay/Puzzle positions and the `edit_set_turn` action assign a turn
         number directly instead of reaching it by playing, so there was no
-        wrap around the table for `GameEngine._advance_round_number` to
+        wrap around the table for `GameEngine._advance_turn_nr` to
         count. Derived from how many seats actually take turns (the goldfish
         dummy never does), which makes a solo board's round equal its turn.
         """
         seats = max(1, len([p for p in self.players if not p.is_dummy]))
-        self.round_number = max(1, -(-max(1, self.turn_number) // seats))
+        self.turn_nr = max(1, -(-max(1, self.internal_turn.number) // seats))
         if self.starting_player_id is None and self.players:
             self.starting_player_id = self.players[0].id
 
@@ -934,7 +1279,7 @@ class GameState:
             return
         self.stats["timeline"].append(
             {
-                "turn": self.turn_number,
+                "turn": self.turn_nr,
                 "player_id": player_id,
                 "kind": kind,
                 "amount": amount,
@@ -1018,7 +1363,7 @@ class GameState:
         obj.timestamp = self.next_timestamp()
         # "As long as ~ entered the battlefield this turn" conditions (The
         # Wandering Emperor-shaped, `game/condition_query.py`).
-        obj.turn_entered = self.turn_number
+        obj.turn_entered = self.internal_turn.number
         # RULE 606.5b: a planeswalker enters with its printed starting loyalty.
         if obj.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
             obj.counters["loyalty"] = obj.card.loyalty
@@ -1121,12 +1466,15 @@ class GameState:
         return event
 
     def to_dict(self) -> dict[str, Any]:
+        self.internal_turn.player_id = self.active_player.id
         return {
             "id": self.id,
-            "turn_number": self.turn_number,
-            # Display-only companion to `turn_number` (see its docstring):
-            # the number of completed times around the table.
-            "round_number": self.round_number,
+            "internal_turn": self.internal_turn.to_dict(),
+            "turn_nr": self.turn_nr,
+            # Legacy wire fields remain during the client migration. New
+            # consumers should use `internal_turn` and `turn_nr`.
+            "internal_turn": self.internal_turn.to_dict(),
+            "turn_nr": self.turn_nr,
             "active_player_id": self.active_player.id,
             "priority_player_id": self.priority_player.id if self.priority_player else None,
             "current_phase": self.current_phase,
@@ -1147,6 +1495,13 @@ class GameState:
             ),
             "planar_deck_count": len(self.planar_deck),
             "pending_choice": self.pending_choice,
+            # MEC-51 (RULE 720): active/waiting "you control that player's
+            # turn/combat" windows, for the board's control banner.
+            "turn_controls": [tc.to_dict() for tc in self.turn_controls],
+            # MEC-51b: an in-progress Word of Command (controller_id /
+            # target_id), for the board's "you are playing a card from X's
+            # hand" banner.
+            "word_of_command": dict(self.word_of_command) if self.word_of_command else None,
             "temp_play_permissions": dict(self.temp_play_permissions),
             "temp_play_permission_source": dict(self.temp_play_permission_source),
             "temp_play_permission_player": dict(self.temp_play_permission_player),
@@ -1160,6 +1515,6 @@ class GameState:
 
     def __repr__(self) -> str:
         return (
-            f"GameState(id={self.id!r}, turn={self.turn_number}, "
+            f"GameState(id={self.id!r}, turn={self.internal_turn.number}, "
             f"active={self.active_player.id!r}, step={self.current_step!r})"
         )

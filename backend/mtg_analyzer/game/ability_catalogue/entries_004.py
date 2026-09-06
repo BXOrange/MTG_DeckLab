@@ -70,12 +70,9 @@ def _endurance() -> list[AbilitySpec]:
     — Endurance. Flash/Reach are keywords, already covered by the parser's
     keyword catalogue. A new `GraveyardToLibraryBottomRandomEffect` this
     batch (RULE 701.20-adjacent — randomizes only the moved batch's own
-    relative order, leaving the rest of the library's order alone). Evoke
-    isn't modeled — no alternative-cast-cost mechanism exists for it,
-    unlike Kicker/Buyback which `GameEngine.cast_spell` already threads —
-    dropped per the Sword of Forge and Frontier precedent; the card is only
-    hard-castable for its full mana cost, but its ETB fully functions
-    either way.
+    relative order, leaving the rest of the library's order alone). MEC-65
+    binds its printed exile-a-green-card Evoke cost through the shared RULE
+    702.74 alternate-cast path.
     """
     return [
         AbilitySpec(
@@ -1568,5 +1565,4 @@ def _lavinia_azorius_renegade() -> list[AbilitySpec]:
 
 
 register("Lavinia, Azorius Renegade", _lavinia_azorius_renegade)
-
 

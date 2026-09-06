@@ -47,14 +47,22 @@ Two distinct questions, two distinct algorithms:
   information, not a decision about what to spend.
 
 Both algorithms prefer a net-mana-positive "pay one mana, get more mana
-back" converter (Selvala, Heart of the Wilds' own ``{G}`` cost is the one
-real example this engine currently models — filter lands are a separate,
-unrelated oracle-parser gap, see `mana_abilities.py`'s module docstring)
-over a plain zero-cost producer, per `_is_net_positive_converter` — this is
-a search-order heuristic, not a correctness requirement: it makes the
-common case find the true maximum instead of leaving a converter's value
-on the table by trying it last (or not at all, once the search's node
-budget runs out).
+back" converter (Selvala, Heart of the Wilds' own ``{G}`` cost; and the
+**filter lands** — Twilight Mire's ``{B/G}, {T}: Add {B}{B}, {B}{G}, or
+{G}{G}.`` — now that the oracle parser turns that second line into a
+``ManaAbility`` with a mana cost of its own) over a plain zero-cost
+producer, per `_is_net_positive_converter` — a search-order heuristic, not
+a correctness requirement: it makes the common case find the true maximum
+instead of leaving a converter's value on the table by trying it last (or
+not at all, once the search's node budget runs out). A filter land needs
+two things a lone Selvala never did: its multi-option production
+(``{B}{B}`` / ``{B}{G}`` / ``{G}{G}``) has to be steered by simulating the
+filter's own cost payment and picking the option that then covers the cost
+(`_choose_option`), not the first option that merely contains a needed
+colour, and its cheaper sibling ``{T}: Add {C}.`` must not be
+allowed to spend the land's one tap before the filter ability can be fed
+(`find_tap_plan`'s second pass — RULE 605.1a: a permanent's mana
+abilities share the one activation).
 
 Cost-payability for a candidate mana ability's own `ActivationCost`
 (`game/costs.py`) is checked against a private, per-simulation *scratch*
@@ -160,14 +168,22 @@ def _auto_tappable_candidates(engine: Any, player: Player) -> list[_Candidate]:
 def _is_net_positive_converter(ability: ManaAbility) -> bool:
     """A mana ability whose own cost itself spends mana, for a net gain —
     "pay one mana, get more mana back" (Selvala, Heart of the Wilds' own
-    ``{G}``; a filter land would also qualify once one is ever oracle-
-    parsed into a `ManaAbility`, see the module docstring). Generic: keys
-    only off ``cost.mana``/production shape, not any specific card name.
+    ``{G}``; a filter land's ``{B/G}, {T}: Add {B}{B}, {B}{G}, or {G}{G}.``).
+    Generic: keys only off ``cost.mana``/production shape, not any specific
+    card name.
     """
     if not ability.cost.mana.symbols:
         return False
     best_production = max((sum(opt.values()) for opt in ability.options), default=0)
     return best_production > ability.cost.mana.converted_mana_cost
+
+
+def _producible_colors(ability: ManaAbility) -> set:
+    """Every colour any of ``ability``'s production options can make — the
+    fixed-option counterpart of `_flexible_colors` (which only answers for
+    an `any_combination` split). Used to tell whether a filter land's
+    converter ability can help with a colour the cost is still short of."""
+    return {color for opt in ability.options for color in opt}
 
 
 def _flexible_colors(ability: ManaAbility) -> Optional[set]:
@@ -178,6 +194,26 @@ def _flexible_colors(ability: ManaAbility) -> Optional[set]:
     if ability.any_combination:
         return {c for opt in ability.options for c in opt}
     return None
+
+
+def _candidate_priority(candidate: _Candidate) -> int:
+    """The auto-tap decision tree's source order.
+
+    Creatures are deliberately checked before the colour shape: a creature
+    that makes one colour is still the last-resort source requested by the
+    player.  The same ordering is used by the potential simulations below so
+    their displayed branches describe the decisions auto-tap would make.
+    """
+    obj = candidate.obj
+    if getattr(obj, "is_creature", False):
+        return 3
+    if getattr(obj.card, "is_artifact", False) and not candidate.ability.cost.sacrifice:
+        return 2
+    if getattr(obj.card, "is_land", False) and len(_producible_colors(candidate.ability)) > 1:
+        return 1
+    if len(_producible_colors(candidate.ability)) <= 1:
+        return 0
+    return 4
 
 
 # --------------------------------------------------------------------------
@@ -364,12 +400,28 @@ def _commit_non_mana_cost(
             commitment.returned.add(bounced.instance_id)
 
 
-def _choose_option(ability: ManaAbility, preferred_colors: set) -> tuple[Optional[dict], Optional[dict]]:
+def _choose_option(
+    ability: ManaAbility,
+    preferred_colors: set,
+    *,
+    cost: Optional[ManaCost] = None,
+    pool: Optional[ManaPool] = None,
+    life: int = 0,
+) -> tuple[Optional[dict], Optional[dict]]:
     """Pick which of ``ability``'s mutually-exclusive production options to
     use (or, for an `any_combination` ability, a colour split) — favouring
     whatever's in ``preferred_colors`` when there's a real choice, an empty
     set meaning "no preference, first option is fine". Returns
     ``(option, color_split)`` — exactly one of the two is non-``None``.
+
+    When ``cost``/``pool`` are given (`find_tap_plan`'s search), a
+    multi-option converter — a filter land's ``Add {B}{B}, {B}{G}, or
+    {G}{G}.`` — is steered by *simulating* its own cost payment first: the
+    option preferred is the one that then makes ``cost`` payable, else the
+    one covering the most of what's still short. Picking the first option
+    that merely contains a needed colour would stop a ``{G}{G}`` search at
+    ``{B}{G}``, and picking the most-of-one-colour option would burn the
+    ``{B}`` a ``{B}{G}`` search still needs.
     """
     if ability.any_combination:
         total = sum(ability.options[0].values())
@@ -381,9 +433,38 @@ def _choose_option(ability: ManaAbility, preferred_colors: set) -> tuple[Optiona
         for i in range(total):
             split[wanted[i % len(wanted)]] += 1
         return None, split
-    for option in ability.options:
-        if preferred_colors and set(option) & preferred_colors:
-            return option, None
+
+    if not preferred_colors:
+        return ability.options[0], None
+
+    # Scratch pool = the pool as it would stand *after* paying this
+    # ability's own mana cost (a converter/filter land), so both the
+    # ranking and the "does this option finish the job" check see the
+    # colours that payment will have consumed.
+    scratch: Optional[ManaPool] = None
+    if cost is not None and pool is not None:
+        scratch = _copy_pool(pool)
+        if ability.cost.mana.symbols:
+            if scratch.can_pay(ability.cost.mana, life_available=life):
+                scratch.pay(ability.cost.mana, life_available=life)
+            else:
+                scratch = None
+    short_after = (
+        _still_short_colors(cost, scratch) if (scratch is not None and cost is not None) else set()
+    ) or set(preferred_colors)
+    ranked = sorted(
+        ability.options,
+        key=lambda opt: sum(n for color, n in opt.items() if color in short_after),
+        reverse=True,
+    )
+    if scratch is not None and cost is not None:
+        for opt in ranked:
+            trial = _copy_pool(scratch)
+            trial.add_many(opt)
+            if trial.can_pay(cost, life_available=life):
+                return opt, None
+    if any(color in short_after for color in ranked[0]):
+        return ranked[0], None
     return ability.options[0], None
 
 
@@ -394,18 +475,23 @@ def _try_activate(
     commitment: _Commitment,
     pool: ManaPool,
     preferred_colors: set,
+    cost: Optional[ManaCost] = None,
 ) -> Optional["TapStep"]:
     """Attempt to pay ``candidate``'s full cost (mana from ``pool``,
     everything else from ``commitment``) and, on success, mutate both and
     return the `TapStep` describing what happened — ``None`` (no mutation)
-    if the ability isn't payable right now."""
+    if the ability isn't payable right now. ``cost`` (the overall cost the
+    search is solving) is only used to steer a multi-option converter's
+    production choice — see `_choose_option`."""
     if not _non_mana_cost_payable(engine, player, candidate, commitment):
         return None
     mana_cost = candidate.ability.cost.mana
     if mana_cost.symbols and not pool.can_pay(mana_cost, life_available=commitment.life):
         return None
 
-    option, color_split = _choose_option(candidate.ability, preferred_colors)
+    option, color_split = _choose_option(
+        candidate.ability, preferred_colors, cost=cost, pool=pool, life=commitment.life
+    )
     produced = dict(color_split) if color_split is not None else dict(option or {})
     if not produced:
         return None
@@ -446,7 +532,7 @@ def _maximize_color(engine: Any, player: Player, color: str) -> int:
     output, or fixed output that's already ``color``)."""
     pool = ManaPool()
     commitment = _Commitment.fresh(engine, player)
-    candidates = _all_candidates(engine, player)
+    candidates = _sorted_candidates(_all_candidates(engine, player), {color})
     preferred = {color}
 
     zero_cost = [c for c in candidates if not c.ability.cost.mana.symbols]
@@ -479,6 +565,52 @@ def _maximize_color(engine: Any, player: Player, color: str) -> int:
             break
 
     return pool.pool.get(color, 0)
+
+
+def _maximize_total(
+    engine: Any, player: Player, preferred: Optional[set[str]] = None
+) -> dict[str, int]:
+    """Run the source-priority tree once for a coherent total outcome."""
+    pool = ManaPool()
+    commitment = _Commitment.fresh(engine, player)
+    candidates = _sorted_candidates(_all_candidates(engine, player), set(_ALL_TYPES))
+    preferred = preferred or set(_ALL_TYPES)
+    remaining = candidates
+    for _ in range(len(candidates) + 1):
+        progressed = False
+        still_remaining = []
+        for candidate in remaining:
+            if _try_activate(engine, player, candidate, commitment, pool, preferred) is None:
+                still_remaining.append(candidate)
+            else:
+                progressed = True
+        remaining = still_remaining
+        if not progressed:
+            break
+    return {color: pool.pool.get(color, 0) for color in _ALL_TYPES if pool.pool.get(color, 0)}
+
+
+def _potential_variations(engine: Any, player: Player) -> list[dict[str, Any]]:
+    """Return coherent output branches produced by the same decision tree.
+
+    The total branch is the number the board presents as the maximum. The
+    colour branches preserve the useful answer to "what if I prioritise this
+    colour?" without pretending that six independent colour maxima can all
+    be spent simultaneously.
+    """
+    branches = [_maximize_total(engine, player)]
+    branches.extend(_maximize_total(engine, player, {color}) for color in _ALL_TYPES)
+    unique: dict[tuple[tuple[str, int], ...], dict[str, Any]] = {}
+    for mana in branches:
+        normalized = tuple(sorted(mana.items()))
+        unique[normalized] = {
+            "mana": dict(mana),
+            "total": sum(mana.values()),
+        }
+    return sorted(
+        unique.values(),
+        key=lambda branch: (-branch["total"], tuple(branch["mana"].items())),
+    )
 
 
 def open_potential_summary(engine: Any, player: Player) -> dict[str, int]:
@@ -519,13 +651,19 @@ def used_potential_summary(engine: Any, player: Player) -> dict[str, int]:
     return {color: produced.get(color, 0) for color in _ALL_TYPES}
 
 
-def player_summary(engine: Any, player: Player) -> dict[str, dict[str, int]]:
-    """``{"open": ..., "used": ...}`` — the whole "Mana-Potenzial" block for
+def player_summary(engine: Any, player: Player) -> dict[str, Any]:
+    """The whole "Mana-Potenzial" block for one player.
+
+    ``open``/``used`` remain the per-colour compatibility rows. ``maximum``
+    and ``variations`` are the coherent decision-tree results used by the UI.
     one player, as embedded in `GameSession.view()`'s per-player-id
     ``mana_potential`` dict."""
+    variations = _potential_variations(engine, player)
     return {
         "open": open_potential_summary(engine, player),
         "used": used_potential_summary(engine, player),
+        "maximum": max((branch["total"] for branch in variations), default=0),
+        "variations": variations,
     }
 
 
@@ -620,7 +758,7 @@ def _sorted_candidates(candidates: list[_Candidate], needed_colors: set) -> list
             needed_colors & set(opt) for opt in c.ability.options
         )
         best = max((sum(opt.values()) for opt in c.ability.options), default=0)
-        return (not converter, not matches_need, -best)
+        return (_candidate_priority(c), not converter, not matches_need, -best)
 
     return sorted(candidates, key=key)
 
@@ -641,15 +779,64 @@ def find_tap_plan(
     if pool.can_pay(cost, life_available=player.life, allows_restriction=allows_restriction):
         return TapPlan(steps=[])
 
-    commitment = _Commitment.fresh(engine, player)
     needed = _needed_colors(cost)
     candidates = _sorted_candidates(_auto_tappable_candidates(engine, player), needed)[:_MAX_CANDIDATES_TRIED]
 
-    # A single linear pass would miss a converter tried before the plain
-    # producer that feeds its own mana cost (Selvala needs a Forest's {G}
-    # in the pool before *her* {G} cost is payable) — so failed candidates
-    # are retried every round, bounded (like `_maximize_color`'s converter
-    # loop) so a board that truly can't pay still terminates promptly.
+    plan = _run_tap_search(engine, player, cost, candidates, allows_restriction)
+    if plan is not None:
+        return plan
+
+    # RULE 605.1a: a permanent's mana abilities share its one activation, so
+    # a filter land's cheap ``{T}: Add {C}.`` and its net-positive converter
+    # ``{B/G}, {T}: Add {B}{B}/{B}{G}/{G}{G}.`` are mutually exclusive. The
+    # pass above will happily spend the tap on ``{C}`` before the pool holds
+    # the ``{B/G}`` the converter needs — so if it found nothing, retry once
+    # with each such land's non-converter abilities held back, letting the
+    # converter be fed first.
+    trimmed = _prefer_converter_abilities(candidates, needed)
+    if len(trimmed) < len(candidates):
+        return _run_tap_search(engine, player, cost, trimmed, allows_restriction)
+    return None
+
+
+def _prefer_converter_abilities(
+    candidates: list[_Candidate], needed_colors: set
+) -> list[_Candidate]:
+    """Drop the non-converter mana abilities of any permanent that also has
+    a net-positive converter ability able to produce a colour in
+    ``needed_colors`` — so `find_tap_plan`'s retry spends that permanent's
+    single tap (RULE 605.1a) on the filter, not on its cheaper sibling."""
+    guarded: set = {
+        c.obj.instance_id
+        for c in candidates
+        if c.kind == "battlefield"
+        and _is_net_positive_converter(c.ability)
+        and _producible_colors(c.ability) & needed_colors
+    }
+    return [
+        c
+        for c in candidates
+        if c.obj.instance_id not in guarded or _is_net_positive_converter(c.ability)
+    ]
+
+
+def _run_tap_search(
+    engine: Any,
+    player: Player,
+    cost: ManaCost,
+    candidates: list[_Candidate],
+    allows_restriction,
+) -> Optional[TapPlan]:
+    """One bounded fixed-point search over ``candidates`` (already sorted
+    and capped by the caller). A single linear pass would miss a converter
+    tried before the plain producer that feeds its own mana cost (Selvala
+    needs a Forest's {G} in the pool before *her* {G} cost is payable) — so
+    failed candidates are retried every round, bounded (like
+    `_maximize_color`'s converter loop) so a board that truly can't pay
+    still terminates promptly."""
+    pool = _copy_pool(player.mana_pool)
+    commitment = _Commitment.fresh(engine, player)
+    needed = _needed_colors(cost)
     steps: list[TapStep] = []
     remaining = candidates
     for _ in range(len(candidates) + 1):
@@ -659,7 +846,7 @@ def find_tap_plan(
             # MEC-13: recomputed fresh before each tap (not the static
             # ``needed`` the initial sort used) — see `_still_short_colors`.
             preferred = _still_short_colors(cost, pool) or needed
-            step = _try_activate(engine, player, candidate, commitment, pool, preferred)
+            step = _try_activate(engine, player, candidate, commitment, pool, preferred, cost)
             if step is None:
                 still_remaining.append(candidate)
                 continue

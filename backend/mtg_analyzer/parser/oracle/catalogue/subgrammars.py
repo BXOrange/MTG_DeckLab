@@ -94,6 +94,16 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"target creature or planeswalker", "creature"),
     (r"target attacking or blocking creature", "creature"),
     (r"target (?:attacking|blocking|tapped|untapped) creature", "creature"),
+    # "another target creature you control" (RULE 109.5 — the ability's own
+    # source is excluded; Duke Ulder Ravengard, Blooming Stinger, Heavenly
+    # Qilin). The engine's `other_creature_you_control` kind (targeting.py)
+    # already does the exclusion + "you control" scoping + German label;
+    # this row just routes the printed phrase there. Above the plain
+    # "target creature you control" row so the longer phrase wins. The
+    # "other" spelling is the "up to one **other** target creature you
+    # control" form (`UP_TO_ONE` consumes the "up to one " prefix, leaving
+    # "other target …" here) — Clandestine Meddler's suspect ETB.
+    (r"(?:another|other) target creature you control", "other_creature_you_control"),
     # "target creature you control" (RULE 115/603.3c controller-restricted
     # pick, e.g. an Equipment's ETB "attach it to target creature you
     # control") — must sit above the bare "target creature" row below.
@@ -113,6 +123,14 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # controls" → `creature_you_dont_control` above; above that bare row so
     # the longer phrase wins.
     (r"target permanent (?:an opponent controls|you don't control)", "permanent_you_dont_control"),
+    # "[another] target permanent you control" (North Pole Patrol's "{T}:
+    # Untap another target permanent you control") — the you-control
+    # sibling, onto the real `permanent_you_control` engine kind
+    # (`targeting.legal_targets`); above the bare row so the longer phrase
+    # wins. RULE 109.5's "another" adds no distinct kind (same call as the
+    # "another target permanent" row below), it just narrows the offer off
+    # the effect's own source.
+    (r"(?:another |other )?target permanent you control", "permanent_you_control"),
     (r"target permanent", "permanent"),
     # "target artifact, enchantment, or land" (Acidic Slime) / "target
     # artifact, creature, or land" (Aftershock) / any other 2+ combination of
@@ -145,6 +163,13 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # "target Forest" (Arbor Elf) — a specific basic land subtype, above
     # the bare "target land" row so the longer/more specific phrase wins.
     (r"target forest", "forest"),
+    # "target land you control" / "target land an opponent controls" (PAR-29
+    # — Political Trickery/Vedalken Plotter's own exchange-control targets)
+    # — the controller-scoped pair, above the bare "target land" row so the
+    # longer phrase wins, mirroring "target creature you control"/"target
+    # creature an opponent controls" above.
+    (r"target land you control", "land_you_control"),
+    (r"target land (?:an opponent controls|you don't control)", "land_you_dont_control"),
     # "target land" (Sinkhole) — same RULE 115.1c precision as the artifact/
     # enchantment rows just above.
     (r"target land", "land"),
@@ -153,7 +178,26 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # but is modeled the same controller-restricted way: a choice among the
     # controller's own permanents, narrowed to lands at resolution.
     (r"a land you control", "land_you_control"),
+    # "target nonland permanent an opponent controls" / "…you don't
+    # control" (Lyev Skyknight/New Prahv Guildmage's detain) — the
+    # controller-scoped narrowing, above the bare row so the longer phrase
+    # wins, mirroring the "target permanent an opponent controls" pair.
+    (r"target nonland permanent (?:an opponent controls|you don't control)",
+     "nonland_permanent_you_dont_control"),
+    # "target nonland permanent you control" (PAR-30 — Daring Thief / Puca's
+    # Mischief exchange-control targets); the controller-scoped sibling,
+    # above the bare row so the longer phrase wins.
+    (r"target nonland permanent you control", "nonland_permanent_you_control"),
+    # "[up to one] other target nonland permanent" (RULE 109.5 — Invasion
+    # Submersible's ETB); "other" adds no distinct kind, same call as the
+    # "another target permanent" row just below.
+    (r"(?:another|other) target nonland permanent", "nonland_permanent"),
     (r"target nonland permanent", "nonland_permanent"),
+    # "another target permanent" (RULE 109.5 — Legerdemain's second
+    # exchange-control target; `other_permanent` isn't a distinct engine
+    # kind, so it routes to the plain broad ``permanent`` pool like the
+    # N-way row above, the same precision this file already accepts there).
+    (r"(?:another|other) target permanent", "permanent"),
     (r"target spell", "spell"),
     (r"target player or planeswalker", "player"),
     (r"target opponent", "player"),
@@ -313,7 +357,9 @@ DEVOTION = (
     r"|(?P<count_power>creatures) you control with power (?P<count_power_n>\d+) or (?P<count_power_cmp>less|greater)"
     r"|(?P<count_bare>creatures|permanents|artifacts|lands|enchantments|planeswalkers) you control"
     r"|(?P<count_attacking>attacking creatures)(?P<count_attacking_yours> you control)?"
+    r"|(?P<count_colors_among_permanents>colors among permanents you control)"
     r"|tapped (?P<count_tapped_1>[a-z]+)(?: and/or (?P<count_tapped_2>[a-z]+))? you control"
+    r"|(?P<count_died_this_turn>creatures that died this turn)"
     r"|(?P<count_subtype>[a-z]+) you control"
     r"))"
     r")"
@@ -362,6 +408,10 @@ def devotion_selector(m: "re.Match[str]") -> Optional[str]:
             "attacking_creatures_you_control" if m.groupdict().get("count_attacking_yours")
             else "attacking_creatures"
         )
+    if m.groupdict().get("count_colors_among_permanents"):
+        return "colors_among_permanents_you_control"
+    if m.groupdict().get("count_died_this_turn"):
+        return "creatures_died_this_turn"
     tapped1 = m.groupdict().get("count_tapped_1")
     if tapped1:
         # "the number of tapped `<type>`[ and/or `<type>`] you control"
@@ -469,9 +519,11 @@ IF_COLOR_SUFFIX = rf"(?: if it'?s (?P<cond_color>{_COLOR_ALT}))?"
 # sub-grammars"; only `catalogue.handlers`'s counter handler needs it today).
 
 #: Card-type words a spell-target filter may name (nonland types only — a
-#: land is never a spell). Kept in sync with `game/targeting._spell_matches_
-#: filter`'s ``type_checks`` keys by `tests/test_counter_family.py`.
-_SPELL_TYPE_WORD = r"(?:artifact|creature|enchantment|instant|planeswalker|sorcery)"
+#: land is never a spell). "battle" is here for "counter target creature or
+#: battle spell" (Assimilate Essence) — a battle *is* castable, so a battle
+#: spell is a legal thing to filter for. Kept in sync with `game/targeting.
+#: _spell_matches_filter`'s ``type_checks`` keys by `tests/test_counter_family.py`.
+_SPELL_TYPE_WORD = r"(?:artifact|battle|creature|enchantment|instant|planeswalker|sorcery)"
 #: An "or"/comma-separated list of 1+ type words: "creature", "instant or
 #: sorcery", "artifact, creature, or planeswalker".
 _SPELL_TYPE_LIST = (

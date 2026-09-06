@@ -345,6 +345,15 @@ def test_destroy_target_nonartifact_creature_is_recognized():
     }
 
 
+def test_destroy_target_nonartifact_nonblack_creature_composes_filters():
+    (spec,) = parse_effect_body("destroy target nonartifact, nonblack creature")
+    assert spec.type == "destroy"
+    assert spec.params == {
+        "target_kind": "creature",
+        "creature_filter": {"without_card_type": "artifact", "without_color": "B"},
+    }
+
+
 def test_destroy_target_nonblack_creature_cant_be_regenerated_tail_is_recognized():
     (spec,) = parse_effect_body(
         "destroy target nonblack creature. it can't be regenerated"
@@ -388,6 +397,24 @@ def test_without_card_type_filter_excludes_matching_creatures():
     spec = targeting.TargetSpec(kind="creature", creature_filter={"without_card_type": "artifact"})
     legal = targeting.legal_targets(state, "p1", spec)
     assert {t["instance_id"] for t in legal} == {plain.instance_id}
+
+
+def test_compound_negative_filter_excludes_artifact_and_black_creatures():
+    engine, state, p1, p2 = _rules()
+    artifact = _bf(state, Card(id="Golem", name="Golem", type_line="Artifact Creature — Golem",
+                               is_creature=True, power=2, toughness=2))
+    black = _bf(state, Card(id="Zombie", name="Zombie", type_line="Creature — Zombie",
+                            is_creature=True, power=2, toughness=2, color_identity={"B"}))
+    plain = _bf(state, _creature("Bear", power=2, toughness=2))
+
+    spec = targeting.TargetSpec(
+        kind="creature",
+        creature_filter={"without_card_type": "artifact", "without_color": "B"},
+    )
+    legal = targeting.legal_targets(state, "p1", spec)
+    assert {t["instance_id"] for t in legal} == {plain.instance_id}
+    assert artifact.instance_id not in {t["instance_id"] for t in legal}
+    assert black.instance_id not in {t["instance_id"] for t in legal}
 
 
 def test_doom_blade_end_to_end_destroys_the_chosen_creature():

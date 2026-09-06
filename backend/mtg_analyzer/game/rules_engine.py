@@ -188,6 +188,10 @@ class RulesEngine(
         #: Triggered abilities that fired and are waiting to be put on the
         #: stack (RULE 603.3 — after the current action, before priority).
         self.pending_triggers: list[tuple[TriggeredAbility, GameEvent]] = []
+        #: RULE 701.30b: the opponent the most recent `clash` was "with" —
+        #: `effects.ClashEffect` reads it into `GameContext.clashed_opponent`
+        #: for a "that player" referent in the win/otherwise branch.
+        self._last_clash_opponent_id: Optional[str] = None
         #: The active player's triggers awaiting an interactive ordering choice
         #: (RULE 603.3b), and the non-active-player triggers to place after them.
         #: Populated only while `state.interactive_ordering` drives a choice.
@@ -210,6 +214,14 @@ class RulesEngine(
         #: (`StackItem.trigger_event`) after the player answers, exactly as it
         #: would have for a trigger that never paused.
         self._pending_trigger_event: Optional[GameEvent] = None
+        #: RULE 603.3d + 603.5 ("Whenever `<event>`, **you may** exchange
+        #: control of this creature and **that spell**." — Perplexing
+        #: Chimera): a reflexive trigger's target is baked in at fire time
+        #: (never a RULE 115 choice), so its own "you may" pauses on
+        #: `_trigger_may_choice` with this carrying the already-resolved
+        #: object across the pause, the same role `_pending_trigger_event`
+        #: plays for the event.
+        self._pending_trigger_reflexive_target: Optional[GameObject] = None
         #: Populated only while a `trigger_target_multi` choice is pending
         #: (2+ *different* targeting effects on one trigger, RULE 115.1) —
         #: every spec (`_trigger_target_specs`) and the groups gathered for
@@ -232,6 +244,11 @@ class RulesEngine(
         #: opponent {2}); see `request_pay_cost_then`/
         #: `resolve_pay_cost_then_choice`.
         self._pending_pay_cost_then: Optional[dict[str, Any]] = None
+        #: Backing state for an optional "exile this card. If you do, …"
+        #: resolution.  Unlike an activation cost the source can already be
+        #: in a graveyard when this is offered (Greenwarden of Murasa), so it
+        #: deliberately has its own zone-aware primitive.
+        self._pending_exile_source_then: Optional[dict[str, Any]] = None
         #: Backing state for a `request_each_player_pay_or` mass sweep
         #: (PAR-13's "each player loses N life unless they `<pay cost>`" —
         #: Bellowing Mauler/Lim-Dûl's Hex/Tomb of Annihilation's own two
@@ -249,11 +266,50 @@ class RulesEngine(
         #: effect at all). See `request_all_players_decline_or`/
         #: `_advance_all_decline_or`/`resolve_all_decline_or_choice`.
         self._pending_all_decline_or: Optional[dict[str, Any]] = None
+        #: Backing state for a `request_vote` APNAP sweep (RULE 701.38 —
+        #: "starting with you, each player votes for `<A>` or `<B>`."): the
+        #: still-to-ask player ids, the running per-option tally, and the
+        #: serialized outcome specs (a `majority` winner/tie branch, or a
+        #: `per_vote` set of magnitude-scaled effect lists). Chained one
+        #: `vote` choice at a time, the same shape as
+        #: `_pending_all_decline_or`. See `request_vote`/`_advance_vote`/
+        #: `resolve_vote_choice`/`_tally_and_apply_vote`.
+        self._pending_vote: Optional[dict[str, Any]] = None
+        #: MEC-46: backing state for a `request_object_vote` APNAP sweep
+        #: (RULE 701.38 — "each player votes for a nonland permanent you
+        #: don't control" / "…a card in your graveyard", then "exile /
+        #: return each `<object>` with the most votes or tied for most
+        #: votes"): the still-to-ask player ids, the candidate object ids,
+        #: a per-object-id tally, and the outcome verb. Chained one
+        #: `vote_object` choice at a time, the tally-over-objects sibling of
+        #: `_pending_vote`. See `request_object_vote`/`_advance_object_vote`/
+        #: `resolve_object_vote_choice`/`_tally_and_apply_object_vote`.
+        self._pending_object_vote: Optional[dict[str, Any]] = None
+        #: Backing state for a `request_villainous_choice` APNAP sweep (RULE
+        #: 701.55 — "`<player>` faces a villainous choice — `<A>`, or
+        #: `<B>`."): a FIFO ``rounds`` queue of ``{facing_id, option_a,
+        #: option_b, labels, captured}`` dicts plus the ``current`` one
+        #: being asked. Each facing player picks and applies their *own*
+        #: choice (unlike `_pending_vote`, which tallies everyone's and
+        #: applies one aggregate outcome). A flat "each opponent" sweep
+        #: builds one round per id sharing the option bodies; MEC-52's
+        #: per-target form (Hunted by The Family) queues distinct bodies /
+        #: RULE 608.2 referents per round. Chained one `villainous_choice`
+        #: choice at a time. See `request_villainous_choice`/
+        #: `_advance_villainous_choice`/`resolve_villainous_choice`.
+        self._pending_villainous: Optional[dict[str, Any]] = None
         #: Backing state for a `name_card` `pending_choice` (Demonic
         #: Consultation's "choose a card name") — the follow-up effects the
         #: chosen name gets substituted into; see `request_name_card`/
         #: `resolve_name_card_choice`.
         self._pending_name_card: Optional[dict[str, Any]] = None
+        #: Backing state for an `impulsive_look` `pending_choice` whose clause
+        #: carries an else-branch ("If you don't put a card onto the
+        #: battlefield this way, <body>." — The Joiner of Cats): the source
+        #: object + serialized `EffectSpec` dicts, kept off `state.pending_
+        #: choice` (non-serializable), the same split `_pending_name_card`
+        #: uses. See `request_impulsive_look`/`resolve_impulsive_look_choice`.
+        self._pending_impulsive_look: Optional[dict[str, Any]] = None
         #: Backing state for a `pay_energy_then` `pending_choice` (Aether
         #: Chaser-shaped "you may pay {E}{E}. If you do, …") — see
         #: `request_pay_energy_then`/`resolve_pay_energy_then_choice`.
@@ -401,6 +457,12 @@ class RulesEngine(
         # Tally creatures that died this turn (RULE 700.4) — see
         # `GameState.creatures_died_this_turn`.
         state.subscribe(self._track_creature_death)
+        # PAR-32: note a *creature card* entering a graveyard from anywhere
+        # this turn (Cloakwood Hermit), and running damage dealt by each
+        # player's sources (Dragon Cultist) — `GameState.creature_card_to_
+        # graveyard_this_turn` / `damage_dealt_by_this_turn`.
+        state.subscribe(self._track_creature_card_to_graveyard)
+        state.subscribe(self._track_permanent_card_to_graveyard)
         # Consume a "when you next cast a spell matching X this turn, …"
         # watcher (Dual Strike-shaped) — see `GameState.spell_watchers`.
         state.subscribe(self._check_spell_watchers)
@@ -418,6 +480,12 @@ class RulesEngine(
         effects: list[ReplacementEffect] = []
         for obj in self.state.permanents():
             effects.extend(obj.replacement_effects)
+            # MEC-57: a layer-6 grant whose nested static_specs type
+            # resolves to a `ReplacementEffect` rather than a
+            # `StaticAbility` (Scion of Halaster's granted "first draw
+            # each turn" rewrite) — the `_granted_static_abilities`
+            # sibling, same "re-derived every recompute" shape.
+            effects.extend(getattr(obj, "_granted_replacement_effects", ()))
         for player in self.state.players:
             effects.extend(
                 e for e in player.player_effects if isinstance(e, ReplacementEffect)

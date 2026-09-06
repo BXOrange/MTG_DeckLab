@@ -93,6 +93,33 @@ def _saga_final_chapter(card: Card) -> int:
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
+def _targets_a_permanent(targets: Optional[list[Any]]) -> bool:
+    """Whether a spell's chosen ``targets`` include at least one permanent
+    (a `GameObject` currently on the battlefield) — RULE 608.2b's own
+    reading of "a spell that targets one or more permanents" (Tiller of
+    Flesh). Stamped onto the `SPELL_CAST` event so a "whenever you cast a
+    spell that targets one or more permanents" trigger has a flag to key
+    off, rather than re-deriving it from a stack item that may already be
+    gone by the time the trigger resolves."""
+    for t in targets or []:
+        if isinstance(t, GameObject) and getattr(t, "zone", None) == Zone.BATTLEFIELD:
+            return True
+    return False
+
+
+def _target_instance_ids(targets: Optional[list[Any]]) -> frozenset:
+    """The `instance_id`s of a spell's chosen object targets — stamped onto
+    the `SPELL_CAST` event so a Heroic-style "whenever you cast a spell that
+    targets ~" trigger (RULE 702.34a's un-keyworded template — Akroan
+    Skyguard / Battlewise Hoplite / Hero of Iroas) can tell whether the
+    ability's own source was among them, without a lookup back to a stack
+    item that may already have resolved."""
+    return frozenset(
+        t.instance_id for t in (targets or [])
+        if isinstance(t, GameObject) and getattr(t, "instance_id", None) is not None
+    )
+
+
 def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     """Whether ``obj`` matches a sacrifice cost/effect's type word (RULE
     701.17), e.g. ``"creature"``/``"artifact"``/``"enchantment"``/``"land"``/
@@ -215,10 +242,29 @@ class CastingResolutionMixin:
                 # pass the same way a card's own printed flag keywords are
                 # (`effect_binder.attach_to_object`'s flag-keyword handling).
                 obj.intrinsic_keywords.add(grant_keyword)
+        elif condition.get("colors_spent_scale"):
+            # RULE 702.43a Sunburst: ``count`` per distinct colour of mana
+            # actually spent to cast ``obj`` (`GameObject.colors_spent_to_
+            # cast`, recorded by the mana-payment solver). 0 for a token /
+            # reanimated / searched-in permanent that never paid a cost.
+            colors = getattr(obj, "colors_spent_to_cast", None) or frozenset()
+            amount = condition["count"] * len(colors)
         else:
             amount = x_paid if condition["is_x"] else condition["count"]
         if amount > 0:
             obj.add_counters(condition["counter_type"], amount)
+
+    def _apply_granted_entry_counters(self, obj: GameObject) -> None:
+        """MEC-56: any live ``extra_etb_counter`` static's contribution
+        (Master Chef) — a *granted* sibling of `_apply_entry_counters`'
+        printed-condition read, called at the same site right after it so
+        the extra counter(s) are present before `obj` joins the
+        battlefield/ENTERS_BATTLEFIELD fires, same as a printed one.
+        """
+        for kind, amount in continuous.extra_etb_counters_for(self.state, obj).items():
+            if amount > 0:
+                obj.add_counters(kind, amount)
+
     def enter_land_tapped(self, obj: GameObject) -> None:
         """Resolve ``obj``'s RULE 614.1 tapped-entry as it's played.
 
@@ -297,17 +343,24 @@ class CastingResolutionMixin:
                 obj.tapped = not (opponent_lands <= condition["count"])
             else:
                 obj.tapped = not (opponent_lands >= condition["count"])
+        elif kind == "unless_life":
+            # Innistrad "slow land" life cycle (Abandoned Campground &c):
+            # untapped iff *any* player (RULE 614.1 — "a player", not
+            # scoped to the controller) is at or below the threshold.
+            obj.tapped = not any(
+                p.life <= condition["count"] for p in self.state.living_players()
+            )
         elif kind == "unless_turn_at_most":
             # Starting Town (MEC-43): untapped iff the game is still early.
             # **Documented simplification**: RULE 614.1's "your Nth turn"
             # means the controller's *own* turn count (RULE 500.1 — every
             # player's turn is a turn), which this engine tracks nowhere;
-            # `GameState.round_number` ("how often the turn has come back
+            # `GameState.turn_nr` ("how often the turn has come back
             # to whoever started", CLAUDE.md) is used as the proxy instead
             # — exact for the overwhelming common case (every seat started
             # together, nobody's mid-game player count changed), wrong only
             # if players joined/left after turn 1.
-            obj.tapped = not (self.state.round_number <= condition["count"])
+            obj.tapped = not (self.state.turn_nr <= condition["count"])
         elif kind == "pay_life":
             obj.tapped = True
             self._pending_land_choice_obj = obj
@@ -407,8 +460,12 @@ class CastingResolutionMixin:
                 opponent_lands <= condition["count"] if condition["cmp"] == "le"
                 else opponent_lands >= condition["count"]
             )
+        elif kind == "unless_life":
+            tapped = not any(
+                p.life <= condition["count"] for p in self.state.living_players()
+            )
         elif kind == "unless_turn_at_most":
-            tapped = not (self.state.round_number <= condition["count"])
+            tapped = not (self.state.turn_nr <= condition["count"])
         elif kind in ("pay_life", "optional_bonus_rad", "reveal_types"):
             return None
         else:
@@ -602,6 +659,7 @@ class CastingResolutionMixin:
         self.lose_life(player, life_spent, cause="cost")
         if free_cast:
             self.state.free_cast_instance_ids.discard(obj.instance_id)
+            self.state.free_cast_ignore_timing_instance_ids.discard(obj.instance_id)
         # RULE 601.2b: remember the announced X on the object itself (not
         # just this ephemeral StackItem) — an "unless its controller pays
         # {X}" tied to *this* spell's own X (Logic Knot's Delve-adjacent
@@ -658,6 +716,9 @@ class CastingResolutionMixin:
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
                 mana_spent=obj.mana_spent_to_cast,
                 from_hand=from_hand,
+                # RULE 601.2a: cast from exile (Passionate Archaeologist's
+                # granted "whenever you cast a spell from exile" trigger).
+                from_exile=getattr(obj, "cast_from_exile", False),
                 # "…where X is that spell's mana value" (Shark Typhoon-shaped
                 # spell-cast payoffs) — read live off the event rather than
                 # requiring a lookup back to a stack item that may have
@@ -672,6 +733,10 @@ class CastingResolutionMixin:
                 # a noncreature spell, correctly never matching either).
                 power=obj.power,
                 toughness=obj.toughness,
+                # "Whenever you cast a spell that targets one or more
+                # permanents, incubate 2." (Tiller of Flesh) — RULE 608.2b.
+                targets_a_permanent=_targets_a_permanent(targets),
+                target_instance_ids=_target_instance_ids(targets),
             )
         )
         self.check_ward(item, player)
@@ -707,6 +772,13 @@ class CastingResolutionMixin:
         obj.was_cast = True
         self._remove_from_current_zone(player, obj)
         obj.zone = Zone.STACK
+        # RULE 108.4 / 601.2f: whoever casts the spell controls it (and the
+        # permanent it may become). Usually a no-op — a free cast is nearly
+        # always of the caster's own card — but not when casting a card out
+        # of *another* player's graveyard/exile (Memory Vampire, Mnemonic
+        # Betrayal), where ``owner_id`` stays that other player but control
+        # passes to ``player``.
+        obj.controller_id = player.id
         # RULE 202.1: a free cast spends no mana at all — the "if no mana was
         # spent to cast it" family (Lavinia/Boromir) keys off this rather
         # than ``free``, since a *paid* cast can also come to 0 (see
@@ -733,6 +805,9 @@ class CastingResolutionMixin:
                 free=True,
                 mana_spent=0,
                 from_hand=from_hand,
+                # RULE 601.2a: cast from exile (Passionate Archaeologist's
+                # granted "whenever you cast a spell from exile" trigger).
+                from_exile=getattr(obj, "cast_from_exile", False),
                 # See the matching comment on `cast_spell`'s own SPELL_CAST
                 # firing — a free cast is still a cast (RULE 601.2f/118.9)
                 # for Talion, the Kindly Lord's own "whenever an opponent
@@ -740,6 +815,8 @@ class CastingResolutionMixin:
                 # to the chosen number" purposes.
                 power=obj.power,
                 toughness=obj.toughness,
+                targets_a_permanent=_targets_a_permanent(targets),
+                target_instance_ids=_target_instance_ids(targets),
             )
         )
         self.check_ward(item, player)
@@ -822,8 +899,21 @@ class CastingResolutionMixin:
             # RULE 702.67a: "target land you control."
             return target.is_land and target.controller_id == obj.controller_id
         if kind == "enchant":
-            quality = ((obj.parametric_keywords or {}).get(kind) or {}).get("quality", "")
-            quality = str(quality).strip().lower()
+            enchant_params = (obj.parametric_keywords or {}).get(kind) or {}
+            quality = str(enchant_params.get("quality", "")).strip().lower()
+            # RULE 303.4c/704.5m (bug report, 2026-09-04, same gap as
+            # `targeting.legal_targets`' own enchant dispatch): "Enchant
+            # creature you control"/"… you don't control"/"… an opponent
+            # controls" is a real attachment restriction, re-checked here
+            # too so an Aura whose enchanted permanent's controller changes
+            # after attachment (a control-magic effect, say) correctly
+            # becomes illegally attached and falls off via SBA, not just
+            # rejected at the original target-selection offer.
+            enchant_controller = enchant_params.get("controller")
+            if enchant_controller == "you" and target.controller_id != obj.controller_id:
+                return False
+            if enchant_controller == "not_you" and target.controller_id == obj.controller_id:
+                return False
             if not quality or quality in {"permanent", "anything"}:
                 return True
             if quality == "creature":
@@ -882,6 +972,11 @@ class CastingResolutionMixin:
             if attached.attached_to != host.instance_id:
                 continue
             attached.attached_to = None
+            if getattr(attached, "is_licid_aura", False):
+                # MEC-47: a Licid whose host left — clear the flag so its
+                # `for_as_long_as` type-change static self-sweeps and a
+                # later reanimation comes back a plain creature.
+                attached.is_licid_aura = False
             if getattr(attached, "bestowed", False):
                 # RULE 702.103f: a bestowed Aura that becomes unattached
                 # ceases to be bestowed and stays on the battlefield as a
@@ -922,6 +1017,12 @@ class CastingResolutionMixin:
                 # creature rather than being put into its owner's graveyard.
                 self._end_bestow(attached)
                 return True
+            if getattr(attached, "is_licid_aura", False):
+                # MEC-47: a Licid whose host left is an Aura attached to
+                # nothing → owner's graveyard (RULE 704.5m). Clear the flag
+                # so its `for_as_long_as` type-change static self-sweeps and
+                # a later reanimation comes back a plain creature.
+                attached.is_licid_aura = False
             if self._attachment_kind(attached) == "enchant":
                 self._move_to_graveyard(attached)  # RULE 704.5m
             return True  # RULE 704.5n: Equipment/Fortification just unattaches
@@ -1133,6 +1234,7 @@ class CastingResolutionMixin:
             created_objects=resumed.get("created_objects"),
             life_lost_this_way=resumed.get("life_lost_this_way", 0),
             permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
+            objects_exiled_this_way=resumed.get("objects_exiled_this_way", 0),
             stack_item=stack_item,
         )
         if not deferred_again and stack_item is not None:
@@ -1298,6 +1400,7 @@ class CastingResolutionMixin:
                 self.state, obj
             )
             self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
+            self._apply_granted_entry_counters(obj)
             # RULE 702.155b/714.3b: Read Ahead's chosen count (if any —
             # `_offer_read_ahead` stashes it here) replaces the ordinary
             # single lore counter `add_to_battlefield` would otherwise seed —
@@ -1480,6 +1583,7 @@ class CastingResolutionMixin:
         if land is not None and player is not None and land in player.hand:
             player.remove_from_zone(land, Zone.HAND)
             player.add_to_zone(land, Zone.GRAVEYARD)
+            self._note_discarded(player.id)
             self.state.fire_event(
                 GameEvent(
                     EventType.DISCARD_CARD, player_id=player.id, instance_id=land.instance_id,

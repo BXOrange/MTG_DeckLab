@@ -91,6 +91,10 @@ class CombatMixin:
             obj.additional_blocking = []
             obj.blocked_by = []
             obj.dealt_deathtouch_damage = False
+        # RULE 509.1a: nobody has "already declared blockers" for a combat
+        # that hasn't happened yet — reset alongside the per-object flags
+        # above (`GameState.declared_blockers_this_combat`'s own docstring).
+        self.state.declared_blockers_this_combat.clear()
     def _enforce_attacks_if_able(self) -> None:
         """RULE 508.1a: a creature under an "attacks each combat if able"
         static must be declared as an attacker if it's able to.
@@ -454,10 +458,17 @@ class CombatMixin:
                 entry = player_hits.setdefault(
                     key, {
                         "max_power": 0, "amount": 0, "subtypes": set(), "is_commander": False,
-                        "power_gt_base": False,
+                        "power_gt_base": False, "any_nontoken": False, "contributor_ids": [],
                     }
                 )
+                entry["contributor_ids"].append(source.instance_id)
                 entry["max_power"] = max(entry["max_power"], source.power or 0)
+                # "whenever **1 or more nontoken creatures** you control deal
+                # combat damage to a player" (Feywild Visitor's granted
+                # trigger) — true once any contributor to this pair is a
+                # nontoken creature (RULE 111.9).
+                if not getattr(source, "is_token", False):
+                    entry["any_nontoken"] = True
                 # "…each with power greater than its base power…" (Kutzil,
                 # Malamet Exemplar, MEC-40) — "base power" is the printed
                 # value (`Card.power`, already the *copied* value for a
@@ -507,11 +518,17 @@ class CombatMixin:
                     EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
                     player_id=controller_id,
                     target_id=target_id,
+                    # The recipient is always a player by construction — set
+                    # so a "target … that player controls" target kind
+                    # (`targeting`) can scope to it (Popular Entertainer).
+                    is_player=True,
                     max_power=entry["max_power"],
                     amount=entry["amount"],
                     subtypes=sorted(entry["subtypes"]),
                     contributor_is_commander=entry["is_commander"],
                     contributor_power_gt_base=entry["power_gt_base"],
+                    contributor_any_nontoken=entry["any_nontoken"],
+                    contributor_ids=entry["contributor_ids"],
                 )
             )
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:
@@ -574,6 +591,18 @@ class CombatMixin:
                 exert = bool(entry.get("exert"))
             else:
                 obj, defender, exert = entry, None, False
+            # RULE 508.1a: a creature is declared as an attacker once per
+            # combat — a second declaration of the same (still-untapped,
+            # e.g. vigilant) creature must never re-run the declaration
+            # (re-tap/re-fire ATTACKS/re-check dethrone). `legal_actions`
+            # no longer offers an already-attacking creature at all (bug
+            # report, 2026-09-04 — Frodo, Adventurous Hobbit's Vigilance
+            # kept it re-offered, and a bot that takes every "attack" offer
+            # re-declared it every poll, firing its trigger 953 times); this
+            # is the same guard kept here too, for a client that submits a
+            # stale offer anyway.
+            if obj.attacking:
+                raise ValueError(f"{obj.name} is already attacking")
             if exert and not combat.has(obj, "exert"):
                 raise ValueError(f"{obj.name} doesn't have exert")
             assigned = self._assign_defender(obj, defender, legal)
@@ -765,9 +794,21 @@ class CombatMixin:
             # `parser/oracle/catalogue/static_handlers.py`'s combat-
             # restriction family.
             and not combat.has(obj, "cant_attack")
+            # RULE 701.35b: a detained permanent can't attack.
+            and not combat.is_detained(obj)
             # "~ can't attack unless <condition>." — the parameterized
             # sibling of that flag (`GameObject.combat_restrictions`).
             and self._attack_conditions_ok(obj, player, defending_player)
+            # "You can't attack that player this turn." (Call for Aid) —
+            # RULE 508.1a, a player-pair bar. Only enforced once a defender
+            # is actually assigned (offer-time, with `defending_player`
+            # None, stays permissive — the player may still have another
+            # legal opponent to swing at).
+            and not (
+                defending_player is not None
+                and (player.id, getattr(defending_player, "id", None))
+                in self.state.no_attack_pairs_this_turn
+            )
         )
     def _attack_conditions_ok(
         self, obj: GameObject, player: Player, defending_player: Optional[Player]
@@ -1049,6 +1090,13 @@ class CombatMixin:
             # `RulesEngine.check_rampage` for why this can't go through the
             # ordinary annihilator/afflict/bushido `TriggeredAbility` path.
             self.rules.check_rampage(attacker, blocker_count)
+        # RULE 509.1a: "declares no blocks" is itself a complete answer, so
+        # this is stamped whether or not `assignments` was empty — the only
+        # way `legal_actions_mixin` can tell "this player is done declaring
+        # blockers for this combat" apart from "hasn't gone yet" once there's
+        # nothing left on the board to mark (`GameState.
+        # declared_blockers_this_combat`'s own docstring).
+        self.state.declared_blockers_this_combat.add(player.id)
     def can_block(self, player: Player, blocker: GameObject, attacker: GameObject) -> bool:
         """RULE 509.1a: an untapped creature ``player`` controls may block an
         attacker that is attacking ``player`` (or a planeswalker they control,
@@ -1122,6 +1170,10 @@ class CombatMixin:
             # "~ can't block." / "enchanted creature can't block [or
             # attack]." — a synthetic layer-6 flag, same family as above.
             and not combat.has(blocker, "cant_block")
+            # RULE 701.60b: a suspected creature can't block.
+            and not combat.is_suspected(blocker)
+            # RULE 701.35b: a detained permanent can't block.
+            and not combat.is_detained(blocker)
             and attacker.attacking
             and self._attacker_attacks_player(attacker, player)
             and combat.can_block(attacker, blocker)

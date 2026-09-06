@@ -222,6 +222,9 @@ class LegalActionsMixin:
         evoke: bool = False,
         help_pay: bool = False,
         bestow: bool = False,
+        pay_additional: bool = False,
+        bargained: bool = False,
+        teamwork: bool = False,
     ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
@@ -289,6 +292,29 @@ class LegalActionsMixin:
                 action["lock_reason"] = "Manakosten nicht bezahlbar"
             return action
         action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
+        if teamwork:
+            # Preview the conditional modal header with this optional cost
+            # announced; the real cast sets the same ephemeral marker before
+            # target legality is checked.
+            obj._modal_announced_teamwork = True
+            params = (getattr(obj, "parametric_keywords", None) or {}).get("teamwork") or {}
+            action["teamwork"] = True
+            action["teamwork_power"] = int(params.get("n", 0))
+            action["teamwork_candidates"] = [
+                {"instance_id": candidate.instance_id, "name": candidate.name, "power": candidate.power}
+                for candidate in self._teamwork_candidates(player)
+            ]
+        if self._can_cast_foretold(player, obj):
+            foretell_cost = self._foretell_cost(obj)
+            action["foretell"] = True
+            if foretell_cost is not None:
+                action["foretell_cost_label"] = foretell_cost.raw
+        if bargained:
+            # RULE 702.166: Bargain is an optional additional cost, so this
+            # is a distinct cast offer rather than a decoration on the plain
+            # one.  Clients must round-trip this flag when casting.
+            action["bargained"] = True
+            action["bargain_cost_label"] = "Bargain"
         if mode is not None:
             action["mode"] = mode
             action["mode_description"] = self._mode_description(obj, mode)
@@ -304,7 +330,10 @@ class LegalActionsMixin:
                 action["free"] = True
             elif alt_cost:
                 action["alt_cost"] = True
-                alt_cast_cost = getattr(obj, "alt_cast_cost", None)
+                alt_cast_cost = getattr(obj, "alt_cast_cost", None) or (
+                    continuous.granted_alt_cast_cost_for(self.state, player, obj.card)
+                    if obj is not None else None
+                )
                 if alt_cast_cost is not None:
                     action["alt_cost_label"] = alt_cast_cost.label()
             else:
@@ -312,6 +341,10 @@ class LegalActionsMixin:
                 evoke_cost = self._evoke_cost(obj) or continuous.granted_evoke_cost_for(self.state, obj)
                 if evoke_cost is not None:
                     action["evoke_cost_label"] = evoke_cost.raw
+                else:
+                    color = self._evoke_exile_hand_color(obj)
+                    if color is not None:
+                        action["evoke_cost_label"] = f"Exile a {color} card from your hand"
         else:
             # RULE 702.42a: the Entwine offer is the same "both modes" action as
             # RULE 700.2e's, but priced — so it carries its cost and locks when
@@ -329,7 +362,19 @@ class LegalActionsMixin:
             # otherwise has nowhere to read it from, since `GameObject.to_dict`
             # carries board state rather than printed characteristics.
             action["mana_value"] = cost.converted_mana_cost
-            if cost.has_variable:
+            # RULE 601.2b (PAR-30 — Crashing Wave / Foggy Swamp Visions /
+            # Waterbender's Restoration): a spell whose only {X} lives in a
+            # *mandatory* "waterbend {X}" additional cost still announces X
+            # (the body reads it as `x_paid`). `effective_cast_cost` already
+            # folds `additional_cast_cost.mana.with_x(x)`, so `max_affordable_x`
+            # is correct for it — this is purely the missing offer-time flag.
+            _add = getattr(obj, "additional_cast_cost", None)
+            _add_has_x = (
+                _add is not None and getattr(_add, "mana", None) is not None
+                and _add.mana.has_variable
+                and not getattr(obj, "additional_cast_cost_optional", False)
+            )
+            if cost.has_variable or _add_has_x:
                 action["has_x"] = True
                 action["max_x"] = self.max_affordable_x(player, obj)
 
@@ -409,11 +454,46 @@ class LegalActionsMixin:
             # "offer-time face" treatment missing targets get above. A pending
             # "pay X life" isn't locked here since X isn't chosen until cast.
             additional_cost = getattr(obj, "additional_cast_cost", None)
+            add_optional = getattr(obj, "additional_cast_cost_optional", False)
             if additional_cost is not None and not additional_cost.is_free:
                 action["additional_cost_label"] = additional_cost.label()
-                if not self._can_pay_additional_cast_cost(player, obj, additional_cost, x=0):
+                # PAR-30: an *optional* "you may <…>." additional cost never
+                # locks the plain offer — this action is the "don't pay it"
+                # branch, and the "pay it" branch is a separate `_cast_action`
+                # (`pay_additional=True`, added by `_offer_cast`).
+                if add_optional:
+                    action["additional_cost_optional"] = True
+                    if pay_additional:
+                        action["pay_additional"] = True
+                        action["additional_cost_label"] = additional_cost.label()
+                elif not self._can_pay_additional_cast_cost(player, obj, additional_cost, x=0):
                     action["locked"] = True
                     action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
+                if add_optional and pay_additional and not self.can_cast(
+                    player, obj, pay_additional=True
+                ):
+                    action["locked"] = True
+                    action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
+
+                # RULE 601.2b + 602.1: when the additional cost being paid on
+                # *this* offer is a "discard N cards" clause, surface the hand
+                # pool so the UI can prompt for which cards pay it instead of
+                # the engine auto-picking (`_resolve_discard_cost`), mirroring
+                # `_activate_action`'s own `sacrifice_cost`/`tap_cost`. Skipped
+                # on an optional cost's plain "don't pay it" offer — nothing is
+                # discarded there. ``DISCARD_HAND`` ("discard your hand") isn't
+                # a choice, so it's excluded.
+                paying_additional = (not add_optional) or pay_additional
+                discard_n = getattr(additional_cost, "discard", 0)
+                if paying_additional and discard_n and discard_n != DISCARD_HAND:
+                    pool = self._discard_cost_pool(player, exclude=obj)
+                    action["discard_cost"] = {
+                        "count": discard_n,
+                        "options": [
+                            {"instance_id": c.instance_id, "name": c.name}
+                            for c in pool
+                        ],
+                    }
 
         if help_pay:
             # PAR-23: RULE 702.51 Convoke / 702.66 Delve / 702.126 Improvise —
@@ -436,8 +516,12 @@ class LegalActionsMixin:
             if not all_requirements_satisfiable(requirements):
                 action["locked"] = True
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
+        if teamwork:
+            delattr(obj, "_modal_announced_teamwork")
         return action
-    def _modal_cast_actions(self, player: Player, obj: GameObject) -> list[dict[str, Any]]:
+    def _modal_cast_actions(
+        self, player: Player, obj: GameObject, kicked: int = 0, include_kicker: bool = True,
+    ) -> list[dict[str, Any]]:
         """One ``cast_spell`` action per mode of a modal spell (RULE 700.2).
 
         For the ordinary "choose one" case (``spell_modes_choose == 1``):
@@ -460,8 +544,12 @@ class LegalActionsMixin:
         here can cost a different amount.
         """
         modes = list(getattr(obj, "spell_modes", None) or [])
-        choose = getattr(obj, "spell_modes_choose", 1)
-        at_least = getattr(obj, "spell_modes_at_least", False)
+        obj._modal_announced_kicked = kicked
+        choose, at_least = self._modal_choice_config(obj)
+        repeatable = getattr(obj, "spell_modes_repeatable", False)
+        override = getattr(obj, "spell_modes_override", None) or {}
+        condition = override.get("condition") if isinstance(override, dict) else None
+        condition_kind = condition.get("kind") if isinstance(condition, dict) else condition
         if choose <= 1 and not at_least:
             actions = [self._cast_action(player, obj, mode=i) for i in range(len(modes))]
             if getattr(obj, "spell_modes_or_both", False) and len(modes) == 2:
@@ -470,13 +558,34 @@ class LegalActionsMixin:
                 # RULE 702.42a: the same combined offer, but sold rather
                 # than given — see `_cast_action`'s ``entwine`` branch.
                 actions.append(self._cast_action(player, obj, mode="both", entwine=True))
+            if include_kicker and condition_kind == "kicked" and self._kicker_cost(obj) is not None:
+                kicked_actions = self._modal_cast_actions(player, obj, kicked=1, include_kicker=False)
+                for action in kicked_actions:
+                    action["kicked"] = 1
+                actions.extend(kicked_actions)
+            if include_kicker:
+                delattr(obj, "_modal_announced_kicked")
             return actions
-        sizes = range(choose, len(modes) + 1) if at_least else [choose]
-        return [
-            self._cast_action(player, obj, mode=list(combo))
-            for size in sizes
-            for combo in itertools.combinations(range(len(modes)), size)
-        ]
+        if repeatable:
+            actions = [
+                self._cast_action(player, obj, mode=list(combo))
+                for combo in itertools.combinations_with_replacement(range(len(modes)), choose)
+            ]
+        else:
+            sizes = range(choose, len(modes) + 1) if at_least else [choose]
+            actions = [
+                self._cast_action(player, obj, mode=list(combo))
+                for size in sizes
+                for combo in itertools.combinations(range(len(modes)), size)
+            ]
+        if include_kicker and condition_kind == "kicked" and self._kicker_cost(obj) is not None:
+            kicked_actions = self._modal_cast_actions(player, obj, kicked=1, include_kicker=False)
+            for action in kicked_actions:
+                action["kicked"] = 1
+            actions.extend(kicked_actions)
+        if include_kicker:
+            delattr(obj, "_modal_announced_kicked")
+        return actions
     def _plain_castable_now_or_via_potential(
         self, player: Player, obj: GameObject, face: str = "front",
     ) -> bool:
@@ -530,7 +639,10 @@ class LegalActionsMixin:
         ) and self.can_cast(player, obj, face=face, free=True):
             return True
         if (
-            getattr(obj, "alt_cast_cost", None) is not None
+            (
+                getattr(obj, "alt_cast_cost", None) is not None
+                or (card is not None and continuous.granted_alt_cast_cost_for(self.state, player, card))
+            )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
             and self.can_cast(player, obj, face=face, alt_cost=True)
         ):
@@ -539,10 +651,7 @@ class LegalActionsMixin:
         # amount), so — unlike free/alt_cost's zero-mana paths above — it
         # needs the same mana-potential probe `_plain_castable_now_or_via_
         # potential` runs for the printed cost, just against the evoke cost.
-        has_evoke = (
-            self._evoke_cost(obj) is not None
-            or continuous.granted_evoke_cost_for(self.state, obj) is not None
-        )
+        has_evoke = self._has_evoke(obj)
         if has_evoke:
             if self.can_cast(player, obj, face=face, evoke=True):
                 return True
@@ -600,7 +709,24 @@ class LegalActionsMixin:
         no printed card needs a modal free/alt-cost combination yet.
         """
         if getattr(obj, "spell_modes", None):
-            actions.extend(self._modal_cast_actions(player, obj))
+            modal_actions = self._modal_cast_actions(player, obj)
+            actions.extend(modal_actions)
+            # Teamwork is an independent optional additional cost, so every
+            # otherwise legal modal choice gets its paid sibling.
+            override = getattr(obj, "spell_modes_override", None) or {}
+            condition = override.get("condition") if isinstance(override, dict) else None
+            teamwork_override = isinstance(condition, dict) and condition.get("kind") == "teamwork_paid"
+            for action in modal_actions:
+                mode = action.get("mode")
+                if not teamwork_override and self.can_cast(player, obj, mode=mode, teamwork=True):
+                    actions.append(self._cast_action(player, obj, mode=mode, teamwork=True))
+            if (
+                isinstance(condition, dict) and condition.get("kind") == "teamwork_paid"
+                and self.can_cast(player, obj, teamwork=True)
+            ):
+                actions.append(self._cast_action(
+                    player, obj, mode=list(range(len(obj.spell_modes))), teamwork=True,
+                ))
             return
         # RULE 702.35b (PAR-26): a Madness card sitting in exile after a
         # discard may be cast *only* for its madness cost (`alt_cast_cost`),
@@ -610,6 +736,18 @@ class LegalActionsMixin:
         madness_exiled = getattr(obj, "madness_exiled", False) and obj.zone == Zone.EXILE
         if not madness_exiled and self._plain_castable_now_or_via_potential(player, obj):
             actions.append(self._cast_action(player, obj))
+        if self.can_cast(player, obj, teamwork=True):
+            actions.append(self._cast_action(player, obj, teamwork=True))
+        # RULE 702.166: offer the paid Bargain variant alongside the ordinary
+        # cast when the card actually has Bargain and a legal permanent can
+        # pay its sacrifice cost.  Previously the engine accepted
+        # ``bargained=True`` but never advertised it, leaving the UI with no
+        # way to select the cost.
+        if (
+            "bargain" in getattr(obj, "intrinsic_keywords", set())
+            and self.can_cast(player, obj, bargained=True)
+        ):
+            actions.append(self._cast_action(player, obj, bargained=True))
         # See `_castable_now_or_via_potential`'s matching comment: a
         # standing permission (Aluren) offers the free-cast action just as
         # readily as a per-object `free_cast_condition` does.
@@ -624,7 +762,10 @@ class LegalActionsMixin:
         # (`obj.miracle_armed`) — otherwise a Miracle card just sits in hand
         # castable normally.
         if (
-            getattr(obj, "alt_cast_cost", None) is not None
+            (
+                getattr(obj, "alt_cast_cost", None) is not None
+                or continuous.granted_alt_cast_cost_for(self.state, player, obj.card)
+            )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
             and self.can_cast(player, obj, alt_cost=True)
         ):
@@ -632,10 +773,7 @@ class LegalActionsMixin:
         # RULE 702.74b (MEC-42): a printed or granted Evoke cost is a third,
         # independent payment method — same "offered alongside, never in
         # place of" treatment as free/alt_cost above.
-        has_evoke = (
-            self._evoke_cost(obj) is not None
-            or continuous.granted_evoke_cost_for(self.state, obj) is not None
-        )
+        has_evoke = self._has_evoke(obj)
         if has_evoke and self.can_cast(player, obj, evoke=True):
             actions.append(self._cast_action(player, obj, evoke=True))
         # RULE 702.103 (PAR-26): a creature card with Bestow may instead be
@@ -657,6 +795,19 @@ class LegalActionsMixin:
             and self.can_cast(player, obj, help_pay=True)
         ):
             actions.append(self._cast_action(player, obj, help_pay=True))
+        # PAR-30 / RULE 601.2b: an *optional* "as an additional cost to cast
+        # this spell, you may <waterbend {N}/…>." — a second, independent
+        # cast variant (``pay_additional``) alongside the plain one, offered
+        # only when actually payable, the same "alongside, never in place of"
+        # shape as evoke/help_pay above. Its being paid is recorded on
+        # `GameObject.additional_cost_paid` for a later
+        # "if this spell's additional cost was paid, <effect>." conditional.
+        if (
+            getattr(obj, "additional_cast_cost", None) is not None
+            and getattr(obj, "additional_cast_cost_optional", False)
+            and self.can_cast(player, obj, pay_additional=True)
+        ):
+            actions.append(self._cast_action(player, obj, pay_additional=True))
 
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
         """Every action ``player`` may legally take in the current state.
@@ -673,6 +824,30 @@ class LegalActionsMixin:
                 actions.append(self._land_action(obj))
             if self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
+            if self.can_foretell(player, obj):
+                actions.append({
+                    "type": "foretell", "instance_id": obj.instance_id,
+                    "name": obj.name, "cost_label": "{2}",
+                })
+            elif self.can_foretell(player, obj, assume_mana_available=True):
+                actions.append({
+                    "type": "foretell", "instance_id": obj.instance_id,
+                    "name": obj.name, "cost_label": "{2}", "auto_tap": True,
+                })
+            if self.can_suspend(player, obj):
+                params = self._suspend_params(obj) or {}
+                actions.append({
+                    "type": "suspend", "instance_id": obj.instance_id,
+                    "name": obj.name, "cost_label": str(params.get("cost", "")),
+                    "time_counters": int(params.get("n", 0)),
+                })
+            elif self.can_suspend(player, obj, assume_mana_available=True):
+                params = self._suspend_params(obj) or {}
+                actions.append({
+                    "type": "suspend", "instance_id": obj.instance_id,
+                    "name": obj.name, "cost_label": str(params.get("cost", "")),
+                    "time_counters": int(params.get("n", 0)), "auto_tap": True,
+                })
             # A second castable face offers its own action(s) too — a modal
             # DFC's back (RULE 712.10), a split card's other half (RULE
             # 709.3), or an Adventure's instant/sorcery half (RULE 715.2b) —
@@ -746,6 +921,7 @@ class LegalActionsMixin:
                 self._castable_from_exile(obj)
                 or self._has_temp_play_permission(obj, player)
                 or self._has_conditional_exile_permission(obj, player)
+                or self._can_cast_foretold(player, obj)
             )
             if castable and self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
@@ -818,6 +994,19 @@ class LegalActionsMixin:
             # two-step "pick a defender" choice (RULE 508.1a).
             defenders = self.legal_defenders_for(player)
             for obj in self.state.permanents_controlled_by(player.id):
+                # RULE 508.1a: attackers are declared once per combat. A
+                # creature already attacking (most visibly a vigilant one,
+                # which stays untapped and would otherwise keep satisfying
+                # `_can_attack` forever) must drop out of the offer the same
+                # way `declare_blockers` already excludes an already-
+                # blocking creature just below — omitting this let a bot
+                # that greedily takes every "attack" offer (`GreedyBot`)
+                # re-declare an already-attacking vigilant creature on every
+                # single `legal_actions` poll, re-firing its `ATTACKS`
+                # trigger each time (bug report, 2026-09-04: Frodo,
+                # Adventurous Hobbit — Vigilance — fired 953 times).
+                if obj.attacking:
+                    continue
                 if self._can_attack(player, obj):
                     actions.append(
                         {
@@ -836,6 +1025,15 @@ class LegalActionsMixin:
         if (
             player is not self.state.active_player
             and self.state.current_step == "declare_blockers"
+            # RULE 509.1a: "declares no blocks" is itself a complete,
+            # already-submitted answer — a player who assigned zero blockers
+            # leaves no `blocking` flag behind for the per-object check just
+            # below to catch, so without this a defender with no legal block
+            # left (or one who simply chose none) would see the very same
+            # "declare blocks" offer forever (mirrors the `obj.attacking`
+            # drop-out on the attack side above; see `GameState.
+            # declared_blockers_this_combat`'s own docstring).
+            and player.id not in self.state.declared_blockers_this_combat
         ):
             # RULE 509.1a, the mirror of the attack offers above: one entry
             # per creature this *defending* player could block with, carrying
@@ -903,6 +1101,14 @@ class LegalActionsMixin:
             # still offer an ability that doesn't need to.
             for ability_index, ability in enumerate(mana_abilities_for(source, state=self.state)):
                 if not ability.options:
+                    continue
+                # RULE 602.5d, printed on the ability itself (Vivi Ornitier's
+                # "Activate only during your turn and only once each turn.")
+                # — `tap_for_mana` re-checks both at payment time too, this
+                # just keeps an already-illegal option off the offer list.
+                if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
+                    continue
+                if ability.cost.once_per_turn and ability_index in source.mana_abilities_activated_this_turn:
                     continue
                 # Existence-only check here (no chosen tap_others yet — the
                 # player picks those in the UI *after* choosing to activate,

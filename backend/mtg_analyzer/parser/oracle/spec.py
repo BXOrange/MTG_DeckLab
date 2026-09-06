@@ -80,7 +80,8 @@ _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
 _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
     {
         "kicked", "kicked_at_least", "bargained", "target_is_controller",
-        "life_gained_this_turn_at_least", "is_ring_bearer", "ring_tempted_at_least",
+        "life_gained_this_turn_at_least", "opponent_lost_life_this_turn_at_least",
+        "is_ring_bearer", "ring_tempted_at_least",
         "controls_none_of_type", "source_x_paid_at_least",
         "creatures_died_this_turn_at_least", "graveyard_has_type", "target_is_player",
         "not_already_exerted", "is_first_combat_phase", "is_your_turn",
@@ -93,6 +94,55 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # Foretell-gated scry (wired but unreachable — see `effects.py`'s
         # `_condition_holds` for why nothing sets `GameObject.foretold` yet).
         "instant_sorcery_cards_in_graveyard_at_least", "source_was_foretold",
+        # MEC-74: reusable controller-scoped count gate (for example,
+        # Omnath's "if you control eight or more lands") and the distinct
+        # per-creature derived-power existence gate of Garruk's Uprising.
+        "count_selector_at_least", "controls_creature_power_at_least",
+        # RULE 701.30d (PAR-29): "clash with an opponent. if you win, … /
+        # otherwise, …" — the outcome an earlier `ClashEffect` in the same
+        # resolution stashed on `GameContext.clash_won` (or the firing
+        # `CLASHED` event's own ``won``).
+        "clash_won",
+        # PAR-30: the pre-daybound Innistrad werewolf day/night check
+        # (RULE 603.4 intervening-if) — "if no spells were cast last turn,
+        # transform ~." / "if a player cast 2 or more spells last turn,
+        # transform ~." Both read `GameState._last_turn_spell_count`.
+        "no_spells_cast_last_turn", "two_or_more_spells_cast_last_turn",
+        # PAR-30 / RULE 601.2b: "if this spell's additional cost was paid,
+        # `<effect>`." / "… unless <its> additional cost was paid." — the
+        # generic optional-additional-cost sibling of ``bargained``, reading
+        # `GameObject.additional_cost_paid` (see that field). A bool; ``False``
+        # is the "unless … paid" negative.
+        "additional_cost_paid",
+        # PAR-30 threaten/damage-rider after-tails, gated on the creature a
+        # *previous* clause in the same resolution chose
+        # (`GameContext.previous_targets`; `effects.ConditionalEffect.
+        # _condition_holds`): ``previous_target_has_subtype`` (Goatnap "if
+        # that creature is a Goat, …"), ``previous_target_is_equipped``
+        # (Awaken the Sleeper), ``previous_target_power_at_most``
+        # (Driftgloom Coyote), and ``previous_target_is_creature`` (Searing
+        # Barb "~ deals N damage to any target. If it's a creature, it
+        # can't block this turn." — the "any target" clause can land on a
+        # non-creature). All bool except ``*_at_most``/``*_has_subtype``.
+        "previous_target_has_subtype", "previous_target_is_equipped",
+        "previous_target_power_at_most", "previous_target_is_creature",
+        # PAR-30 Suspect one-off shapes / RULE 701.60c: "choose up to one
+        # target creature. If it's suspected, exile it. Otherwise, suspect
+        # it." (Agrus Kos, Spirit of Justice) — an if/else over the chosen
+        # creature's own suspected state, expressed as two mutually
+        # complementary conditionals (the `clash_won`/`ring_tempted_at_most`
+        # idiom). Read off this effect's own resolved ``targets`` first, then
+        # `GameContext.previous_targets`. A bool.
+        "previous_target_is_suspected",
+        # PAR-30: RULE 603.4 intervening-if on the ability's own source's
+        # current (derived) subtypes — "If this creature is a Detective, …"
+        # (Tenth District Hero). A string subtype word.
+        "source_has_subtype",
+        # PAR-30 / RULE 701.6x: "then if you've done all four this turn,
+        # transform ~." (Avatar Aang) — every bending keyword action
+        # (waterbend/earthbend/firebend/airbend) is in the ability
+        # controller's `GameState.bends_this_turn` set. A bool.
+        "did_all_bends_this_turn",
     }
 )
 
@@ -111,8 +161,16 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
 #: other key here lacked: a plain, unqualified flash grant still needs a
 #: `conditional_flash` entry to reach `combat.has(obj, "flash")`-shaped
 #: legality (`can_cast`'s own check), it just never has anything to test.
+#: ``"controller_beholds_subtype"`` (PAR-30, Molten Exhale — "you may cast
+#: this spell as though it had flash if you behold a Dragon as an additional
+#: cost") — a string subtype word; holds when the caster controls a
+#: permanent of that subtype or holds a card of it in hand (i.e. *could*
+#: behold one). **Documented simplification:** the behold reveal itself and
+#: its being an additional cost aren't separately modeled — the same "the
+#: 'or pay {N}' behold alternative is dropped" precedent PAR-29 set.
 ALLOWED_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
-    {"entered_this_turn", "targets_a_commander", "unconditional"}
+    {"entered_this_turn", "targets_a_commander", "unconditional",
+     "controller_beholds_subtype"}
 )
 
 #: RULE 601.2f/117.3a-adjacent: "If you control a commander, you may cast
@@ -325,7 +383,7 @@ class AbilitySpec:
     #: fast-path handler class"). ``name`` is a catalogue slug (RULE 702.x).
     keyword: Optional[dict[str, Any]] = None
     #: A modal "Choose one —" block (RULE 700.2), ``spell_effect`` or
-    #: ``triggered``: ``{"or_both": bool, "at_least": bool, "choose": int,
+    #: ``triggered``: ``{"or_both": bool, "at_least": bool, "repeatable": bool, "choose": int,
     #: "options": [[EffectSpec, ...], ...], "descriptions": [str, ...]}`` —
     #: one entry per printed mode, in printed order. ``or_both`` is RULE
     #: 700.2e ("Choose one or both —"): the engine also offers casting/
@@ -369,6 +427,14 @@ class AbilitySpec:
     #: `game/effect_binder.py`'s `attach_to_object`, which scans every spec
     #: for this field regardless of which one carries the "real" effects).
     additional_cost: Optional[dict[str, Any]] = None
+    #: PAR-30 / RULE 601.2b: whether the ``additional_cost`` above is
+    #: *optional* — "as an additional cost to cast this spell, **you may**
+    #: waterbend {N}." (Katara Seeking Revenge, Ruinous Waterbending, …).
+    #: An optional additional cost is offered as its own cast variant and,
+    #: when paid, sets `GameObject.additional_cost_paid` for a following
+    #: ``{"additional_cost_paid": …}`` `EffectSpec.condition`. Mandatory
+    #: (the default, ``False``) folds in unconditionally as before.
+    additional_cost_optional: bool = False
     #: RULE 702.8b/606.3: "you may cast this spell as though it had flash if
     #: <condition>" / "you may activate this permanent's loyalty abilities
     #: any time you could cast an instant if <condition>" (The Wandering
@@ -687,6 +753,29 @@ class AbilitySpec:
             )
         if self.modes.get("or_both") and self.modes.get("at_least"):
             raise SpecValidationError("'modes' or_both and at_least are mutually exclusive")
+        override = self.modes.get("override")
+        if override is not None:
+            condition = override.get("condition") if isinstance(override, dict) else None
+            allowed_conditions = {
+                "kicked", "additional_cost_paid", "teamwork_paid", "controls_subtype_as_cast",
+                "controls_commander_as_cast", "card_types_in_graveyard_at_least",
+                "life_total_exactly", "descended_this_turn",
+            }
+            if (
+                not isinstance(override, dict)
+                or not isinstance(condition, dict)
+                or condition.get("kind") not in allowed_conditions
+                or not isinstance(override.get("choose"), int)
+                or not isinstance(override.get("at_least", False), bool)
+                or not 1 <= override["choose"] <= len(options)
+            ):
+                raise SpecValidationError("malformed modal override")
+        if self.modes.get("repeatable") and (
+            self.modes.get("or_both") or self.modes.get("at_least") or choose < 2
+        ):
+            raise SpecValidationError(
+                "'modes' repeatable requires a fixed 'choose N' block where N >= 2"
+            )
         if self.modes.get("optional") and (
             self.modes.get("or_both") or self.modes.get("at_least") or choose != 1
         ):
@@ -746,6 +835,70 @@ class AbilitySpec:
                 raise SpecValidationError(
                     "'additional_cost' pay_life must be a positive int or 'x'"
                 )
+        elif key == "exile_from_graveyard":
+            # RULE 601.2b (PAR-41): "exile N [<type>] cards from your
+            # graveyard." — value is ``{"count": <positive int>, "type":
+            # <word>?}``.
+            if not isinstance(value, dict):
+                raise SpecValidationError(
+                    "'additional_cost' exile_from_graveyard must be a {count, type?} dict"
+                )
+            cnt = value.get("count")
+            if isinstance(cnt, bool) or not isinstance(cnt, int) or cnt <= 0:
+                raise SpecValidationError(
+                    "'additional_cost' exile_from_graveyard count must be a positive int"
+                )
+            gy_type = value.get("type")
+            if gy_type is not None and (not isinstance(gy_type, str) or not gy_type.strip()):
+                raise SpecValidationError(
+                    "'additional_cost' exile_from_graveyard type must be a non-empty word"
+                )
+        elif key == "behold":
+            # RULE 701.4a (PAR-29): "behold a `<type>` or pay {N}." — the
+            # value is the type word to reveal. The "or pay {N}" alternative
+            # is a documented simplification, not represented here (same as
+            # `_ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE`).
+            if not isinstance(value, str) or not value.strip():
+                raise SpecValidationError("'additional_cost' behold must be a non-empty type word")
+        elif key == "behold_exile":
+            # RULE 701.4a (PAR-30 — the Lorwyn "Champion" cycle reflavoured):
+            # "behold a `<type>` and exile it." — a *mandatory* additional
+            # cost (no "or pay {N}" alternative), value is the type word.
+            # The exiled card is returned by the card's own
+            # `LEAVES_BATTLEFIELD` `return_linked_exile` trigger.
+            if not isinstance(value, str) or not value.strip():
+                raise SpecValidationError(
+                    "'additional_cost' behold_exile must be a non-empty type word"
+                )
+        elif key == "behold_two_shared_type":
+            # RULE 701.4a (PAR-30 — Celestial Reunion): "you may choose a
+            # creature type and behold two creatures of that type." A bool;
+            # always the optional (`additional_cost_optional`) shape.
+            if value is not True:
+                raise SpecValidationError(
+                    "'additional_cost' behold_two_shared_type must be True"
+                )
+        elif key == "blight":
+            # RULE 701.68 (PAR-29): "blight N or pay {M}." — N -1/-1 counters
+            # on a creature you control. Same "or pay {M}" documented
+            # simplification as `behold`.
+            valid = isinstance(value, int) and not isinstance(value, bool) and value > 0
+            if not valid:
+                raise SpecValidationError("'additional_cost' blight must be a positive int")
+        elif key == "waterbend":
+            # ENG-32 (RULE 701.67): "as an additional cost to cast this
+            # spell, waterbend {N}." — a {N} generic mana cost paid inside
+            # the additional cost. The Convoke-style helper ("tap your
+            # artifacts and creatures to help") is a documented
+            # simplification, dropped. ``"x"`` for "waterbend {X}".
+            valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
+            if value != "x" and not valid_int:
+                raise SpecValidationError("'additional_cost' waterbend must be a positive int or 'x'")
+        elif key == "forage":
+            # RULE 701.61 (PAR-29): "forage [or pay {M}]." — same "or pay
+            # {M}" documented drop as `behold`/`blight`. A bare bool.
+            if value is not True:
+                raise SpecValidationError("'additional_cost' forage must be True")
         else:
             raise SpecValidationError(f"unknown additional_cost kind {key!r}")
 
@@ -763,6 +916,12 @@ class AbilitySpec:
             raise SpecValidationError("'targets_a_commander' condition must be a bool")
         if key == "unconditional" and not isinstance(value, bool):
             raise SpecValidationError("'unconditional' condition must be a bool")
+        if key == "controller_beholds_subtype" and (
+            not isinstance(value, str) or not value.strip()
+        ):
+            raise SpecValidationError(
+                "'controller_beholds_subtype' condition must be a non-empty string"
+            )
 
     def _validate_impulsive_draw_on_combat_damage(self) -> None:
         """Structural check for an ``impulsive_draw_on_combat_damage`` marker."""
@@ -957,9 +1116,37 @@ class AbilitySpec:
                 raise SpecValidationError("'kicked' condition must be a bool")
             if key == "target_is_controller" and not isinstance(value, bool):
                 raise SpecValidationError("'target_is_controller' condition must be a bool")
+            if key == "clash_won" and not isinstance(value, bool):
+                raise SpecValidationError("'clash_won' condition must be a bool")
+            if key == "additional_cost_paid" and not isinstance(value, bool):
+                raise SpecValidationError("'additional_cost_paid' condition must be a bool")
+            if key == "previous_target_is_suspected" and not isinstance(value, bool):
+                raise SpecValidationError(
+                    "'previous_target_is_suspected' condition must be a bool"
+                )
             if key == "kicked_at_least":
                 if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                     raise SpecValidationError("'kicked_at_least' condition must be a positive int")
+            if key == "source_has_subtype" and (not isinstance(value, str) or not value.strip()):
+                raise SpecValidationError("'source_has_subtype' condition must be a non-empty string")
+            if key == "controls_creature_power_at_least":
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    raise SpecValidationError(
+                        "'controls_creature_power_at_least' condition must be a non-negative int"
+                    )
+            if key == "count_selector_at_least":
+                if (
+                    not isinstance(value, dict)
+                    or set(value) != {"selector", "count"}
+                    or not isinstance(value["selector"], str)
+                    or not value["selector"].strip()
+                    or isinstance(value["count"], bool)
+                    or not isinstance(value["count"], int)
+                    or value["count"] < 0
+                ):
+                    raise SpecValidationError(
+                        "'count_selector_at_least' must be {'selector': <non-empty str>, 'count': <non-negative int>}"
+                    )
 
     @staticmethod
     def _clamp_params(params: dict[str, Any]) -> None:
@@ -969,6 +1156,12 @@ class AbilitySpec:
                 continue
             if isinstance(value, int):
                 params[key] = max(0, min(value, MAX_EFFECT_MAGNITUDE))
+        # ENG-31: parametric keyword grants carry their number one level down,
+        # in ``[{"name": str, "n": int}, ...]`` — clamp each nested "n" too so
+        # a synthesized ``["R"] * n`` can't be handed an unbounded amount.
+        for entry in params.get("parametric_keywords") or []:
+            if isinstance(entry, dict) and isinstance(entry.get("n"), int) and not isinstance(entry["n"], bool):
+                entry["n"] = max(0, min(entry["n"], MAX_EFFECT_MAGNITUDE))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -980,6 +1173,7 @@ class AbilitySpec:
             "keyword": self.keyword,
             "modes": self._modes_to_dict(),
             "additional_cost": self.additional_cost,
+            "additional_cost_optional": self.additional_cost_optional,
             "conditional_flash": self.conditional_flash,
             "free_cast_condition": self.free_cast_condition,
             "optional": self.optional,
@@ -993,6 +1187,8 @@ class AbilitySpec:
         return {
             "or_both": bool(self.modes.get("or_both", False)),
             "at_least": bool(self.modes.get("at_least", False)),
+            "repeatable": bool(self.modes.get("repeatable", False)),
+            "override": self.modes.get("override"),
             "choose": int(self.modes.get("choose", 1)),
             "options": [[e.to_dict() for e in opt] for opt in self.modes.get("options", [])],
             "descriptions": list(self.modes.get("descriptions") or []),
@@ -1006,6 +1202,8 @@ class AbilitySpec:
         return {
             "or_both": bool(data.get("or_both", False)),
             "at_least": bool(data.get("at_least", False)),
+            "repeatable": bool(data.get("repeatable", False)),
+            "override": data.get("override"),
             "choose": int(data.get("choose", 1)),
             "options": [
                 [EffectSpec.from_dict(e) for e in opt] for opt in (data.get("options") or [])
@@ -1025,6 +1223,7 @@ class AbilitySpec:
             keyword=data.get("keyword"),
             modes=cls._modes_from_dict(data.get("modes")),
             additional_cost=data.get("additional_cost"),
+            additional_cost_optional=bool(data.get("additional_cost_optional", False)),
             conditional_flash=data.get("conditional_flash"),
             free_cast_condition=data.get("free_cast_condition"),
             optional=bool(data.get("optional", False)),

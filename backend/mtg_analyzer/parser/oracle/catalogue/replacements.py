@@ -166,7 +166,13 @@ _COUNTERS_YOU_CONTROL_DOUBLE_RE = re.compile(
 #: creature" (any). The trailing referent ("it") is along for the ride.
 _DIE_TO_EXILE_RE = re.compile(
     r"if (?P<subject>this creature|~|a creature you control|"
-    r"a creature an opponent controls|a creature) would die, exile it instead",
+    r"a creature an opponent controls|"
+    # MEC-49: "a creature/permanent dealt damage by ~ / enchanted creature
+    # this turn" (Kumano, Master Yamabushi / Kumano's Blessing) — scoped by
+    # damage history, checked against
+    # `GameState.creatures_damaged_by_source_this_turn`.
+    r"a (?:creature|permanent) dealt damage by (?:~|enchanted creature) this turn|"
+    r"a creature) would die(?: this turn)?, exile (?:it|that creature|that permanent) instead",
     re.IGNORECASE,
 )
 _DIE_SUBJECT_MAP = {
@@ -174,6 +180,10 @@ _DIE_SUBJECT_MAP = {
     "~": "self",
     "a creature you control": "you_control",
     "a creature an opponent controls": "opponents_control",
+    "a creature dealt damage by ~ this turn": "damaged_by_source_this_turn",
+    "a permanent dealt damage by ~ this turn": "damaged_by_source_this_turn",
+    "a creature dealt damage by enchanted creature this turn": "damaged_by_attached_this_turn",
+    "a permanent dealt damage by enchanted creature this turn": "damaged_by_attached_this_turn",
     "a creature": "any",
 }
 
@@ -231,6 +241,21 @@ _STANDING_PREVENT_COUNT_RE = re.compile(
     rf"if (?P<qualifier>{_PREVENT_QUALIFIER_ALT}) would deal damage to "
     rf"(?P<recipient>{_PREVENT_RECIPIENT_ALT}), "
     r"prevent x of that damage, where x is the number of creatures you control",
+    re.IGNORECASE,
+)
+
+
+#: The Phantom cycle (Phantom Centaur / Phantom Flock / Phantom Nantuko /
+#: Phantom Nishoba / Phantom Nomad / Phantom Tiger / Phantom Wurm): "If
+#: damage would be dealt to ~, prevent that damage. Remove a +1/+1 counter
+#: from ~." — a self-shield that pays one +1/+1 counter per damage event
+#: rather than a numeric budget. `_prevent_damage_replacement`'s ``rider``
+#: with the new ``remove_self_counter`` kind (`RulesEngine.
+#: apply_prevent_rider`); these creatures are printed 0/0, so once the last
+#: counter goes the RULE 704.5g SBA finishes them.
+_PHANTOM_PREVENT_RE = re.compile(
+    r"if damage would be dealt to ~, prevent that damage\.\s*"
+    r"remove a (?P<counter>\+1/\+1|-1/-1) counter from ~\.?",
     re.IGNORECASE,
 )
 
@@ -358,6 +383,14 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _DIE_TO_EXILE_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("die_to_exile", {"subject": _DIE_SUBJECT_MAP[m.group("subject").lower()]})]
+
+    m = _PHANTOM_PREVENT_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("prevent_damage", {
+            "to": "self",
+            "amount": "all",
+            "rider": {"kind": "remove_self_counter", "counter": m.group("counter"), "count": 1},
+        })]
 
     m = _STANDING_PREVENT_COUNT_RE.fullmatch(text)
     if m is not None:

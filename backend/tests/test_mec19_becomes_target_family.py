@@ -291,14 +291,14 @@ def test_angelic_cub_is_fully_modeled_with_once_per_turn():
     assert becomes_target.trigger.get("limit") is True
 
 
-def test_frost_titans_becomes_target_clause_is_claimed_even_though_the_card_isnt():
-    """The card stays UNMODELED overall (its unrelated "enters or attacks,
-    tap target permanent…" ability is a separate, unbuilt duration shape) —
-    docs/09's fail-closed whole-card gate, not a MEC-19 regression. This
-    guards that the *clause itself* keeps parsing correctly regardless.
+def test_frost_titans_becomes_target_clause_is_claimed():
+    """Frost Titan became fully MODELED at PARSER_VERSION 148 (its "tap
+    target permanent. That permanent doesn't untap during its controller's
+    next untap step." ability is now the `skip_next_untap` family). This
+    still guards that the BECOMES_TARGET clause itself parses correctly.
     """
     result = parse_oracle(_card("Frost Titan"))
-    assert result.coverage == "UNMODELED"
+    assert result.coverage == "MODELED"
     becomes_target = [
         s for s in result.specs
         if s.ability_kind == "triggered" and s.trigger and s.trigger.get("event") == "BECOMES_TARGET"

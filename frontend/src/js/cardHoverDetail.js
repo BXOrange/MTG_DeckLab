@@ -18,6 +18,7 @@
 import { getResolvedCard, resolveCardImages, isConfirmedNotFound } from './cardImages.js';
 import { cardImageUrl } from './api.js';
 import { renderManaCost, renderOracleText, escapeHtml } from './cardTile.js';
+import { t } from './i18n.js';
 
 let tooltipEl = null;
 let activeName = null;
@@ -69,7 +70,7 @@ function renderTooltipContent(card, fallbackName) {
     return `
       <div class="card-hover-tooltip-inner">
         <h4>${escapeHtml(fallbackName)}</h4>
-        <p class="empty-state">Lädt …</p>
+        <p class="empty-state">${t('common.loading')}</p>
       </div>
     `;
   }
@@ -79,7 +80,7 @@ function renderTooltipContent(card, fallbackName) {
   const manaCost = renderManaCost(view);
   const powerToughness = view.power != null && view.toughness != null ? `${view.power}/${view.toughness}` : '';
   const flipHint = card.has_back_face
-    ? `<p class="card-hover-tooltip-flip-hint">🔄 ${face === 'back' ? 'Vorderseite' : 'Rückseite'}: ${escapeHtml(face === 'back' ? card.name : (card.back_name || ''))}</p>`
+    ? `<p class="card-hover-tooltip-flip-hint">🔄 ${face === 'back' ? t('cardHover.front') : t('cardHover.back')}: ${escapeHtml(face === 'back' ? card.name : (card.back_name || ''))}</p>`
     : '';
 
   return `

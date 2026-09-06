@@ -19,6 +19,7 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
+from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 
 def make_engine(*player_ids):
@@ -180,6 +181,27 @@ def test_copy_permanent_effect_add_types_still_works():
     assert "Artifact" in tokens[0].card.type_line
 
 
+def test_copy_permanent_effect_set_colors_pt_and_subtype():
+    # "except it's a 4/4 black zombie" (God-Pharaoh's Gift / Hour of
+    # Eternity reanimator-token shape) — P/T override + colour replacement
+    # + an added subtype.
+    eng = make_engine("p1", "p2")
+    c = Card(id="wg", name="White Griffin", type_line="Creature — Griffin",
+             is_creature=True, power=2, toughness=2, color_identity={"W"})
+    original = put(eng.state, c)
+
+    effect = CopyPermanentEffect(
+        target=original, set_power=4, set_toughness=4,
+        set_colors=["B"], add_subtypes=["Zombie"],
+    )
+    effect.apply(GameContext(eng.state, eng.rules), targets=[original])
+
+    tok = next(o for o in eng.state.battlefield if o.is_token)
+    assert (tok.card.power, tok.card.toughness) == (4, 4)
+    assert tok.card.color_identity == {"B"}
+    assert "Zombie" in tok.card.type_line
+
+
 # -- PAR-18: the "copy of it/that card" pronoun antecedent -------------------
 # ("exile up to 1 target creature card from a graveyard. create a token
 # that's a copy of that card" — Ardyn, the Usurper/Anikthea, Hand of
@@ -226,13 +248,22 @@ def test_copy_permanent_previous_clause_with_compound_except_tail():
 def test_copy_permanent_except_tail_fails_closed_on_an_unrecognised_modifier():
     from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 
-    # "it's a 4/4 black zombie" is a full characteristic override, not one
-    # of the safely-generalizable modifiers `_copy_except_modifier` claims
-    # — the whole clause must stay unclaimed rather than silently dropping
-    # the override (the family's own long-standing fail-closed rule).
+    # "it's a 4/4 black zombie" (P/T + colour + creature subtype) is
+    # `_copy_except_modifier`'s `_COPY_EXCEPT_PT_RE` branch now
+    # (`set_power`/`set_toughness`/`set_colors`/`add_subtypes`).
     assert match_clause(
         "create a token that's a copy of target creature, except it's a "
         "4/4 black zombie"
+    ) == [EffectSpec("copy_permanent", {
+        "target_kind": "creature", "set_power": 4, "set_toughness": 4,
+        "set_colors": ["B"], "add_subtypes": ["Zombie"],
+    })]
+
+    # "it's an enchantment creature" still fails closed — a card-type add
+    # this shape can't safely represent.
+    assert match_clause(
+        "create a token that's a copy of target creature, except it's an "
+        "enchantment creature"
     ) is None
 
 

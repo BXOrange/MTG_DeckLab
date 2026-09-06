@@ -7,6 +7,7 @@ docs/implementation-state/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "LazyCardLoa
 from __future__ import annotations
 
 import re
+import threading
 from dataclasses import dataclass, field
 
 from mtg_analyzer.models.card import Card
@@ -57,9 +58,26 @@ class LazyCardLoader:
         self._database = database
         self._scryfall = scryfall
         self._scryfall_primary = scryfall_primary
+        # `LazyCardLoader` is a process-wide singleton (`api/dependencies.py`'s
+        # `@lru_cache`), so two concurrent `load_cards` calls resolving
+        # overlapping decklists (e.g. two different saved decks that share a
+        # staple, both requested via the frontend's per-deck `Promise.all` —
+        # see saved_decks.py) could each independently see the same name as
+        # a cache miss and both fetch-and-save it, duplicating Scryfall
+        # traffic for no reason. Serializing the whole method under one lock
+        # makes the miss-check and the fetch-and-save atomic together, so
+        # the second caller sees the first one's freshly-saved row instead
+        # of racing it. The method is fast for the (dominant) all-cache-hit
+        # case — pure local SQLite reads — so this doesn't meaningfully
+        # serialize unrelated work, only the genuinely-contended path.
+        self._lock = threading.Lock()
 
     def load_cards(self, names: list[str]) -> LoadCardsResult:
         """Look up each name in the DB first; fetch only what's missing from Scryfall."""
+        with self._lock:
+            return self._load_cards_locked(names)
+
+    def _load_cards_locked(self, names: list[str]) -> LoadCardsResult:
         result = LoadCardsResult()
         missing: list[str] = []
         #: Cached rows missing `mana_cost_string` (predate that field, or

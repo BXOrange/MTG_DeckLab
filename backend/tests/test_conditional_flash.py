@@ -98,10 +98,10 @@ def test_can_cast_a_conditional_flash_sorcery_outside_the_main_phase():
     assert eng.can_cast(p1, obj) is False  # ordinarily sorcery-speed only
 
     obj.conditional_flash = {"entered_this_turn": True}
-    obj.turn_entered = eng.state.turn_number  # synthetic: pretend the condition holds
+    obj.turn_entered = eng.state.internal_turn.number  # synthetic: pretend the condition holds
     assert eng.can_cast(p1, obj) is True
 
-    obj.turn_entered = eng.state.turn_number - 1  # condition no longer holds
+    obj.turn_entered = eng.state.internal_turn.number - 1  # condition no longer holds
     assert eng.can_cast(p1, obj) is False
 
 

@@ -129,6 +129,10 @@ MIN_SEATS = 2
 #: (nothing rules-based caps it), so a typo in the input can't hand out an
 #: effectively unlimited undo budget.
 MAX_TAKEBACKS_PER_PLAYER = 20
+#: Upper bound on `LobbyGame.spell_timer_seconds` (the board's per-priority
+#: auto-pass countdown) — a sanity clamp on the host's input, not a rules
+#: figure. Ten minutes is already far past "keeping the table moving".
+MAX_SPELL_TIMER_SECONDS = 600
 
 
 class LobbyError(Exception):
@@ -287,6 +291,12 @@ class LobbyGame:
     #: budget is per seat, not shared. `services/game_session.py`'s
     #: `GameSession.take_back` enforces it once the game is running.
     takebacks_per_player: int = 0
+    #: The board's per-priority auto-pass countdown, in seconds — see
+    #: `config.MULTIPLAYER_SPELL_TIMER_SECONDS`. `None` (the default) means
+    #: "use the server value"; a number (including 0, which turns the
+    #: countdown off) overrides it for this table. `api/multiplayer.py`
+    #: resolves the `None` fallback when the game starts.
+    spell_timer_seconds: Optional[float] = None
     #: RULE 103.1/103.2 — how the table settles seating and who begins.
     #: Both default off, which keeps the historical behaviour: seats are in
     #: join order (the host sat down first, so the host starts). The lobby
@@ -369,6 +379,7 @@ class LobbyGame:
             "num_players": self.num_players,
             "mulligan_style": self.mulligan_style,
             "takebacks_per_player": self.takebacks_per_player,
+            "spell_timer_seconds": self.spell_timer_seconds,
             "randomize_seating": self.randomize_seating,
             "random_starting_player": self.random_starting_player,
             "game_format": self.game_format,
@@ -855,6 +866,7 @@ class Lobby:
         mulligan_style: Optional[str] = None,
         num_players: Optional[int] = None,
         takebacks_per_player: Optional[int] = None,
+        spell_timer_seconds: Optional[float] = None,
         randomize_seating: Optional[bool] = None,
         random_starting_player: Optional[bool] = None,
         game_format: Optional[str] = None,
@@ -879,6 +891,13 @@ class Lobby:
             )
         if takebacks_per_player is not None:
             game.takebacks_per_player = max(0, min(int(takebacks_per_player), MAX_TAKEBACKS_PER_PLAYER))
+        if spell_timer_seconds is not None:
+            # A per-table override of `config.MULTIPLAYER_SPELL_TIMER_SECONDS`;
+            # 0 is a valid value here (it turns the countdown off), so this
+            # only clamps the range, it doesn't treat 0 as "unset".
+            game.spell_timer_seconds = max(
+                0.0, min(float(spell_timer_seconds), MAX_SPELL_TIMER_SECONDS)
+            )
         if game_format is not None:
             game.game_format = game_format
         if archenemy_id is not None:

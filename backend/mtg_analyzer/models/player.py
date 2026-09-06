@@ -77,7 +77,7 @@ class Player:
         #: "Until end of turn, you may play lands and cast spells from
         #: your graveyard." (Yawgmoth's Will-shaped, MEC-12) — the turn
         #: number this permission was granted for; a stamped value
-        #: naturally "expires" the moment `GameState.turn_number` moves on,
+        #: naturally "expires" the moment `GameState.internal_turn.number` moves on,
         #: so nothing needs to reset it back to ``None``. Read by
         #: `game/graveyard_cast.py`'s `has_temporary_graveyard_play_
         #: permission`.
@@ -220,6 +220,10 @@ class Player:
         if zone not in self.zones:
             raise ValueError(f"{zone} is not a personal zone")
         obj.zone = zone
+        # RULE 302.6 only applies while the object is a creature permanent on
+        # the battlefield.  Do not carry a purely battlefield UI/gameplay
+        # marker into a hand, command zone, or any other personal zone.
+        obj.summoning_sick = False
         self.zones[zone].append(obj)
 
     def remove_from_zone(self, obj: GameObject, zone: Zone) -> None:

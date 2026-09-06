@@ -322,6 +322,19 @@ class ManaCountersMixin:
         event — RULE 400.7's new object was never tapped/untapped "before".
         """
         was_tapped = obj.tapped
+        # RULE 122.1c: "If a permanent with a stun counter on it would become
+        # untapped, instead remove a stun counter from it." A replacement on
+        # every genuine untap route (this is the choke point) — the untap
+        # step's per-permanent loop, a {Q}/"Untap ~" cost or effect,
+        # `TapEffect(untap=True)`. The permanent stays tapped and no
+        # `UNTAPPED` event fires, exactly as if the untap never happened.
+        if (
+            not tapped
+            and was_tapped
+            and obj.counters.get("stun", 0) > 0
+        ):
+            self.add_counters(obj, -1, "stun")
+            return
         obj.tapped = tapped
         if tapped and not was_tapped:
             self.state.fire_event(
@@ -465,6 +478,191 @@ class ManaCountersMixin:
             self.state.fire_event(resolved)
 
         self.apply_replacements(event, on_resolved=_finish)
+    def bolster(
+        self, player: Player, amount: int, source: Optional[GameObject] = None
+    ) -> None:
+        """"Bolster N" (RULE 701.39a): choose a creature with the least
+        toughness among creatures ``player`` controls, then put N +1/+1
+        counters on it. RULE 701.39a's tie clause — if two or more creatures
+        tie for least toughness, ``player`` chooses one; if they control no
+        creatures, bolster does nothing.
+
+        Degenerate cases resolve without asking (the `RulesEngine.populate`
+        idiom): no creatures, or a single least-toughness creature → place
+        the counters straight away; a genuine tie → a `bolster`
+        `pending_choice` (`resolve_bolster_choice`). The counters go on
+        through `add_counters`, so RULE 616.1 doublers (Doubling Season) and
+        RULE 122.5 "whenever a +1/+1 counter is put on ~" triggers apply.
+        """
+        if amount <= 0:
+            return
+        creatures = [
+            obj
+            for obj in self.state.battlefield
+            if obj.controller_id == player.id and getattr(obj, "is_creature", False)
+        ]
+        if not creatures:
+            return
+        least = min(obj.toughness for obj in creatures)
+        tied = [obj for obj in creatures if obj.toughness == least]
+        if len(tied) == 1:
+            self.add_counters(tied[0], amount, "+1/+1", source=source)
+            return
+        self.state.pending_choice = {
+            "kind": "bolster",
+            "player_id": player.id,
+            "amount": amount,
+            "source_id": source.instance_id if source is not None else None,
+            "prompt": f"Verstärken {amount}: welche Kreatur mit der geringsten Widerstandskraft?",
+            "options": [
+                {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+                for o in tied
+            ],
+        }
+    def resolve_bolster_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending `bolster` tie-break: put the parked +1/+1
+        counters on the chosen least-toughness creature. A missing/unknown
+        answer defaults to the first tied creature — RULE 701.39a is
+        mandatory once you control a creature (no "you may")."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "bolster":
+            raise ValueError("no pending bolster choice to resolve")
+        self.state.pending_choice = None
+        offered = [opt["instance_id"] for opt in choice["options"]]
+        chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
+        chosen = self._object_by_instance_id(chosen_id) if chosen_id is not None else None
+        source_id = choice.get("source_id")
+        source = self._object_by_instance_id(source_id) if source_id is not None else None
+        if chosen is not None:
+            self.add_counters(chosen, int(choice["amount"]), "+1/+1", source=source)
+        self.check_state_based_actions()
+    def blight(
+        self, player: Player, amount: int, source: Optional[GameObject] = None,
+        interactive: bool = True,
+    ) -> None:
+        """"Blight N" (Bloomburrow's reminder text: "put N -1/-1 counters on
+        a creature you control"). The negative sibling of `bolster` — but the
+        creature is ``player``'s free choice (not least-toughness), so it
+        opens a `blight` `pending_choice` whenever they control 2+ creatures.
+
+        Degenerate cases resolve without asking (the `bolster`/`populate`
+        idiom): no creatures → nothing (like a cost that can't be paid);
+        exactly one → the counters go straight on it. Placed through
+        `add_counters` (kind ``"-1/-1"``), so RULE 122.5 "whenever a -1/-1
+        counter is put on ~" triggers and the RULE 704.5q +1/-1 annihilation
+        SBA all apply.
+
+        ``interactive=False`` (PAR-29 — "Blight N" paid as a *cost*, where
+        payment is synchronous and can't pause for a chooser): auto-pick the
+        creature with the highest toughness, then highest power — the
+        least-self-harm pick, the same "auto-pick to minimise loss"
+        documented simplification `collect_evidence` uses.
+        """
+        if amount <= 0:
+            return
+        creatures = [
+            obj
+            for obj in self.state.battlefield
+            if obj.controller_id == player.id and getattr(obj, "is_creature", False)
+        ]
+        if not creatures:
+            return
+        if len(creatures) == 1:
+            self.add_counters(creatures[0], amount, "-1/-1", source=source)
+            return
+        if not interactive:
+            victim = max(
+                creatures,
+                key=lambda o: (getattr(o, "toughness", 0) or 0, getattr(o, "power", 0) or 0),
+            )
+            self.add_counters(victim, amount, "-1/-1", source=source)
+            return
+        self.state.pending_choice = {
+            "kind": "blight",
+            "player_id": player.id,
+            "amount": amount,
+            "source_id": source.instance_id if source is not None else None,
+            "prompt": f"Verkümmern {amount}: auf welche Kreatur (−1/−1-Marken)?",
+            "options": [
+                {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+                for o in creatures
+            ],
+        }
+    def resolve_blight_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending `blight` choice: put the parked -1/-1 counters on
+        the chosen creature you control. A missing/unknown answer defaults to
+        the first offered creature (blight has no "you may" once you control
+        one — its optionality lives in the "you may blight N" wrapper, not
+        here)."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "blight":
+            raise ValueError("no pending blight choice to resolve")
+        self.state.pending_choice = None
+        offered = [opt["instance_id"] for opt in choice["options"]]
+        chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
+        chosen = self._object_by_instance_id(chosen_id) if chosen_id is not None else None
+        source_id = choice.get("source_id")
+        source = self._object_by_instance_id(source_id) if source_id is not None else None
+        if chosen is not None:
+            self.add_counters(chosen, int(choice["amount"]), "-1/-1", source=source)
+        self.check_state_based_actions()
+    def blight_possible(self, player: Player) -> bool:
+        """Whether ``player`` could pay a "Blight N" cost right now (PAR-29) —
+        i.e. controls at least one creature to put the -1/-1 counters on."""
+        return any(
+            obj.controller_id == player.id and getattr(obj, "is_creature", False)
+            for obj in self.state.battlefield
+        )
+    def earthbend(
+        self, land: Optional[GameObject], amount: int, source: Optional[GameObject] = None
+    ) -> None:
+        """"Earthbend N" (RULE 701.66 — Avatar: The Last Airbender): the
+        target land ``land`` you control **becomes a 0/0 creature with haste
+        that's still a land**, then gets N +1/+1 counters.
+
+        The animation is two `rest_of_game` floating statics scoped to this
+        one object (`type_change` add-Creature-0/0 in layer 4/7b, plus a
+        layer-6 `grant_keyword` haste) — a genuine RULE 611 continuous
+        effect, so RULE 611.2c ends it automatically if the land leaves (the
+        layer engine only visits battlefield permanents, and a land that
+        returns is a new object the `object_ids` list no longer names).
+        The +1/+1 counters go on through `add_counters` (RULE 122.5 triggers,
+        RULE 704.5f/q SBAs apply).
+
+        **Documented simplification:** the reminder text's third sentence —
+        "When it dies or is exiled, return it to the battlefield tapped." —
+        is not modeled (an edge case for solo practice; the land just goes
+        to the graveyard/exile like any other permanent).
+        """
+        from ..effects import EffectRegistry  # function-scoped: effects↔rules cycle
+
+        if land is None or land not in self.state.battlefield:
+            return
+        for spec_type, params in (
+            # `_added_types`/keyword sets are lowercase (`GameObject.
+            # is_creature`, `combat.keywords_of`).
+            ("type_change", {"add_types": ["creature"], "power": 0, "toughness": 0}),
+            ("grant_keyword", {"keywords": ["haste"]}),
+        ):
+            ability = EffectRegistry.create(spec_type, dict(params))
+            if not isinstance(ability, StaticAbility):
+                continue
+            ability.source = source
+            ability.timestamp = self.state.next_timestamp()
+            ability.duration = "rest_of_game"
+            ability.duration_data = {"player_id": getattr(source, "controller_id", None)}
+            ability.affects = "objects"
+            ability.object_ids = [land.instance_id]
+            self.state.floating_statics.append(ability)
+        if amount > 0:
+            self.add_counters(land, amount, "+1/+1", source=source)
+        self.check_state_based_actions()
+        # RULE 701.6x: the earthbend is complete — fire EventType.BENT so a
+        # "whenever you earthbend" trigger (Avatar Aang) sees it.
+        bender_id = getattr(source, "controller_id", None)
+        bender = self.state.player_by_id(bender_id) if bender_id else None
+        if bender is not None:
+            self.record_bend(bender, "earthbend", amount, source=source)
     def request_remove_counters_choice(
         self, target: Union[GameObject, Player], max_count: int, chooser: Player
     ) -> None:

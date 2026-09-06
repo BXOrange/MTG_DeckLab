@@ -96,6 +96,7 @@ class TestReplayService:
         engine = build_replay_engine(desc, _loader())
         again = serialize_replay(engine.state)
 
+        assert again["turn_nr"] == 1
         assert again["players"][1]["life"] == 12
         assert again["players"][1]["poison"] == 4
         assert again["players"][0]["counters"] == {"energy": 3}
@@ -177,7 +178,7 @@ class TestReplayApi:
     def test_add_tap_and_counter_on_battlefield(self):
         _setup()
         client = TestClient(app)
-        sid = client.post("/api/game/replay", json={"numPlayers": 1}).json()["session_id"]
+        sid = client.post("/api/game/replay", json={"numPlayers": 2}).json()["session_id"]
 
         add = client.post(
             f"/api/game/{sid}/action",
@@ -230,7 +231,7 @@ class TestReplayApi:
     def test_token_cannot_be_moved_off_battlefield(self):
         _setup()
         client = TestClient(app)
-        sid = client.post("/api/game/replay", json={"numPlayers": 1}).json()["session_id"]
+        sid = client.post("/api/game/replay", json={"numPlayers": 2}).json()["session_id"]
         add = client.post(
             f"/api/game/{sid}/action",
             json={"type": "edit_add_object", "zone": "battlefield", "owner_id": "p1",
@@ -244,8 +245,10 @@ class TestReplayApi:
         )
         assert resp.status_code == 400
         # Still on the battlefield, untouched.
-        view = client.post(f"/api/game/{sid}/action", json={"type": "edit_set_turn", "turn_number": 2}).json()
+        view = client.post(f"/api/game/{sid}/action", json={"type": "edit_set_turn", "internal_turn": 2}).json()
         assert len(_battlefield(view)) == 1
+        assert view["state"]["internal_turn"]["number"] == 2
+        assert view["state"]["turn_nr"] == 1
 
     def test_set_life_and_poison(self):
         _setup()
@@ -384,6 +387,7 @@ class TestReplayApi:
 
         exported = client.get(f"/api/game/{sid}/replay-export").json()
         assert exported["format"] == "mtg-replay"
+        assert exported["turn_nr"] == 1
 
         reloaded = client.post("/api/game/replay", json={"replay": exported}).json()
         assert _battlefield(reloaded)[0]["name"] == "Grizzly Bears"

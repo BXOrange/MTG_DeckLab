@@ -40,6 +40,7 @@ import json
 import uuid
 from typing import Any, Callable, Optional
 
+from mtg_analyzer import config
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_format import get_format
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -59,6 +60,14 @@ MAX_HISTORY = 100
 #: genuinely nothing to decide for many turns (e.g. mana screw) can't hang
 #: the request; generous relative to ~11 steps/turn.
 _MAX_DECISION_ADVANCE_STEPS = 200
+
+#: Safety cap on `_place_pending_triggers`' SBA/place loop — generous
+#: relative to how many *rounds* of cascading triggers (an SBA death
+#: spawning another SBA death, etc.) a single action could realistically
+#: chain in one go; `resolve_until_stable`'s own `_MAX_RESOLUTIONS` (1000)
+#: bounds a much bigger loop (it also resolves each stack item), so a
+#: smaller cap here is deliberate, not copied wholesale.
+_MAX_PENDING_TRIGGER_ROUNDS = 100
 
 GOLDFISH = "goldfish"
 MULTIPLAYER = "multiplayer"
@@ -303,6 +312,8 @@ def _redact_hidden_zones(
     state_dict: dict[str, Any],
     perspective: Optional[str],
     top_library_visible: Optional[dict[str, bool]] = None,
+    also_visible_hand_ids: Optional[set[str]] = None,
+    choice_decider_id: Optional[str] = None,
 ) -> None:
     """Strip every player's hidden zones from a serialized state, in place.
 
@@ -322,8 +333,15 @@ def _redact_hidden_zones(
     whole zone, since the object itself (and the fact that something is
     exiled face down) stays visible, only its identity is hidden.
     """
+    # MEC-51 (RULE 720.2): the controller of a player's turn/combat may look
+    # at that player's hand for the window (needed to actually make their
+    # decisions). Modelled as an extra hand-reveal here; the finer
+    # 720.3-720.7 hidden-info edges are an accepted simplification.
+    reveal_hands = set(also_visible_hand_ids or ())
     for player in state_dict.get("players", []):
-        own = perspective is not None and player.get("id") == perspective
+        own = perspective is not None and (
+            player.get("id") == perspective or player.get("id") in reveal_hands
+        )
         if not own:
             player["hand"] = []
         # A library is hidden even from its owner (they don't know their own
@@ -337,10 +355,15 @@ def _redact_hidden_zones(
     # see its options (they can name cards in a hidden zone). Everyone else
     # gets a passive "waiting on X" marker instead — see `view`.
     pending = state_dict.get("pending_choice")
-    if pending and pending.get("player_id") != perspective:
+    # MEC-51: the choice is answered by its *decider* — normally the player
+    # it names, but the controller of that player's turn/combat while a
+    # window is active (`GameState.decider_for`, resolved by the caller).
+    decider = choice_decider_id or (pending.get("player_id") if pending else None)
+    if pending and decider != perspective:
         state_dict["pending_choice"] = None
         state_dict["waiting_on_choice"] = {
             "player_id": pending.get("player_id"),
+            "decider_id": decider,
             "kind": pending.get("kind"),
             "prompt": pending.get("prompt") or pending.get("description") or "",
         }
@@ -385,6 +408,7 @@ class GameSession:
         require_setup: bool = False,
         mulligan_style: str = "london",
         takebacks_per_player: int = 0,
+        spell_timer_seconds: Optional[float] = None,
     ) -> None:
         self.id = session_id or str(uuid.uuid4())
         self.mode = mode
@@ -406,6 +430,21 @@ class GameSession:
             {p.id: max(0, takebacks_per_player) for p in engine.state.players if not p.is_dummy}
             if takebacks_per_player
             else {}
+        )
+        #: The board's per-priority auto-pass countdown, in seconds — the
+        #: frontend arms a shrinking progress bar with it whenever this
+        #: client holds priority and could act, and passes when it hits 0.
+        #: `None` from the caller means "use the server default"; 0 turns
+        #: the countdown off (manual passing only). Only consulted for
+        #: `interactive_priority` sessions; harmless to carry otherwise.
+        #: Floored at 0 here so a stray negative from a caller that doesn't
+        #: clamp (solo — the lobby path already clamps its own input) can't
+        #: produce a nonsense bar.
+        self.spell_timer_seconds: float = max(
+            0.0,
+            float(spell_timer_seconds)
+            if spell_timer_seconds is not None
+            else config.MULTIPLAYER_SPELL_TIMER_SECONDS,
         )
         #: A card loader for Replay-mode `edit_add_object` (resolving a card
         #: name → `Card` on the fly). Set by `create_replay`; None otherwise.
@@ -430,6 +469,18 @@ class GameSession:
         #: dropped as soon as that player's own real action supersedes it
         #: (`apply_action`/`concede`). See `set_ui_draft`.
         self._ui_drafts: dict[str, dict[str, Any]] = {}
+        #: Purely cosmetic per-player banner colour (`services.lobby.
+        #: normalize_banner_color`'s WUBRG-letters/`"c"` vocabulary), keyed
+        #: by player id — the lobby-free counterpart of Multiplayer's
+        #: `Seat.banner_color`. Empty for every session that has a real
+        #: lobby (Multiplayer sources banners from there instead, through
+        #: the frontend's `seatStatus` hook); `api/solo.py` populates it
+        #: at start from each seat's deck colour identity, the same
+        #: "fly the deck's own colours" default `_default_banner_from_deck`
+        #: gives a Multiplayer seat. Injected into each player dict by
+        #: `view()`/`observer_view()` rather than living on `Player` itself,
+        #: keeping the engine model cosmetic-free.
+        self._banner_colors: dict[str, str] = {}
 
         #: Whether a mulligan/keep-hand setup phase gates play (only real
         #: goldfish sessions from `GameSessionManager.create_goldfish` set
@@ -607,7 +658,16 @@ class GameSession:
         # as clicking "Next step" would, and undo/replay stay deterministic
         # even with the opponent present. It manages its own history entries.
         if action["type"] in ("advance_to_decision", "next_decision"):
-            if actor is not self.engine.state.active_player:
+            # MEC-51 (RULE 720): the controller of the active player's turn
+            # may fast-forward it, exactly as the active player could.
+            _acting = actor
+            _driven = self.engine.state.driving_seat_for(actor.id)
+            if _driven is not None:
+                try:
+                    _acting = self.engine.state.player_by_id(_driven)
+                except KeyError:
+                    pass
+            if _acting is not self.engine.state.active_player:
                 raise GameActionError("only the active player can advance the turn")
             if self.interactive_priority:
                 # RULE 117.4, same refusal `_dispatch` gives a plain
@@ -630,6 +690,26 @@ class GameSession:
             _, snapshot, cursor, _actor_id = self._history.pop()
             self._restore(snapshot, cursor)
             raise GameActionError(str(exc)) from exc
+        if self.interactive_priority:
+            # RULE 117.5/603.3b (bug report, 2026-09-04: Sram, Senior
+            # Edificer's own "whenever you cast an Aura, Equipment, or
+            # Vehicle spell, draw a card" fired and even resolved, drawing
+            # the card, but was never once visible on the stack) — a
+            # trigger fired by this action has to actually reach the stack
+            # before the response returns, not just eventually get swept up
+            # the next time `pass_priority` happens to complete a round.
+            # `pass_priority`'s own "everyone has passed" branch already
+            # calls `put_triggers_on_stack` right before resolving, but the
+            # much more common case — an action that fires a trigger while
+            # its actor still holds priority afterward, same turn, nobody
+            # having passed yet — had nothing placing it at all until then;
+            # the trigger sat in `rules.pending_triggers` invisibly, then
+            # got placed *and* immediately resolved together inside that
+            # same later `pass_priority` call, so no response ever saw it
+            # sitting on the stack. `_place_pending_triggers` only *places*
+            # (RULE 117.5's other half, SBAs) — never resolves — so this
+            # can never step on `pass_priority`'s own real priority-passing.
+            self._place_pending_triggers()
         self.move_log.append(label)
         # A real, committed action always supersedes whatever in-progress UI
         # selection led to it (PLR-6) — drop it rather than let a stale
@@ -690,6 +770,23 @@ class GameSession:
         active = actor if actor is not None else state.active_player
         kind = action["type"]
 
+        # MEC-51 (RULE 720): a player controlling another seat's turn/combat
+        # acts *through* that seat — their action arrives as if the
+        # controlled player took it. `driving_seat_for` only yields a seat
+        # while a control window is genuinely active and `actor` is its
+        # controller, so a client can't spoof it. `concede`/`take_back` stay
+        # with the real seat (720.1); `choose`/`decline` route via
+        # `decider_for` in their own gate below.
+        if actor is not None and kind not in (
+            "concede", "take_back", "choose", "decline",
+        ) and not kind.startswith("edit_"):
+            driven = state.driving_seat_for(actor.id)
+            if driven is not None:
+                try:
+                    active = state.player_by_id(driven)
+                except KeyError:
+                    pass
+
         # Replay/puzzle board editing (mode == REPLAY): direct state
         # mutations that bypass rules validation, so an arbitrary — even
         # rules-illegal — position can be constructed. Allowed at any time.
@@ -734,6 +831,24 @@ class GameSession:
         # only the choice may be answered.
         if state.pending_choice and kind not in ("choose", "decline"):
             raise GameActionError("a choice is pending — answer it first")
+
+        # MEC-51 (RULE 720): a choice addressed to a player whose turn/combat
+        # is being controlled is answered by the *controller*. Only enforced
+        # when a control window is actually redirecting it (`decider` differs
+        # from the named player), so ordinary multiplayer is untouched.
+        if (
+            state.pending_choice
+            and kind in ("choose", "decline")
+            and actor is not None
+        ):
+            pc_owner = state.pending_choice.get("player_id")
+            if pc_owner is not None:
+                decider = state.decider_for(pc_owner)
+                if decider != pc_owner and actor.id != decider:
+                    raise ValueError(
+                        f"{actor.name} is not answering this choice — "
+                        f"it is controlled by another player"
+                    )
 
         # RULE 117.1: with priority genuinely being passed around, only the
         # player holding it may take an action. `legal_actions` already
@@ -862,6 +977,14 @@ class GameSession:
         target_groups = self._resolve_target_groups(action.get("target_groups"))
         x = int(action.get("x", 0))
         face = action.get("face", "front")
+        # RULE 601.2b: the caster's own pick for a spell's "as an additional
+        # cost to cast this spell, sacrifice/discard …" clause — round-trips
+        # from `legal_actions`' `sacrifice_cost`/`discard_cost` offer, the
+        # same shape `activate_ability` already threads for an activated
+        # ability's cost. `None` (no clause, or a non-interactive caller)
+        # falls back to the engine's auto-pick.
+        sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
+        discard_choices = self._resolve_discard_choices(action.get("discard_choices"))
         # RULE 700.2: a modal spell's chosen mode — an index into
         # `obj.spell_modes`, or "both" (RULE 700.2e) — round-trips from
         # the `mode` field `GameEngine._cast_action` stamped on the
@@ -889,6 +1012,7 @@ class GameSession:
         self.engine.cast_spell(
             active, self._object(action), targets, x, face=face, mode=mode,
             kicked=kicked, kicker_x=kicker_x, target_groups=target_groups,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             buyback=bool(action.get("buyback", False)),
             mutate=bool(action.get("mutate", False)),
             mutate_under=bool(action.get("mutate_under", False)),
@@ -902,6 +1026,14 @@ class GameSession:
             # round-trips off the flag `_cast_action` stamps on the "cast
             # using …" offer, same as `evoke`.
             help_pay=bool(action.get("help_pay", False)),
+            # PAR-30: RULE 601.2b — an *optional* "you may waterbend {N}."
+            # additional cast cost, round-tripped off the flag `_cast_action`
+            # stamps on the "cast + pay it" offer (a separate action entry
+            # from the plain one), same as `evoke`/`help_pay`.
+            pay_additional=bool(action.get("pay_additional", False)),
+            teamwork=bool(action.get("teamwork", False)),
+            teamwork_choices=[int(value) for value in (action.get("teamwork_choices") or [])]
+            if action.get("teamwork_choices") is not None else None,
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:
@@ -910,6 +1042,14 @@ class GameSession:
         # happen. Silent outside a Planechase game: `can_roll_planar_die`
         # refuses without a planar deck.
         self.engine.roll_planar_die(active)
+
+    def _dispatch_foretell(self, action: dict[str, Any], active: Player) -> None:
+        """RULE 702.143a's special action; it does not use the stack."""
+        self.engine.foretell(active, self._object(action))
+
+    def _dispatch_suspend(self, action: dict[str, Any], active: Player) -> None:
+        """RULE 702.62a's hand-zone special action; it does not use the stack."""
+        self.engine.suspend(active, self._object(action))
 
     def _dispatch_turn_face_up(self, action: dict[str, Any], active: Player) -> None:
         # RULE 116.2b: the special action of turning a face-down
@@ -1012,6 +1152,8 @@ class GameSession:
         "activate_hand_mana": _dispatch_activate_hand_mana,
         "auto_tap_for": _dispatch_auto_tap_for,
         "cast_spell": _dispatch_cast_spell,
+        "foretell": _dispatch_foretell,
+        "suspend": _dispatch_suspend,
         "roll_planar_die": _dispatch_roll_planar_die,
         "turn_face_up": _dispatch_turn_face_up,
         "pay_search_exemption": _dispatch_pay_search_exemption,
@@ -1220,9 +1362,9 @@ class GameSession:
 
     def _edit_set_turn(self, action: dict[str, Any]) -> None:
         state = self.engine.state
-        if "turn_number" in action:
-            state.turn_number = max(1, int(action["turn_number"]))
-            state.sync_round_number()
+        if "internal_turn" in action:
+            state.internal_turn.number = max(1, int(action["internal_turn"]))
+            state.sync_turn_nr()
         if action.get("active_player_id"):
             player = state.player_by_id(str(action["active_player_id"]))
             state.active_player_index = state.players.index(player)
@@ -1474,9 +1616,56 @@ class GameSession:
 
         resolved = self.engine.pass_priority(player)
         if resolved or not completes_round or not stack_was_empty:
+            self._auto_pass_turn_controllers()
             return
         # Everyone passed on an empty stack → the step ends.
         self._advance_to_priority_window()
+        self._auto_pass_turn_controllers()
+
+    def _auto_pass_turn_controllers(self) -> None:
+        """MEC-51 (RULE 720): while a player controls the *active* player's
+        turn, they act only *as* that seat — so any priority window they
+        would hold *as themselves* during it is auto-passed, letting the
+        controller drive the turn with a single "Passen" per pass. Their own
+        instant-speed responses during a controlled turn are the documented
+        simplification. Recurses through `_pass_priority` so a pass that
+        completes the round still ends the step."""
+        state = self.engine.state
+        for _ in range(len(state.players) + 2):
+            holder = state.priority_player
+            if holder is None or state.game_over:
+                return
+            driven = state.driving_seat_for(holder.id)
+            if driven is None or driven == holder.id:
+                return
+            self._pass_priority(holder)
+            return
+
+    def _place_pending_triggers(self) -> None:
+        """RULE 117.5: before a player next receives (or keeps) priority,
+        perform state-based actions and put any fired triggered abilities
+        on the stack — looped, since placing one, or an SBA (a lethal-
+        damage death, say), can itself cause more to fire.
+
+        Deliberately never resolves anything (that stays exclusively
+        `GameEngine.pass_priority`'s job, via `_pass_priority`) — this only
+        makes an already-fired trigger *visible*, the RULE 117.5 half
+        `resolve_until_stable`'s full auto-drain conflates with actually
+        resolving the stack (fine for a solo/goldfish session, wrong here:
+        a shared game's whole point is that a response window opens before
+        anything resolves). Stops early on `pending_choice` (a trigger's
+        own RULE 603.3c target/mode/"you may" choice, or an SBA-driven one)
+        or `game_over`, same as `resolve_until_stable`.
+        """
+        engine = self.engine
+        for _ in range(_MAX_PENDING_TRIGGER_ROUNDS):
+            engine.rules.check_state_based_actions()
+            if engine.state.game_over or engine.state.pending_choice:
+                return
+            if engine.rules.put_triggers_on_stack() == 0:
+                return
+            if engine.state.pending_choice:
+                return
 
     def _advance_to_priority_window(self) -> None:
         """Run steps until one opens a priority window (or the game ends).
@@ -1545,14 +1734,14 @@ class GameSession:
         player has been stepping through), auto-playing the goldfish line
         at each step, and stops once the next turn begins.
         """
-        start_turn = self.engine.state.turn_number
+        start_turn = self.engine.state.internal_turn.number
         for _ in range(60):  # generous per-turn step cap; guards runaway loops
             if self.engine.state.game_over:
                 return
             self.engine.auto_play_step()
             if self.engine.advance_step() is None:
                 return
-            if self.engine.state.turn_number != start_turn:
+            if self.engine.state.internal_turn.number != start_turn:
                 return
 
     def _object(self, action: dict[str, Any]) -> GameObject:
@@ -1702,6 +1891,23 @@ class GameSession:
         """
         state = self.engine.state
         seat = self._actor(perspective) if perspective is not None else state.active_player
+        # MEC-51 (RULE 720): while `perspective` controls another seat's
+        # turn (or combat, during combat), they are offered *that* seat's
+        # actions — priority, casting, declare-attackers, and any pending
+        # choice addressed to it. Their own instant-speed responses during
+        # that window are a documented simplification (not offered here).
+        if perspective is not None:
+            _driven = state.driving_seat_for(perspective)
+            if _driven is not None:
+                try:
+                    seat = state.player_by_id(_driven)
+                except KeyError:
+                    pass
+            # ...and conversely, a player whose own decisions are currently
+            # routed away (their turn/combat is being controlled) is offered
+            # nothing here — the controller acts for them.
+            elif state.decider_for(perspective) != perspective:
+                return []
         if not self._setup_complete:
             if seat.id not in self._setup_pending:
                 return []  # already kept; waiting on the rest of the table
@@ -1787,7 +1993,7 @@ class GameSession:
                 "cmc_curve": curve,
                 "mana_per_turn": mana_per_turn,
             }
-        return {"turns": state.turn_number, "players": per_player}
+        return {"turns": state.turn_nr, "players": per_player}
 
     def view(self, perspective: Optional[str] = None) -> dict[str, Any]:
         """Everything the UI needs to render the session after a change.
@@ -1804,6 +2010,15 @@ class GameSession:
         # (RULE 613) even if nothing triggered an SBA since the last change.
         self.engine.recompute_continuous_effects()
         state_dict = self.engine.state.to_dict()
+        # Lobby-free banner colours (`self._banner_colors`, Solo vs. Bots) —
+        # cosmetic only, so stamped straight onto the already-built player
+        # dicts rather than threaded through `Player.to_dict()`. A no-op
+        # (empty dict) for every session with a real lobby.
+        if self._banner_colors:
+            for p in state_dict.get("players", []):
+                color = self._banner_colors.get(p.get("id"))
+                if color:
+                    p["banner_color"] = color
         top_visible = {
             p.id: may_look_at_top_of_library(p, self.engine.state)
             for p in self.engine.state.players
@@ -1824,12 +2039,37 @@ class GameSession:
             for pid in visible_ids
         }
         _annotate_castable(state_dict, self.engine, visible_ids)
+        # MEC-51 (RULE 720): the seat `perspective` is currently entitled to
+        # drive — their own, or another player's whose turn/combat they
+        # control. The frontend swaps `perspective` → `acting_as` for every
+        # "is it me to act" check (turn, priority, pending choice).
+        acting_as = perspective
+        reveal_hands: set[str] = set()
+        choice_decider: Optional[str] = None
         if perspective is not None:
-            _redact_hidden_zones(state_dict, perspective, top_visible)
+            driven = self.engine.state.driving_seat_for(perspective)
+            if driven is not None:
+                acting_as = driven
+                reveal_hands.add(driven)
+            # MEC-51b: the Word of Command caster sees the target's hand
+            # while picking a card from it (RULE 720.2).
+            woc = self.engine.state.word_of_command
+            if woc and woc.get("controller_id") == perspective and woc.get("target_id"):
+                reveal_hands.add(woc["target_id"])
+            pc = state_dict.get("pending_choice")
+            if pc and pc.get("player_id"):
+                choice_decider = self.engine.state.decider_for(pc["player_id"])
+        if perspective is not None:
+            _redact_hidden_zones(
+                state_dict, perspective, top_visible,
+                also_visible_hand_ids=reveal_hands,
+                choice_decider_id=choice_decider,
+            )
         return {
             "session_id": self.id,
             "mode": self.mode,
             "perspective": perspective,
+            "acting_as": acting_as,
             "state": state_dict,
             "legal_actions": self.legal_actions(perspective),
             "pending_choice": state_dict.get("pending_choice"),
@@ -1900,6 +2140,11 @@ class GameSession:
                     else None
                 ),
                 "passed": sorted(self.engine.state.priority_passed),
+                # The board arms its per-priority countdown/progress-bar with
+                # this (seconds); 0 turns it off. Sent for every session so
+                # the same client code covers solo modes too, though only an
+                # `interactive` one ever actually runs it.
+                "timer_seconds": self.spell_timer_seconds,
             },
             "setup": {
                 "complete": self._setup_complete,
@@ -1999,6 +2244,7 @@ class GameSessionManager:
         starting_hand: int = 7,
         mulligan_style: str = "london",
         takebacks_per_player: int = 0,
+        spell_timer_seconds: Optional[float] = None,
         game_format: Optional[str] = None,
         archenemy_id: Optional[str] = None,
     ) -> GameSession:
@@ -2020,6 +2266,7 @@ class GameSessionManager:
             require_setup=True,
             mulligan_style=mulligan_style,
             takebacks_per_player=takebacks_per_player,
+            spell_timer_seconds=spell_timer_seconds,
         )
         self._sessions[session.id] = session
         return session

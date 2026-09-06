@@ -11,6 +11,7 @@
 // module load.
 
 import { getServerUrl } from './settings.js';
+import { t } from './i18n.js';
 
 /**
  * Whether the configured backend address is reachable (GET /api/health).
@@ -52,7 +53,7 @@ export async function submitDeck(sections, isCube = false) {
   try {
     return { ok: true, deck: await response.json() };
   } catch {
-    return { ok: false, error: 'Ungültige Server-Antwort – lokale Vorschau wird verwendet.' };
+    return { ok: false, error: t('api.invalidResponsePreview') };
   }
 }
 
@@ -88,7 +89,7 @@ export async function importArchidektDeck(deckIdOrUrl) {
   try {
     return { ok: true, ...(await response.json()) };
   } catch {
-    return { ok: false, error: 'Ungültige Server-Antwort.' };
+    return { ok: false, error: t('api.invalidResponse') };
   }
 }
 
@@ -385,6 +386,47 @@ export async function endGame(sessionId) {
  */
 export async function fetchGameFormats() {
   return gameRequest('GET', '/api/game/formats');
+}
+
+// --- Solo vs. bots (api/solo.py) ----------------------------------------
+// The Multiplayer engine (real turns, RULE 117 priority, redacted views)
+// minus the lobby: one human, 1-3 bots, plain REST like goldfish. Same
+// {ok, status, data} shape. The bot kinds come from `fetchBotKinds`
+// (/api/multiplayer/bots) — a property of the backend, not of the lobby.
+
+/**
+ * Start a solo game.
+ * @param {{deckId: string, opponents: Array<{kind: string, deckId: string}>,
+ *   gameFormat?: string, mulliganStyle?: string,
+ *   startingPlayer?: "you"|"random"}} payload
+ */
+export async function startSolo(payload) {
+  return gameRequest('POST', '/api/solo/start', payload);
+}
+
+/** Apply one action (from `legal_actions`) as the human; the bots answer. */
+export async function sendSoloAction(sessionId, action) {
+  return gameRequest('POST', `/api/solo/${encodeURIComponent(sessionId)}/action`, action);
+}
+
+/** RULE 104.3a: the human concedes the solo game. */
+export async function concedeSolo(sessionId) {
+  return gameRequest('POST', `/api/solo/${encodeURIComponent(sessionId)}/concede`, {});
+}
+
+/** Reset a solo game to its opening state. */
+export async function restartSolo(sessionId) {
+  return gameRequest('POST', `/api/solo/${encodeURIComponent(sessionId)}/restart`, {});
+}
+
+/** The human's current view (reload / tab re-open). */
+export async function getSoloView(sessionId) {
+  return gameRequest('GET', `/api/solo/${encodeURIComponent(sessionId)}`);
+}
+
+/** Drop a solo game session on the server. */
+export async function endSolo(sessionId) {
+  return gameRequest('DELETE', `/api/solo/${encodeURIComponent(sessionId)}`);
 }
 
 // --- ANA-4: dynamic (simulated) deck analysis -----------------------------

@@ -148,11 +148,11 @@ class TurnLoopMixin:
                 hand_mod, life_mod = variants.vanguard_modifiers(avatar.name)
                 player.hand_size_modifier = hand_mod
                 player.life += life_mod  # RULE 902.4
-    def _advance_round_number(self) -> None:
+    def _advance_turn_nr(self) -> None:
         """Bump the display-only round counter when the table wraps around.
 
         RULE 500.1 counts every player's turn separately, which is what
-        `turn_number` is; `round_number` counts how often the turn has come
+        `internal_turn.number` is; `turn_nr` counts how often the turn has come
         back around to whoever started, which is what players mean by
         "we're on turn 4". A player leaving the game (RULE 800.4a) would
         strand a counter keyed on them alone, so the reference point moves
@@ -163,18 +163,21 @@ class TurnLoopMixin:
             state.starting_player_id = state.active_player.id
         elif not any(p.id == state.starting_player_id for p in state.players):
             state.starting_player_id = state.active_player.id
-            state.round_number += 1
+            state.turn_nr += 1
             return
         if state.active_player.id == state.starting_player_id:
-            state.round_number += 1
+            state.turn_nr += 1
     def begin_turn(self) -> None:
         """Advance to the next player's turn and reset per-turn state."""
-        if self.state.turn_number == 0:
-            self.state.turn_number = 1
+        # RULE 700.2 / MEC-68: "this turn" modal history expires before a
+        # new turn's triggers can be collected or placed.
+        self.state.trigger_mode_history.clear()
+        if self.state.internal_turn.number == 0:
+            self.state.internal_turn.number = 1
             self.state.active_player_index = 0
             # The reference point for the display-only round counter: round 1
-            # begins with whoever takes turn 1 (`GameState.round_number`).
-            self.state.round_number = 1
+            # begins with whoever takes turn 1 (`GameState.turn_nr`).
+            self.state.turn_nr = 1
             self.state.starting_player_id = self.state.active_player.id
         else:
             # Capture the outgoing player's final spell count before rotating
@@ -183,7 +186,7 @@ class TurnLoopMixin:
             outgoing = self.state.active_player
             self.state._last_turn_player_id = outgoing.id
             self.state._last_turn_spell_count = self.state.spells_cast_this_turn.get(outgoing.id, 0)
-            self.state.turn_number += 1
+            self.state.internal_turn.number += 1
             # RULE 500.7: a queued extra turn is taken right after this one,
             # before the normal next player — pop the front of the queue and
             # hand that player the turn instead of rotating the round-robin.
@@ -209,7 +212,7 @@ class TurnLoopMixin:
                 # Rotate to the next player, skipping the passive goldfish dummy
                 # (UC3) so a solo game keeps handing turns back to the human.
                 self.state.active_player_index = self.state.next_active_index()
-            self._advance_round_number()
+            self._advance_turn_nr()
         # RULE 800.4a, deferred: a player who conceded during someone else's
         # turn keeps their board standing until the next turn begins, so the
         # position the other players were reading doesn't vanish mid-turn
@@ -223,6 +226,7 @@ class TurnLoopMixin:
                 pass
         self.state.pending_leave_ids.clear()
         active = self.state.active_player
+        self.state.internal_turn.player_id = active.id
         active.lands_played_this_turn = 0
         active.extra_land_plays_this_turn = 0
         # RULE 901.6b: the planar die costs {X} where X is how many times its
@@ -236,9 +240,15 @@ class TurnLoopMixin:
         # already uses.
         for player in self.state.players:
             self.state.spells_cast_this_turn[player.id] = 0
+            # RULE 500.1 — reset for *every* player, not just the incoming
+            # active one: Davros, Dalek Creator's own end-step trigger reads
+            # each *opponent's* `life_lost_this_turn`, so a stale value from
+            # someone else's turn must be cleared here.
+            self.state.life_lost_this_turn[player.id] = 0
         self.state.combats_this_turn = 0
         self.state.cards_drawn_this_turn[active.id] = 0
         self.state.cards_drawn_this_turn_ids[active.id] = []
+        self.state.cards_discarded_this_turn[active.id] = 0
         self.state.life_gained_this_turn[active.id] = 0
         # RULE 120.3 history ("dealt combat damage by ~ *this turn*", Hope of
         # Ghirapur) — game-wide, not per active player: last turn's combat
@@ -253,6 +263,27 @@ class TurnLoopMixin:
         # RULE 700.4 history ("unless a creature died under your control this
         # turn", Bontu the Glorified) — game-wide for the same reason.
         self.state.creatures_died_this_turn.clear()
+        # PAR-32: "if a source you controlled dealt N or more damage this
+        # turn" (Dragon Cultist) / "if a creature card was put into your
+        # graveyard from anywhere this turn" (Cloakwood Hermit) — per-
+        # controller / per-owner history, game-wide reset like the rows
+        # around it.
+        self.state.damage_dealt_by_this_turn.clear()
+        self.state.creature_card_to_graveyard_this_turn.clear()
+        self.state.permanent_card_to_graveyard_this_turn.clear()
+        # MEC-57: "the first time you would draw a card each turn, instead
+        # …" (Scion of Halaster) — game-wide, same reason.
+        self.state.first_draw_replaced_this_turn.clear()
+        # MEC-60: "the first `<subtype>` spell you cast each turn …"
+        # (Acolyte of Bahamut) — game-wide, same reason.
+        self.state.creature_type_spells_cast_this_turn.clear()
+        # MEC-49 history ("whenever a creature dealt damage by ~ this turn
+        # dies", Baron Sengir) — game-wide, same reason.
+        self.state.creatures_damaged_by_source_this_turn.clear()
+        # RULE 701.6x history ("then if you've done all four this turn",
+        # Avatar Aang) — game-wide, same as the row above; a bend by any
+        # player is a per-turn fact none of them carry on the board.
+        self.state.bends_this_turn.clear()
         # Mana-potential tracking (`game/mana_potential.py`) — game-wide,
         # not `active.id`-only like `spells_cast_this_turn` above: a
         # non-active player can still tap mana at instant speed under
@@ -312,6 +343,9 @@ class TurnLoopMixin:
         # source does.
         for obj in self.state.battlefield:
             obj.goaded_by.discard(active.id)
+            # RULE 701.35b: detain lasts "until your next turn" too — same
+            # per-detainer sweep as goad just above.
+            obj.detained_by.discard(active.id)
         # RULE 611.2b: "until your next turn" ends as that player's turn
         # begins — the one duration a `temp_*` field can't express, since
         # those are all cleared at the cleanup step of the turn they were
@@ -324,7 +358,7 @@ class TurnLoopMixin:
         # interactive multiplayer loop drives via `pass_priority(player)`).
         self.give_priority(active)
         self.state.fire_event(
-            GameEvent(EventType.TURN_BEGIN, player_id=active.id, turn=self.state.turn_number)
+            GameEvent(EventType.TURN_BEGIN, player_id=active.id, turn=self.state.internal_turn.number)
         )
     def run_turn(self) -> None:
         """Run one full turn: walk every step, giving priority where due."""
@@ -563,13 +597,19 @@ class TurnLoopMixin:
         for dt in self.state.delayed_triggers:
             if (
                 _step_matches(dt.step)
-                and self.state.turn_number >= getattr(dt, "min_turn", 0)
+                and self.state.internal_turn.number >= getattr(dt, "min_turn", 0)
                 and (dt.scope != "controller" or dt.controller_id == active_id)
             ):
                 due.append(dt)
             else:
                 remaining.append(dt)
         self.state.delayed_triggers = remaining
+        # RULE 603.4: a delayed ability with an "…unless <X>" rider
+        # (`DelayedTrigger.condition` — Sauron, the Necromancer) only
+        # triggers if its intervening-if holds when it would go on the
+        # stack. Evaluated through the shared `ConditionalEffect` whitelist
+        # so the semantics match the parser's `EffectSpec.condition`.
+        due = [dt for dt in due if self._delayed_trigger_condition_holds(dt)]
         for dt in due:
             self.state.stack.append(
                 StackItem(
@@ -581,6 +621,25 @@ class TurnLoopMixin:
                     category="triggered_ability",
                 )
             )
+
+    def _delayed_trigger_condition_holds(self, dt: "DelayedTrigger") -> bool:
+        """RULE 603.4: a `DelayedTrigger.condition` ("…unless ~ is your
+        Ring-bearer") re-checked when the ability would go on the stack.
+        ``None`` always fires; otherwise the check reuses `ConditionalEffect`'s
+        whitelisted evaluator against the ability's own source (the first
+        baked effect's ``source`` — the same one `DelayedTrigger.to_dict`
+        reads) so it matches the parser's `EffectSpec.condition` semantics."""
+        condition = getattr(dt, "condition", None)
+        if not condition:
+            return True
+        from ..effects import ConditionalEffect
+
+        src = getattr(dt.effects[0], "source", None) if dt.effects else None
+        probe = ConditionalEffect(condition, dt.effects[0], source=src) if dt.effects else None
+        if probe is None:
+            return True
+        return probe._condition_holds(self.rules.context, dt.targets)
+
     def _step_untap(self) -> None:
         active = self.state.active_player
         # RULE 702.26a: "at the beginning of the untap step, before
@@ -654,9 +713,13 @@ class TurnLoopMixin:
             # during each of your turns" restriction (Lurrus-shaped) resets
             # the same way.
             obj.graveyard_casts_this_turn = 0
+            obj.graveyard_cast_types_this_turn = set()
             # ENG-27: "if you haven't added mana with this ability this
             # turn" (Carpet of Flowers) resets the same way too.
             obj.added_mana_with_ability_this_turn = False
+            # RULE 605.1a mana ability "… and only once each turn." (Vivi
+            # Ornitier) resets the same way, per ability index.
+            obj.mana_abilities_activated_this_turn = set()
             # RULE 702.19a: a new turn means "hasn't been exerted this
             # turn" is true again.
             obj.exerted_this_turn = False
@@ -691,7 +754,7 @@ class TurnLoopMixin:
         # setup screen is what clears `skip_first_draw` to put the human on
         # the draw instead.
         skip_draw = (
-            self.state.turn_number == 1
+            self.state.internal_turn.number == 1
             and len(self.state.players) == 2
             and self.state.skip_first_draw
         )
@@ -763,10 +826,12 @@ class TurnLoopMixin:
         ended_effects = False
         for obj in self.state.permanents():
             obj.damage_marked = 0
-            if obj.temp_power or obj.temp_toughness or obj.temp_keywords:
+            if (obj.temp_power or obj.temp_toughness or obj.temp_keywords
+                    or obj.temp_parametric_keywords):
                 obj.temp_power = 0
                 obj.temp_toughness = 0
                 obj.temp_keywords.clear()
+                obj.temp_parametric_keywords.clear()  # ENG-31
                 obj.temp_effects.clear()
                 ended_effects = True
             if obj.temp_unblockable:
@@ -774,6 +839,9 @@ class TurnLoopMixin:
                 ended_effects = True
             if obj.temp_cant_block:
                 obj.temp_cant_block = False
+                ended_effects = True
+            if obj.cant_be_sacrificed_this_turn:
+                obj.cant_be_sacrificed_this_turn = False  # Call for Aid rider
                 ended_effects = True
             if obj.temp_combat_restrictions:
                 obj.temp_combat_restrictions.clear()
@@ -819,6 +887,9 @@ class TurnLoopMixin:
         # when it lapses (`game/durations.py`).
         if durations.sweep(self.state, "cleanup"):
             ended_effects = True
+        # "You can't attack that player this turn." (Call for Aid) — RULE
+        # 514.2, a state-level "this turn" bar rather than a per-object one.
+        self.state.no_attack_pairs_this_turn.clear()
         if ended_effects:
             self.recompute_continuous_effects()  # re-derive P/T sans the pumps
         # RULE 514.2 analogue: an unused (or partially-spent) turn-scoped
@@ -870,6 +941,9 @@ class TurnLoopMixin:
         # RULE 615 (MEC-30): "Damage can't be prevented this turn." also
         # lapses here, the same window every other "this turn" flag clears.
         self.state.damage_prevention_disabled = False
+        # MEC-46 (RULE 701.38f): "You choose how each player votes this
+        # turn." (Illusion of Choice) lapses on the same RULE 514.2 window.
+        self.state.forced_vote_controller_id = None
         # RULE 702.94b (PAR-26): a Miracle card's "cast for the miracle
         # cost" window is torn down here (the simplification is that it
         # lasts the whole turn rather than only until priority is next
@@ -884,7 +958,7 @@ class TurnLoopMixin:
         # turn" permission (Light Up the Stage-shaped impulsive draw) lapses
         # at *its own holder's* next-turn cleanup — not simply the very next
         # cleanup in turn order, which (RULE 500.1: every player's turn
-        # increments turn_number) is usually an opponent's turn, cutting the
+        # increments internal_turn.number) is usually an opponent's turn, cutting the
         # window a full turn short and to the wrong player's clock in
         # anything but a 1-player game. A same-turn-only entry (Ragavan,
         # Nimble Pilferer/Mnemonic Betrayal's own shorter printed window,
@@ -901,7 +975,7 @@ class TurnLoopMixin:
             return not (
                 holder_id is not None
                 and active_id == holder_id
-                and self.state.turn_number > granted_turn
+                and self.state.internal_turn.number > granted_turn
             )
 
         self.state.temp_play_permissions = {
@@ -923,6 +997,10 @@ class TurnLoopMixin:
         }
         self.state.free_cast_instance_ids = {
             iid for iid in self.state.free_cast_instance_ids
+            if iid in self.state.temp_play_permissions
+        }
+        self.state.free_cast_ignore_timing_instance_ids = {
+            iid for iid in self.state.free_cast_ignore_timing_instance_ids
             if iid in self.state.temp_play_permissions
         }
         # RULE 514.2: MEC-24's targeted "gains flashback until end of turn"
@@ -1008,6 +1086,17 @@ class TurnLoopMixin:
         if self.state.stack:
             self.rules.resolve_top_of_stack()
             self.rules.check_state_based_actions()
+            if self.state.game_over:
+                # What just resolved ended the game outright (Vraska, Golgari
+                # Queen's "that player loses the game" emblem, Door to
+                # Nothingness, a lethal SBA sweep, …) — unlike every other
+                # branch here, there is no "next window" to hand priority
+                # into. `resolve_until_stable` already re-checks this on every
+                # loop iteration for the same reason; this single-call sibling
+                # needs the same guard so a caller that keeps prompting for
+                # passes (e.g. `pass_for_absent_players`) sees `game_over`
+                # rather than a still-live-looking priority player.
+                return True
             # RULE 117.5: before any player can receive priority again,
             # state-based actions are performed and triggered abilities are
             # put on the stack. Without this second call, a trigger fired by
@@ -1065,6 +1154,32 @@ class TurnLoopMixin:
         elif kind == "discover":
             # Two positive options: cast (default) or take to hand.
             self.rules.resolve_discover_choice(to_hand=(answer == "hand"))
+        elif kind == "explore_bin":
+            # RULE 701.44a's "may put the revealed card into your graveyard"
+            # — a yes/no; declining ("top") leaves it on the library.
+            self.rules.resolve_explore_bin_choice(to_graveyard=(answer == "graveyard"))
+        elif kind == "populate":
+            # RULE 701.36a: the option id is which creature token you control
+            # to copy — mandatory (no "you may"), so a missing answer defaults
+            # to the first offered token in `resolve_populate_choice`.
+            self.rules.resolve_populate_choice(None if declined else int(answer))
+        elif kind == "bolster":
+            # RULE 701.39a's tie clause: the option id is which least-toughness
+            # creature to put the +1/+1 counters on — mandatory (no "you may"),
+            # a missing answer defaults to the first tied creature.
+            self.rules.resolve_bolster_choice(None if declined else int(answer))
+        elif kind == "blight":
+            # "Blight N": the option id is which creature you control gets the
+            # -1/-1 counters — a missing answer defaults to the first offered.
+            self.rules.resolve_blight_choice(None if declined else int(answer))
+        elif kind == "endure":
+            # RULE 701.63a "Endure N": "counters" (default) or "token"
+            # (an N/N white Spirit) — a yes/no, not an object pick.
+            self.rules.resolve_endure_choice(to_token=(answer == "token"))
+        elif kind == "recruit":
+            # RULE 701.70a "Recruit": the option id is which hand card to
+            # discard — mandatory, a missing answer defaults to the first.
+            self.rules.resolve_recruit_choice(None if declined else int(answer))
         elif kind == "order_triggers":
             # RULE 603.3b: the option id is the index of the trigger to place next.
             index = None if declined else int(answer)
@@ -1159,6 +1274,8 @@ class TurnLoopMixin:
             # Vault, Wandering Archaic) — "pay" charges the cost and runs
             # the follow-up; anything else runs the "if you don't" branch.
             self.rules.resolve_pay_cost_then_choice(None if declined else str(answer))
+        elif kind == "exile_source_then":
+            self.rules.resolve_exile_source_then_choice(None if declined else str(answer))
         elif kind == "pay_life_or_return_to_library":
             # Sylvan Library (MEC-40): "…pay 4 life or put the card on top
             # of your library." — a mandatory per-card either/or, not a
@@ -1171,6 +1288,28 @@ class TurnLoopMixin:
             # "pay" cancels the whole sweep; anything else moves on to the
             # next player.
             self.rules.resolve_all_decline_or_choice(None if declined else str(answer))
+        elif kind == "vote":
+            # RULE 701.38: "starting with you, each player votes for <A> or
+            # <B>." — the option id is the vote index; a decline/missing
+            # answer defaults to option 0 (each player must vote).
+            self.rules.resolve_vote_choice(None if declined else str(answer))
+        elif kind == "vote_object":
+            # MEC-46 / RULE 701.38: "each player votes for a nonland
+            # permanent you don't control" / "…a card in your graveyard" —
+            # the option id is the chosen object's instance id; a decline/
+            # missing answer defaults to the first candidate.
+            self.rules.resolve_object_vote_choice(None if declined else str(answer))
+        elif kind == "villainous_choice":
+            # RULE 701.55: "<player> faces a villainous choice — <A>, or
+            # <B>." — the option id is "0"/"1"; a decline/missing answer
+            # defaults to option A.
+            self.rules.resolve_villainous_choice(None if declined else str(answer))
+        elif kind == "word_of_command":
+            # MEC-51b: the option id is which card in the target's hand the
+            # WoC caster picks (its instance id) — mandatory (the caster
+            # must choose; a missing/invalid answer defaults to the first
+            # card in `resolve_word_of_command_choice`).
+            self.rules.resolve_word_of_command_choice(None if declined else int(answer))
         elif kind == "pay_energy_then":
             # RULE 122: "you may pay {E}{E}. If you do, <effect>." (Aether
             # Chaser) — "pay" spends the energy and resolves the follow-up,
@@ -1352,6 +1491,12 @@ class TurnLoopMixin:
             # card's N and returning it to hand — "you may", so a plain
             # "draw" option / decline falls back to the deferred draw.
             self.rules.resolve_dredge_choice(None if declined else str(answer))
+        elif kind == "peek_top_land":
+            # Explorer's Scope's "look at the top card, if it's a land you
+            # may put it onto the battlefield tapped" — "put" is the only
+            # option that does anything; a decline, or the non-land "ok"
+            # acknowledgement, both leave the library untouched.
+            self.rules.resolve_peek_top_land_choice(None if declined else str(answer))
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)

@@ -179,48 +179,307 @@ register("Revitalizing Repast", _revitalizing_repast)
 register("Revitalizing Repast // Old-Growth Grove", _revitalizing_repast)
 
 
-def _champions_of_the_perfect() -> list[AbilitySpec]:
-    """As an additional cost to cast this spell, behold an Elf and exile
-    it. (Exile an Elf you control or an Elf card from your hand.)
-    Whenever you cast a creature spell, draw a card.
+# "Champions of the Perfect" was hand-authored (Eliferate deck batch) only
+# because "behold an Elf and exile it" as an additional cast cost had no
+# `AbilitySpec.additional_cost` vocabulary and the "return the exiled card
+# to its owner's hand" trigger had nothing to reference. PAR-30's
+# ``behold_exile`` additional cost + `ReturnLinkedExileEffect(destination=
+# "hand")` cover both now, and the cast-trigger draw always parsed — so the
+# whole card is parser-MODELED and the hand-authored stopgap is retired
+# (removing it lets `specs_for` fall through to the oracle front-end). See
+# `Done_Backend.md` "Collect Evidence / Forage / Blight".
+
+
+def _champion_of_the_weird() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, behold a Goblin and exile
+    it. (Exile a Goblin you control or a Goblin card from your hand.)
+    Pay 1 life, Blight 2: Target opponent blights 2. Activate only as a
+    sorcery.
     When this creature leaves the battlefield, return the exiled card to
     its owner's hand.
 
-    — Eliferate deck batch. The cast-trigger draw already parses on its
-    own — reproduced verbatim. **Documented simplification**: "behold"
-    (RULE 601.2b's "exile a permanent you control or a card from your
-    hand" additional-cost shape) isn't in `AbilitySpec.additional_cost`'s
-    closed vocabulary (`sacrifice`/`discard`/`pay_life` only, and
-    ``additional_cost`` is spell-only regardless — adding an exile-and-
-    remember-the-card kind is real, cross-cutting cost-payment plumbing
-    disproportionate to one card), so this models the tax as `{"sacrifice":
-    "creature"}` instead — a real Elf-tribal tax, just paid from the
-    battlefield only and to the graveyard rather than exile — and the
-    trailing "return the exiled card" trigger (which has nothing to
-    reference under this simplification) is left off rather than guessed
-    at.
+    — PAR-30 (Collect Evidence / Forage / Blight residue). The
+    ``behold_exile`` additional cost + `ReturnLinkedExileEffect(destination=
+    "hand")` are the shared Champion-cycle primitive (see `Done_Backend.md`);
+    the only genuinely singleton part is the activated body — "target
+    opponent **blights** 2", the outward-facing sibling of the "you blight
+    N" verb (`BlightEffect(target_kind="opponent")` — the RULE 115 target
+    is the player, the -1/-1 counters go on a creature *they* choose to
+    control). `Pay 1 life, Blight 2` is a real compound `ActivationCost`
+    (`pay_life` + `blight`, the latter auto-picking non-interactively per
+    PAR-29), and "Activate only as a sorcery" is ``sorcery_speed_only``.
     """
     return [
         AbilitySpec(
             "spell_effect",
             [],
-            additional_cost={"sacrifice": "creature"},
-            raw_text="Opfere als zusätzliche Kosten für das Wirken dieses Zauberspruchs "
-                     "eine Kreatur.",
+            additional_cost={"behold_exile": "Goblin"},
+            raw_text="Als zusätzliche Kosten für das Wirken dieses Zauberspruchs: "
+                     "beäuge einen Goblin und schicke ihn ins Exil.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("blight", {"amount": 2, "target_kind": "opponent"})],
+            cost={
+                "text": "Pay 1 life, Blight 2",
+                "pay_life": 1, "blight": 2, "sorcery_speed_only": True,
+            },
+            raw_text="Zahle 1 Lebenspunkt, Verkümmern 2: Ein Zielgegner verkümmert 2. "
+                     "Aktiviere dies nur wie eine Hexerei.",
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("draw", {"count": 1})],
-            trigger={
-                "event": EventType.SPELL_CAST,
-                "condition": {"subject": "group", "type": "creature", "controller": "you"},
-            },
-            raw_text="Immer wenn du einen Kreaturenzauberspruch wirkst, ziehe eine Karte.",
+            [EffectSpec("return_linked_exile", {"destination": "hand"})],
+            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur das Schlachtfeld verlässt, gib die ins Exil "
+                     "geschickte Karte auf die Hand ihres Besitzers zurück.",
         ),
     ]
 
 
-register("Champions of the Perfect", _champions_of_the_perfect)
+register("Champion of the Weird", _champion_of_the_weird)
+
+
+def _tenth_district_hero() -> list[AbilitySpec]:
+    """{1}{W}, Collect evidence 2: This creature becomes a Human Detective
+    with base power and toughness 4/4 and gains vigilance.
+    {2}{W}, Collect evidence 4: If this creature is a Detective, it becomes
+    a legendary creature named Mileva, the Stalwart, it has base power and
+    toughness 5/5, and it gains "Other creatures you control have
+    indestructible."
+
+    — PAR-30 (Collect Evidence / Forage / Blight residue). Both bodies are
+    permanent (RAW: no "until") self-transformations, `grant_until` at
+    ``duration="rest_of_game"`` scoped to the source (the Incubator-token
+    idiom). Level 1: a layer-4 `type_change` (`set_subtypes=["Human",
+    "Detective"]`, base 4/4) + a layer-6 vigilance grant. Level 2 is an
+    intervening-if on the source's own now-derived Detective subtype
+    (``condition={"source_has_subtype": "Detective"}`` — the binder wraps
+    the grant in a `ConditionalEffect`): a layer-4 `type_change`
+    (``legendary=True`` → `GameObject._granted_legendary`, base 5/5) + a
+    layer-6 grant of an *anthem* static onto the Hero itself
+    (`grant_keyword` `affects="other_creatures_you_control"`,
+    indestructible).
+
+    **Documented simplification:** the literal rename to "Mileva, the
+    Stalwart" isn't modeled — `GameObject.name` has no override mechanism,
+    building one (layer 1, copy semantics, `to_dict`) is disproportionate to
+    one card, and no card in the pool references the name "Mileva". The
+    legend rule still applies (``legendary=True``); the Hero simply keeps
+    showing its printed name.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_until", {
+                "duration": "rest_of_game", "target_kind": None,
+                "static": {"type": "type_change", "params": {
+                    "set_subtypes": ["Human", "Detective"],
+                    "power": 4, "toughness": 4,
+                }},
+                "extra_statics": [{"type": "grant_keyword", "params": {
+                    "affects": "self", "keywords": ["vigilance"],
+                }}],
+            })],
+            cost={"text": "{1}{W}, Collect evidence 2",
+                  "mana": "{1}{W}", "collect_evidence": 2},
+            raw_text="{1}{W}, Beweise sammeln 2: Diese Kreatur wird eine Mensch-Detektiv "
+                     "mit Grundstärke und Grundwiderstandskraft 4/4 und erhält Wachsamkeit.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_until", {
+                "duration": "rest_of_game", "target_kind": None,
+                "static": {"type": "type_change", "params": {
+                    "legendary": True, "power": 5, "toughness": 5,
+                }},
+                "extra_statics": [{"type": "grant_keyword", "params": {
+                    "affects": "other_creatures_you_control",
+                    "keywords": ["indestructible"],
+                }}],
+            }, condition={"source_has_subtype": "Detective"})],
+            cost={"text": "{2}{W}, Collect evidence 4",
+                  "mana": "{2}{W}", "collect_evidence": 4},
+            raw_text="{2}{W}, Beweise sammeln 4: Falls diese Kreatur ein Detektiv ist, "
+                     "wird sie eine legendäre Kreatur, hat Grundstärke und "
+                     "Grundwiderstandskraft 5/5 und erhält „Andere Kreaturen, die du "
+                     "kontrollierst, sind unzerstörbar.“",
+        ),
+    ]
+
+
+register("Tenth District Hero", _tenth_district_hero)
+
+
+def _elven_passage() -> list[AbilitySpec]:
+    """{T}, Pay 1 life, Sacrifice this land: Search your library for a basic
+    land card, put it onto the battlefield tapped, then shuffle. You may
+    behold an Elf. If you do, untap that land.
+
+    — PAR-30 (Collect Evidence / Forage / Blight residue). A fetch land
+    whose second sentence is a reflexive "behold an Elf → untap the fetched
+    land". The `search` effect's ``remember=True`` stamps the found land's
+    id onto this ability's own (now-sacrificed) source
+    (`GameObject.linked_exile_id`, the O-Ring field); `may_behold_untap_
+    linked` reads it back, beholds if able, and untaps it. See that
+    effect's docstring for the "you may" auto-take simplification.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("search", {
+                    "criteria": {"basic": True},
+                    "destination": "battlefield_tapped",
+                    "optional": True, "remember": True,
+                }),
+                EffectSpec("may_behold_untap_linked", {"quality": "Elf"}),
+            ],
+            cost={"text": "{T}, Pay 1 life, Sacrifice ~",
+                  "taps_self": True, "pay_life": 1, "sacrifice": "self"},
+            raw_text="{T}, Zahle 1 Lebenspunkt, Opfere dieses Land: Suche in deiner "
+                     "Bibliothek nach einer Standardlandkarte, bringe sie getappt ins "
+                     "Spiel, mische danach. Du kannst einen Elf beäugen. Falls du dies "
+                     "tust, enttappe jenes Land.",
+        ),
+    ]
+
+
+register("Elven Passage", _elven_passage)
+
+
+def _incinerator_of_the_guilty() -> list[AbilitySpec]:
+    """Flying, trample
+    Whenever this creature deals combat damage to a player, you may collect
+    evidence X. When you do, this creature deals X damage to each creature
+    and planeswalker that player controls.
+
+    — PAR-30 (Collect Evidence / Forage / Blight residue). Flying/trample
+    parse on their own; only the dynamic-X collect-evidence trigger is
+    hand-authored (`CollectEvidenceXThenBoardDamageEffect` — see its
+    docstring for the "X = maximum available evidence" simplification and
+    why the reflexive "when you do" is folded in).
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "flying"}),
+        AbilitySpec("keyword", [], keyword={"name": "trample"}),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("collect_evidence_x_then_board_damage", {})],
+            trigger={
+                "event": EventType.DAMAGE, "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            raw_text="Immer wenn diese Kreatur einem Spieler Kampfschaden zufügt, "
+                     "kannst du Beweise sammeln X. Wenn du dies tust, fügt diese "
+                     "Kreatur jeder Kreatur und jedem Planeswalker, die jener Spieler "
+                     "kontrolliert, X Schadenspunkte zu.",
+        ),
+    ]
+
+
+register("Incinerator of the Guilty", _incinerator_of_the_guilty)
+
+
+def _memory_vampire() -> list[AbilitySpec]:
+    """Flying
+    Whenever this creature deals combat damage to a player, any number of
+    target players each mill that many cards. Then you may collect evidence
+    9. When you do, you may cast target nonland card from defending player's
+    graveyard without paying its mana cost.
+
+    — PAR-30 (Collect Evidence / Forage / Blight residue). Flying parses;
+    the combat-damage trigger is hand-authored (`MemoryVampireCombatEffect`
+    — see its docstring for the multi-target-mill / collect-9 / free-cast
+    auto-pick simplifications).
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "flying"}),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("memory_vampire_combat", {})],
+            trigger={
+                "event": EventType.DAMAGE, "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            raw_text="Immer wenn diese Kreatur einem Spieler Kampfschaden zufügt, "
+                     "legt eine beliebige Anzahl von Zielspielern jeweils so viele "
+                     "Karten von ihrer Bibliothek in ihren Friedhof. Dann kannst du "
+                     "Beweise sammeln 9. Wenn du dies tust, kannst du eine "
+                     "Nicht-Land-Zielkarte aus dem Friedhof des verteidigenden "
+                     "Spielers wirken, ohne ihre Manakosten zu bezahlen.",
+        ),
+    ]
+
+
+register("Memory Vampire", _memory_vampire)
+
+
+def _conspiracy_unraveler() -> list[AbilitySpec]:
+    """Flying
+    You may collect evidence 10 rather than pay the mana cost for spells you
+    cast.
+
+    — PAR-30 (Collect Evidence / Forage / Blight residue). Flying parses;
+    the RULE 118.9 board-wide alternative-cost grant is the
+    `granted_alt_cast_cost` static (`continuous.granted_alt_cast_cost_for`,
+    consulted by the engine's ``alt_cost=True`` cast path — `can_cast` /
+    `cast_spell` / legal-actions `_offer_cast`). Controller-scoped ("spells
+    **you** cast"); the alternative cost is `collect evidence 10`, paid via
+    the same `RulesEngine.collect_evidence` primitive PAR-29 built.
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "flying"}),
+        AbilitySpec(
+            "static",
+            [EffectSpec("granted_alt_cast_cost", {"collect_evidence": 10})],
+            raw_text="Du kannst Beweise sammeln 10, anstatt die Manakosten für "
+                     "Zaubersprüche zu bezahlen, die du wirkst.",
+        ),
+    ]
+
+
+register("Conspiracy Unraveler", _conspiracy_unraveler)
+
+
+def _celestial_reunion() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, you may choose a creature
+    type and behold two creatures of that type.
+    Search your library for a creature card with mana value X or less,
+    reveal it, put it into your hand, then shuffle. If this spell's
+    additional cost was paid and the revealed card is the chosen type, put
+    that card onto the battlefield instead of putting it into your hand.
+
+    — PAR-30 (Collect Evidence / Forage / Blight residue). The optional
+    additional cost is `behold_two_shared_type` (`GameEngine._behold_two_
+    shared_type` picks a creature type the caster has two of across their
+    battlefield + hand, stamps it on `GameObject.chosen_type`, sets
+    `additional_cost_paid`). The body is `celestial_reunion_search` — see
+    that effect's docstring for the ``destination_if`` conditional
+    destination.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect", [],
+            additional_cost={"behold_two_shared_type": True},
+            additional_cost_optional=True,
+            raw_text="Du kannst als zusätzliche Kosten für das Wirken dieses "
+                     "Zauberspruchs einen Kreaturentyp wählen und zwei Kreaturen "
+                     "dieses Typs beäugen.",
+        ),
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("celestial_reunion_search", {})],
+            raw_text="Suche in deiner Bibliothek nach einer Kreaturenkarte mit "
+                     "Manawert X oder weniger, zeige sie offen, nimm sie auf deine "
+                     "Hand und mische danach. Falls die zusätzlichen Kosten dieses "
+                     "Zauberspruchs bezahlt wurden und die gezeigte Karte den "
+                     "gewählten Typ hat, bringe jene Karte stattdessen ins Spiel.",
+        ),
+    ]
+
+
+register("Celestial Reunion", _celestial_reunion)
 
 
 def _flourishing_defenses() -> list[AbilitySpec]:
@@ -897,13 +1156,19 @@ def _virtue_of_courage() -> list[AbilitySpec]:
 
     — Imodane deck batch. `ImpulsiveDrawEffect`'s new `count_from_trigger_
     event` (the firing `DAMAGE` event's own ``amount``), ``same_turn_
-    only=True`` for "this turn" rather than "until your next turn".
-    **Documented simplification**: "noncombat" isn't filtered (any damage
-    to an opponent, combat included, triggers this) — the `DAMAGE` event's
-    own ``combat`` field would need a `filter={"combat": False, …}`
-    alongside the group condition's own controller check, omitted for
-    time; a combat-damage source is rare in a spells-matter red deck so
-    the practical difference is small.
+    only=True`` for "this turn" rather than "until your next turn". Fixed
+    (bug report, 2026-09-04): the recipient half of "you control … to an
+    opponent" isn't covered by ``condition``'s ``"group"``/``"controller":
+    "you"`` (that only scopes the *source*, not who was hit) — it needs the
+    same `requires_damage_to_opponent` predicate (the DAMAGE event's player
+    target must be someone other than this ability's own controller) that
+    Chandra's Incinerator already established, combined with the DAMAGE
+    event's own ``"filter": {"combat": False}`` for "noncombat". The old
+    ``"filter": {"is_player": True}`` alone (no opponent check at all)
+    let the ability fire — and, via `ImpulsiveDrawEffect`'s own now-fixed
+    default-player bug, exile from and grant play permission to a
+    *different* player — off the controller's own source dealing combat
+    damage, or dealing any damage to themselves.
     """
     return [
         AbilitySpec(
@@ -914,7 +1179,8 @@ def _virtue_of_courage() -> list[AbilitySpec]:
             trigger={
                 "event": EventType.DAMAGE,
                 "condition": {"subject": "group", "controller": "you"},
-                "filter": {"is_player": True},
+                "filter": {"combat": False},
+                "requires_damage_to_opponent": True,
             },
             raw_text="Immer wenn eine Quelle, die du kontrollierst, einem Gegner "
                      "Nichtkampfschaden zufügt, kannst du so viele Karten von der "
@@ -981,8 +1247,16 @@ def _etali_primal_storm() -> list[AbilitySpec]:
     library, then you may cast any number of spells from among those
     cards without paying their mana costs.
 
-    — Imodane deck batch. The new `exile_top_from_each_player_cast_free`
-    — see its docstring.
+    — Imodane deck batch. `exile_top_from_each_player_cast_free` — see its
+    docstring. **Bug fixed** (checked against Scryfall's own ruling #5,
+    "any cards not cast, including land cards, remain in exile," 2026-09-04):
+    the effect used to grant every exiled card — lands included — a
+    `grant_free_cast_window_from_exile` permission, and that permission is
+    generic enough to also satisfy `GameEngine.can_play_land` (it backs
+    cards like Ragavan/Light Up the Stage that genuinely *do* let a found
+    land be played) — so an exiled land was wrongly playable as a land.
+    The effect now skips the free-cast/-play grant for a land card
+    entirely while still exiling it (dead forever, per the ruling).
     """
     return [
         AbilitySpec(
@@ -998,6 +1272,110 @@ def _etali_primal_storm() -> list[AbilitySpec]:
 
 
 register("Etali, Primal Storm", _etali_primal_storm)
+
+
+def _etali_primal_conqueror() -> list[AbilitySpec]:
+    """Front face — Etali, Primal Conqueror ({5}{R}{R}, Legendary Creature
+    — Elder Dinosaur, 7/7):
+    Trample
+    When Etali enters, each player exiles cards from the top of their
+    library until they exile a nonland card. You may cast any number of
+    spells from among the nonland cards exiled this way without paying
+    their mana costs.
+    {9}{G/P}: Transform Etali. Activate only as a sorcery.
+
+    — checked against Scryfall's own rulings for this card (2026-09-04):
+    the whole card had no catalogue entry at all, so it fell back to
+    the RULE 702 keyword catalogue's Scryfall-anchored auto-bind alone —
+    which would have been actively *wrong* here, not just incomplete.
+    Scryfall's *card-level* ``keywords`` array on a transform DFC is the
+    union of both faces (this card's is ``["Indestructible", "Transform",
+    "Trample"]``), so an unregistered front face would auto-bind the back
+    face's own Indestructible too; `remove_keyword` cancels that leak
+    explicitly. ("Transform" itself isn't a recognized keyword slug, so it
+    parses to nothing either way.) The ETB trigger reuses Etali, Primal
+    Storm's `exile_top_from_each_player_cast_free`, widened with
+    ``until_nonland=True`` to dig each player's library past any lands to
+    the first nonland card (`RulesEngine._exile_top_until`, the same
+    "keep exiling past lands" shape cascade/discover already use) instead
+    of a fixed single top card — every card exiled along the way,
+    including the lands, stays in exile per the ruling; only the nonland
+    hit gets a free-cast window. The transform ability is a plain
+    `EffectSpec("transform", {})` behind a sorcery-speed Phyrexian-mana
+    cost.
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "trample"}, raw_text="Trampelschaden"),
+        AbilitySpec(
+            "static",
+            [EffectSpec("remove_keyword", {"affects": "self", "keywords": ["indestructible"]})],
+            raw_text="(Nur die Rückseite, Etali, Primal Sickness, ist unzerstörbar — "
+                     "das kartenweite keywords-Array vereinigt beide Kartenseiten.)",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile_top_from_each_player_cast_free", {"until_nonland": True})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn Etali ins Spiel kommt, exiliert jeder Spieler Karten von "
+                     "der Oberseite seiner Bibliothek, bis er eine Nicht-Land-Karte "
+                     "exiliert. Du kannst eine beliebige Anzahl Zaubersprüche von den "
+                     "auf diese Weise exilierten Nicht-Land-Karten wirken, ohne ihre "
+                     "Manakosten zu bezahlen.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("transform", {})],
+            cost={"text": "{9}{G/P}", "sorcery_speed_only": True},
+            raw_text="{9}{G/P}: Transformiere Etali. Aktiviere nur wie einen "
+                     "Hauptzauberspruch.",
+        ),
+    ]
+
+
+register("Etali, Primal Conqueror", _etali_primal_conqueror)
+register("Etali, Primal Conqueror // Etali, Primal Sickness", _etali_primal_conqueror)
+
+
+def _etali_primal_sickness() -> list[AbilitySpec]:
+    """Back face — Etali, Primal Sickness (Legendary Creature — Phyrexian
+    Elder Dinosaur, 11/11):
+    Trample, indestructible
+    Whenever Etali deals combat damage to a player, they get that many
+    poison counters. (A player with ten or more poison counters loses the
+    game — a standing rule, not something this ability itself needs to
+    enforce; RULE 704's SBA pass already checks poison counters on every
+    permission-generating event.)
+
+    — checked against Scryfall's own rulings for this card (2026-09-04).
+    `Card.back_face()` carries no keywords array of its own (the same gap
+    the Daybound/Nightbound cross-check in `parser.oracle.catalogue.
+    keywords.parse_keywords` already works around for other DFCs — see
+    `Done_Backend.md`'s Replay-deserializer entry), so Trample/
+    Indestructible are hand-authored here rather than left to the RULE 702
+    auto-bind, which would otherwise see nothing at all for this face. The
+    poison trigger is the new `add_counters_to_trigger_damaged_player`
+    (``kind="poison"``) — RULE 603.3d's "they"/"that many" pronouns read
+    the firing `DAMAGE` event's own recipient/amount directly, the same
+    shape `LoseGameTriggerDamagedPlayerEffect` (Frodo, Sauron's Bane)
+    already established for a player-scoped pronoun off that event.
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "trample"}, raw_text="Trampelschaden"),
+        AbilitySpec("keyword", [], keyword={"name": "indestructible"}, raw_text="Unzerstörbarkeit"),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters_to_trigger_damaged_player", {"kind": "poison"})],
+            trigger={
+                "event": EventType.DAMAGE, "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            raw_text="Immer wenn Etali einem Spieler Kampfschaden zufügt, erhält "
+                     "dieser Spieler ebenso viele Gift-Marken.",
+        ),
+    ]
+
+
+register("Etali, Primal Sickness", _etali_primal_sickness)
 
 
 def _dual_strike() -> list[AbilitySpec]:
@@ -1569,5 +1947,49 @@ def _jayas_immolating_inferno() -> list[AbilitySpec]:
 
 
 register("Jaya's Immolating Inferno", _jayas_immolating_inferno)
+
+
+def _avatar_aang() -> list[AbilitySpec]:
+    """Flying, firebending 2
+    Whenever you waterbend, earthbend, firebend, or airbend, draw a card.
+    Then if you've done all four this turn, transform Avatar Aang.
+
+    — PAR-30 ("Firebending grants residue" — the last open sub-bullet of
+    that ticket). Flying + Firebending 2 are RULE 702 keywords, auto-bound
+    on the front face off `Card.keywords`; the Firebending attack trigger
+    now *also* fires `EventType.BENT` (`effect_binder._kw_firebending`
+    appends a `RecordBendEffect`), joining the three other bending
+    primitives that gained the same event this batch — `RulesEngine.
+    earthbend`, the waterbend additional-cast-cost payment (RULE 701.67c),
+    and airbend (`ExileEffect.bend_kind`). So the one trigger below reacts
+    to all four via `{"subject": "you"}` on `BENT` (the "whenever **you**
+    scry/surveil" idiom, `_GROUP_CONTROLLER_EVENT_KEYS["BENT"]`).
+
+    The reflexive "then if you've done all four this turn, transform ~." is
+    `EffectSpec.condition`'s new `did_all_bends_this_turn` key — the
+    ability controller's `GameState.bends_this_turn` set (cleared each
+    `begin_turn`) must cover every entry of `RulesEngine.BEND_KINDS`.
+    `transform` with no target flips the source DFC (RULE 712.8); the
+    engine rebinds the back face ("Aang, Master of Elements") off its own
+    name through the ordinary parser fallback, so nothing here need author
+    it.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("draw", {"count": 1}),
+                EffectSpec("transform", {}, condition={"did_all_bends_this_turn": True}),
+            ],
+            trigger={"event": EventType.BENT, "condition": {"subject": "you"}},
+            raw_text="Immer wenn du wasserbändigst, erdbändigst, feuerbändigst oder "
+                     "luftbändigst, ziehe eine Karte. Falls du danach in diesem Zug "
+                     "alle vier ausgeführt hast, transformiere Avatar Aang.",
+        ),
+    ]
+
+
+register("Avatar Aang", _avatar_aang)
+register("Avatar Aang // Aang, Master of Elements", _avatar_aang)
 
 

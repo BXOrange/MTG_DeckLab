@@ -117,6 +117,17 @@ def test_divided_damage_fixed_amount_among_target_creatures():
     assert spec.params["divided"] is True
 
 
+def test_divided_damage_among_creatures_and_or_planeswalkers():
+    (spec,) = match_clause(
+        "deals 4 damage divided as you choose among any number of target creatures "
+        "and/or planeswalkers"
+    )
+    assert spec.params == {
+        "amount": 4, "target_kind": "creature_or_planeswalker", "count": 10,
+        "optional": True, "divided": True,
+    }
+
+
 def test_divided_damage_x_amount():
     (spec,) = match_clause("deals x damage divided as you choose among any number of targets")
     assert spec.params["amount"] == "x"

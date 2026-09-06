@@ -35,7 +35,7 @@ specific) additions, each proven here on the real card that motivated it:
 Two entries are deliberately *partial*, documented drops per the file's Sword
 of Forge and Frontier precedent: Coercive Recruiter (drops the "or another
 Pirate you control enters" trigger scope and the "becomes a Pirate" type
-grant) and Endurance (Evoke unmodeled).
+grant) and Endurance (whose Evoke is covered by MEC-65).
 """
 
 from __future__ import annotations

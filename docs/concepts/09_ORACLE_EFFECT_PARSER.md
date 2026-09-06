@@ -1,4 +1,4 @@
-# MTG Deck Analyzer: Oracle-Text → Effect Parser (Design)
+# DeckLab: Oracle-Text → Effect Parser (Design)
 
 Status: **design agreed, not yet implemented.** This is the plan for the
 open "Oracle-text → effect *parser*" item in

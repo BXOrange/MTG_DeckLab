@@ -31,6 +31,7 @@ from __future__ import annotations
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
@@ -86,6 +87,32 @@ def test_ring_tempts_you_executes_and_levels_the_emblem():
 
     assert p1.ring_level == 1
     assert p1.ring_bearer_id is not None
+
+
+def test_ring_bearer_draws_and_discards_after_second_temptation_and_attack():
+    eng = _engine()
+    state = eng.state
+    p1 = state.player_by_id("p1")
+    bearer = _bf(state, _creature("Bearer"))
+    p1.library.append(GameObject(_creature("Topdeck"), owner_id="p1", zone=Zone.LIBRARY))
+    p1.hand.append(GameObject(_creature("Discard Me"), owner_id="p1", zone=Zone.HAND))
+
+    eng.rules.the_ring_tempts_you(p1)
+    state.fire_event(GameEvent(EventType.ATTACKS, player_id="p1", instance_id=bearer.instance_id))
+    eng.resolve_until_stable()
+    assert len(p1.hand) == 1  # Ring level 1 has no draw/discard ability yet.
+
+    eng.rules.the_ring_tempts_you(p1)
+    state.fire_event(GameEvent(EventType.ATTACKS, player_id="p1", instance_id=bearer.instance_id))
+    eng.resolve_until_stable()
+    assert state.pending_choice is not None
+    assert state.pending_choice["kind"] == "choose_objects"
+    eng.rules.resolve_choose_objects_choice(p1.hand[0].instance_id)
+    eng.resolve_until_stable()
+
+    assert p1.ring_level == 2
+    assert len(p1.hand) == 1  # one card drawn, then one card discarded
+    assert any(card.name == "Topdeck" for card in p1.hand)
 
 
 # ---------------------------------------------------------------------------

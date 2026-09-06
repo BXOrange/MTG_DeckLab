@@ -133,6 +133,20 @@ class GameObject:
         #: spell was cast — if so, `RulesEngine.resolve_top_of_stack` returns
         #: it to hand instead of the graveyard, then clears this flag.
         self.buyback_paid: bool = False
+        #: RULE 601.2b (PAR-30): whether a spell's *optional* "as an
+        #: additional cost to cast this spell, you may <…>." clause was paid
+        #: when this spell was cast — read by a following
+        #: `ConditionalEffect(condition={"additional_cost_paid": …})` for
+        #: "if this spell's additional cost was paid, <effect>." /
+        #: "… unless <its> additional cost was paid." (Katara Seeking
+        #: Revenge, Ruinous Waterbending, …). Kicker's own ``buyback_paid``/
+        #: ``kicker_count`` shape for a different optional additional cost.
+        #: A *mandatory* additional cost sets it True too (it was paid).
+        self.additional_cost_paid: bool = False
+        #: RULE 702.194: this spell's optional Teamwork additional cost was
+        #: paid.  Kept on the stack object so modal overrides and conditional
+        #: riders consult the actual cast, never merely the printed keyword.
+        self.teamwork_paid: bool = False
         #: RULE 202.1/601.2h: how much mana was actually *spent* casting this
         #: spell — the converted value of the cost that was paid, 0 for a
         #: free/alternative-{0} cast. Reassigned on every cast (like
@@ -179,6 +193,12 @@ class GameObject:
         #: time (`RulesEngine.cast_spell`), same "survives past the object
         #: leaving the stack" reasoning.
         self.cast_from_exile: bool = False
+        #: RULE 702.143: set by Foretell's special action and retained on
+        #: the subsequently cast spell for "if this spell was foretold".
+        self.foretold: bool = False
+        #: The internal turn on which this card was foretold.  Foretell only
+        #: permits casting it on a later turn.
+        self.foretold_turn: Optional[int] = None
         #: RULE 601.3a: whether this spell was cast at a time a sorcery
         #: couldn't have been (not the caster's main phase, a nonempty
         #: stack, or not their own turn) — legal only via a flash grant
@@ -491,6 +511,18 @@ class GameObject:
         #: has been used this turn — gates its ``once_per_turn`` restriction.
         #: Reset each untap step, same as `activated_loyalty_this_turn`.
         self.graveyard_casts_this_turn: int = 0
+        #: RULE 605.1a mana ability, "… and only once each turn." (Vivi
+        #: Ornitier) — the *indices* (`mana_abilities_for`'s own enumeration
+        #: order, stable per object) of this permanent's mana abilities
+        #: already activated this turn, gating `ActivationCost.once_per_
+        #: turn`. A set rather than `activated_loyalty_this_turn`'s bare
+        #: bool since RULE 606.3's cap is over the whole permanent's loyalty
+        #: abilities together, while this one is per *individual* mana
+        #: ability — a permanent with two, independently-restricted mana
+        #: abilities (none observed in the cache yet) must track them
+        #: separately. Reset each untap step, same as `activated_loyalty_
+        #: this_turn`. See `GameEngine.tap_for_mana`.
+        self.mana_abilities_activated_this_turn: set[int] = set()
         #: "Exile a creature you control: Add X mana of any one color,
         #: where X is 1 plus the exiled creature's mana value." (Food
         #: Chain, MEC-40) — the mana value of whichever creature most
@@ -770,6 +802,14 @@ class GameObject:
         self._derived_power: Optional[int] = None
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
+        #: ENG-31: a *granted* parametric keyword's number, keyed by slug —
+        #: "target creature gains firebending N until end of turn" (Fire
+        #: Nation Palace), "~ has firebending N as long as <cond>" (Fire
+        #: Nation Cadets). Re-derived every `continuous.recompute` pass from
+        #: the layer-6 grant / `temp_parametric_keywords`, unlike
+        #: `parametric_keywords` which is bound once from printed text.
+        #: `parametric_keyword_value` reads the two together.
+        self._granted_parametric_keywords: dict[str, int] = {}
         #: A *granted* Ward's cost text (RULE 702.21b — "Other creatures
         #: you control have 'Ward—Pay 2 life.'", Hexing Squelcher-shaped),
         #: re-derived every `continuous.recompute` pass by
@@ -851,6 +891,24 @@ class GameObject:
         #: *does* clear it — RULE 400.7's new object hasn't become renowned
         #: either.
         self.renowned: bool = False
+        #: RULE 701.60a: whether this creature is **suspected** (Murders at
+        #: Karlov Manor). A designation, like `is_monstrous`/`goaded_by`, not
+        #: an ability — RULE 701.60b's "has menace and can't block" is read
+        #: off this flag at combat time (`combat.is_suspected`), never via the
+        #: layer engine. Survives an ordinary recompute; ends only when an
+        #: effect says "no longer suspected" (`RemoveSuspectedEffect`) or the
+        #: object leaves the battlefield — so `reset_as_new_object` clears it
+        #: (RULE 400.7's new object isn't suspected).
+        self.is_suspected: bool = False
+        #: RULE 701.35b: the ids of players who have **detained** this
+        #: permanent. A designation like `goaded_by` (a set, though in
+        #: practice only ever one entry): while detained the permanent can't
+        #: attack or block and its activated abilities can't be activated
+        #: (`combat.is_detained`, checked in `_can_attack` / `can_block` /
+        #: `can_activate`). Entries expire "until your next turn"
+        #: (RULE 701.35b) — dropped as the detaining player's turn begins,
+        #: the same `GameEngine.begin_turn` sweep `goaded_by` uses.
+        self.detained_by: set[str] = set()
         #: RULE 701.37b: whether this permanent is **monstrous**. A
         #: designation with no rules meaning of its own — it exists so
         #: monstrosity's own "if this permanent isn't monstrous" guard can
@@ -860,6 +918,31 @@ class GameObject:
         #: by `reset_as_new_object` — 701.37b's "stays monstrous until it
         #: leaves the battlefield" is exactly RULE 400.7's new object.
         self.is_monstrous: bool = False
+        #: MEC-47: a Licid (Tempest — Gliding/Enraging/Corrupting/…) has used
+        #: its "{cost}, {T}: this creature loses this ability and becomes an
+        #: Aura enchantment … attach it to target creature. You may pay
+        #: {cost} to end this effect." ability and is currently an Aura
+        #: attached to `attached_to`. Drives: (1) a `for_as_long_as`
+        #: floating `type_change` static that strips Creature / adds
+        #: Enchantment—Aura while this holds (self-sweeps the instant this
+        #: goes ``False``); (2) `static_conditions` `is_licid_aura` /
+        #: `not_licid_aura`, which gate the two activated abilities so the
+        #: transform is offered only as a creature and the "pay to end" only
+        #: as an Aura. Cleared by `LicidRevertEffect` and by
+        #: `reset_as_new_object` (RULE 400.7 — a Licid that leaves and
+        #: returns is a fresh creature).
+        self.is_licid_aura: bool = False
+        #: MEC-48: this permanent has resolved its "Specialize {cost}"
+        #: activated ability (an Arena-only digital keyword — see
+        #: `EventType.SPECIALIZED`). A designation like `is_monstrous`,
+        #: readable by a "when ~ specializes" trigger / "as long as ~ is
+        #: specialized" static; `specialized_color` is a colour of the
+        #: discarded card when one was determinable, else ``None``. The
+        #: five specialized faces aren't in this repo's card seed, so no
+        #: characteristic swap happens — this flag + the event are the whole
+        #: model. Cleared by `reset_as_new_object` (RULE 400.7).
+        self.is_specialized: bool = False
+        self.specialized_color: Optional[str] = None
         #: RULE 701.37c: the value of X as this permanent became monstrous,
         #: so another of its abilities that refers to that X (Death Kiss's
         #: "when ~ becomes monstrous, goad up to X target creatures") reads
@@ -904,6 +987,21 @@ class GameObject:
         #: above, same per-relationship cache/rebuild shape (Umbral Mantle/
         #: Squirrel Nest-shaped "<host> has '{cost}: <effect>.'").
         self._granted_activated_abilities: list[Any] = []
+        #: MEC-55: layer-6-granted *static* abilities (RULE 613.7f) — a
+        #: nested anthem/lord/keyword-grant, re-derived per affected object
+        #: each `continuous.recompute`, that `_battlefield_static_abilities`
+        #: then yields as an ordinary static source ("X have '<static>'" —
+        #: Inspiring Leader). Same "re-derived every pass, gone the moment
+        #: the grant stops" shape as `_granted_triggered_abilities`.
+        self._granted_static_abilities: list[Any] = []
+        #: MEC-57: layer-6-granted *replacement* effects (RULE 613.7f/616) —
+        #: `_granted_static_abilities`' sibling for a nested grant whose
+        #: ``static_specs`` type resolves to a `ReplacementEffect` rather
+        #: than a `StaticAbility` (Scion of Halaster's granted "first draw
+        #: each turn" rewrite). Re-derived per affected object each
+        #: `continuous.recompute`, read by `RulesEngine._all_replacement_
+        #: effects` alongside a permanent's own printed ones.
+        self._granted_replacement_effects: list[Any] = []
         self._added_types: set[str] = set()
         #: Creature *subtypes* a layer-4 "~ is the chosen type in addition to
         #: its other types"/"… of the chosen type …" static ability adds
@@ -961,6 +1059,14 @@ class GameObject:
         self.temp_power: int = 0
         self.temp_toughness: int = 0
         self.temp_keywords: set[str] = set()
+        #: ENG-31: "until end of turn" grants of a *parametric* keyword
+        #: ("target creature gains firebending N until end of turn" — Fire
+        #: Nation Palace), slug → number. The parametric sibling of
+        #: `temp_keywords`; `continuous.recompute` folds it into
+        #: `_granted_parametric_keywords` and synthesizes the keyword's
+        #: triggered ability. Cleared at cleanup (RULE 514.2) alongside
+        #: `temp_keywords`.
+        self.temp_parametric_keywords: dict[str, int] = {}
         #: Per-source breakdown of the "until end of turn" buffs above, for the
         #: board's per-card effect summary (source attribution the aggregate
         #: ints can't carry) — a list of
@@ -982,6 +1088,11 @@ class GameObject:
         #: than an evasion grant on the attacker, read directly by
         #: `GameEngine.can_block` and cleared at cleanup (RULE 514.2).
         self.temp_cant_block: bool = False
+        #: "You can't sacrifice those creatures this turn." (Call for Aid —
+        #: an anti-abuse rider on a mass threaten). Checked by
+        #: `RulesEngine.sacrifice` / `GameEngine._sacrifice_candidate`;
+        #: cleared at cleanup (RULE 514.2) alongside `temp_keywords`.
+        self.cant_be_sacrificed_this_turn: bool = False
         #: "~ can't be blocked by creatures with power 2 or less **this
         #: turn**" (Cavern Stomper/Tower of Coireall) — the resolve-time
         #: sibling of `_combat_restrictions`, in the same
@@ -1050,6 +1161,7 @@ class GameObject:
         self._derived_power = None
         self._derived_toughness = None
         self._granted_keywords = set()
+        self._granted_parametric_keywords = {}
         self.granted_ward_cost = None
         self._removed_keywords = set()
         self._granted_protections = set()
@@ -1062,6 +1174,8 @@ class GameObject:
         self._granted_mana_upgrades = []
         self._granted_triggered_abilities = []
         self._granted_activated_abilities = []
+        self._granted_static_abilities = []
+        self._granted_replacement_effects = []
         self._added_types = set()
         self._added_subtypes = set()
         self._removed_types = set()
@@ -1123,6 +1237,8 @@ class GameObject:
         self.kicker_count = 0
         self.kicker_x_paid = 0
         self.buyback_paid = False
+        self.additional_cost_paid = False
+        self.teamwork_paid = False
         self.mana_spent_to_cast = 0
         self.was_cast = False
         self.cast_outside_sorcery_speed = False
@@ -1154,6 +1270,7 @@ class GameObject:
         self.combat_defender = None
         self.activated_loyalty_this_turn = False
         self.graveyard_casts_this_turn = 0
+        self.mana_abilities_activated_this_turn = set()
         self.added_mana_with_ability_this_turn = False
         self.blocking = None
         self.additional_blocking = []
@@ -1176,6 +1293,21 @@ class GameObject:
         #: no longer monstrous and its monstrosity X is forgotten with it.
         self.is_monstrous = False
         self.monstrosity_x = 0
+        #: MEC-47/400.7: a Licid that left the battlefield comes back a plain
+        #: creature — the "became an Aura" effect ended with the object.
+        self.is_licid_aura = False
+        #: MEC-48/400.7: a specialized permanent that left is a new object;
+        #: whether it re-enters as its base or specialized version is Arena
+        #: card data this repo doesn't model, so it simply re-enters base.
+        self.is_specialized = False
+        self.specialized_color = None
+        #: RULE 701.60a/400.7: suspected ends when the creature leaves the
+        #: battlefield — leaving *is* this transition, so the new object is
+        #: no longer suspected.
+        self.is_suspected = False
+        #: RULE 701.35b/400.7: detain likewise doesn't survive the zone
+        #: change — what comes back is a new object, not detained.
+        self.detained_by = set()
         #: RULE 701.15b: goaded is not part of a permanent's copiable values
         #: and doesn't survive the zone change either — including the
         #: "rest of the game" variant, whose duration outlasts a turn but
@@ -1198,6 +1330,7 @@ class GameObject:
         self.temp_power = 0
         self.temp_toughness = 0
         self.temp_keywords = set()
+        self.temp_parametric_keywords = {}
         self.temp_effects = []
         self.temp_unblockable = False
         self.temp_cant_block = False
@@ -1402,6 +1535,21 @@ class GameObject:
         """Keyword slugs granted by layer-6 static abilities (RULE 613.7f)."""
         return set(self._granted_keywords)
 
+    def parametric_keyword_value(self, name: str) -> Optional[int]:
+        """ENG-31: the effective number for a parametric keyword — a
+        *granted* value (`_granted_parametric_keywords`, re-derived each
+        `continuous.recompute` from a layer-6 grant or
+        `temp_parametric_keywords`) if one applies, else the printed value
+        bound once onto `parametric_keywords` (``{"n": ...}``). ``None`` when
+        the object has the keyword by neither route."""
+        granted = self._granted_parametric_keywords.get(name)
+        if granted is not None:
+            return int(granted)
+        printed = (self.parametric_keywords or {}).get(name)
+        if isinstance(printed, dict) and printed.get("n") is not None:
+            return int(printed["n"])
+        return None
+
     @property
     def removed_keywords(self) -> set[str]:
         """Keyword slugs stripped by a layer-6 "loses <keyword>" static
@@ -1567,6 +1715,19 @@ class GameObject:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the instance's game state (for the wire protocol)."""
+        display_keywords = _combat_display_keywords(
+            self.card, self._granted_keywords | self.intrinsic_keywords,
+            self._removed_keywords, self._granted_protections
+        )
+        # A summoning-sickness marker has meaning only for a creature
+        # permanent. Haste removes the restriction immediately (RULE 702.10),
+        # including a Haste grant applied after the permanent entered.
+        is_summoning_sick = (
+            self.zone == Zone.BATTLEFIELD
+            and self.is_creature
+            and self.summoning_sick
+            and "Haste" not in display_keywords
+        )
         return {
             "instance_id": self.instance_id,
             "card_id": self.card.id,
@@ -1583,7 +1744,7 @@ class GameObject:
             # showing the back. The frontend's "🔄 peek other face" toggle
             # uses this to decide whether to offer the button at all.
             "has_back_face": self._front_card.has_back_face,
-            "summoning_sick": self.summoning_sick,
+            "summoning_sick": is_summoning_sick,
             "phased_out": self.phased_out,
             "damage_marked": self.damage_marked,
             "power": self.power,
@@ -1665,6 +1826,13 @@ class GameObject:
             # PAR-28 RULE 719.3b: the "solved" designation, for the board to
             # show a Case's solved badge and enable its Solved ability.
             "is_solved": self.is_solved,
+            # RULE 701.60a: the "suspected" designation (menace + can't block),
+            # for the board to show a badge.
+            "is_suspected": self.is_suspected,
+            # RULE 701.35b: "detained" (can't attack/block, abilities can't be
+            # activated) — a bool for the board; the per-detainer set is
+            # engine-internal.
+            "is_detained": bool(self.detained_by),
             "combat_defender": self.combat_defender,
             "blocking": self.blocking,
             "additional_blocking": list(self.additional_blocking),
@@ -1676,10 +1844,7 @@ class GameObject:
             # time: `game.combat` is pure (no runtime model imports), so this
             # reads keywords without turning the model→game boundary into an
             # import cycle.
-            "keywords": _combat_display_keywords(
-                self.card, self._granted_keywords | self.intrinsic_keywords,
-                self._removed_keywords, self._granted_protections
-            ),
+            "keywords": display_keywords,
             "counters": dict(self.counters),
             "attached_to": self.attached_to,
             # Layer-by-layer record of static effects that reshaped this object

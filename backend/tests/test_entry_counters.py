@@ -115,3 +115,54 @@ def test_ordinary_creature_gets_no_counters():
     eng.resolve_until_stable()
     battlefield_obj = next(o for o in eng.state.battlefield if o.name == "Grizzly Bears")
     assert battlefield_obj.counters == {}
+
+
+# ---------------------------------------------------------------------------
+# Sunburst (RULE 702.43a) — "for each color of mana spent to cast it"
+# ---------------------------------------------------------------------------
+
+
+def test_sunburst_condition_is_recognized():
+    from mtg_analyzer.game import ability_catalogue
+
+    card = creature(
+        "Prism Beast", "{4}",
+        "Prism Beast enters with a +1/+1 counter on it for each color of mana spent to cast it.",
+    )
+    assert ability_catalogue.entry_counters(card) == {
+        "is_x": False, "count": 1, "counter_type": "+1/+1", "colors_spent_scale": True,
+    }
+
+
+def test_sunburst_counts_distinct_colors_spent():
+    card = creature(
+        "Prism Beast", "{2}",
+        "Prism Beast enters with a +1/+1 counter on it for each color of mana spent to cast it.",
+        power=0, toughness=1,
+    )
+    eng = make_engine([card], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"W": 1, "U": 1})  # {2} paid with W + U → 2 colors
+    eng.cast_spell(p1, p1.hand[0])
+    eng.resolve_until_stable()
+    obj = next(o for o in eng.state.battlefield if o.name == "Prism Beast")
+    assert obj.counters.get("+1/+1") == 2
+    assert obj.power == 2
+
+
+def test_sunburst_with_only_colorless_mana_gets_no_counters():
+    card = creature(
+        "Prism Beast", "{2}",
+        "Prism Beast enters with a +1/+1 counter on it for each color of mana spent to cast it.",
+    )
+    eng = make_engine([card], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"C": 2})
+    eng.cast_spell(p1, p1.hand[0])
+    eng.resolve_until_stable()
+    obj = next(o for o in eng.state.battlefield if o.name == "Prism Beast")
+    assert "+1/+1" not in obj.counters

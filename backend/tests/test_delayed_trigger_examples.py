@@ -264,6 +264,80 @@ def test_marchesa_returns_a_dying_countered_creature_at_next_end_step():
     assert marchesa in eng.state.battlefield  # unaffected
 
 
+def test_marchesa_return_applies_triskelions_entry_counters():
+    eng = _engine("p1", "p2")
+    p1 = eng.state.player_by_id("p1")
+    _marchesa(eng.state, controller="p1")
+    triskelion = _battlefield_obj(
+        eng.state,
+        _card(
+            "Triskelion",
+            "Artifact Creature — Construct",
+            oracle_text=(
+                "Triskelion enters the battlefield with three +1/+1 counters on it.\n"
+                "Remove a +1/+1 counter from Triskelion: It deals 1 damage to any target."
+            ),
+            is_creature=True,
+            power=1,
+            toughness=1,
+        ),
+        controller="p1",
+    )
+    eng.rules.add_counters(triskelion, 1, "+1/+1")
+
+    eng.rules.put_into_graveyard(triskelion)
+    assert eng.rules.put_triggers_on_stack() == 1
+    eng.resolve_until_stable()
+    _advance_until_step(eng, "end")
+
+    assert triskelion.zone == Zone.BATTLEFIELD
+    assert triskelion.counters.get("+1/+1") == 3
+    assert triskelion in eng.state.battlefield
+
+
+def test_marchesa_return_fires_puppeteer_clique_etb():
+    eng = _engine("p1", "p2")
+    p2 = eng.state.player_by_id("p2")
+    _marchesa(eng.state, controller="p1")
+    clique = _battlefield_obj(
+        eng.state,
+        _card(
+            "Puppeteer Clique",
+            "Creature — Faerie Rogue",
+            oracle_text=(
+                "When Puppeteer Clique enters, put target creature card from an "
+                "opponent's graveyard onto the battlefield under your control. "
+                "It gains haste. At the beginning of your next end step, exile it."
+            ),
+            is_creature=True,
+            power=3,
+            toughness=2,
+        ),
+        controller="p1",
+    )
+    eng.rules.add_counters(clique, 1, "+1/+1")
+    target = GameObject(
+        _card("Graveyard Creature", "Creature", is_creature=True, power=2, toughness=2),
+        owner_id="p2",
+        zone=Zone.GRAVEYARD,
+    )
+    p2.add_to_zone(target, Zone.GRAVEYARD)
+
+    eng.rules.put_into_graveyard(clique)
+    assert eng.rules.put_triggers_on_stack() == 1
+    eng.resolve_until_stable()
+    _advance_until_step(eng, "end")
+    eng.resolve_until_stable()
+
+    assert clique.zone == Zone.BATTLEFIELD
+    assert eng.state.pending_choice is not None
+    eng.resolve_pending_choice(target.instance_id)
+    eng.resolve_until_stable()
+
+    assert target.zone == Zone.BATTLEFIELD
+    assert target in eng.state.battlefield
+
+
 def test_marchesa_does_not_trigger_for_a_creature_with_no_counter():
     eng = _engine("p1", "p2")
     p1 = eng.state.player_by_id("p1")
@@ -306,6 +380,15 @@ def _activate(eng, controller, permanent_name, mana):
     return source
 
 
+def _choose_hand_creature(eng, creature):
+    """Resolve a Sneak-Attack-shaped hand choice, then its stack work."""
+    choice = eng.state.pending_choice
+    assert choice is not None
+    assert choice["kind"] == "choose_objects"
+    eng.resolve_pending_choice(str(creature.instance_id))
+    eng.resolve_until_stable()
+
+
 def test_sneak_attack_puts_a_hand_creature_into_play_with_haste_and_arms_sacrifice():
     eng = _engine("p1", "p2")
     p1 = eng.state.player_by_id("p1")
@@ -319,6 +402,7 @@ def test_sneak_attack_puts_a_hand_creature_into_play_with_haste_and_arms_sacrifi
     p1.add_to_zone(creature, Zone.HAND)
 
     _activate(eng, p1, "Sneak Attack", {"R": 1})
+    _choose_hand_creature(eng, creature)
 
     assert creature.zone == Zone.BATTLEFIELD
     assert creature in eng.state.battlefield
@@ -367,8 +451,68 @@ def test_meek_attack_only_cheats_a_creature_within_the_total_pt_cap():
     p1.add_to_zone(small_enough, Zone.HAND)
 
     _activate(eng, p1, "Meek Attack", {"R": 1, "C": 1})
+    choice = eng.state.pending_choice
+    assert choice is not None
+    assert [option["instance_id"] for option in choice["options"] if "instance_id" in option] == [
+        small_enough.instance_id
+    ]
+    _choose_hand_creature(eng, small_enough)
 
     assert too_big.zone == Zone.HAND  # too big — skipped
     assert small_enough.zone == Zone.BATTLEFIELD
     assert "haste" in small_enough.temp_keywords
     assert len(eng.state.delayed_triggers) == 1
+
+
+def test_incandescent_soulstoke_chooses_only_an_elemental_and_arms_sacrifice():
+    """MEC-73: subtype filter and real hand choice, not first-card selection."""
+    eng = _engine("p1", "p2")
+    p1 = eng.state.player_by_id("p1")
+    soulstoke = _battlefield_obj(
+        eng.state,
+        _card(
+            "Incandescent Soulstoke", "Creature — Elemental Shaman",
+            mana_cost_string="{2}{R}", converted_mana_cost=3, is_creature=True,
+            power=2, toughness=2,
+            oracle_text=(
+                "Other Elemental creatures you control get +1/+1.\n"
+                "{1}{R}, {T}: You may put an Elemental creature card from your hand onto "
+                "the battlefield. That creature gains haste until end of turn. Sacrifice it "
+                "at the beginning of the next end step."
+            ),
+        ),
+        controller="p1",
+    )
+    non_elemental = GameObject(
+        _card("Off-Tribe Bear", "Creature — Bear", is_creature=True, power=2, toughness=2),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    elemental = GameObject(
+        _card("Flamekin", "Creature — Elemental", is_creature=True, power=3, toughness=1),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    p1.add_to_zone(non_elemental, Zone.HAND)
+    p1.add_to_zone(elemental, Zone.HAND)
+
+    p1.mana_pool.add("R", 1)
+    p1.mana_pool.add("C", 1)
+    eng.state.active_player_index = eng.state.players.index(p1)
+    eng.state.current_step = "main1"
+    eng.activate_ability(p1, soulstoke, 0)
+    eng.resolve_until_stable()
+
+    choice = eng.state.pending_choice
+    assert choice is not None
+    assert choice["kind"] == "choose_objects"
+    assert [option["instance_id"] for option in choice["options"] if "instance_id" in option] == [
+        elemental.instance_id
+    ]
+    _choose_hand_creature(eng, elemental)
+
+    assert non_elemental.zone == Zone.HAND
+    assert elemental.zone == Zone.BATTLEFIELD
+    assert "haste" in elemental.temp_keywords
+    assert len(eng.state.delayed_triggers) == 1
+
+    _advance_until_step(eng, "end")
+    assert elemental.zone == Zone.GRAVEYARD

@@ -20,7 +20,7 @@ from mtg_analyzer.models.deck import Deck
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.services.archetype_database import default_archetype_database
 from mtg_analyzer.services.deck_database import DeckDatabase
-from mtg_analyzer.services.deck_validation import compute_deck_identity, validate_deck_sections
+from mtg_analyzer.services.deck_validation import apply_legality, compute_deck_identity
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 
 router = APIRouter(prefix="/api/decks", tags=["decks"])
@@ -75,6 +75,13 @@ def save_deck(
         existing.mainboard_text,
         existing.sideboard_text,
     ) != (request.commander_text, request.mainboard_text, request.sideboard_text)
+    is_cube = request.is_cube if request.is_cube is not None else (existing.is_cube if existing else False)
+    # `validation_result` depends on `is_cube` too (a cube skips the RULE
+    # checks entirely — `deck_validation.py`'s `apply_legality`), so a
+    # cube-flag flip is exactly as invalidating for it as decklist text
+    # changing, even though it doesn't touch `color_identity`/`commanders`/
+    # `unmodeled_coverage` (none of those read `is_cube`).
+    validation_stale = text_changed or (existing is not None and existing.is_cube != is_cube)
     deck = Deck(
         id=existing.id if existing else request.id,
         name=request.name,
@@ -94,7 +101,7 @@ def save_deck(
         color_identity=None if text_changed else existing.color_identity,
         commanders=None if text_changed else existing.commanders,
         # Same preserve-on-omission treatment as sleeve_id/author above.
-        is_cube=request.is_cube if request.is_cube is not None else (existing.is_cube if existing else False),
+        is_cube=is_cube,
         # Same preserve-on-omission treatment, plus catalogue validation/cap
         # (see `_clean_archetypes`) — applied on every save, not just when
         # the caller sends a fresh value, so a stale/renamed catalogue id
@@ -105,6 +112,10 @@ def save_deck(
         favorite_cards=(
             request.favorite_cards if request.favorite_cards is not None else (existing.favorite_cards if existing else None)
         ),
+        # Same reset-only-when-stale treatment as color_identity/commanders
+        # above — see `Deck`'s own docstring for why these two exist.
+        validation_result=None if validation_stale else (existing.validation_result if existing else None),
+        unmodeled_coverage=None if text_changed else (existing.unmodeled_coverage if existing else None),
     )
     database.save_deck(deck)
     return deck.to_dict()
@@ -140,17 +151,41 @@ def get_deck_validation(
     """Commander legality of a saved deck (parses + resolves + validates).
 
     Backs the "illegal deck" badge in the saved-decks list and the
-    goldfish deck picker, which only lets *legal* decks start a game.
-    Resolving cards means this can hit Scryfall on first use for uncached
-    cards; results are cached thereafter.
+    goldfish deck picker, which only lets *legal* decks start a game. Every
+    screen that lists saved decks fires this (and `/coverage` below) for
+    *every* deck in parallel, so the result is cached on the deck itself
+    (`Deck.validation_result`) once computed — `save_deck` resets it to
+    `None` only when the decklist text or `is_cube` actually changed, so an
+    unchanged deck is served straight from the database with no parsing, no
+    card resolution, and no Scryfall exposure at all on a repeat view.
     """
     deck = database.get_deck(deck_id)
     if deck is None:
         raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
-    parsed = validate_deck_sections(
-        deck.commander_text, deck.mainboard_text, deck.sideboard_text, loader, deck.is_cube
-    )
-    return parsed.validation.to_dict()
+    if deck.validation_result is not None:
+        return deck.validation_result
+    parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube)
+    resolved = loader.load_cards([e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards])
+    parsed = apply_legality(parsed, resolved, deck.is_cube)
+    result = parsed.validation.to_dict()
+    # Only persist the cache once every card actually resolved (`resolved.
+    # not_found` empty) — a card that didn't (network hiccup, a still-cold
+    # cache right after a schema wipe, …) means the real ban-list/color-
+    # identity checks were skipped entirely (`apply_legality`'s own
+    # incomplete-resolution fallback, which only adds a *warning* instead),
+    # so this result could be wrong — caching it would freeze that wrong
+    # answer until the decklist text next changes instead of self-healing
+    # once resolution succeeds on a later view. Deliberately keyed off
+    # `resolved.not_found` directly rather than `parsed.validation.warnings`
+    # — that list also carries purely structural warnings (e.g. "no
+    # commander detected", `deckliste_parser.py`'s own
+    # `_validate_commander_deck`) that have nothing to do with resolution
+    # and would otherwise block caching a perfectly good, fully-resolved
+    # answer forever.
+    if not resolved.not_found:
+        deck.validation_result = result
+        database.save_deck(deck)
+    return result
 
 
 @router.get("/{deck_id}/coverage")
@@ -166,11 +201,17 @@ def get_deck_coverage(
     Counted over `parsed.all_cards` (commanders + mainboard, quantity-
     weighted) for both a normal deck and a `is_cube` pool alike; a card that
     failed to resolve is left out rather than counted as unmodeled, same as
-    `_coverage_for`'s callers elsewhere.
+    `_coverage_for`'s callers elsewhere. Cached the same way `/validation`
+    above is (`Deck.unmodeled_coverage`) — see that docstring; the deck
+    picker in every play-mode setup screen calls this once per saved deck in
+    parallel (`gameSetup.js`'s `loadUnmodeledDeckIds`), so an unchanged deck
+    must be a pure DB read here too.
     """
     deck = database.get_deck(deck_id)
     if deck is None:
         raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
+    if deck.unmodeled_coverage is not None:
+        return deck.unmodeled_coverage
     parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube)
     resolved = loader.load_cards([e.name for e in parsed.all_cards])
     unmodeled_count = 0
@@ -182,7 +223,19 @@ def get_deck_coverage(
         if not coverage_for(card)["modeled"]:
             unmodeled_count += entry.qty
             unmodeled_card_names.append(entry.name)
-    return {"unmodeledCount": unmodeled_count, "unmodeledCardNames": sorted(unmodeled_card_names)}
+    result = {
+        "unmodeledCount": unmodeled_count,
+        "unmodeledCardNames": sorted(unmodeled_card_names),
+    }
+    # Same "don't cache an incomplete answer" guard as `/validation` above —
+    # a card that failed to resolve is silently excluded from the count
+    # rather than counted as unmodeled, so caching here would freeze an
+    # undercount until the decklist text next changes instead of
+    # self-healing once resolution succeeds on a later view.
+    if not resolved.not_found:
+        deck.unmodeled_coverage = result
+        database.save_deck(deck)
+    return result
 
 
 @router.delete("/{deck_id}")

@@ -229,6 +229,32 @@ class TestLobby:
         ).json()
         assert body["game"]["takebacks_per_player"] == 20
 
+    def test_spell_timer_seconds_defaults_from_config_and_is_host_overridable(self, env):
+        client = env["client"]
+        ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
+        # Not chosen yet: the table carries None and inherits the server value.
+        created = client.post("/api/multiplayer/games", json={"playerId": _connect(client, "Cara")})
+        assert created.json()["game"]["spell_timer_seconds"] is None
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/options",
+            json={"playerId": ann, "spellTimerSeconds": 8},
+        ).json()
+        assert body["game"]["spell_timer_seconds"] == 8
+        # 0 is a real value (countdown off), not "unset".
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/options",
+            json={"playerId": ann, "spellTimerSeconds": 0},
+        ).json()
+        assert body["game"]["spell_timer_seconds"] == 0
+        # Clamped, same as takebacks.
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/options",
+            json={"playerId": ann, "spellTimerSeconds": 99999},
+        ).json()
+        assert body["game"]["spell_timer_seconds"] == 600
+
     def test_randomization_options_round_trip(self, env):
         """RULE 103.1/103.2 — the camelCase aliases have to reach the lobby.
 
@@ -547,7 +573,12 @@ class TestStartingAndPlaying:
         before = client.get(
             f"/api/multiplayer/games/{gid}", params={"player_id": ann}
         ).json()["view"]
-        assert before["priority"] == {"interactive": True, "player_id": ann, "passed": []}
+        assert before["priority"] == {
+            "interactive": True,
+            "player_id": ann,
+            "passed": [],
+            "timer_seconds": 20,
+        }
 
         # Bob doesn't hold priority, so he can't pass it (RULE 117.1).
         response = client.post(
@@ -943,7 +974,7 @@ class TestBots:
         view = body["view"]
         assert view["setup"]["complete"] is True
         for _ in range(40):
-            if view["state"]["turn_number"] > 2:
+            if view["state"]["internal_turn"]["number"] > 2:
                 break
             view = client.post(
                 f"/api/multiplayer/games/{gid}/action",
@@ -964,7 +995,7 @@ class TestBots:
             json={"playerId": ann, "action": {"type": "keep_hand", "bottom_instance_ids": []}},
         ).json()["view"]
         for _ in range(60):
-            if view["state"]["turn_number"] > 2:
+            if view["state"]["internal_turn"]["number"] > 2:
                 break
             view = client.post(
                 f"/api/multiplayer/games/{gid}/action",

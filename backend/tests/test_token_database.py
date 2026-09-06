@@ -11,7 +11,12 @@ import pytest
 
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.services.image_cache import ImageCache
-from mtg_analyzer.services.token_database import DEFAULT_TOKENS_PATH, TokenDatabase
+from mtg_analyzer.services.token_database import (
+    DEFAULT_TOKENS_PATH,
+    TokenArtLibrary,
+    TokenDatabase,
+    synthesize_token_card,
+)
 
 
 class TestSeededCatalogue:
@@ -63,6 +68,53 @@ class TestCatalogueIntegrity:
         bad.write_text(json.dumps([real_card.to_dict()]))
         with pytest.raises(ValueError, match="not a token"):
             TokenDatabase(tokens_path=bad)
+
+
+class TestTokenArtLibrary:
+    """The art-only library `synthesize_token_card` uses for ad hoc tokens.
+
+    Reference: `scripts/build_token_art_library.py` (how `data/token_art.json`
+    is built from Scryfall's token sheets).
+    """
+
+    def test_common_vanilla_token_resolves_real_art(self):
+        # "1/1 white Soldier" is one of the most-reprinted tokens in Magic —
+        # if the library doesn't cover this, it doesn't cover anything.
+        soldier = synthesize_token_card("Soldier", power=1, toughness=1, colors=["W"])
+        assert soldier.image_uri_small
+        assert soldier.id != "token:Soldier:1/1"  # got a real Scryfall id, not the placeholder
+
+    def test_different_stat_variants_of_the_same_name_get_different_art(self):
+        # The whole point of keying by (name, power, toughness, colors)
+        # rather than name alone: Magic reprints "Shapeshifter" tokens at
+        # several different stat lines, and each must show its own art.
+        small = synthesize_token_card("Shapeshifter", power=1, toughness=1, colors=[])
+        big = synthesize_token_card("Shapeshifter", power=2, toughness=2, colors=["U"])
+        assert small.image_uri_small and big.image_uri_small
+        assert small.id != big.id
+        assert small.image_uri_small != big.image_uri_small
+
+    def test_unmatched_token_keeps_the_old_imageless_placeholder(self):
+        # No card has ever printed a "9/9 pink Zzznotarealtoken" — a miss
+        # must leave `synthesize_token_card`'s pre-existing behaviour alone.
+        token = synthesize_token_card("Zzznotarealtoken", power=9, toughness=9, colors=[])
+        assert not token.image_uri_small
+        assert token.id == "token:Zzznotarealtoken:9/9"
+
+    def test_find_ignores_color_order(self):
+        library = TokenArtLibrary()
+        entry = library.find("Soldier", 1, 1, ["W"])
+        assert entry is not None
+        assert entry["name"] == "Soldier"
+
+    def test_find_returns_none_for_unknown_combo(self):
+        library = TokenArtLibrary()
+        assert library.find("Soldier", 999, 999, ["W"]) is None
+        assert library.find(None, 1, 1, ["W"]) is None
+
+    def test_missing_file_yields_an_empty_library(self, tmp_path):
+        library = TokenArtLibrary(path=tmp_path / "does_not_exist.json")
+        assert library.find("Soldier", 1, 1, ["W"]) is None
 
 
 class TestTokenImageLazyLoading:

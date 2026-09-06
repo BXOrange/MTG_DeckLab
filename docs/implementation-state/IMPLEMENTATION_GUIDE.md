@@ -290,7 +290,7 @@ Implement:
    - players: list[Player]
    - active_player_index: int
    - stack: list[StackItem]
-   - turn_number, current_phase, current_step
+   - internal_turn (number, turn_nr, player_id), current_phase, current_step
    - priority_player_index
    - is_game_over, winner
    - game_log: list[str]

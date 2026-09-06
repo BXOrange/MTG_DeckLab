@@ -73,6 +73,19 @@ class TestSnapshotsAndTemplates:
         assert latest[0]["covered"] == 40
         assert abs(latest[0]["fraction"] - 0.4) < 1e-9
 
+    def test_default_scope_stores_bare_parser_version(self):
+        db = cov.CoverageDatabase(":memory:")
+        db.record_snapshot(total=10, covered=3, top_templates=[])
+        assert db.latest_snapshots(1)[0]["parser_version"] == cov.PARSER_VERSION
+
+    def test_named_scope_is_suffixed_so_curves_dont_interleave(self):
+        db = cov.CoverageDatabase(":memory:")
+        db.record_snapshot(total=10, covered=3, top_templates=[], scope="commander")
+        db.record_snapshot(total=20, covered=9, top_templates=[])  # cache scope
+        versions = [s["parser_version"] for s in db.latest_snapshots(2)]
+        assert f"{cov.PARSER_VERSION}-commander" in versions
+        assert cov.PARSER_VERSION in versions
+
     def test_handled_templates_ledger(self):
         db = cov.CoverageDatabase(":memory:")
         db.mark_template_handled("choose <n> —", handler="modal_choose_n")

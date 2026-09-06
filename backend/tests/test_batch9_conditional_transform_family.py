@@ -161,9 +161,12 @@ def test_jin_gitaxias_shaped_extra_condition_is_now_modeled():
     assert result.unclaimed == []
 
 
-def test_legacy_werewolf_no_spells_cast_stays_unclaimed():
-    """Deliberately deferred (ToDo_EdgeCases): superseded by RULE 731
-    day/night, only the new mechanic is built."""
+def test_legacy_werewolf_no_spells_cast_now_modeled():
+    """PAR-30 (PARSER_VERSION 139): the pre-daybound werewolf day/night
+    check is now modeled as a RULE 603.4 intervening-if over
+    `ConditionalEffect`'s `no_spells_cast_last_turn` key (reading the same
+    `GameState._last_turn_spell_count` the RULE 731 successor mechanic
+    uses). Full behaviour test in `tests/test_par30_werewolf_transform.py`."""
     card = Card(
         id="Werewolf Test", name="Werewolf Test", type_line="Creature — Werewolf",
         is_creature=True, power=2, toughness=2,
@@ -172,7 +175,11 @@ def test_legacy_werewolf_no_spells_cast_stays_unclaimed():
         back_power=3, back_toughness=3,
     )
     result = parse_oracle(card)
-    assert result.coverage == UNMODELED
+    assert result.coverage != UNMODELED
+    spec = result.specs[0]
+    assert spec.trigger["event"] == "STEP_BEGIN"
+    assert spec.effects[0].type == "transform"
+    assert spec.effects[0].condition == {"no_spells_cast_last_turn": True}
 
 
 # ---------------------------------------------------------------------------

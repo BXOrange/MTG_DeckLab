@@ -11,7 +11,16 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from mtg_analyzer.config import DB_PATH, DECKS_DB_PATH, IMAGE_CACHE_DIR, PLAYER_ASSETS_DB_PATH, SCRYFALL_PRIMARY
+import httpx2 as httpx
+
+from mtg_analyzer.config import (
+    DB_PATH,
+    DECKS_DB_PATH,
+    FRONTEND_ORIGIN,
+    IMAGE_CACHE_DIR,
+    PLAYER_ASSETS_DB_PATH,
+    SCRYFALL_PRIMARY,
+)
 from mtg_analyzer.services.archidekt_client import ArchidektClient
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.deck_database import DeckDatabase
@@ -75,6 +84,14 @@ def _dynamic_analysis_jobs() -> DynamicAnalysisJobs:
     return DynamicAnalysisJobs()
 
 
+@lru_cache(maxsize=1)
+def _frontend_proxy_client() -> httpx.Client:
+    # Reused across requests (connection pooling) rather than opening a new
+    # connection per proxied asset. base_url is FRONTEND_ORIGIN so route
+    # handlers just pass the request path straight through.
+    return httpx.Client(base_url=FRONTEND_ORIGIN, timeout=5.0)
+
+
 def get_card_database() -> CardDatabase:
     return _database()
 
@@ -109,3 +126,7 @@ def get_archidekt_client() -> ArchidektClient:
 
 def get_dynamic_analysis_jobs() -> DynamicAnalysisJobs:
     return _dynamic_analysis_jobs()
+
+
+def get_frontend_proxy_client() -> httpx.Client:
+    return _frontend_proxy_client()

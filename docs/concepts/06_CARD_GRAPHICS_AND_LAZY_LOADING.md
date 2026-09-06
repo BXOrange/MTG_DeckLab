@@ -1,4 +1,4 @@
-# MTG Deck Analyzer: Card Graphics & Lazy Loading Strategy
+# DeckLab: Card Graphics & Lazy Loading Strategy
 
 ---
 

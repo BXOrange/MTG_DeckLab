@@ -13,6 +13,7 @@ import { resolveCardImages, getResolvedCard, isConfirmedNotFound } from './cardI
 import { submitDeck, saveDeck, listSleeves, listArchetypes } from './api.js';
 import { getPlayerName } from './settings.js';
 import { renderCardTile, renderCardTilePlaceholder, renderCardTileNotFound, escapeHtml } from './cardTile.js';
+import { t } from './i18n.js';
 
 /**
  * @param {{onDeckLoaded?: () => void}} [options]
@@ -23,63 +24,57 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   container.innerHTML = `
     <div class="import-panel">
       <div class="import-input">
-        <h2>Deckliste einlesen</h2>
-        <p class="hint">
-          Jede Karte als eigene Zeile, z.B. "1 Sol Ring" oder "4x Mountain".
-          Die Zuordnung ergibt sich aus dem Abschnitt, in den du einträgst.
-          Ein kompletter Moxfield-Export lässt sich auch als Ganzes ins
-          Mainboard-Feld einfügen — Commander und Sideboard werden dann
-          automatisch erkannt und in ihre Felder verschoben.
-        </p>
+        <h2>${t('deckImport.title')}</h2>
+        <p class="hint">${t('deckImport.hint')}</p>
 
         <div class="deck-section">
-          <label for="commander-textarea">Commander</label>
+          <label for="commander-textarea">${t('deckImport.commander')}</label>
           <textarea id="commander-textarea" rows="2"
             placeholder="1 Krenko, Mob Boss"></textarea>
         </div>
 
         <div class="deck-section">
-          <label for="mainboard-textarea">Mainboard</label>
+          <label for="mainboard-textarea">${t('deckImport.mainboard')}</label>
           <textarea id="mainboard-textarea" rows="12"
             placeholder="1 Sol Ring&#10;62 Mountain"></textarea>
         </div>
 
         <div class="deck-section">
-          <label for="sideboard-textarea">Sideboard</label>
+          <label for="sideboard-textarea">${t('deckImport.sideboard')}</label>
           <textarea id="sideboard-textarea" rows="3"
             placeholder="1 Negate"></textarea>
         </div>
 
         <div class="import-actions">
-          <button id="parse-btn" type="button" class="primary">Deckliste parsen</button>
-          <button id="sample-btn" type="button">Beispieldeck laden</button>
+          <button id="parse-btn" type="button" class="primary">${t('deckImport.parseButton')}</button>
+          <button id="sample-btn" type="button">${t('deckImport.sampleButton')}</button>
         </div>
 
         <div class="deck-section save-deck-row">
-          <label for="deck-name-input">Deckname (zum Speichern)</label>
+          <label for="deck-name-input">${t('deckImport.deckName')}</label>
           <div class="save-deck-controls">
-            <input id="deck-name-input" type="text" placeholder="z.B. Krenko Goblins" />
-            <input id="deck-author-input" type="text" placeholder="Autor (optional)" />
-            <button id="update-deck-btn" type="button">Aktualisieren</button>
-            <button id="save-new-deck-btn" type="button">Als neues speichern</button>
-            <label class="deck-cube-toggle" title="Kartensammlung statt echtes Deck: 100-Karten-/Singleton-Regel und Commander-Legalität (Bannliste, Farbidentität) werden nicht geprüft.">
-              <input id="deck-cube-checkbox" type="checkbox" /> Als Collection behandeln
+            <input id="deck-name-input" type="text" placeholder="${t('deckImport.deckNamePlaceholder')}" />
+            <input id="deck-author-input" type="text" placeholder="${t('deckImport.authorPlaceholder')}" />
+            <button id="update-deck-btn" type="button">${t('deckImport.updateButton')}</button>
+            <button id="save-new-deck-btn" type="button">${t('deckImport.saveNewButton')}</button>
+            <label class="deck-cube-toggle" title="${escapeHtml(t('deckImport.cubeToggleTitle'))}">
+              <input id="deck-cube-checkbox" type="checkbox" /> ${t('deckImport.cubeToggle')}
             </label>
-            <select id="deck-sleeve-select" title="Karten-Sleeve für dieses Deck">
-              <option value="">Kein Sleeve</option>
+            <select id="deck-sleeve-select" title="${escapeHtml(t('deckImport.sleeveSelectTitle'))}">
+              <option value="">${t('deckImport.noSleeve')}</option>
             </select>
-            <select id="deck-archetype-1-select" title="Archetyp 1 (optional)">
-              <option value="">Kein Archetyp</option>
+            <select id="deck-archetype-1-select" title="${escapeHtml(t('deckImport.archetype1Title'))}">
+              <option value="">${t('deckImport.noArchetype')}</option>
             </select>
-            <select id="deck-archetype-2-select" title="Archetyp 2 (optional)">
-              <option value="">Kein Archetyp</option>
+            <select id="deck-archetype-2-select" title="${escapeHtml(t('deckImport.archetype2Title'))}">
+              <option value="">${t('deckImport.noArchetype')}</option>
             </select>
           </div>
           <p class="server-status" id="save-status"></p>
         </div>
       </div>
       <div class="import-result" id="import-result">
-        <p class="empty-state">Noch keine Deckliste eingelesen.</p>
+        <p class="empty-state">${t('deckImport.noneRead')}</p>
       </div>
     </div>
   `;
@@ -103,7 +98,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     const selectedId = preserveSelectedId !== undefined ? preserveSelectedId : sleeveSelect.value;
     const playerName = getPlayerName();
     const sleeves = playerName ? await listSleeves(playerName) : [];
-    const options = ['<option value="">Kein Sleeve</option>'];
+    const options = [`<option value="">${t('deckImport.noSleeve')}</option>`];
     for (const s of sleeves || []) {
       const selected = s.sleeve_id === selectedId ? ' selected' : '';
       options.push(`<option value="${escapeHtml(s.sleeve_id)}"${selected}>${escapeHtml(s.label)}</option>`);
@@ -127,7 +122,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   async function loadArchetypeCatalogue() {
     const res = await listArchetypes();
     const catalogue = res.ok ? res.data || [] : [];
-    const options = ['<option value="">Kein Archetyp</option>']
+    const options = [`<option value="">${t('deckImport.noArchetype')}</option>`]
       .concat(catalogue.map((a) => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.label)}</option>`))
       .join('');
     archetype1Select.innerHTML = options;
@@ -176,8 +171,8 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     // "Aktualisieren" only makes sense once there's a saved deck to target.
     updateDeckBtn.disabled = savedDeckId == null;
     updateDeckBtn.title = savedDeckId == null
-      ? 'Erst verfügbar, sobald ein Deck geladen oder als neues gespeichert wurde.'
-      : 'Das geladene/gespeicherte Deck überschreiben.';
+      ? t('deckImport.updateDisabledTitle')
+      : t('deckImport.updateEnabledTitle');
   }
   updateSaveButtons();
   // The last rendered deck + render metadata, kept so the "Detailansicht"
@@ -353,7 +348,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   async function doSave({ update }) {
     // update=true overwrites the loaded/saved deck (sends its id);
     // update=false always creates a new deck (no id) and adopts its id.
-    saveStatusEl.textContent = update ? 'Aktualisiert …' : 'Speichert …';
+    saveStatusEl.textContent = update ? t('deckImport.updating') : t('deckImport.saving');
     saveStatusEl.className = 'server-status pending';
 
     const id = update ? savedDeckId ?? undefined : undefined;
@@ -369,14 +364,14 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     });
 
     if (!saved) {
-      saveStatusEl.textContent = 'Speichern fehlgeschlagen – Server nicht erreichbar.';
+      saveStatusEl.textContent = t('deckImport.saveFailed');
       saveStatusEl.className = 'server-status warning';
       return;
     }
 
     savedDeckId = saved.id;
     updateSaveButtons();
-    saveStatusEl.textContent = update ? 'Aktualisiert.' : 'Als neues Deck gespeichert.';
+    saveStatusEl.textContent = update ? t('deckImport.updated') : t('deckImport.savedAsNew');
     saveStatusEl.className = 'server-status ok';
   }
 
@@ -409,9 +404,9 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
 //: fits far fewer columns than the art actually needs, so bigger decks
 //: forced a lot of scrolling before this existed.
 const TILE_ZOOM_LEVELS = [
-  { id: 'compact', label: 'Kompakt' },
-  { id: 'medium', label: 'Mittel' },
-  { id: 'large', label: 'Groß' },
+  { id: 'compact', label: t('deckImport.zoom.compact') },
+  { id: 'medium', label: t('deckImport.zoom.medium') },
+  { id: 'large', label: t('deckImport.zoom.large') },
 ];
 
 function zoomControlHtml(tileZoom) {
@@ -420,7 +415,7 @@ function zoomControlHtml(tileZoom) {
     .join('');
   return `
     <label class="zoom-toggle">
-      Kartengröße
+      ${t('deckImport.cardSize')}
       <select id="tile-zoom-select">${options}</select>
     </label>
   `;
@@ -430,14 +425,14 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, til
   const { commanders, mainDeck, sideboard, totalCount, parseErrors, validation } = deck;
 
   const statusClass = meta.isCube ? 'status-ok' : validation.isLegal ? 'status-ok' : 'status-error';
-  const statusText = meta.isCube ? '🧊 Collection (keine Legalitätsprüfung)' : validation.isLegal ? 'Legal (strukturell)' : 'Nicht legal';
+  const statusText = meta.isCube ? t('deckImport.statusCube') : validation.isLegal ? t('deckImport.statusLegal') : t('deckImport.statusIllegal');
 
   const serverStatusHtml = meta.pending
-    ? '<p class="server-status pending">Wird serverseitig geprüft …</p>'
+    ? `<p class="server-status pending">${t('deckImport.checkingServer')}</p>`
     : meta.warning
       ? `<p class="server-status warning">${escapeHtml(meta.warning)}</p>`
       : meta.serverConfirmed
-        ? '<p class="server-status ok">Serverseitig geprüft.</p>'
+        ? `<p class="server-status ok">${t('deckImport.serverChecked')}</p>`
         : '';
 
   // Which specific cards the server flagged as banned / outside the
@@ -453,8 +448,8 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, til
     return null;
   };
   const ILLEGAL_TITLES = {
-    banned: 'Auf der Commander-Bannliste',
-    colorIdentity: 'Farbidentität passt nicht zum Commander',
+    banned: t('deckImport.illegal.banned'),
+    colorIdentity: t('deckImport.illegal.colorIdentity'),
   };
 
   const renderCards = (cards) => {
@@ -468,7 +463,7 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, til
           const reason = notFound ? null : illegalReason(c.name);
           const cls = notFound ? ' class="card-not-found"' : reason ? ' class="card-illegal"' : '';
           const title = notFound
-            ? ' title="Karte nicht gefunden – Name prüfen"'
+            ? ` title="${escapeHtml(t('deckImport.cardNotFoundTitle'))}"`
             : reason
               ? ` title="${escapeHtml(ILLEGAL_TITLES[reason])}"`
               : '';
@@ -476,7 +471,7 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, til
           const isFav = isFavorite ? isFavorite(c.name) : false;
           const favButton = `<button type="button" class="card-list-favorite${isFav ? ' is-favorite' : ''}"
              data-favorite-card="${escapeHtml(c.name)}" aria-pressed="${isFav}"
-             title="Favorit markieren/entfernen" aria-label="Favorit markieren/entfernen">${isFav ? '★' : '☆'}</button>`;
+             title="${escapeHtml(t('deckImport.toggleFavorite'))}" aria-label="${escapeHtml(t('deckImport.toggleFavorite'))}">${isFav ? '★' : '☆'}</button>`;
           return `<li data-hover-card="${escapeHtml(c.name)}"${cls}${title}>${favButton}<span class="qty">${c.qty}x</span> ${marker}${escapeHtml(c.name)}</li>`;
         })
         .join('');
@@ -525,24 +520,24 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, til
   );
   const notFoundHtml = notFoundNames.length
     ? `<ul class="issue-list not-found-list">${notFoundNames
-        .map((name) => `<li>🛑 ${escapeHtml(name)} – nicht gefunden, Name prüfen</li>`)
+        .map((name) => `<li>${escapeHtml(t('deckImport.notFoundLine', { name }))}</li>`)
         .join('')}</ul>`
     : '';
 
   resultEl.innerHTML = `
     <div class="deck-summary">
       <div class="deck-summary-header">
-        <h2>Deck-Übersicht</h2>
+        <h2>${t('deckImport.summary')}</h2>
         <div class="deck-summary-header-controls">
           <label class="detail-toggle">
             <input type="checkbox" id="detail-mode-checkbox" ${detailMode ? 'checked' : ''} />
-            Detailansicht (Bilder &amp; Eigenschaften)
+            ${t('deckImport.detailToggle')}
           </label>
           ${detailMode ? zoomControlHtml(tileZoom) : ''}
         </div>
       </div>
       ${serverStatusHtml}
-      <p><strong>${totalCount}</strong> Karten gesamt · Status:
+      <p>${escapeHtml(t('deckImport.totalCards', { count: totalCount }))}
         <span class="${statusClass}">${statusText}</span>
       </p>
 
@@ -551,21 +546,21 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, til
       ${issueList(validation.warnings, 'issue-list validation-warnings')}
       ${notFoundHtml}
 
-      <h3>Commander (${commanders.reduce((s, c) => s + c.qty, 0)})</h3>
+      <h3>${escapeHtml(t('deckImport.commanderCount', { count: commanders.reduce((s, c) => s + c.qty, 0) }))}</h3>
       ${renderCards(commanders)}
 
-      <h3>Hauptdeck (${mainDeck.reduce((s, c) => s + c.qty, 0)})</h3>
+      <h3>${escapeHtml(t('deckImport.mainCount', { count: mainDeck.reduce((s, c) => s + c.qty, 0) }))}</h3>
       ${scrollable(mainDeck)}
 
       ${sideboard.length ? `
-        <h3>Sideboard (${sideboard.reduce((s, c) => s + c.qty, 0)})</h3>
+        <h3>${escapeHtml(t('deckImport.sideCount', { count: sideboard.reduce((s, c) => s + c.qty, 0) }))}</h3>
         ${scrollable(sideboard)}
       ` : ''}
 
       <button id="goto-goldfish-btn" type="button" class="primary"
         ${meta.serverConfirmed ? '' : 'disabled'}
-        title="${meta.serverConfirmed ? '' : 'Erst verfügbar, sobald das Deck serverseitig geprüft wurde.'}"
-      >Zum Goldfisch-Modus →</button>
+        title="${meta.serverConfirmed ? '' : escapeHtml(t('deckImport.gotoGoldfishDisabledTitle'))}"
+      >${t('deckImport.gotoGoldfish')}</button>
     </div>
   `;
 

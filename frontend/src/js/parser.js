@@ -22,6 +22,8 @@
 // card lookup stays deckImportView.js's job (it already owns
 // resolveCardImages), these two just make the yes/no call once resolved.
 
+import { t } from './i18n.js';
+
 const BASIC_LAND_NAMES = new Set([
   'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes',
   'Snow-Covered Plains', 'Snow-Covered Island', 'Snow-Covered Swamp',
@@ -239,18 +241,18 @@ function validateCommanderDeck(allCards, commanders, totalCount, isCube) {
   const warnings = [];
 
   if (commanders.length === 0) {
-    warnings.push('Kein Commander erkannt (im Abschnitt "Commander" eintragen).');
+    warnings.push(t('parser.noCommander'));
   } else if (commanders.length > 2) {
-    errors.push(`Zu viele Commander erkannt (${commanders.length}). Erlaubt sind 1 (oder 2 mit Partner).`);
+    errors.push(t('parser.tooManyCommanders', { count: commanders.length }));
   }
 
   if (totalCount !== 100) {
-    errors.push(`Deck hat ${totalCount} Karten, erwartet werden 100 (inkl. Commander).`);
+    errors.push(t('parser.wrongTotal', { count: totalCount }));
   }
 
   for (const card of allCards) {
     if (card.qty > 1 && !BASIC_LAND_NAMES.has(card.name)) {
-      errors.push(`"${card.name}" ist ${card.qty}x im Deck – Commander ist Singleton (außer Basic Lands).`);
+      errors.push(t('parser.notSingleton', { name: card.name, qty: card.qty }));
     }
   }
 

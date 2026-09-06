@@ -107,13 +107,22 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     "hexproof": re.compile(
         r"hexproof from (?P<quality>[a-z][a-z ]*?)(?=[.,;\n)]|$| and |\s\()", re.I
     ),
-    # RULE 702.5 — "Enchant <what it can be attached to>". Stops before a
-    # trailing controller clause ("... you control" / "... an opponent
-    # controls") so ``quality`` is the bare type ("creature"), not the whole
-    # clause — the attachment-legality checks match on that type alone.
+    # RULE 702.5 — "Enchant <what it can be attached to>". ``quality`` stops
+    # before a trailing controller clause ("... you control" / "... you
+    # don't control" / "... an opponent controls" — Betrayal, MEC-63 bug
+    # report 2026-09-04) so it stays the bare type ("creature"), not the
+    # whole clause; that clause is captured separately as ``controller``
+    # (`_extract_param` normalizes it to the "you"/"not_you" vocabulary
+    # `targeting.py`'s enchant dispatch already reads for every other
+    # controller-scoped restriction) rather than dropped on the floor —
+    # RULE 303.4c makes this a real targeting restriction, not cosmetic
+    # flavor text, and a bot picking "first legal target" had nothing
+    # stopping it from enchanting its own creature with a "you don't
+    # control" Aura before this was captured at all.
     "enchant": re.compile(
         r"\benchant\s+(?P<quality>[a-z][a-z ]*?)"
-        r"(?=\s+(?:you|an opponent)\b|[.\n(]|$)",
+        r"(?:\s+(?P<controller>you control|you don'?t control|an opponent controls))?"
+        r"(?=[.\n(]|$)",
         re.I,
     ),
     # RULE 702.14 — "<type>walk"; also matched by slug prefix in parse_keywords.
@@ -142,6 +151,15 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # second keyword shape for that small a yield.
     "equip": re.compile(rf"\bEquip\b(?!\s+commander\b){_GAP}(?P<cost>{_COST_RUN})", re.I),
 }
+
+#: RULE 702.74b's Modern Horizons Incarnation cycle uses a non-mana Evoke
+#: payment.  The narrow grammar is intentional: one coloured card from hand
+#: can reuse the engine's existing RULE 118.9 hand-exile cost machinery.
+_EVOKE_EXILE_COLOR_RE = re.compile(
+    r"evoke\s*[—-]\s*exile a (?P<color>white|blue|black|red|green) card from your hand",
+    re.I,
+)
+_COLOR_LETTERS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
 
 #: Ward's cost line may be a non-mana clause ("Ward—Discard a card.",
 #: "Ward—Pay 3 life.", "Ward—Sacrifice a creature.") that the mana-only
@@ -418,6 +436,16 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     ("Paradigm", _F, "702.192"),
     ("Power-up", _F, "702.193"),
     ("Teamwork", _N, "702.194"),
+    # Specialize (Alchemy Horizons: Baldur's Gate) is an Arena-only digital
+    # keyword with no paper CR entry — a COST-shape activated ability,
+    # "Specialize {cost}" = "{cost}, Discard a card: This permanent
+    # specializes (becomes its specialized version for a colour of the
+    # discarded card). Activate only as a sorcery." The five specialized
+    # faces live in Arena's own card data, which this repo's `oracle_cards`
+    # Scryfall seed doesn't carry, so the engine models the activation +
+    # the `SPECIALIZES` event only, not the characteristic swap (MEC-48,
+    # documented simplification).
+    ("Specialize", _C, "digital/Alchemy (no paper CR)"),
 ]
 
 
@@ -546,6 +574,15 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
                 param["cost"] = re.sub(r"\s+", "", groups["cost"])
             if groups.get("quality"):
                 param["quality"] = groups["quality"].strip()
+            if groups.get("controller"):
+                # "Enchant creature **you control**" vs "… **you don't
+                # control**"/"… **an opponent controls**" (RULE 303.4c) —
+                # normalized onto the same "you"/"not_you" vocabulary
+                # `effect_binder`'s trigger-condition ``controller`` field
+                # already uses, so `targeting.py`'s enchant dispatch reads
+                # one shared convention rather than raw clause text.
+                clause = groups["controller"].strip().lower()
+                param["controller"] = "you" if clause == "you control" else "not_you"
     if kdef.slug == "ward" and "cost" not in param:
         fallback = _WARD_TEXT_COST_RE.search(text)
         if fallback:
@@ -556,6 +593,10 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
         fallback = _ESCAPE_TEXT_COST_RE.search(text)
         if fallback:
             param["cost"] = fallback.group("cost").strip()
+    if kdef.slug == "evoke":
+        fallback = _EVOKE_EXILE_COLOR_RE.search(text)
+        if fallback:
+            param["exile_hand_card_color"] = _COLOR_LETTERS[fallback.group("color").lower()]
     return param
 
 

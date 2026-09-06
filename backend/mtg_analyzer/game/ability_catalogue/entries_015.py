@@ -1318,20 +1318,9 @@ def _poison_the_cup() -> list[AbilitySpec]:
     card from your hand face down. Cast it on a later turn for its
     foretell cost.)"
 
-    `EffectSpec.condition`'s new ``source_was_foretold`` key (MEC-43
-    round 4C, `GameObject.foretold`) gates the scry — see its own
-    docstring in `effects.py` for why nothing ever actually sets that
-    flag yet.
-
-    **Documented simplification**: RULE 702.143's own special action
-    ("during your turn, pay {2} and exile this card from your hand face
-    down; cast it on a later turn for its foretell cost") is a genuinely
-    new subsystem — a hand-zone special action plus an alt-cast-from-
-    exile path distinct from every alt-cost this engine already has —
-    out of scope for this single card's own coverage gate, the same
-    posture as Mizzix's Mastery's Overload just above. The Destroy clause
-    is real and unconditional either way; the scry is simply never
-    reachable until that subsystem lands.
+    `EffectSpec.condition`'s ``source_was_foretold`` key reads the
+    `GameObject.foretold` marker set by the complete RULE 702.143 special
+    action/cast path, so the scry rider fires after a real foretold cast.
     """
     return [
         AbilitySpec(
@@ -1581,5 +1570,4 @@ def _command_beacon() -> list[AbilitySpec]:
 
 
 register("Command Beacon", _command_beacon)
-
 

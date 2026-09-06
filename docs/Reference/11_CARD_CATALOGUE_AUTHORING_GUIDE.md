@@ -1,4 +1,4 @@
-# MTG Deck Analyzer: Hand-Authoring Cards in the Ability Catalogue
+# DeckLab: Hand-Authoring Cards in the Ability Catalogue
 
 Status: **current — describes the pipeline as implemented today**, not a
 design proposal. Read [09_ORACLE_EFFECT_PARSER.md](../concepts/09_ORACLE_EFFECT_PARSER.md)

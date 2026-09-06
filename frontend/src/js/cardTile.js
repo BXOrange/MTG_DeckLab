@@ -5,6 +5,7 @@
 // don't duplicate the mana-cost-to-emoji logic.
 
 import { cardImageUrl } from './api.js';
+import { t } from './i18n.js';
 
 // Colored mana symbols get a matching colored circle; {C} (the specific
 // colorless-mana symbol, distinct from generic cost) gets a neutral one.
@@ -67,7 +68,7 @@ function renderManaToken(token) {
 export function renderManaCost(card) {
   if (card.mana_cost_string) {
     const tokens = card.mana_cost_string.match(MANA_TOKEN_RE) || [];
-    return tokens.map((t) => renderManaToken(t.slice(1, -1))).join(' ');
+    return tokens.map((tok) => renderManaToken(tok.slice(1, -1))).join(' ');
   }
 
   const pips = card.mana_cost || {};
@@ -133,8 +134,8 @@ export function scryfallSearchUrl(cardName) {
 }
 
 const ILLEGAL_REASON_LABELS = {
-  banned: 'Bannliste',
-  colorIdentity: 'Falsche Farbidentität',
+  banned: 'cardTile.illegal.banned',
+  colorIdentity: 'cardTile.illegal.colorIdentity',
 };
 
 /**
@@ -151,15 +152,15 @@ function renderCoverageBadge(coverage) {
   if (coverage.modeled) {
     const catalogue = coverage.source === 'catalogue';
     const title = catalogue
-      ? 'Von Hand katalogisiert (game/ability_catalogue.py) — vollständig umgesetzt.'
-      : 'Vom Oracle-Parser vollständig erkannt (MODELED) — die Engine setzt alle Fähigkeiten um.';
-    return `<span class="card-tile-coverage card-tile-coverage-modeled" title="${escapeAttr(title)}">${catalogue ? '📖' : '✅'} ${catalogue ? 'Katalogisiert' : 'Modelliert'}</span>`;
+      ? t('cardTile.coverage.catalogueTitle')
+      : t('cardTile.coverage.oracleTitle');
+    return `<span class="card-tile-coverage card-tile-coverage-modeled" title="${escapeAttr(title)}">${catalogue ? '📖' : '✅'} ${catalogue ? t('cardTile.coverage.catalogued') : t('cardTile.coverage.modeled')}</span>`;
   }
   const unclaimed = coverage.unclaimed || [];
   const title = unclaimed.length
-    ? `Nicht modelliert — nicht erkannter Text:\n${unclaimed.join('\n')}`
-    : 'Nicht modelliert — die Engine setzt (noch) nicht alle Fähigkeiten dieser Karte um.';
-  return `<span class="card-tile-coverage card-tile-coverage-unmodeled" title="${escapeAttr(title)}">✖ Nicht modelliert</span>`;
+    ? t('cardTile.coverage.unmodeledTitleWithText', { text: unclaimed.join('\n') })
+    : t('cardTile.coverage.unmodeledTitle');
+  return `<span class="card-tile-coverage card-tile-coverage-unmodeled" title="${escapeAttr(title)}">${t('cardTile.coverage.unmodeled')}</span>`;
 }
 
 /** Footnote row pinned to the bottom of a tile: coverage badge (if any) + the
@@ -202,7 +203,7 @@ export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
   const powerToughness = card.power != null && card.toughness != null ? `${card.power}/${card.toughness}` : '';
   const metaParts = [card.rarity, card.set_code ? card.set_code.toUpperCase() : ''].filter(Boolean);
   const qtyBadge = qty != null ? `<span class="card-tile-qty">${qty}×</span>` : '';
-  const illegalLabel = illegalReason ? ILLEGAL_REASON_LABELS[illegalReason] : '';
+  const illegalLabel = illegalReason ? t(ILLEGAL_REASON_LABELS[illegalReason]) : '';
 
   // Double-faced cards (transform / modal DFC) carry a second image the
   // player can flip to; the button below toggles the <img> between the
@@ -211,14 +212,14 @@ export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
     ? `<button type="button" class="card-tile-flip"
          data-front-src="${cardImageUrl(card.id, 'normal', 'front')}"
          data-back-src="${cardImageUrl(card.id, 'normal', 'back')}"
-         title="Kartenrückseite anzeigen" aria-label="Kartenrückseite anzeigen">🔄</button>`
+         title="${escapeAttr(t('cardTile.showBack'))}" aria-label="${escapeAttr(t('cardTile.showBack'))}">🔄</button>`
     : '';
 
   const favoriteButton =
     favorite !== undefined
       ? `<button type="button" class="card-tile-favorite${favorite ? ' is-favorite' : ''}"
            data-favorite-card="${escapeAttr(card.name)}" aria-pressed="${favorite}"
-           title="Favorit markieren/entfernen" aria-label="Favorit markieren/entfernen">${favorite ? '★' : '☆'}</button>`
+           title="${escapeAttr(t('cardTile.toggleFavorite'))}" aria-label="${escapeAttr(t('cardTile.toggleFavorite'))}">${favorite ? '★' : '☆'}</button>`
       : '';
 
   return `
@@ -238,7 +239,7 @@ export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
         ${card.oracle_text ? `<p class="card-tile-text">${renderOracleText(card.oracle_text)}</p>` : ''}
         ${card.keywords?.length ? `<p class="card-tile-keywords">${escapeHtml(card.keywords.join(', '))}</p>` : ''}
         ${metaParts.length ? `<p class="card-tile-meta">${escapeHtml(metaParts.join(' · '))}</p>` : ''}
-        ${renderTileFooter(renderCoverageBadge(card.coverage), scryfallUrl(card.name), 'Auf Scryfall ansehen')}
+        ${renderTileFooter(renderCoverageBadge(card.coverage), scryfallUrl(card.name), t('cardTile.viewOnScryfall'))}
       </div>
     </div>
   `;
@@ -254,8 +255,8 @@ export function renderCardTilePlaceholder(name, { qty } = {}) {
       </div>
       <div class="card-tile-info">
         <h4>${escapeHtml(name)}</h4>
-        <p class="card-tile-type empty-state">Lädt …</p>
-        ${renderTileFooter('', scryfallUrl(name), 'Auf Scryfall ansehen')}
+        <p class="card-tile-type empty-state">${t('common.loading')}</p>
+        ${renderTileFooter('', scryfallUrl(name), t('cardTile.viewOnScryfall'))}
       </div>
     </div>
   `;
@@ -273,8 +274,8 @@ export function renderCardTileNotFound(name, { qty } = {}) {
       </div>
       <div class="card-tile-info">
         <h4>🛑 ${escapeHtml(name)}</h4>
-        <p class="card-tile-type not-found">Nicht gefunden – Name prüfen</p>
-        ${renderTileFooter('', scryfallSearchUrl(name), 'Auf Scryfall suchen')}
+        <p class="card-tile-type not-found">${t('cardTile.notFound')}</p>
+        ${renderTileFooter('', scryfallSearchUrl(name), t('cardTile.searchOnScryfall'))}
       </div>
     </div>
   `;

@@ -2,7 +2,7 @@
 
 ## What this app does
 
-The MTG Deck Analyzer lets you:
+DeckLab lets you:
 
 - Paste in a Commander decklist and check it for basic legality.
 - Save decks and browse them later.
@@ -55,8 +55,9 @@ The sidebar on the left is grouped into sections:
     engine
   - **Puzzle/Replay** — build and play an arbitrary board state
 - **Multiplayer** — stub, not yet implemented
-- **Einstellungen** (settings) — player name, server address, custom
-  token art and card sleeves
+- **Einstellungen** (settings) — the backend server address only
+- **Profil** (profile) — player name, multiplayer preferences, custom
+  token art, card sleeves and favorite decks
 - **Information**
   - **Karten-Cache** (card cache) — browse every card the app has
     looked up so far

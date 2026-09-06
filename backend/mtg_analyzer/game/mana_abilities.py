@@ -29,9 +29,13 @@ behaviour.
 
 Parsing is intentionally simple — it covers basics, guildgates/duals,
 tri-lands, "add one mana of any colour", "any combination of colours",
-multi-pip lands (`{C}{C}`), and the "for each"/"equal to ... power"
-variable-amount family — and approximates the long tail (filter lands)
-rather than modeling every printed ability. RULE 605.1a excludes any
+multi-pip lands (`{C}{C}`), the "for each"/"equal to ... power"
+variable-amount family, and per-line activation costs, so a **filter
+land**'s ``{B/G}, {T}: Add {B}{B}, {B}{G}, or {G}{G}.`` parses fully (a
+`{B/G}` cost + three production options) — it approximates only the
+genuinely bespoke long tail rather than modeling every printed ability.
+The auto-tap planner treats a filter as a net-positive converter
+(`game/mana_potential.py`). RULE 605.1a excludes any
 ability that requires a target from being a mana ability at all (Deathrite Shaman's
 graveyard-exile abilities produce mana but target, so they're deliberately
 never offered here — they belong on the stack like any other activated
@@ -73,7 +77,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field, replace as dataclass_replace
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from ..parser.oracle.catalogue.levels import LEVEL_TIER_RE
 from . import continuous
@@ -137,6 +141,18 @@ _LEGENDARY_AMONG_RE = re.compile(
 #: control_could_produce"``.
 _LAND_COULD_PRODUCE_RE = re.compile(
     r"any colou?r that a land (?P<scope>you control|an opponent controls) could produce",
+    re.IGNORECASE,
+)
+#: "Add one mana of any color in your commander's color identity." (Arcane
+#: Signet, Command Tower, Commander's Sphere, Path of Ancestry, Opal Palace,
+#: Hidden Hideout, …) — same bug/fix shape as `_LAND_COULD_PRODUCE_RE`
+#: above: the bare "any color" substring in `_parse_clause` would otherwise
+#: swallow this and offer all five unconditionally, ignoring the RULE 903.4
+#: colour-identity filter. A board-dependent menu resolved against
+#: `continuous.commander_color_identity`. See `ManaAbility.color_selector`'s
+#: ``"colors_in_commanders_color_identity"``.
+_COMMANDER_IDENTITY_ADD_RE = re.compile(
+    r"any(?: one)? colou?r in your commander'?s colou?r identity",
     re.IGNORECASE,
 )
 _PIP_RE = re.compile(r"\{([WUBRGC])\}")
@@ -332,39 +348,85 @@ _NUMBER_WORDS = {
 #: "<amount> mana in any combination of colours[, where X is <subject>]" —
 #: a genuinely different shape from "any one colour"/`_ANY_COLOR_PHRASES`
 #: above: the payer splits the total across colours instead of picking one
-#: colour repeated (see `ManaAbility.any_combination`).
+#: colour repeated (see `ManaAbility.any_combination`). The colour-set half
+#: is either the generic "colours" (every WUBRG colour, Flamebraider/Gwenna/
+#: Selvala) or a printed, *restricted* symbol list — "any combination of
+#: {U} and/or {R}" (Vivi Ornitier), or three symbols with an Oxford comma,
+#: "{U}, {B}, and/or {R}" (a handful of tri-lands/storage lands) — captured
+#: whole in ``colors`` and split apart by `_PIP_RE.findall` in
+#: `_parse_combination_selector` rather than enumerated as its own
+#: alternation (MTG only ever prints 2 or 3 symbols this way, but nothing
+#: here assumes a fixed count). ``colors`` is matched non-greedily up to its
+#: own trailing symbol so it stops before an optional ", where X is ..."
+#: tail rather than swallowing it.
 _COMBINATION_CLAUSE_RE = re.compile(
-    r"^(?P<amount>[a-z]+) mana in any combination of colou?rs"
+    r"^(?P<amount>[a-z]+) mana in any combination of "
+    r"(?P<colors>colou?rs|.+?\{[wubrg]\})"
     r"(?:,\s*where\s+x\s+is\s+(?P<subject>.+))?$",
     re.IGNORECASE,
 )
-#: Selvala, Heart of the Wilds' variable-amount subject — the only
-#: "where X is ..." subject observed on a combination-of-colours ability.
+#: Selvala, Heart of the Wilds' variable-amount subject.
 _GREATEST_POWER_CONTROL_RE = re.compile(
     r"^the greatest power among creatures you control$", re.IGNORECASE
 )
 
 
-def _parse_combination_selector(raw_clause: str) -> Optional[dict[str, Any]]:
-    """"<amount> mana in any combination of colours[, where X is <subject>]"
-    (Flamebraider/Gwenna/Smokebraider's fixed "two"; Selvala's variable "X")
-    → an `amount_selector`-shaped dict consumed by `_resolve_amount`'s
-    ``"literal"``/``"greatest_power_control"`` kinds, or ``None`` when
-    ``raw_clause`` isn't this shape at all, or is but names an unrecognised
-    ``X`` subject (fail-soft, same convention as the rest of this module —
-    the caller then falls through to the ordinary non-combination parse
-    path, same as before this shape existed)."""
+def _parse_combination_selector(
+    raw_clause: str, card_name: Optional[str] = None
+) -> Optional[tuple[dict[str, Any], Optional[tuple[str, ...]]]]:
+    """"<amount> mana in any combination of <colours>[, where X is
+    <subject>]" (Flamebraider/Gwenna/Smokebraider's fixed "two"; Selvala's
+    variable "X"; Vivi Ornitier's own-power "X" over a *restricted*
+    two-colour set) → an ``(amount_selector, combination_colors)`` pair —
+    the selector consumed by `_resolve_amount`'s ``"literal"``/
+    ``"greatest_power_control"``/``"power_of_self"``/count-subject kinds,
+    ``combination_colors`` the printed symbol subset (``None`` for the
+    generic "any combination of colours" — every WUBRG colour, the
+    pre-existing behaviour). Returns ``None`` when ``raw_clause`` isn't this
+    shape at all, or is but names an unrecognised ``X`` subject (fail-soft,
+    same convention as the rest of this module — the caller then falls
+    through to the ordinary non-combination parse path, same as before this
+    shape existed)."""
     m = _COMBINATION_CLAUSE_RE.match(raw_clause.strip())
     if m is None:
         return None
+    colors_word = m.group("colors").strip()
+    combination_colors: Optional[tuple[str, ...]] = None
+    if colors_word.lower() not in ("colors", "colours"):
+        pips = _PIP_RE.findall(colors_word)
+        if not pips:
+            return None
+        combination_colors = tuple(dict.fromkeys(pips))  # dedupe, printed order
     amount_word = m.group("amount").lower()
     if amount_word == "x":
         subject = m.group("subject")
-        if subject is not None and _GREATEST_POWER_CONTROL_RE.match(subject.strip()):
-            return {"kind": "greatest_power_control"}
+        if subject is None:
+            return None
+        subject = subject.strip()
+        if _GREATEST_POWER_CONTROL_RE.match(subject):
+            return {"kind": "greatest_power_control"}, combination_colors
+        # `_power_selector` expects a bare reference ("this creature"/"~"/the
+        # card's own name) with no "'s power" tail — `_WHERE_X_POWER_RE`'s own
+        # regex bakes that literal suffix in outside its ``who`` group, but
+        # this clause's trailing ``subject`` is unstructured (it also has to
+        # cover the count-subject case below), so it's peeled here instead.
+        power_who = re.match(r"^(?P<who>.+?)'s power$", subject, re.IGNORECASE)
+        if power_who is not None:
+            power_selector = _power_selector(power_who.group("who"), card_name)
+            if power_selector is not None:
+                return power_selector, combination_colors
+        # `_selector_from_subject` (shared with `_WHERE_X_RE`/`_FOR_EACH_RE`)
+        # expects its subject with any leading "the number of" already
+        # stripped — `_WHERE_X_RE`'s own regex bakes that literal in rather
+        # than passing it through, so this mirrors that here instead of
+        # widening the shared helper itself.
+        count_subject = re.sub(r"^the number of\s+", "", subject, flags=re.IGNORECASE)
+        count_selector = _selector_from_subject(count_subject)
+        if count_selector is not None:
+            return count_selector, combination_colors
         return None
     n = _NUMBER_WORDS.get(amount_word)
-    return {"kind": "literal", "n": n} if n is not None else None
+    return ({"kind": "literal", "n": n}, combination_colors) if n is not None else None
 
 
 def _singularize(word: str) -> str:
@@ -438,12 +500,14 @@ class ManaAbility:
     #:
     #: ``"colors_of_legendary_creatures_planeswalkers_you_control"``/
     #: ``"colors_of_legendary_permanents_you_control"`` (Mox Amber/Plaza of
-    #: Heroes) and ``"colors_lands_you_control_could_produce"``/
+    #: Heroes), ``"colors_lands_you_control_could_produce"``/
     #: ``"colors_lands_opponents_control_could_produce"`` (Exotic Orchard/
-    #: Fellwar Stone/Harvester Druid) are genuine menus like
-    #: ``"imprinted_card_colors"`` — one option per colour, the payer still
-    #: picks one — just with a board-dependent menu instead of a fixed one;
-    #: see `resolve_options`.
+    #: Fellwar Stone/Harvester Druid) and
+    #: ``"colors_in_commanders_color_identity"`` (Arcane Signet/Command
+    #: Tower/Commander's Sphere/Path of Ancestry — RULE 903.4) are genuine
+    #: menus like ``"imprinted_card_colors"`` — one option per colour, the
+    #: payer still picks one — just with a board-dependent menu instead of a
+    #: fixed one; see `resolve_options`.
     #:
     #: ``"devotion_to_chosen_color"`` (Nykthos, Shrine to Nyx) is the one
     #: kind here where the choice and the amount are coupled: a plain "any
@@ -518,6 +582,38 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
         if selector is not None:
             return m.group("base"), selector
     return clause, None
+
+
+#: RULE 602.5d's own timing/frequency riders, printed as a trailing sentence
+#: right after a mana ability's "Add …" clause rather than as part of its
+#: ``<cost>:`` — Vivi Ornitier's "Activate only during your turn and only
+#: once each turn.", or either half alone (a bare "Activate only during
+#: your turn." or "Activate only once each turn." with no partner clause).
+#: The general activated-ability grammar for this shape already exists
+#: (`parser/oracle/catalogue/handlers.py`), but mana abilities never reach
+#: that pipeline (RULE 605.1a routes them through this module's own
+#: line-based parse instead, entirely outside `parse_oracle`), so it's
+#: recognized here too rather than left unparsed.
+_MANA_ACTIVATION_LIMIT_RE = re.compile(
+    r"activate only during your turn(?: and only once each turn)?\.|"
+    r"activate only once each turn\.",
+    re.IGNORECASE,
+)
+
+
+def _apply_mana_activation_limit(cost: ActivationCost, effect_text: str) -> None:
+    """Stamp `ActivationCost.only_during_your_turn`/``once_per_turn`` from a
+    `_MANA_ACTIVATION_LIMIT_RE` match in ``effect_text``, if any — a no-op
+    (fail-soft) when neither restriction is printed. Mutates ``cost`` in
+    place since every call site already holds a freshly built one."""
+    m = _MANA_ACTIVATION_LIMIT_RE.search(effect_text)
+    if m is None:
+        return
+    matched = m.group(0).lower()
+    if "during your turn" in matched:
+        cost.only_during_your_turn = True
+    if "once each turn" in matched:
+        cost.once_per_turn = True
 
 
 def _parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
@@ -727,6 +823,7 @@ def _parse_mana_ability_lines(
             continue  # RULE 605.1a — a targeted ability is never a mana ability
         if _EXILED_CREATURE_MV_ADD_RE.search(effect_text):
             cost = parse_activation_cost(cost_text)
+            _apply_mana_activation_limit(cost, effect_text)
             abilities.append(ManaAbility(
                 cost=cost,
                 options=[{color: 1} for color in _ALL_COLORS],
@@ -741,6 +838,7 @@ def _parse_mana_ability_lines(
             # capital-A anyway — so this is checked (and dispatched)
             # standalone, ahead of the generic ``add_match`` gate below.
             cost = parse_activation_cost(cost_text)
+            _apply_mana_activation_limit(cost, effect_text)
             if cost.exile_self_from_hand != want_hand_exile:
                 continue
             rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
@@ -758,6 +856,7 @@ def _parse_mana_ability_lines(
             # path, so its qualifying clause isn't swallowed by the bare
             # "any color" substring check in `_parse_clause`.
             cost = parse_activation_cost(cost_text)
+            _apply_mana_activation_limit(cost, effect_text)
             if cost.exile_self_from_hand != want_hand_exile:
                 continue
             rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
@@ -776,6 +875,7 @@ def _parse_mana_ability_lines(
         land_produce_match = _LAND_COULD_PRODUCE_RE.search(effect_text)
         if land_produce_match is not None:
             cost = parse_activation_cost(cost_text)
+            _apply_mana_activation_limit(cost, effect_text)
             if cost.exile_self_from_hand != want_hand_exile:
                 continue
             rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
@@ -787,19 +887,43 @@ def _parse_mana_ability_lines(
                 restriction=_parse_restriction(effect_text),
             ))
             continue
+        if _COMMANDER_IDENTITY_ADD_RE.search(effect_text):
+            # Dispatched standalone, ahead of the generic `_ADD_CLAUSE_RE`/
+            # `_parse_clause` path, so its "any color" substring isn't
+            # swallowed into an unconditional five-colour menu — same reason
+            # as `_LEGENDARY_AMONG_RE`/`_LAND_COULD_PRODUCE_RE` above. The
+            # amount is always 1 for every real printing of this phrase
+            # (Command Mine's "add two … instead" is a conditional override
+            # we don't model — its leading "add one" clause is what matches
+            # here); `resolve_options` builds the colour menu off
+            # `continuous.commander_color_identity`.
+            cost = parse_activation_cost(cost_text)
+            _apply_mana_activation_limit(cost, effect_text)
+            if cost.exile_self_from_hand != want_hand_exile:
+                continue
+            rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
+            abilities.append(ManaAbility(
+                cost=cost,
+                color_selector="colors_in_commanders_color_identity",
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
         add_match = _ADD_CLAUSE_RE.search(effect_text)
         if add_match is None:
             continue
         cost = parse_activation_cost(cost_text)
+        _apply_mana_activation_limit(cost, effect_text)
         if cost.exile_self_from_hand != want_hand_exile:
             continue
         rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
-        combination_selector = _parse_combination_selector(add_match.group(1))
-        if combination_selector is not None:
+        combination_match = _parse_combination_selector(add_match.group(1), name)
+        if combination_match is not None:
+            combination_selector, combination_colors = combination_match
             damage_match = _SELF_DAMAGE_RE.search(effect_text)
             abilities.append(ManaAbility(
                 cost=cost,
-                options=[{color: 1} for color in _ALL_COLORS],
+                options=[{color: 1} for color in (combination_colors or _ALL_COLORS)],
                 amount_selector=combination_selector,
                 any_combination=True,
                 self_damage=int(damage_match.group(1)) if damage_match else 0,
@@ -1243,6 +1367,24 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
         if not colors_present:
             return []
         return [{color: 1} for color in colors_present]
+    if ability.color_selector == "colors_in_commanders_color_identity":
+        # Arcane Signet/Command Tower/Commander's Sphere/Path of Ancestry/…:
+        # a menu of exactly the WUBRG colours in this controller's
+        # commander(s)' RULE 903.4 colour identity
+        # (`continuous.commander_color_identity`), not all five. A
+        # colourless-identity commander, a non-Commander game with no
+        # commander at all, or a bare `Card`/`GameObject` query with no
+        # ``state`` → produces nothing, the same shape every other
+        # board-dependent selector here uses.
+        if state is None:
+            return []
+        controller_id = getattr(obj, "controller_id", None)
+        if controller_id is None:
+            return []
+        identity = continuous.commander_color_identity(state, controller_id) & set(_ALL_COLORS)
+        if not identity:
+            return []
+        return [{color: 1} for color in sorted(identity)]
     if ability.amount_selector is None:
         return [dict(opt) for opt in ability.options]
     n = _resolve_amount(ability.amount_selector, obj, state)
@@ -1353,19 +1495,27 @@ def _dedupe(options: list[dict[str, int]]) -> list[dict[str, int]]:
     return unique
 
 
-def validate_color_split(split: dict[str, int], total: int) -> dict[str, int]:
+def validate_color_split(
+    split: dict[str, int], total: int, allowed_colors: Optional[Iterable[str]] = None
+) -> dict[str, int]:
     """A player's chosen colour distribution for an "any combination of
     colours" mana ability (`ManaAbility.any_combination`) — every key must
     be a real WUBRG colour (no printed "any combination" ability produces
     colourless), every value a non-negative int, and the values must sum to
     exactly ``total`` (the ability's resolved amount, e.g. Selvala's X).
-    Raises ``ValueError`` otherwise; `GameEngine.tap_for_mana` surfaces that
-    as an illegal action, same as any other invalid choice. Zero-count
-    colours are dropped from the returned dict (so it composes cleanly with
-    `ManaPool.add_many`)."""
+    ``allowed_colors`` narrows the legal key set further, for a *restricted*
+    combination ability that only prints a subset of WUBRG (Vivi Ornitier's
+    "any combination of {U} and/or {R}" — `ManaMixin.tap_for_mana` passes
+    the colours already keying `ability.options`, one per allowed colour);
+    ``None`` (the default) keeps the pre-existing full-WUBRG check, for the
+    generic "any combination of colours" shape. Raises ``ValueError``
+    otherwise; `GameEngine.tap_for_mana` surfaces that as an illegal action,
+    same as any other invalid choice. Zero-count colours are dropped from
+    the returned dict (so it composes cleanly with `ManaPool.add_many`)."""
+    legal_colors = set(allowed_colors) if allowed_colors is not None else set(_ALL_COLORS)
     cleaned: dict[str, int] = {}
     for color, count in split.items():
-        if color not in _ALL_COLORS:
+        if color not in legal_colors:
             raise ValueError(f"invalid mana colour in combination split: {color!r}")
         count = int(count)
         if count < 0:

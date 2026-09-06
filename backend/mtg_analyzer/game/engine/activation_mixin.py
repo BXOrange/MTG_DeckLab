@@ -168,7 +168,13 @@ class ActivationMixin:
             # single choke point both this validation and `legal_actions`'s
             # offer list already go through.
             return False
-        if ability.once_per_turn and ability._last_activated_turn == self.state.turn_number:
+        if combat.is_detained(source):
+            # RULE 701.35b: a detained permanent's activated abilities can't
+            # be activated. (Mana abilities go through `tap_for_mana`, not
+            # here — a detained permanent's mana ability staying usable is a
+            # known minor deviation, no detain target in the cache has one.)
+            return False
+        if ability.once_per_turn and ability._last_activated_turn == self.state.internal_turn.number:
             return False
         if getattr(ability, "once_per_game", False) and (
             ability.description in getattr(source, "used_once_per_game_abilities", set())
@@ -183,6 +189,8 @@ class ActivationMixin:
         if ability.cost.sorcery_speed_only and not self._sorcery_speed_ok(player):
             return False
         if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
+            return False
+        if ability.cost.not_during_combat and not self._not_during_combat_ok():
             return False
         if ability.cost.activation_condition and not static_conditions.condition_holds(
             ability.cost.activation_condition, self.state, source=source, controller_id=player.id
@@ -217,6 +225,12 @@ class ActivationMixin:
         stack or outside the controller's own main phase, only ruled out on
         someone else's turn (Wishclaw Talisman-shaped)."""
         return player is self.state.active_player
+    def _not_during_combat_ok(self) -> bool:
+        """RULE 602.5d's "You can't activate this ability during combat."
+        (PAR-30, Djinn of Infinite Deceits) — the only phase this flag
+        rules out; still legal on anyone's turn, at any other phase, with a
+        non-empty stack."""
+        return self.state.current_phase != "combat"
     def _can_activate_loyalty(self, player: Player, source: GameObject) -> bool:
         """Timing gate for a planeswalker loyalty ability (RULE 606.3).
 
@@ -387,7 +401,7 @@ class ActivationMixin:
         if (
             cost is not None
             and getattr(cost, "powerup_cost_reduction", False)
-            and source.turn_entered == self.state.turn_number
+            and source.turn_entered == self.state.internal_turn.number
         ):
             # PAR-28 / Power-up: "Reduce the cost by its mana cost if it
             # entered this turn." — a generic reduction equal to the
@@ -474,6 +488,14 @@ class ActivationMixin:
         if cost.exile_creature and self._exile_creature_candidate(
             player, chosen_id=sacrifice_choice
         ) is None:
+            return False
+        if cost.collect_evidence and not self.rules.collect_evidence_possible(
+            player, cost.collect_evidence
+        ):
+            return False
+        if cost.forage and not self.rules.forage_possible(player):
+            return False
+        if cost.blight and not self.rules.blight_possible(player):
             return False
         if cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand) is None:
             return False
@@ -768,6 +790,8 @@ class ActivationMixin:
             obj
             for obj in self.state.permanents_controlled_by(player.id)
             if self._matches_sacrifice_type(obj, what)
+            # "You can't sacrifice those creatures this turn." (Call for Aid)
+            and not obj.cant_be_sacrificed_this_turn
         ]
         if chosen_id is not None:
             return next((o for o in candidates if o.instance_id == chosen_id), None)
@@ -800,6 +824,7 @@ class ActivationMixin:
             obj
             for obj in self.state.permanents_controlled_by(player.id)
             if self._matches_sacrifice_type(obj, cost.sacrifice)
+            and not obj.cant_be_sacrificed_this_turn
         ]
         return {
             "options": [{"instance_id": o.instance_id, "name": o.name} for o in candidates]
@@ -1061,6 +1086,20 @@ class ActivationMixin:
                 if not player.library:
                     break
                 self.rules.exile(player.library[-1])
+        if cost.collect_evidence:
+            # RULE 701.59a — exile graveyard cards totalling `collect_evidence`
+            # mana value or more; `RulesEngine.collect_evidence` auto-picks
+            # and fires `EventType.COLLECTED_EVIDENCE`.
+            self.rules.collect_evidence(player, cost.collect_evidence)
+        if cost.forage:
+            # RULE 701.61a — `RulesEngine.forage` auto-picks between exiling
+            # three graveyard cards and sacrificing a Food, fires
+            # `EventType.FORAGED`.
+            self.rules.forage(player)
+        if cost.blight:
+            # RULE 701.68 — put N -1/-1 counters on a creature you control;
+            # `interactive=False` auto-picks (payment can't pause).
+            self.rules.blight(player, cost.blight, source=source, interactive=False)
         if cost.put_hand_card_on_library:
             chosen = self._resolve_put_hand_card_cost(player, hand_card_choices)
             if chosen:
@@ -1255,7 +1294,7 @@ class ActivationMixin:
         # same permanent racing on the stack) to accept as-is.
         source.x_paid = x
         if ability.once_per_turn:
-            ability._last_activated_turn = self.state.turn_number
+            ability._last_activated_turn = self.state.internal_turn.number
         if getattr(ability, "once_per_game", False) and ability.description:
             # PAR-28 / RULE 702.177a: mark this Exhaust/Power-up ability used
             # for the rest of the game (keyed on its printed text so a card

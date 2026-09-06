@@ -270,6 +270,164 @@ class SearchMixin:
         self.state.pending_choice = self._look_top_choice(
             player, kind, "away", remaining, [], [], source_name
         )
+    def explore(self, permanent: GameObject, player: Optional[Player] = None) -> None:
+        """RULE 701.44a: ``permanent``'s controller reveals the top card of
+        their library. If a land is revealed, it goes to that player's hand;
+        otherwise a +1/+1 counter is put on ``permanent`` and the player may
+        put the revealed card into their graveyard (an interactive
+        ``explore_bin`` choice — the only branch that pauses).
+
+        RULE 701.44b: the `EventType.EXPLORED` event fires once the whole
+        process is complete — inline here when nothing was revealed or a land
+        went to hand, and from `resolve_explore_bin_choice` otherwise — even
+        if some or all of the steps were impossible. RULE 701.44c: last known
+        information (``controller_id`` off ``permanent``) identifies the
+        explorer if it has already left the battlefield.
+        """
+        inst = getattr(permanent, "instance_id", None)
+        controller_id = getattr(permanent, "controller_id", None)
+        if player is None and controller_id is not None:
+            try:
+                player = self.state.player_by_id(controller_id)
+            except KeyError:
+                player = None
+        if player is None:
+            return
+
+        top = player.library[-1] if player.library else None
+        if top is None:
+            self._fire_explored(inst, controller_id, found_land=False)
+            return
+        # RULE 701.20a: revealing is a public move; no hidden-zone bookkeeping
+        # is needed here since the card immediately changes zone either way.
+        if top.card.is_land:
+            player.library.pop()
+            player.add_to_zone(top, Zone.HAND)
+            self._fire_explored(inst, controller_id, found_land=True)
+            return
+
+        if inst is not None:
+            self.add_counters(permanent, 1, "+1/+1", source=permanent)
+        # RULE 701.44a's "may put the revealed card into their graveyard" —
+        # a genuine yes/no; declining leaves it on top of the library.
+        self.state.pending_choice = {
+            "kind": "explore_bin",
+            "player_id": player.id,
+            "optional": True,
+            "description": f"Erkunden: {top.card.name}",
+            "prompt": f"Erkunden — „{top.card.name}“ auf den Friedhof legen?",
+            "card_id": top.instance_id,
+            "explorer_id": inst,
+            "explorer_controller_id": controller_id,
+            "options": [
+                {"id": "graveyard", "label": "Auf den Friedhof",
+                 "instance_id": top.instance_id},
+                {"id": "top", "label": "Oben lassen (Bibliothek)"},
+            ],
+        }
+    def _fire_explored(
+        self, inst: Optional[str], controller_id: Optional[str], *, found_land: bool
+    ) -> None:
+        self.state.fire_event(GameEvent(
+            EventType.EXPLORED, instance_id=inst,
+            controller_id=controller_id, found_land=found_land,
+        ))
+    def resolve_explore_bin_choice(self, to_graveyard: bool = False) -> None:
+        """Finish an explore (RULE 701.44a): ``to_graveyard`` puts the
+        revealed nonland card into its owner's graveyard; otherwise it stays
+        on top of the library. Fires `EventType.EXPLORED` afterward (701.44b).
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "explore_bin":
+            raise ValueError("no pending explore to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+
+        if to_graveyard:
+            card_id = choice["card_id"]
+            revealed = next(
+                (o for o in player.library if o.instance_id == card_id), None
+            )
+            if revealed is not None:
+                # A library → graveyard move from a look (like surveil,
+                # `_look_at_top`/`_dig_until`); no leave-the-battlefield
+                # triggers, so the zone fields are set directly rather than
+                # through `_move_to_graveyard`.
+                player.library.remove(revealed)
+                revealed.zone = Zone.GRAVEYARD
+                player.graveyard.append(revealed)
+        self._fire_explored(
+            choice.get("explorer_id"), choice.get("explorer_controller_id"),
+            found_land=False,
+        )
+    def peek_top_land_battlefield_tapped(
+        self, player: Player, source: Optional[GameObject] = None,
+        otherwise_hand: bool = False,
+    ) -> None:
+        """"Look at the top card of your library. If it's a land card, you
+        may put it onto the battlefield tapped." (Explorer's Scope) — RULE
+        701.20's "look" (this player only; unlike `explore`'s *reveal*,
+        nothing here is shown to anyone else).
+
+        Bug report, 2026-09-04, two issues: the old implementation put a
+        found land onto the battlefield *unconditionally* — no "may" at
+        all, so `resolve_peek_top_land_choice` below is what actually makes
+        this interactive now — and, since it never opened any choice, a
+        *non*-land top card produced no visible feedback whatsoever (the
+        player "looked" at nothing they could ever see). Both branches now
+        open a `peek_top_land` `pending_choice` naming the card, whether or
+        not there's an actual decision to make.
+        """
+        if not player.library:
+            return
+        top = player.library[-1]
+        source_name = source.name if source is not None else None
+        prefix = f"{source_name}: " if source_name else ""
+        if top.card.is_land:
+            options = [
+                {"id": "put", "label": "Getappt ins Spiel legen", "instance_id": top.instance_id},
+                ({"id": "hand", "label": "Auf die Hand nehmen"}
+                 if otherwise_hand else {"id": "decline", "label": "Oben liegen lassen"}),
+            ]
+            prompt = f'{prefix}„{top.card.name}“ getappt ins Spiel legen?'
+        else:
+            # No real decision — a single acknowledgement button just so
+            # the peeked card is actually shown (see docstring above).
+            options = ([{"id": "hand", "label": "Auf die Hand nehmen", "instance_id": top.instance_id}]
+                       if otherwise_hand else [{"id": "ok", "label": "OK", "instance_id": top.instance_id}])
+            prompt = (f'{prefix}„{top.card.name}“ auf die Hand nehmen?'
+                      if otherwise_hand else f'{prefix}Oberste Karte: „{top.card.name}“ (kein Land).')
+        self.state.pending_choice = {
+            "kind": "peek_top_land",
+            "player_id": player.id,
+            "prompt": prompt,
+            "source_name": source_name,
+            "card_id": top.instance_id,
+            "options": options,
+        }
+    def resolve_peek_top_land_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `peek_top_land` choice (Explorer's Scope):
+        ``"put"`` removes the peeked land from the library and puts it onto
+        the battlefield tapped (`_put_searched_card`, the same mover a real
+        search uses — see that method's own docstring for why the removal
+        has to happen here, before it's called); any other answer
+        (``"decline"``, the non-land ``"ok"``, or a decline) leaves the
+        library untouched.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "peek_top_land":
+            raise ValueError("no pending peek-top-land choice to resolve")
+        self.state.pending_choice = None
+        player = self.state.player_by_id(choice["player_id"])
+        top = next((o for o in player.library if o.instance_id == choice["card_id"]), None)
+        if top is None:
+            return
+        if answer == "put":
+            player.remove_from_zone(top, top.zone)
+            self._put_searched_card(player, top, "battlefield_tapped")
+        elif answer == "hand":
+            player.remove_from_zone(top, top.zone)
+            player.add_to_zone(top, Zone.HAND)
     def _look_top_choice(
         self,
         player: Player,
@@ -433,6 +591,8 @@ class SearchMixin:
         select_count: int,
         rest_destination: str,
         rest_order: Optional[str] = None,
+        select_optional: bool = False,
+        select_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         """"Look at the top N cards of your library. Put M of them into
         your hand and the rest `<destination>`." (Anticipate/Dig Through
@@ -449,18 +609,45 @@ class SearchMixin:
         (RULE 701.31b's own precedent — a surveil/mill pile is never
         ordered, which is also why none of these cards ever pair
         "graveyard" with "in any order").
+
+        ``select_filter`` (Water Tribe Rallier — "you may reveal **a
+        creature card with power 3 or less** from among them") restricts
+        which of the looked-at cards may be picked for hand
+        (`combat.matches_object_filter`); ``select_optional`` makes the
+        pick a "you **may**" (0 up to ``select_count``, with a decline
+        option) rather than mandatory. A revealed pick is public info at a
+        real table; this engine has no reveal step, so the card simply goes
+        to hand.
         """
         looked = player.library[-count:] if count > 0 else []
         if not looked:
             return
         remaining = [obj.instance_id for obj in reversed(looked)]  # top of library first
-        select_count = max(0, min(select_count, len(remaining)))
+        eligible = self._look_top_select_eligible(remaining, select_filter)
+        select_count = max(0, min(select_count, len(eligible)))
         if select_count <= 0:
             self._advance_look_top_select(player, remaining, [], rest_destination, rest_order)
             return
         self.state.pending_choice = self._look_top_select_choice(
             player, "select", remaining, [], select_count, [], rest_destination, rest_order,
+            select_optional=select_optional, select_filter=select_filter,
         )
+
+    def _look_top_select_eligible(
+        self, instance_ids: list[int], select_filter: Optional[dict[str, Any]]
+    ) -> list[int]:
+        """The subset of ``instance_ids`` a `look_top_select` pick may take
+        (`select_filter`, or all of them when there is none)."""
+        if not select_filter:
+            return list(instance_ids)
+        from .. import combat  # function-scoped: avoid a load-time cycle
+
+        out = []
+        for iid in instance_ids:
+            obj = self._object_by_instance_id(iid)
+            if obj is not None and combat.matches_object_filter(obj, dict(select_filter)):
+                out.append(iid)
+        return out
 
     def _look_top_select_choice(
         self,
@@ -472,22 +659,31 @@ class SearchMixin:
         ordered: list[int],
         rest_destination: str,
         rest_order: Optional[str],
+        select_optional: bool = False,
+        select_filter: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Build one step of the serializable `look_top_select` decision —
-        ``phase`` is ``"select"`` (choosing the hand cards, no decline: RULE
-        701.19's "put M of them" is mandatory, not "up to") or ``"order"``
-        (placing what's left one at a time, decline keeps the rest in
-        their looked-at order, same convention as `_look_top_choice`)."""
+        ``phase`` is ``"select"`` (choosing the hand cards — mandatory per
+        RULE 701.19's "put M of them", unless ``select_optional``, a "you
+        may reveal…" — and narrowed to ``select_filter`` when set) or
+        ``"order"`` (placing what's left one at a time, decline keeps the
+        rest in their looked-at order, same convention as `_look_top_choice`)."""
         looked = [(iid, self._object_by_instance_id(iid)) for iid in remaining]
-        options = [
-            {"id": str(iid), "label": obj.name, "instance_id": iid}
-            for iid, obj in looked
-            if obj is not None
-        ]
         if phase == "order":
+            options = [
+                {"id": str(iid), "label": obj.name, "instance_id": iid}
+                for iid, obj in looked if obj is not None
+            ]
             options.append({"id": "decline", "label": "Reihenfolge behalten"})
             prompt = "Wähle die nächste Karte für die Bibliothek"
         else:
+            eligible = set(self._look_top_select_eligible(remaining, select_filter))
+            options = [
+                {"id": str(iid), "label": obj.name, "instance_id": iid}
+                for iid, obj in looked if obj is not None and iid in eligible
+            ]
+            if select_optional:
+                options.append({"id": "decline", "label": "Keine offenbaren"})
             prompt = f"Wähle eine Karte für deine Hand ({select_count - len(selected)} übrig)"
         return {
             "kind": "look_top_select",
@@ -499,6 +695,8 @@ class SearchMixin:
             "ordered": list(ordered),
             "rest_destination": rest_destination,
             "rest_order": rest_order,
+            "select_optional": select_optional,
+            "select_filter": dict(select_filter) if select_filter else None,
             "prompt": prompt,
             "options": options,
         }
@@ -516,17 +714,32 @@ class SearchMixin:
         ordered: list[int] = list(choice["ordered"])
         rest_destination: str = choice["rest_destination"]
         rest_order: Optional[str] = choice["rest_order"]
+        select_optional: bool = bool(choice.get("select_optional", False))
+        select_filter: Optional[dict[str, Any]] = choice.get("select_filter")
         phase = choice["phase"]
 
         if phase == "select":
-            if instance_id is None or instance_id not in remaining:
+            eligible = set(self._look_top_select_eligible(remaining, select_filter))
+            if instance_id is None:
+                # RULE 601.2 "you may reveal…" declined — take whatever was
+                # already picked and place the rest. A mandatory pick has no
+                # decline (the caller only offers one when select_optional).
+                if not select_optional:
+                    raise ValueError("a look_top_select pick is not optional")
+                self._advance_look_top_select(
+                    player, remaining, selected, rest_destination, rest_order
+                )
+                return
+            if instance_id not in remaining or instance_id not in eligible:
                 raise ValueError(f"{instance_id} is not a legal choice")
             remaining.remove(instance_id)
             selected.append(instance_id)
-            if len(selected) < select_count and remaining:
+            still_eligible = [i for i in remaining if i in eligible]
+            if len(selected) < select_count and still_eligible:
                 self.state.pending_choice = self._look_top_select_choice(
                     player, "select", remaining, selected, select_count, ordered,
                     rest_destination, rest_order,
+                    select_optional=select_optional, select_filter=select_filter,
                 )
                 return
             self._advance_look_top_select(player, remaining, selected, rest_destination, rest_order)
@@ -611,7 +824,7 @@ class SearchMixin:
         """RULE 116.2a (MEC-35, Leonin Arbiter): has ``player`` paid {2}
         this turn to ignore a search prohibition? See `GameState.
         search_exempt_until_turn`'s own docstring."""
-        return self.state.search_exempt_until_turn.get(player.id) == self.state.turn_number
+        return self.state.search_exempt_until_turn.get(player.id) == self.state.internal_turn.number
 
     def is_search_prohibited_for(self, player: Player) -> bool:
         """Whether ``player`` is currently barred from searching at all
@@ -647,6 +860,9 @@ class SearchMixin:
         total_mana_value_budget: Optional[int] = None,
         chooser: Optional[Player] = None,
         share_land_type: bool = False,
+        then_specs_if_none: Optional[list[dict]] = None,
+        source: Optional[GameObject] = None,
+        track_exiled_with: bool = False,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -764,6 +980,9 @@ class SearchMixin:
         if not eligible or count <= 0:
             if "library" in zones and not exile_rest:
                 self.shuffle_library(player)
+            # "…if you don't put a card … this way, <body>." (The Vast
+            # Scrier) — nothing eligible counts as "didn't".
+            self._apply_effect_specs(list(then_specs_if_none or []), source)
             return
         self.state.pending_choice = self._search_choice(
             player, criteria, destination, count, optional, found=[],
@@ -774,6 +993,9 @@ class SearchMixin:
             total_mana_value_budget=total_mana_value_budget,
             chooser=chooser,
             share_land_type=share_land_type,
+            then_specs_if_none=then_specs_if_none,
+            then_source_id=getattr(source, "instance_id", None),
+            track_exiled_with=track_exiled_with,
         )
 
     def request_intuition(
@@ -1041,6 +1263,9 @@ class SearchMixin:
                 spent_mana_value=spent_mana_value,
                 chooser=self.state.player_by_id(chooser_id),
                 share_land_type=share_land_type,
+                then_specs_if_none=choice.get("then_specs_if_none"),
+                then_source_id=choice.get("then_source_id"),
+                track_exiled_with=choice.get("track_exiled_with", False),
             )
             return
 
@@ -1055,7 +1280,16 @@ class SearchMixin:
             attach_to_creature_you_control=choice.get("attach_to_creature_you_control", False),
             remember_source_id=choice.get("remember_source_id"),
             chooser_id=chooser_id,
+            track_exiled_with=choice.get("track_exiled_with", False),
+            track_source_id=choice.get("then_source_id"),
         )
+        # "…if you don't put a card … this way, <body>." (The Vast Scrier) —
+        # the search finished and nothing was picked.
+        if not found and choice.get("then_specs_if_none"):
+            self._apply_effect_specs(
+                list(choice["then_specs_if_none"]),
+                self._object_by_instance_id(choice.get("then_source_id")),
+            )
     def _search_choice(
         self,
         player: Player,
@@ -1075,6 +1309,9 @@ class SearchMixin:
         spent_mana_value: int = 0,
         chooser: Optional[Player] = None,
         share_land_type: bool = False,
+        then_specs_if_none: Optional[list[dict]] = None,
+        then_source_id: Optional[int] = None,
+        track_exiled_with: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
         zones = list(zones) if zones else ["library"]
@@ -1137,6 +1374,18 @@ class SearchMixin:
             "remaining": count - len(found),
             "eligible": eligible,
             "options": options,
+            # "…if you don't put a card … this way, <body>." (The Vast
+            # Scrier) — run once the search finishes with nothing picked.
+            "then_specs_if_none": [dict(d) for d in (then_specs_if_none or [])],
+            "then_source_id": then_source_id,
+            # "…exile them, then incubate 2 **that many times**." (Phyrexian
+            # Incubator) — every card sent to exile by this search is
+            # appended to the source's `GameObject.exiled_with_ids`, so a
+            # later `create_token` with ``count_selector="exiled_with_count"``
+            # in the same effect list can read the count back after the
+            # RULE 608.2 pending-choice suspension (the id list lives on the
+            # permanent, not the resolution's `GameContext`).
+            "track_exiled_with": bool(track_exiled_with),
         }
     def _finish_search(
         self,
@@ -1152,6 +1401,8 @@ class SearchMixin:
         attach_to_creature_you_control: bool = False,
         remember_source_id: Optional[int] = None,
         chooser_id: Optional[str] = None,
+        track_exiled_with: bool = False,
+        track_source_id: Optional[int] = None,
     ) -> None:
         """Move every chosen card to its destination, then shuffle the
         library (RULE 701.19e) — unless ``exile_rest`` suppresses it
@@ -1267,6 +1518,17 @@ class SearchMixin:
         if shuffle and not to_library:
             self.shuffle_library(player)
 
+        if track_exiled_with and track_source_id is not None:
+            # "…exile them, then incubate 2 **that many times**." (Phyrexian
+            # Incubator) — record every card this search sent to exile onto
+            # the source so a following `count_selector="exiled_with_count"`
+            # reads the count back across the RULE 608.2 suspension.
+            track_source = self.state.find_object(track_source_id)
+            if track_source is not None:
+                for obj, dest in zip(chosen, effective_destinations):
+                    if dest == "exile":
+                        track_source.exiled_with_ids.append(obj.instance_id)
+
         if exile_rest:
             # MEC-37 (Doomsday): when ``destination`` is itself one of the
             # searched ``zones`` ("library_top" while zones includes
@@ -1300,9 +1562,34 @@ class SearchMixin:
         self, player: Player, obj: GameObject, destination: str,
         chooser_id: Optional[str] = None,
     ) -> None:
-        if destination in ("battlefield", "battlefield_tapped"):
+        if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
             obj.summoning_sick = True
-            obj.tapped = destination == "battlefield_tapped"
+            # RULE 614.1: a permanent's own "enters with" replacement applies
+            # no matter whether it was cast or put onto the battlefield.
+            self._apply_entry_counters(obj)
+            self._apply_granted_entry_counters(obj)
+            if obj.is_land and destination == "battlefield":
+                # RULE 614.1 (bug report, 2026-09-04): an *unqualified*
+                # "put it onto the battlefield" (Wooded Foothills/Prismatic
+                # Vista-shaped true fetchlands — as opposed to
+                # ``"battlefield_tapped"``'s own explicit instruction,
+                # Evolving Wilds-shaped) doesn't itself say tapped or
+                # untapped, so the found land's *own* printed entry
+                # condition still governs — a check/fast/slow land's
+                # board-state test, or a shock land's genuine "you may pay
+                # N life" choice (`enter_land_tapped`, the same dispatcher
+                # `GameEngine.play_land` already routes an ordinary land
+                # play through). Previously this branch just hardcoded
+                # ``obj.tapped = False``, so a fetched shock land always
+                # entered untapped for free, no choice offered at all.
+                # ``"battlefield_tapped"`` stays a plain unconditional tap
+                # below — real-card ruling (Evolving Wilds vs. a shock
+                # land): the fetch effect's own explicit "tapped" already
+                # decides it, so the land's own conditional ability isn't
+                # separately offered.
+                self.enter_land_tapped(obj)
+            else:
+                obj.tapped = destination != "battlefield"
             self.state.add_to_battlefield(obj)
             self.state.fire_event(
                 GameEvent(
@@ -1313,6 +1600,11 @@ class SearchMixin:
                     object_types=sorted(obj.type_words),
                 )
             )
+            if destination == "battlefield_attacking":
+                # RULE 508.4: "…onto the battlefield tapped **and attacking**"
+                # (Preeminent Captain, Kaalia of the Vast). The tap is set
+                # above; this puts it into the current combat.
+                self.put_onto_battlefield_attacking(obj)
         elif destination == "library_bottom":
             obj.zone = Zone.LIBRARY
             player.library.insert(0, obj)  # bottom (index 0 — see Player.library)
@@ -1386,6 +1678,9 @@ class SearchMixin:
         hit_destination: str = "hand",
         miss_destination: str = "graveyard",
         optional: bool = True,
+        hit_grant_keywords: Optional[list[str]] = None,
+        miss_effect_specs: Optional[list[dict]] = None,
+        source: Optional[GameObject] = None,
     ) -> None:
         """"Look at the top N cards, take one matching ``criteria``, put the
         rest into ``miss_destination``" (Grisly Salvage/Commune with the
@@ -1418,17 +1713,25 @@ class SearchMixin:
                 # bottomed in reveal order; `_bottom_remaining` already
                 # does exactly this for `dig_until`'s own rest destination.
                 self._bottom_remaining(player, [o.instance_id for o in peeled])
-                return
-            for obj in peeled:
-                player.remove_from_zone(obj, Zone.EXILE)
-                self._put_searched_card(player, obj, miss_destination)
+            else:
+                for obj in peeled:
+                    player.remove_from_zone(obj, Zone.EXILE)
+                    self._put_searched_card(player, obj, miss_destination)
+            # "If you don't put a card onto the battlefield this way, <body>."
+            # (The Joiner of Cats) — nothing eligible counts as "didn't".
+            self._apply_effect_specs(list(miss_effect_specs or []), source)
             return
+        self._pending_impulsive_look = {
+            "source": source,
+            "miss_effect_specs": [dict(d) for d in (miss_effect_specs or [])],
+        }
         self.state.pending_choice = {
             "kind": "impulsive_look",
             "player_id": player.id,
             "optional": optional,
             "hit_destination": hit_destination,
             "miss_destination": miss_destination,
+            "hit_grant_keywords": list(hit_grant_keywords or []),
             "description": f"Von den obersten {len(peeled)} Karten: {card_query.describe(criteria)}",
             "prompt": f"Eine passende Karte ({card_query.describe(criteria)}) auf die Hand nehmen?",
             "eligible": [{"instance_id": o.instance_id, "name": o.name} for o in eligible],
@@ -1450,6 +1753,8 @@ class SearchMixin:
             raise ValueError("no pending impulsive-look choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
         self.state.pending_choice = None
+        pending_else = self._pending_impulsive_look
+        self._pending_impulsive_look = None
 
         chosen_id: Optional[int] = None
         if instance_id is not None:
@@ -1466,12 +1771,43 @@ class SearchMixin:
                 hit = next(o for o in exiled if o.instance_id == chosen_id)
                 player.remove_from_zone(hit, Zone.EXILE)
                 self._put_searched_card(player, hit, choice["hit_destination"])
+                self._apply_impulsive_look_hit_grants(hit, choice.get("hit_grant_keywords"))
             self._bottom_remaining(player, miss_ids)
+            self._apply_impulsive_look_miss_branch(chosen_id, pending_else)
             return
         for obj in exiled:
-            destination = choice["hit_destination"] if obj.instance_id == chosen_id else choice["miss_destination"]
+            is_hit = obj.instance_id == chosen_id
+            destination = choice["hit_destination"] if is_hit else choice["miss_destination"]
             player.remove_from_zone(obj, Zone.EXILE)
             self._put_searched_card(player, obj, destination)
+            if is_hit:
+                self._apply_impulsive_look_hit_grants(obj, choice.get("hit_grant_keywords"))
+        self._apply_impulsive_look_miss_branch(chosen_id, pending_else)
+
+    def _apply_impulsive_look_miss_branch(
+        self, chosen_id: Optional[int], pending_else: Optional[dict]
+    ) -> None:
+        """"If you don't put a card onto the battlefield this way, <body>."
+        (The Joiner of Cats) — run the else-branch specs when the look placed
+        nothing (the player declined; the nothing-eligible case is handled
+        inline in `request_impulsive_look`)."""
+        if chosen_id is not None or not pending_else:
+            return
+        self._apply_effect_specs(
+            list(pending_else.get("miss_effect_specs") or []),
+            pending_else.get("source"),
+        )
+
+    def _apply_impulsive_look_hit_grants(
+        self, obj: "GameObject", keywords: Optional[list[str]]
+    ) -> None:
+        """RULE 514.2 — "It gains <keyword> until end of turn." on the card an
+        `impulsive_look` places onto the battlefield (Winota, Joiner of
+        Forces). A no-op unless the card actually landed on the battlefield."""
+        if not keywords or obj not in self.state.battlefield:
+            return
+        for kw in keywords:
+            obj.temp_keywords.add(kw)
     def _grant_temp_play_permission(
         self,
         obj: GameObject,
@@ -1494,7 +1830,7 @@ class SearchMixin:
         why "until the end of **your** next turn" can't be a flat turn-
         number comparison the way "until end of turn" can).
         """
-        self.state.temp_play_permissions[obj.instance_id] = self.state.turn_number
+        self.state.temp_play_permissions[obj.instance_id] = self.state.internal_turn.number
         if same_turn_only:
             self.state.temp_play_permission_same_turn_only.add(obj.instance_id)
         self.state.temp_play_permission_player[obj.instance_id] = permission_player.id
@@ -1582,7 +1918,9 @@ class SearchMixin:
                 GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="graveyard")
             )
         return exiled
-    def grant_free_cast_window_from_exile(self, obj: GameObject) -> None:
+    def grant_free_cast_window_from_exile(
+        self, obj: GameObject, caster: Optional[Player] = None, ignore_timing: bool = False,
+    ) -> None:
         """Open ``obj``'s (already-exiled) "cast it without paying its mana
         cost" window for the rest of the turn — reuses
         `_grant_temp_play_permission`'s same-turn-only temp-cast permission
@@ -1592,49 +1930,47 @@ class SearchMixin:
         the spell gets its full targeting/modal choices rather than a
         stripped-down mid-resolution cast.
 
-        Two callers, both "you may cast this card from exile without paying
-        its mana cost": RULE 702.88b Rebound's delayed half
-        (`ReboundFreeCastWindowEffect`) and Beseech the Mirror's bargained
-        clause (`CastExiledFaceDownEffect`).
+        Callers, all "you may cast this card from exile without paying its
+        mana cost": RULE 702.88b Rebound's delayed half
+        (`ReboundFreeCastWindowEffect`), Beseech the Mirror's bargained
+        clause (`CastExiledFaceDownEffect`), MEC-52's `dig_until`
+        ``cast_free_window``, and Etali, Primal Storm/Primal Conqueror's
+        own `exile_top_from_each_player_cast_free`. ``caster``, when given,
+        is a *different* player than the card's owner (Ensnared by the
+        Mara — "**you** may cast that card" off an opponent's library):
+        they become its controller for the window (RULE 601.3e).
+
+        ``ignore_timing`` (Etali's own ruling: "timing permissions based on
+        a card's type are ignored, and the spells resolve before blockers
+        are declared") also stamps `GameState.free_cast_ignore_timing_
+        instance_ids`, so `GameEngine.can_cast` offers even a sorcery-speed
+        card the instant this window opens — mid-combat included — rather
+        than only once a later main phase with an empty stack comes
+        around. **Documented simplification** shared with every other
+        caller above: the window still lasts the rest of the turn rather
+        than being a use-it-now-or-lose-it decision at the exact moment of
+        resolution (Etali's own ruling: "you do so as part of the
+        resolution of the triggered ability... you can't wait to cast them
+        later in the turn") — forcing an immediate multi-card, ordered,
+        fully-targeted "cast any number of these" decision inline with
+        resolving one triggered ability would need a dedicated interactive
+        chooser this engine doesn't have yet, so a same-turn window (this
+        primitive's one existing shape) is used instead, same trade-off as
+        Rebound/Beseech the Mirror/MEC-52 already accepted.
         """
-        controller = self.state.player_by_id(obj.controller_id)
+        controller = caster or self.state.player_by_id(obj.controller_id)
         if controller is None:
             return
+        if caster is not None:
+            # RULE 601.3e: casting a card you don't own makes you its
+            # controller while it's a spell / on the battlefield.
+            obj.controller_id = caster.id
         self._grant_temp_play_permission(
             obj, controller, obj.name, same_turn_only=True, mana_wildcard=None,
         )
         self.state.free_cast_instance_ids.add(obj.instance_id)
-    def put_hand_creature_onto_battlefield(
-        self, player: Player, max_total_pt: Optional[int] = None
-    ) -> Optional[GameObject]:
-        """"You may put a creature card from your hand onto the
-        battlefield." (RULE 701 "cheat into play" — Sneak Attack/Meek
-        Attack-shaped). Auto-picks the first eligible creature in hand — no
-        chooser in this MVP, the same idiom `discard`/`put_hand_cards_on_
-        top` already use for an un-targeted hand-card pick — optionally
-        filtered by ``max_total_pt`` (Meek Attack's own "total power and
-        toughness 5 or less"). Returns the object placed, or ``None`` if no
-        eligible creature was in hand. RULE 400.7: leaving the hand makes
-        this a new object.
-        """
-        creature = next(
-            (
-                o for o in player.hand
-                if o.card.is_creature
-                and (
-                    max_total_pt is None
-                    or (o.card.power or 0) + (o.card.toughness or 0) <= max_total_pt
-                )
-            ),
-            None,
-        )
-        if creature is None:
-            return None
-        self._remove_from_current_zone(player, creature)
-        creature.reset_as_new_object()
-        creature.controller_id = player.id
-        self._put_searched_card(player, creature, "battlefield")
-        return creature
+        if ignore_timing:
+            self.state.free_cast_ignore_timing_instance_ids.add(obj.instance_id)
     def shuffle_library(self, player: Player) -> None:
         """Shuffle a player's library and announce it (RULE 701.20)."""
         player.shuffle_library()
@@ -2197,6 +2533,7 @@ class SearchMixin:
         hit_destination: str = "hand",
         rest_destination: str = "exile",
         pre_exile: int = 0,
+        caster: Optional[Player] = None,
     ) -> Optional[GameObject]:
         """Reveal cards from the top of ``player``'s library until one
         matches ``criteria``; put it at ``hit_destination`` and everything
@@ -2214,6 +2551,12 @@ class SearchMixin:
         ``pre_exile`` is Demonic Consultation's "exile the top six cards"
         prologue, which happens *before* the dig and is never part of it.
 
+        ``caster`` (MEC-52 — Ensnared by the Mara's "**you** may cast that
+        card") routes a ``cast_free``/``cast_free_window`` hit to a
+        *different* player than the one whose library was dug — the effect's
+        controller casting a card off an opponent's library. ``None`` keeps
+        the digger as the caster (every other caller).
+
         Returns the matching object, or ``None`` if the library ran out —
         which for Demonic Consultation means the library is now empty, the
         exact state Thassa's Oracle then wins on.
@@ -2222,7 +2565,7 @@ class SearchMixin:
             self.exile(player.library[-1])
         matched, revealed = self._exile_top_until(player, criteria, exclude_lands=False)
         if matched is not None and hit_destination != "exile":
-            self._place_dig_hit(player, matched, hit_destination)
+            self._place_dig_hit(player, matched, hit_destination, caster=caster)
         rest_ids = [o.instance_id for o in revealed if o is not matched]
         if rest_destination == "library_bottom_random":
             self._bottom_remaining(player, rest_ids)
@@ -2253,10 +2596,18 @@ class SearchMixin:
             player.remove_from_zone(obj, Zone.EXILE)
             obj.zone = Zone.GRAVEYARD
             player.graveyard.append(obj)
-    def _place_dig_hit(self, player: Player, obj: GameObject, destination: str) -> None:
-        """Move a `dig_until` hit out of exile to its destination."""
+    def _place_dig_hit(
+        self, player: Player, obj: GameObject, destination: str,
+        caster: Optional[Player] = None,
+    ) -> None:
+        """Move a `dig_until` hit out of exile to its destination.
+
+        ``caster`` (MEC-52) is who casts a ``cast_free``/``cast_free_window``
+        hit when that is a *different* player than ``player`` (the digger) —
+        Ensnared by the Mara's "**you** may cast that card" off an
+        opponent's library. ``None`` keeps the digger as the caster."""
         if destination == "cast_free":
-            self.cast_without_paying(player, obj)
+            self.cast_without_paying(caster or player, obj)
             return
         if destination == "cast_free_window":
             # "That player **may** cast that card without paying its mana
@@ -2266,10 +2617,10 @@ class SearchMixin:
             # action loop. The card stays in exile until cast, and the
             # delayed half below performs the printed "if they don't cast
             # it" fallback at the next end step.
-            self.grant_free_cast_window_from_exile(obj)
+            self.grant_free_cast_window_from_exile(obj, caster=caster)
             self.state.delayed_triggers.append(
                 DelayedTrigger(
-                    controller_id=player.id,
+                    controller_id=(caster or player).id,
                     step="end",
                     scope="any",
                     effects=[ReturnUncastExiledEffect(obj, destination="library_bottom")],
@@ -2304,3 +2655,166 @@ class SearchMixin:
             player.remove_from_zone(obj, Zone.EXILE)
             obj.zone = Zone.LIBRARY
             player.library.insert(0, obj)  # bottom (index 0 — see Player.library)
+
+    def reveal_until_creature_type(
+        self,
+        player: Player,
+        creature_types: Union[list[str], set[str], frozenset[str]],
+        count: int = 1,
+        hit_destination: str = "battlefield",
+        rest_destination: str = "library_bottom_random",
+    ) -> list[GameObject]:
+        """Reveal cards from the top of ``player``'s library until ``count``
+        creature cards matching any of ``creature_types`` are revealed
+        (RULE 701.19 / RULE 702.85e, MEC-72 — Descendants' Fury, Kindred Summons).
+
+        Put those cards at ``hit_destination`` (default "battlefield") and
+        the rest at ``rest_destination`` ("library_bottom_random" or
+        "library_shuffled").
+        """
+        if count <= 0 or not player.library:
+            return []
+        norm_types = {t.lower() for t in creature_types}
+        hits: list[GameObject] = []
+        revealed: list[GameObject] = []
+        while player.library and len(hits) < count:
+            obj = player.library.pop()
+            revealed.append(obj)
+            self.state.fire_event(
+                GameEvent(
+                    EventType.REVEAL,
+                    player_id=player.id,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    from_zone="library",
+                )
+            )
+            if obj.card.is_creature:
+                has_changeling = "changeling" in obj.card.type_line.lower() or "changeling" in obj.intrinsic_keywords
+                if has_changeling:
+                    hits.append(obj)
+                else:
+                    _, _, sub = obj.card.type_line.lower().partition("—")
+                    subs = {s.strip() for s in sub.split() if s.strip()}
+                    if norm_types & subs:
+                        hits.append(obj)
+
+        for obj in hits:
+            if hit_destination == "battlefield":
+                self._put_searched_card(player, obj, "battlefield")
+            elif hit_destination == "hand":
+                obj.zone = Zone.HAND
+                player.add_to_zone(obj, Zone.HAND)
+
+        rest = [o for o in revealed if o not in hits]
+        if rest:
+            if rest_destination == "library_bottom_random":
+                import random
+                random.shuffle(rest)
+                for o in rest:
+                    o.zone = Zone.LIBRARY
+                    player.library.insert(0, o)
+            elif rest_destination == "library_shuffled":
+                for o in rest:
+                    o.zone = Zone.LIBRARY
+                    player.library.append(o)
+                self.shuffle_library(player)
+            elif rest_destination == "graveyard":
+                for o in rest:
+                    o.zone = Zone.GRAVEYARD
+                    player.graveyard.append(o)
+        return hits
+
+    def _handle_rest_inspected(
+        self, player: Player, rest_ids: list[int], destination: str
+    ) -> None:
+        """Handle remaining unpicked cards from a bounded top-N inspect
+        (MEC-72). Move them to ``destination`` ("library_bottom_random" or
+        "graveyard")."""
+        objs: list[GameObject] = []
+        for iid in rest_ids:
+            found = self._object_by_instance_id(iid)
+            if found is not None:
+                objs.append(found)
+        if not objs:
+            return
+        if destination == "library_bottom_random":
+            import random
+            random.shuffle(objs)
+            for o in objs:
+                self._remove_from_current_zone(player, o)
+                o.zone = Zone.LIBRARY
+                player.library.insert(0, o)
+        elif destination == "graveyard":
+            for o in objs:
+                self._remove_from_current_zone(player, o)
+                o.zone = Zone.GRAVEYARD
+                player.graveyard.append(o)
+
+    def inspect_top_n_choose(
+        self,
+        player: Player,
+        count: Union[int, str],
+        action: str,
+        filter_criteria: Optional[dict[str, Any]] = None,
+        rest_destination: str = "library_bottom_random",
+        optional: bool = False,
+        prompt: str = "Wähle eine Karte",
+        source: Optional[GameObject] = None,
+        decline_leaves_untouched: bool = False,
+    ) -> None:
+        """Inspect a bounded top-N group from ``player``'s library, offer a
+        filtered choice among them, and route the rest to ``rest_destination``
+        (MEC-72 — Eclipsed Flamekin, Cream of the Crop, Cavalier of Thorns).
+
+        Preserves cards' actual zones and choices without auto-picking.
+        """
+        if isinstance(count, str) and count == "trigger_power":
+            trigger_event = getattr(self.context, "trigger_event", None)
+            inst_id = trigger_event.get("instance_id") if trigger_event else None
+            entering = self.state.find_object(inst_id) if inst_id is not None else None
+            n = max(0, int(getattr(entering, "power", 0) or 0))
+        else:
+            n = int(count)
+        if n <= 0 or not player.library:
+            return
+
+        inspected = list(reversed(player.library[-n:]))
+
+        def _matches(obj: GameObject) -> bool:
+            if not filter_criteria:
+                return True
+            if filter_criteria.get("is_land"):
+                if not obj.card.is_land:
+                    return False
+            subtypes = filter_criteria.get("subtypes")
+            if subtypes:
+                norm_subtypes = {s.lower() for s in subtypes}
+                has_changeling = "changeling" in obj.card.type_line.lower() or "changeling" in obj.intrinsic_keywords
+                if not has_changeling:
+                    _, _, sub = obj.card.type_line.lower().partition("—")
+                    subs = {s.strip() for s in sub.split() if s.strip()}
+                    if not (norm_subtypes & subs):
+                        return False
+            return True
+
+        candidates = [o for o in inspected if _matches(o)]
+        rest_ids = [o.instance_id for o in inspected]
+
+        if not candidates:
+            if not decline_leaves_untouched:
+                self._handle_rest_inspected(player, rest_ids, rest_destination)
+            return
+
+        self.request_choose_objects(
+            player,
+            candidates,
+            action,
+            count=1,
+            optional=optional,
+            prompt=prompt,
+            source=source,
+            rest_ids=rest_ids,
+            rest_destination=rest_destination,
+            decline_leaves_untouched=decline_leaves_untouched,
+        )

@@ -53,6 +53,7 @@ from ..effects import (
     LoseLifeEffect,
     ReturnUncastExiledEffect,
     SacrificeSpecificEffect,
+    SacrificeObjectEffect,
     TheRingTemptsYouEffect,
     GameContext,
     GameEffect,
@@ -225,6 +226,10 @@ class MiscSystemsMixin:
         else_effect_specs: Optional[list[dict]] = None,
         prompt: Optional[str] = None,
         targets: Optional[list[Any]] = None,
+        then_trigger_specs: Optional[list[dict]] = None,
+        then_trigger_modes: Optional[dict[str, Any]] = None,
+        then_trigger_event: Optional[GameEvent] = None,
+        captured_previous: Optional[list[Any]] = None,
     ) -> None:
         """Open the interactive "you may pay ``cost``. If you do, `<effect>`."
         choice (RULE 118.3-style optional payment mid-resolution).
@@ -248,9 +253,26 @@ class MiscSystemsMixin:
         trigger's already-baked "that spell" (Wandering Archaic's copy),
         which the branch effects would otherwise never see, since they are
         built fresh at answer time rather than sitting on the stack item.
+
+        ``then_trigger_specs`` is RULE 603.11's "**When you do**, `<targeted
+        payoff>`." — instead of resolving off the stack like ``effect_specs``
+        (which can never choose a RULE 115 target), a paid cost enqueues
+        these as their own `TriggeredAbility` on `pending_triggers`, so the
+        ordinary placement path gathers targets and it goes on the stack.
+        ``then_trigger_event`` is the *outer* trigger's event, carried so a
+        payoff that names it ("that player") can read it back.
+
+        ``captured_previous`` (MEC-52 — Back from the Brink) bakes in the
+        RULE 608.2 referent (`GameContext.previous_targets`, the graveyard
+        card whose mana cost this ``cost`` was priced off) so the paid
+        branch's `copy_permanent` ``referent="previous"`` still resolves
+        against it once the choice is *answered* — same re-seed idiom
+        `resolve_villainous_choice` uses.
         """
         specs = [dict(d) for d in effect_specs]
         else_specs = [dict(d) for d in (else_effect_specs or [])]
+        then_trigger = [dict(d) for d in (then_trigger_specs or [])]
+        modal_trigger = dict(then_trigger_modes or {})
         if not self._can_pay_player_cost(player, cost):
             self._apply_effect_specs(else_specs, source, targets)
             return
@@ -261,6 +283,10 @@ class MiscSystemsMixin:
             "else_effect_specs": else_specs,
             "source": source,
             "targets": list(targets or []),
+            "then_trigger_specs": then_trigger,
+            "then_trigger_modes": modal_trigger,
+            "then_trigger_event": then_trigger_event,
+            "captured_previous": list(captured_previous) if captured_previous else None,
         }
         cost_label = cost.label()
         self.state.pending_choice = {
@@ -291,13 +317,142 @@ class MiscSystemsMixin:
             self._apply_effect_specs(pending["else_effect_specs"], pending["source"], targets)
         else:
             self._pay_player_cost(player, pending["cost"])
-            self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
+            captured = pending.get("captured_previous")
+            if captured:
+                # MEC-52: re-seed the RULE 608.2 "that card" referent for a
+                # `copy_permanent` ``referent="previous"`` in the paid
+                # branch (the resolution that opened this choice is gone).
+                saved = list(self.context.previous_targets)
+                self.context.previous_targets = list(captured)
+                try:
+                    self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
+                finally:
+                    self.context.previous_targets = saved
+            else:
+                self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
+            self._enqueue_pay_cost_then_trigger(pending)
         # PAR-13: if this single-player choice is one leg of a mass
         # `request_each_player_pay_or` sweep, move on to whoever's next —
         # a no-op for every ordinary (non-mass) `pay_cost_then` caller,
         # since that dict is only ever populated by the mass primitive.
         if self._pending_each_player_pay_or is not None:
             self._advance_each_player_pay_or()
+
+    def request_exile_source_then(
+        self, player: Player, source: GameObject, then_trigger_specs: list[dict],
+        prompt: Optional[str] = None,
+    ) -> None:
+        """Offer ``You may exile this card. If you do, ...`` during a
+        resolution.  This is intentionally separate from ``ActivationCost``:
+        a dies trigger's source has already moved to its owner's graveyard.
+        The follow-up is a reflexive trigger so its target is chosen only
+        after the source was actually exiled (RULE 603.11)."""
+        if source.zone != Zone.GRAVEYARD:
+            return
+        self._pending_exile_source_then = {
+            "player_id": player.id,
+            "source": source,
+            "then_trigger_specs": [dict(d) for d in then_trigger_specs],
+        }
+        self.state.pending_choice = {
+            "kind": "exile_source_then",
+            "player_id": player.id,
+            "prompt": prompt or f"{source.name} ins Exil schicken?",
+            "options": [
+                {"id": "exile", "label": "Ins Exil schicken"},
+                {"id": "decline", "label": "Nicht ins Exil schicken"},
+            ],
+        }
+
+    def resolve_exile_source_then_choice(self, answer: Optional[str]) -> None:
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "exile_source_then":
+            raise ValueError("no pending exile-source-then choice to resolve")
+        self.state.pending_choice = None
+        pending = self._pending_exile_source_then
+        self._pending_exile_source_then = None
+        if pending is None or answer != "exile":
+            return
+        source = pending["source"]
+        # Re-check the zone: another replacement or response may have moved it.
+        if source.zone != Zone.GRAVEYARD:
+            return
+        self.exile(source)
+        self.enqueue_reflexive_trigger(pending["then_trigger_specs"], source)
+    def enqueue_reflexive_trigger(
+        self,
+        effect_specs: list[dict[str, Any]],
+        source: Optional[GameObject],
+        event: Optional[GameEvent] = None,
+        modes: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """RULE 603.11: "`<effect with its own condition>`. **When you
+        do**, `<targeted payoff>`." fires the payoff as its *own* fresh
+        triggered ability rather than resolving it off-stack — the whole
+        point being that ``effect_specs``' own RULE 115 target (if any) has
+        to go through the ordinary placement path (`put_triggers_on_stack`
+        → `_place_triggers`) to be gathered at all; a bare `_apply_effect_
+        specs` call resolves immediately and could never open that choice.
+        Built fresh per the `TriggeredAbility` docstring's own sanctioned
+        "bake per-firing data in at the call site" pattern and queued on
+        `pending_triggers`, so it's picked up the next time triggers are
+        placed (normally right after the caller's own resolution finishes).
+
+        Two real callers: `_enqueue_pay_cost_then_trigger` (a paid optional
+        cost's own "when you do" — RULE 603.11 proper) and PAR-30's
+        `ExchangeControlThenCopyTokenEffect` (Arteeoh, Dread Scavenger — "if
+        you do" gated on whether a *targeted effect* actually happened,
+        not a cost payment).
+        """
+        if not effect_specs and not modes:
+            return
+        from ..effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import EffectSpec
+
+        built = build_effects(
+            [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in effect_specs],
+            source,
+        )
+        modal_options = None
+        modal = dict(modes or {})
+        if modal:
+            modal_options = []
+            for option in modal.get("options") or []:
+                modal_options.append({
+                    "effects": build_effects(
+                        [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in option], source,
+                    ),
+                    "description": "",
+                })
+            descriptions = list(modal.get("descriptions") or [])
+            for index, option in enumerate(modal_options):
+                option["description"] = descriptions[index] if index < len(descriptions) else f"Modus {index + 1}"
+        controller_id = getattr(source, "controller_id", None) or self.state.active_player.id
+        ability = TriggeredAbility(
+            trigger_event=getattr(event, "type", None) or EventType.SPELL_RESOLVED,
+            effects=built,
+            source=source,
+            controller_id=controller_id,
+            optional=False,  # the "may"/"if" was already decided; the payoff itself is not
+            description=getattr(source, "name", "") or "reflexive ability",
+            modes=modal_options,
+            modes_or_both=bool(modal.get("or_both", False)),
+            modes_choose=int(modal.get("choose", 1)),
+            modes_at_least=bool(modal.get("at_least", False)),
+            modes_repeatable=bool(modal.get("repeatable", False)),
+        )
+        # Carry the outer event so a payoff naming it ("that player") reads
+        # it off its own `StackItem.trigger_event`.
+        stamped_event = event if isinstance(event, GameEvent) else GameEvent(EventType.SPELL_RESOLVED)
+        self.pending_triggers.append((ability, stamped_event))
+    def _enqueue_pay_cost_then_trigger(self, pending: dict[str, Any]) -> None:
+        """RULE 603.11: a paid "you may `<cost>`" whose card continues "When
+        you do, `<targeted payoff>`" fires that payoff via
+        `enqueue_reflexive_trigger`."""
+        self.enqueue_reflexive_trigger(
+            pending.get("then_trigger_specs") or [], pending.get("source"),
+            pending.get("then_trigger_event"), pending.get("then_trigger_modes"),
+        )
     def request_pay_life_or_return_to_library(
         self, player: Player, objs: list[GameObject], amount: int = 4,
     ) -> None:
@@ -544,6 +699,572 @@ class MiscSystemsMixin:
                 self._pending_all_decline_or = None
                 return
         self._advance_all_decline_or()
+    def request_vote(
+        self,
+        source: Optional[GameObject],
+        controller_id: str,
+        options: list[str],
+        majority_specs: Optional[list[list[dict[str, Any]]]] = None,
+        tie_index: Optional[int] = None,
+        per_vote_specs: Optional[list[dict[str, Any]]] = None,
+        winner_specs: Optional[list[Optional[list[dict[str, Any]]]]] = None,
+    ) -> None:
+        """RULE 701.38: "Starting with you, each player votes for one of
+        ``options``." An APNAP sweep — every living player, beginning with
+        the active player and proceeding in turn order, picks one option;
+        the running tally is kept in ``_pending_vote``. Once everyone has
+        voted, `_tally_and_apply_vote` resolves the outcome, applied with
+        ``controller_id``'s player as the target (the printed "you").
+
+        Three outcome shapes, exactly one supplied:
+
+        * ``majority_specs`` — one serialized effect list per option (same
+          index order as ``options``). The option with the strictly most
+          votes has its list applied; ``tie_index`` names the option whose
+          branch wins if no option is a sole leader (RULE 701.38d — "or the
+          vote is tied").
+        * ``per_vote_specs`` — a list of ``{"option": <index>, "effects":
+          [...], "scale": <int>}`` entries: each entry's effects are
+          applied once, with every ``count``/``amount`` param multiplied by
+          ``scale`` × that option's vote total ("put a +1/+1 counter on ~
+          for each strength vote"). MEC-46: an entry may instead be
+          ``{"option": <index>, "per_voter_gain_control": true}`` —
+          Expropriate's "for each money vote, choose a permanent owned by
+          the voter and gain control of it", which needs the *individual
+          ballots*, not just a total.
+        * ``winner_specs`` (MEC-46) — like ``majority_specs``, but applied
+          for **every** option that is tied for most votes, not only a sole
+          leader ("~ gains protection from each color with the most votes
+          or tied for most votes" — Council Guardian).
+
+        Built as a chain of ordinary single-player choices over the same
+        `_apply_effect_specs` tail every "if you do" branch already uses,
+        the same way `request_all_players_decline_or` is.
+        """
+        start = self.state.active_player_index
+        n = len(self.state.players)
+        order = [
+            self.state.players[(start + i) % n].id
+            for i in range(n)
+            if not self.state.players[(start + i) % n].has_lost
+        ]
+        self._pending_vote = {
+            "remaining_ids": order,
+            "tally": {i: 0 for i in range(len(options))},
+            # MEC-46: the individual (voter_id, option_index) ballots, in
+            # ask order — needed by an outcome that acts per voter rather
+            # than per total (Expropriate's per-money-vote gain-control).
+            "ballots": [],
+            "current_voter_id": None,
+            "options": list(options),
+            "source": source,
+            "controller_id": controller_id,
+            "majority_specs": [[dict(d) for d in lst] for lst in majority_specs] if majority_specs else None,
+            "tie_index": tie_index,
+            "per_vote_specs": [dict(d) for d in per_vote_specs] if per_vote_specs else None,
+            "winner_specs": (
+                [[dict(d) for d in lst] if lst else None for lst in winner_specs]
+                if winner_specs else None
+            ),
+        }
+        self._advance_vote()
+    def _advance_vote(self) -> None:
+        """Ask the next still-pending voter in a `request_vote` sweep; once
+        everyone has voted, tally and apply the outcome."""
+        pending = self._pending_vote
+        if pending is None:
+            return
+        remaining: list[str] = pending["remaining_ids"]
+        options: list[str] = pending["options"]
+        while remaining:
+            player_id = remaining.pop(0)
+            try:
+                player = self.state.player_by_id(player_id)
+            except (KeyError, ValueError):
+                continue
+            if player.has_lost:
+                continue
+            pending["current_voter_id"] = player.id
+            # RULE 701.38f (MEC-46): "You choose how each player votes this
+            # turn." (Illusion of Choice) — while `forced_vote_controller_id`
+            # is set, that player answers *every* seat's vote; the real
+            # voter's name still rides in the prompt so the deciding player
+            # knows whose ballot they are filling in. A missing answer
+            # defaults to option 0.
+            decider_id, prompt_prefix = self._vote_decider(player)
+            self.state.pending_choice = {
+                "kind": "vote",
+                "player_id": decider_id,
+                "prompt": prompt_prefix + "Abstimmung: " + " / ".join(options),
+                "options": [
+                    {"id": str(i), "label": opt} for i, opt in enumerate(options)
+                ],
+            }
+            return  # a real choice opened — resumed via resolve_vote_choice
+        self._tally_and_apply_vote()
+    def _vote_decider(self, voter: Player) -> tuple[str, str]:
+        """Who actually answers ``voter``'s ballot, and a prompt prefix.
+
+        RULE 701.38f: normally the voter themselves; while a forced-vote
+        controller is set for the turn (Illusion of Choice), that player
+        answers instead and the prompt names whose vote it is."""
+        forced_id = getattr(self.state, "forced_vote_controller_id", None)
+        if forced_id:
+            try:
+                forcer = self.state.player_by_id(forced_id)
+            except (KeyError, ValueError):
+                forcer = None
+            if forcer is not None and not forcer.has_lost:
+                return forced_id, f"Stimme für {voter.name} — "
+        return voter.id, ""
+    def resolve_vote_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `vote` choice: record this player's vote for the
+        chosen option index (a missing/unknown answer defaults to option 0,
+        RULE 701.38b's "each player must choose"), then move on."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "vote":
+            raise ValueError("no pending vote choice to resolve")
+        self.state.pending_choice = None
+        pending = self._pending_vote
+        if pending is None:
+            return
+        tally: dict[int, int] = pending["tally"]
+        try:
+            idx = int(answer) if answer is not None else 0
+        except (TypeError, ValueError):
+            idx = 0
+        if idx not in tally:
+            idx = 0
+        tally[idx] += 1
+        voter_id = pending.get("current_voter_id")
+        if voter_id is not None:
+            pending["ballots"].append((voter_id, idx))
+        self._advance_vote()
+    def _tally_and_apply_vote(self) -> None:
+        """Resolve a finished `request_vote` sweep's outcome (majority
+        branch, per-vote scaling, or per-winning-option) and clear it."""
+        pending = self._pending_vote
+        self._pending_vote = None
+        if pending is None:
+            return
+        tally: dict[int, int] = pending["tally"]
+        source = pending["source"]
+        ballots: list[tuple[str, int]] = list(pending.get("ballots") or [])
+        try:
+            controller = self.state.player_by_id(pending["controller_id"])
+        except (KeyError, ValueError):
+            controller = None
+        targets = [controller] if controller is not None else None
+
+        if pending["majority_specs"] is not None:
+            specs_by_option: list[list[dict]] = pending["majority_specs"]
+            top = max(tally.values()) if tally else 0
+            leaders = [i for i, v in tally.items() if v == top]
+            winner = leaders[0] if len(leaders) == 1 else pending.get("tie_index", 0)
+            if 0 <= winner < len(specs_by_option):
+                self._apply_effect_specs(specs_by_option[winner], source, targets)
+            return
+
+        # MEC-46: "~ gains protection from each color with the most votes
+        # or tied for most votes" (Council Guardian) — apply every leading
+        # option's spec list, not just a sole leader's.
+        if pending.get("winner_specs") is not None:
+            winner_specs: list[Optional[list[dict]]] = pending["winner_specs"]
+            top = max(tally.values()) if tally else 0
+            if top > 0:
+                for i, v in tally.items():
+                    if v == top and 0 <= i < len(winner_specs) and winner_specs[i]:
+                        self._apply_effect_specs(winner_specs[i], source, targets)
+            return
+
+        for entry in pending["per_vote_specs"] or []:
+            opt = int(entry.get("option", 0))
+            # MEC-46: Expropriate's "for each money vote, choose a permanent
+            # owned by the voter and gain control of it" — one gain-control
+            # pick per *ballot* cast for this option, resolved through a
+            # `choose_objects` chain (`_advance_expropriate_gain_control`).
+            if entry.get("per_voter_gain_control"):
+                money_voters = [vid for vid, o in ballots if o == opt]
+                self._advance_expropriate_gain_control(source, pending["controller_id"], money_voters)
+                continue
+            scale = int(entry.get("scale", 1) or 1) * int(tally.get(opt, 0))
+            if scale <= 0:
+                continue
+            scaled: list[dict] = []
+            for spec in entry.get("effects", []):
+                params = dict(spec.get("params") or {})
+                for key in ("count", "amount"):
+                    if isinstance(params.get(key), int):
+                        params[key] = params[key] * scale
+                scaled.append({"type": spec["type"], "params": params})
+            self._apply_effect_specs(scaled, source, targets)
+    def _advance_expropriate_gain_control(
+        self, source: Optional[GameObject], controller_id: str, voter_ids: list[str]
+    ) -> None:
+        """MEC-46 (Expropriate): for the next voter in ``voter_ids``, let
+        ``controller_id`` choose one permanent that voter owns and gain
+        control of it (RULE 701.38 outcome body), then recurse on the rest.
+
+        The remaining queue rides in the `choose_objects` decision's own
+        ``then_specs`` (an `expropriate_gain_control` effect), so it is
+        clone-safe for the undo snapshots `GameState` takes — there is no
+        engine-side queue object."""
+        while voter_ids:
+            voter_id, rest = voter_ids[0], voter_ids[1:]
+            try:
+                caster = self.state.player_by_id(controller_id)
+            except (KeyError, ValueError):
+                return
+            # Every permanent the voter *owns* is a legal pick (RULE
+            # 701.38 — "a permanent owned by the voter"); one the caster
+            # already controls just makes the gain-control a no-op.
+            owned = [
+                obj for obj in self.state.permanents()
+                if getattr(obj, "owner_id", None) == voter_id
+            ]
+            if not owned:
+                voter_ids = rest
+                continue
+            self.request_choose_objects(
+                caster, owned, action="gain_control", count=1, source=source,
+                prompt="Dauerhaften Permanent übernehmen",
+                then_specs=[{
+                    "type": "expropriate_gain_control",
+                    "params": {"voter_ids": list(rest)},
+                }],
+            )
+            return
+    def request_object_vote(
+        self,
+        source: Optional[GameObject],
+        controller_id: str,
+        candidates: list[GameObject],
+        outcome: str,
+        prompt: str = "Abstimmung",
+    ) -> None:
+        """MEC-46 (RULE 701.38): the tally-over-objects sibling of
+        `request_vote`. "Starting with you, each player votes for `<one of
+        these objects>`. `<verb>` each `<object>` with the most votes or
+        tied for most votes."
+
+        An APNAP sweep in which every living player picks one of
+        ``candidates`` — a board permanent (Council's Judgment) or a
+        graveyard card (Custodi Squire) — then every object tied for most
+        votes has ``outcome`` applied. ``outcome`` is ``"exile"`` or
+        ``"return_to_hand"`` (a graveyard card's owner is its controller —
+        "to your hand" for Custodi Squire needs no separate recipient).
+
+        Chained one `vote_object` choice at a time, `_pending_object_vote`
+        holding the tally, exactly like `_pending_vote`.
+        """
+        start = self.state.active_player_index
+        n = len(self.state.players)
+        order = [
+            self.state.players[(start + i) % n].id
+            for i in range(n)
+            if not self.state.players[(start + i) % n].has_lost
+        ]
+        pool = [obj for obj in candidates if obj is not None]
+        if not pool or not order:
+            return
+        self._pending_object_vote = {
+            "remaining_ids": order,
+            "current_voter_id": None,
+            "tally": {obj.instance_id: 0 for obj in pool},
+            "candidate_ids": [obj.instance_id for obj in pool],
+            "source": source,
+            "controller_id": controller_id,
+            "outcome": outcome,
+            "prompt_text": prompt,
+        }
+        self._advance_object_vote()
+    def _advance_object_vote(self) -> None:
+        """Ask the next still-pending voter in a `request_object_vote`
+        sweep; once everyone has voted, tally and apply the outcome."""
+        pending = self._pending_object_vote
+        if pending is None:
+            return
+        remaining: list[str] = pending["remaining_ids"]
+        while remaining:
+            player_id = remaining.pop(0)
+            try:
+                player = self.state.player_by_id(player_id)
+            except (KeyError, ValueError):
+                continue
+            if player.has_lost:
+                continue
+            options: list[dict[str, Any]] = []
+            for iid in pending["candidate_ids"]:
+                obj = self._object_by_instance_id(iid)
+                if obj is None:
+                    continue  # left its zone since the sweep began
+                opt: dict[str, Any] = {"id": str(iid), "label": obj.name, "instance_id": iid}
+                card = getattr(obj, "card", None)
+                if card is not None and getattr(card, "id", None):
+                    opt["card_id"] = card.id
+                options.append(opt)
+            if not options:
+                self._pending_object_vote = None
+                return
+            pending["current_voter_id"] = player.id
+            decider_id, prompt_prefix = self._vote_decider(player)
+            self.state.pending_choice = {
+                "kind": "vote_object",
+                "player_id": decider_id,
+                "prompt": prompt_prefix + pending["prompt_text"],
+                "options": options,
+            }
+            return  # resumed via resolve_object_vote_choice
+        self._tally_and_apply_object_vote()
+    def resolve_object_vote_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `vote_object` choice: record this player's vote
+        for the chosen candidate (a missing/unknown answer defaults to the
+        first candidate, RULE 701.38b), then move on."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "vote_object":
+            raise ValueError("no pending object-vote choice to resolve")
+        self.state.pending_choice = None
+        pending = self._pending_object_vote
+        if pending is None:
+            return
+        tally: dict[int, int] = pending["tally"]
+        try:
+            iid: Optional[int] = int(answer) if answer is not None else None
+        except (TypeError, ValueError):
+            iid = None
+        if iid not in tally:
+            iid = pending["candidate_ids"][0] if pending["candidate_ids"] else None
+        if iid in tally:
+            tally[iid] += 1
+        self._advance_object_vote()
+    def _tally_and_apply_object_vote(self) -> None:
+        """Resolve a finished `request_object_vote` sweep: apply ``outcome``
+        to every candidate tied for most votes (RULE 701.38d)."""
+        pending = self._pending_object_vote
+        self._pending_object_vote = None
+        if pending is None:
+            return
+        tally: dict[int, int] = pending["tally"]
+        top = max(tally.values()) if tally else 0
+        if top <= 0:
+            return
+        winners = [iid for iid, v in tally.items() if v == top]
+        outcome = pending["outcome"]
+        for iid in winners:
+            obj = self._object_by_instance_id(iid)
+            if obj is None:
+                continue
+            if outcome == "exile":
+                self.exile(obj)
+            elif outcome == "return_to_hand":
+                self.return_to_hand(obj)
+    def request_word_of_command(
+        self,
+        controller: Player,
+        target: Player,
+        source: Optional[GameObject] = None,
+    ) -> None:
+        """MEC-51b (Word of Command): open a `word_of_command`
+        `pending_choice` addressed to ``controller``, listing every card in
+        ``target``'s hand. `GameEngine.resolve_word_of_command_choice` then
+        has ``target`` play the chosen card. No card in hand → nothing to
+        choose, the effect fizzles (RULE 720-adjacent "if able")."""
+        hand = list(target.hand)
+        if not hand:
+            return
+        self.state.word_of_command = {
+            "controller_id": controller.id,
+            "target_id": target.id,
+            "chosen_instance_id": None,
+        }
+        self.state.pending_choice = {
+            "kind": "word_of_command",
+            "player_id": controller.id,   # the *controller* picks
+            "target_player_id": target.id,
+            "prompt": f"Word of Command — wähle eine Karte aus {target.name}s Hand",
+            "description": f"Word of Command: Karte aus {target.name}s Hand",
+            "eligible": [
+                {"instance_id": o.instance_id, "name": o.name} for o in hand
+            ],
+            "options": [
+                {"id": str(o.instance_id), "label": o.name,
+                 "instance_id": o.instance_id}
+                for o in hand
+            ],
+        }
+
+    def resolve_word_of_command_choice(self, instance_id: Optional[int]) -> None:
+        """MEC-51b: the Word of Command caster has picked ``instance_id``
+        from the target's hand — now have the target *play* it "if able".
+
+        A land → straight onto the battlefield under the target's control
+        (`_put_searched_card`; a documented simplification of RULE 305's
+        land-play special action — it doesn't consume the target's
+        land-for-turn). Anything else → `cast_without_paying` under the
+        target's control (the effect-driven free-cast primitive cascade/
+        discover use — no target selection, no mana paid; RULE 720's "only
+        land mana, only for that card" restriction is moot under the free
+        cast). Then the `word_of_command` window closes.
+        """
+        woc = self.state.word_of_command
+        self.state.pending_choice = None
+        if woc is None:
+            return
+        try:
+            target = self.state.player_by_id(woc["target_id"])
+        except KeyError:
+            self.state.word_of_command = None
+            return
+        obj = next((o for o in target.hand if o.instance_id == instance_id), None)
+        # Missing/invalid answer — the first card in hand (RULE 720: the
+        # caster must choose, "nothing" isn't an option).
+        if obj is None and target.hand:
+            obj = target.hand[0]
+        if obj is not None:
+            woc["chosen_instance_id"] = obj.instance_id
+            try:
+                if obj.card.is_land:
+                    target.remove_from_zone(obj, Zone.HAND)
+                    self._put_searched_card(target, obj, "battlefield")
+                else:
+                    self.cast_without_paying(target, obj)
+            except (ValueError, KeyError):
+                pass  # "if able" — a play that can't be made simply doesn't
+        self.state.word_of_command = None
+
+    def request_villainous_choice(
+        self,
+        source: Optional[GameObject],
+        controller_id: str,
+        facing_ids: Optional[list[str]] = None,
+        option_a: Optional[list[dict[str, Any]]] = None,
+        option_b: Optional[list[dict[str, Any]]] = None,
+        labels: Optional[tuple[str, str]] = None,
+        captured_previous: Optional[list[Any]] = None,
+        rounds: Optional[list[dict[str, Any]]] = None,
+    ) -> None:
+        """RULE 701.55: "`<player>` faces a villainous choice — `<A>`, or
+        `<B>`." Each facing player in ``facing_ids`` (already resolved and
+        APNAP-ordered by `FaceVillainousChoiceEffect`) chooses one of the
+        two options and that option's effects resolve **for that player** —
+        applied with the facing player as the target, so an option's
+        `sacrifice`/`discard`/`lose_life` spec (no selector) lands on them.
+        A "you …" clause in an option stays scoped to ``controller_id``
+        (the effect's own controller default, since those specs carry no
+        target).
+
+        The `request_vote` sweep shape, minus the tally: each player
+        applies their own pick rather than everyone feeding one aggregate
+        outcome. RULE 701.55b's "if one option is impossible, they must
+        choose the other" is a **documented simplification** — both options
+        are always offered; an impossible pick simply does as little as
+        RULE 608.2b allows.
+
+        ``rounds`` (MEC-52 — Hunted by The Family: "For each of them, that
+        creature's controller faces a villainous choice — …") is the
+        per-firing sibling of the flat ``facing_ids`` sweep: an explicit
+        list of ``{"facing_id", "option_a", "option_b", "labels",
+        "captured"}`` dicts, one queued choice each, so *different* option
+        bodies / RULE 608.2 referents can face *different* players in one
+        resolution (each chosen creature's own controller decides about
+        that creature). The flat form builds a one-round-per-id queue
+        sharing ``option_a``/``option_b``/``labels``/``captured_previous``.
+        """
+        default_labels = tuple(labels) if labels else ("Option A", "Option B")
+        if rounds is None:
+            shared_captured = list(captured_previous) if captured_previous else None
+            rounds = [
+                {
+                    "facing_id": fid,
+                    "option_a": [dict(d) for d in (option_a or [])],
+                    "option_b": [dict(d) for d in (option_b or [])],
+                    "labels": default_labels,
+                    "captured": list(shared_captured) if shared_captured else None,
+                }
+                for fid in (facing_ids or [])
+            ]
+        else:
+            rounds = [
+                {
+                    "facing_id": rnd["facing_id"],
+                    "option_a": [dict(d) for d in rnd.get("option_a", [])],
+                    "option_b": [dict(d) for d in rnd.get("option_b", [])],
+                    "labels": tuple(rnd.get("labels") or default_labels),
+                    "captured": list(rnd["captured"]) if rnd.get("captured") else None,
+                }
+                for rnd in rounds
+            ]
+        self._pending_villainous = {
+            #: FIFO queue of still-unasked choices; each is popped into
+            #: ``current`` when its prompt opens (`_advance_villainous_choice`).
+            "rounds": rounds,
+            "current": None,
+            "source": source,
+            "controller_id": controller_id,
+        }
+        self._advance_villainous_choice()
+    def _advance_villainous_choice(self) -> None:
+        """Ask the next still-pending facing player in a
+        `request_villainous_choice` sweep, or clear it once done."""
+        pending = self._pending_villainous
+        if pending is None:
+            return
+        queue: list[dict[str, Any]] = pending["rounds"]
+        while queue:
+            rnd = queue.pop(0)
+            try:
+                player = self.state.player_by_id(rnd["facing_id"])
+            except (KeyError, ValueError):
+                continue
+            if player.has_lost:
+                continue
+            pending["current"] = rnd
+            la, lb = rnd["labels"]
+            self.state.pending_choice = {
+                "kind": "villainous_choice",
+                "player_id": player.id,
+                "prompt": f"Schurkische Wahl: {la} / {lb}",
+                "options": [
+                    {"id": "0", "label": la},
+                    {"id": "1", "label": lb},
+                ],
+            }
+            return  # a real choice opened — resumed via resolve_villainous_choice
+        self._pending_villainous = None
+    def resolve_villainous_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `villainous_choice`: apply the chosen option's
+        effects for that facing player (a missing/unknown answer defaults to
+        option A, RULE 701.55b's "each player must choose"), then advance."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "villainous_choice":
+            raise ValueError("no pending villainous choice to resolve")
+        self.state.pending_choice = None
+        pending = self._pending_villainous
+        if pending is None:
+            return
+        rnd = pending.get("current")
+        if rnd is None:
+            return
+        try:
+            facing = self.state.player_by_id(choice["player_id"])
+        except (KeyError, ValueError):
+            facing = None
+        specs = rnd["option_b"] if str(answer) == "1" else rnd["option_a"]
+        if facing is not None:
+            captured = rnd.get("captured")
+            if captured:
+                # Re-seed the RULE 608.2 referent for this option's own
+                # `copy_permanent` ``referent="previous"`` / pronoun specs
+                # (the resolution that opened the choice is long gone).
+                saved = list(self.context.previous_targets)
+                self.context.previous_targets = list(captured)
+                try:
+                    self._apply_effect_specs(specs, pending["source"], targets=[facing])
+                finally:
+                    self.context.previous_targets = saved
+            else:
+                self._apply_effect_specs(specs, pending["source"], targets=[facing])
+        self._advance_villainous_choice()
     def _apply_effect_specs(
         self,
         effect_specs: list[dict],
@@ -965,6 +1686,7 @@ class MiscSystemsMixin:
                 token_card
             ) or continuous.enters_tapped_from_static(self.state, token)
             self._apply_entry_counters(token)  # a token was never cast, so X is 0
+            self._apply_granted_entry_counters(token)
             self.state.add_to_battlefield(token)
             self.state.fire_event(
                 GameEvent(
@@ -1052,6 +1774,60 @@ class MiscSystemsMixin:
 
         self.apply_replacements(event, on_resolved=_finish)
         return result
+    def put_onto_battlefield_attacking(
+        self, obj: GameObject, defender: Optional[dict[str, Any]] = None
+    ) -> None:
+        """RULE 508.4: an already-on-the-battlefield creature is put into
+        combat *attacking* without having been declared — it doesn't tap for
+        the attack (RULE 508.4) and summoning sickness doesn't stop it (it
+        never "attacked"). RULE 508.4a: the effect's controller chooses which
+        defender it attacks; with one obvious defender — the common
+        two-player combat, or whatever the rest of this combat is already
+        attacking — that choice is auto-made here. Fires an `ATTACKS` event
+        so "whenever ~ attacks" / battalion-style triggers still see it.
+
+        This is the shared primitive behind "create a … token that's tapped
+        **and attacking**" and "put a card … onto the battlefield tapped
+        **and attacking**" (RULE 508.4) — the ``tapped`` half is applied
+        separately by the caller.
+        """
+        if not obj.is_creature:
+            return
+        if defender is None:
+            # Attack whoever the rest of this combat is attacking, if that's
+            # unambiguous; otherwise the controller's sole/first opponent.
+            player_defenders = {
+                (o.combat_defender or {}).get("id")
+                for o in self.state.battlefield
+                if o is not obj and getattr(o, "attacking", False)
+                and (o.combat_defender or {}).get("kind") == "player"
+            }
+            opponents = [
+                p for p in self.state.living_players() if p.id != obj.controller_id
+            ]
+            target_id = player_defenders.pop() if len(player_defenders) == 1 else None
+            if target_id is None and opponents:
+                target_id = opponents[0].id
+            if target_id is not None:
+                try:
+                    dp = self.state.player_by_id(target_id)
+                except (KeyError, ValueError):
+                    dp = None
+                if dp is not None:
+                    defender = {"kind": "player", "id": dp.id, "label": dp.name}
+        obj.attacking = True
+        obj.attacked_this_turn = True
+        obj.combat_defender = defender
+        self.state.fire_event(
+            GameEvent(
+                EventType.ATTACKS,
+                attacker=obj.name,
+                player_id=obj.controller_id,
+                instance_id=obj.instance_id,
+                object_types=sorted(obj.type_words),
+                defending_player_id=(defender or {}).get("id"),
+            )
+        )
     def advance_sagas(self, player: Player) -> None:
         """Add a lore counter to each Saga ``player`` controls (RULE 714.3c).
 
@@ -1113,6 +1889,14 @@ class MiscSystemsMixin:
             if obj is not None:
                 colors = self.state.spell_colors_cast_this_turn.setdefault(player_id, set())
                 colors.update(obj.colors)
+                # MEC-60 (Acolyte of Bahamut): "the first Dragon spell you
+                # cast each turn …" — read the cast object's *subtypes*
+                # (after the printed em dash), which ``object_types`` above
+                # never carries (main card types only).
+                subtypes = obj.card.type_line.partition("—")[2].strip().lower().split()
+                if subtypes:
+                    seen = self.state.creature_type_spells_cast_this_turn.setdefault(player_id, set())
+                    seen.update(subtypes)
     def arm_spell_watcher(
         self,
         player: Player,
@@ -1139,7 +1923,7 @@ class MiscSystemsMixin:
             "card_types": list(card_types) if card_types else None,
             "then_specs": [dict(spec) for spec in then_specs],
             "source_id": source.instance_id if source is not None else None,
-            "expires_turn": self.state.turn_number,
+            "expires_turn": self.state.internal_turn.number,
             "repeat": repeat,
         })
 
@@ -1156,7 +1940,7 @@ class MiscSystemsMixin:
         """
         if event.type != EventType.SPELL_CAST or not self.state.spell_watchers:
             return
-        turn = self.state.turn_number
+        turn = self.state.internal_turn.number
         player_id = event.get("player_id")
         object_types = event.get("object_types") or []
         instance_id = event.get("instance_id")
@@ -1206,6 +1990,48 @@ class MiscSystemsMixin:
             return
         counts = self.state.creatures_died_this_turn
         counts[player_id] = counts.get(player_id, 0) + 1
+
+    def _track_creature_card_to_graveyard(self, event: GameEvent) -> None:
+        """PAR-32: record a *creature card* entering a graveyard from
+        anywhere this turn (Cloakwood Hermit — `GameState.creature_card_to_
+        graveyard_this_turn`, keyed by the card's owner). Listens for
+        `DIES` (battlefield), `DISCARD_CARD` (hand) and `MILL_CARD`
+        (library); the card sits in its graveyard by the time each fires,
+        so `is_creature` is read live where the event doesn't snapshot it."""
+        if event.type == EventType.DIES:
+            if "creature" not in (event.get("object_types") or []):
+                return
+            obj = self.state.find_object(event.get("instance_id"))
+            owner_id = obj.owner_id if obj is not None else event.get("owner_id")
+        elif event.type in (EventType.DISCARD_CARD, EventType.MILL_CARD):
+            obj = self.state.find_object(event.get("instance_id"))
+            if obj is None or not getattr(obj, "is_creature", False):
+                return
+            owner_id = obj.owner_id
+        else:
+            return
+        if owner_id is not None:
+            self.state.creature_card_to_graveyard_this_turn.add(owner_id)
+
+    def _track_permanent_card_to_graveyard(self, event: GameEvent) -> None:
+        """RULE 702.175: remember a permanent card entering its graveyard."""
+        if event.type == EventType.DIES:
+            types = event.get("object_types") or []
+            owner_id = event.get("owner_id")
+        elif event.type in (EventType.DISCARD_CARD, EventType.MILL_CARD):
+            obj = self.state.find_object(event.get("instance_id"))
+            if obj is None:
+                return
+            types = obj.type_words
+            owner_id = obj.owner_id
+        else:
+            return
+        if owner_id is not None and any(
+            type_word in {"artifact", "battle", "creature", "enchantment", "land", "planeswalker"}
+            for type_word in types
+        ):
+            self.state.permanent_card_to_graveyard_this_turn.add(owner_id)
+
     def apply_day_night_turn_check(self) -> None:
         """RULE 731.2: as the second part of the untap step, maybe flip
         day/night based on how many spells the *previous* turn's active
@@ -1318,19 +2144,30 @@ class MiscSystemsMixin:
         """
         face = self.random_choice(list(variants.PLANAR_DIE_FACES))
         if face == "chaos":
-            plane = variants.active_plane(self.state)
-            self.state.fire_event(
-                GameEvent(
-                    EventType.CHAOS_ENSUED,
-                    player_id=player.id,
-                    controller_id=player.id,
-                    instance_id=plane.instance_id if plane is not None else None,
-                    plane=plane.name if plane is not None else None,
-                )
-            )
+            self.trigger_chaos(player)
         elif face == "planeswalk":
             self.planeswalk(player)
         return face
+
+    def trigger_chaos(self, player: Player) -> None:
+        """RULE 901.13: "chaos ensues" — fire `CHAOS_ENSUED` for the
+        face-up plane so its chaos-triggered ability goes on the stack.
+        Factored out of `roll_planar_die` so a card that says "chaos
+        ensues" outright (Path of the Animist/Enigma's vote outcome) can
+        reach it too. A no-op with no active plane (outside a Planechase
+        game there is no chaos ability to put on the stack)."""
+        plane = variants.active_plane(self.state)
+        if plane is None:
+            return
+        self.state.fire_event(
+            GameEvent(
+                EventType.CHAOS_ENSUED,
+                player_id=player.id,
+                controller_id=player.id,
+                instance_id=plane.instance_id,
+                plane=plane.name,
+            )
+        )
     def set_scheme_in_motion(self, player: Player) -> Optional[GameObject]:
         """RULE 904.7: the archenemy turns the top card of their scheme deck
         face up and it "is set in motion" — its triggered ability fires.
@@ -1561,7 +2398,16 @@ class MiscSystemsMixin:
             controller_id=player.id,
             description=f"{dungeon.name} — {room.name}: {room.effect_text}",
         )
-        self.pending_triggers.append((ability, event))
+        # MEC-61 (Dungeon Delver): "Room abilities of dungeons you own
+        # trigger an additional time." — same "extra, independent copies"
+        # idiom `triggers_mixin`'s own `trigger_doubler_bonus` call uses
+        # (RULE 603.3b: each copy is separately orderable once 2+ end up
+        # pending together), just via `dungeon_room_trigger_doubler_bonus`
+        # since a dungeon room trigger has no `GameObject` source for the
+        # general doubler to key off.
+        copies = 1 + continuous.dungeon_room_trigger_doubler_bonus(self.state, player.id)
+        for _ in range(copies):
+            self.pending_triggers.append((ability, event))
     def _effects_from_specs(self, specs: list[dict[str, Any]], source: Any) -> list[Any]:
         """Serialized `EffectSpec` dicts → live one-shot `GameEffect`s bound
         against ``source`` — the same lazily-imported binder path
@@ -1640,6 +2486,342 @@ class MiscSystemsMixin:
             return False
         self.add_counters(obj, max(0, int(amount)), "+1/+1", source=obj)
         return True
+    def recruit(self, player: Player) -> None:
+        """"Recruit" (RULE 701.70a — Tales of Middle-earth): ``player`` draws
+        a card, then discards a card; if the discarded card was a **nonland**
+        card, they create a 1/1 white Human Soldier creature token.
+
+        The "which card to discard" is a `recruit` `pending_choice`
+        (`resolve_recruit_choice`) whenever the hand has 2+ cards after the
+        draw; one card → discarded with no choice, an empty hand → the
+        discard simply doesn't happen (RULE 701.70a is "discard a card", not
+        "you may"). The nonland check + token are `_recruit_discard`.
+        Deliberately its own small primitive rather than reusing
+        `request_choose_objects`'s ``connive`` machinery — the payoff is a
+        token, not a counter on a source, and this shape (draw, then a
+        mandatory conditional discard) is the same `explore_bin`/`bolster`
+        idiom the other PAR-29 keyword actions use.
+        """
+        self.draw(player, 1)
+        if not player.hand:
+            return
+        if len(player.hand) == 1:
+            self._recruit_discard(player, player.hand[0])
+            return
+        self.state.pending_choice = {
+            "kind": "recruit",
+            "player_id": player.id,
+            "prompt": "Rekrutieren: welche Karte abwerfen?",
+            "options": [
+                {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+                for o in player.hand
+            ],
+        }
+    def _recruit_discard(self, player: Player, card: GameObject) -> None:
+        """The discard + conditional token half of `recruit` (RULE
+        701.70a). ``is_land`` is read before the move — a card-type property
+        unaffected by zone, but the obviously-correct order (the same one
+        `_apply_chosen_object`'s connive branch uses)."""
+        is_land = card.is_land
+        self.discard_specific(card)
+        if not is_land:
+            from ...services.token_database import synthesize_token_card  # function-scoped: avoid cycle
+
+            token = synthesize_token_card(
+                name="Soldier", power=1, toughness=1, colors=["W"],
+                subtypes=["Human", "Soldier"],
+            )
+            self.create_token(player.id, token, 1)
+    def resolve_recruit_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending `recruit` discard choice. A missing/unknown answer
+        defaults to the first card — RULE 701.70a's discard is mandatory."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "recruit":
+            raise ValueError("no pending recruit choice to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+        offered = [opt["instance_id"] for opt in choice["options"]]
+        chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
+        card = next(
+            (o for o in player.hand if o.instance_id == chosen_id), None
+        )
+        if card is None and player.hand:
+            card = player.hand[0]
+        if card is not None:
+            self._recruit_discard(player, card)
+        self.check_state_based_actions()
+    def learn(self, player: Player, source: Optional[GameObject] = None) -> None:
+        """"Learn" (RULE 701.48a — Strixhaven): ``player`` may **either**
+        reveal a Lesson card they own from outside the game and put it into
+        their hand, **or** discard a card, then — if they discarded a card
+        this way — draw a card.
+
+        **Documented simplification:** the "Lesson from outside the game"
+        branch is dropped. This engine has no sideboard / outside-the-game
+        zone with any Commander-legal use (the same call the `ability_
+        catalogue` already makes for Karn's -2, `entries_010.py`), so Learn
+        collapses to its other, fully-modelable half: an optional
+        discard-a-card-then-draw-a-card, driven straight through
+        `request_choose_objects`'s existing ``optional`` + ``then_specs``
+        machinery (a real discard fires the draw; a decline does nothing).
+        An empty hand → nothing happens (nothing to discard, and the Lesson
+        branch is gone).
+        """
+        if not player.hand:
+            return
+        self.request_choose_objects(
+            player, list(player.hand), "discard", count=1, optional=True,
+            prompt="Lernen — eine Karte abwerfen, dann eine Karte ziehen?",
+            source=source,
+            then_specs=[{"type": "draw", "params": {"count": 1}}],
+        )
+    def collect_evidence_possible(self, player: Player, amount: int) -> bool:
+        """Whether ``player``'s graveyard holds cards whose **total mana
+        value** is ``amount`` or greater (RULE 701.59a) — the affordability
+        check shared by every "collect evidence N" cost site."""
+        total = sum(c.card.converted_mana_cost for c in player.graveyard)
+        return total >= amount
+
+    def collect_evidence(self, player: Player, amount: int) -> bool:
+        """RULE 701.59a: exile cards from ``player``'s graveyard whose total
+        mana value is ``amount`` or greater, then fire
+        `EventType.COLLECTED_EVIDENCE` (701.59b — process-complete, fired
+        even if ``amount`` was 0). Returns whether the exile met the
+        threshold.
+
+        **Documented simplification:** which cards leave is an auto-choice
+        — **highest** mana value first, so the *fewest* cards are spent to
+        clear the threshold — rather than an interactive pick. The same
+        "auto-pick, no chooser in this MVP" idiom `_pay_escape_graveyard_
+        cost` / `discard` / `put_hand_cards_on_top` already use for a
+        value-neutral cost selection.
+        """
+        picked: list[GameObject] = []
+        running = 0
+        for card in sorted(
+            player.graveyard, key=lambda c: c.card.converted_mana_cost, reverse=True
+        ):
+            if running >= amount:
+                break
+            picked.append(card)
+            running += card.card.converted_mana_cost
+        met = running >= amount
+        for card in picked:
+            self.exile(card)
+        self.state.fire_event(GameEvent(
+            EventType.COLLECTED_EVIDENCE,
+            player_id=player.id, controller_id=player.id, amount=amount,
+        ))
+        return met
+    def forage_possible(self, player: Player) -> bool:
+        """Whether ``player`` could forage right now (RULE 701.61a) — three
+        cards in their graveyard to exile, or a Food they control to
+        sacrifice."""
+        if len(player.graveyard) >= 3:
+            return True
+        return any(
+            continuous.has_subtype(o, "Food")
+            for o in self.state.permanents_controlled_by(player.id)
+        )
+
+    def forage(self, player: Player) -> bool:
+        """RULE 701.61a: ``player`` exiles three cards from their graveyard
+        **or** sacrifices a Food. Fires `EventType.FORAGED` afterwards
+        (701.61b — process-complete, fired even if neither was possible).
+        Returns whether either option was actually carried out.
+
+        **Documented simplification:** no interactive choice between the two
+        halves — a Food is sacrificed whenever ``player`` controls one
+        (keeping the three graveyard cards, the strictly more valuable
+        line), otherwise the three oldest graveyard cards are exiled (the
+        same "auto-pick, no chooser in this MVP" idiom `collect_evidence` /
+        `_pay_escape_graveyard_cost` use).
+        """
+        did = False
+        foods = [
+            o for o in self.state.permanents_controlled_by(player.id)
+            if continuous.has_subtype(o, "Food")
+        ]
+        if foods:
+            self.put_into_graveyard(foods[0])  # RULE 701.17 sacrifice
+            did = True
+        elif len(player.graveyard) >= 3:
+            for card in list(player.graveyard)[:3]:
+                self.exile(card)
+            did = True
+        self.state.fire_event(GameEvent(
+            EventType.FORAGED, player_id=player.id, controller_id=player.id,
+        ))
+        return did
+    #: The four bending keyword actions (RULE 701.6x — Avatar: The Last
+    #: Airbender). `record_bend`'s ``kind`` is one of these.
+    BEND_KINDS = ("waterbend", "earthbend", "firebend", "airbend")
+    def record_bend(
+        self, player: Player, kind: str, amount: int = 0,
+        source: Optional[GameObject] = None,
+    ) -> None:
+        """Register that ``player`` has performed a bending keyword action
+        (RULE 701.6x — ``kind`` in `BEND_KINDS`): stamp `GameState.
+        bends_this_turn` and fire `EventType.BENT`.
+
+        Called from each bending primitive once its own procedure is
+        complete — `earthbend` (after the land is animated + countered),
+        the waterbend additional-cast-cost payment (RULE 701.67c — "triggers
+        whenever that player pays a waterbend cost"), `ExileEffect` with
+        ``bend_kind`` set (airbend), and the Firebending attack trigger's
+        `RecordBendEffect` marker. Mirrors `collect_evidence`/`forage`/
+        `behold`: fire an event so a "whenever you `<bend>`" trigger (Avatar
+        Aang) can see an action that otherwise leaves no board trace.
+        """
+        if kind not in self.BEND_KINDS:
+            return
+        self.state.bends_this_turn.setdefault(player.id, set()).add(kind)
+        self.state.fire_event(GameEvent(
+            EventType.BENT,
+            player_id=player.id, controller_id=player.id,
+            kind=kind, amount=int(amount or 0),
+        ))
+    def behold(
+        self, player: Player, quality: str, source: Optional[GameObject] = None
+    ) -> bool:
+        """"Behold" (RULE 701.4a — Tarkir: Dragonstorm): ``player`` reveals a
+        permanent they control with ``quality``, or a card with ``quality``
+        from their hand. Returns whether a behold actually happened (a
+        matching object existed to reveal), firing `EventType.BEHELD` in
+        that case.
+
+        ``quality`` is a creature-type word for every real card that uses
+        this (dragon/elf/kithkin/merfolk), matched case-insensitively via
+        `continuous.has_subtype` against the printed type line — the same
+        substring approach the "tap N Elves you control" cost uses.
+
+        Beholding has no game-state effect of its own; it's the reveal that
+        matters at a real table. In this engine it's reached as an
+        *additional cast cost* ("behold a dragon or pay {N}") — see
+        `GameEngine._pay_additional_cast_cost` and the **documented
+        simplification** there (the "or pay {N}" alternative isn't modeled,
+        mirroring the existing `_ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE`
+        precedent): a spell casts whether or not the behold succeeds.
+        """
+        revealed: Optional[GameObject] = None
+        for obj in self.state.battlefield:
+            if obj.controller_id == player.id and continuous.has_subtype(obj, quality):
+                revealed = obj
+                break
+        if revealed is None:
+            for card_obj in player.hand:
+                if continuous.has_subtype(card_obj, quality):
+                    revealed = card_obj
+                    break
+        if revealed is None:
+            return False
+        self.state.fire_event(GameEvent(
+            EventType.BEHELD,
+            player_id=player.id, controller_id=player.id,
+            instance_id=revealed.instance_id, quality=quality,
+        ))
+        return True
+    def time_travel(self, player: Player, times: int = 1) -> None:
+        """"Time travel" (RULE 701.56a — Doctor Who): "For each suspended
+        card you own and each permanent you control with a time counter on
+        it, you may add or remove a time counter." ``times`` repeats the
+        whole process ("time travel, then time travel").
+
+        **Documented simplification** — no per-object interactive add/
+        remove choice: a **suspended card** ``player`` owns loses one time
+        counter (acceleration — the reason to time travel your own
+        suspended spells; if that empties it, the RULE 702.62a free-cast
+        window opens exactly as the upkeep trigger would), and a
+        **Vanishing/Fading**-style permanent ``player`` controls (a time
+        counter on a battlefield permanent) gains one (prolongs it — the
+        reason to time travel those). Both are the beneficial-to-you
+        direction. A time counter on something that is neither is left
+        alone.
+        """
+        for _ in range(max(1, int(times))):
+            for obj in list(player.exile):
+                if obj.owner_id != player.id or obj.counters.get("time", 0) <= 0:
+                    continue
+                if not _has_suspend(obj):
+                    continue
+                obj.add_counters("time", -1)
+                if obj.counters.get("time", 0) <= 0:
+                    if getattr(obj.card, "is_creature", False):
+                        obj.granted_suspend_haste = True
+                    self.grant_free_cast_window_from_exile(obj)
+            for obj in self.state.permanents_controlled_by(player.id):
+                if obj.counters.get("time", 0) > 0:
+                    obj.add_counters("time", 1)
+        self.check_state_based_actions()
+    def _endure_make_token(self, player: Player, amount: int) -> None:
+        """The token half of `endure` (RULE 701.63a) — an N/N white Spirit
+        creature token."""
+        from ...services.token_database import synthesize_token_card  # function-scoped: avoid cycle
+
+        card = synthesize_token_card(
+            name="Spirit", power=amount, toughness=amount, colors=["W"]
+        )
+        self.create_token(player.id, card, 1)
+    def endure(
+        self, permanent: Optional[GameObject], amount: int, player: Optional[Player] = None
+    ) -> None:
+        """"Endure N" (RULE 701.63a — Bloomburrow): the controller of
+        ``permanent`` **either** puts N +1/+1 counters on it **or** creates an
+        N/N white Spirit creature token.
+
+        A genuine modal choice (`endure` `pending_choice`,
+        `resolve_endure_choice`) — but only when the counters branch is
+        actually possible: if ``permanent`` has left the battlefield or isn't
+        a creature, only the token is available (RULE 608.2b), so it resolves
+        without asking. Counters go on through `add_counters` so RULE 122.5
+        triggers and doublers apply; the token through `create_token`.
+        """
+        if amount <= 0:
+            return
+        controller_id = getattr(permanent, "controller_id", None)
+        if player is None and controller_id is not None:
+            try:
+                player = self.state.player_by_id(controller_id)
+            except KeyError:
+                player = None
+        if player is None:
+            return
+        counters_possible = (
+            permanent is not None
+            and getattr(permanent, "is_creature", False)
+            and permanent in self.state.battlefield
+        )
+        if not counters_possible:
+            self._endure_make_token(player, amount)
+            return
+        self.state.pending_choice = {
+            "kind": "endure",
+            "player_id": player.id,
+            "amount": amount,
+            "permanent_id": permanent.instance_id,
+            "prompt": f"Ausharren {amount}: {amount} +1/+1-Marken oder ein {amount}/{amount} weißer Geist-Token?",
+            "options": [
+                {"id": "counters", "label": f"{amount} +1/+1-Marken auf {permanent.name}"},
+                {"id": "token", "label": f"{amount}/{amount} weißer Geist-Token"},
+            ],
+        }
+    def resolve_endure_choice(self, to_token: bool = False) -> None:
+        """Answer a pending `endure` choice. A missing/unknown answer defaults
+        to the counters branch (the permanent is still there — RULE 701.63a
+        has no "you may", one of the two must happen)."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "endure":
+            raise ValueError("no pending endure choice to resolve")
+        self.state.pending_choice = None
+        player = self.state.player_by_id(choice["player_id"])
+        amount = int(choice["amount"])
+        perm = self._object_by_instance_id(choice.get("permanent_id"))
+        if not to_token and perm is not None and perm in self.state.battlefield:
+            self.add_counters(perm, amount, "+1/+1", source=perm)
+        else:
+            # token chosen, or "it" left the battlefield before resolution
+            self._endure_make_token(player, amount)
+        self.check_state_based_actions()
     def goad(self, obj: GameObject, goader_id: str, permanent: bool = False) -> None:
         """RULE 701.15a: ``goader_id`` goads ``obj`` until their next turn.
 
@@ -1670,6 +2852,130 @@ class MiscSystemsMixin:
                 object_types=sorted(obj.type_words),
             )
         )
+    def suspect(self, obj: Optional[GameObject]) -> None:
+        """RULE 701.60a: ``obj`` becomes **suspected** (menace + can't block,
+        RULE 701.60b — both read off `GameObject.is_suspected` at combat
+        time, `combat.is_suspected`).
+
+        A no-op if ``obj`` isn't a creature. Re-suspecting an already-
+        suspected creature is legal and changes nothing (RULE 701.60c), but
+        the event fires either way — "whenever you suspect a creature" cares
+        that the action happened, mirroring `goad`.
+        """
+        if obj is None or not getattr(obj, "is_creature", False):
+            return
+        # PAR-30 Suspect one-off shapes / RULE 701.60c — a static "can't
+        # become suspected" (Airtight Alibi, hand-authored) rides a
+        # ``grant_keyword`` slug the layer engine stamps onto the affected
+        # creature; honour it here, the one place the designation is applied.
+        if "cant_become_suspected" in getattr(obj, "granted_keywords", ()):
+            return
+        obj.is_suspected = True
+        self.state.fire_event(
+            GameEvent(
+                EventType.SUSPECTED,
+                instance_id=obj.instance_id,
+                controller_id=obj.controller_id,
+                object=obj.name,
+                object_types=sorted(obj.type_words),
+            )
+        )
+    def detain(self, obj: Optional[GameObject], detainer_id: str) -> None:
+        """RULE 701.35a: ``detainer_id`` detains ``obj`` until their next turn.
+
+        Stored as the *set* of players detaining it (mirroring `goad` — in
+        practice always one), so `GameEngine.begin_turn` can drop it the same
+        way it drops goad, "until the next turn of the controller of the
+        spell or ability" (RULE 701.35b). While detained, RULE 701.35b's
+        three consequences — can't attack, can't block, activated abilities
+        can't be activated — are enforced by `_can_attack` / `can_block` /
+        `can_activate` consulting `combat.is_detained`.
+
+        A no-op-safe re-detain (already detained by this player) still fires
+        the event, like `goad`/`suspect`.
+        """
+        if obj is None or getattr(obj, "instance_id", None) is None:
+            return
+        obj.detained_by.add(detainer_id)
+        self.state.fire_event(
+            GameEvent(
+                EventType.DETAINED,
+                instance_id=obj.instance_id,
+                detainer_id=detainer_id,
+                controller_id=detainer_id,
+                object=obj.name,
+                object_types=sorted(obj.type_words),
+            )
+        )
+    def remove_suspected(self, objs: list[GameObject]) -> None:
+        """"... is/are no longer suspected." (RULE 701.60a's reverse) — clear
+        the designation on each of ``objs``. Used both for the mass
+        "all suspected creatures are no longer suspected" (Absolving Lammasu)
+        and a single named creature."""
+        for obj in objs:
+            if obj is not None:
+                obj.is_suspected = False
+    def clash(self, player: Optional[Player], with_opponent: bool = True) -> bool:
+        """RULE 701.30: ``player`` clashes — reveals the top card of their
+        library — and, for "clash with an opponent" (``with_opponent``, RULE
+        701.30b), one opponent reveals theirs too. Returns whether ``player``
+        **won** (RULE 701.30d — their revealed card's mana value is strictly
+        higher than every other card revealed in the clash), which the "if
+        you win, `<effect>`. / otherwise, `<effect>`." branch reads back via
+        `effects.ClashEffect` → `GameContext.clash_won`.
+
+        **Documented simplification** — RULE 701.30a's "may then put that card
+        on the bottom of their library" is always declined here: every
+        revealed card stays on top. Modeling that optional bottoming means an
+        APNAP pair of interactive yes/no pauses (RULE 701.30c) for a keyword
+        action ~33 cache cards use, and it never changes *this* resolution's
+        win/lose outcome — only a later draw. Same accepted "an undecided
+        beneficial *may* is declined" convention `effects.CoinFlipEffect`
+        documents.
+
+        With no opponent at all (a 1-player Goldfisch/Replay board) or every
+        opponent's library empty, no *other* card is revealed, so ``player``
+        wins on the strength of their own reveal alone — a deliberate reading
+        of 701.30b's "choose an opponent" when there is none, keeping clash
+        cards functional in solo play. If ``player``'s own library is empty
+        they reveal nothing and cannot win.
+
+        Fires `EventType.CLASHED` (always, for "whenever you clash") and
+        `EventType.WON_CLASH` (only on a win, for "whenever you win a clash").
+        """
+        if player is None:
+            return False
+        top = player.library[-1] if player.library else None
+        my_mv = top.card.converted_mana_cost if top is not None else -1
+        other_mvs: list[int] = []
+        #: RULE 701.30b: which opponent this clash was "with" — recorded so a
+        #: following "if you win, `<X> that player <does Y>`" / "otherwise,
+        #: that player …" branch (Captivating Glance, Pollen Lullaby) has a
+        #: referent. **Documented simplification** (same as `GainControlBy
+        #: SourceEffect`): the first living opponent, not an interactive
+        #: "choose an opponent" pick — unambiguous in 1v1 goldfish/Replay,
+        #: auto-picked in multiplayer. Read back via `effects.ClashEffect`
+        #: → `GameContext.clashed_opponent`.
+        self._last_clash_opponent_id = None
+        if with_opponent:
+            for opp in self.state.living_players():
+                if opp.id == player.id:
+                    continue
+                if self._last_clash_opponent_id is None:
+                    self._last_clash_opponent_id = opp.id
+                opp_top = opp.library[-1] if opp.library else None
+                if opp_top is not None:
+                    other_mvs.append(opp_top.card.converted_mana_cost)
+        won = top is not None and all(my_mv > mv for mv in other_mvs)
+        self.state.fire_event(GameEvent(
+            EventType.CLASHED, player_id=player.id, controller_id=player.id, won=won,
+        ))
+        if won:
+            self.state.fire_event(GameEvent(
+                EventType.WON_CLASH, player_id=player.id, controller_id=player.id,
+            ))
+        return won
+
     def become_monarch(self, player: Player) -> None:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it
         (possibly ``player`` themself) ceases to."""
@@ -1726,7 +3032,8 @@ class MiscSystemsMixin:
     #: than passing a continuation closure around.
     CHOOSE_OBJECT_ACTIONS = frozenset(
         {
-            "tap", "sacrifice", "return_to_hand", "soulbond_pair", "library_top", "discard",
+            "tap", "sacrifice", "return_to_hand", "return_from_graveyard", "soulbond_pair", "library_top", "discard",
+            "library_to_hand", "sacrifice_for_descendants_fury",
             # PAR-13 (Dungeon of the Mad Mage's "Mad Wizard's Lair" — "Draw
             # three cards and reveal them. You may cast one of them without
             # paying its mana cost."): a hand-zone pick, unlike every other
@@ -1794,6 +3101,27 @@ class MiscSystemsMixin:
             # ``not_entered_via_self`` condition) can tell a card THIS
             # ability just placed apart from any other entering permanent.
             "hand_to_battlefield",
+            # MEC-73: Sneak Attack / Incandescent Soulstoke's selected hand
+            # creature enters with haste and a RULE 603.7 delayed sacrifice.
+            "hand_to_battlefield_haste_sacrifice",
+            # MEC-46 (Expropriate — "choose a permanent owned by the voter
+            # and gain control of it"): the chosen permanent's control
+            # moves to the *chooser* (``player``), indefinitely (RULE 701.38
+            # outcome body, no duration — a bare `controller_id`
+            # reassignment, the same shape `GainControlBySourceEffect`
+            # uses). Nothing else happens to it.
+            "gain_control",
+            # PAR-30 (RULE 701.10i residue — Cultural Exchange): the same
+            # bare `controller_id` reassignment as `"gain_control"`, but to
+            # a specific *other* player named by `control_recipient_id`
+            # rather than to the chooser.
+            "gain_control_for",
+            # PAR-30 Suspect one-off shapes / RULE 701.60a's reverse ("You
+            # may have it become no longer suspected." — Deadly
+            # Complication): nothing is created or moved, the pick just
+            # clears its own suspected designation. ``optional`` so declining
+            # keeps the menace a suspected creature has.
+            "remove_suspected",
         }
     )
     def request_choose_objects(
@@ -1812,6 +3140,11 @@ class MiscSystemsMixin:
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
         connive: bool = False,
+        else_specs: Optional[list[dict]] = None,
+        control_recipient_id: Optional[str] = None,
+        rest_ids: Optional[list[int]] = None,
+        rest_destination: Optional[str] = None,
+        decline_leaves_untouched: bool = False,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -1876,6 +3209,14 @@ class MiscSystemsMixin:
         "recipient_is_player", "amount"}``, resolved into a `RulesEngine.
         redirect_damage_from_source` call instead.
 
+        ``else_specs`` are ``then_specs``' mirror: serialized `EffectSpec`
+        dicts applied only when the choice ends with **nothing** picked —
+        the "**If you don't**, incubate 3." half of Traumatic Revelation's
+        "you may choose a creature or battle card … If you don't, …". Also
+        fires when the candidate pool is empty to begin with (no legal card
+        to choose ⇒ "you didn't"). Carried as data on the choice so it
+        survives the `clone()` undo takes.
+
         ``connive=True`` (RULE 701.47, MEC-43 — Ledger Shredder's "this
         creature connives") marks an ``action="discard"`` pick for the
         conditional half connive's own template needs: "if a **nonland**
@@ -1885,11 +3226,24 @@ class MiscSystemsMixin:
         depends on *which* card was picked, so it's threaded straight
         through to `_apply_chosen_object` rather than tracked as a
         choice-level flag the way ``commander_taken`` is.
+
+        ``control_recipient_id`` (PAR-30 — Cultural Exchange's "choose any
+        number of creatures target player controls[.] … control moves to a
+        **third** player, not the chooser") is ``action="gain_control_for"``'s
+        own payload: unlike the plain ``"gain_control"`` action (control
+        moves to ``player``, the chooser), this hands each pick to whichever
+        player's id is carried here instead — the caster picks, but someone
+        *else* receives.
         """
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
         pool = [obj for obj in candidates if obj is not None]
         if not pool or count <= 0:
+            # Nothing to choose ⇒ "you didn't choose" — run the else branch
+            # (Traumatic Revelation's "If you don't, incubate 3." when the
+            # revealed hand holds no creature or battle card).
+            if not pool and count > 0 and else_specs:
+                self._apply_effect_specs(list(else_specs), source)
             return
         if len(pool) <= count and not optional:
             # Forced: every candidate is taken anyway, so asking would be
@@ -1901,7 +3255,12 @@ class MiscSystemsMixin:
                     player, obj, action, source, remember=remember,
                     track_exiled_with=track_exiled_with, prevent_shield=prevent_shield,
                     redirect_shield=redirect_shield, connive=connive,
+                    control_recipient_id=control_recipient_id,
                 )
+            if rest_destination and rest_ids:
+                taken_ids = {o.instance_id for o in pool}
+                unpicked_rest = [iid for iid in rest_ids if iid not in taken_ids]
+                self._handle_rest_inspected(player, unpicked_rest, rest_destination)
             self._apply_choose_objects_tail(
                 source, then_specs, then_specs_if_commander, commander_taken
             )
@@ -1913,7 +3272,10 @@ class MiscSystemsMixin:
             then_specs_if_commander=then_specs_if_commander, remember=remember,
             track_exiled_with=track_exiled_with,
             prevent_shield=prevent_shield, redirect_shield=redirect_shield,
-            connive=connive,
+            connive=connive, else_specs=else_specs,
+            control_recipient_id=control_recipient_id,
+            rest_ids=rest_ids, rest_destination=rest_destination,
+            decline_leaves_untouched=decline_leaves_untouched,
         )
     def _apply_choose_objects_tail(
         self,
@@ -1943,6 +3305,11 @@ class MiscSystemsMixin:
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
         connive: bool = False,
+        else_specs: Optional[list[dict]] = None,
+        control_recipient_id: Optional[str] = None,
+        rest_ids: Optional[list[int]] = None,
+        rest_destination: Optional[str] = None,
+        decline_leaves_untouched: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -1967,6 +3334,10 @@ class MiscSystemsMixin:
             "prompt_base": label,
             "options": options,
             "then_specs": [dict(spec) for spec in (then_specs or [])],
+            # Traumatic Revelation's "If you don't, incubate 3." — applied
+            # only when the choice ends with nothing picked (`then_specs`'
+            # mirror).
+            "else_specs": [dict(spec) for spec in (else_specs or [])],
             # MEC-30: the shield `_apply_chosen_object` opens once a source
             # is picked (``action="remember_source"`` only) — see
             # `request_choose_objects`'s own docstring.
@@ -1974,6 +3345,9 @@ class MiscSystemsMixin:
             # MEC-30: `redirect_shield`'s own sibling — see
             # `request_choose_objects`'s own docstring.
             "redirect_shield": dict(redirect_shield) if redirect_shield else None,
+            # PAR-30: `action="gain_control_for"`'s own recipient payload —
+            # see `request_choose_objects`'s own docstring.
+            "control_recipient_id": control_recipient_id,
             "then_specs_if_commander": [
                 dict(spec) for spec in (then_specs_if_commander or [])
             ],
@@ -1993,6 +3367,9 @@ class MiscSystemsMixin:
             # and place a +1/+1 counter on ``source`` — see
             # `request_choose_objects`'s own docstring.
             "connive": connive,
+            "rest_ids": list(rest_ids) if rest_ids else None,
+            "rest_destination": rest_destination,
+            "decline_leaves_untouched": decline_leaves_untouched,
         }
     def resolve_choose_objects_choice(self, instance_id: Optional[int]) -> None:
         """Answer a pending `choose_objects` decision: apply the action to
@@ -2023,6 +3400,7 @@ class MiscSystemsMixin:
                 prevent_shield=choice.get("prevent_shield"),
                 redirect_shield=choice.get("redirect_shield"),
                 connive=bool(choice.get("connive")),
+                control_recipient_id=choice.get("control_recipient_id"),
             )
         remaining_pool = [
             obj
@@ -2031,6 +3409,12 @@ class MiscSystemsMixin:
         ]
         if declined or len(picked) >= choice["count"] or not remaining_pool:
             self.state.pending_choice = None
+            if choice.get("rest_destination") and choice.get("rest_ids"):
+                if declined and choice.get("decline_leaves_untouched"):
+                    pass
+                else:
+                    unpicked_rest = [iid for iid in choice["rest_ids"] if iid not in picked]
+                    self._handle_rest_inspected(player, unpicked_rest, choice["rest_destination"])
             if picked:
                 # RULE 601.2c: "if you do, …" only fires when something was
                 # actually chosen — a declined optional choice does nothing.
@@ -2038,6 +3422,11 @@ class MiscSystemsMixin:
                     source, choice.get("then_specs"),
                     choice.get("then_specs_if_commander"), commander_taken,
                 )
+            elif choice.get("else_specs"):
+                # "If you don't, incubate 3." (Traumatic Revelation) — the
+                # declined-optional-choice branch `then_specs` deliberately
+                # skips.
+                self._apply_effect_specs(list(choice["else_specs"]), source)
             return
         next_choice = self._choose_objects_choice(
             player, remaining_pool, choice["action"], choice["count"],
@@ -2050,6 +3439,9 @@ class MiscSystemsMixin:
             prevent_shield=choice.get("prevent_shield"),
             redirect_shield=choice.get("redirect_shield"),
             connive=bool(choice.get("connive")),
+            rest_ids=choice.get("rest_ids"),
+            rest_destination=choice.get("rest_destination"),
+            decline_leaves_untouched=bool(choice.get("decline_leaves_untouched")),
         )
         next_choice["commander_taken"] = commander_taken
         self.state.pending_choice = next_choice
@@ -2087,6 +3479,7 @@ class MiscSystemsMixin:
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
         connive: bool = False,
+        control_recipient_id: Optional[str] = None,
     ) -> None:
         """Do the one thing a `choose_objects` action names to one pick."""
         if action == "tap":
@@ -2096,6 +3489,8 @@ class MiscSystemsMixin:
             self.put_into_graveyard(obj)
         elif action == "return_to_hand":
             self.return_to_hand(obj)
+        elif action == "return_from_graveyard":
+            self.return_from_graveyard(obj, "battlefield")
         elif action == "discard":
             # RULE 701.47 (connive, MEC-43 — Ledger Shredder): "if a
             # nonland card was discarded this way, put a +1/+1 counter on
@@ -2170,6 +3565,11 @@ class MiscSystemsMixin:
                 self.prevent_damage_from_source(obj, "all")
         elif action == "exile":
             self.exile(obj)
+            # RULE 608.2's "it"/"that card" referent for a following clause
+            # (MEC-52 — Back from the Brink prices "pay its mana cost" off
+            # the just-exiled graveyard card), the same seeding
+            # `ExileEffect`'s own trigger-subject branch does.
+            self.context.previous_targets = [obj]
             if remember and source is not None:
                 # MEC-17: Imprint's own "remember the exiled card" —
                 # `linked_exile_id`'s "keep pointing at the exiled card
@@ -2190,6 +3590,28 @@ class MiscSystemsMixin:
             if obj in player.library:
                 player.remove_from_zone(obj, Zone.LIBRARY)
             self._put_searched_card(player, obj, "battlefield")
+        elif action == "library_to_hand":
+            # MEC-72 (Eclipsed Flamekin): move the picked card from library to hand.
+            self._remove_from_current_zone(player, obj)
+            obj.zone = Zone.HAND
+            player.add_to_zone(obj, Zone.HAND)
+        elif action == "sacrifice_for_descendants_fury":
+            # MEC-72 (Descendants' Fury): sacrifice the chosen combat damage dealer
+            # and reveal cards until a creature sharing a creature type is revealed.
+            subtypes: set[str] = set()
+            if "changeling" in obj.card.type_line.lower() or "changeling" in obj.intrinsic_keywords:
+                subtypes.add("changeling")
+            else:
+                _, _, sub = obj.card.type_line.lower().partition("—")
+                subtypes.update(s.strip() for s in sub.split() if s.strip())
+            self.put_into_graveyard(obj)
+            self.reveal_until_creature_type(
+                player,
+                creature_types=subtypes,
+                count=1,
+                hit_destination="battlefield",
+                rest_destination="library_bottom_random",
+            )
         elif action == "hand_to_battlefield":
             # MEC-43 round 4D (Kodama of the East Tree): the hand-zone
             # sibling of "library_to_battlefield" just above — the object
@@ -2212,12 +3634,52 @@ class MiscSystemsMixin:
             if source is not None:
                 obj.entered_via_ability_id = source.instance_id
             self._put_searched_card(player, obj, "battlefield")
+        elif action == "hand_to_battlefield_haste_sacrifice":
+            # RULE 400.7: a hand card entering the battlefield is a new
+            # object. It is selected first, then reset before the entry event
+            # so its ETB abilities see the fresh permanent.
+            if obj not in player.hand:
+                return
+            player.remove_from_zone(obj, Zone.HAND)
+            obj.reset_as_new_object()
+            obj.controller_id = player.id
+            self._put_searched_card(player, obj, "battlefield")
+            obj.temp_keywords.add("haste")
+            continuous.recompute(self.state)
+            source_name = source.name if source is not None else None
+            label = f"{obj.name}: geopfert" + (f" ({source_name})" if source_name else "")
+            # RULE 603.7: "the next end step" is the next end step of any
+            # player's turn, and captures this particular new object.
+            self.state.delayed_triggers.append(
+                DelayedTrigger(
+                    controller_id=player.id,
+                    step="end",
+                    scope="any",
+                    effects=[SacrificeObjectEffect(obj, source=source)],
+                    description=label,
+                )
+            )
         elif action == "choose_permanent" and source is not None:
             # MEC-26: Scheming Fence's own ETB pick — nothing happens to
             # ``obj`` itself, just a pointer stamped onto the source
             # (`continuous.group_selector_objects`'s ``"chosen_permanent"``
             # selector reads it back every recompute).
             source.chosen_permanent_id = obj.instance_id
+        elif action == "gain_control":
+            # MEC-46 (Expropriate): control moves to the chooser,
+            # indefinitely — an SBA pass / the session view recompute
+            # picks up the new characteristics (RULE 613.1).
+            if obj.controller_id != player.id:
+                obj.controller_id = player.id
+                continuous.recompute(self.state)
+        elif action == "gain_control_for" and control_recipient_id is not None:
+            # PAR-30 (Cultural Exchange): control moves to a *third*
+            # player, not the chooser — see `request_choose_objects`'s own
+            # docstring for ``control_recipient_id``.
+            if obj.controller_id != control_recipient_id:
+                obj.controller_id = control_recipient_id
+                obj.summoning_sick = True
+                continuous.recompute(self.state)
         elif action == "soulbond_pair" and source is not None:
             # RULE 702.94a: the pairing is recorded on both creatures.
             source.paired_with = obj.instance_id
@@ -2249,6 +3711,12 @@ class MiscSystemsMixin:
                 obj, player, source.name if source is not None else None,
                 same_turn_only=True, mana_wildcard=None,
             )
+        elif action == "remove_suspected":
+            # PAR-30 Suspect one-off shapes / RULE 701.60a's reverse: "You
+            # may have it become no longer suspected." (Deadly Complication).
+            # Nothing is created or moved — the pick just clears its own
+            # suspected designation.
+            self.remove_suspected([obj])
     def the_ring_tempts_you(self, player: Player) -> None:
         """RULE 701.51a: the Ring tempts ``player``.
 
@@ -2334,9 +3802,12 @@ class MiscSystemsMixin:
             if continuous.ring_bearer_of(self.state, player) is None:
                 player.ring_bearer_id = None
     def create_emblem(self, player: Player, ability: dict) -> None:
-        """RULE 114.2/114.4: bind the emblem's one already-parsed quoted
-        ability into a live `TriggeredAbility`/`StaticAbility` and file it in
-        ``player``'s command zone.
+        """RULE 114.2/114.4: bind the emblem's already-parsed quoted
+        ability (or, for ``ability`` being a *list* of ability dicts —
+        "You get an emblem with 'A' and 'B'.", You Compleat Me — every one
+        of them) into live `TriggeredAbility`/`StaticAbility`/`ActivatedAbility`
+        objects on a single `Emblem` and file it in ``player``'s command
+        zone.
 
         Binding happens here — once, at resolve time — rather than at
         bind-on-load like every other ability, because an emblem has no
@@ -2353,36 +3824,41 @@ class MiscSystemsMixin:
 
         self.state._timestamp_counter = getattr(self.state, "_timestamp_counter", 0) + 1
         emblem = Emblem(controller_id=player.id, timestamp=self.state._timestamp_counter)
-        spec = AbilitySpec.from_dict(ability)
-        emblem.description = spec.raw_text
-        bound = bind_ability(spec, source=emblem)
-        if isinstance(bound, TriggeredAbility):
-            emblem.triggered_abilities.append(bound)
-        elif isinstance(bound, ActivatedAbility):
-            # RULE 114.4 — "functions in the command zone" covers an
-            # activated ability too (MEC-8); previously dropped silently
-            # since only the triggered/static branches were handled here.
-            emblem.activated_abilities.append(bound)
-        elif isinstance(bound, list):
-            for effect in bound:
-                if isinstance(effect, StaticAbility):
-                    emblem.static_effects.append(effect)
-                elif isinstance(effect, TriggeredAbility):
-                    # The compound "~ enters or attacks"-shaped multi-event
-                    # trigger returns a *list* of `TriggeredAbility` (see
-                    # `bind_ability`'s docstring) — the same silent-drop gap
-                    # the bare-`TriggeredAbility` branch above already covers
-                    # for a single-event trigger.
-                    emblem.triggered_abilities.append(effect)
-                elif isinstance(effect, ReplacementEffect):
-                    # MEC-30 (Ajani Steadfast's own "-7": "You get an emblem
-                    # with 'If a source would deal damage to you or a
-                    # planeswalker you control, prevent all but 1 of that
-                    # damage.'") — the first emblem to grant a replacement
-                    # rather than a triggered/static ability; previously
-                    # silently dropped here the same way the activated-
-                    # ability branch above used to be, before MEC-8.
-                    emblem.replacement_effects.append(effect)
+        ability_dicts = ability if isinstance(ability, list) else [ability]
+        descriptions: list[str] = []
+        for one in ability_dicts:
+            spec = AbilitySpec.from_dict(one)
+            if spec.raw_text:
+                descriptions.append(spec.raw_text)
+            bound = bind_ability(spec, source=emblem)
+            if isinstance(bound, TriggeredAbility):
+                emblem.triggered_abilities.append(bound)
+            elif isinstance(bound, ActivatedAbility):
+                # RULE 114.4 — "functions in the command zone" covers an
+                # activated ability too (MEC-8); previously dropped silently
+                # since only the triggered/static branches were handled here.
+                emblem.activated_abilities.append(bound)
+            elif isinstance(bound, list):
+                for effect in bound:
+                    if isinstance(effect, StaticAbility):
+                        emblem.static_effects.append(effect)
+                    elif isinstance(effect, TriggeredAbility):
+                        # The compound "~ enters or attacks"-shaped multi-event
+                        # trigger returns a *list* of `TriggeredAbility` (see
+                        # `bind_ability`'s docstring) — the same silent-drop gap
+                        # the bare-`TriggeredAbility` branch above already covers
+                        # for a single-event trigger.
+                        emblem.triggered_abilities.append(effect)
+                    elif isinstance(effect, ReplacementEffect):
+                        # MEC-30 (Ajani Steadfast's own "-7": "You get an emblem
+                        # with 'If a source would deal damage to you or a
+                        # planeswalker you control, prevent all but 1 of that
+                        # damage.'") — the first emblem to grant a replacement
+                        # rather than a triggered/static ability; previously
+                        # silently dropped here the same way the activated-
+                        # ability branch above used to be, before MEC-8.
+                        emblem.replacement_effects.append(effect)
+        emblem.description = " / ".join(d for d in descriptions if d)
         player.emblems.append(emblem)
     def _stack_item_for(self, target: Any) -> Optional[StackItem]:
         """The `StackItem` a counter effect's ``target`` names, or ``None``.
@@ -2821,6 +4297,7 @@ class MiscSystemsMixin:
         unless_pays: Optional[str],
         source: Optional[GameObject] = None,
         suspend_time_counters: Optional[int] = None,
+        on_pay_effect_specs: Optional[list[dict]] = None,
     ) -> None:
         """`CounterSpellEffect`'s resolve-time logic (RULE 118/601/701.5).
 
@@ -2841,6 +4318,13 @@ class MiscSystemsMixin:
         the same convention `_pending_counter_target`/`_pending_counter_cost`
         already use) — no real card combines "unless pays" with Delay's own
         redirect today, but nothing here assumes they're mutually exclusive.
+
+        ``on_pay_effect_specs`` (Assimilate Essence — "…unless its
+        controller pays {4}. If they do, you incubate 2.") are serialized
+        `EffectSpec` dicts applied *only* on the branch where the target's
+        controller pays, from `resolve_counter_unless_pays_choice` — stashed
+        alongside the other `_pending_counter_*` fields. Inert on every
+        branch that ends in a `counter_spell` (they didn't pay).
         """
         item = self._stack_item_for(target)
         if item is None or item.obj is None:
@@ -2863,6 +4347,8 @@ class MiscSystemsMixin:
         self._pending_counter_target = target
         self._pending_counter_cost = cost
         self._pending_counter_suspend = suspend_time_counters
+        self._pending_counter_on_pay_specs = list(on_pay_effect_specs or [])
+        self._pending_counter_on_pay_source = source
         self.state.pending_choice = {
             "kind": "counter_unless_pays",
             "player_id": controller.id,
@@ -2876,8 +4362,10 @@ class MiscSystemsMixin:
         """Answer a pending `counter_unless_pays` choice (RULE 601).
 
         ``answer == "pay"`` deducts the cost from the target spell's
-        controller and leaves it on the stack; anything else (``None``/
-        ``"decline"``) counters it.
+        controller and leaves it on the stack, then applies any
+        ``on_pay_effect_specs`` stashed for this choice (Assimilate
+        Essence's "If they do, you incubate 2."); anything else (``None``/
+        ``"decline"``) counters it and the on-pay effects never fire.
         """
         choice = self.state.pending_choice
         if not choice or choice.get("kind") != "counter_unless_pays":
@@ -2886,9 +4374,13 @@ class MiscSystemsMixin:
         target = self._pending_counter_target
         cost = self._pending_counter_cost
         suspend_time_counters = getattr(self, "_pending_counter_suspend", None)
+        on_pay_specs = list(getattr(self, "_pending_counter_on_pay_specs", None) or [])
+        on_pay_source = getattr(self, "_pending_counter_on_pay_source", None)
         self._pending_counter_target = None
         self._pending_counter_cost = None
         self._pending_counter_suspend = None
+        self._pending_counter_on_pay_specs = []
+        self._pending_counter_on_pay_source = None
         if target is None:
             return
         if answer == "pay" and cost is not None:
@@ -2898,6 +4390,8 @@ class MiscSystemsMixin:
                 if controller is not None:
                     life_spent = controller.mana_pool.pay(cost, life_available=controller.life)
                     self.lose_life(controller, life_spent, cause="cost")
+            if on_pay_specs:
+                self._apply_effect_specs(on_pay_specs, on_pay_source)
             return
         self.counter_spell(target, suspend_time_counters=suspend_time_counters)
     def _fire_becomes_target_events(self, item: StackItem) -> None:
@@ -3097,6 +4591,14 @@ class MiscSystemsMixin:
         # cost`), not both.
         if cost.sacrifice_or_discard and not self._can_sacrifice_or_discard(player):
             return False
+        if cost.collect_evidence and not self.collect_evidence_possible(
+            player, cost.collect_evidence
+        ):
+            return False
+        if cost.forage and not self.forage_possible(player):
+            return False
+        if cost.blight and not self.blight_possible(player):
+            return False
         return True
     def _can_sacrifice_or_discard(self, player: Player) -> bool:
         """Whether ``player`` could pay a `sacrifice_or_discard` cost right
@@ -3123,6 +4625,13 @@ class MiscSystemsMixin:
             self.add_player_counters(player, -cost.pay_energy, "energy")
         if cost.sacrifice_or_discard:
             self._pay_sacrifice_or_discard(player)
+        if cost.collect_evidence:
+            self.collect_evidence(player, cost.collect_evidence)
+        if cost.forage:
+            self.forage(player)
+        if cost.blight:
+            # RULE 701.68 — auto-pick (payment can't pause for a chooser).
+            self.blight(player, cost.blight, interactive=False)
     def _pay_sacrifice_or_discard(self, player: Player) -> None:
         """Pay a `sacrifice_or_discard` cost component — the payer's own
         choice of *which* half (Tergrid's Lantern, MEC-43 round 4E). Forced

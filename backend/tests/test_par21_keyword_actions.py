@@ -1,14 +1,19 @@
 """PAR-21 — RULE 701 keyword-action audit: first parser handlers for the two
 actions whose engine effect was already shipped but had zero oracle-text
-recognition.
+recognition. Widened for PAR-29's "Parser-shaped only" residue (targeting,
+previous-subject, and RULE 701.50d's dynamic "connives X" — see
+`test_connive_target_and_dynamic_amount.py` for the fuller family and
+execute-level coverage of the widened `ConniveEffect`).
 
 * RULE 701.50 **Connive** → `game/effects.py` `ConniveEffect` (proven only
-  via the hand-authored Ledger Shredder entry until now). Only the two
-  subjects where the conniving permanent is the ability's own source are
-  claimed — "~ connives" (explicit self) and the "it/he/she" pronoun of a
-  self-subject trigger. A pronoun bound to an earlier clause's target,
-  "connive N", and "connives x" stay UNMODELED (`ConniveEffect` has no
-  target and no count parameter).
+  via the hand-authored Ledger Shredder entry until now). The two subjects
+  where the conniving permanent is the ability's own source — "~ connives"
+  (explicit self) and the "it/he/she" pronoun of a self-subject trigger — a
+  `TargetSpec` subject ("target creature you control connives"), the
+  previous-clause pronoun, and RULE 701.50d's dynamic "connives X, where X
+  is `<count-selector-or-trigger-event-field>`" are all claimed. A bare
+  literal "connives N"/"connives x" with no "where X is" explanation still
+  stays UNMODELED — no real printed card uses that shape.
 * RULE 701.57 **Discover** → `game/effects.py` `DiscoverEffect` (Cascade's
   sibling). Literal `discover <n>` only; "discover X, where X is
   <selector>" stays UNMODELED.
@@ -41,18 +46,46 @@ def test_pronoun_connive_parses_only_with_self_subject():
     assert match_clause("she connives", self_subject=True) == [EffectSpec("connive", {})]
 
 
-def test_targeted_connive_stays_unclaimed():
-    # "target creature you control connives" — `ConniveEffect` connives its
-    # own source, so a targeted subject would connive the wrong permanent.
-    assert match_clause("target creature you control connives") is None
-    assert match_clause("target creature you control connives", self_subject=True) is None
+def test_targeted_connive_parses():
+    # PAR-29: `ConniveEffect` now takes a `TargetSpec` subject, so this is
+    # claimed — the conniving permanent is whichever creature is targeted,
+    # not the ability's own source.
+    assert match_clause("target creature you control connives") == [
+        EffectSpec("connive", {"target_kind": "creature_you_control"})
+    ]
 
 
-def test_connive_n_stays_unclaimed():
-    # RULE 701.50d "connive N" / "connives x" — the registered effect is the
-    # fixed draw-one/discard-one form; a count it can't honour fails closed.
+def test_connive_bare_n_stays_unclaimed():
+    # A literal "connive N"/"connives 2" with no "where X is <…>" tail never
+    # appears on a real card — every printed dynamic connive spells out
+    # where the number comes from (RULE 701.50d), so this stays fail-closed
+    # rather than guessing what "2" or "x" alone means.
     assert match_clause("~ connives x") is None
     assert match_clause("it connives 2", self_subject=True) is None
+
+
+def test_connive_dynamic_x_parses():
+    # RULE 701.50d "connives X, where X is <count-selector>" — Raffine,
+    # Scheming Seer / Spymaster's Vault-shaped.
+    assert match_clause(
+        "target attacking creature connives x, where x is the number of attacking creatures"
+    ) == [EffectSpec("connive", {
+        "target_kind": "creature", "times_from_count_selector": "attacking_creatures",
+    })]
+    assert match_clause(
+        "it connives x, where x is the amount of damage it dealt to that player",
+        self_subject=True,
+    ) == [EffectSpec("connive", {"times_from_trigger_event": "amount"})]
+
+
+def test_connive_each_x_target_creatures_parses():
+    # Change of Plans: "each of X target creatures you control connive."
+    assert match_clause("each of x target creatures you control connive") == [
+        EffectSpec("connive", {
+            "target_kind": "creature_you_control", "count_selector": "source_x_paid",
+            "optional": True,
+        })
+    ]
 
 
 def test_real_card_enters_trigger_is_modeled_end_to_end():

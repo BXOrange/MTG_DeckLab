@@ -43,8 +43,27 @@ repointed there.
 
 ### Einstellungen tab + cookie-persisted settings
 
-- **What:** Player-name + server-address fields with "Speichern"/"Verbindung testen"; settings persist device-locally in cookies (`mtg_server_url`, `mtg_player_name`, 1-year expiry).
+- **What:** Server-address field with "Speichern"/"Verbindung testen"; settings persist device-locally in cookies (`mtg_server_url`, `mtg_player_name`, 1-year expiry).
 - **Files:** `connectionSettingsView.js`, `cookies.js`, `settings.js`
+
+### Einstellungen ↔ Profil split (everything player-facing → Profil)
+
+- **What:** The **Einstellungen** header tab is now *only* the backend
+  server address + connection test. Everything about the player moved to
+  the **Profil** tab: player name (already there), multiplayer default
+  settings + favorite decks (already there), and — newly relocated —
+  the **Mehrspieler: Auto-Pass** / **Mehrspieler: Spielfeld** comfort
+  toggles and the **Eigene Token-Bilder** / **Karten-Sleeves** upload
+  sections. No behaviour change: same cookie keys (`settings.js`), same
+  `player_assets.py` routes, same board hooks; only which of the two
+  `render*(container)` views builds the markup and wires the listeners.
+  `connectionSettingsView.js` dropped its `api.js` player-asset imports
+  and its `view-shown` asset-refresh handler; `profileView.js` gained
+  them and now also refreshes token art / sleeves on save and on
+  `view-shown` alongside the favorites list.
+- **Files:** `connectionSettingsView.js`, `profileView.js`
+- **Why:** "Einstellungen" had grown into a catch-all; the mental model
+  is now clean — *reaching the server* vs. *who you are / how you play*.
 
 ### VIS-1: error/loading states for network calls
 
@@ -137,6 +156,14 @@ repointed there.
 - **Files:** `gameBoardView.js`, `cardImages.js`, `cardHoverDetail.js`
 - **Bug fixed:** `resolveImageUrl` unconditionally returned the front-face art for an already-transformed permanent because the image cache was only ever keyed by the deck's front-face name; fixed by branching on face before trusting the cache hit, and by caching a DFC's entry under both front and back names.
 
+### Vanilla-token art via a Scryfall-sourced token library
+
+- **What:** A "1/1 white Soldier"-shaped token an effect synthesizes inline (no catalogue ability) now shows its real printed art by default instead of a text tile, for the overwhelming majority of tokens that don't already carry an ability (Treasure/Clue/… already had this via the small hand-curated `data/tokens.json`). `scripts/build_token_art_library.py` builds `backend/mtg_analyzer/data/token_art.json` from Scryfall's `default_cards` bulk dump (filtered to `set_type == "token"` real companion sheets, dropping ad/checklist/boxed-game filler mixed into the same layout), keyed by the exact **(name, power, toughness, colors)** combination — 639 entries across 422 distinct names as of the 2026-09 build. `TokenArtLibrary.find` (`services/token_database.py`) is consulted from `synthesize_token_card` (and so every one of its call sites — `CreateTokenEffect`, copy/Incubator/Endure/populate paths — for free) and from `services/replay.py`'s `_token_card` (the Replay/Puzzle board-editor add-token form); a miss leaves the pre-existing imageless behaviour untouched.
+- **Why a (name, power, toughness, colors) key, not just name:** Magic reprints the same token name at different stat lines across sets — several "Shapeshifter" tokens exist as a 1/1, a 2/2 (blue), and a 3/2, and "Spirit" has 14 distinct stat/colour combinations — so a name-only lookup would show one variant's art on every other variant.
+- **Frontend wiring:** `gameBoardView.js`'s `resolveImageUrl` now tries an id-keyed lookup *before* the existing by-name `imageCache` lookup, since two different token variants sharing a display name can't both win a by-name key; `goldfishView.js`/`soloView.js`/`multiplayerView.js`'s token-art preloaders (`preloadDeckTokens`/`preloadDecksTokens`) now seed `imageCache` by the token's own id first (unique per variant) and by name only as a same-name fallback + `cardImages.js` tooltip-cache key. Multiplayer additionally preloads every seat's producible tokens now, not just the client's own deck's (mirroring the existing VIS-6 all-seats card-art preload).
+- **Known gap:** Replay/Puzzle's manually-typed add-token form resolves real art server-side (`_token_card`) but the frontend never preloads/receives it for a freeform (non-decklist-driven) token, so it still shows the text/generic fallback there — `GameObject.to_dict()` carries no image fields on the wire, and there's no "producible tokens" list to preload from in that mode. Goldfisch/Solo/Multiplayer (tokens created by real gameplay effects) are unaffected.
+- **Files:** `backend/scripts/build_token_art_library.py`, `mtg_analyzer/services/token_database.py`, `mtg_analyzer/services/replay.py`; `frontend/src/js/gameBoardView.js`, `goldfishView.js`, `soloView.js`, `multiplayerView.js`.
+
 ## Goldfish Board Core
 
 ### Goldfisch mode wired to the real engine
@@ -149,6 +176,7 @@ repointed there.
 
 - **What:** LIFO stack display with a "Priorität abgeben" control resolving one item at a time; a topbar shows turn/phase/step plus a ☀️/🌙 day-night badge (RULE 731) that stays hidden until a designation is established.
 - **Files:** `goldfishView.js`, `gameBoardView.js`
+- **Bugfix (interactive board locked whenever a non-creature spell hit the stack):** `spellTypeLabel` (the stack-item badge) matched on `t` — the imported i18n *function* — instead of `tl`, the lower-cased type line, on every branch after "creature". For an instant/sorcery/artifact/enchantment/planeswalker spell that meant `t.includes(...)` → `TypeError: t.includes is not a function`, thrown out through `stackItemHtml` → `stackOverlayHtml` → `render()`. Because `withBusy` ran its first `render()` *before* its `try`, the throw escaped and left `busy` stuck true, disabling every priority/pass/cast control (`disabled = busy || …`) — reported as "as soon as spells go on the stack nothing reacts, all controls blocked". Fixed the `t`→`tl` typo (those 5 branches had *never* run, so their hard-coded German literals were dead code — now routed through new parity-matched `bd.stack.{instant,sorcery,planeswalker,artifact,enchantment,generic}Spell` keys) and moved `withBusy`'s first `render()` inside the `try` so a render exception can never wedge `busy` again. Creature spells and triggered/activated abilities were unaffected (earlier returns). Separate follow-up still open: reworking the stack/priority *interaction* itself (the modal-overlay "Zur Seite schieben" flow).
 
 ### Per-card action buttons from legal_actions
 
@@ -228,6 +256,7 @@ repointed there.
 
 - **What:** Face-down permanents render the player's chosen card-back sleeve with a 🎭 badge naming why (Morph/Disguise/Manifest/Cloak) and one "Aufdecken" button per legal turn-up route; the player-counter strip gained dungeon/room, Vanguard avatar, and Archenemy scheme facts; a Planechase strip shows the face-up plane and planar-die action, rendering nothing outside that format.
 - **Files:** `gameBoardView.js`
+- **Bug fixed:** A hand card with morph/disguise offers *two* `cast_spell` actions (the ordinary front-face cast for its printed cost, and the RULE 702.37a face-down cast for `{3}`). `faceHint` had no `face === 'face_down'` case, so it fell through to the generic `— <card name>` suffix and the morph button rendered as `✨ Zaubern — Birchlore Rangers` — indistinguishable from a redundant second copy of the plain cast button, so clicking it dropped a nameless face-down 2/2 onto the battlefield instead of the real creature. `faceHint` now labels that offer `(cast face down — Morph {3}, a 2/2)` (new `bd.faceHint.faceDown` locale key, en+de). Engine was always correct — front-face `cast_spell` resolves the creature normally; this was purely the button label.
 
 ### Modal spell mode selection (bug fix)
 
@@ -242,6 +271,12 @@ repointed there.
 - **What:** A hand/command-zone card with `{X}` in its cost gets a number input (defaults to max) instead of a plain cast button; a kickable spell separately gets a Kicker number input (defaults to 0, since it's an opt-in extra cost) — both compose when a spell is kickable and X-costed.
 - **Files:** `goldfishView.js`, `gameBoardView.js`
 - **Bug fixed:** `legal_actions` had surfaced kicker fields since an earlier batch, but neither the board nor `game_session.py`'s `cast_spell` handler ever read/forwarded a `kicked` field — so kicker payment couldn't have worked end-to-end regardless of UI. Fixed both sides together.
+
+### Additional-cost discard picker (RULE 601.2b / 602.1)
+
+- **What:** A spell whose additional cast cost is "discard N cards" (Thrill of Possibility, Cathartic Reunion, Tormenting Voice, Wild Guess, Big Score, …) now opens the same one-pick-at-a-time modal the tap/sacrifice cost choices use, so the player chooses *which* cards pay it, and the picks ride the cast action as `discard_choices`. The modal heading/glyph (🗑️) mark it as a cost choice, not a RULE 115 target.
+- **Files:** `gameBoardView.js` (`data-discard-choice-start` branch + handler, `isDiscardChoice` in `finishCastIfReady`/`castTargetModalHtml`/draft-restore), `game/engine/legal_actions_mixin.py` (`_cast_action` surfaces `discard_cost` = `{count, options}`), `services/game_session.py` (`_dispatch_cast_spell` now resolves and forwards `sacrifice_choice`/`discard_choices`).
+- **Bug fixed:** the engine (`_resolve_discard_cost`, ENG-3) had accepted `discard_choices` on `cast_spell` since the cost-payment-choices batch, but `_dispatch_cast_spell` silently dropped the field (same shape as the earlier `kicked` bug) and the board never prompted — so a rummage spell always auto-discarded the front of the hand with no way to choose. Fixed all three layers together; covered by `test_game_session.py::test_cast_spell_forwards_discard_choices_for_an_additional_cost`.
 
 ## Multiplayer Lobby
 
@@ -292,28 +327,43 @@ repointed there.
 
 ### Interactive priority UI (RULE 117)
 
-- **What:** In a shared game the toolbar shows "Passen" (not "advance step" — a step ends only when everyone passes) plus a badge for whose priority window it is; everything else is disabled outside your own window.
+- **What:** In a shared game the primary control is "Passen" (not "advance step" — a step ends only when everyone passes); who is active / who holds priority is shown only on each player's own banner now, not as a separate toolbar badge.
 - **Files:** `gameBoardView.js`
 
-### Auto-pass with countdown
+### Left rail: turn/phase, inline stack, per-priority countdown
 
-- **What:** A visible countdown auto-passes priority at zero when this client holds it; any board interaction cancels the window. Default on, 3s, opponent-turns-only; adjustable in Einstellungen and on the board itself.
-- **Files:** `gameBoardView.js`, `settings.js`
+- **What:** The board's old sticky topbar + overlaid stack popup + top toolbar were replaced by one narrow **left rail** (`.gf-rail`) shared by every mode (Goldfisch/Solo/Replay/Multiplayer): turn+phase at the top, the **stack inline** below it as a vertical column of the same mini card views the old overlay used (`stackItemHtml` — the spell's card, or an ability's source permanent with its text overlaid, plus a Zauber/ausgelöste/aktivierte-Fähigkeit badge and LIFO position), never covering the board — resolved entries linger ~2s greyed-out as `resolvedGhosts` (also rendered via `stackItemHtml` with `{ ghost: true }`) so it stays briefly visible what went on the stack, solo modes included. A bot/opponent cast is drained off the stack server-side before the client ever sees it there (`run_bots`/`_advance_solo_bots` answer to completion before returning), so `applyView` also synthesises a ghost from each new `cast_spell`/`activate_ability` `move_log` entry by another actor (`syntheticStackItemFromMoveLabel`), staggered on `botSpeedMs` (VIS-7) and de-duped against the live stack + existing ghosts. Then only the table/layout controls at the bottom (Zonen-Seite, Bot-Tempo, `extraControls` like Aufgeben/Export). **"Passen" is not in the rail** — it sits on the priority holder's own board banner (`priorityBits`), next to the cards. On game start `gameBoardView.start()` dispatches `mtg-game-started` and `app.js` folds the app's side menu away for full board width; `mtg-game-ended` brings it back. Below 1200px the rail becomes a horizontal strip.
+- **Files:** `gameBoardView.js`, `app.js`, `main.css`
+
+### Per-priority countdown (server-set, response windows only)
+
+- **What:** A **response** clock — it always runs while this client holds priority **on another player's turn**, which is the window a phase hands round to the other players once the active player is done. On your **own** turn (`autoPassArmed`/`railTimerHtml` both gate on `reactTimerSuppressedHere()`) it's suppressed during your main phases and combat — you're the one developing the board/attacking there (RULE 117), and a half-finished turn mustn't tick away under you — but it still runs whenever there's something on the stack to respond to, or during the passive **upkeep**, **draw** and **end** steps (`OWN_TURN_TIMER_STEPS`), where you're mostly just watching for a reason to act. A genuinely absent active player is the server idle-timeout's job (`MTG_MULTIPLAYER_IDLE_TIMEOUT`), not this. When it does run, the rail shows a shrinking bar and auto-passes at zero; any board interaction (a click anywhere in `.gf-stage`) — or the rail's "⏸ Unterbrechen" button — cancels it for that window. No opt-in checkbox (the Profil auto-pass section + its `getAutoPassEnabled`/`getAutoPassScope`/`getAutoSkipEmpty` cookies are gone; `getAutoPassSeconds` became `getPassTimerSeconds`, default 20, 0–600). The length is a **server** value, `view()["priority"]["timer_seconds"]` ← `config.MULTIPLAYER_SPELL_TIMER_SECONDS` (`MTG_MULTIPLAYER_SPELL_TIMER`, default 20s, 0 = off): **Multiplayer** host-overrides it per table in Setup (`LobbyGame.spell_timer_seconds`); **Solo vs. Bots** picks it in the start panel (`SoloStartRequest.spell_timer_seconds` → `create_multiplayer`), seeded from/saved to the `getPassTimerSeconds` cookie. "Skip empty windows" is always-on and runs *before* the timer check, so a window with nothing to respond to at all (an empty upkeep/draw/end with no instant/ability available) is passed through instantly rather than shown a bar, even in the three steps above.
+- **Files:** `gameBoardView.js`, `multiplayerView.js`, `soloView.js`, `settings.js`, `profileView.js`, backend `config.py`, `services/lobby.py`, `api/schemas.py`, `api/multiplayer.py`, `api/solo.py`, `services/game_session.py`
+
+### Take-backs on the player's own banner
+
+- **What:** When the table configured a take-back budget, the "↩ Zurücknehmen (n)" button now sits on this client's own board banner (via a `transport.takeBack` hook) instead of being one of the toolbar controls.
+- **Files:** `gameBoardView.js`, `multiplayerView.js`
 
 ### Reconnect keeps your seat
 
 - **What:** The lobby socket reclaims a seat by player name (Profil tab), so a reload/dropped connection lands back in the same game; a badge (⚡ getrennt) and drop-reason text (idle/replaced/timeout) surface connection state, which is lobby data reaching the board via a `seatStatus` hook.
 - **Files:** `lobbySocket.js`, `gameBoardView.js`
 
-### "Nächste Aktion" — skip empty priority windows
+### Skip empty priority windows (automatic)
 
-- **What:** A persisted toggle auto-passes through windows where `legal_actions` offers literally nothing but `pass_priority`, stopping at the first window that offers anything real — distinct from auto-pass, which is interruptible because there's something you could respond to.
-- **Files:** `gameBoardView.js`
+- **What:** Windows where `legal_actions` offers literally nothing but `pass_priority` are passed straight through, **unconditionally** (`skipEmptyArmed()`/`syncAutoPass`), chaining through consecutive empty windows one render at a time and stopping at the first window that offers anything real. There is **no manual "⏭ Nächste Aktion" button** on the shared board — it was removed once the skip went always-on (`skipToActionButtonHtml`, the `data-skip-empty` handler, the dead `skipBurstArmed` flag, the `bd.ctrl.nextAction`/`bd.ctrl.skipEmptyTitle2` keys and `.gf-banner-skip` CSS are all gone): it only ever did what the automatic skip already does, and never passed a window that had a real action. (Goldfisch's `#gf-next-decision` is unrelated — a server-side fast-forward over whole *steps*, solo only.)
+- **Files:** `gameBoardView.js`, `styles/main.css`, `locales/{en,de}.js`
 - **Bug fixed:** Could spam the server with redundant `pass_priority` calls fast enough to break the UI, because the multiplayer transport returns no fresh data from `act()` (it waits for the socket push) so the priority-window key could stay unchanged across renders while a pass was still in flight; fixed with a `skipAttemptedForKey` latch capping it to one attempt per window, verified via a headless JS-engine harness since there's no browser test runner.
 
-### Board polish: sticky topbar, player counters, round vs. turn
+### "End the turn" (manual speed-up, deliberate)
 
-- **What:** The turn/phase bar is sticky on scroll; poison/energy/Ring-level/Monarch/Initiative/emblems are now drawn (previously only life and mana pool were, despite already being in the payload); "Zug N" shows the round number (tooltip has the rules-correct per-player turn count).
+- **What:** A button on the priority holder's own banner, next to "Passen" — click it and every priority window this client holds for the rest of *this* turn auto-passes via `pass_priority`, **regardless of what `legal_actions` offers** (`endTurnActiveHere`). Unlike the automatic skip-empty above, it deliberately overrides "there's something you could do here" — the point is a player who's decided they have nothing left they want to do this turn and would rather fast-forward than click "Passen" through every remaining window (own main phases/combat included: it also force-passes those). Armed for exactly the internal turn it was clicked on (`endTurnAtTurnNumber` vs. `GameState.internal_turn.number`, RULE 500.1), so it never bleeds into the next turn; self-disarms once that turn ends, and on any genuine board interaction (`cancelAutoPassForThisWindow`, the same "you're clearly still deciding" signal the countdown listens to — checked unconditionally there, since a forced pass never starts `autoPassTimer` for the early-return guard to catch). It never answers a `pending_choice` or a turn-based action (declare attackers/blockers) — neither goes through `pass_priority`, so it can't silently skip one. Button text is the literal English "End the turn" in both locales (`bd.ctrl.endTurn`/`bd.ctrl.endTurnTitle`), by request.
+- **Files:** `gameBoardView.js`, `styles/main.css`, `locales/{en,de}.js`
+
+### Board polish: player counters, round vs. turn
+
+- **What:** poison/energy/Ring-level/Monarch/Initiative/emblems are now drawn (previously only life and mana pool were, despite already being in the payload); "Zug N" shows the round number (tooltip has the rules-correct per-player turn count). The turn/phase readout moved from a sticky topbar into the left rail (see "Left rail" above), which also retired the topbar's turn-order strip.
 - **Files:** `gameBoardView.js`
 
 ### Attachment targeting bug fix
@@ -327,14 +377,14 @@ repointed there.
 - **What:** The scry after the whole table keeps arrives as an ordinary `pending_choice` on the board (not the mulligan screen, since setup is already over by then); mulligan screens now read the real shrinking hand size and share one `mulligan.js` text module instead of being duplicated per view.
 - **Files:** `gameBoardView.js`, `mulligan.js`
 
-### Move/priority feed (VIS-5)
+### Move/priority feed (VIS-5) — removed
 
-- **What:** Short-lived toasts announce other seats' moves ("Bob hat X gespielt"), derived from the same move-log delta PLR-6's draft-invalidation logic already computes; silent for your own moves and in solo modes (no perspective).
-- **Files:** `gameBoardView.js`
+- **What:** Originally short-lived toasts (fixed top-right) announcing other seats' moves ("Bob hat X gespielt"), plus a "Verlauf" move-log panel under the board. Both were removed on request — the toast feed (`gf-move-feed`/`pushMoveFeed`/`describeMoveLabel`) and the panel (`moveLogHtml`/`gf-movelog`) are gone, along with their `bd.move.*`/`bd.moveLog.heading` locale keys. The move-log *delta* is still computed for PLR-6 draft-invalidation and for the VIS-7 rail-stack ghosts below.
+- **Files:** `gameBoardView.js`, `styles/main.css`, `locales/{en,de}.js`
 
 ### Bot move pacing with speed control (VIS-7)
 
-- **What:** A bot's whole turn arrives as one pushed view, so the move feed staggers each toast's reveal via `setTimeout` at a user-selectable pace (Sofort/Normal/Langsam) instead of showing a full bot turn's toasts simultaneously — a client-side replay of already-computed move-log data, not a server-push-per-ply change.
+- **What:** A bot's whole turn arrives as one pushed view, so `applyView` synthesises a rail-stack ghost from each new `cast_spell`/`activate_ability` `move_log` entry by another actor and staggers those ghost reveals via `setTimeout` at a user-selectable pace (Sofort/Normal/Langsam) instead of flashing a full bot turn's casts in at once — a client-side replay of already-computed move-log data, not a server-push-per-ply change. (Originally also paced the VIS-5 toast feed, now removed.)
 - **Files:** `gameBoardView.js`, `settings.js`
 
 ### A finished game closes deliberately
@@ -361,6 +411,20 @@ repointed there.
 
 - **What:** Ports goldfish's existing "Als Replay speichern" button (already mode-agnostic server-side) onto the Multiplayer board's seat controls, for both in-progress and finished games.
 - **Files:** `multiplayerView.js`
+
+## Solo vs. Bots
+
+### "Solo gegen Bots" mode (PLR-14)
+
+- **What:** A new Singleplayer tab (`data-tab="solo"`, between Goldfisch and Puzzle/Replay) to play a saved deck against 1–3 bots on the **real Multiplayer rules engine** — genuine opponent turns, the stack, RULE 117 priority played out, hidden opponent hands — but with **no lobby, no WebSocket, no other humans**. `soloView.js` is a persistent controller shaped like `goldfishView.js`'s (`mount`/`onShown`, phases `pick → loading → mulligan → playing → summary`); the interactive board is the shared `gameBoardView.js`, driven by a Multiplayer-style transport (`allowRewind:false`, `allowFastForward:false` — interactive priority means "Passen", not "Zug weiter"; the board's own client-side auto-pass carries the bots' priority windows). The POST reply from `/api/solo/{id}/action` already carries the position *after* the bots have answered (`_advance_solo_bots` server-side), so — unlike Multiplayer, which waits for a socket push — the transport hands that view straight back to the board.
+- **Start panel:** the human's deck `<select>` + legality gate (reused from goldfish), a format `<select>`, an **opponents** section (1–3 rows: bot-kind `<select>` from `GET /api/multiplayer/bots`, deck `<select>` defaulting to "wie dein Deck" = mirror match), and a "Wer beginnt? Du / Zufällig" (`startingPlayer`, maps to seat order server-side). Card art for every seat's deck + the human deck's producible tokens is preloaded on the loading screen.
+- **Backend:** `api/solo.py` — `POST /api/solo/start` / `{id}/action` / `{id}/concede` / `{id}/restart`, `GET`/`DELETE /api/solo/{id}`. Reuses `sessions.create_multiplayer` (mode `MULTIPLAYER` → interactive priority + redacted views), `bots.create_bot`/`run_bots`, and `api/game.resolve_seat_deck` (extracted from `api/multiplayer.py` so both share it). The bot roster lives on the session (`session._solo_bots`, the same stash idiom `create_replay` uses); `_advance_solo_bots` is a bounded `run_bots` loop that stops the moment the human has a *real* decision (a castable card, a block, a pending choice, priority on its own turn) or the game ends — no background task.
+- **Auto-passing the human through a bot's turn (backend, PLR-14 follow-up):** `_advance_solo_bots` also submits `pass_priority` *for* the human seat itself whenever `_human_only_passes(session)` — the human holds priority on an *opponent's* turn with `pass_priority` as its single legal action. Without it, every step of a bot's turn (upkeep, draw, each combat step, …) handed an empty priority window straight back to the client, and the game only crept forward one 3-second board-side auto-pass countdown at a time — which reads as the table hanging for the whole bot turn (the reported "hangs in the draw step"). This is the server-side twin of the board's own `autoSkipEmpty` (`frontend/src/js/settings.js`), always on for solo because a bot opponent gives the human nothing to respond to between turns; the human's *own* turn is still stepped by the client. `SOLO_BOT_ADVANCE_ROUNDS` was raised 20 → 120 to cover several bots' turns back to back in one response.
+- **Rail exit control:** the rail shows **"🏳️ Aufgeben"** (concede → review) *only while the game is live* and **"Beenden"** (`quit` → review / deck picker) *only once it's over* — never both at once (they were doing the same thing side by side during play). `restart`/`export` stay in both states.
+- **Shared with Goldfisch & Multiplayer (`gameSetup.js`, new):** `escapeHtml`/`escapeAttr`, the favorites-first deck `<option>` builder (`deckSelectOptionsHtml` — loading/error/empty states), `formatSelectOptionsHtml`, the mulligan hand tile (`mulliganTileHtml`), and the win/loss banner (`resultBannerHtml`). These were copy-pasted in both `goldfishView.js` and `multiplayerView.js`; `soloView.js` is the third caller, so they moved here once and both existing views were retrofitted to import them (behaviour-preserving — the markup output is unchanged).
+- **"⚠️" deck-picker marker (`loadUnmodeledDeckIds` in `gameSetup.js`):** every deck `<select>` in all three pickers (Goldfisch, Solo — own deck + opponent rows, Multiplayer — own seat + bot seats) prefixes a deck's `<option>` with "⚠️" when it holds cards the rules engine doesn't model yet (a goldfishing-readiness hint, not a legality gate — same signal the saved-decks list already shows as "⚠️ N Karte(n) nicht modelliert"). `deckSelectOptionsHtml` gained an `unmodeledDeckIds` param; each view fills its own `Set` after the deck list loads via `loadUnmodeledDeckIds(savedDecks)` — one `GET /api/decks/{id}/coverage` per deck, all in parallel, failures tolerated (an unchecked deck is simply left unmarked). Non-blocking: the picker renders immediately and repaints once the checks land.
+- **Files:** `soloView.js` (new), `gameSetup.js` (new), `api.js` (`startSolo`/`sendSoloAction`/`concedeSolo`/`restartSolo`/`endSolo`/`getSoloView`; `getDeckCoverage` already existed), `app.js` + `index.html` (tab wiring), `goldfishView.js` / `multiplayerView.js` (retrofit to `gameSetup.js` + the `unmodeledDeckIds` wiring). Backend: `api/solo.py` (new), `api/game.py` (`resolve_seat_deck` public), `api/multiplayer.py` (import it), `api/app.py` (router), `api/schemas.py` (`SoloStartRequest`/`SoloOpponent`).
+- **Tests:** `backend/tests/test_api_solo.py` — start (setup view, bot seated, RULE 400.2 redaction of the bot's hand), rejects (unknown deck → 422, 0/4 opponents → 400, unknown bot kind → 400), keep-hand completes setup with the human on the play, passing through the turn lets the GoldfishBot play a land, `_advance_solo_bots` terminates on a bot-only stretch, the human is never handed an empty pass-only priority window on a bot's turn (the auto-pass follow-up), concede → game over in the bots' favour, restart → back to setup, GET/DELETE lifecycle. Frontend verified with Playwright end to end (pick → mulligan → board → 59× "Passen" → the bot has 3 lands on the board by turn 3, zero console errors).
 
 ## Replay/Puzzle Mode
 

@@ -1,6 +1,6 @@
-# MTG Deck Analyzer — User Guide
+# DeckLab — User Guide
 
-A short guide to using the MTG Deck Analyzer app: importing decks,
+A short guide to using the DeckLab app: importing decks,
 analyzing them, and playing them out solo ("Goldfisch"), on a
 freely-built puzzle board ("Puzzle/Replay") or against another person
 ("Multiplayer").
@@ -26,16 +26,16 @@ followed by its translation, so you can match what's on screen either way.
 3. Deck Analysis / Deck-Analyse
 4. Goldfish Mode / Goldfisch-Modus
 5. Replay/Puzzle Mode / Replay-/Puzzle-Modus
-6. Settings & Card Art / Einstellungen & Kartenbilder
+6. Settings, Profile & Card Art / Einstellungen, Profil & Kartenbilder
 7. Card Cache / Karten-Cache
 8. Engine Status / Engine-Status
 9. Multiplayer / Multiplayer
 
 ---
 
-# MTG Deck Analyzer — Benutzerhandbuch
+# DeckLab — Benutzerhandbuch
 
-Eine kurze Anleitung zur Nutzung des MTG Deck Analyzers: Decks
+Eine kurze Anleitung zur Nutzung von DeckLab: Decks
 importieren, analysieren und solo ("Goldfisch"), auf einem frei
 gebauten Puzzle-Board ("Puzzle/Replay") oder gegen eine andere Person
 ("Multiplayer") ausspielen.
@@ -62,7 +62,7 @@ Oberfläche passen.
 3. Deck Analysis / Deck-Analyse
 4. Goldfish Mode / Goldfisch-Modus
 5. Replay/Puzzle Mode / Replay-/Puzzle-Modus
-6. Settings & Card Art / Einstellungen & Kartenbilder
+6. Settings, Profile & Card Art / Einstellungen, Profil & Kartenbilder
 7. Card Cache / Karten-Cache
 8. Engine Status / Engine-Status
 9. Multiplayer / Multiplayer

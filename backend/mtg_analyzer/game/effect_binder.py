@@ -35,6 +35,8 @@ from .static_conditions import condition_holds
 from .effects import (
     ActivatedAbility,
     AddCountersEffect,
+    AddManaEffect,
+    RecordBendEffect,
     AttachEffect,
     BecomeSaddledEffect,
     CumulativeUpkeepEffect,
@@ -62,6 +64,7 @@ from .effects import (
     ReturnSelfFromGraveyardToBattlefieldEffect,
     ReturnSelfFromGraveyardToHandEffect,
     SacrificeEffect,
+    SpecializeEffect,
     UnearthEffect,
     StaticAbility,
     TriggeredAbility,
@@ -83,7 +86,9 @@ _SUPPORTED_KINDS: frozenset[str] = frozenset(
 #: time. The rest (kicker/ward/rampage/protection quality/…) are still
 #: carried-but-inert — see `docs/implementation-state/BACKLOG.md` (PAR/MEC
 #: tickets) for which of them are still open.
-_PARAMETRIC_KEYWORD_KEYS: frozenset[str] = frozenset({"n", "cost", "quality"})
+_PARAMETRIC_KEYWORD_KEYS: frozenset[str] = frozenset(
+    {"n", "cost", "quality", "exile_hand_card_color"}
+)
 
 
 class BindError(ValueError):
@@ -245,6 +250,25 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # contributing creatures' controller as ``player_id``, the same
     # convention every other player-subject aggregate event above uses.
     "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER": "player_id",
+    # "Whenever you clash, …" / "Whenever you win a clash, …" (RULE 701.30,
+    # PAR-29) — `RulesEngine.clash` fires `CLASHED`/`WON_CLASH` per-player,
+    # the same ``player_id`` convention as SCRY/SURVEIL/LIFE_GAINED above.
+    "CLASHED": "player_id",
+    "WON_CLASH": "player_id",
+    # "Whenever you collect evidence, …" (RULE 701.59b, PAR-29) —
+    # `RulesEngine.collect_evidence` fires `COLLECTED_EVIDENCE` per-player.
+    "COLLECTED_EVIDENCE": "player_id",
+    # "Whenever you forage, …" (RULE 701.61b, PAR-29) — `RulesEngine.forage`
+    # fires `FORAGED` per-player.
+    "FORAGED": "player_id",
+    # "Whenever you behold …" (RULE 701.4b, PAR-29) — `RulesEngine.behold`
+    # fires `BEHELD` per-player.
+    "BEHELD": "player_id",
+    # "Whenever you waterbend, earthbend, firebend, or airbend, …" (RULE
+    # 701.6x, Avatar Aang) — `RulesEngine.record_bend` fires `BENT`
+    # per-player, same ``player_id`` convention as every player-subject
+    # event above.
+    "BENT": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE
@@ -258,6 +282,77 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
 #: ``target_id`` — a self-subject "whenever counters are put on ~" grant
 #: (Danny Pink) needs that key, not the default.
 _SUBJECT_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id", "COUNTER": "target_id"}
+
+
+def attacked_player_lowest_life_predicate(controller_id: Optional[str]) -> Callable[[Any, Any], bool]:
+    """"if no opponent has more life than that player" (PAR-32, Guild
+    Artisan cycle) — a RULE 603.4 gate on an "~ attacks a player" trigger:
+    the attacked player (the ATTACKS event's ``defending_player_id``) has
+    life ≤ every non-eliminated opponent of ``controller_id``. Shared by
+    `_trigger_condition` (printed form) and
+    `continuous._apply_layer_6_ability` (the "Commander creatures you own
+    have '…'" re-granted form)."""
+
+    def _ok(event: Any, context: Any, me=controller_id) -> bool:
+        state = getattr(context, "state", None)
+        did = (event or {}).get("defending_player_id")
+        if state is None or did is None:
+            return False
+        try:
+            defender = state.player_by_id(did)
+        except (KeyError, ValueError):
+            return False
+        opponents = [
+            p for p in state.players
+            if p.id != me and not getattr(p, "has_lost", False)
+        ]
+        return bool(opponents) and all(defender.life <= p.life for p in opponents)
+
+    return _ok
+
+
+def regrant_trigger_gate_predicate(
+    key: str, controller_id: Optional[str], source: Any = None
+) -> Optional[Callable[[Any, Any], bool]]:
+    """A firing-event gate for a *re-granted* trigger (PAR-32 — "Commander
+    creatures you own have 'Whenever …'"), by the trigger-dict key that
+    carried it. `continuous._apply_layer_6_ability` ANDs the result onto the
+    granted `TriggeredAbility.condition`; each gate is the same event-field
+    read the printed-trigger path uses in `_trigger_condition`. ``source``
+    is the granted-to permanent, for the source-relative keys."""
+    if key == "attacked_player_has_lowest_life":
+        return attacked_player_lowest_life_predicate(controller_id)
+    if key == "spell_from_exile":
+        return lambda event, context: bool((event or {}).get("from_exile"))
+    if key == "spell_shares_creature_type_with_source":
+        def _shares(event: Any, context: Any, src=source) -> bool:
+            state = getattr(context, "state", None)
+            spell = state.find_object((event or {}).get("instance_id")) if state is not None else None
+            if spell is None or src is None:
+                return False
+
+            def _subs(o: Any) -> set[str]:
+                tl = getattr(getattr(o, "card", None), "type_line", "") or ""
+                return {w.lower() for w in tl.partition("—")[2].split()}
+
+            return bool(_subs(spell) & _subs(src))
+
+        return _shares
+    return None
+
+
+def regrant_active_if_predicate(active_if: dict[str, Any], source: Any) -> Callable[[Any, Any], bool]:
+    """PAR-32: a re-granted phase trigger's RULE 603.4 intervening-if
+    (`static_conditions` `active_if` dict — Cloakwood Hermit / Dragon
+    Cultist), evaluated against the *granted-to* permanent and its
+    controller. `continuous._apply_layer_6_ability` ANDs it."""
+    cid = getattr(source, "controller_id", None)
+
+    def _ok(event: Any, context: Any, cond=dict(active_if), src=source, c=cid) -> bool:
+        state = getattr(context, "state", None)
+        return state is not None and condition_holds(cond, state, src, c)
+
+    return _ok
 
 
 def _subject_event_key(trigger: dict[str, Any]) -> str:
@@ -335,10 +430,23 @@ def _subject_condition(
         controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(
             trigger.get("event"), "controller_id"
         )
+        # RULE 508.3a batch attack: "one or more <filter> creatures you
+        # control attack" — the `PLAYER_ATTACKED` aggregate carries only the
+        # attacking player, so the ``<filter>`` (a negated creature subtype
+        # or a main type, `segmenter._batch_attack_group_filter`) is checked
+        # against the live attacking group, which is still on the battlefield
+        # when triggers are put on the stack (RULE 508.3).
+        group_filter = condition.get("group_filter") or None
 
-        def _you_ok(event: Any, context: Any, src=source, key=controller_key) -> bool:
+        def _you_ok(
+            event: Any, context: Any, src=source, key=controller_key, gf=group_filter
+        ) -> bool:
             actor = event.get(key)
-            return actor is not None and actor == getattr(src, "controller_id", None)
+            if actor is None or actor != getattr(src, "controller_id", None):
+                return False
+            if gf is None:
+                return True
+            return _any_attacking_matches(context, actor, gf)
 
         return _you_ok
 
@@ -444,6 +552,11 @@ def _build_group_ok(
     type_word = condition.get("type")
     subtypes = condition.get("subtypes")
     nontoken = bool(condition.get("nontoken"))
+    # "a **non-Human** creature you control attacks" (Winota) — the negated
+    # mirror of ``subtypes``: the acting object must NOT have any of these
+    # creature subtypes. Read off the event's live subtypes (ATTACKS keeps
+    # the object on the battlefield, RULE 508.3), fail-closed if unknowable.
+    excluded_subtypes = [s.lower() for s in condition.get("excluded_subtypes") or []]
     # RULE 701.15b: a *designation* filter on the acting object rather than a
     # characteristic — "whenever a **goaded** creature attacks" (Vengeful
     # Ancestor), "whenever a **goaded attacking or blocking** creature dies"
@@ -490,6 +603,12 @@ def _build_group_ok(
     # (after the printed em dash), so it needs its own live board check
     # rather than either existing filter above.
     want_nonbasic = bool(condition.get("nonbasic"))
+    # "Whenever a **nonland** creature/permanent you control dies, …"
+    # (Beifong's Bounty Hunters) — a negated main type on the acting object.
+    # Checked against the DIES event's snapshotted ``object_types`` (the
+    # object has left the battlefield by the time this runs, RULE 400.7),
+    # with the same live-lookup fallback the ``type`` filter uses.
+    want_nonland = bool(condition.get("nonland"))
     # RULE 603.1 Panharmonicon-shaped self-recursion guard (MEC-43 round
     # 4D, Kodama of the East Tree — "if it wasn't put onto the
     # battlefield with this ability"): the acting object's own live
@@ -501,6 +620,15 @@ def _build_group_ok(
     # the printed default is "wasn't put here", so an inconclusive lookup
     # shouldn't silently suppress an otherwise-legal trigger.
     want_not_entered_via_self = bool(condition.get("not_entered_via_self"))
+    # MEC-49: "whenever a creature **dealt damage by ~ this turn** dies, …"
+    # (Baron Sengir, Abattoir Ghoul) — the acting object's `instance_id`
+    # must be in `GameState.creatures_damaged_by_source_this_turn` keyed
+    # under this ability's own source. A pure history lookup (the object is
+    # gone by DIES), keyed on this ability's source like `crewed_by_self`.
+    want_damaged_by_self = bool(condition.get("damaged_by_source_this_turn"))
+    # "…by **enchanted creature**" (Vampiric Embrace) — the damage source is
+    # this Aura's host, not the Aura itself.
+    damaged_by_via_attached = bool(condition.get("via_attached"))
 
     def _group_ok(
         event: Any,
@@ -509,6 +637,7 @@ def _build_group_ok(
         cid=controller_id,
         tword=type_word,
         stypes=subtypes,
+        excl_stypes=excluded_subtypes,
         want_nontoken=nontoken,
         you=wants_you,
         not_you=wants_not_you,
@@ -520,7 +649,10 @@ def _build_group_ok(
         want_recipient_you=wants_recipient_you,
         want_crewed_by_self=want_crewed_by_self,
         want_nonbasic=want_nonbasic,
+        want_nonland=want_nonland,
         want_not_entered_via_self=want_not_entered_via_self,
+        want_damaged_by_self=want_damaged_by_self,
+        damaged_by_via_attached=damaged_by_via_attached,
     ) -> bool:
         event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
@@ -575,12 +707,31 @@ def _build_group_ok(
                 event_subtypes = _card_subtypes(obj.card) if obj is not None else None
             if not event_subtypes or not any(s in event_subtypes for s in stypes):
                 return False
+        if excl_stypes:
+            event_subtypes = event.get("subtypes")
+            if event_subtypes is None and event_instance is not None:
+                state = getattr(context, "state", None)
+                obj = state.find_object(event_instance) if state is not None else None
+                event_subtypes = _card_subtypes(obj.card) if obj is not None else None
+            if event_subtypes is None:
+                return False  # can't confirm the negation — fail closed
+            lowered = {str(s).lower() for s in event_subtypes}
+            if any(e in lowered for e in excl_stypes):
+                return False
         if want_nonbasic:
             if event_instance is None:
                 return False
             state = getattr(context, "state", None)
             obj = state.find_object(event_instance) if state is not None else None
             if obj is None or "basic" in str(getattr(obj.card, "type_line", "") or "").lower():
+                return False
+        if want_nonland:
+            types = event.get("object_types")
+            if types is None and event_instance is not None:
+                state = getattr(context, "state", None)
+                obj = state.find_object(event_instance) if state is not None else None
+                types = sorted(obj.type_words) if obj is not None else None
+            if types is None or "land" in types:
                 return False
         if want_crewed_by_self:
             if iid is None or event_instance is None:
@@ -593,6 +744,22 @@ def _build_group_ok(
             state = getattr(context, "state", None)
             obj = state.find_object(event_instance) if state is not None else None
             if obj is not None and getattr(obj, "entered_via_ability_id", None) == iid:
+                return False
+        if want_damaged_by_self:
+            if iid is None or event_instance is None:
+                return False
+            state = getattr(context, "state", None)
+            source_id = iid
+            if damaged_by_via_attached:
+                aura = state.find_object(iid) if state is not None else None
+                source_id = getattr(aura, "attached_to", None)
+                if source_id is None:
+                    return False
+            hit_by = (
+                getattr(state, "creatures_damaged_by_source_this_turn", {}).get(event_instance, ())
+                if state is not None else ()
+            )
+            if source_id not in hit_by:
                 return False
         if want_goaded or want_in_combat:
             snapshot_goaded = event.get("goaded")
@@ -626,6 +793,39 @@ def _card_subtypes(card: Any) -> list[str]:
     """Lowercase subtype words after a printed type line's em dash."""
     type_line = str(getattr(card, "type_line", "") or "")
     return type_line.partition("—")[2].strip().lower().split()
+
+
+def _any_attacking_matches(
+    context: Any, controller_id: Any, group_filter: dict[str, Any]
+) -> bool:
+    """RULE 508.3a: does ``controller_id`` have at least one *currently
+    attacking* creature matching ``group_filter`` (`segmenter.
+    _batch_attack_group_filter`'s ``{"excluded_subtypes": [...]}`` /
+    ``{"type": ...}`` shape)? — the live check for a batch attack trigger
+    whose `PLAYER_ATTACKED` aggregate names only the attacking player."""
+    state = getattr(context, "state", None)
+    if state is None:
+        return False
+    excluded = [s.lower() for s in group_filter.get("excluded_subtypes") or []]
+    want_type = group_filter.get("type")
+    want_suspected = bool(group_filter.get("is_suspected"))
+    for obj in state.battlefield:
+        if not getattr(obj, "attacking", False):
+            continue
+        if getattr(obj, "controller_id", None) != controller_id:
+            continue
+        if want_type and want_type not in {t.lower() for t in getattr(obj, "type_words", ())}:
+            continue
+        # RULE 508.3a / 701.60 (Clandestine Meddler): "whenever one or more
+        # **suspected** creatures you control attack, …".
+        if want_suspected and not getattr(obj, "is_suspected", False):
+            continue
+        if excluded:
+            obj_subs = {s.lower() for s in _card_subtypes(getattr(obj, "card", None))}
+            if any(e in obj_subs for e in excluded):
+                continue
+        return True
+    return False
 
 
 def _trigger_condition(
@@ -705,7 +905,7 @@ def _trigger_condition(
     if trigger.get("requires_saddled"):
         def _saddled_ok(event: Any, context: Any, src=source) -> bool:
             state = getattr(context, "state", None)
-            turn = getattr(state, "turn_number", None)
+            turn = getattr(state.internal_turn, "number", None)
             return turn is not None and getattr(src, "saddled_until_turn", None) == turn
 
         predicates.append(_saddled_ok)
@@ -884,6 +1084,15 @@ def _trigger_condition(
 
         predicates.append(_spell_no_mana_ok)
 
+    # "Whenever you cast a spell from exile, …" (Passionate Archaeologist's
+    # granted trigger, PAR-32) — RULE 601.2a's cast zone, off the
+    # `SPELL_CAST` event's ``from_exile`` key.
+    if trigger.get("spell_from_exile"):
+        def _spell_from_exile_ok(event: Any, context: Any) -> bool:
+            return bool(event.get("from_exile"))
+
+        predicates.append(_spell_from_exile_ok)
+
     # "Whenever an opponent casts a spell with mana value, power, or
     # toughness equal to the chosen number, …" (Talion, the Kindly Lord,
     # MEC-43) — reads the RULE 601.2b ETB choice this permanent's own
@@ -929,6 +1138,52 @@ def _trigger_condition(
             return bool(event.get("source_targets_only_single_creature"))
 
         predicates.append(_single_creature_target_ok)
+
+    # "Whenever you cast a spell that targets one or more permanents,
+    # incubate 2." (Tiller of Flesh, RULE 608.2b) — reads the SPELL_CAST
+    # event's ``targets_a_permanent`` flag, stamped at cast time by
+    # `casting_mixin._targets_a_permanent` when the spell's chosen targets
+    # include a battlefield permanent. "you cast" is the ordinary
+    # ``{"subject": "group", "controller": "you"}`` check on the same
+    # event; this only adds the targeting filter that check doesn't cover.
+    if trigger.get("requires_spell_targets_permanent"):
+        def _spell_targets_permanent_ok(event: Any, context: Any) -> bool:
+            return bool(event.get("targets_a_permanent"))
+
+        predicates.append(_spell_targets_permanent_ok)
+
+    # "Whenever you cast a spell that targets ~, put a +1/+1 counter on ~."
+    # (RULE 702.34a's un-keyworded template — Akroan Skyguard / Battlewise
+    # Hoplite / Hero of Iroas / Legolas, Master Archer) — the spell's chosen
+    # targets must include this ability's own source. Reads the SPELL_CAST
+    # event's `target_instance_ids` frozenset (`casting_mixin._target_
+    # instance_ids`); `source` here is the bound ability's own object.
+    if trigger.get("requires_spell_targets_source"):
+        def _spell_targets_source_ok(event: Any, context: Any, src=source) -> bool:
+            sid = getattr(src, "instance_id", None)
+            return sid is not None and sid in (event.get("target_instance_ids") or ())
+
+        predicates.append(_spell_targets_source_ok)
+
+    # "Whenever you cast a spell that shares a creature type with ~, …"
+    # (Folk Hero's granted trigger, PAR-32) — the spell is still on the
+    # stack (`event["instance_id"]`); compare its creature subtypes with
+    # the ability's own source's.
+    if trigger.get("spell_shares_creature_type_with_source"):
+        def _spell_shares_type_ok(event: Any, context: Any, src=source) -> bool:
+            state = getattr(context, "state", None)
+            spell = state.find_object(event.get("instance_id")) if state is not None else None
+            if spell is None or src is None:
+                return False
+
+            def _subs(o: Any) -> set[str]:
+                tl = getattr(getattr(o, "card", None), "type_line", "") or ""
+                return {w.lower() for w in tl.partition("—")[2].split()}
+
+            shared = _subs(spell) & _subs(src)
+            return bool(shared)
+
+        predicates.append(_spell_shares_type_ok)
 
     # "…a spell with mana value equal to the number of charge counters on
     # this artifact, counter that spell." (Chalice of the Void, MEC-43) —
@@ -1181,6 +1436,76 @@ def _trigger_condition(
             return int((obj.counters or {}).get(k, 0)) >= want
 
         predicates.append(_source_counters_at_least_ok)
+
+    # "When you control no Swamps, sacrifice ~." (RULE 603.8 state trigger —
+    # Bog Serpent / Sea Serpent / Dandân cycle). A `LEAVES_BATTLEFIELD`
+    # trigger gated on the ability's controller currently controlling zero
+    # permanents of the named printed land subtype — the same live
+    # battlefield scan `effects.ConditionalEffect`'s own
+    # ``controls_none_of_type`` gate uses, and the same "gate an ordinary
+    # event on a state read rather than build a state-trigger subsystem"
+    # rationale as `source_counters_at_least` just above.
+    controls_none_of_type = trigger.get("controls_none_of_type")
+    if controls_none_of_type is not None:
+        controller_id = getattr(source, "controller_id", None)
+        subtype_word = str(controls_none_of_type).lower()
+
+        def _controls_none_ok(
+            event: Any, context: Any, cid=controller_id, w=subtype_word,
+        ) -> bool:
+            state = getattr(context, "state", None)
+            if state is None:
+                return False
+            # RULE 603.6a "look back in time": LEAVES_BATTLEFIELD fires while
+            # the leaving permanent is *still* on the battlefield, so the
+            # object that just left is excluded here — the check is "will
+            # the controller control none of that type once this leave
+            # completes".
+            leaving_id = event.get("instance_id")
+            return not any(
+                o.instance_id != leaving_id
+                and o.controller_id == cid
+                and w in o.card.type_line.partition("—")[2].strip().lower().split()
+                for o in state.battlefield
+            )
+
+        predicates.append(_controls_none_ok)
+
+    # "Whenever ~ attacks a player who controls N or more lands, …" (Owlbear
+    # Cub — RULE 508.1). Gate the ordinary `ATTACKS` event on the *defending*
+    # player's land count, read live off the event's ``defending_player_id``.
+    # Same "gate an event on a state read rather than a state-trigger
+    # subsystem" rationale as `controls_none_of_type` just above.
+    defender_lands_min = trigger.get("defender_controls_lands_at_least")
+    if defender_lands_min is not None:
+        want_lands = int(defender_lands_min)
+
+        def _defender_lands_ok(
+            event: Any, context: Any, want=want_lands,
+        ) -> bool:
+            state = getattr(context, "state", None)
+            did = (event or {}).get("defending_player_id")
+            if state is None or did is None:
+                return False
+            n = sum(
+                1 for o in state.battlefield
+                if o.controller_id == did
+                and (getattr(o, "is_land", False)
+                     or "land" in o.card.type_line.partition("—")[0].lower().split())
+            )
+            return n >= want
+
+        predicates.append(_defender_lands_ok)
+
+    # "Whenever ~ attacks a player, if no opponent has more life than that
+    # player, …" (Baldur's Gate "attack whoever's behind" cycle — Guild
+    # Artisan &c, PAR-32). RULE 603.4 intervening-if: the attacked player's
+    # life is ≤ every *other* opponent's (of this ability's controller),
+    # read live off the ATTACKS event's ``defending_player_id``.
+    if trigger.get("attacked_player_has_lowest_life"):
+        predicates.append(
+            attacked_player_lowest_life_predicate(getattr(source, "controller_id", None))
+        )
 
     # PAR-28 / RULE 702.169c Solved / 702.178a Max Speed on a *triggered*
     # ability: "[Ability text]. This ability triggers only if [condition]."
@@ -1524,7 +1849,15 @@ def bind_ability(
                 modes_or_both=bool(spec.modes.get("or_both", False)) if spec.modes else False,
                 modes_choose=int(spec.modes.get("choose", 1)) if spec.modes else 1,
                 modes_at_least=bool(spec.modes.get("at_least", False)) if spec.modes else False,
+                modes_repeatable=bool(spec.modes.get("repeatable", False)) if spec.modes else False,
+                modes_exhaust_per_turn=bool(spec.modes.get("exhaust_per_turn", False)) if spec.modes else False,
                 modes_optional=bool(spec.modes.get("optional", False)) if spec.modes else False,
+                modes_override=spec.modes.get("override") if spec.modes else None,
+                # PAR-30 (Confusion in the Ranks) — "its controller chooses
+                # …": `TriggeredAbility.controller_from_trigger_event`.
+                controller_from_trigger_event=(
+                    spec.trigger.get("chooser") == "trigger_subject_controller"
+                ),
                 condition=_trigger_condition(single_trigger, source),
                 optional=spec.optional,
                 controller_id=getattr(source, "controller_id", None),
@@ -1699,6 +2032,8 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         return _saddle_activated_ability(obj, spec, keyword)
     if name == "station":
         return _station_activated_ability(obj, spec)
+    if name == "specialize":
+        return _specialize_activated_ability(obj, spec, keyword)
     if name in {"unearth", "embalm", "eternalize"}:
         return _graveyard_keyword_activated_ability(obj, spec, keyword)
     if name not in {"equip", "fortify", "reconfigure"}:
@@ -1711,6 +2046,12 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
     # (and re-payable) any number of times at sorcery speed. Don't graft a
     # {T} onto it: that would tap the permanent and block re-activation.
     cost = parse_activation_cost(cost_text)
+    # Bug report, 2026-09-04: all three keywords' own reminder text ends
+    # "Activate only as a sorcery." (RULE 702.6c/702.32b/702.151c) — the
+    # comment above already said as much, but nothing here ever actually
+    # set the flag `GameEngine._sorcery_speed_ok` checks, so Equip/Fortify/
+    # Reconfigure were legal to activate at instant speed.
+    cost.sorcery_speed_only = True
     return ActivatedAbility(
         effects=[AttachEffect(target_kind=target_kind)],
         cost=cost,
@@ -1797,6 +2138,35 @@ def _graveyard_keyword_activated_ability(
         cost=cost,
         source=obj,
         description=spec.raw_text or name.capitalize(),
+    )
+
+
+def _specialize_activated_ability(
+    obj: Any, spec: AbilitySpec, keyword: dict[str, Any]
+) -> Optional[ActivatedAbility]:
+    """MEC-48: "Specialize {cost}" — an Arena-only digital keyword (no paper
+    CR) = "{cost}, Discard a card: This permanent specializes. Activate only
+    as a sorcery."
+
+    Like Cycling/Crew/Unearth before it, the keyword was parser-recognized
+    (a bare keyword-line claim) but bound to nothing, so Specialize never
+    became an offered action. The cost is the printed mana plus a
+    discard-one-card additional cost (`ActivationCost.discard = 1`, the same
+    `_resolve_discard_cost` auto-pick path a battlefield "discard a card"
+    cost uses) at sorcery speed. The effect is `SpecializeEffect` — a
+    designation + `EventType.SPECIALIZED`, no characteristic swap (the five
+    specialized faces aren't in this repo's card seed).
+    """
+    cost_text = keyword.get("cost")
+    if not cost_text:
+        return None
+    cost = parse_activation_cost(f"{cost_text}, Discard a card")
+    cost.sorcery_speed_only = True  # RULE-analogue: "Activate only as a sorcery."
+    return ActivatedAbility(
+        effects=[SpecializeEffect(source=obj)],
+        cost=cost,
+        source=obj,
+        description=spec.raw_text or "Specialize",
     )
 
 
@@ -2369,6 +2739,52 @@ def _kw_backup(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     ]
 
 
+def _kw_firebending(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.189 (approx) Firebending N (Doctor Who / Avatar: The Last
+    Airbender) — "Whenever this creature attacks, add {R}×N. This mana lasts
+    until end of combat."
+
+    A self-only `ATTACKS` triggered **mana** ability (RULE 605.4 —
+    resolves off-stack, so the {R} is spendable in the same combat). The
+    "lasts until end of combat" note is a **documented simplification**:
+    the mana is added to the pool now and empties at the ordinary step
+    boundary rather than being tagged with a combat-scoped lifetime.
+
+    A second, ordinary (stack-using) self-only `ATTACKS` trigger carries a
+    `RecordBendEffect` — attacking with a Firebending creature is how a
+    player "firebends" in the Avatar set (RULE 701.6x), and Avatar Aang's
+    "whenever you … firebend" trigger reads `EventType.BENT`. Kept separate
+    from the mana ability so the latter stays a pure mana effect (RULE
+    605.4) and the marker still fires when N is 0 (Firebending X, X=0).
+
+    Only reached from a *printed* Firebending keyword line. A *granted*
+    "gains firebending N" (Sozin's Comet, Fire Nation Palace) needs
+    parametric keyword grants — ENG-46 — so those cards stay UNMODELED
+    (PAR-30).
+    """
+    if n is None:
+        return []
+    n = int(n)
+    self_only = _self_only_condition(getattr(obj, "instance_id", None))
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ATTACKS,
+            effects=[AddManaEffect(colors=["R"] * n)],
+            condition=self_only,
+            source=obj,
+            mana_ability=True,
+            description=spec.raw_text or f"Firebending {n}",
+        ),
+        TriggeredAbility(
+            trigger_event=EventType.ATTACKS,
+            effects=[RecordBendEffect(kind="firebend", source=obj)],
+            condition=_self_only_condition(getattr(obj, "instance_id", None)),
+            source=obj,
+            description="Firebending — du feuerbändigst",
+        ),
+    ]
+
+
 #: `keyword["name"]` → builder, mirroring `EffectRegistry`'s dict-over-
 #: if/elif pattern. Each builder takes ``(obj, spec, n)`` and returns the
 #: real triggered abilities to synthesize for that keyword (or ``[]`` if
@@ -2388,6 +2804,7 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "battle_cry": _kw_battle_cry,
     "mentor": _kw_mentor,
     "backup": _kw_backup,
+    "firebending": _kw_firebending,
 }
 
 
@@ -2424,6 +2841,27 @@ def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredA
     if builder is None:
         return []
     return builder(obj, spec, keyword.get("n"))
+
+
+def parametric_keyword_triggered_abilities(
+    obj: Any, name: str, n: Any
+) -> list[TriggeredAbility]:
+    """ENG-31: synthesize the triggered abilities for a *granted* parametric
+    keyword — "target creature gains firebending N until end of turn" (Fire
+    Nation Palace), "creatures you control have firebending N" (Sozin's
+    Comet). The printed-keyword path runs the same
+    `_KEYWORD_TRIGGERED_BUILDERS` at bind-on-load via
+    `_keyword_triggered_abilities`; a *grant* has no bind step, so
+    `continuous._apply_layer_6_ability` calls this every recompute onto
+    `GameObject._granted_triggered_abilities`. Only the keywords whose RULE
+    702 text *is* a triggered ability (firebending / annihilator / afflict /
+    bushido) have a builder; anything else returns ``[]``.
+    """
+    builder = _KEYWORD_TRIGGERED_BUILDERS.get(str(name))
+    if builder is None:
+        return []
+    spec = AbilitySpec("keyword", keyword={"name": str(name), "n": n})
+    return builder(obj, spec, n)
 
 
 def _build_mode_entries(modes: dict[str, Any], source: Any) -> list[dict[str, Any]]:
@@ -2478,6 +2916,8 @@ def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:
     obj.spell_modes_or_both = bool(modes.get("or_both", False))
     obj.spell_modes_choose = int(modes.get("choose", 1))
     obj.spell_modes_at_least = bool(modes.get("at_least", False))
+    obj.spell_modes_repeatable = bool(modes.get("repeatable", False))
+    obj.spell_modes_override = modes.get("override")
     # RULE 702.42a Entwine: the raw mana cost that upgrades "choose one" to
     # "choose all". Read by `GameEngine._entwine_cost` — the "both" offer it
     # unlocks is priced (and lockable), unlike ``spell_modes_or_both``'s.
@@ -2516,6 +2956,12 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.additional_cost:
             spec.validate()
             obj.additional_cast_cost = parse_activation_cost(spec.additional_cost)
+            # PAR-30 / RULE 601.2b: "as an additional cost to cast this
+            # spell, **you may** waterbend {N}." — offered as its own cast
+            # variant, `GameObject.additional_cost_paid` recording whether it
+            # was taken (`game/engine/casting_mixin.py`).
+            if spec.additional_cost_optional:
+                obj.additional_cast_cost_optional = True
         if spec.conditional_flash:
             spec.validate()
             obj.conditional_flash = spec.conditional_flash

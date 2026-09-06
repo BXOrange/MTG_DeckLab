@@ -204,15 +204,27 @@ class CoverageDatabase:
     # -- snapshots --------------------------------------------------------
 
     def record_snapshot(
-        self, total: int, covered: int, top_templates: list[tuple[str, int]]
+        self, total: int, covered: int, top_templates: list[tuple[str, int]],
+        scope: str = "cache",
     ) -> None:
+        """Store one coverage measurement.
+
+        `scope` distinguishes measurements taken over different card sets so
+        their progress curves don't interleave in the one `snapshots` table:
+        the default ``"cache"`` (the whole ~34k cache) stores the bare
+        `PARSER_VERSION`, any other scope (e.g. ``"commander"`` from
+        `scripts/coverage_report.py --commander-legal-only`) stores
+        ``f"{PARSER_VERSION}-{scope}"`` so a reader can filter on the suffix.
+        The column stays a plain string; no schema change.
+        """
         fraction = (covered / total) if total else 1.0
+        version = PARSER_VERSION if scope == "cache" else f"{PARSER_VERSION}-{scope}"
         with self._lock:
             self._connection.execute(
                 "INSERT INTO snapshots "
                 "(taken_at, parser_version, total, covered, fraction, top_templates) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (_now(), PARSER_VERSION, total, covered, fraction,
+                (_now(), version, total, covered, fraction,
                  json.dumps([list(t) for t in top_templates])),
             )
             self._connection.commit()

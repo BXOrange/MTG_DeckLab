@@ -155,7 +155,7 @@ def test_uba_mask_exiles_drawn_cards_and_grants_temp_play_permission():
 
     assert len(p1.hand) == before_hand
     assert top in p1.exile
-    assert state.temp_play_permissions.get(top.instance_id) == state.turn_number
+    assert state.temp_play_permissions.get(top.instance_id) == state.internal_turn.number
 
 
 # ---------------------------------------------------------------------------

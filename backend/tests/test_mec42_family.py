@@ -578,3 +578,55 @@ def test_delay_suspended_creature_counts_down_and_casts_free_with_haste():
     assert victim in state.battlefield
     assert "haste" in victim.temp_keywords
     assert victim.granted_suspend_haste is False, "consumed once at resolution"
+
+
+def test_suspend_special_action_pays_printed_cost_and_arms_existing_upkeep_path():
+    """MEC-64 / RULE 702.62a: the first Suspend ability is a hand action."""
+    eng = make_engine(_filler(5), hand=0)
+    state = eng.state
+    p1 = state.player_by_id("p1")
+    card = Card(
+        id="Suspend Bear", name="Suspend Bear", type_line="Creature — Bear",
+        is_creature=True, power=2, toughness=2, mana_cost_string="{5}",
+        converted_mana_cost=5, oracle_text="Suspend 2—{1}{U}", keywords=["Suspend"],
+    )
+    bear = _to_hand(state, card)
+    bind_from_catalogue(bear)
+    p1.mana_pool.add_many({"U": 1, "C": 1})
+    eng.begin_turn()
+    state.current_step = "main1"
+
+    offer = next(a for a in eng.legal_actions(p1) if a.get("type") == "suspend")
+    assert offer["instance_id"] == bear.instance_id
+    assert offer["cost_label"] == "{1}{U}"
+    assert offer["time_counters"] == 2
+
+    eng.suspend(p1, bear)
+
+    assert bear in p1.exile
+    assert bear.counters.get("time") == 2
+    assert p1.mana_pool.total() == 0
+
+    _fire_upkeep(eng, "p1")
+    _fire_upkeep(eng, "p1")
+    assert bear.instance_id in state.free_cast_instance_ids
+
+
+def test_suspend_special_action_is_not_available_on_an_opponents_turn():
+    eng = make_engine(_filler(5), _filler(5), hand=0)
+    state = eng.state
+    p1 = state.player_by_id("p1")
+    card = Card(
+        id="Suspend Instant", name="Suspend Instant", type_line="Instant",
+        is_instant=True, mana_cost_string="{4}", converted_mana_cost=4,
+        oracle_text="Suspend 1—{U}", keywords=["Suspend"],
+    )
+    spell = _to_hand(state, card)
+    bind_from_catalogue(spell)
+    p1.mana_pool.add_many({"U": 1})
+    eng.begin_turn()
+    state.current_step = "main1"
+    state.active_player_index = 1
+
+    assert not eng.can_suspend(p1, spell)
+    assert not any(a.get("type") == "suspend" for a in eng.legal_actions(p1))

@@ -21,18 +21,22 @@
 // text at 5:1 or better — white is the palest hue and therefore the one
 // that sets that floor (which is why its "deep" is a dark khaki).
 
-/** WUBRG order — every key, label and gradient below is built from this. */
+import { t } from './i18n.js';
+
+/** WUBRG order — every key, label and gradient below is built from this.
+ * Labels come from the i18n catalog (resolved at import — i18n initializes
+ * first and a language change reloads the page). */
 export const BANNER_COLORS = [
-  { code: 'w', label: 'Weiß', symbol: 'W', deep: '#6f6849', bright: '#f8f6d8' },
-  { code: 'u', label: 'Blau', symbol: 'U', deep: '#2f5f80', bright: '#aee0fa' },
-  { code: 'b', label: 'Schwarz', symbol: 'B', deep: '#4c453f', bright: '#b7aca4' },
-  { code: 'r', label: 'Rot', symbol: 'R', deep: '#8a463a', bright: '#f9aa8f' },
-  { code: 'g', label: 'Grün', symbol: 'G', deep: '#3d6d51', bright: '#9bd3ae' },
+  { code: 'w', label: t('common.color.W'), symbol: 'W', deep: '#6f6849', bright: '#f8f6d8' },
+  { code: 'u', label: t('common.color.U'), symbol: 'U', deep: '#2f5f80', bright: '#aee0fa' },
+  { code: 'b', label: t('common.color.B'), symbol: 'B', deep: '#4c453f', bright: '#b7aca4' },
+  { code: 'r', label: t('common.color.R'), symbol: 'R', deep: '#8a463a', bright: '#f9aa8f' },
+  { code: 'g', label: t('common.color.G'), symbol: 'G', deep: '#3d6d51', bright: '#9bd3ae' },
 ];
 
 /** The grey banner: a colourless deck, i.e. none of the five picked. */
 export const COLORLESS_BANNER = 'c';
-const COLORLESS = { code: 'c', label: 'Farblos', symbol: 'C', deep: '#4e535c', bright: '#d8d8d8' };
+const COLORLESS = { code: 'c', label: t('common.color.C'), symbol: 'C', deep: '#4e535c', bright: '#d8d8d8' };
 
 const BY_CODE = new Map([...BANNER_COLORS, COLORLESS].map((c) => [c.code, c]));
 
@@ -70,7 +74,7 @@ export function bannerColorLabel(key) {
   const colors = bannerColorsOf(normalized);
   const symbols = colors.map((c) => c.symbol).join('');
   if (colors.length === 1) return `${colors[0].label} (${symbols})`;
-  const name = COMBO_NAMES[normalized] || (normalized.length === 5 ? 'Fünf Farben' : 'Vier Farben');
+  const name = COMBO_NAMES[normalized] || (normalized.length === 5 ? t('common.fiveColors') : t('common.fourColors'));
   return `${name} (${symbols})`;
 }
 

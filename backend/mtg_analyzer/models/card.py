@@ -8,6 +8,8 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from .mana_cost import ManaCost
+
 #: Colors that may legally appear in a card's color identity.
 VALID_COLORS: frozenset[str] = frozenset({"W", "U", "B", "R", "G"})
 
@@ -345,12 +347,25 @@ class Card:
             return None
         btl = self.back_type_line or self.type_line
         back_is_creature = "creature" in btl.lower()
+        # RULE 202.3: the back's own mana value, from the back's own raw
+        # cost string — *not* the front's `converted_mana_cost`. A back face
+        # commonly has a genuinely blank `back_mana_cost_string` (most
+        # transform backs, e.g. a Battle's Siege side isn't itself cast
+        # normally) — reusing the front's (often nonzero) mana value there
+        # used to leave `mana_cost_string=""` paired with a stale nonzero
+        # `converted_mana_cost`. `ManaCost.from_card` treats a blank
+        # `mana_cost_string` as "pre-field-existing legacy row" and
+        # reconstructs a cost from `converted_mana_cost` (the Sol Ring bug
+        # fix) — so that mismatch silently resurrected a fake nonzero
+        # generic cost on an otherwise-free back face, making it uncastable
+        # for no mana when it should have cost {0}.
+        back_cmc = ManaCost.parse(self.back_mana_cost_string).converted_mana_cost
         return Card(
             id=self.id,  # same physical object (RULE 712.2)
             name=self.back_name or self.name,
             type_line=btl,
             mana_cost_string=self.back_mana_cost_string,
-            converted_mana_cost=self.converted_mana_cost,
+            converted_mana_cost=back_cmc,
             color_identity=set(self.color_identity),
             is_creature=back_is_creature,
             is_instant="instant" in btl.lower(),
@@ -436,6 +451,7 @@ class Card:
         add_keywords: Optional[list[str]] = None,
         set_power: Optional[int] = None,
         set_toughness: Optional[int] = None,
+        set_colors: Optional[list[str]] = None,
     ) -> "Card":
         """This card's *copiable values* (RULE 706.2), as a fresh `Card`.
 
@@ -464,7 +480,11 @@ class Card:
         ``set_power``/``set_toughness`` (The Jolly Balloon Man, MEC-40 —
         "…except it's a 1/1 red Balloon creature…") override the copied
         creature's own printed P/T outright, applied last so they win over
-        whatever the copied card printed.
+        whatever the copied card printed. ``set_colors`` (PAR-18 residue —
+        "…except it's a 4/4 **black** zombie", the reanimator-token cycle:
+        Anikthea/Ardyn/God-Pharaoh's Gift/Hour of Eternity) replaces the
+        copied card's colour identity outright with exactly the given WUBRG
+        letters (an empty list makes the copy colourless).
         ``add_keywords`` appends raw keyword strings onto the copy (Flesh
         Duplicate's conditional Vanishing, Imposter Mech's Crew) — RULE
         707.2 replaces the original's printed text with the copied object's,
@@ -493,7 +513,20 @@ class Card:
             main, dash, sub = type_line.partition("—")
             main = re.sub(r"\bLegendary\b\s*", "", main).strip()
             type_line = f"{main} — {sub.strip()}" if dash else main
-        is_creature = self.is_creature
+        # PAR-30 fix (found by execute-testing Arteeoh, Dread Scavenger's
+        # "…except it's a 1/1 green Squirrel creature token in addition to
+        # its other types"): `add_types` naming "creature" on a non-creature
+        # original (Copy Artifact-shaped "except it's an artifact **and a
+        # creature**") must flip `is_creature` too, the same way the
+        # `only_types` branch just below already computes it — otherwise the
+        # `set_power`/`set_toughness` override further down builds a Card
+        # with printed power/toughness but `is_creature=False`, tripping
+        # `Card.__init__`'s own "power/toughness may only be set on
+        # creatures" invariant. `only_types` (mutually exclusive with a bare
+        # additive `add_types`, per its own docstring) always overrides this.
+        is_creature = self.is_creature or bool(
+            add_types and "creature" in {t.lower() for t in add_types}
+        )
         power, toughness = self.power, self.toughness
         vehicle_power, vehicle_toughness = self.vehicle_power, self.vehicle_toughness
         if only_types is not None:
@@ -512,6 +545,10 @@ class Card:
             power = set_power
         if set_toughness is not None:
             toughness = set_toughness
+        color_identity = (
+            {c for c in set_colors if c in VALID_COLORS}
+            if set_colors is not None else set(self.color_identity)
+        )
         keywords = list(self.keywords)
         oracle_text = self.oracle_text
         if add_keywords:
@@ -542,7 +579,7 @@ class Card:
             mana_cost=dict(self.mana_cost),
             mana_cost_string=self.mana_cost_string,
             converted_mana_cost=self.converted_mana_cost,
-            color_identity=set(self.color_identity),
+            color_identity=color_identity,
             is_creature=is_creature,
             is_instant=self.is_instant,
             is_sorcery=self.is_sorcery,

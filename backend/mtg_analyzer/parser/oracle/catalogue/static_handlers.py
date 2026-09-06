@@ -55,7 +55,11 @@ import re
 from typing import Any, Callable, NamedTuple, Optional
 
 from ..spec import EffectSpec, ParserProvenance
-from .handlers import ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER
+from .handlers import (
+    ONCE_PER_TURN_MARKER,
+    SORCERY_SPEED_MARKER,
+    _split_keywords_with_parametric,
+)
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, DEVOTION, count_of, devotion_selector
 
@@ -81,7 +85,35 @@ from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, DEVOTION, count_of, devoti
 #: permanent's own controller" way `game/continuous.py`'s
 #: `_PLAYER_SUBJECT_GRANTED_EVENTS` documents.
 _GRANTABLE_TRIGGER_EVENTS = frozenset(
-    {"ENTERS_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE", "STEP_BEGIN", "LIFE_GAINED"}
+    {"ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE",
+     "STEP_BEGIN", "LIFE_GAINED", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"}
+)
+#: PAR-32: trigger-dict gate keys that survive re-granting unchanged — a
+#: filter on the firing event, not on any host-relative state. Passed
+#: straight through to `grant_triggered_ability`'s params; each has its own
+#: `effect_binder` predicate that `continuous._apply_layer_6_ability`
+#: composes onto the re-granted trigger's condition.
+_REGRANT_PASSTHROUGH_TRIGGER_KEYS = frozenset(
+    {"attacked_player_has_lowest_life", "spell_from_exile",
+     "spell_shares_creature_type_with_source"}
+)
+
+#: MEC-55: inner-static `affects` scopes that can't be re-granted to a
+#: group — "self"/"attached_permanent" only mean something relative to a
+#: single host permanent, which a regranted static has no notion of.
+_REGRANT_UNSUPPORTED_AFFECTS = frozenset({"self", "attached_permanent"})
+
+#: PAR-32: `{"subject": "group"}` trigger-condition keys that stay
+#: meaningful when the ability is re-granted to another permanent — every
+#: one is a filter on the *acting* object or a "you control"/"other"
+#: re-scoping, resolved by `effect_binder._build_group_ok` against the
+#: granted-to permanent (`_apply_layer_6_ability` passes it that permanent
+#: as the source). A condition carrying any *other* key (a filter tied to
+#: this ability's own source's history — `crewed_by_self`,
+#: `damaged_by_source_this_turn`, …) fails closed for the whole body.
+_REGRANT_SAFE_GROUP_KEYS = frozenset(
+    {"subject", "type", "subtypes", "excluded_subtypes", "nontoken", "nonland",
+     "nonbasic", "controller", "other", "goaded", "in_combat", "is_player", "combat"}
 )
 
 #: Type words that are *not* creature subtypes — a scope built on one of these
@@ -143,6 +175,35 @@ _GRANT_RE = re.compile(
     r"have (?P<kw>[a-z][a-z, ]*)",
     re.IGNORECASE,
 )
+# PAR-31: "Artifacts, creatures, enchantments, and lands you control have
+# <keywords>." (Elspeth, Knight-Errant's −8 emblem; also a standing static
+# on a handful of permanents) — a keyword grant whose scope is an
+# explicit *list* of two or more permanent-type words rather than the
+# single word `_GRANT_RE`/`_permanent_type_scope` handles. `_GRANT_RE`'s
+# own `body` group is comma-free (`[a-z][a-z ]*?`), so this never
+# competes with it. Emits one `grant_keyword` scoped to
+# `permanents_you_control` narrowed by the `card_type` list
+# `continuous.affected_objects` already ORs (Grand Abolisher-shaped).
+_MULTI_PERMANENT_TYPE_GRANT_RE = re.compile(
+    r"(?P<body>(?:artifacts|creatures|enchantments|lands|planeswalkers)"
+    r"(?:,? (?:and )?(?:artifacts|creatures|enchantments|lands|planeswalkers))+)"
+    r" you control have (?P<kw>[a-z][a-z, ]*)",
+    re.IGNORECASE,
+)
+# "Each creature you control with a +1/+1 counter on it has <keywords>."
+# (PAR-34 — the Abzan "outlast" cycle: Abzan Falconer / Abzan Battle
+# Priest / Ainok Bond-Kin / Hardened Scales-adjacent). A `grant_keyword`
+# static scoped to `creatures_you_control` **filtered by counter
+# presence** — `continuous.affected_objects`' `has_counter_kind` param
+# (MEC-21, Agatha's Soul Cauldron) already narrows the group that way, so
+# no engine change. Singular "has" (subject is "each creature"), so it
+# doesn't collide with `_GRANT_RE`'s plural "have".
+_GROUP_COUNTER_GRANT_RE = re.compile(
+    r"each creature you control with a \+1/\+1 counter on it has "
+    r"(?P<kw>[a-z][a-z, ]*)",
+    re.IGNORECASE,
+)
+
 # "[Other] <scope> [you control] [of the chosen type/color] have \"<ability>\""
 # (Tyvar Kell/Acidic Sliver-shaped — "Elves you control have '{T}: Add
 # {B}.'"/"All Slivers have '{2}, Sacrifice this permanent: ...'") — the
@@ -197,6 +258,20 @@ _CARD_TYPE_WORDS: frozenset[str] = frozenset(
 # as 0/0.
 _PT_CDA_RE = re.compile(
     r"~'?s power and toughness are each equal to the number of (?P<what>.+)",
+    re.IGNORECASE,
+)
+
+#: PAR-43: the *single-characteristic* CDA — "~'s power is equal to the
+#: number of `<X>`." (Ironroot Warlord / Kolaghan Forerunners / Suki, Kyoshi
+#: Warrior — a printed toughness, power defined by a live count) and the
+#: rarer toughness form (Traproot Kami). `continuous.recompute`'s 7a
+#: `pt_cda` pass already applies `power_count` / `toughness_count`
+#: independently, so a spec with only one of them is enough — no engine
+#: change. Same `_PT_CDA_SELECTORS` whitelist as `_PT_CDA_RE` (so today only
+#: "creatures you control" is claimed; the "forests you control" / "basic
+#: land types" toughness cards stay UNMODELED until those selectors exist).
+_PT_CDA_SINGLE_RE = re.compile(
+    r"~'?s (?P<char>power|toughness) is equal to the number of (?P<what>.+)",
     re.IGNORECASE,
 )
 
@@ -341,6 +416,18 @@ _SPELL_COST_TAX_OPPONENTS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "Spells your opponents cast that target ~ cost {N} more to cast."
+# (Icefall Regent / Boreal Elemental / Charix, the Raging Isle / Elderwood
+# Scion / Pursued Whale / Frost Titan-adjacent) — the "that target ~"
+# narrowing on the opponents-tax above; `continuous.cost_reduction_for`
+# checks the caster's chosen targets against this static's own source
+# (`targets_source` param). Tried before the plain opponents row (whose
+# regex would leave the "that target ~" clause unconsumed and fail).
+_SPELL_COST_TAX_OPPONENTS_TARGET_RE = re.compile(
+    r"spells your opponents cast that target ~ cost \{(?P<n>\d+)\} (?P<dir>more|less) to cast",
+    re.IGNORECASE,
+)
+
 # "Activated abilities of <type> you control cost {N} less to activate[.
 # This effect can't reduce the mana in that cost to less than {M} mana.]"
 # (Training Grounds) — the main-card-type-scoped sibling of Sam, Loyal
@@ -377,6 +464,100 @@ _SELF_COST_REDUCTION_IF_RE = re.compile(
     r"this spell costs \{(?P<n>\d+)\} less to cast if (?P<cond>.+)",
     re.IGNORECASE,
 )
+
+#: "…if it targets a `<criteria>`." (Ajani's Response / Knockout Blow /
+#: Depower cycle) — a RULE 601.2f discount gated on the spell's own chosen
+#: target rather than on board state, so it emits ``reduce_if_targets`` (a
+#: criteria dict `continuous._obj_matches_target_criteria` checks) instead
+#: of ``active_if``. Only the recognised permanent qualifiers below.
+_TARGET_CRIT_KEYWORDS = frozenset({
+    "flying", "trample", "first strike", "deathtouch", "lifelink", "vigilance",
+    "reach", "menace", "haste", "defender", "hexproof", "indestructible",
+})
+_TARGET_CRIT_HEADS = frozenset({"creature", "permanent", "artifact", "enchantment", "land", "spell"})
+_COLOR_WORD_TO_LETTER = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+}
+_TARGETS_CRITERIA_RE = re.compile(
+    r"it targets an? (?P<body>[a-z' +/\-\d]+?)"
+    r"(?P<ctrl> you control| you don'?t control)?$",
+    re.IGNORECASE,
+)
+
+
+def _targets_reduction_criteria(cond: str) -> "dict | None":
+    """"it targets a `<criteria>`" → a criteria dict, or ``None`` (fail-closed
+    for any shape not in the recognised vocabulary — a spell target, a
+    mana-value cap, "a creature card", a counter clause, …).
+
+    ``body`` is parsed word by word: an optional ``tapped``/``attacking``/
+    ``blocking``/``legendary``, an optional colour, an optional subtype (or
+    ``X or Y`` pair), an optional head noun, an optional ``token``, an
+    optional ``with <keyword>`` — anything left over is unrecognised and the
+    whole thing fails closed."""
+    m = _TARGETS_CRITERIA_RE.fullmatch(cond.strip())
+    if m is None:
+        return None
+    body = m.group("body").strip().lower()
+    crit: dict = {}
+    ctrl = (m.group("ctrl") or "").strip().lower()
+    if ctrl == "you control":
+        crit["controller"] = "you"
+    elif ctrl.startswith("you don"):
+        crit["controller"] = "not_you"
+
+    kw_m = re.search(r" with ([a-z ]+)$", body)
+    if kw_m:
+        kw = kw_m.group(1).strip()
+        if kw not in _TARGET_CRIT_KEYWORDS:
+            return None
+        crit["keyword"] = kw
+        body = body[: kw_m.start()].strip()
+
+    words = body.split()
+    if words and words[-1] == "token":
+        crit["is_token"] = True
+        words = words[:-1]
+
+    flags = {"tapped", "attacking", "blocking", "legendary"}
+    while words and words[0] in flags:
+        w = words.pop(0)
+        crit["tapped" if w == "tapped" else w] = True
+        if w == "legendary":
+            crit["legendary"] = True
+        elif w in ("attacking", "blocking"):
+            crit[w] = True
+
+    if words and words[0] in _COLOR_WORD_TO_LETTER:
+        crit["color"] = _COLOR_WORD_TO_LETTER[words.pop(0)]
+
+    head = None
+    if words and words[-1] in _TARGET_CRIT_HEADS:
+        head = words.pop()
+    if head == "spell" and words and words[-1] in _TARGET_CRIT_HEADS:
+        # "a creature spell" (Out of Air) — the word before "spell" is the
+        # real card-type constraint.
+        head = words.pop()
+    if head and head not in ("permanent", "spell"):
+        # "spell" (Mystical Dispute's "a blue spell") on its own adds no
+        # card-type constraint — a spell on the stack still resolves through
+        # `_obj_matches_target_criteria` off its underlying object's card.
+        crit["card_type"] = head
+
+    # Whatever's left is the subtype ("spider", "mount or vehicle").
+    if words:
+        subs = " ".join(words)
+        parts = [p for p in subs.split(" or ") if p]
+        if any(not p.isalpha() for p in parts):
+            return None  # a stray "+1/+1 counter" etc. — fail closed
+        if len(parts) > 1:
+            crit["subtype_any"] = parts
+        else:
+            crit["subtype"] = parts[0]
+
+    # A discount gated on nothing (bare "a permanent") is a no-op; a lone
+    # ``controller`` scope is real (This Town Ain't Big Enough).
+    return crit or None
 
 # "Each player can't cast more than N spell(s) each turn."  (RULE 601-area
 # prohibition, Eidolon of Rhetoric/Rule of Law/Archon of Emeria) — a flat,
@@ -431,6 +612,32 @@ _NO_MAX_HAND_SIZE_RE = re.compile(
 # a "you"-only version of this clause, so there's no ``subject`` group to
 # capture.
 _SKIP_UNTAP_STEPS_RE = re.compile(r"players skip their untap steps", re.IGNORECASE)
+
+# "Players can't gain life." (Everlasting Torment / Forsaken Wastes / Havoc
+# Festival / Leyline of Punishment) / "Your opponents can't gain life."
+# (Erebos, God of the Dead) / "If a player would gain life, that player
+# gains no life instead." (Sulfuric Vortex — a replacement-phrased
+# equivalent) — a standing, board-wide RULE 119.3-adjacent rule
+# modification, distinct from `handlers._CANT_GAIN_LIFE_RE`'s turn-scoped
+# rider. Consulted live by `RulesEngine.gain_life` via
+# `continuous.life_gain_prohibited_for`.
+_PLAYERS_CANT_GAIN_LIFE_RE = re.compile(
+    r"(?:(?P<scope>players|your opponents) can'?t gain life"
+    r"|if a player would gain life, that player gains no life instead)",
+    re.IGNORECASE,
+)
+
+# "Skip your draw step." (MEC-38, Necropotence / Yawgmoth's Bargain /
+# Solitary Confinement / Dragon Appeasement) — the *self*-scoped, standing
+# step skip, `EffectSpec("skip_step", …)` (a `StaticAbility` layer read live
+# by `RulesEngine.should_skip_step` via `continuous.skipped_steps_for`,
+# unrelated to `_SKIP_UNTAP_STEPS_RE`'s board-wide Stasis effect above). The
+# effect had shipped for MEC-38 but only via a hand-authored catalogue
+# entry; this is its oracle-text route. `should_skip_step` is consulted with
+# every step's own name, so "untap"/"upkeep" work the same way — but "draw"
+# is the only form real cards print, and untap/upkeep are left out until one
+# does (fail-closed).
+_SKIP_YOUR_STEP_RE = re.compile(r"skip your (?P<step>draw) step", re.IGNORECASE)
 
 # "Players can't cast spells from graveyards or libraries." (RULE
 # 601.3a-adjacent, Grafdigger's Cage/Weathered Runestone) — the last open
@@ -1355,7 +1562,14 @@ def _qualified_combat_restriction_specs(text: str) -> Optional[list[EffectSpec]]
 _CHOOSE_CREATURE_TYPE_ON_ENTER_RE = re.compile(
     r"as ~ enters, choose a creature type", re.IGNORECASE
 )
-_CHOOSE_COLOR_ON_ENTER_RE = re.compile(r"as ~ enters, choose a color", re.IGNORECASE)
+# ``it`` is the immediately preceding permanent in a compound entry clause
+# (Thriving lands: "~ enters tapped. As it enters, choose a color other than
+# red.").  The gate only forwards that form after ``lands.py`` has full-matched
+# the complete entry replacement, so accepting it here does not broaden a
+# free-standing pronoun grammar.
+_CHOOSE_COLOR_ON_ENTER_RE = re.compile(
+    r"as (?:~|it) enters, choose a color(?: other than [a-z]+)?", re.IGNORECASE
+)
 # PAR-4 — Realmwright/A-Thran Portal's "As ~ enters, choose a basic land
 # type.": a third `enter_choice_effects` sibling, alongside creature
 # type/color above. Anchored on "basic land type" specifically (never just
@@ -1571,25 +1785,37 @@ def _granted_mana_options(inner: str) -> Optional[list[dict[str, int]]]:
 
 
 def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
-    """Recursively parse a quoted granted-ability body into a
+    """Recursively parse a quoted granted-ability body into a single
     `grant_triggered_ability`/`grant_activated_ability`/`grant_mana_ability`
-    `EffectSpec`, or ``None`` if it isn't a plain self-scoped trigger on a
-    `_GRANTABLE_TRIGGER_EVENTS` event, a controller-scoped phase trigger, a
-    plain `<cost>: <effect>` activated ability, or a bare `{T}: Add <mana>`
-    mana ability (see the module comment above `_ATTACHED_QUOTED_GRANT_RE`)."""
+    `EffectSpec`, or ``None``. Thin wrapper over `_quoted_ability_grant_
+    effects_list` for the callers that only ever expect one spec — returns
+    ``None`` when the body would produce more than one (a compound-event
+    trigger; those callers pass through the list-returning helper instead)."""
+    specs = _quoted_ability_grant_effects_list(inner)
+    return specs[0] if specs and len(specs) == 1 else None
+
+
+def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
+    """Recursively parse a quoted granted-ability body into one or more
+    grant `EffectSpec`s, or ``None`` if it isn't a plain self-scoped trigger
+    on a `_GRANTABLE_TRIGGER_EVENTS` event (incl. a compound "enters or
+    leaves the battlefield" one → one `grant_triggered_ability` per event),
+    a controller-scoped phase trigger, a plain `<cost>: <effect>` activated
+    ability, or a bare `{T}: Add <mana>` mana ability (see the module
+    comment above `_ATTACHED_QUOTED_GRANT_RE`)."""
     from ..segmenter import segment_line  # lazy: segmenter imports this module
 
     mana = _granted_mana_options(inner)
     if mana is not None:
-        return EffectSpec("grant_mana_ability", {
+        return [EffectSpec("grant_mana_ability", {
             "mana": mana, "affects": "attached_permanent",
-        })
+        })]
 
     ward = _GRANTED_WARD_RE.fullmatch(inner.strip().rstrip("."))
     if ward is not None:
-        return EffectSpec("grant_keyword", {
+        return [EffectSpec("grant_keyword", {
             "ward_cost": ward.group("cost").strip(), "affects": "attached_permanent",
-        })
+        })]
 
     segment = segment_line(
         inner.strip(),
@@ -1616,26 +1842,52 @@ def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
             e for e in effect_specs
             if e.type not in (ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER)
         ]
-        return EffectSpec("grant_activated_ability", {
+        return [EffectSpec("grant_activated_ability", {
             "cost": dict(spec.cost or {}),
             "grant_effects": [{"type": e.type, "params": e.params} for e in effect_specs],
             "once_per_turn": once_per_turn,
             "sorcery_speed_only": sorcery_speed_only,
             "affects": "attached_permanent",
-        })
+        })]
+
+    if spec.ability_kind == "static":
+        # MEC-55: "X have '<static ability>'" — an anthem / lord / keyword
+        # grant, re-granted per affected object. The inner static's own
+        # `affects` must be controller-relative (a group selector — "creature
+        # tokens you control get +2/+2", Inspiring Leader); a `self` /
+        # `attached_permanent` inner scope would be meaningless once
+        # regranted, so fail closed.
+        inner_scopes = {e.params.get("affects") for e in spec.effects}
+        if not spec.effects or inner_scopes & _REGRANT_UNSUPPORTED_AFFECTS:
+            return None
+        if any(e.params.get("affects") is None for e in spec.effects):
+            return None
+        return [EffectSpec("grant_static_ability", {
+            "static_specs": [{"type": e.type, "params": e.params} for e in spec.effects],
+            "affects": "attached_permanent",
+        })]
 
     if spec.ability_kind != "triggered":
         return None
     trigger = spec.trigger or {}
     event = trigger.get("event")
-    # A compound "enters or leaves the battlefield"/"scry or surveil" inner
-    # trigger (`segmenter._SELF_MULTI_EVENT_RE`/`_player_trigger_event`)
-    # stamps a *list* of events on `AbilitySpec.trigger` — re-granting a
-    # multi-event ability isn't supported (nothing downstream re-scopes more
-    # than one event per grant), so this must fail closed rather than crash
-    # on the unhashable-list membership check below.
-    if isinstance(event, list) or event not in _GRANTABLE_TRIGGER_EVENTS:
+    # A compound "enters or leaves the battlefield" inner trigger
+    # (`segmenter._SELF_MULTI_EVENT_RE`) stamps a *list* of events on
+    # `AbilitySpec.trigger`. Re-grant it as one `grant_triggered_ability`
+    # per event (each independently identity-scoped by
+    # `_granted_trigger_condition`) — every event in the list must itself be
+    # grantable and `{"subject": "self"}`, else fail closed for the whole
+    # body. `LEAVES_BATTLEFIELD` fires *before* removal (RULE 603.6a), so
+    # the granted-to permanent (and its granted ability) still exists when
+    # the trigger is collected.
+    events = event if isinstance(event, list) else [event]
+    if any(e not in _GRANTABLE_TRIGGER_EVENTS for e in events):
         return None
+    if len(events) > 1 and trigger.get("condition") != {"subject": "self"}:
+        return None
+    if len(events) == 1:
+        event = events[0]
+    group_condition: Optional[dict] = None
     if event == "STEP_BEGIN":
         # A RULE 500.7 phase trigger carries no object subject to re-scope
         # (see `_GRANTABLE_TRIGGER_EVENTS`) — only a `phase_relation`, which
@@ -1645,28 +1897,63 @@ def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
         # so only the two scoped forms are claimed (fail-closed).
         if trigger.get("phase_relation") not in ("you", "not_you"):
             return None
-    elif event == "LIFE_GAINED":
-        # RULE 119.3's "Whenever **you** gain life, …" is itself a
-        # player-subject condition (`{"subject": "you"}`, not the object-
-        # subject `{"subject": "self"}` the `elif` below requires) — the
-        # `LIFE_GAINED` branch of `game/continuous.py`'s
-        # `_granted_trigger_condition` is what resolves "you" against the
-        # granted-to permanent's own controller once regranted.
+    elif event in ("LIFE_GAINED", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"):
+        # A player-subject condition (`{"subject": "you"}`) rather than the
+        # object-subject the `elif` below requires — "Whenever **you** gain
+        # life …" / "Whenever **you** cast a spell …" (Passionate
+        # Archaeologist) / "Whenever 1 or more creatures **you control**
+        # deal combat damage to a player …" (Feywild Visitor). `game/
+        # continuous.py`'s `_granted_trigger_condition` resolves "you"
+        # against the granted-to permanent's own controller once regranted
+        # (`_PLAYER_SUBJECT_GRANTED_EVENTS`).
         if trigger.get("condition") != {"subject": "you"}:
             return None
-    elif trigger.get("condition") != {"subject": "self"}:
-        return None  # a "group"/other subject wouldn't mean the same thing once regranted
-    params: dict = {
-        "trigger_event": event,
-        "grant_effects": [{"type": e.type, "params": e.params} for e in spec.effects],
-        "optional": spec.optional,
-        "affects": "attached_permanent",
-    }
-    if trigger.get("filter"):  # RULE 120.3 DAMAGE combat/is_player, STEP_BEGIN's step
-        params["filter"] = dict(trigger["filter"])
-    if trigger.get("phase_relation"):
-        params["phase_relation"] = trigger["phase_relation"]
-    return EffectSpec("grant_triggered_ability", params)
+    elif len(events) == 1 and trigger.get("condition") != {"subject": "self"}:
+        cond = trigger.get("condition") or {}
+        # PAR-32: a `{"subject": "group"}` condition re-grants fine as long
+        # as every key stays meaningful relative to the granted-to
+        # permanent (`_REGRANT_SAFE_GROUP_KEYS`) — "whenever an artifact or
+        # creature you control dies, …" (Agent of the Iron Throne).
+        if (
+            cond.get("subject") == "group"
+            and set(cond) <= _REGRANT_SAFE_GROUP_KEYS
+        ):
+            group_condition = dict(cond)
+        else:
+            return None  # any other subject wouldn't mean the same thing once regranted
+    grant_effects = [{"type": e.type, "params": e.params} for e in spec.effects]
+    out: list[EffectSpec] = []
+    for ev in events:
+        params: dict = {
+            "trigger_event": ev,
+            "grant_effects": grant_effects,
+            "optional": spec.optional,
+            "affects": "attached_permanent",
+        }
+        if group_condition is not None:
+            params["group_condition"] = group_condition
+        if trigger.get("filter"):  # RULE 120.3 DAMAGE combat/is_player, STEP_BEGIN's step
+            params["filter"] = dict(trigger["filter"])
+        if trigger.get("phase_relation"):
+            params["phase_relation"] = trigger["phase_relation"]
+        if isinstance(trigger.get("active_if"), dict):
+            # PAR-32: a re-granted phase trigger's RULE 603.4 intervening-if
+            # (Cloakwood Hermit / Dragon Cultist) — evaluated against the
+            # granted-to permanent in `_apply_layer_6_ability`.
+            params["active_if"] = dict(trigger["active_if"])
+        if trigger.get("limit"):
+            # RULE 603.2's once-per-turn cap ("this ability triggers only
+            # once each turn" — Folk Hero) survives re-granting.
+            params["once_per_turn"] = True
+        # PAR-32: firing-event gate flags that survive re-granting — each has
+        # its own `effect_binder` predicate `_apply_layer_6_ability`
+        # composes onto the granted trigger (the "no opponent has more life
+        # than that player" gate, "cast a spell from exile", …).
+        for key in _REGRANT_PASSTHROUGH_TRIGGER_KEYS:
+            if trigger.get(key):
+                params[key] = trigger[key]
+        out.append(EffectSpec("grant_triggered_ability", params))
+    return out
 
 
 # RULE 702.16 **standing** protection grants — the layer-6 sibling of the
@@ -1788,6 +2075,20 @@ _HAND_CYCLING_TYPES = (
 _HAND_CYCLING_GRANT_RE = re.compile(
     rf"each (?:(?P<filter>{'|'.join(_HAND_CYCLING_TYPES)}) )?card in your hand "
     rf"has cycling (?P<cost>\{{[^}}]+\}}(?:\{{[^}}]+\}})*)",
+    re.IGNORECASE,
+)
+
+
+# MEC-53 / PAR-31: "[<filter>] cards in your graveyard have retrace."
+# (Wrenn and Six's −7 emblem — "instant and sorcery cards …"; Deeproot
+# Historian — "Merfolk and Druid cards …"; bare "cards in your graveyard
+# have retrace"). Retrace is the only keyword that means anything on a
+# *graveyard* card (RULE 702.81 — a cast-from-graveyard permission), so
+# this row hardcodes it rather than sharing `_flag_keywords`. `<filter>`
+# is an optional list of main-type words (`card_types`) and/or creature
+# subtypes (`subtypes`), split in `_graveyard_retrace_grant_specs`.
+_GRAVEYARD_RETRACE_GRANT_RE = re.compile(
+    r"(?:(?P<filter>[a-z][a-z, ]*?) )?cards in your graveyard have retrace",
     re.IGNORECASE,
 )
 
@@ -2022,6 +2323,72 @@ def _permanent_scope_params(word: str, m: "re.Match[str]") -> dict:
     return params
 
 
+def _multi_permanent_type_list(body: str) -> Optional[list[str]]:
+    """A "artifacts, creatures, enchantments, and lands" scope phrase →
+    the ordered, de-duplicated list of singular `_CARD_TYPE_WORDS` in it,
+    or ``None`` (fail-closed) if it isn't two or more recognised
+    permanent-type words. Splits on commas and "and" (RULE-text list
+    punctuation), tolerating the Oxford comma.
+    """
+    words = [
+        _singularize(p.strip())
+        for p in re.split(r",\s*(?:and\s+)?|\s+and\s+", body.strip())
+        if p.strip()
+    ]
+    if not words or any(w not in _CARD_TYPE_WORDS for w in words):
+        return None
+    seen: list[str] = []
+    for w in words:
+        if w not in seen:
+            seen.append(w)
+    return seen if len(seen) >= 2 else None
+
+
+#: Subtypes accepted in a graveyard-retrace grant's `<filter>` list
+#: (Deeproot Historian's tribal scope). Kept tiny and explicit — only the
+#: subtypes a real printed Retrace-grant card names.
+_RETRACE_GRANT_SUBTYPES: frozenset[str] = frozenset({"merfolk", "druid"})
+#: Main-type words a graveyard-card filter can name — the permanent types
+#: plus instant/sorcery (a graveyard holds non-permanent cards too), all of
+#: which `continuous._has_card_type` already recognises.
+_GRAVEYARD_CARD_TYPE_WORDS: frozenset[str] = _CARD_TYPE_WORDS | {"instant", "sorcery"}
+
+
+def _graveyard_retrace_grant_specs(filt: Optional[str]) -> Optional[list[EffectSpec]]:
+    """The `grant_retrace` spec for a "[<filter>] cards in your graveyard
+    have retrace" clause, or ``None`` (fail-closed) on an unrecognised
+    filter word. ``filt`` is ``None`` for the bare form, else a comma/"and"
+    list of `_CARD_TYPE_WORDS` (→ ``card_types``) and/or
+    `_RETRACE_GRANT_SUBTYPES` (→ ``subtypes``); "nonland" alone sets
+    ``nonland_only``.
+    """
+    params: dict[str, Any] = {}
+    if filt:
+        words = [
+            _singularize(p.strip())
+            for p in re.split(r",\s*(?:and\s+)?|\s+and\s+", filt.strip())
+            if p.strip()
+        ]
+        card_types: list[str] = []
+        subtypes: list[str] = []
+        for w in words:
+            if w == "nonland":
+                params["nonland_only"] = True
+            elif w in _GRAVEYARD_CARD_TYPE_WORDS:
+                card_types.append(w)
+            elif w in _RETRACE_GRANT_SUBTYPES:
+                subtypes.append(w.capitalize())
+            else:
+                return None
+        if card_types:
+            params["card_types"] = card_types
+        if subtypes:
+            params["subtypes"] = subtypes
+        if not params:
+            return None
+    return [EffectSpec("grant_retrace", params)]
+
+
 def _is_vehicle_scope(body: str) -> bool:
     """A bare "[other] Vehicles [you control]" scope (Balthier and Fran) —
     the `_ARTIFACT_SUBTYPES` sibling of `_permanent_type_scope`'s bare
@@ -2132,6 +2499,13 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"there are (?P<n>\d+) or more cards in your graveyard", re.I),
      lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
                 "min": int(m.group("n"))}),
+    # The Odyssey-block Threshold phrasing — "as long as **seven or more
+    # cards are in your graveyard**" (subject-verb order rather than the
+    # "there are …" existential above; the "Threshold —" ability-word label
+    # is stripped by `normalize._strip_ability_words` first).
+    (re.compile(r"(?P<n>\d+) or more cards are in your graveyard", re.I),
+     lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
+                "min": int(m.group("n"))}),
     # RULE 702.137 "Delirium" ("delirium — as long as there are 4 or more
     # card types among cards in your graveyard, …" — the ability word itself
     # is stripped by `normalize._strip_ability_words` before this ever runs,
@@ -2139,6 +2513,11 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # already routes here).
     (re.compile(r"there are (?P<n>\d+) or more card types among cards in your graveyard", re.I),
      lambda m: {"kind": "card_types_in_graveyard_at_least", "amount": int(m.group("n"))}),
+    # PAR-30: "as long as there's a `<subtype>` card in your graveyard" (the
+    # Avatar: TLA "Lesson" cards). Bounded to a single subtype word so it
+    # can't swallow a longer "N or more <x> cards" phrasing (handled above).
+    (re.compile(r"there(?:'s| is| are) an? (?P<sub>[a-z][a-z-]+) card in your graveyard", re.I),
+     lambda m: {"kind": "subtype_in_graveyard", "subtype": m.group("sub").lower()}),
     # -- The controller's own resources.
     (re.compile(r"you have (?P<n>\d+) or more life", re.I),
      lambda m: {"kind": "life_at_least", "amount": int(m.group("n"))}),
@@ -2427,8 +2806,56 @@ _SELF_ANTHEM_RE = re.compile(
 _ANTHEM_DEVOTION_SELF_RE = re.compile(
     rf"~ gets? \+x/\+x, where x is {DEVOTION}", re.IGNORECASE,
 )
+#: PAR-30: "~ gets +P/+T for each `<subtype>` card in your graveyard"
+#: (Katara, Seeking Revenge — "+1/+1 for each lesson card in your
+#: graveyard"). A standing self-anthem whose per-unit +P/+T scales by
+#: `continuous.count_selector`'s `<subtype>_cards_in_your_graveyard` prefix
+#: (a live type-line scan). Bounded to a single subtype word so it stays
+#: fail-closed for any other "for each" quantity.
+_SELF_ANTHEM_FOR_EACH_GY_SUBTYPE_RE = re.compile(
+    r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<sub>[a-z][a-z-]+) card in your graveyard",
+    re.IGNORECASE,
+)
+
+#: PAR-43: "~ gets +P/+T for each `<X>`" — the general standing self-anthem
+#: whose per-unit +P/+T scales by a `continuous.count_selector` value
+#: (Akiri, Line-Slinger "+1/+0 for each artifact you control"; Adelbert
+#: Steiner "+1/+1 for each Equipment you control"; Nemata "+1/+1 for each
+#: Saproling…" &c.). ``<X>`` is matched against a fixed whitelist of phrases
+#: that **already have a `count_selector`** (`_SELF_ANTHEM_FOR_EACH_
+#: SELECTORS` + the `<basic land type> you control` special-case) — any
+#: other quantity fails closed, exactly like `_PT_CDA_RE` / the GY-subtype
+#: row above, since an anthem reading an unmodeled count would silently
+#: apply +0. Tried after the GY-subtype row (more specific) and before
+#: `_SELF_ANTHEM_RE` (whose fixed-digit `[+-]\d+/[+-]\d+` would claim the
+#: "+1/+1" prefix and drop the "for each …" scaling).
+_SELF_ANTHEM_FOR_EACH_RE = re.compile(
+    r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)\.?",
+    re.IGNORECASE,
+)
+_SELF_ANTHEM_FOR_EACH_SELECTORS: dict[str, str] = {
+    "artifact you control": "artifacts_you_control",
+    # "for each Equipment attached to it" — the source's *own* attachments
+    # (Nemata-adjacent), not a board-wide "Equipment you control" count
+    # (which has no `count_selector` yet — that phrase stays unclaimed).
+    "equipment attached to it": "equipment_attached_to_self",
+    "creature you control": "creatures_you_control",
+    "legendary creature you control": "legendary_creatures_you_control",
+    "land you control": "lands_you_control",
+    "permanent you control": "permanents_you_control",
+    "card in your hand": "cards_in_your_hand",
+    "artifact and/or enchantment you control": "artifacts_and_or_enchantments_you_control",
+}
+_BASIC_LAND_TYPES: frozenset[str] = frozenset(
+    {"plains", "island", "swamp", "mountain", "forest"}
+)
 _SELF_GRANT_RE = re.compile(
-    r"~ has (?P<kw>[a-z][a-z, ]*?)"
+    # ``0-9`` in the keyword capture is ENG-31's parametric self-grant ("~
+    # has firebending 2 as long as there's a lesson card in your graveyard"
+    # — Fire Nation Cadets); `_split_keywords_with_parametric` splits a
+    # "<name> N" entry off into ``parametric_keywords`` and fail-closes on
+    # any other numbered keyword.
+    r"~ has (?P<kw>[a-z][a-z, 0-9]*?)"
     r"(?: and (?P<perm>can (?:attack|block)[a-z0-9 ']*))?",
     re.IGNORECASE,
 )
@@ -2558,6 +2985,14 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "toughness_count": selector,
         })]
 
+    m = _PT_CDA_SINGLE_RE.fullmatch(text)
+    if m is not None:
+        selector = _PT_CDA_SELECTORS.get(m.group("what").strip().rstrip("."))
+        if selector is None:
+            return None  # fail-closed
+        key = "power_count" if m.group("char").lower() == "power" else "toughness_count"
+        return [EffectSpec("pt_cda", {"affects": "self", key: selector})]
+
     # "This spell can't be countered." (RULE 118-area) — printed on a
     # permanent as a standing line even though it only matters while the
     # object is still a spell on the stack; `catalogue.handlers` claims the
@@ -2664,6 +3099,15 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         }
         return [EffectSpec("cost_reduction", params)]
 
+    m = _SPELL_COST_TAX_OPPONENTS_TARGET_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("cost_reduction", {
+            "affects": "opponents_spells",
+            "generic": int(m.group("n")),
+            "increase": m.group("dir") == "more",
+            "targets_source": True,
+        })]
+
     m = _SPELL_COST_TAX_OPPONENTS_RE.fullmatch(text)
     if m is not None:
         params = {
@@ -2714,7 +3158,17 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _SELF_COST_REDUCTION_IF_RE.fullmatch(text)
     if m is not None:
-        condition = static_condition(m.group("cond"))
+        cond_text = m.group("cond")
+        target_crit = _targets_reduction_criteria(cond_text)
+        if target_crit is not None:
+            return [
+                EffectSpec(
+                    "cost_reduction",
+                    {"affects": "self", "generic": int(m.group("n")),
+                     "reduce_if_targets": target_crit},
+                )
+            ]
+        condition = static_condition(cond_text)
         if condition is None:
             return None  # fail-closed — an unrecognised condition clause
         return [
@@ -2744,6 +3198,15 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     if _SKIP_UNTAP_STEPS_RE.fullmatch(text):
         return [EffectSpec("skip_untap_step", {})]
+
+    m = _PLAYERS_CANT_GAIN_LIFE_RE.fullmatch(text)
+    if m is not None:
+        params = {"scope": "opponents"} if (m.group("scope") or "").lower() == "your opponents" else {}
+        return [EffectSpec("prevent_all_life_gain", params)]
+
+    m = _SKIP_YOUR_STEP_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("skip_step", {"step": m.group("step").lower()})]
 
     m = _GRAVEYARD_LIBRARY_CAST_PROHIBITION_RE.fullmatch(text)
     if m is not None:
@@ -2973,6 +3436,38 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # scoped anthem whose amount is `continuous.count_selector`'s
     # `devotion_to_<key>` vocabulary, tried before `_SELF_ANTHEM_RE`
     # (fixed-digit only) since "x" would never match that row's ``\d+``.
+    # PAR-30: "~ gets +P/+T for each `<subtype>` card in your graveyard"
+    # (Katara, Seeking Revenge). Tried before `_SELF_ANTHEM_RE` since that
+    # row's `[+-]\d+/[+-]\d+` would claim the "+1/+1" prefix and drop the
+    # "for each …" scaling.
+    m = _SELF_ANTHEM_FOR_EACH_GY_SUBTYPE_RE.fullmatch(text)
+    if m is not None:
+        selector = f"{m.group('sub').lower()}_cards_in_your_graveyard"
+        return [EffectSpec("anthem", {
+            "affects": "self",
+            "power": int(m.group("p")), "toughness": int(m.group("t")),
+            "power_count": selector, "toughness_count": selector,
+        })]
+
+    # PAR-43: "~ gets +P/+T for each <X>" — general standing self-anthem
+    # whose per-unit +P/+T scales by a `continuous.count_selector` value.
+    m = _SELF_ANTHEM_FOR_EACH_RE.fullmatch(text)
+    if m is not None:
+        what = m.group("what").strip().lower()
+        selector = _SELF_ANTHEM_FOR_EACH_SELECTORS.get(what)
+        if selector is None and what.endswith(" you control"):
+            land_type = what[: -len(" you control")]
+            if land_type in _BASIC_LAND_TYPES:
+                selector = f"lands_you_control_of_type_{land_type}"
+        if selector is not None:
+            return [EffectSpec("anthem", {
+                "affects": "self",
+                "power": int(m.group("p")), "toughness": int(m.group("t")),
+                "power_count": selector, "toughness_count": selector,
+            })]
+        # A "for each …" quantity with no wired selector — fail closed
+        # (an anthem reading an unmodeled count would silently apply +0).
+
     m = _ANTHEM_DEVOTION_SELF_RE.fullmatch(text)
     if m is not None:
         selector = devotion_selector(m)
@@ -3012,10 +3507,25 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _SELF_GRANT_RE.fullmatch(text)
     if m is not None:
-        keywords = _flag_keywords(m.group("kw"))
+        kw_text = m.group("kw")
+        keywords = _flag_keywords(kw_text)
+        parametric: list[dict[str, object]] = []
         if keywords is None:
+            # ENG-31: "~ has firebending N …" (Fire Nation Cadets) — only
+            # reached when `_flag_keywords` fails, so the ordinary
+            # landwalk/flag path is untouched.
+            split = _split_keywords_with_parametric(kw_text)
+            if split is None:
+                return None
+            keywords, parametric = split
+        if not keywords and not parametric:
             return None
-        specs = [EffectSpec("grant_keyword", {"keywords": keywords, "affects": "self"})]
+        params: dict[str, Any] = {"affects": "self"}
+        if keywords:
+            params["keywords"] = keywords
+        if parametric:
+            params["parametric_keywords"] = parametric
+        specs = [EffectSpec("grant_keyword", params)]
         tail = _self_permission_spec(m)
         if tail is False:
             return None
@@ -3147,11 +3657,12 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _SOULBOND_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
-        grant = _quoted_ability_grant_effects(m.group("inner"))
-        if grant is None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
             return None
-        grant.params["affects"] = "soulbond_pair"
-        return [grant]
+        for g in grants:
+            g.params["affects"] = "soulbond_pair"
+        return grants
 
     m = _SOULBOND_ANTHEM_RE.fullmatch(text)
     if m is not None:
@@ -3175,21 +3686,21 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _ATTACHED_QUOTED_ANTHEM_GRANT_RE.fullmatch(text)
     if m is not None:
-        grant = _quoted_ability_grant_effects(m.group("inner"))
-        if grant is None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
             return None
         return [
             EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
                                    "affects": "attached_permanent"}),
-            grant,
+            *grants,
         ]
 
     m = _ATTACHED_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
-        grant = _quoted_ability_grant_effects(m.group("inner"))
-        if grant is None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
             return None
-        return [grant]
+        return grants
 
     m = _ANTHEM_RE.fullmatch(text)
     if m is not None:
@@ -3220,11 +3731,12 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _COMMANDER_CREATURES_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
-        grant = _quoted_ability_grant_effects(m.group("inner"))
-        if grant is None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
             return None
-        grant.params["affects"] = "commander_creatures_you_own"
-        return [grant]
+        for g in grants:
+            g.params["affects"] = "commander_creatures_you_own"
+        return grants
 
     m = _QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
@@ -3242,11 +3754,41 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             if word is None:
                 return None
             scope_params = _permanent_scope_params(word, m)
-        grant = _quoted_ability_grant_effects(m.group("inner"))
-        if grant is None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
             return None
-        grant.params.update(scope_params)
-        return [grant]
+        for g in grants:
+            g.params.update(scope_params)
+        return grants
+
+    m = _GROUP_COUNTER_GRANT_RE.fullmatch(text)
+    if m is not None:
+        keywords = _flag_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        return [EffectSpec("grant_keyword", {
+            "keywords": keywords,
+            "affects": "creatures_you_control",
+            "has_counter_kind": "+1/+1",
+        })]
+
+    m = _GRAVEYARD_RETRACE_GRANT_RE.fullmatch(text)
+    if m is not None:
+        return _graveyard_retrace_grant_specs(m.group("filter"))
+
+    m = _MULTI_PERMANENT_TYPE_GRANT_RE.fullmatch(text)
+    if m is not None:
+        card_types = _multi_permanent_type_list(m.group("body"))
+        if card_types is None:
+            return None
+        keywords = _flag_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        return [EffectSpec("grant_keyword", {
+            "keywords": keywords,
+            "affects": "permanents_you_control",
+            "card_type": card_types,
+        })]
 
     m = _GRANT_RE.fullmatch(text)
     if m is not None:

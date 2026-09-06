@@ -7,6 +7,7 @@ docs/implementation-state/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "ScryfallInt
 from __future__ import annotations
 
 import re
+import threading
 import time
 from typing import Any, Optional
 
@@ -44,6 +45,19 @@ class ScryfallIntegration:
             timeout=10.0,
         )
         self._last_request_at: Optional[float] = None
+        # `ScryfallIntegration` is a process-wide singleton
+        # (`api/dependencies.py`'s `@lru_cache`) shared across FastAPI's
+        # blocking-request thread pool, so concurrent requests (exactly
+        # what firing `/validation`+`/coverage` for every saved deck in
+        # parallel produces, see saved_decks.py) can otherwise race through
+        # `_throttle`'s read-sleep-write sequence — each thread observes
+        # "enough time has passed" before any of them records the request it
+        # was about to make, collapsing the enforced gap and letting a burst
+        # of near-simultaneous requests reach Scryfall at once. Serializing
+        # the whole throttle-then-request sequence under one lock (`_request`
+        # below) is what actually makes `SCRYFALL_MIN_REQUEST_INTERVAL_
+        # SECONDS` a real rate limit rather than a per-thread approximation.
+        self._lock = threading.Lock()
 
     def close(self) -> None:
         self._client.close()
@@ -86,8 +100,12 @@ class ScryfallIntegration:
         return found, not_found
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
-        self._throttle()
-        return self._client.request(method, path, **kwargs)
+        # Throttle-then-fire under one lock (see the comment on `_lock` in
+        # `__init__`) so concurrent callers queue up properly spaced instead
+        # of racing past the interval check together.
+        with self._lock:
+            self._throttle()
+            return self._client.request(method, path, **kwargs)
 
     def _throttle(self) -> None:
         if self._last_request_at is not None:

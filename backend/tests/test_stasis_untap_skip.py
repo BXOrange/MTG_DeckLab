@@ -67,7 +67,7 @@ def test_stasis_stops_every_players_permanents_from_untapping():
     mine.tapped = True
     theirs.tapped = True
 
-    eng.state.turn_number = 1
+    eng.state.internal_turn.number = 1
     eng._step_untap()
 
     assert mine.tapped is True

@@ -179,6 +179,15 @@ class CardDatabase:
             rows = self._connection.execute("SELECT data FROM cards ORDER BY name").fetchall()
         return [Card.from_dict(json.loads(row[0])) for row in rows]
 
+    def count(self) -> int:
+        """How many cards are cached — a cheap `COUNT(*)`, unlike `list_cards`
+        (which deserializes every row into a `Card`). Used by `conftest.py`'s
+        isolated test-cache seeding check, where re-parsing ~35k blobs just
+        to see if the table is empty would needlessly slow down every test
+        session start."""
+        with self._lock:
+            return self._connection.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
+
     def search_cards(self, query: str, limit: int = 20) -> list[Card]:
         """Substring search over card names, e.g. for a card-search UI."""
         with self._lock:

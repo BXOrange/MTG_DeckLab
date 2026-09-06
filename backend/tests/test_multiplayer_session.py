@@ -67,7 +67,7 @@ def advance_until(session, *, step=None, turn=None, limit=200):
     for _ in range(limit):
         state = session.engine.state
         if (step is None or state.current_step == step) and (
-            turn is None or state.turn_number == turn
+            turn is None or state.internal_turn.number == turn
         ):
             return
         holder = state.priority_player
@@ -339,6 +339,32 @@ class TestDeferredLeave:
         advance_until(session, turn=2)
         assert session.engine.state.active_player.id == "cid"
 
+    def test_a_state_based_loss_defers_and_sweeps_the_board_too(self):
+        # RULE 800.4a's board cleanup must fire for *any* loss reason, not
+        # only an explicit concede — a player eliminated by 0 life (or
+        # poison/empty library/commander damage) leaves their permanents
+        # behind just the same.
+        session = self._three_player_game()
+        state = session.engine.state
+        from mtg_analyzer.models.game_object import GameObject, Zone
+
+        obj = GameObject(bear("Bob's Bear"), owner_id="bob", zone=Zone.BATTLEFIELD)
+        obj.controller_id = "bob"
+        state.add_to_battlefield(obj)
+
+        state.player_by_id("bob").life = 0
+        session.engine.rules.check_state_based_actions()
+
+        assert state.player_by_id("bob").has_lost is True
+        assert state.player_by_id("bob").loss_reason == "life"
+        assert state.game_over is False  # ann and cid are still playing
+        assert state.pending_leave_ids == ["bob"]
+        assert obj in state.battlefield  # still standing, mid-turn
+
+        advance_until(session, turn=2)
+        assert session.engine.state.pending_leave_ids == []
+        assert all(o.owner_id != "bob" for o in session.engine.state.battlefield)
+
 
 class TestPriority:
     """RULE 117: priority is genuinely passed around a shared table."""
@@ -359,6 +385,7 @@ class TestPriority:
             "interactive": True,
             "player_id": "ann",
             "passed": [],
+            "timer_seconds": 20.0,
         }
 
     def test_passing_hands_priority_to_the_next_player_in_turn_order(self):
@@ -484,10 +511,115 @@ class TestPriority:
         assert session.engine.state.priority_player.id == "ann"
 
 
+class TestTriggerVisibility:
+    """Bug report, 2026-09-04: Sram, Senior Edificer's "whenever you cast
+    an Aura, Equipment, or Vehicle spell, draw a card" fired — and even
+    resolved, drawing the card — without ever once being visible on the
+    stack. `GameSession.apply_action` never placed a newly-fired trigger
+    until `pass_priority` happened to complete a *later* round, at which
+    point it both placed *and* immediately resolved it in the same call —
+    so no view in between ever showed it sitting there, and the opponent
+    never got a real chance to respond to it either. Fixed by
+    `GameSession._place_pending_triggers` (RULE 117.5), called after every
+    dispatched action in an interactive-priority session.
+    """
+
+    def _playing_with_sram(self):
+        from mtg_analyzer.game.effect_binder import bind_from_catalogue
+        from mtg_analyzer.models.game_object import GameObject, Zone
+
+        session = make_game(mulligan_style="none", library=[land()] * 30)
+        keep_all(session)
+        state = session.engine.state
+        ann = state.player_by_id("ann")
+
+        sram = GameObject(
+            Card(
+                id="Sram, Senior Edificer", name="Sram, Senior Edificer",
+                type_line="Legendary Creature — Human Artificer",
+                is_creature=True, power=1, toughness=2,
+                oracle_text="Whenever you cast an Aura, Equipment, or Vehicle "
+                            "spell, draw a card.",
+            ),
+            owner_id="ann", zone=Zone.BATTLEFIELD,
+        )
+        bind_from_catalogue(sram)
+        state.add_to_battlefield(sram)
+
+        equip = GameObject(
+            Card(
+                id="Sword of the Animist", name="Sword of the Animist",
+                type_line="Artifact — Equipment",
+                mana_cost_string="{3}", converted_mana_cost=3,
+                oracle_text="Equipped creature gets +1/+1.\nWhenever equipped "
+                            "creature attacks, you may search your library for "
+                            "a basic land card, put it onto the battlefield "
+                            "tapped, then shuffle.\nEquip {2}",
+            ),
+            owner_id="ann", zone=Zone.HAND,
+        )
+        ann.hand.append(equip)
+        ann.library.append(
+            GameObject(Card(id="Filler", name="Filler", type_line="Instant", is_instant=True),
+                       owner_id="ann", zone=Zone.LIBRARY)
+        )
+
+        advance_until(session, step="main1", turn=1)
+        ann.mana_pool.add("C", 3)
+        return session, ann, equip
+
+    def test_a_trigger_fired_by_casting_is_on_the_stack_immediately(self):
+        session, ann, equip = self._playing_with_sram()
+        session.apply_action(
+            {"type": "cast_spell", "instance_id": equip.instance_id}, actor_id="ann"
+        )
+        state = session.engine.state
+        assert [it.description for it in state.stack] == [
+            "Sword of the Animist",
+            "Wenn du einen Aura-, Ausrüstungs- oder Fahrzeugzauber wirkst, "
+            "ziehe eine Karte.",
+        ]
+        # Not yet resolved — the caster still just holds priority.
+        assert "Filler" not in [o.name for o in ann.hand]
+        assert state.priority_player.id == "ann"
+
+    def test_the_opponent_can_see_it_before_either_player_passes(self):
+        # The concrete consequence of the old bug: the trigger not existing
+        # on the stack yet meant the opponent's own view had nothing to
+        # respond to, even though RULE 603.3b says it's already placed.
+        session, ann, equip = self._playing_with_sram()
+        session.apply_action(
+            {"type": "cast_spell", "instance_id": equip.instance_id}, actor_id="ann"
+        )
+        bob_view = session.view(perspective="bob")
+        assert len(bob_view["state"]["stack"]) == 2
+
+    def test_the_trigger_resolves_before_the_spell_once_everyone_passes(self):
+        session, ann, equip = self._playing_with_sram()
+        session.apply_action(
+            {"type": "cast_spell", "instance_id": equip.instance_id}, actor_id="ann"
+        )
+        session.apply_action({"type": "pass_priority"}, actor_id="ann")
+        session.apply_action({"type": "pass_priority"}, actor_id="bob")
+        state = session.engine.state
+        # LIFO: the trigger (placed on top) resolved first.
+        assert [it.description for it in state.stack] == ["Sword of the Animist"]
+        assert "Filler" in [o.name for o in ann.hand]
+
+    def test_no_extra_placement_round_when_nothing_fired(self):
+        # A plain pass with an empty stack and no pending triggers must
+        # stay a no-op — `_place_pending_triggers` shouldn't invent work.
+        session, ann, equip = self._playing_with_sram()
+        state = session.engine.state
+        session.apply_action({"type": "pass_priority"}, actor_id="ann")
+        assert state.stack == []
+        assert state.priority_player.id == "bob"
+
+
 class TestRoundNumber:
     """RULE 500.1 counts every player's turn; players count trips round the table.
 
-    `GameState.round_number` is display-only — nothing in the engine reads
+    `GameState.turn_nr` is display-only — nothing in the engine reads
     it — but it's what the board shows as "Zug N", because at a real table
     "turn 4" means the fourth time it's come back to you, not the fourth
     player-turn.
@@ -497,20 +629,20 @@ class TestRoundNumber:
         session = make_game()
         keep_all(session)
         state = session.engine.state
-        assert (state.turn_number, state.round_number) == (1, 1)
+        assert (state.internal_turn.number, state.turn_nr) == (1, 1)
         assert state.starting_player_id == "ann"
 
         # Bob's turn is turn 2 — still round 1.
         advance_until(session, turn=2)
-        assert session.engine.state.round_number == 1
+        assert session.engine.state.turn_nr == 1
 
         # Back to Ann: her second turn opens round 2.
         advance_until(session, turn=3)
         assert session.engine.state.active_player.id == "ann"
-        assert session.engine.state.round_number == 2
+        assert session.engine.state.turn_nr == 2
 
         advance_until(session, turn=5)
-        assert session.engine.state.round_number == 3
+        assert session.engine.state.turn_nr == 3
 
     def test_a_solo_game_counts_every_turn_as_a_round(self):
         # The goldfish dummy never takes a turn, so there is only ever one
@@ -519,17 +651,23 @@ class TestRoundNumber:
         session = manager.create_goldfish(library=[land()] * 30)
         session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
         for _ in range(60):
-            if session.engine.state.turn_number >= 4:
+            if session.engine.state.internal_turn.number >= 4:
                 break
             session.apply_action({"type": "advance_step"})
         state = session.engine.state
-        assert state.turn_number == 4
-        assert state.round_number == state.turn_number
+        assert state.internal_turn.number == 4
+        assert state.turn_nr == state.internal_turn.number
 
     def test_it_is_on_the_wire(self):
         session = make_game()
         keep_all(session)
-        assert session.view(perspective="ann")["state"]["round_number"] == 1
+        state = session.view(perspective="ann")["state"]
+        assert state["turn_nr"] == 1
+        assert state["internal_turn"] == {
+            "number": 1,
+            "turn_nr": 1,
+            "player_id": "ann",
+        }
 
 
 class TestTakeBack:

@@ -1,4 +1,4 @@
-"""FastAPI application factory and instance for the MTG Deck Analyzer backend.
+"""FastAPI application factory and instance for the DeckLab backend.
 
 Reference: docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md (PART 7, Phase 1).
 """
@@ -7,15 +7,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncIterator
 
+import anyio.to_thread
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from mtg_analyzer import config
 
 from mtg_analyzer.api.archetypes import router as archetypes_router
 from mtg_analyzer.api.cards import router as cards_router
 from mtg_analyzer.api.decks import router as decks_router
 from mtg_analyzer.api.dynamic_analysis import router as dynamic_analysis_router
+from mtg_analyzer.api.frontend_proxy import router as frontend_proxy_router
 from mtg_analyzer.api.game import router as game_router
 from mtg_analyzer.api.game_ws import router as game_ws_router
 from mtg_analyzer.api.images import router as images_router
@@ -26,18 +31,74 @@ from mtg_analyzer.api.multiplayer_ws import router as multiplayer_ws_router
 from mtg_analyzer.api.multiplayer_ws import sweeper
 from mtg_analyzer.api.player_assets import router as player_assets_router
 from mtg_analyzer.api.saved_decks import router as saved_decks_router
+from mtg_analyzer.api.solo import router as solo_router
 
 #: The frontend is a plain static server (setup/start.py, default port
 #: 8765, overridable via --port) with no backend origin baked in, so any
 #: local port is allowed rather than hardcoding one.
 _LOCAL_DEV_ORIGIN_REGEX = r"http://(localhost|127\.0\.0\.1):\d+"
 
+logger = logging.getLogger(__name__)
+
+#: uvicorn accepts a `trace` level that Python's `logging` has no name for
+#: — treat it as `DEBUG` for the app's own loggers.
+_LOG_LEVEL_ALIASES = {"TRACE": "DEBUG"}
+
+
+def _configure_logging() -> None:
+    """Set the level of the app's own `mtg_analyzer.*` loggers from
+    `config.LOG_LEVEL` (default WARNING).
+
+    Nothing in this project configured logging before, so `mtg_analyzer.*`
+    records fell through to `logging.lastResort` — visible only at WARNING+
+    and never at the level the operator asked for. This gives the
+    `mtg_analyzer` parent logger an explicit level (so `--log info` really
+    surfaces INFO) and, via `basicConfig`, a root stderr handler when one
+    isn't already installed (tests, `python -m …`); under uvicorn the root
+    stays handler-less and `basicConfig` is a no-op, uvicorn's own handler
+    doing the emitting. The root level itself is left at WARNING so raising
+    the app to DEBUG doesn't also unmute every third-party library.
+    """
+    name = _LOG_LEVEL_ALIASES.get(config.LOG_LEVEL, config.LOG_LEVEL)
+    level = logging.getLevelNamesMapping().get(name, logging.WARNING)
+    logging.basicConfig(level=logging.WARNING)
+    logging.getLogger("mtg_analyzer").setLevel(level)
+
+
+def _apply_server_thread_workers() -> None:
+    """Resize the AnyIO worker-thread pool to `config.SERVER_THREAD_WORKERS`.
+
+    Every gameplay endpoint is a synchronous `def`, so Starlette hands each
+    call to this pool; its size is therefore the ceiling on how many games
+    can be mid-step at the same time in this single process. AnyIO's own
+    default is 40. Runs once at startup, from inside the event loop (the
+    limiter is loop-bound). A bad value is logged and left alone rather
+    than crashing the server on boot.
+    """
+    try:
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        previous = limiter.total_tokens
+        limiter.total_tokens = config.SERVER_THREAD_WORKERS
+        if config.SERVER_THREAD_WORKERS != previous:
+            logger.info(
+                "server worker-thread pool set to %d (was %d)",
+                config.SERVER_THREAD_WORKERS,
+                previous,
+            )
+    except Exception:  # pragma: no cover - defensive, never block startup
+        logger.warning(
+            "could not resize the worker-thread pool to %r; using the default",
+            config.SERVER_THREAD_WORKERS,
+            exc_info=True,
+        )
+
 
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Run the multiplayer watchdog for as long as the server is up.
+    """Size the request thread pool, then run the multiplayer watchdog for
+    as long as the server is up.
 
-    It disconnects a player who is holding a table up (`config.
+    The watchdog disconnects a player who is holding a table up (`config.
     MULTIPLAYER_IDLE_TIMEOUT_SECONDS`), gives up seats whose grace period
     lapsed, forgets an abandoned PLR-4 identity token past `config.
     CLIENT_TOKEN_VALIDITY_SECONDS` (purging its player_assets uploads too),
@@ -45,6 +106,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     there can keep playing — see `api/multiplayer_ws.sweep_once`. Nothing
     else in the app needs a background task, so this is the whole lifespan.
     """
+    _apply_server_thread_workers()
     task = asyncio.create_task(
         sweeper(get_lobby(), get_game_session_manager(), get_player_asset_store())
     )
@@ -57,7 +119,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="MTG Deck Analyzer API", lifespan=_lifespan)
+    _configure_logging()
+    app = FastAPI(title="DeckLab API", lifespan=_lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=_LOCAL_DEV_ORIGIN_REGEX,
@@ -76,10 +139,15 @@ def create_app() -> FastAPI:
     app.include_router(import_external_router)
     app.include_router(multiplayer_router)
     app.include_router(multiplayer_ws_router)
+    app.include_router(solo_router)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    # Must be included last: its catch-all `/{path:path}` route would
+    # otherwise shadow every route above it (see frontend_proxy.py).
+    app.include_router(frontend_proxy_router)
 
     return app
 

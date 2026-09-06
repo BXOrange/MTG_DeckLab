@@ -1,6 +1,11 @@
+// First import: pins i18n init order — its module top-level reads the
+// language cookie and stamps <html lang> before any view module runs.
+import './theme.js';
+import { applyStaticI18n, t } from './i18n.js';
 import { renderDeckImportView } from './deckImportView.js';
 import { renderImportDeckView } from './importDeckView.js';
 import { createGoldfishView } from './goldfishView.js';
+import { createSoloView } from './soloView.js';
 import { createReplayView } from './replayView.js';
 import { createMultiplayerView } from './multiplayerView.js';
 import { renderCachedCardsView } from './cachedCardsView.js';
@@ -9,18 +14,55 @@ import { renderAnalyzeView } from './analyzeView.js';
 import { renderConnectionSettingsView } from './connectionSettingsView.js';
 import { renderProfileView } from './profileView.js';
 import { renderImplementationStatusView } from './implementationStatusView.js';
+import { renderHelpView } from './helpView.js';
 import { renderConnectionIndicator } from './connectionStatus.js';
 import { initCardHoverDetail } from './cardHoverDetail.js';
+import {
+  getBoardScale,
+  stepBoardScale,
+  resetBoardScale,
+  onBoardScaleChange,
+  BOARD_SCALE_MIN,
+  BOARD_SCALE_MAX,
+} from './boardScale.js';
 
+applyStaticI18n();
 initCardHoverDetail();
 renderConnectionIndicator(document.getElementById('header-connection-status'));
 
 const sidebar = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebar-toggle');
-sidebarToggle.addEventListener('click', () => {
-  const collapsed = sidebar.classList.toggle('collapsed');
+function setSidebarCollapsed(collapsed) {
+  sidebar.classList.toggle('collapsed', collapsed);
   sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+}
+sidebarToggle.addEventListener('click', () => {
+  setSidebarCollapsed(!sidebar.classList.contains('collapsed'));
 });
+// A game board (Goldfisch/Solo/Replay-Spielmodus/Multiplayer) folds the
+// side menu away for the full board width when its session starts, and
+// brings it back when the game ends — both dispatched by gameBoardView.js.
+// The burger toggle still overrides either way.
+document.addEventListener('mtg-game-started', () => setSidebarCollapsed(true));
+document.addEventListener('mtg-game-ended', () => setSidebarCollapsed(false));
+
+// Whole-board zoom (see boardScale.js): one app-wide control at the bottom
+// of the sidebar rather than duplicated inside every game mode's own rail,
+// since it's app chrome, not something specific to the game in progress.
+const boardScaleReset = document.getElementById('board-scale-reset');
+const boardScaleDown = document.getElementById('board-scale-down');
+const boardScaleUp = document.getElementById('board-scale-up');
+function paintBoardScale() {
+  const scale = getBoardScale();
+  boardScaleReset.textContent = `${scale}%`;
+  boardScaleDown.disabled = scale <= BOARD_SCALE_MIN;
+  boardScaleUp.disabled = scale >= BOARD_SCALE_MAX;
+}
+boardScaleDown.addEventListener('click', () => stepBoardScale(-1));
+boardScaleUp.addEventListener('click', () => stepBoardScale(1));
+boardScaleReset.addEventListener('click', () => resetBoardScale());
+onBoardScaleChange(paintBoardScale);
+paintBoardScale();
 
 const tabButtons = document.querySelectorAll('.tab-button');
 const navGroups = document.querySelectorAll('.nav-group');
@@ -30,6 +72,7 @@ const views = {
   savedDecks: document.getElementById('view-saved-decks'),
   analyze: document.getElementById('view-analyze'),
   goldfish: document.getElementById('view-goldfish'),
+  solo: document.getElementById('view-solo'),
   replay: document.getElementById('view-replay'),
   mpSetup: document.getElementById('view-mp-setup'),
   mpBoard: document.getElementById('view-mp-board'),
@@ -37,6 +80,7 @@ const views = {
   connection: document.getElementById('view-connection'),
   profile: document.getElementById('view-profile'),
   status: document.getElementById('view-status'),
+  help: document.getElementById('view-help'),
 };
 
 function showTab(tabName) {
@@ -91,6 +135,13 @@ const goldfish = createGoldfishView();
 goldfish.mount(views.goldfish);
 views.goldfish.addEventListener('view-shown', () => goldfish.onShown());
 
+// "Solo gegen Bots": the Multiplayer rules engine (real turns, priority,
+// hidden hands) driven against bots only — no lobby, no socket. Its own
+// persistent controller, same lifecycle as the goldfish one.
+const solo = createSoloView();
+solo.mount(views.solo);
+views.solo.addEventListener('view-shown', () => solo.onShown());
+
 // The Replay/Puzzle controller likewise persists across tab switches so an
 // in-progress board isn't dropped when navigating away.
 const replay = createReplayView();
@@ -106,7 +157,7 @@ const mpBoardTab = document.querySelector('.tab-button[data-tab="mpBoard"]');
 const multiplayer = createMultiplayerView({
   onBoardAvailable: (available) => {
     mpBoardTab.disabled = !available;
-    mpBoardTab.title = available ? '' : 'Erst verfügbar, wenn du in einem Spiel bist';
+    mpBoardTab.title = available ? '' : t('nav.mpBoardDisabledHint');
     // Don't strand the user on a tab that just went away.
     if (!available && mpBoardTab.classList.contains('active')) showTab('mpSetup');
   },
@@ -134,5 +185,6 @@ renderSavedDecksView(views.savedDecks, {
 renderConnectionSettingsView(views.connection);
 renderProfileView(views.profile);
 renderImplementationStatusView(views.status);
+renderHelpView(views.help);
 
 showTab('savedDecks');

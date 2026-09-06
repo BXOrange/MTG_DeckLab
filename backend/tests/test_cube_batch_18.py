@@ -85,7 +85,7 @@ def test_final_fortune_grants_extra_turn_and_loses_at_its_end_step():
     eng.start()  # turn 1, p1
     while eng.state.current_step != "main1":
         eng.advance_step()
-    assert eng.state.turn_number == 1
+    assert eng.state.internal_turn.number == 1
 
     src = _src("p1")
     take = TakeExtraTurnEffect(); take.source = src
@@ -105,10 +105,10 @@ def test_final_fortune_grants_extra_turn_and_loses_at_its_end_step():
         if eng.state.game_over:
             break
         eng.advance_step()
-        if eng.state.turn_number == 2 and turn2_active is None:
+        if eng.state.internal_turn.number == 2 and turn2_active is None:
             turn2_active = eng.state.active_player.id
         if p1.has_lost and loss_turn is None:
-            loss_turn = eng.state.turn_number
+            loss_turn = eng.state.internal_turn.number
             break
 
     assert turn2_active == "p1", "the extra turn (turn 2) is p1's, not p2's"
@@ -133,7 +133,7 @@ def test_final_fortune_does_not_lose_on_the_casting_turns_end_step():
     p1 = eng.state.player_by_id("p1")
 
     # Walk to the end of turn 1 only.
-    while not (eng.state.turn_number == 1 and eng.state.current_step == "end"):
+    while not (eng.state.internal_turn.number == 1 and eng.state.current_step == "end"):
         eng.advance_step()
     eng.advance_step()  # run past turn 1's end step
     assert not p1.has_lost, "no extra turn was queued and turn 1's end must not fire it"

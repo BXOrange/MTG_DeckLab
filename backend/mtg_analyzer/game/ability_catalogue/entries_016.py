@@ -1032,3 +1032,2008 @@ def _knowledge_pool() -> list[AbilitySpec]:
 
 
 register("Knowledge Pool", _knowledge_pool)
+
+
+def _earthshape() -> list[AbilitySpec]:
+    """Earthshape (Instant, {2}{W})
+
+    "Earthbend 3. Then each creature you control with power less than or
+    equal to that land's power gains hexproof and indestructible until end
+    of turn. You gain hexproof until end of turn."
+
+    — PAR-30, the last card of the Earthbend residue cluster. Hand-authored
+    rather than parsed: the "power <= that land's power" threshold is a
+    read of the just-earthbent land's power that no general handler
+    warrants building for one Avatar-set singleton.
+
+    Two documented simplifications:
+    - **"that land's power" is modeled as the literal earthbend amount
+      (3).** RULE 701.66's earthbend makes the target land a 0/0 that then
+      gets N +1/+1 counters, i.e. exactly N/N, so "that land's power" is 3
+      absent any other P/T modifier on that land — the common case.
+      `PumpEffect.creature_filter` (which now also narrows the
+      ``selector``-group branch, not just the targeted one) carries the
+      ``max_power`` bound; `combat.matches_object_filter` is the same
+      predicate `TargetSpec.creature_filter` uses everywhere else. The
+      animated land itself is a 3/3 creature you control and so is
+      (correctly) among the protected creatures.
+    - **"You gain hexproof until end of turn" is dropped.** Player-level
+      hexproof is a deliberately-unmodeled concept in this engine (same
+      call as Veil of Summer's player-level hexproof in the Kinnan/M-K
+      batch) — a whole targeting-legality subsystem for one rider.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("earthbend", {"amount": 3}),
+                EffectSpec("pump", {
+                    "selector": "creatures_you_control",
+                    "creature_filter": {"max_power": 3},
+                    "keywords": ["hexproof", "indestructible"],
+                }),
+            ],
+            raw_text="Erdbändige 3. Dann erhält jede Kreatur, die du kontrollierst "
+                     "und deren Stärke kleiner oder gleich der Stärke jenes Landes "
+                     "ist, Fluchsicherheit und Unzerstörbarkeit bis zum Ende des "
+                     "Zuges. Du erhältst Fluchsicherheit bis zum Ende des Zuges.",
+        )
+    ]
+
+
+register("Earthshape", _earthshape)
+
+
+# ---------------------------------------------------------------------------
+# Incubate (RULE 701.53) residue — the three cache singletons the PAR-30
+# parser trail left, each blocked on its own bespoke shape rather than on
+# incubate grammar (that shipped in v160/v162). Hand-authored per this
+# repo's escape valve (docs/Reference/11); the incubate itself is the
+# standard `create_token` "Incubator" + `extra_counters` {+1/+1} pattern
+# `Glissa, Herald of Predation` established, sized by a count source.
+# ---------------------------------------------------------------------------
+
+
+def _traumatic_revelation() -> list[AbilitySpec]:
+    """Target opponent reveals their hand. You may choose a creature or
+    battle card from it. If you do, that player discards that card. If you
+    don't, incubate 3.
+
+    — the "if you don't, `<effect>`" *else*-branch on an optional
+    `reveal_hand_choose_discard` (Thoughtseize's own template) is the only
+    new shape: `RevealHandChooseDiscardEffect` gains ``optional`` +
+    ``else_specs``, threaded through `request_choose_objects`' new
+    ``else_specs`` (the mirror of its long-standing ``then_specs``), which
+    fires when the choice ends with nothing picked — including when the
+    revealed hand held no creature or battle card to begin with. "battle"
+    joins the effect's own ``card_types`` filter. The else body is the
+    plain incubate-3 `create_token`.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("reveal_hand_choose_discard", {
+                "target_kind": "opponent",
+                "card_types": ["creature", "battle"],
+                "optional": True,
+                "else_specs": [
+                    {"type": "create_token", "params": {
+                        "token_name": "Incubator",
+                        "extra_counters": {"kind": "+1/+1", "count": 3},
+                    }},
+                ],
+            })],
+            raw_text="Ein Zielgegner zeigt seine Hand vor. Du kannst eine Kreaturen- "
+                     "oder Kampfkarte daraus wählen. Falls du das tust, wirft jener "
+                     "Spieler jene Karte ab. Falls du das nicht tust, inkubiere 3.",
+        ),
+    ]
+
+
+register("Traumatic Revelation", _traumatic_revelation)
+
+
+def _phyrexian_incubator() -> list[AbilitySpec]:
+    """{3}, {T}, Sacrifice Phyrexian Incubator: Search your library for any
+    number of Phyrexian cards or cards with phyrexian back faces, exile
+    them, then incubate 2 that many times. Then shuffle.
+
+    — "incubate 2 **that many times**", where "that many" is the count of
+    cards the search exiled, across the RULE 608.2 pending-choice
+    suspension the search opens. Solved without a `GameContext`
+    accumulator: `SearchLibraryEffect(track_exiled_with=True)` appends each
+    exiled card to the source's own `GameObject.exiled_with_ids` (the same
+    list `ExileEffect.track_exiled_with` writes), which lives on the
+    permanent and so survives the suspend/resume; the following
+    `create_token` reads it back with ``count_selector="exiled_with_count"``
+    (Abdel Adrian's own "for each permanent exiled this way" selector).
+    "Then shuffle" is `_finish_search`'s default (library zone, no
+    exile_rest).
+
+    **Documented simplification**: "or cards with phyrexian back faces" is
+    dropped — `card_query`'s type-line substring match claims "Phyrexian
+    cards" (the Phyrexian subtype) but not a DFC whose *back* face is
+    Phyrexian while the front isn't; no such card is in a normal library
+    search target for this artifact's real decks.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("search", {
+                    "criteria": {"type": "Phyrexian"},
+                    "count": 99,  # "any number of" — the shared search sentinel
+                    "optional": True,
+                    "destination": "exile",
+                    "track_exiled_with": True,
+                }),
+                EffectSpec("create_token", {
+                    "token_name": "Incubator",
+                    "count_selector": "exiled_with_count",
+                    "extra_counters": {"kind": "+1/+1", "count": 2},
+                }),
+            ],
+            cost={"text": "{3}, {T}, Sacrifice ~"},
+            raw_text="{3}, {T}, Opfere Phyrexianischen Inkubator: Durchsuche deine "
+                     "Bibliothek nach beliebig vielen phyrexianischen Karten, "
+                     "exiliere sie und inkubiere dann so oft 2. Mische danach.",
+        ),
+    ]
+
+
+register("Phyrexian Incubator", _phyrexian_incubator)
+
+
+def _progenitor_exarch() -> list[AbilitySpec]:
+    """When this creature enters, incubate 3 X times.
+    {T}: Transform target Incubator token you control.
+
+    — "incubate 3 **X times**": the repeat count is the creature's own
+    announced {X} ({X}{X} in its cost), `GameObject.x_paid` (RULE 107.3c,
+    stamped at cast time and still present when the ETB trigger resolves —
+    the same field enters-with-X-counters reads). New
+    `continuous.count_selector` key ``"source_x_paid"``, consumed by
+    `create_token`'s existing ``count_selector`` path.
+
+    The "{T}: Transform target Incubator token you control" ability reuses
+    the `Incubator` token's own transform shape exactly (`grant_until` /
+    ``type_change`` / ``rest_of_game`` — a genuinely permanent RULE 712.8
+    animation into a 0/0 Phyrexian artifact creature, its +1/+1 counters
+    doing the rest), just with a RULE 115 target instead of self: the new
+    ``incubator_token_you_control`` target kind (a token named "Incubator"
+    this ability's controller controls).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "token_name": "Incubator",
+                "count_selector": "source_x_paid",
+                "extra_counters": {"kind": "+1/+1", "count": 3},
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, inkubiere X-mal 3.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_until", {
+                "duration": "rest_of_game",
+                "target_kind": "incubator_token_you_control",
+                "static": {
+                    "type": "type_change",
+                    "params": {
+                        "add_types": ["creature"], "add_subtypes": ["Phyrexian"],
+                        "power": 0, "toughness": 0,
+                    },
+                },
+            })],
+            cost={"text": "{T}"},
+            raw_text="{T}: Transformiere einen Ziel-Inkubator-Spielstein unter deiner "
+                     "Kontrolle.",
+        ),
+    ]
+
+
+register("Progenitor Exarch", _progenitor_exarch)
+
+
+def _hedge_whisperer() -> list[AbilitySpec]:
+    """You may choose not to untap this creature during your untap step.
+    {3}{G}, {T}, Collect evidence 4: Target land you control becomes a 5/5
+    green Plant Boar creature with haste for as long as this creature
+    remains tapped. It's still a land. Activate only as a sorcery.
+
+    — Collect Evidence activated-body residue (sub-cluster b). The animate
+    body is a targeted `grant_until` on `land_you_control`: a layer-4
+    `type_change` (Plant Boar 5/5, `add_types` keeps the land type — "it's
+    still a land") plus a layer-6 `grant_keyword` haste, both on the one
+    picked land via the new `extra_statics` list. The "for as long as ~
+    remains tapped" bound is `condition={"kind": "source_tapped"}` (RULE
+    611.2b — the effect *ends*, doesn't merely pause, when Hedge Whisperer
+    untaps). ``sorcery_speed_only`` carries "Activate only as a sorcery".
+    The keep-tapped static is the general `no_untap_optional`.
+    """
+    return [
+        AbilitySpec("static", [EffectSpec("no_untap_optional", {})],
+                    raw_text="Du kannst dich entscheiden, diese Kreatur während deines "
+                             "Enttappsegments nicht zu enttappen."),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_until", {
+                "duration": "end_of_turn",  # overridden to for_as_long_as by `condition`
+                "target_kind": "land_you_control",
+                "condition": {"kind": "source_tapped"},
+                # Documented simplification: "green" isn't modeled —
+                # `type_change`'s layer-4 params have no colour field (same
+                # call as Restless Cottage). The animated land keeps
+                # whatever colour identity it already had.
+                "static": {
+                    "type": "type_change",
+                    "params": {
+                        "add_types": ["creature"],
+                        "add_subtypes": ["Plant", "Boar"],
+                        "power": 5, "toughness": 5,
+                    },
+                },
+                "extra_statics": [
+                    {"type": "grant_keyword", "params": {"keywords": ["haste"]}},
+                ],
+            })],
+            cost={"text": "{3}{G}, {T}, Collect evidence 4", "sorcery_speed_only": True},
+            raw_text="{3}{G}, {T}, Sammle Beweise 4: Ein Zielland, das du kontrollierst, "
+                     "wird zu einer 5/5 grünen Pflanzen-Eber-Kreatur mit Eile, solange "
+                     "diese Kreatur getappt bleibt. Es ist weiterhin ein Land. Aktiviere "
+                     "nur wie eine Hexerei.",
+        ),
+    ]
+
+
+register("Hedge Whisperer", _hedge_whisperer)
+
+
+def _airtight_alibi() -> list[AbilitySpec]:
+    """Flash
+    Enchant creature
+    When this Aura enters, untap enchanted creature. It gains hexproof
+    until end of turn. If it's suspected, it's no longer suspected.
+    Enchanted creature gets +2/+2 and can't become suspected.
+
+    — PAR-30 Suspect one-off shapes. Flash / Enchant creature parse off the
+    printed text directly. The ETB's three clauses are all shared
+    primitives keyed to the Aura's host: `TapEffect` untap
+    (``target_kind="attached_permanent"``), `PumpEffect` hexproof-until-EOT
+    (the parser's own `pump` shape), and `RemoveSuspectedEffect`'s
+    ``attached`` form — RULE 701.60a's reverse already no-ops on a
+    non-suspected creature, so "if it's suspected, ..." needs no explicit
+    gate. The static is a +2/+2 anthem plus a ``grant_keyword`` slug
+    ``"cant_become_suspected"`` the layer engine stamps and
+    `RulesEngine.suspect` honours — the only card printing that prohibition,
+    so a bespoke keyword rather than a new static kind.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("tap", {"target_kind": "attached_permanent", "untap": True}),
+                EffectSpec("pump", {"keywords": ["hexproof"], "target_kind": "attached_permanent"}),
+                EffectSpec("remove_suspected", {"attached": True}),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Aura ins Spiel kommt, enttappe die verzauberte Kreatur. "
+                     "Sie erhält bis zum Ende des Zuges Fluchsicherheit. Falls sie "
+                     "verdächtigt ist, ist sie nicht mehr verdächtigt.",
+        ),
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2}),
+                EffectSpec("grant_keyword", {
+                    "affects": "attached_permanent", "keywords": ["cant_become_suspected"],
+                }),
+            ],
+            raw_text="Verzauberte Kreatur erhält +2/+2 und kann nicht verdächtigt werden.",
+        ),
+    ]
+
+
+register("Airtight Alibi", _airtight_alibi)
+
+
+# --- PAR-30 · RULE 701.10 exchange-control residue -------------------------
+#
+# The remaining ten cards the shared cross-target predicates (PARSER_VERSION
+# 211) didn't reach — each its own bespoke primitive, hand-authored per
+# BACKLOG.md rather than widened parser grammar (none of these shapes
+# repeats across more than this one card).
+
+
+def _confusion_in_the_ranks() -> list[AbilitySpec]:
+    """Whenever an artifact, creature, or enchantment enters, its
+    controller chooses target permanent another player controls that
+    shares a card type with it. Exchange control of those permanents.
+
+    — The chooser is the *entering permanent's* controller, not this
+    Enchantment's own controller (`TriggeredAbility.controller_from_
+    trigger_event`, PAR-30's own new primitive) — a RULE 603.1 group
+    trigger with no controller restriction of its own (any player's
+    permanent). `ExchangeControlEffect(first_target_kind="trigger_subject")`
+    reads the entering permanent straight off the firing event; `shares_
+    type="card"` is the ordinary cross-target predicate every other "shares
+    a card type" exchange card already uses.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exchange_control", {
+                "first_target_kind": "trigger_subject",
+                "target_kind": "permanent_you_dont_control",
+                "shares_type": "card",
+            })],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "group", "type": ["artifact", "creature", "enchantment"]},
+                "chooser": "trigger_subject_controller",
+            },
+            raw_text="Wann immer ein Artefakt, eine Kreatur oder ein Verzauberung ins Spiel "
+                     "kommt, wählt ihr Beherrscher ein Zielpermanent, das ein anderer Spieler "
+                     "kontrolliert und das mit ihm einen Kartentyp teilt. Tauscht die Kontrolle "
+                     "über diese Permanents.",
+        ),
+    ]
+
+
+register("Confusion in the Ranks", _confusion_in_the_ranks)
+
+
+def _conjured_currency() -> list[AbilitySpec]:
+    """At the beginning of your upkeep, you may exchange control of this
+    enchantment and target permanent you neither own nor control.
+
+    — The new `permanent_you_neither_own_nor_control` target kind
+    (`targeting.legal_targets`); the self+target `ExchangeControlEffect`
+    mode (`target_kind` only, no `first_target_kind`) Avarice Totem-shaped
+    cards already use.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exchange_control", {
+                "target_kind": "permanent_you_neither_own_nor_control",
+            })],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
+            optional=True,
+            raw_text="Zu Beginn deines Versorgungssegments kannst du die Kontrolle über "
+                     "diese Verzauberung und ein Zielpermanent, das du weder besitzt noch "
+                     "kontrollierst, tauschen.",
+        ),
+    ]
+
+
+register("Conjured Currency", _conjured_currency)
+
+
+def _djinn_of_infinite_deceits() -> list[AbilitySpec]:
+    """Flying
+    {T}: Exchange control of two target nonlegendary creatures. You can't
+    activate this ability during combat.
+
+    — The multi-target `count=2` mode's own shared filter (`second_
+    creature_filter={"nonlegendary": True}`, new `combat.matches_object_
+    filter` key) plus the new `ActivationCost.not_during_combat` timing
+    flag (RULE 602.5d's converse of `sorcery_speed_only`).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("exchange_control", {
+                "target_kind": "creature", "count": 2,
+                "second_creature_filter": {"nonlegendary": True},
+            })],
+            cost={"text": "{T}", "not_during_combat": True},
+            raw_text="Fliegend\n{T}: Tausche die Kontrolle über zwei nichtlegendäre "
+                     "Zielkreaturen. Du kannst diese Fähigkeit nicht während des Kampfes "
+                     "aktivieren.",
+        ),
+    ]
+
+
+register("Djinn of Infinite Deceits", _djinn_of_infinite_deceits)
+
+
+def _gauntlets_of_chaos() -> list[AbilitySpec]:
+    """{5}, Sacrifice this artifact: Exchange control of target artifact,
+    creature, or land you control and target permanent an opponent
+    controls that shares one of those types with it. If those permanents
+    are exchanged this way, destroy all Auras attached to them.
+
+    — The two-explicit-targets mode plus both new `ExchangeControlEffect`
+    riders: `shares_type="card"` (the cross-target predicate) and
+    `destroy_auras_if_exchanged` (RULE 701.10c's own after-effect, gated on
+    the exchange actually happening).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("exchange_control", {
+                "first_target_kind": "permanent_you_control",
+                "target_kind": "permanent_you_dont_control",
+                "shares_type": "card",
+                "destroy_auras_if_exchanged": True,
+            })],
+            cost={"text": "{5}, Sacrifice ~"},
+            raw_text="{5}, Opfere dieses Artefakt: Tausche die Kontrolle über ein "
+                     "Zielartefakt, eine Zielkreatur oder ein Zielland, das du "
+                     "kontrollierst, und ein Zielpermanent, das ein Gegner kontrolliert "
+                     "und das mit ihm einen dieser Typen teilt. Falls diese Permanents auf "
+                     "diese Weise getauscht werden, zerstöre alle Verzauberungen vom Typ "
+                     "Aura, die an ihnen befestigt sind.",
+        ),
+    ]
+
+
+register("Gauntlets of Chaos", _gauntlets_of_chaos)
+
+
+def _modify_memory() -> list[AbilitySpec]:
+    """Exchange control of two target creatures controlled by different
+    players. If you control neither creature, draw three cards.
+
+    — The multi-target `count=2` + `distinct_controllers` mode (already
+    shipped) plus the new `draw_if_neither_controlled` rider.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exchange_control", {
+                "target_kind": "creature", "count": 2, "distinct_controllers": True,
+                "draw_if_neither_controlled": 3,
+            })],
+            raw_text="Tausche die Kontrolle über zwei Zielkreaturen, die von "
+                     "unterschiedlichen Spielern kontrolliert werden. Falls du keine der "
+                     "beiden Kreaturen kontrollierst, ziehe drei Karten.",
+        ),
+    ]
+
+
+register("Modify Memory", _modify_memory)
+
+
+def _psychic_transfer() -> list[AbilitySpec]:
+    """If the difference between your life total and target player's life
+    total is 5 or less, exchange life totals with that player.
+
+    — The new `ExchangeLifeTotalsEffect.life_difference_at_most` pre-effect
+    numeric gate.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exchange_life_totals", {
+                "target_kind": "player", "life_difference_at_most": 5,
+            })],
+            raw_text="Falls der Unterschied zwischen deinem Lebenspunktestand und dem "
+                     "Lebenspunktestand des Zielspielers 5 oder weniger beträgt, tauscht "
+                     "die Lebenspunktestände mit diesem Spieler.",
+        ),
+    ]
+
+
+register("Psychic Transfer", _psychic_transfer)
+
+
+def _mirror_mirror() -> list[AbilitySpec]:
+    """This artifact enters tapped.
+    {7}, {T}, Sacrifice this artifact: Choose target player. At the
+    beginning of the next end step, exchange life totals with that player,
+    exchange control of all permanents you and that player control, and
+    exchange cards in your hands, cards in your libraries, and cards in
+    your graveyards.
+
+    — "This artifact enters tapped" needs no entry here at all:
+    `ability_catalogue.core.enters_tapped` derives RULE 614.1 tap-lands (and
+    this same shape on any other permanent) straight from the card's own
+    printed oracle text (`parser.oracle.catalogue.lands.land_tap_condition`),
+    independent of this hand-authored registry.
+    `CreateDelayedTriggerEffect(step="end", scope="any", capture=
+    "target_player")` arms the delayed firing (RULE 603.7), baking in the
+    player chosen when the ability first resolved; `choose_targets` is what
+    actually offers that RULE 115 pick — a `target_groups=None` ability
+    passes its whole ``targets`` list to every one of its own effects, so
+    the delayed-trigger effect sees the same pick with no `target_spec` of
+    its own. The new `TripleExchangeEffect` (`capture="target_player"`'s
+    own new mode) is the delayed effect itself — see its docstring for why
+    the three swaps are one bespoke effect rather than three.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("choose_targets", {"kinds": ["player"]}),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end", "scope": "any", "capture": "target_player",
+                    "effects": [{"type": "triple_exchange", "params": {}}],
+                    "description": "Mirror Mirror: Lebenspunkte, Permanents und Zonen tauschen",
+                }),
+            ],
+            cost={"text": "{7}, {T}, Sacrifice ~"},
+            raw_text="{7}, {T}, Opfere dieses Artefakt: Wähle einen Zielspieler. Zu Beginn "
+                     "des nächsten Endsegments tauscht ihr die Lebenspunktestände, die "
+                     "Kontrolle über alle Permanents, die du und dieser Spieler "
+                     "kontrolliert, und die Karten in euren Händen, Bibliotheken und "
+                     "Friedhöfen.",
+        ),
+    ]
+
+
+register("Mirror Mirror", _mirror_mirror)
+
+
+def _cultural_exchange() -> list[AbilitySpec]:
+    """Choose any number of creatures target player controls. Choose the
+    same number of creatures another target player controls. Those players
+    exchange control of those creatures. (This effect lasts indefinitely.)
+
+    — See `CulturalExchangeEffect`'s own docstring for the two chained
+    interactive rounds and its documented "same number" simplification.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("cultural_exchange", {})],
+            raw_text="Wähle eine beliebige Anzahl Kreaturen, die ein Zielspieler "
+                     "kontrolliert. Wähle die gleiche Anzahl Kreaturen, die ein anderer "
+                     "Zielspieler kontrolliert. Diese Spieler tauschen die Kontrolle über "
+                     "diese Kreaturen. (Dieser Effekt hält unbegrenzt an.)",
+        ),
+    ]
+
+
+register("Cultural Exchange", _cultural_exchange)
+
+
+def _juxtapose() -> list[AbilitySpec]:
+    """You and target player exchange control of the creature you each
+    control with the greatest mana value. Then exchange control of
+    artifacts the same way. If two or more permanents a player controls
+    are tied for greatest, their controller chooses one of them.
+
+    — See `JuxtaposeEffect`'s own docstring for the two selection+exchange
+    rounds and its documented tie-break simplification.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("juxtapose", {})],
+            raw_text="Du und der Zielspieler tauscht die Kontrolle über die Kreatur mit "
+                     "dem höchsten Manawert, die ihr jeweils kontrolliert. Tauscht dann auf "
+                     "die gleiche Weise die Kontrolle über Artefakte. Falls zwei oder mehr "
+                     "Permanents, die ein Spieler kontrolliert, für den höchsten Wert "
+                     "gleichauf sind, wählt ihr Beherrscher eines davon.",
+        ),
+    ]
+
+
+register("Juxtapose", _juxtapose)
+
+
+def _perplexing_chimera() -> list[AbilitySpec]:
+    """Whenever an opponent casts a spell, you may exchange control of
+    this creature and that spell. If you do, you may choose new targets
+    for the spell. (If the spell becomes a permanent, you control that
+    permanent.)
+
+    — RULE 603.3d's reflexive "that spell" (the firing SPELL_CAST event's
+    own subject, never a RULE 115 target) combined with RULE 603.5's "you
+    may" (`TriggeredAbility.optional` — `_place_triggers`'s reflexive
+    branch now pauses on a do/decline choice instead of placing blind when
+    both are set, PAR-30's own new primitive). `ExchangeControlSpellEffect
+    (reflexive_spell=True)` is the still-on-the-stack sibling of the
+    ordinary battlefield `ExchangeControlEffect`.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exchange_control_spell", {"reflexive_spell": True})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "not_you"},
+                "reflexive": True,
+            },
+            optional=True,
+            raw_text="Wann immer ein Gegner einen Zauberspruch wirkt, kannst du die "
+                     "Kontrolle über diese Kreatur und diesen Zauberspruch tauschen. Wenn "
+                     "du dies tust, kannst du für den Zauberspruch neue Ziele bestimmen.",
+        ),
+    ]
+
+
+register("Perplexing Chimera", _perplexing_chimera)
+
+
+def _sudden_substitution() -> list[AbilitySpec]:
+    """Split second (As long as this spell is on the stack, players can't
+    cast spells or activate abilities that aren't mana abilities.)
+    Exchange control of target noncreature spell and target creature. Then
+    the spell's controller may choose new targets for it.
+
+    — `ExchangeControlSpellEffect`'s two-independent-targets mode
+    (``permanent_target_kind="creature"``, ``spell_filter={"noncreature":
+    True}``); Split Second is a plain flag keyword, already parsed off the
+    printed text.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exchange_control_spell", {
+                "permanent_target_kind": "creature",
+                "spell_filter": {"noncreature": True},
+            })],
+            raw_text="Split Second (Solange sich dieser Zauberspruch auf dem Stapel "
+                     "befindet, können Spieler keine Zaubersprüche wirken oder Fähigkeiten "
+                     "aktivieren, die keine Manafähigkeiten sind.)\n"
+                     "Tausche die Kontrolle über einen nichtkreaturischen Zielzauberspruch "
+                     "und eine Zielkreatur. Danach kann der Beherrscher des "
+                     "Zauberspruchs neue Ziele für ihn bestimmen.",
+        ),
+    ]
+
+
+register("Sudden Substitution", _sudden_substitution)
+
+
+def _arteeoh_dread_scavenger() -> list[AbilitySpec]:
+    """Flying, deathtouch
+    Whenever Arteeoh deals combat damage to a player, you may exchange
+    control of two other target artifacts. When you do, create a token
+    that's a copy of target artifact you don't control, except it's a 1/1
+    green Squirrel creature token in addition to its other colors and
+    types.
+
+    — See `ExchangeControlThenCopyTokenEffect`'s own docstring for the
+    exchange + RULE 603.11 reflexive copy-token connector and its
+    documented colour-addition simplification.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exchange_control_then_copy_token", {})],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            optional=True,
+            raw_text="Fliegend, Todesberührung\nImmer wenn Arteeoh einem Spieler "
+                     "Kampfschaden zufügt, kannst du die Kontrolle über zwei andere "
+                     "Zielartefakte tauschen. Wenn du dies tust, erschaffe einen Marker, "
+                     "der eine Kopie eines Zielartefakts ist, das du nicht kontrollierst, "
+                     "außer dass er zusätzlich zu seinen anderen Farben und Typen ein "
+                     "grüner 1/1 Eichhörnchen-Kreaturenmarker ist.",
+        ),
+    ]
+
+
+register("Arteeoh, Dread Scavenger", _arteeoh_dread_scavenger)
+
+
+# ---------------------------------------------------------------------------
+# PAR-30 — Waterbend (RULE 701.67) residue: the remaining per-card bodies.
+# The shared "waterbend {X}" announcement (v215) folds the {X} into the
+# spell's total and stamps `GameObject.x_paid`; each body below is bespoke.
+# ---------------------------------------------------------------------------
+
+
+def _waterbending_lesson() -> list[AbilitySpec]:
+    """Draw three cards. Then discard a card unless you waterbend {2}.
+
+    — RULE 118.3 resolve-time pay-or-discard: `pay_cost_then` with an
+    ``else_effects`` discard, the cost being the waterbend {2} (modeled as a
+    plain {2}, the same documented-simplification drop of the "tap your
+    artifacts and creatures to help" helper as every other waterbend cost).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("draw", {"count": 3}),
+                EffectSpec("pay_cost_then", {
+                    "cost": "{2}",
+                    "effects": [],
+                    "else_effects": [{"type": "discard", "params": {"count": 1}}],
+                    "prompt": "Wasserbändige {2}, sonst wirf eine Karte ab.",
+                }),
+            ],
+            raw_text="Ziehe drei Karten. Wirf dann eine Karte ab, es sei denn, du "
+                     "wasserbändigst {2}.",
+        ),
+    ]
+
+
+register("Waterbending Lesson", _waterbending_lesson)
+
+
+def _water_tribe_rallier() -> list[AbilitySpec]:
+    """Waterbend {5}: Look at the top four cards of your library. You may
+    reveal a creature card with power 3 or less from among them and put it
+    into your hand. Put the rest on the bottom of your library in a random
+    order.
+
+    — the `look_top_select` reveal-filter variant (PAR-30): ``select_
+    optional`` ("you may reveal") + ``select_filter`` ({card_type: creature,
+    max_power: 3}) + ``rest_order="random"``. Cost is the waterbend {5} as a
+    plain {5} activated cost.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("look_top_select", {
+                "count": 4,
+                "select_count": 1,
+                "select_optional": True,
+                "select_filter": {"card_type": "creature", "max_power": 3},
+                "rest_destination": "library_bottom",
+                "rest_order": "random",
+            })],
+            cost={"mana": "{5}"},
+            raw_text="Wasserbändige {5}: Sieh dir die obersten vier Karten deiner "
+                     "Bibliothek an. Du darfst eine Kreaturenkarte mit Stärke 3 oder "
+                     "weniger von ihnen offenbaren und auf deine Hand nehmen. Lege "
+                     "den Rest in zufälliger Reihenfolge unter deine Bibliothek.",
+        ),
+    ]
+
+
+register("Water Tribe Rallier", _water_tribe_rallier)
+
+
+def _ruinous_waterbending() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, you may waterbend {4}.
+    All creatures get -2/-2 until end of turn. If this spell's additional
+    cost was paid, whenever a creature dies this turn, you gain 1 life.
+
+    — the -2/-2 board sweep parses on its own (`pump` selector
+    ``all_creatures``); the paid-branch grant is the new *event-based,
+    this-turn* floating triggered ability — `install_temporary_player_
+    trigger` with ``duration="this_turn"`` (armed active immediately,
+    dropped at the next `TURN_BEGIN`), ``event_player_scope="any"``
+    ("whenever **a** creature dies", not "a creature you control") and
+    ``recipient="controller"`` ("**you** gain 1 life").
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("pump", {"power": -2, "toughness": -2, "selector": "all_creatures"}),
+                EffectSpec("install_temporary_player_trigger", {
+                    "event_type": "DIES",
+                    "duration": "this_turn",
+                    "event_player_scope": "any",
+                    "recipient": "controller",
+                    "effects": [{"type": "gain_life", "params": {"amount": 1}}],
+                    "description": "Immer wenn in diesem Zug eine Kreatur stirbt, gewinnst du 1 Leben.",
+                }, condition={"additional_cost_paid": True}),
+            ],
+            additional_cost={"waterbend": 4},
+            additional_cost_optional=True,
+            raw_text="Alle Kreaturen erhalten -2/-2 bis zum Ende des Zuges. Falls die "
+                     "zusätzlichen Kosten dieses Zauberspruchs bezahlt wurden, gewinnst "
+                     "du 1 Leben, immer wenn in diesem Zug eine Kreatur stirbt.",
+        ),
+    ]
+
+
+register("Ruinous Waterbending", _ruinous_waterbending)
+
+
+def _spirit_water_revival() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, you may waterbend {6}.
+    Draw two cards. If this spell's additional cost was paid, instead
+    shuffle your graveyard into your library, draw seven cards, and you
+    have no maximum hand size for the rest of the game.
+    Exile Spirit Water Revival.
+
+    — the additional-cost-paid *override* ("instead"): the plain "draw two"
+    is gated `{"additional_cost_paid": False}`, the bigger line
+    `{"additional_cost_paid": True}` (RULE 118.3's "instead" = the two
+    branches are mutually exclusive complements, the `clash_won` idiom).
+    "no maximum hand size for the rest of the game" is the new
+    `no_max_hand_size_rest_of_game` effect (`GameState.no_max_hand_size_
+    player_ids`). "Exile ~" is the self-exile-on-resolution tail.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("draw", {"count": 2}, condition={"additional_cost_paid": False}),
+                EffectSpec("shuffle_graveyard_into_library", {},
+                           condition={"additional_cost_paid": True}),
+                EffectSpec("draw", {"count": 7}, condition={"additional_cost_paid": True}),
+                EffectSpec("no_max_hand_size_rest_of_game", {},
+                           condition={"additional_cost_paid": True}),
+                EffectSpec("exile", {"target_kind": None}),
+            ],
+            additional_cost={"waterbend": 6},
+            additional_cost_optional=True,
+            raw_text="Ziehe zwei Karten. Falls die zusätzlichen Kosten dieses "
+                     "Zauberspruchs bezahlt wurden, mische stattdessen deinen Friedhof "
+                     "in deine Bibliothek, ziehe sieben Karten und du hast für den Rest "
+                     "des Spiels keine maximale Handkartenzahl. Schicke Spirit Water "
+                     "Revival ins Exil.",
+        ),
+    ]
+
+
+register("Spirit Water Revival", _spirit_water_revival)
+
+
+def _waterbenders_restoration() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, waterbend {X}.
+    Exile X target creatures you control. Return those cards to the
+    battlefield under their owner's control at the beginning of the next
+    end step.
+
+    — a mass delayed-return flicker: `exile` X targets with ``track_exiled_
+    with`` + a RULE 603.7 `create_delayed_trigger` at the next end step
+    running `return_all_exiled_with` (each card back under its own owner's
+    control — the effect's default). The mandatory waterbend {X} announces
+    X (v215) and `_substitute_x` resolves the ``"x"`` target count.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("exile", {
+                    "target_kind": "creature_you_control",
+                    "count_selector": "source_x_paid",
+                    "track_exiled_with": True,
+                }),
+                # "at the beginning of **the** next end step" (not "your") —
+                # scope "any", the very next end step whoever's turn it is.
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end", "scope": "any",
+                    "effects": [{"type": "return_all_exiled_with", "params": {}}],
+                    "description": "Bringe diese Karten am Anfang des nächsten "
+                                   "Endsegments ins Spiel zurück.",
+                }),
+            ],
+            additional_cost={"waterbend": "x"},
+            raw_text="Schicke X Zielkreaturen, die du kontrollierst, ins Exil. Bringe "
+                     "diese Karten am Anfang des nächsten Endsegments unter der "
+                     "Kontrolle ihrer Besitzer ins Spiel zurück.",
+        ),
+    ]
+
+
+register("Waterbender's Restoration", _waterbenders_restoration)
+
+
+def _foggy_swamp_visions() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, waterbend {X}.
+    Exile X target creature cards from graveyards. For each creature card
+    exiled this way, create a token that's a copy of it. At the beginning
+    of your next end step, sacrifice those tokens.
+
+    — `exile` X graveyard creature cards → `copy_permanent` with the new
+    ``referent="previous_each"`` (one token copy of *each* card an earlier
+    clause of this resolution exiled, `GameContext.previous_targets`) → a
+    RULE 603.7 `create_delayed_trigger` at the next end step sacrificing
+    the captured tokens (``capture="created_objects"``).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("exile", {
+                    "target_kind": "any_graveyard_creature",
+                    "count_selector": "source_x_paid",
+                }),
+                EffectSpec("copy_permanent", {
+                    "referent": "previous_each", "target_kind": None,
+                }),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end", "scope": "controller", "capture": "created_objects",
+                    "effects": [{"type": "sacrifice_specific", "params": {}}],
+                    "description": "Opfere diese Marker am Anfang deines nächsten "
+                                   "Endsegments.",
+                }),
+            ],
+            additional_cost={"waterbend": "x"},
+            raw_text="Schicke X Zielkreaturenkarten aus Friedhöfen ins Exil. Erschaffe "
+                     "für jede auf diese Weise ins Exil geschickte Kreaturenkarte einen "
+                     "Marker, der eine Kopie von ihr ist. Opfere diese Marker am Anfang "
+                     "deines nächsten Endsegments.",
+        ),
+    ]
+
+
+register("Foggy Swamp Visions", _foggy_swamp_visions)
+
+
+def _crashing_wave() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, waterbend {X}.
+    Tap up to X target creatures, then distribute three stun counters among
+    any number of tapped creatures your opponents control.
+
+    — `tap` up to X targets (`TargetSpec.count_selector="source_x_paid"`,
+    resolved at announce time off `x_paid`) → `add_counters` ``divided`` +
+    ``previous_subject`` (a 3-stun-counter pool auto-split across the
+    creatures this spell just tapped). **Documented simplification:** the
+    stun distribution isn't a RULE 115 target (the printed text has no
+    "target" for it — it's "any number of tapped creatures your opponents
+    control"), so it's modeled as "the creatures this spell tapped", split
+    evenly, rather than a fresh interactive "distribute among any number
+    of" choice restricted to opponent-controlled creatures.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("tap", {
+                    "target_kind": "creature",
+                    "count_selector": "source_x_paid", "optional": True,
+                }),
+                EffectSpec("add_counters", {
+                    "kind": "stun", "amount": 3, "divided": True,
+                    "previous_subject": True,
+                }),
+            ],
+            additional_cost={"waterbend": "x"},
+            raw_text="Tappe bis zu X Zielkreaturen, dann verteile drei "
+                     "Betäubungsmarken unter einer beliebigen Anzahl getappter "
+                     "Kreaturen, die deine Gegner kontrollieren.",
+        ),
+    ]
+
+
+register("Crashing Wave", _crashing_wave)
+
+
+def _invasion_submersible() -> list[AbilitySpec]:
+    """When this Vehicle enters, return up to one other target nonland
+    permanent to its owner's hand.
+    Exhaust — Waterbend {3}: This Vehicle becomes an artifact creature. Put
+    three +1/+1 counters on it. (Activate each exhaust ability only once.)
+
+    — the ETB parses on its own (v215 "up to one other target nonland
+    permanent"), reproduced here since a catalogue entry replaces the
+    parser fallback. The Exhaust body is hand-authored: "becomes an
+    artifact creature" is a `grant_until` rest-of-game `type_change`
+    (0/0 base — this Vehicle's printed crew P/T — plus the three counters
+    = a 3/3), and RULE 702.177a's once-per-game restriction is the
+    `activate_only_once_marker` the binder folds into ``once_per_game``.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_to_hand", {
+                "target_kind": "nonland_permanent", "optional": True,
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn dieses Fahrzeug ins Spiel kommt, bringe bis zu eine andere "
+                     "Ziel-Nichtland-bleibende-Karte auf die Hand ihres Besitzers zurück.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("grant_until", {
+                    "duration": "rest_of_game", "target_kind": None,
+                    "static": {"type": "type_change", "params": {
+                        "add_types": ["artifact", "creature"], "power": 0, "toughness": 0,
+                    }},
+                }),
+                EffectSpec("add_counters", {"kind": "+1/+1", "amount": 3, "target_kind": None}),
+                EffectSpec("activate_only_once_marker", {}),
+            ],
+            cost={"mana": "{3}"},
+            raw_text="Auslaugen — Wasserbändige {3}: Dieses Fahrzeug wird eine "
+                     "Artefaktkreatur. Lege drei +1/+1-Marken darauf.",
+        ),
+    ]
+
+
+register("Invasion Submersible", _invasion_submersible)
+
+
+def _the_master_gallifreys_end() -> list[AbilitySpec]:
+    """Make Them Pay — Whenever a nontoken artifact creature you control
+    dies, you may exile it. If you do, choose an opponent with the most life
+    among your opponents. That player faces a villainous choice — They lose
+    4 life, or you create a token that's a copy of that card.
+
+    — MEC-52. Hand-authored: the DIES group trigger with a nontoken +
+    artifact filter and the "you may exile **it**" reflexive on the dying
+    creature (RULE 603.6e last-known info, `ExileEffect` ``target_kind=
+    "trigger_subject"``) are past what the parser's villainous grammar
+    reaches. Two general engine primitives it drove:
+    `FaceVillainousChoiceEffect` ``subject="opponent_with_most_life"`` (RULE
+    701.55 pre-selection; ties → first in APNAP order, a documented
+    simplification of the printed "your choice") and ``capture_previous`` —
+    the just-exiled card (`context.previous_targets`, now also seeded by
+    `ExileEffect`'s trigger-subject branch) is baked into the choice so
+    option B's `copy_permanent` ``referent="previous"`` still resolves once
+    the choice is *answered*, well after this resolution's context is gone.
+    ``optional`` on the whole ability is the "you may exile it. If you do,
+    …" gate: decline and nothing happens; accept and the exile always
+    succeeds (the creature is in the graveyard), so the "if you do" is
+    exact rather than simplified.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("exile", {"target_kind": "trigger_subject"}),
+                EffectSpec("face_villainous_choice", {
+                    "subject": "opponent_with_most_life",
+                    "capture_previous": True,
+                    "option_a": [{"type": "lose_life",
+                                  "params": {"amount": 4, "target_kind": "player"}}],
+                    "option_b": [{"type": "copy_permanent",
+                                  "params": {"target_kind": None, "referent": "previous"}}],
+                }),
+            ],
+            trigger={
+                "event": EventType.DIES,
+                "condition": {
+                    "subject": "group", "controller": "you",
+                    "type": "artifact", "nontoken": True,
+                },
+            },
+            optional=True,
+            raw_text="Lass sie bezahlen — Immer wenn eine Nicht-Token-"
+                     "Artefaktkreatur, die du kontrollierst, stirbt, darfst du "
+                     "sie ins Exil schicken. Falls du dies tust, wähle einen "
+                     "Gegner mit den meisten Lebenspunkten unter deinen "
+                     "Gegnern. Jener Spieler trifft eine schurkische Wahl — Er "
+                     "verliert 4 Lebenspunkte, oder du erschaffst einen Marker, "
+                     "der eine Kopie jener Karte ist.",
+        ),
+    ]
+
+
+register("The Master, Gallifrey's End", _the_master_gallifreys_end)
+
+
+#: MEC-47 — the Tempest Licid cycle. Every Licid shares the same activation
+#: line ("{cost}, {T}: This creature loses this ability and becomes an Aura
+#: enchantment with enchant creature. Attach it to target creature. You may
+#: pay {end_cost} to end this effect.") and differs only in its "Enchanted
+#: creature …" clause. `LicidBecomeAuraEffect`/`LicidRevertEffect` +
+#: `GameObject.is_licid_aura` + the `is_licid_aura`/`not_licid_aura`
+#: `static_conditions` do the transform; the granted clause is an ordinary
+#: `affects="attached_permanent"` static that only bites once
+#: `attached_to` is set.
+def _cond_marker(kind: str) -> EffectSpec:
+    # Fresh every call — the binder mutates specs when binding, so a shared
+    # module constant would be corrupted for the next Licid (and every
+    # subsequent `specs_for`).
+    return EffectSpec("activation_condition_marker", {"condition": {"kind": kind}})
+
+
+def _licid(name: str, cost: str, end_cost: str, granted, granted_raw: str,
+           granted_kind: str = "static", trigger=None,
+           granted_cost=None, keep_creature: bool = False) -> list[AbilitySpec]:
+    """``granted`` — the `EffectSpec`s of the Licid's "Enchanted creature …"
+    ability. ``granted_kind`` is ``"static"`` (the anthem/keyword/control
+    grants — inert until `attached_to` is set), ``"triggered"`` (Leeching /
+    Stinging — needs ``trigger``) or ``"activated"`` (Nurturing — needs
+    ``granted_cost``)."""
+    granted_specs = [EffectSpec(s.type, dict(s.params)) for s in granted]
+    if granted_kind == "triggered":
+        granted_ability = AbilitySpec("triggered", granted_specs,
+                                      trigger=dict(trigger or {}), raw_text=granted_raw)
+    elif granted_kind == "activated":
+        granted_ability = AbilitySpec("activated", granted_specs,
+                                      cost={"text": granted_cost or "{0}"},
+                                      raw_text=granted_raw)
+    else:
+        granted_ability = AbilitySpec("static", granted_specs, raw_text=granted_raw)
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("licid_become_aura", {"keep_creature": True} if keep_creature else {}),
+             _cond_marker("not_licid_aura")],
+            cost={"text": f"{cost}, {{T}}"},
+            raw_text=(f"{cost}, {{T}}: Diese Kreatur verliert diese Fähigkeit und "
+                      "wird eine Aura-Verzauberung mit Verzaubert Kreatur. Lege sie "
+                      "an eine Zielkreatur an."),
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("licid_revert", {}), _cond_marker("is_licid_aura")],
+            cost={"text": end_cost},
+            raw_text=f"Du kannst {end_cost} bezahlen, um diesen Effekt zu beenden.",
+        ),
+        granted_ability,
+    ]
+
+
+def _kw_at(kw: str) -> EffectSpec:
+    return EffectSpec("grant_keyword", {"keywords": [kw], "affects": "attached_permanent"})
+
+
+for _lname, _lcost, _lend, _lspecs, _lraw in [
+    ("Gliding Licid", "{U}", "{U}", [_kw_at("flying")],
+     "Enchanted creature has flying."),
+    ("Enraging Licid", "{R}", "{R}", [_kw_at("haste")],
+     "Enchanted creature has haste."),
+    ("Quickening Licid", "{1}{W}", "{W}", [_kw_at("first strike")],
+     "Enchanted creature has first strike."),
+    ("Corrupting Licid", "{B}", "{B}", [_kw_at("fear")],
+     "Enchanted creature has fear."),
+    ("Calming Licid", "{W}", "{W}", [_kw_at("cant_attack")],
+     "Enchanted creature can't attack."),
+    ("Convulsing Licid", "{R}", "{R}", [_kw_at("cant_block")],
+     "Enchanted creature can't block."),
+    ("Tempting Licid", "{G}", "{G}", [_kw_at("all_must_block")],
+     "All creatures able to block enchanted creature do so."),
+    ("Dominating Licid", "{1}{U}{U}", "{U}", [EffectSpec("control_change", {})],
+     "You control enchanted creature."),
+    ("Transmogrifying Licid", "{1}", "{1}",
+     [EffectSpec("anthem", {"power": 1, "toughness": 1, "affects": "attached_permanent"}),
+      EffectSpec("type_change", {"add_types": ["artifact"], "affects": "attached_permanent"})],
+     "Enchanted creature gets +1/+1 and is an artifact in addition to its other types."),
+]:
+    register(_lname, (lambda n, c, e, s, r: (lambda: _licid(n, c, e, s, r)))(
+        _lname, _lcost, _lend, _lspecs, _lraw))
+
+
+# The trigger/activated-grant Licids (MEC-47 pass 3).
+register("Nurturing Licid", lambda: _licid(
+    "Nurturing Licid", "{G}", "{G}",
+    [EffectSpec("regenerate", {"target_kind": "attached_permanent"})],
+    "{G}: Regenerate enchanted creature.",
+    granted_kind="activated", granted_cost="{G}",
+))
+register("Leeching Licid", lambda: _licid(
+    "Leeching Licid", "{B}", "{B}",
+    [EffectSpec("damage", {"amount": 1, "recipient_subject": "attached_permanent_controller"})],
+    "At the beginning of the upkeep of enchanted creature's controller, this "
+    "creature deals 1 damage to that player.",
+    granted_kind="triggered",
+    trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"},
+             "phase_relation": "attached_permanent"},
+))
+register("Stinging Licid", lambda: _licid(
+    "Stinging Licid", "{1}{U}", "{U}",
+    [EffectSpec("damage", {"amount": 2, "recipient_subject": "trigger_subject_controller"})],
+    "Whenever enchanted creature becomes tapped, this creature deals 2 damage "
+    "to that creature's controller.",
+    granted_kind="triggered",
+    trigger={"event": EventType.TAPPED, "condition": {"subject": "attached_permanent"}},
+))
+# Flanking Licid (Stronghold) — the one "Summon Licid" card, never given the
+# errata that turned the others into pure Auras. "{R}, {T}: ~ loses this
+# ability and becomes a creature enchantment that reads 'Enchanted creature
+# gains flanking' instead of a creature." — it *stays a creature* (Gatherer
+# 2004-10-04), so `keep_creature=True` keeps the parked layer-4 type change
+# from stripping "creature".
+register("Flanking Licid", lambda: _licid(
+    "Flanking Licid", "{R}", "{R}", [_kw_at("flanking")],
+    "Enchanted creature gains flanking.", keep_creature=True,
+))
+
+
+# --- MEC-51 (RULE 720): "You control target player during that player's
+#     next turn / next combat phase." -------------------------------------
+# `EffectSpec("control_player", {"scope": "turn"|"combat", "target_kind":
+# "player"|"opponent"})` installs a `GameState.TurnControl`;
+# `RulesEngine._advance_turn_controls` runs the `TURN_BEGIN` state machine
+# and `services/game_session.py` routes the controlled seat's decisions,
+# priority and turn-based actions to the controller for the window. The
+# RULE 720.x carve-outs (the controlled player still concedes for
+# themselves, the finer hidden-info edges) are a documented simplification —
+# see `Done_Backend.md`.
+
+register("Mindslaver", lambda: [
+    AbilitySpec(
+        "activated",
+        [EffectSpec("control_player", {"scope": "turn", "target_kind": "player"})],
+        cost={"text": "{4}, {T}, Sacrifice ~"},
+        raw_text="{4}, {T}, Mindslaver opfern: Du kontrollierst einen Zielspieler "
+                 "während dessen nächstem Zug.",
+    ),
+])
+
+register("Worst Fears", lambda: [
+    AbilitySpec(
+        "spell_effect",
+        [
+            EffectSpec("control_player", {"scope": "turn", "target_kind": "player"}),
+            EffectSpec("exile", {"target_kind": None}),
+        ],
+        raw_text="Du kontrollierst einen Zielspieler während dessen nächstem Zug. "
+                 "Exiliere Worst Fears.",
+    ),
+])
+
+register("Sorin Markov", lambda: [
+    AbilitySpec(
+        "activated",
+        [EffectSpec("damage", {"amount": 2, "target_kind": "any"}),
+         EffectSpec("gain_life", {"amount": 2})],
+        cost={"loyalty": 2},
+        raw_text="+2: Sorin Markov fügt einem beliebigen Ziel 2 Schaden zu und du "
+                 "erhältst 2 Lebenspunkte.",
+    ),
+    AbilitySpec(
+        "activated",
+        [EffectSpec("set_life", {"amount": 10, "target_kind": "opponent"})],
+        cost={"loyalty": -3},
+        raw_text="−3: Die Lebenspunkte eines Zielgegners werden 10.",
+    ),
+    AbilitySpec(
+        "activated",
+        [EffectSpec("control_player", {"scope": "turn", "target_kind": "player"})],
+        cost={"loyalty": -7},
+        raw_text="−7: Du kontrollierst einen Zielspieler während dessen nächstem Zug.",
+    ),
+])
+
+register("Emrakul, the Promised End", lambda: [
+    AbilitySpec(
+        "triggered",
+        [EffectSpec("control_player", {
+            "scope": "turn", "target_kind": "opponent",
+            "grant_extra_turn_after": True,
+        })],
+        trigger={"event": EventType.SPELL_CAST, "condition": {"subject": "self"}},
+        raw_text="Wenn du diesen Zauberspruch wirkst, übernimmst du die Kontrolle "
+                 "über einen Zielgegner während dessen nächstem Zug. Nach jenem Zug "
+                 "macht jener Spieler einen zusätzlichen Zug.",
+    ),
+])
+
+register("Secret of Bloodbending", lambda: [
+    # "You control target opponent during their next combat phase." The
+    # "If this spell's additional cost was paid (waterbend {10}), you
+    # control that player during their next turn instead." upgrade is a
+    # documented card-specific simplification — waterbend additional-cost
+    # conditionals are their own unmodeled mechanism (`BACKLOG.md`).
+    AbilitySpec(
+        "spell_effect",
+        [
+            EffectSpec("control_player", {"scope": "combat", "target_kind": "opponent"}),
+            EffectSpec("exile", {"target_kind": None}),
+        ],
+        raw_text="Du kontrollierst einen Zielgegner während dessen nächster "
+                 "Kampfphase. Exiliere Secret of Bloodbending.",
+    ),
+])
+
+# MEC-51b (RULE 720): "Look at target opponent's hand and choose a card
+# from it. You control that player until Word of Command finishes
+# resolving. The player plays that card if able. …" — `WordOfCommandEffect`
+# opens a `word_of_command` pending choice addressed to the caster over the
+# target's hand; `GameEngine.resolve_word_of_command_choice` then has the
+# target play the pick (`play_land`, else `cast_without_paying`). The RULE
+# 720 mana restriction is moot under the free cast, and (like every
+# effect-driven free cast here — cascade/discover) the spell is cast
+# without target selection: documented simplifications.
+register("Word of Command", lambda: [
+    AbilitySpec(
+        "spell_effect",
+        [EffectSpec("word_of_command", {})],
+        raw_text="Sieh dir die Hand eines Zielgegners an und wähle eine Karte "
+                 "daraus. Du kontrollierst jenen Spieler, bis Word of Command "
+                 "abschließend verrechnet ist. Jener Spieler spielt jene Karte, "
+                 "wenn möglich.",
+    ),
+])
+
+
+# ---------------------------------------------------------------------------
+# MEC-52 — Reanimator-token & villainous-choice residue (PAR-29's keyword
+# trail, PAR-30 close-out). The three cards left after The Master, Gallifrey's
+# End: each blocks on a distinct engine primitive, not oracle grammar, so
+# they're hand-authored here (the primitives themselves — the villainous
+# ``previous_target_controller`` per-target sweep, `dig_until`'s
+# ``digger``/``caster`` split, the summed-MV damage source — are general).
+# ---------------------------------------------------------------------------
+
+
+def _hunted_by_the_family() -> list[AbilitySpec]:
+    """Choose up to four target creatures you don't control. For each of
+    them, that creature's controller faces a villainous choice — That
+    creature becomes a 1/1 white Human creature and loses all abilities, or
+    you create a token that's a copy of it.
+
+    — MEC-52. `FaceVillainousChoiceEffect` ``subject="previous_target_
+    controller"``: the RULE 115 targets are the creatures ("up to four" ⇒
+    ``optional`` + ``count=4`` on the effect's own `target_spec`), and each
+    one's controller gets its *own* queued `villainous_choice`
+    (`request_villainous_choice(rounds=…)`) with that creature baked in as
+    the RULE 608.2 referent. Option A is one indefinite RULE 611 grant
+    (`grant_until` ``previous_subject`` / ``duration="rest_of_game"``) that
+    bundles the layer-4 P/T+type change, the layer-5 colour set and the
+    layer-6 lose-all-abilities — the same three statics Kenrith's
+    Transformation stacks, here aimed at the villainous creature rather
+    than an enchanted one. Option B is PAR-18's `copy_permanent`
+    ``referent="previous"``, made under *your* control ("you create").
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("face_villainous_choice", {
+                "subject": "previous_target_controller",
+                "option_a": [{
+                    "type": "grant_until",
+                    "params": {
+                        "previous_subject": True,
+                        "duration": "rest_of_game",
+                        "static": {"type": "type_change", "params": {
+                            "add_types": ["creature"], "set_subtypes": ["Human"],
+                            "power": 1, "toughness": 1,
+                        }},
+                        "extra_statics": [
+                            {"type": "color_change", "params": {"colors": ["W"], "set": True}},
+                            {"type": "remove_all_abilities", "params": {}},
+                        ],
+                    },
+                }],
+                "option_b": [{
+                    "type": "copy_permanent",
+                    "params": {"target_kind": None, "referent": "previous"},
+                }],
+            })],
+            raw_text="Wähle bis zu vier Zielkreaturen, die du nicht "
+                     "kontrollierst. Für jede von ihnen trifft der Beherrscher "
+                     "jener Kreatur eine schurkische Wahl — Jene Kreatur wird "
+                     "eine 1/1 weiße Kreatur vom Typ Mensch und verliert alle "
+                     "Fähigkeiten, oder du erschaffst einen Marker, der eine "
+                     "Kopie von ihr ist.",
+        ),
+    ]
+
+
+register("Hunted by The Family", _hunted_by_the_family)
+
+
+def _ensnared_by_the_mara() -> list[AbilitySpec]:
+    """Each opponent faces a villainous choice — They exile cards from the
+    top of their library until they exile a nonland card, then you may cast
+    that card without paying its mana cost, or that player exiles the top
+    four cards of their library and Ensnared by the Mara deals damage equal
+    to the total mana value of those exiled cards to that player.
+
+    — MEC-52. A plain ``each_opponent`` villainous choice; both option
+    bodies are past the parser's villainous grammar but reach existing/
+    widened primitives directly: option A is `dig_until` with the new
+    ``digger="facing"`` (the opponent's library) + ``caster="controller"``
+    (RULE 601.3e — *you* become the free-cast card's controller) and
+    ``hit_destination="cast_free_window"`` (a genuine "you may", with the
+    RULE-shaped "return it if uncast" delayed half); option B is the new
+    `exile_top_then_damage_by_mv` summed-mana-value damage source.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("face_villainous_choice", {
+                "subject": "each_opponent",
+                "option_a": [{
+                    "type": "dig_until",
+                    "params": {
+                        "criteria": {"without_type": "land"},
+                        "digger": "facing",
+                        "caster": "controller",
+                        "hit_destination": "cast_free_window",
+                        "rest_destination": "exile",
+                    },
+                }],
+                "option_b": [{
+                    "type": "exile_top_then_damage_by_mv",
+                    "params": {"count": 4},
+                }],
+            })],
+            raw_text="Jeder Gegner trifft eine schurkische Wahl — Er "
+                     "exiliert Karten von seiner Bibliothek oben, bis er eine "
+                     "Nichtland-Karte exiliert, dann darfst du jene Karte "
+                     "wirken, ohne ihre Manakosten zu bezahlen, oder jener "
+                     "Spieler exiliert die obersten vier Karten seiner "
+                     "Bibliothek und Ensnared by the Mara fügt jenem Spieler "
+                     "so viele Schadenspunkte zu, wie die Summe der Manawerte "
+                     "jener exilierten Karten beträgt.",
+        ),
+    ]
+
+
+register("Ensnared by the Mara", _ensnared_by_the_mara)
+
+
+def _back_from_the_brink() -> list[AbilitySpec]:
+    """Exile a creature card from your graveyard and pay its mana cost:
+    Create a token that's a copy of that card. Activate only as a sorcery.
+
+    — MEC-52. The cost is a *pick-then-price* one — a variable mana cost
+    unknowable until the graveyard card is chosen — which `game/costs.py`
+    and the activation flow have no primitive for. Modeled as the
+    resolution of an otherwise-free, ``sorcery_speed_only`` activated
+    ability (`BackFromTheBrinkEffect`): on resolution the controller picks
+    a creature card in their graveyard and exiles it (seeding the RULE
+    608.2 referent), then `PayCostThenPreviousMvEffect` prices "pay its
+    mana cost" off that card and, if paid, `copy_permanent`
+    ``referent="previous"`` makes the token. See the effect's docstring for
+    the (exile-and-payment-at-resolution) simplification.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("back_from_the_brink", {})],
+            cost={"sorcery_speed_only": True},
+            raw_text="Schicke eine Kreaturenkarte aus deinem Friedhof ins "
+                     "Exil und bezahle ihre Manakosten: Erschaffe einen "
+                     "Marker, der eine Kopie jener Karte ist. Aktiviere nur "
+                     "wie eine Hexerei.",
+        ),
+    ]
+
+
+register("Back from the Brink", _back_from_the_brink)
+
+
+def _you_compleat_me() -> list[AbilitySpec]:
+    """If your life total is greater than 10, it becomes 10. For the rest of
+    the game, your maximum life total is 10. You get an emblem with "Pay 2
+    life: Add one mana of any color" and "At the beginning of your upkeep,
+    you draw a card and you lose 1 life."
+
+    — PAR-31 / MEC-54. A genuine singleton (the only printed "maximum life
+    total is N" card), hand-authored: the oracle parser has no route for
+    any of its three intertwined clauses. Pieces:
+
+    * ``set_life`` with ``only_reduce`` — the conditional half-set (never
+      raises a lower total).
+    * ``set_max_life_total`` — MEC-54's permanent player-scoped cap
+      (`RulesEngine.set_max_life_total` / `_max_life_total`, honoured at
+      `gain_life`'s choke point).
+    * one ``create_emblem`` carrying **both** quoted abilities via the new
+      ``abilities`` list (`CreateEmblemEffect.abilities` /
+      `RulesEngine.create_emblem`'s list branch): a `pay_life` mana ability
+      (an emblem's first — RULE 605.1a keeps it off the `mana_abilities.py`
+      path, so it can only live as an `ActivatedAbility` here) and the
+      upkeep draw/lose-life trigger.
+    """
+    mana_ability = AbilitySpec(
+        "activated",
+        [EffectSpec("add_mana", {"colors": ["ANY"], "amount": 1})],
+        cost={"text": "Pay 2 life", "pay_life": 2},
+        raw_text="Zahle 2 Lebenspunkte: Erzeuge ein Mana einer beliebigen Farbe.",
+    ).to_dict()
+    upkeep_ability = AbilitySpec(
+        "triggered",
+        [EffectSpec("draw", {"count": 1}), EffectSpec("lose_life", {"amount": 1})],
+        trigger={"event": "STEP_BEGIN", "filter": {"step": "upkeep"},
+                 "phase_relation": "you"},
+        raw_text="Zu Beginn deines Versorgungssegments ziehst du eine Karte und "
+                 "verlierst 1 Lebenspunkt.",
+    ).to_dict()
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("set_life", {"amount": 10, "only_reduce": True,
+                                        "target_kind": None}),
+                EffectSpec("set_max_life_total", {"amount": 10}),
+                EffectSpec("create_emblem", {"abilities": [mana_ability, upkeep_ability]}),
+            ],
+            raw_text="Falls dein Lebenspunktestand höher als 10 ist, wird er zu 10. "
+                     "Für den Rest des Spiels beträgt dein maximaler "
+                     "Lebenspunktestand 10. Du erhältst ein Emblem mit „Zahle 2 "
+                     "Lebenspunkte: Erzeuge ein Mana einer beliebigen Farbe.“ und "
+                     "„Zu Beginn deines Versorgungssegments ziehst du eine Karte "
+                     "und verlierst 1 Lebenspunkt.“",
+        ),
+    ]
+
+
+register("You Compleat Me", _you_compleat_me)
+
+
+def _master_chef() -> list[AbilitySpec]:
+    """Commander creatures you own have "This creature enters with an
+    additional +1/+1 counter on it" and "Other creatures you control enter
+    with an additional +1/+1 counter on them."
+
+    — PAR-32 / MEC-56. A twin-quoted grant body (`"A" and "B"`), which
+    `_quoted_ability_grant_effects_list`'s single-inner-body recursion
+    can't split; hand-authored rather than widening that grammar for a
+    shape only this card uses. Both clauses reduce to the same new
+    ``extra_etb_counter`` static (RULE 614.1 entry-counter replacement,
+    `continuous.extra_etb_counters_for`) granted onto every commander
+    creature the controller owns (`affects="commander_creatures_you_own"`,
+    the existing PAR-32 selector): ``self_only`` for "this creature enters
+    with…", unset for "other creatures you control enter with…" — read off
+    each grantee's own ``source`` at grant time, so this still works
+    correctly with two or more commander creatures on the same board.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("grant_static_ability", {
+                    "affects": "commander_creatures_you_own",
+                    "static_specs": [
+                        {"type": "extra_etb_counter",
+                         "params": {"kind": "+1/+1", "count": 1, "self_only": True}},
+                    ],
+                }),
+                EffectSpec("grant_static_ability", {
+                    "affects": "commander_creatures_you_own",
+                    "static_specs": [
+                        {"type": "extra_etb_counter",
+                         "params": {"kind": "+1/+1", "count": 1, "self_only": False}},
+                    ],
+                }),
+            ],
+            raw_text='Kommandeurkreaturen, die dir gehören, besitzen '
+                     '„Diese Kreatur kommt mit einem zusätzlichen +1/+1-'
+                     'Marker auf ihr ins Spiel“ und „Andere Kreaturen, die '
+                     'du kontrollierst, kommen mit einem zusätzlichen '
+                     '+1/+1-Marker auf ihnen ins Spiel.“',
+        ),
+    ]
+
+
+register("Master Chef", _master_chef)
+
+
+def _scion_of_halaster() -> list[AbilitySpec]:
+    """Commander creatures you own have "The first time you would draw a
+    card each turn, instead look at the top two cards of your library. Put
+    one of them into your graveyard and the other back on top of your
+    library. Then draw a card."
+
+    — PAR-32 / MEC-57. Hand-authored: the quoted body is a granted
+    *replacement* effect (RULE 616), not a trigger/static/mana/activated
+    ability, and `_quoted_ability_grant_effects_list`'s recursion only ever
+    emits those four grant kinds. Reduces to a single new
+    ``first_draw_look_two`` replacement (`effects._first_draw_look_two_
+    replacement`, gated on the new per-turn `GameState.first_draw_replaced_
+    this_turn` tracker) granted onto every commander creature the
+    controller owns via `grant_static_ability`'s ``static_specs`` — the
+    same MEC-55/MEC-56 nested-grant plumbing, now extended
+    (`continuous._apply_layer_6_ability`) to also recognize a
+    `ReplacementEffect`-typed nested spec and file it onto the new
+    `GameObject._granted_replacement_effects`, read by `RulesEngine._all_
+    replacement_effects` alongside a permanent's own printed ones.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("grant_static_ability", {
+                    "affects": "commander_creatures_you_own",
+                    "static_specs": [
+                        {"type": "first_draw_look_two", "params": {}},
+                    ],
+                }),
+            ],
+            raw_text='Kommandeurkreaturen, die dir gehören, besitzen „Das '
+                     'erste Mal, wenn du in einem Spielzug eine Karte '
+                     'ziehen würdest, schaue dir stattdessen die obersten '
+                     'zwei Karten deiner Bibliothek an. Lege eine davon in '
+                     'deinen Friedhof und die andere zurück auf deine '
+                     'Bibliothek. Ziehe dann eine Karte.“',
+        ),
+    ]
+
+
+register("Scion of Halaster", _scion_of_halaster)
+
+
+def _tavern_brawler() -> list[AbilitySpec]:
+    """Commander creatures you own have "At the beginning of your upkeep,
+    exile the top card of your library. This creature gets +X/+0 until end
+    of turn, where X is that card's mana value. You may play that card this
+    turn."
+
+    — PAR-32 / MEC-58. Hand-authored: the quoted body is a two-clause
+    triggered ability whose second clause reads a value ("that card's mana
+    value") off what the first clause just exiled — a resolve-time
+    referent `_quoted_ability_grant_effects_list`'s single-effect-per-
+    trigger recursion has no vocabulary for. Both clauses are existing
+    primitives, composed as one granted trigger's ``grant_effects`` list
+    (RULE 608.2 applies a trigger's own effects in printed order):
+    `impulsive_draw` (`RulesEngine.exile_with_play_permission`,
+    ``same_turn_only=True`` for "…this turn", not "…through your next
+    turn") now also seeds `GameContext.created_objects` with the exiled
+    card, and `pump`'s new `amount_from_created_object_mana_value` flag
+    reads that card's mana value for the "+X/+0" — both changes land in
+    the shared primitives, not this card's own code, so any future card
+    needing either shape reuses them for free.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("grant_triggered_ability", {
+                    "affects": "commander_creatures_you_own",
+                    "trigger_event": "STEP_BEGIN",
+                    "filter": {"step": "upkeep"},
+                    "phase_relation": "you",
+                    "grant_effects": [
+                        {"type": "impulsive_draw",
+                         "params": {"count": 1, "same_turn_only": True}},
+                        {"type": "pump",
+                         "params": {"amount_from_created_object_mana_value": True}},
+                    ],
+                }),
+            ],
+            raw_text='Kommandeurkreaturen, die dir gehören, besitzen „Zu '
+                     'Beginn deines Versorgungssegments exiliere die '
+                     'oberste Karte deiner Bibliothek. Diese Kreatur '
+                     'erhält bis zum Ende des Zuges +X/+0, wobei X die '
+                     'Manakosten jener Karte sind. Du darfst jene Karte in '
+                     'diesem Zug spielen.“',
+        ),
+    ]
+
+
+register("Tavern Brawler", _tavern_brawler)
+
+
+def _haunted_one() -> list[AbilitySpec]:
+    """Commander creatures you own have "Whenever this creature becomes
+    tapped, it and other creatures you control that share a creature type
+    with it each get +2/+0 and gain undying until end of turn."
+
+    — PAR-32 / MEC-59. Hand-authored: the granted trigger's own event
+    (RULE 603.2 "becomes tapped", `EventType.TAPPED`) was already
+    grantable-shaped (the same `instance_id`-keyed self-subject scoping
+    every other RULE 603.1 object-subject grant uses), but the affected
+    group — "it **and** other creatures you control that share a creature
+    type with it" (RULE 205.3g, checked against the granting object's own
+    *live* subtypes, not a fixed list) — had no selector. New `PumpEffect`
+    selector `self_and_shared_creature_type_you_control` (`game/
+    effects.py`): self plus every other creature the same controller
+    controls whose printed subtypes overlap the source's own, computed at
+    resolve time so it re-scopes correctly per affected commander creature
+    under this same grant.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("grant_triggered_ability", {
+                    "affects": "commander_creatures_you_own",
+                    "trigger_event": "TAPPED",
+                    "grant_effects": [
+                        {"type": "pump", "params": {
+                            "power": 2, "toughness": 0,
+                            "keywords": ["undying"],
+                            "selector": "self_and_shared_creature_type_you_control",
+                        }},
+                    ],
+                }),
+            ],
+            raw_text='Kommandeurkreaturen, die dir gehören, besitzen „Immer '
+                     'wenn diese Kreatur angezapft wird, erhalten sie und '
+                     'andere Kreaturen, die du kontrollierst und die einen '
+                     'Kreaturentyp mit ihr teilen, bis zum Ende des Zuges '
+                     'je +2/+0 und Untot.“',
+        ),
+    ]
+
+
+register("Haunted One", _haunted_one)
+
+
+def _acolyte_of_bahamut() -> list[AbilitySpec]:
+    """Commander creatures you own have "The first Dragon spell you cast
+    each turn costs {2} less to cast."
+
+    — PAR-32 / MEC-60. Hand-authored: the quoted body is a cost-reduction
+    static (already MEC-55-grantable via `grant_static_ability`'s
+    ``static_specs``) whose ``active_if`` needs a "haven't cast one of
+    these yet this turn" gate no existing `static_conditions` kind
+    expressed. New `first_subtype_spell_this_turn` condition
+    (`GameState.creature_type_spells_cast_this_turn`, populated in
+    `RulesEngine._track_spell_cast` off each cast object's live subtypes)
+    combines with the pre-existing `cost_reduction` machinery's
+    ``spell_subtype``/``active_if`` params — no change needed to
+    `continuous.cost_reduction_for` itself, which already read both.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("grant_static_ability", {
+                    "affects": "commander_creatures_you_own",
+                    "static_specs": [
+                        {"type": "cost_reduction", "params": {
+                            "affects": "your_spells",
+                            "generic": 2,
+                            "spell_subtype": "Dragon",
+                            "active_if": {
+                                "kind": "first_subtype_spell_this_turn",
+                                "subtype": "Dragon",
+                            },
+                        }},
+                    ],
+                }),
+            ],
+            raw_text='Kommandeurkreaturen, die dir gehören, besitzen „Der '
+                     'erste Drache-Zauberspruch, den du in einem Zug '
+                     'wirkst, kostet {2} weniger.“',
+        ),
+    ]
+
+
+register("Acolyte of Bahamut", _acolyte_of_bahamut)
+
+
+def _dungeon_delver() -> list[AbilitySpec]:
+    """Commander creatures you own have "Room abilities of dungeons you
+    own trigger an additional time."
+
+    — PAR-32 / MEC-61. Hand-authored: RULE 309.4c's room trigger is built
+    off a `Dungeon` in the command zone (`RulesEngine._collect_dungeon_
+    room_triggers`), a source-less path the general RULE 603.3d
+    `trigger_doubler_bonus` (keyed on a battlefield `GameObject`) can't
+    reach — new `continuous.dungeon_room_trigger_doubler_bonus` narrows
+    the same idiom to this specific trigger family via a bare
+    ``dungeon_room_trigger_doubler`` marker static, the
+    `grant_escape`/`grant_retrace`/`extra_etb_counter` out-of-band
+    convention MEC-55/56 already established.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("grant_static_ability", {
+                    "affects": "commander_creatures_you_own",
+                    "static_specs": [
+                        {"type": "dungeon_room_trigger_doubler", "params": {}},
+                    ],
+                }),
+            ],
+            raw_text='Kommandeurkreaturen, die dir gehören, besitzen '
+                     '„Raumfähigkeiten von Dungeons, die dir gehören, '
+                     'lösen ein zusätzliches Mal aus.“',
+        ),
+    ]
+
+
+register("Dungeon Delver", _dungeon_delver)
+
+
+def _noble_heritage() -> list[AbilitySpec]:
+    """Commander creatures you own have "When this creature enters and at
+    the beginning of your upkeep, each player may put two +1/+1 counters
+    on a creature they control. For each opponent who does, you gain
+    protection from that player until your next turn." (You can't be
+    targeted, dealt damage, or enchanted by anything controlled by that
+    player.)
+
+    — PAR-32 / MEC-62. Hand-authored on two counts: the compound "when ~
+    enters **and** at the beginning of your upkeep" trigger is two
+    *different* RULE 603.1/500.7 trigger families sharing one effect body
+    (`_quoted_ability_grant_effects_list`'s own compound-event handling
+    only ever fans out **one** event kind, e.g. "enters or leaves"), so
+    this grants the same `grant_effects` twice — once on
+    `ENTERS_BATTLEFIELD`, once on `STEP_BEGIN`/upkeep/``phase_relation:
+    "you"``. And the body itself
+    (`EachPlayerMayCounterThenProtectionEffect` + `PlayerShieldEffect`'s
+    new `protected_from_player_id`) is a genuinely new interactive shape
+    (a real per-player "may" this engine has no sequential chooser for
+    yet) — see that effect's own docstring for the MVP simplification.
+    """
+    grant_effects = [{"type": "each_player_counter_then_protection", "params": {}}]
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("grant_triggered_ability", {
+                    "affects": "commander_creatures_you_own",
+                    "trigger_event": "ENTERS_BATTLEFIELD",
+                    "grant_effects": grant_effects,
+                }),
+                EffectSpec("grant_triggered_ability", {
+                    "affects": "commander_creatures_you_own",
+                    "trigger_event": "STEP_BEGIN",
+                    "filter": {"step": "upkeep"},
+                    "phase_relation": "you",
+                    "grant_effects": grant_effects,
+                }),
+            ],
+            raw_text='Kommandeurkreaturen, die dir gehören, besitzen „Wenn '
+                     'diese Kreatur ins Spiel kommt und zu Beginn deines '
+                     'Versorgungssegments darf jeder Spieler zwei '
+                     '+1/+1-Marker auf eine Kreatur legen, die er '
+                     'kontrolliert. Für jeden Gegner, der dies tut, '
+                     'erhältst du Schutz vor jenem Spieler bis zu deinem '
+                     'nächsten Zug.“ (Du kannst nicht Ziel von etwas sein, '
+                     'das jener Spieler kontrolliert, nicht davon '
+                     'Schaden erleiden und nicht davon verzaubert werden.)',
+        ),
+    ]
+
+
+register("Noble Heritage", _noble_heritage)
+
+
+# ---------------------------------------------------------------------------
+# MEC-74: Dance of the Elements — count-sensitive landfall / Elemental cards
+# ---------------------------------------------------------------------------
+
+
+def _avenger_of_zendikar() -> list[AbilitySpec]:
+    """When this creature enters, create a 0/1 green Plant creature token
+    for each land you control.
+    Landfall — Whenever a land enters under your control, you may put a
+    +1/+1 counter on each Plant creature you control."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count_selector": "lands_you_control", "power": 0,
+                "toughness": 1, "colors": ["G"], "subtypes": ["Plant"],
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, erzeuge für jedes Land, das du "
+                     "kontrollierst, einen grünen 0/1 Pflanze-Kreaturenspielstein.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {
+                "amount": 1, "kind": "+1/+1", "selector": "each_creature_you_control",
+                "subtypes": ["Plant"],
+            })],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "group", "type": "land", "controller": "you"},
+            },
+            optional=True,
+            raw_text="Landung — Immer wenn ein Land unter deiner Kontrolle ins Spiel kommt, "
+                     "kannst du auf jede Pflanze, die du kontrollierst, eine +1/+1-Marke legen.",
+        ),
+    ]
+
+
+register("Avenger of Zendikar", _avenger_of_zendikar)
+
+
+def _omnath_locus_of_the_roil() -> list[AbilitySpec]:
+    """When this creature enters, it deals damage to any target equal to the
+    number of Elementals you control.
+    Landfall — Whenever a land enters under your control, put a +1/+1 counter
+    on this creature. If you control eight or more lands, draw a card."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {
+                "target_kind": "any",
+                "amount_from_count_selector": "creatures_you_control_of_type_elemental",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, fügt sie einem Ziel deiner Wahl "
+                     "Schaden in Höhe der Anzahl an Elementaren zu, die du kontrollierst.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("add_counters", {"amount": 1, "kind": "+1/+1"}),
+                EffectSpec("draw", {"count": 1}, condition={
+                    "count_selector_at_least": {"selector": "lands_you_control", "count": 8},
+                }),
+            ],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "group", "type": "land", "controller": "you"},
+            },
+            raw_text="Landung — Immer wenn ein Land unter deiner Kontrolle ins Spiel kommt, "
+                     "lege eine +1/+1-Marke auf diese Kreatur. Falls du acht oder mehr Länder "
+                     "kontrollierst, ziehe eine Karte.",
+        ),
+    ]
+
+
+register("Omnath, Locus of the Roil", _omnath_locus_of_the_roil)
+
+
+def _garruks_uprising() -> list[AbilitySpec]:
+    """When this enchantment enters, if you control a creature with power 4
+    or greater, draw a card.
+    Creatures you control have trample."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1}, condition={"controls_creature_power_at_least": 4})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Verzauberung ins Spiel kommt und falls du eine Kreatur mit "
+                     "Stärke 4 oder mehr kontrollierst, ziehe eine Karte.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {"affects": "creatures_you_control", "keywords": ["trample"]})],
+            raw_text="Kreaturen, die du kontrollierst, haben Trampelschaden.",
+        ),
+    ]
+
+
+register("Garruk's Uprising", _garruks_uprising)
+
+
+def _vernal_sovereign() -> list[AbilitySpec]:
+    """Whenever this creature enters or attacks, create a green and white
+    Elemental creature token with "This token's power and toughness are each
+    equal to the number of creatures you control."""
+    effects = [EffectSpec("create_token", {
+        "count": 1, "power": 0, "toughness": 0, "colors": ["G", "W"],
+        "subtypes": ["Elemental"],
+        # This is the token's own characteristic-defining ability, not a
+        # one-time value captured while it is being created.  Giving the
+        # token a self anthem therefore includes the token itself and keeps
+        # changing as its controller's creature count changes.
+        "grant_self_anthem": {
+            "power": 1, "toughness": 1,
+            "power_count": "creatures_you_control",
+            "toughness_count": "creatures_you_control",
+        },
+    })]
+    return [
+        AbilitySpec(
+            "triggered", effects,
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Immer wenn diese Kreatur ins Spiel kommt, erzeuge einen grün-weißen "
+                     "Elementar-Kreaturenspielstein, dessen Stärke und Widerstandskraft jeweils "
+                     "gleich der Anzahl an Kreaturen sind, die du kontrollierst.",
+        ),
+        AbilitySpec(
+            "triggered", effects,
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Immer wenn diese Kreatur angreift, erzeuge einen grün-weißen "
+                     "Elementar-Kreaturenspielstein, dessen Stärke und Widerstandskraft jeweils "
+                     "gleich der Anzahl an Kreaturen sind, die du kontrollierst.",
+        ),
+    ]
+
+
+register("Vernal Sovereign", _vernal_sovereign)
+
+
+# ---------------------------------------------------------------------------
+# MEC-75: Dance of the Elements — temporary parameterized trigger grants
+# ---------------------------------------------------------------------------
+
+
+def _subterfuge() -> list[AbilitySpec]:
+    """Give the ETB target flying and its own combat-damage draw trigger.
+
+    The quoted trigger is deliberately a second ``grant_until`` static,
+    rather than a marker keyword on the target: each affected creature needs
+    a real RULE 603 ability whose source is that creature, and whose draw
+    amount is read from the particular DAMAGE event that made it trigger.
+    ``GrantUntilEffect`` keeps both statics in the existing duration store,
+    so the grant is re-derived while it lasts and disappears at cleanup.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("grant_until", {
+                "duration": "end_of_turn",
+                "target_kind": "creature",
+                "static": {
+                    "type": "grant_keyword",
+                    "params": {"keywords": ["flying"]},
+                },
+                "extra_statics": [{
+                    "type": "grant_triggered_ability",
+                    "params": {
+                        "trigger_event": EventType.DAMAGE,
+                        "filter": {"combat": True, "is_player": True},
+                        "grant_effects": [{
+                            "type": "draw",
+                            "params": {"count_from_trigger_event": "amount"},
+                        }],
+                    },
+                }],
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text=("When this creature enters, target creature gains flying and "
+                      "\"Whenever this creature deals combat damage to a player, "
+                      "draw that many cards\" until end of turn."),
+        ),
+    ]
+
+
+register("Subterfuge", _subterfuge)

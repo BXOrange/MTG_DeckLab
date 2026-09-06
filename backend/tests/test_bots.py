@@ -21,6 +21,7 @@ from mtg_analyzer.services.bots import (
     GoldfishBot,
     GreedyBot,
     ManaMaximizerBot,
+    _one_bot_action,
     bot_catalogue,
     create_bot,
     run_bots,
@@ -88,7 +89,7 @@ def drive(session, bots, human_ids=(), limit=400):
 
 def run_to_turn(session, bots, turn, human_ids=(), limit=4000):
     for _ in range(limit):
-        if session.engine.state.game_over or session.engine.state.turn_number >= turn:
+        if session.engine.state.game_over or session.engine.state.internal_turn.number >= turn:
             return
         if run_bots(session, bots, max_actions=20):
             continue
@@ -291,7 +292,7 @@ class TestGreedyBot:
         # is the only one that could have blocked — but the real assertion
         # is simply that a full game with a greedy bot in it runs to turn 6
         # without the bot wedging the table.
-        assert session.engine.state.turn_number >= 6
+        assert session.engine.state.internal_turn.number >= 6
 
     def test_casts_its_commander_instead_of_starving_it_with_cheap_spells(self):
         """A commander must not lose the mana race to hand spells forever.
@@ -499,6 +500,102 @@ class TestGreedyBot:
             ],
         )
         assert chosen["instance_id"] == 2
+
+
+class TestSearchChoices:
+    """Bug report, 2026-09-04: a fetch land's sacrifice is its own,
+    already-paid cost — declining the search it opens is strictly worse
+    than finding any legal card, not the "changes least" safe default
+    `answer_choice` otherwise prefers. Evolving Wilds' "{T}, Sacrifice ~:
+    Search your library for a basic land, put it onto the battlefield
+    tapped, then shuffle." is the exact real-card shape.
+    """
+
+    def test_a_fetch_land_is_not_wasted_declining_its_own_search(self):
+        from mtg_analyzer.game.effect_binder import bind_from_catalogue
+        from mtg_analyzer.models.game_object import GameObject, Zone
+
+        deck = [land("Forest")] * 30
+        session = make_game(ann_deck=deck, bob_deck=[land()] * 30)
+        state = session.engine.state
+        ann = state.player_by_id("ann")
+        keep(session, "ann", "bob")
+
+        fetch = GameObject(
+            Card(id="Evolving Wilds", name="Evolving Wilds", type_line="Land", is_land=True),
+            owner_id="ann", zone=Zone.BATTLEFIELD,
+        )
+        fetch.summoning_sick = False
+        bind_from_catalogue(fetch)
+        state.add_to_battlefield(fetch)
+
+        bots = {"ann": GreedyBot("ann")}
+        drive(session, bots, human_ids=("bob",))
+
+        assert fetch not in state.battlefield
+        assert fetch in ann.graveyard  # the already-paid sacrifice cost
+        board_lands = [
+            o for o in state.permanents_controlled_by("ann") if o.name == "Forest"
+        ]
+        assert board_lands, "the fetch was sacrificed but no land was ever found"
+        assert board_lands[0].tapped is True
+
+
+class TestCommanderZoneChoice:
+    """Bug report, 2026-09-04: RULE 903.9a's "put the commander into the
+    command zone instead" (dying/exile — the offer opens the moment it's
+    legally possible) was declined by default like any other choice, so a
+    bot's commander was stranded in the graveyard/exile instead.
+    """
+
+    def test_a_dying_commander_goes_to_the_command_zone_not_the_graveyard(self):
+        commander = bear("Test Commander", "{2}{G}{G}", 4, 4, 1)
+        deck = [land()] * 20 + [bear(f"Bear{i}", "{G}", 1) for i in range(20)]
+        random.Random(3).shuffle(deck)
+        session = make_game(ann_deck=deck, bob_deck=[land()] * 40, ann_commanders=[commander])
+        bots = {"ann": GreedyBot("ann"), "bob": GreedyBot("bob")}
+        keep(session, "bob")
+        state = session.engine.state
+        ann = state.player_by_id("ann")
+
+        # Stop the instant the commander hits the battlefield rather than
+        # driving to a fixed turn/action count — a 40-life two-bear-deck
+        # game can (and here does) finish outright well before then, which
+        # would make `deal_damage` below a no-op on an already-decided game.
+        board_commander = None
+        for _ in range(2000):
+            if state.game_over:
+                raise AssertionError("the game ended before the commander was ever cast")
+            board_commander = next(
+                (o for o in state.permanents_controlled_by("ann") if o.name == "Test Commander"),
+                None,
+            )
+            if board_commander is not None:
+                break
+            if run_bots(session, bots):
+                continue
+            holder = state.priority_player
+            if holder is None or holder.id != "bob":
+                break
+            session.apply_action({"type": "pass_priority"}, actor_id="bob")
+        assert board_commander is not None, "the bot never cast its own commander"
+
+        session.engine.rules.deal_damage(board_commander, 1)
+        session.engine.rules.check_state_based_actions()
+        assert board_commander not in state.battlefield
+        assert board_commander in ann.graveyard
+        assert state.pending_choice is not None
+        assert state.pending_choice["kind"] == "commander_zone"
+
+        # A single atomic bot action, not a full `run_bots` pass — the bot
+        # gives the command zone first claim on mana (`_cast_or_activate`),
+        # so it may well recast the commander again in the very same
+        # `run_bots` call; that's correct downstream behaviour, not the
+        # thing being tested here (only that it isn't stuck in the
+        # graveyard is).
+        assert _one_bot_action(session, bots) is True
+        assert board_commander in ann.command
+        assert board_commander not in ann.graveyard
 
 
 class TestTargeting:

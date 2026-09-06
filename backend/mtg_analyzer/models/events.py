@@ -197,6 +197,50 @@ class EventType:
     #: and put any number of them into their graveyard, the rest staying on
     #: top in any order (no bottoming option, unlike SCRY).
     SURVEIL = "SURVEIL"
+    #: A permanent explored (RULE 701.44b) — fired after the whole process
+    #: (reveal top card; land → hand, else +1/+1 counter + may bin the
+    #: revealed card), even if some or all of it was impossible. Carries
+    #: ``instance_id`` (the exploring permanent), ``controller_id``, and
+    #: ``found_land`` (bool). For "whenever ~/a creature you control
+    #: explores, <effect>" (Wildgrowth Walker/Path of Discovery-shaped).
+    EXPLORED = "EXPLORED"
+    #: A player collected evidence (RULE 701.59a — exiled cards with total
+    #: mana value N or greater from their graveyard, as a cost) — fired once
+    #: by `RulesEngine.collect_evidence` after the exile, carrying
+    #: ``player_id``/``controller_id`` (that player, the SCRY/SURVEIL
+    #: player-subject convention) and ``amount`` (N). Powers "whenever you
+    #: collect evidence, …" (Evidence Examiner/Surveillance Monitor). Fired
+    #: even when N was 0 / the exile was trivial, since 701.59b's "has
+    #: collected evidence" is process-complete, not outcome-gated.
+    COLLECTED_EVIDENCE = "COLLECTED_EVIDENCE"
+    #: A player foraged (RULE 701.61a — exiled three cards from their
+    #: graveyard, or sacrificed a Food) — fired once by `RulesEngine.forage`,
+    #: carrying ``player_id``/``controller_id``. Powers "whenever you forage,
+    #: …" (Corpseberry Cultivator/Euru, Acorn Scrounger). Fired even if
+    #: neither option was possible (701.61b process-complete).
+    FORAGED = "FORAGED"
+    #: A player beheld a quality (RULE 701.4a — revealed a permanent they
+    #: control with that quality, or a card with that quality from their
+    #: hand, most often as an additional cost to cast a spell) — fired once
+    #: by `RulesEngine.behold`, carrying ``player_id``/``controller_id``
+    #: (that player, the SCRY/SURVEIL player-subject convention),
+    #: ``quality`` (the type word) and ``instance_id`` (what was revealed).
+    #: Only fired when a behold actually happened (a matching object
+    #: existed); nothing in scope triggers on it yet, but the row keeps the
+    #: keyword-action family's "fire an event so a future trigger can see
+    #: it" convention.
+    BEHELD = "BEHELD"
+    #: A player performed a bending keyword action (RULE 701.6x — Avatar:
+    #: The Last Airbender): waterbend / earthbend / firebend / airbend —
+    #: fired once by `RulesEngine.record_bend` after that action's own
+    #: procedure is complete (the 701.59b/701.61b process-complete
+    #: convention the rest of this family follows), carrying ``player_id``/
+    #: ``controller_id`` (that player, the SCRY/SURVEIL player-subject
+    #: convention), ``kind`` (``"waterbend"``/``"earthbend"``/``"firebend"``/
+    #: ``"airbend"``) and ``amount`` (the N of "earthbend N" etc., 0 where
+    #: the action carries no number). Powers "whenever you waterbend,
+    #: earthbend, firebend, or airbend, …" (Avatar Aang).
+    BENT = "BENT"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
     #: The Ring tempted a player (RULE 701.51a, Tales of Middle-earth) —
@@ -339,6 +383,16 @@ class EventType:
     #: 603.1's ordinary self/group subject scoping. Not fired by RULE 708.9's
     #: "reveal it as it changes zones" — that's a reveal, not a turn-face-up.
     TURNED_FACE_UP = "TURNED_FACE_UP"
+    #: RULE 712.8: a double-faced permanent just **transformed** to its
+    #: other face — carries the (already-flipped) permanent's ``instance_
+    #: id``/``controller_id``/``object_types`` and ``face_name`` (the name
+    #: of the face it transformed *into*), so "whenever ~ transforms into
+    #: `<name>`, …" (Brutal Cathar, the front-face-gated werewolf trigger
+    #: family) rides RULE 603.1's ordinary self-subject scoping plus a name
+    #: match. Fired by `RulesEngine.transform_permanent` after the flip +
+    #: rebind, both for an explicit `transform` effect and for a day/night
+    #: forced transform (`_transform_mismatched_daynight_permanents`).
+    TRANSFORMED = "TRANSFORMED"
     #: RULE 702.112b: a creature just became renowned (its Renown N ability
     #: fired for the first, only time) — carries ``instance_id``, so a
     #: card's own separate "when this creature becomes renowned, …" trigger
@@ -354,6 +408,17 @@ class EventType:
     #: 701.37a's "if this permanent isn't monstrous" means a second
     #: activation does nothing at all, event included.
     BECAME_MONSTROUS = "BECAME_MONSTROUS"
+    #: MEC-48: a permanent just **specialized** (its "Specialize {cost}"
+    #: activated ability resolved) — carries ``instance_id``/
+    #: ``controller_id`` and, when known, ``color`` (a colour of the
+    #: discarded card). Fired by `game/effects.py`'s `SpecializeEffect`.
+    #: Specialize is an Arena-only digital keyword whose five specialized
+    #: faces aren't in this repo's Scryfall seed, so the engine fires this
+    #: event + marks `GameObject.is_specialized` but does **not** swap the
+    #: permanent's characteristics (documented simplification). A
+    #: "when ~ specializes, …" self-subject trigger keys off it exactly like
+    #: `BECAME_MONSTROUS`.
+    SPECIALIZED = "SPECIALIZED"
     #: PAR-28 / RULE 719.3a: a Case just became **solved** — carries the
     #: Case's ``instance_id`` and ``controller_id``. Fired only on the
     #: transition (`BecomeSolvedEffect` guards on ``is_solved``). No card
@@ -368,6 +433,22 @@ class EventType:
     #: — "whenever you goad a creature" cares that it happened, not whether
     #: the designation changed.
     GOADED = "GOADED"
+    #: RULE 701.60a: a creature was just **suspected** — carries the
+    #: creature's ``instance_id`` and ``controller_id``. Fired on every
+    #: suspect, including one that changed nothing (RULE 701.60c —
+    #: re-suspecting an already-suspected creature). A suspected creature has
+    #: menace and can't block (701.60b), both read off `GameObject.
+    #: is_suspected` at combat time (`combat.is_suspected`), not the event.
+    #: No card yet triggers on "becomes suspected"; the event exists so one
+    #: could bind the same way as `GOADED`.
+    SUSPECTED = "SUSPECTED"
+    #: RULE 701.35a: a permanent was just **detained** — carries its
+    #: ``instance_id``, ``controller_id`` and ``detainer_id``. The three
+    #: 701.35b consequences (can't attack/block, abilities can't be
+    #: activated) are read off `GameObject.detained_by` at the point of use
+    #: (`combat.is_detained`), not the event; it exists so a "whenever you
+    #: detain" trigger could bind the same way as `GOADED`.
+    DETAINED = "DETAINED"
     #: RULE 506.4's "a player attacks you [with one or more creatures]" —
     #: an aggregate, once-per-combat event `ATTACKS` (fired once per
     #: *creature*) can't express on its own: a player attacking with 3
@@ -420,6 +501,35 @@ class EventType:
     #: RULE 603.1 subject-scoped event does. Fired by `GameEngine.
     #: declare_attackers`, after `ATTACKS`.
     EXERTED = "EXERTED"
+
+    #: RULE 701.30: a player clashed (revealed the top card of their library
+    #: as part of "clash with an opponent") — fired once by `RulesEngine.
+    #: clash` for the *instructed* player, carrying ``player_id``/
+    #: ``controller_id`` (that player, the RULE 603.1 subject-key convention
+    #: `SCRY`/`SURVEIL` use) and ``won`` (bool, RULE 701.30d). What
+    #: "whenever you clash, …" (Entangling Trap/Rebellion of the Flamekin)
+    #: watches; a "whenever you clash **with an opponent**" qualifier isn't
+    #: split out (no card needs the bare-clash vs clash-with-opponent
+    #: distinction in a trigger). The opponent who also clashes does *not*
+    #: fire this — only the player told to clash.
+    CLASHED = "CLASHED"
+    #: RULE 701.30d: the player named by `CLASHED` won that clash — fired
+    #: additionally (right after `CLASHED`) only on a win, the "whenever you
+    #: win a clash, …" (Marvo, Deep Operative) trigger source. Same
+    #: ``player_id``/``controller_id`` payload; the `CLASHED`/`WON_CLASH`
+    #: split mirrors `LIFE_GAIN`/`LIFE_GAINED` — one event for "it happened",
+    #: a narrower one for "it happened favourably" — so a "win a clash"
+    #: trigger needs no event ``filter``.
+    WON_CLASH = "WON_CLASH"
+
+    #: RULE 701.19: a card is revealed as part of a "reveal cards from the
+    #: top of your library until …" instruction (e.g. Descendants' Fury,
+    #: Kindred Summons, MEC-72). Carries ``player_id`` (the revealing player),
+    #: ``instance_id`` and ``object`` (the card name), and ``from_zone``
+    #: (always ``"library"`` for this source). Currently informational only
+    #: (no card in this set triggers off an individual reveal), but captured
+    #: so the event log stays complete.
+    REVEAL = "REVEAL"
 
     # Win/loss (RULE 104, RULE 704).
     PLAYER_WOULD_LOSE = "PLAYER_WOULD_LOSE"

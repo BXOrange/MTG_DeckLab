@@ -287,3 +287,57 @@ def test_turbulent_land_ignores_the_controllers_own_lands():
     engine = GameEngine(state)
     engine.rules.enter_land_tapped(land_obj)
     assert land_obj.tapped is True
+
+
+# ---------------------------------------------------------------------------
+# unless_life (Innistrad "slow land" life cycle — Abandoned Campground &c)
+# ---------------------------------------------------------------------------
+
+
+def slow_life_land():
+    return Card(
+        id="AC", name="Abandoned Campground", type_line="Land", is_land=True,
+        oracle_text="This land enters tapped unless a player has 13 or less life.\n"
+                    "{T}: Add {W} or {U}.",
+    )
+
+
+def test_slow_life_land_parses_as_unless_life():
+    from mtg_analyzer.parser.oracle.catalogue.lands import land_tap_condition
+    assert land_tap_condition(slow_life_land()) == {
+        "kind": "unless_life", "cmp": "le", "count": 13,
+    }
+
+
+def _slow_life_setup(p1_life=20, p2_life=20):
+    p1 = Player(id="p1", name="You", life=p1_life)
+    p2 = Player(id="p2", name="Opp", life=p2_life)
+    land_obj = GameObject(slow_life_land(), owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(land_obj)
+    engine = GameEngine(GameState(players=[p1, p2]))
+    return engine, land_obj
+
+
+def test_slow_life_land_tapped_when_everyone_is_healthy():
+    engine, land_obj = _slow_life_setup(20, 20)
+    engine.rules.enter_land_tapped(land_obj)
+    assert land_obj.tapped is True
+
+
+def test_slow_life_land_untapped_when_the_controller_is_low():
+    engine, land_obj = _slow_life_setup(13, 20)
+    engine.rules.enter_land_tapped(land_obj)
+    assert land_obj.tapped is False
+
+
+def test_slow_life_land_untapped_when_an_opponent_is_low():
+    engine, land_obj = _slow_life_setup(20, 10)
+    engine.rules.enter_land_tapped(land_obj)
+    assert land_obj.tapped is False
+
+
+def test_slow_life_land_prediction_matches_resolution():
+    engine, land_obj = _slow_life_setup(20, 12)
+    assert engine.rules.predict_land_tapped(land_obj) is False
+    engine2, land_obj2 = _slow_life_setup(20, 20)
+    assert engine2.rules.predict_land_tapped(land_obj2) is True

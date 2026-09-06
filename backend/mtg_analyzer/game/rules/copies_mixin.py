@@ -155,6 +155,7 @@ class CopiesMixin:
         not_legendary: bool = False,
         set_power: Optional[int] = None,
         set_toughness: Optional[int] = None,
+        set_colors: Optional[list[str]] = None,
     ) -> list[GameObject]:
         """Create ``count`` token copies of ``source`` (RULE 707.2 / 111.5).
 
@@ -172,12 +173,88 @@ class CopiesMixin:
         enters-as-a-copy replacement shape.
         """
         copiable = getattr(source, "_front_card", source.card)
-        if add_types or add_subtypes or not_legendary or set_power is not None or set_toughness is not None:
+        if (add_types or add_subtypes or not_legendary or set_power is not None
+                or set_toughness is not None or set_colors is not None):
             copiable = copiable.as_copy(
                 add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
-                set_power=set_power, set_toughness=set_toughness,
+                set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
             )
         return self.create_token(controller_id, copiable, count)
+    def _apply_populate_enter_state(
+        self, tokens: list[GameObject], enter_state: Optional[dict]
+    ) -> None:
+        """RULE 508.4 / 110.5a rider on a populate: "…That token enters
+        tapped and attacking." (Ghired, Conclave Exile). Applied to the copy
+        the moment it enters, so nothing sees it untapped/non-attacking."""
+        if not enter_state:
+            return
+        for tok in tokens:
+            if enter_state.get("tapped"):
+                tok.tapped = True
+            if enter_state.get("attacking"):
+                self.put_onto_battlefield_attacking(tok)
+
+    def populate(
+        self, player: Player, enter_state: Optional[dict] = None
+    ) -> list[GameObject]:
+        """"Populate" (RULE 701.36a): put a token onto the battlefield that's
+        a copy of a creature token ``player`` controls. RULE 701.36b — if
+        they control no creature tokens, populate does nothing.
+
+        Degenerate cases resolve without asking, the same way `request_
+        manifest_dread` does: no creature tokens → nothing; exactly one →
+        copy it with no choice to make; two or more → an interactive
+        `populate` `pending_choice` (RULE 701.36a's "a creature token he or
+        she controls" is the controller's own free choice). The copy is
+        itself a token, made via `copy_permanent`, so it binds its own
+        abilities and follows the RULE 704.5d token lifecycle.
+
+        ``enter_state`` (``{"tapped": bool, "attacking": bool}``) is a
+        trailing "That token enters tapped and attacking" rider — applied to
+        the copy here in the degenerate paths, carried on the
+        ``pending_choice`` for the interactive one (`resolve_populate_choice`).
+        """
+        tokens = [
+            obj
+            for obj in self.state.battlefield
+            if obj.controller_id == player.id
+            and getattr(obj, "is_token", False)
+            and getattr(obj, "is_creature", False)
+        ]
+        if not tokens:
+            return []
+        if len(tokens) == 1:
+            made = self.copy_permanent(player.id, tokens[0])
+            self._apply_populate_enter_state(made, enter_state)
+            return made
+        self.state.pending_choice = {
+            "kind": "populate",
+            "player_id": player.id,
+            "prompt": "Bevölkern: welches Kreaturen-Token wird kopiert?",
+            "options": [
+                {"id": str(obj.instance_id), "label": obj.name, "instance_id": obj.instance_id}
+                for obj in tokens
+            ],
+            **({"enter_state": dict(enter_state)} if enter_state else {}),
+        }
+        return []
+    def resolve_populate_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending `populate` choice: create a token copy of the
+        chosen creature token. A missing/unrecognized answer defaults to the
+        first offered token — populate is mandatory once you control one
+        (RULE 701.36a has no "you may")."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "populate":
+            raise ValueError("no pending populate choice to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+        offered = [opt["instance_id"] for opt in choice["options"]]
+        chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
+        chosen = self._object_by_instance_id(chosen_id) if chosen_id is not None else None
+        if chosen is not None:
+            made = self.copy_permanent(player.id, chosen)
+            self._apply_populate_enter_state(made, choice.get("enter_state"))
+        self.check_state_based_actions()
     def copy_spell(
         self,
         target: Any,
@@ -432,6 +509,20 @@ class CopiesMixin:
         obj.intrinsic_keywords = set()
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
+        # RULE 712.8: "whenever ~ transforms into <name>, …" (Brutal Cathar).
+        # Fired after the flip + rebind so the freshly-bound trigger is
+        # already attached and the payload names the *new* face.
+        if obj in self.state.battlefield:
+            self.state.fire_event(
+                GameEvent(
+                    EventType.TRANSFORMED,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    controller_id=obj.controller_id,
+                    object_types=sorted(obj.type_words),
+                    face_name=obj.name,
+                )
+            )
         return True
     def turn_face_down(self, obj: GameObject, kind: str) -> None:
         """Turn ``obj`` face down as ``kind`` (RULE 708.2 — ``"morph"``/

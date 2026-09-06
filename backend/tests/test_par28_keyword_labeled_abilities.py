@@ -87,7 +87,7 @@ def test_boast_is_once_per_turn():
     obj.attacked_this_turn = True
     (ability,) = obj.activated_abilities
     assert ability.once_per_turn
-    ability._last_activated_turn = eng.state.turn_number
+    ability._last_activated_turn = eng.state.internal_turn.number
     assert not eng.can_activate(p1, obj, ability, assume_mana_available=True)
 
 
@@ -186,7 +186,7 @@ def test_powerup_cost_reduction_applies_only_the_turn_it_entered():
     full = eng._reduced_activation_mana(obj, ability.cost.mana, ability.cost)
     assert full.converted_mana_cost == 6
     # Entered this turn → reduced by its own mana value (2) → 4.
-    obj.turn_entered = eng.state.turn_number
+    obj.turn_entered = eng.state.internal_turn.number
     reduced = eng._reduced_activation_mana(obj, ability.cost.mana, ability.cost)
     assert reduced.converted_mana_cost == 4
 

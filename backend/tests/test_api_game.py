@@ -81,7 +81,7 @@ class TestStartGoldfish:
         assert response.status_code == 200
         view = response.json()
         assert view["mode"] == "goldfish"
-        assert view["state"]["turn_number"] == 1
+        assert view["state"]["internal_turn"]["number"] == 1
         assert view["notFound"] == []
         # 99-card library minus a 7-card opening hand (commander is in the
         # command zone, not the library).
@@ -216,7 +216,7 @@ class TestSessionLifecycle:
         client.post(f"/api/game/{sid}/action", json={"type": "advance_step"})
         restarted = client.post(f"/api/game/{sid}/restart").json()
         assert restarted["can_rewind"] is False
-        assert restarted["state"]["turn_number"] == 1
+        assert restarted["state"]["internal_turn"]["number"] == 1
 
     def test_get_session_returns_view(self):
         _setup()

@@ -111,6 +111,19 @@ _EXILE_FROM_HAND_RE = re.compile(
 _EXILE_GRAVEYARD_RE = re.compile(
     r"exile\s+(\d+|[a-z]+)\s+other\s+cards?\s+from\s+your\s+graveyard", re.IGNORECASE
 )
+#: RULE 701.59a "Collect evidence N" — a non-mana cost (an activated
+#: ability's, or an additional cast cost) sized by a total-mana-value
+#: threshold rather than a card count (`ActivationCost.collect_evidence`).
+_COLLECT_EVIDENCE_RE = re.compile(r"collect\s+evidence\s+(\d+)", re.IGNORECASE)
+#: RULE 701.61a "Forage" — a compound "exile three graveyard cards or
+#: sacrifice a Food" non-mana cost (`ActivationCost.forage`, a bool).
+_FORAGE_RE = re.compile(r"\bforage\b", re.IGNORECASE)
+#: RULE 701.68 "Blight N" — a non-mana cost (an activated ability's, or an
+#: additional cast cost): put N -1/-1 counters on a creature you control
+#: (`ActivationCost.blight`). Previously silently dropped from a cost
+#: string — the standalone-verb effect handler covered "blight N" only
+#: mid-sentence, never `{cost}, Blight N: <effect>`.
+_BLIGHT_RE = re.compile(r"\bblight\s+(\d+)", re.IGNORECASE)
 #: "Exile the top card of your library" (Thought Lash) / "Exile the top
 #: four cards of your library" (Seasoned Tactician, MEC-30) — a non-mana
 #: additional cost paid straight off the payer's own library, distinct from
@@ -280,7 +293,72 @@ class ActivationCost:
     remove_counters: Optional[tuple[str, int]] = None
     #: RULE 702.138b (Escape): how many *other* cards must be exiled from the
     #: payer's own graveyard — "Exile four other cards from your graveyard".
+    #: Also RULE 601.2b's "as an additional cost to cast this spell, exile N
+    #: [<type>] cards from your graveyard" (Cobbled Lancer / Abhorrent
+    #: Oculus / Makeshift Mauler), narrowed by ``exile_from_graveyard_
+    #: filter`` when set.
     exile_from_graveyard: int = 0
+    #: A card-type word ("creature") the ``exile_from_graveyard`` cards must
+    #: match — "exile **a creature card** from your graveyard" (PAR-41).
+    #: ``None`` = any card (Escape's own cost, Abhorrent Oculus's untyped
+    #: "exile 6 cards").
+    exile_from_graveyard_filter: Optional[str] = None
+    #: RULE 701.59a (Collect Evidence, PAR-29 — Murders at Karlov Manor): the
+    #: **total-mana-value threshold** — "exile any number of cards with total
+    #: mana value N or greater from your graveyard". The MV-sum sibling of
+    #: ``exile_from_graveyard``'s flat card count. Charged by `GameEngine.
+    #: _pay_activation_cost` / `RulesEngine._pay_player_cost` via
+    #: `RulesEngine.collect_evidence`, which auto-picks graveyard cards
+    #: (a documented simplification — the same "auto-pick, no chooser"
+    #: idiom `discard`/`put_hand_cards_on_top` use for a value-neutral
+    #: selection).
+    collect_evidence: int = 0
+    #: RULE 701.61a (Forage, PAR-29 — Bloomburrow): a compound "exile three
+    #: cards from your graveyard **or** sacrifice a Food" non-mana cost.
+    #: A bool — the "N" is fixed at three. Charged by `RulesEngine.forage`
+    #: (auto-picks between the two halves) from `_pay_activation_cost` /
+    #: `_pay_player_cost`.
+    forage: bool = False
+    #: RULE 701.4a (Behold, PAR-29 — Tarkir: Dragonstorm): "as an additional
+    #: cost to cast this spell, behold a `<type>` or pay {N}." — the type
+    #: word to reveal (a creature type for every real card). Charged by
+    #: `GameEngine._pay_additional_cast_cost` / `RulesEngine._pay_player_
+    #: cost` via `RulesEngine.behold`. **Documented simplification:** the
+    #: "or pay {N}" mana alternative isn't modeled (same precedent as
+    #: `segmenter._ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE`) — the behold is
+    #: attempted, and the spell casts whether or not it succeeds; it never
+    #: blocks casting.
+    behold: Optional[str] = None
+    #: RULE 701.4a (Behold, PAR-30 — the Lorwyn "Champion" cycle reflavoured):
+    #: "as an additional cost to cast this spell, behold a `<type>` **and
+    #: exile it**." — the mandatory sibling of ``behold`` (no "or pay {N}"
+    #: alternative), so it *does* block casting when the caster controls no
+    #: matching permanent and holds no matching card. The type word to
+    #: behold; the beheld object is exiled and its `instance_id` stamped onto
+    #: the spell (`GameObject.linked_exile_id`, the O-Ring field) so the
+    #: card's own "when ~ leaves the battlefield, return the exiled card to
+    #: its owner's hand" trigger (`ReturnLinkedExileEffect(destination=
+    #: "hand")`) can give it back. Charged by `GameEngine.
+    #: _pay_additional_cast_cost`.
+    behold_exile: Optional[str] = None
+    #: RULE 701.4a (Behold, PAR-30 — Celestial Reunion): "as an additional
+    #: cost to cast this spell, **you may** choose a creature type and behold
+    #: two creatures of that type." A bool — always the optional
+    #: (`additional_cost_optional`) shape. When paid, a shared creature type
+    #: is chosen and stamped on `GameObject.chosen_type`, and
+    #: `GameObject.additional_cost_paid` is set, so the resolving search can
+    #: put the found creature onto the battlefield if it is that type.
+    behold_two_shared_type: bool = False
+    #: RULE 701.68 (Blight N, PAR-29 — Bloomburrow): "put N -1/-1 counters on
+    #: a creature you control", paid as a cost — an activated-ability cost
+    #: ("{T}, Blight 1:" — Gristle Glutton), an additional cast cost
+    #: ("blight N or pay {M}" — Bogslither's Embrace), or a `pay_cost_then`
+    #: half ("you may blight N. If you do, …"). The standalone-verb *effect*
+    #: form is `effects.BlightEffect`; this is the cost integration.
+    #: Charged non-interactively via `RulesEngine.blight(..., interactive=
+    #: False)` (auto-picks the highest-toughness creature — payment can't
+    #: pause for a chooser).
+    blight: int = 0
     #: "Tap N untapped <type>s you control" (Birchlore Rangers, Heritage
     #: Druid) — ``(count, singular type word)``; taps *other* permanents
     #: instead of the source. Not limited by the tapped permanents' own
@@ -408,6 +486,25 @@ class ActivationCost:
     #: than folded into `sorcery_speed_only` — see `GameEngine.
     #: _only_during_your_turn_ok`.
     only_during_your_turn: bool = False
+    #: RULE 602.5d's converse — "You can't activate this ability during
+    #: combat." (PAR-30, Djinn of Infinite Deceits) — a *narrower* window
+    #: than `sorcery_speed_only`: still legal at instant speed with a
+    #: non-empty stack or outside the controller's own turn, only ruled out
+    #: during the combat phase specifically. See `GameEngine.
+    #: _not_during_combat_ok`.
+    not_during_combat: bool = False
+    #: "… and only once each turn." (Vivi Ornitier's mana ability) — a
+    #: per-*ability*, per-turn activation cap, distinct from RULE 606.3's
+    #: standing "only one loyalty ability per turn" (`GameObject.
+    #: activated_loyalty_this_turn`, unconditional and scoped to the whole
+    #: permanent) and from `ActivatedAbility.once_per_turn` (the stack-based
+    #: activated-ability path's own tracking, keyed on that bound object's
+    #: identity — a mana ability has no such persistent identity, since
+    #: `ManaAbility` is re-parsed fresh every query). Tracked instead on
+    #: `GameObject.mana_abilities_activated_this_turn`, keyed by this
+    #: ability's stable `ability_index` (`mana_abilities_for`'s enumeration
+    #: order) — see `GameEngine.tap_for_mana`/`_only_once_this_turn_ok`.
+    once_per_turn: bool = False
     #: "Any player may activate this ability." (Mercenaries, MEC-30) — RULE
     #: 602.2a's *eligibility* is normally "the permanent's controller only";
     #: this is a standing exception widening it to any player at the table,
@@ -459,6 +556,13 @@ class ActivationCost:
     #: hand-authored only (`game/ability_catalogue.py`); no oracle-text
     #: grammar for it yet.
     dynamic_reduction: Optional[dict[str, Any]] = None
+    #: ENG-32 (RULE 701.67 Waterbend): which Convoke-style "tap your
+    #: artifacts and creatures to help pay this cost" helper applies, or
+    #: ``None``. Currently only ``"waterbend"`` and only *recorded* — the
+    #: helper itself (generalizing `casting_mixin`'s Convoke/Delve/Improvise
+    #: pool to an arbitrary cost) is a documented simplification, dropped;
+    #: the {N} generic is paid as plain mana.
+    help_pay_kind: Optional[str] = None
     #: PAR-28 / Power-up: "Reduce the cost by its mana cost if it entered
     #: this turn." A generic-mana reduction equal to the *source permanent's
     #: own mana value*, applied only while it entered the battlefield this
@@ -541,6 +645,12 @@ class ActivationCost:
             or self.remove_counters
             or self.loyalty is not None
             or self.exile_from_graveyard
+            or self.collect_evidence
+            or self.forage
+            or self.behold
+            or self.behold_exile
+            or self.behold_two_shared_type
+            or self.blight
             or self.tap_others
             or self.sacrifice_count
             or self.add_counters_cost
@@ -593,6 +703,18 @@ class ActivationCost:
                 parts.append(f"Remove {count} {kind} counter(s)")
         if self.exile_from_graveyard:
             parts.append(f"Exile {self.exile_from_graveyard} other card(s) from your graveyard")
+        if self.collect_evidence:
+            parts.append(f"Collect evidence {self.collect_evidence}")
+        if self.forage:
+            parts.append("Forage")
+        if self.behold:
+            parts.append(f"Behold a {self.behold}")
+        if self.behold_exile:
+            parts.append(f"Behold a {self.behold_exile} and exile it")
+        if self.behold_two_shared_type:
+            parts.append("Choose a creature type and behold two creatures of that type")
+        if self.blight:
+            parts.append(f"Blight {self.blight}")
         if self.tap_others:
             count, subtype = self.tap_others
             parts.append(f"Tap {count} untapped {subtype}(s) you control")
@@ -641,6 +763,13 @@ class ActivationCost:
             "is_cycling": self.is_cycling,
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
             "exile_from_graveyard": self.exile_from_graveyard,
+            "exile_from_graveyard_filter": self.exile_from_graveyard_filter,
+            "collect_evidence": self.collect_evidence,
+            "forage": self.forage,
+            "behold": self.behold,
+            "behold_exile": self.behold_exile,
+            "behold_two_shared_type": self.behold_two_shared_type,
+            "blight": self.blight,
             "tap_others": list(self.tap_others) if self.tap_others else None,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
@@ -716,7 +845,29 @@ def parse_activation_cost(
         else:
             parsed.loyalty = int(raw_loyalty)
     if "exile_from_graveyard" in cost:
-        parsed.exile_from_graveyard = int(cost["exile_from_graveyard"])
+        raw = cost["exile_from_graveyard"]
+        if isinstance(raw, dict):
+            # RULE 601.2b additional-cost shape (PAR-41): {"count", "type"?}.
+            parsed.exile_from_graveyard = int(raw.get("count", 0))
+            if raw.get("type"):
+                parsed.exile_from_graveyard_filter = str(raw["type"])
+        else:
+            # Escape's own dict form (`grant`), a bare int.
+            parsed.exile_from_graveyard = int(raw)
+    if cost.get("exile_from_graveyard_filter"):
+        parsed.exile_from_graveyard_filter = str(cost["exile_from_graveyard_filter"])
+    if cost.get("collect_evidence"):
+        parsed.collect_evidence = int(cost["collect_evidence"])
+    if cost.get("forage"):
+        parsed.forage = True
+    if cost.get("behold"):
+        parsed.behold = str(cost["behold"])
+    if cost.get("behold_exile"):
+        parsed.behold_exile = str(cost["behold_exile"])
+    if cost.get("behold_two_shared_type"):
+        parsed.behold_two_shared_type = True
+    if cost.get("blight"):
+        parsed.blight = int(cost["blight"])
     if cost.get("tap_others"):
         count, subtype = cost["tap_others"]
         parsed.tap_others = (int(count), str(subtype))
@@ -767,6 +918,8 @@ def parse_activation_cost(
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if "only_during_your_turn" in cost:
         parsed.only_during_your_turn = bool(cost["only_during_your_turn"])
+    if "not_during_combat" in cost:
+        parsed.not_during_combat = bool(cost["not_during_combat"])
     if cost.get("class_level") is not None:
         parsed.class_level = int(cost["class_level"])
     if cost.get("activation_condition"):
@@ -781,6 +934,13 @@ def parse_activation_cost(
         parsed.unattach_self = bool(cost["unattach_self"])
     if cost.get("dynamic_reduction"):
         parsed.dynamic_reduction = dict(cost["dynamic_reduction"])
+    if "waterbend" in cost:
+        # ENG-32 (RULE 701.67): "as an additional cost to cast this spell,
+        # waterbend {N}." — a {N}/{X} generic mana cost. The Convoke-style
+        # helper is a documented simplification (dropped).
+        wb = cost["waterbend"]
+        parsed.mana = ManaCost.parse("{X}" if wb == "x" else f"{{{int(wb)}}}")
+        parsed.help_pay_kind = "waterbend"
     parsed.raw = parsed.raw or text
     return parsed
 
@@ -876,6 +1036,17 @@ def _parse_text(text: str) -> ActivationCost:
     exile_graveyard = _EXILE_GRAVEYARD_RE.search(cost_text)
     if exile_graveyard:
         cost.exile_from_graveyard = _word_to_int(exile_graveyard.group(1))
+
+    collect_ev = _COLLECT_EVIDENCE_RE.search(cost_text)
+    if collect_ev:
+        cost.collect_evidence = int(collect_ev.group(1))
+
+    if _FORAGE_RE.search(cost_text):
+        cost.forage = True
+
+    blight_cost = _BLIGHT_RE.search(cost_text)
+    if blight_cost:
+        cost.blight = int(blight_cost.group(1))
 
     exile_top = _EXILE_TOP_LIBRARY_RE.search(cost_text)
     if exile_top:

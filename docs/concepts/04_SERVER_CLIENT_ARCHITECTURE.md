@@ -1,4 +1,4 @@
-# MTG Deck Analyzer: Server-Client Web Architecture
+# DeckLab: Server-Client Web Architecture
 
 ---
 

@@ -244,9 +244,9 @@ next to the badge and passes for you when it reaches **0**.
   responding. Your own turn stays entirely under your control. You can
   change that to "all turns" if you'd rather the game keep a fixed pace.
 
-All three are set in **Einstellungen** (settings), and the on/off switch
-and the number of seconds are also right there on the board so you can
-change them mid-game — usually the moment auto-pass has just cost you a
+All three are set on the **Profil** tab, and the on/off switch and the
+number of seconds are also right there on the board so you can change
+them mid-game — usually the moment auto-pass has just cost you a
 response.
 
 ### Other board settings
@@ -254,8 +254,8 @@ response.
 - **The opponent's hand** shows only its *count* ("5 verdeckte Karten") by
   default. Your browser never receives those cards anyway (RULE 400.2 —
   the server doesn't send them), so the card backs were only costing
-  space. The **verdeckte Karten zeigen** checkbox on the hand zone (or in
-  **Einstellungen**) brings them back. Cards an effect genuinely *reveals*
+  space. The **verdeckte Karten zeigen** checkbox on the hand zone (or on
+  the **Profil** tab) brings them back. Cards an effect genuinely *reveals*
   are always shown.
 - **⏭ Nächste Aktion** (next action) passes through every priority window
   in which you have no option at all, and stops at the first one where you

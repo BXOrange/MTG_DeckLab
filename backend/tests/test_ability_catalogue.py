@@ -367,7 +367,7 @@ def test_fetch_land_offers_activate_action_and_resolves_tapped():
     state = session.engine.state
     session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
     for _ in range(20):
-        if state.current_step == "main1" and state.turn_number == 1:
+        if state.current_step == "main1" and state.internal_turn.number == 1:
             break
         session.apply_action({"type": "advance_step"})
     ew = next(o for o in state.active_player.hand if o.name == "Evolving Wilds")

@@ -99,6 +99,19 @@ _KICKED_SCALED_ENTRY_COUNTERS_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: RULE 702.43a **Sunburst**: "~ enters with a +1/+1 counter on it for each
+#: **color of mana spent to cast it**." (Chamber Sentry / Crystalline
+#: Crawler / Rancorous Archaic / Skyrider Elf / Etched Oracle). Scaled by
+#: `GameObject.colors_spent_to_cast` (a frozenset the mana-payment solver
+#: already records — the same field `SearchLibraryEffect.mana_value_from`'s
+#: ``"colors_spent_to_cast"`` sentinel reads). Always a per-colour amount
+#: of 1 on a real card, but ``_FIXED_AMOUNT`` is kept for symmetry.
+_SUNBURST_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
+    rf"for each color of mana spent to cast it\.?$",
+    re.IGNORECASE,
+)
+
 
 def _fixed_count(amount_raw: str) -> int:
     return 1 if amount_raw.lower() in ("a", "an") else int(amount_raw)
@@ -158,6 +171,12 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
         if match.group("kw"):
             result["grant_keyword"] = _GRANT_KEYWORD_WORDS[match.group("kw")]
         return result
+    match = _SUNBURST_ENTRY_COUNTERS_RE.match(line)
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(), "colors_spent_scale": True,
+        }
     match = _ENTRY_COUNTERS_RE.match(line)
     if not match:
         return None

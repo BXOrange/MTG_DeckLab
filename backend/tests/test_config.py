@@ -19,7 +19,13 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 def _run(code: str, env_overrides: dict) -> str:
     import os
 
-    env = dict(os.environ, **env_overrides)
+    # Strip every MTG_* var from the inherited environment before applying
+    # `env_overrides` — a bare `env_overrides={}` call means "test the
+    # no-override default," which must hold regardless of what's set in
+    # *this* process (a developer's own shell, or conftest.py's own
+    # MTG_CACHE_DIR override for the isolated test card cache).
+    env = {k: v for k, v in os.environ.items() if not k.startswith("MTG_")}
+    env.update(env_overrides)
     result = subprocess.run(
         [sys.executable, "-c", code],
         cwd=str(_REPO_ROOT / "backend"),

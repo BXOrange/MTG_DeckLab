@@ -31,6 +31,14 @@ import { parseDeckSections } from './parser.js';
 import { createGameBoardView } from './gameBoardView.js';
 import { analysisHtml } from './gameStats.js';
 import { mulliganText } from './mulligan.js';
+import {
+  escapeHtml,
+  deckSelectOptionsHtml,
+  formatSelectOptionsHtml,
+  mulliganTileHtml,
+  loadUnmodeledDeckIds,
+} from './gameSetup.js';
+import { t } from './i18n.js';
 
 /**
  * Create a persistent goldfish controller. Its session survives across
@@ -77,6 +85,10 @@ export function createGoldfishView() {
   //: favorites first. Fetched alongside the deck list; empty when no player
   //: name is set (there's nothing to key favorites by).
   let favoriteDeckIds = new Set();
+  //: Saved-deck ids that hold cards the engine doesn't model yet — drives the
+  //: "⚠️" marker in the picker. Filled asynchronously after the deck list
+  //: loads (one coverage check per deck), so the picker shows without waiting.
+  let unmodeledDeckIds = new Set();
   //: PLR-13: the RULE 8/9 format this goldfish game starts in (GET
   //: /api/game/formats), 'commander' until the catalogue has loaded.
   let gameFormats = null; // null = not loaded yet
@@ -93,18 +105,18 @@ export function createGoldfishView() {
     extraControls: () => [
       {
         id: 'restart',
-        label: '⟲ Neu starten',
+        label: t('play.restart'),
         disabled: busy,
         onClick: restart,
       },
       {
         id: 'export',
-        label: '⬇ Als Replay speichern',
-        title: 'Diesen Spielzustand als Replay-Datei speichern (im Replay-Tab wieder ladbar)',
+        label: t('play.saveReplay'),
+        title: t('play.saveReplayTitle'),
         disabled: busy,
         onClick: exportReplayFile,
       },
-      { id: 'quit', label: 'Beenden', onClick: quit },
+      { id: 'quit', label: t('play.quit'), onClick: quit },
     ],
   });
 
@@ -148,6 +160,11 @@ export function createGoldfishView() {
       selectedValidation = null;
     }
     render();
+    // Coverage marker — non-blocking, repaints once the checks land.
+    loadUnmodeledDeckIds(savedDecks).then((ids) => {
+      unmodeledDeckIds = ids;
+      if (ids.size) render();
+    });
   }
 
   // PLR-13: the format catalogue for the picker (GET /api/game/formats) —
@@ -176,12 +193,12 @@ export function createGoldfishView() {
 
   async function start() {
     if (!selectedDeckId) {
-      setStatus('Bitte zuerst ein Deck auswählen.', 'warning');
+      setStatus(t('goldfish.mustPickDeck'), 'warning');
       render();
       return;
     }
     if (!selectedValidation?.isLegal) {
-      setStatus('Nur legale Decks können ein Goldfisch-Spiel starten.', 'warning');
+      setStatus(t('goldfish.needLegal'), 'warning');
       render();
       return;
     }
@@ -190,7 +207,7 @@ export function createGoldfishView() {
     // pops in mid-game — the actual cause of "images not always loaded".
     phase = 'loading';
     loadingProgress = { loaded: 0, total: 0 };
-    setStatus('Kartenbilder werden geladen …', 'pending');
+    setStatus(t('play.loadingImages'), 'pending');
     render();
     const deck = savedDecks?.find((d) => d.id === selectedDeckId);
     if (deck) {
@@ -209,15 +226,15 @@ export function createGoldfishView() {
     }
     await loadPlayerAssets(deck);
 
-    await withBusy('Spiel wird gestartet …', async () => {
+    await withBusy(t('play.starting'), async () => {
       const res = await startGoldfish({ deckId: selectedDeckId, shuffle: true, gameFormat: selectedFormat });
       if (res.ok) {
         applyView(res.data);
         const notFound = res.data.notFound || [];
         setStatus(
           notFound.length
-            ? `Gestartet. Nicht auflösbar: ${notFound.join(', ')}`
-            : 'Wähle deine Starthand: behalten oder Mulligan.',
+            ? t('play.startedNotResolvable', { names: notFound.join(', ') })
+            : t('play.pickHand'),
           notFound.length ? 'warning' : 'ok'
         );
       } else if (res.status === 422) {
@@ -236,31 +253,43 @@ export function createGoldfishView() {
   }
 
   // Fetch the tokens the selected deck can produce and preload their art into
-  // `merged` (the imageCache), keyed by lowercased token name — the same shape
-  // `objCard` reads — so a token GameObject shows its art the instant an effect
-  // creates it. Synthesized (inline-P/T) tokens carry no art and are skipped;
-  // their board tile keeps the text fallback. Best-effort: a failed fetch just
-  // means tokens lazy-load as before.
+  // `merged` (the imageCache) — keyed primarily by the token's own id (see
+  // `resolveImageUrl` in gameBoardView.js), plus lowercased name as a
+  // secondary/tooltip-cache key — so a token GameObject shows its art the
+  // instant an effect creates it. The backend's token-art library (a real
+  // Scryfall id + art whenever one matches the token's exact name/P/T/colors,
+  // `services/token_database.py`'s `TokenArtLibrary`) covers most vanilla
+  // creature tokens too, not just the small curated-ability set (Treasure,
+  // Clue, …); anything it doesn't cover still has no art and keeps the text
+  // fallback. Best-effort: a failed fetch just means tokens lazy-load as before.
   async function preloadDeckTokens(merged) {
     const res = await fetchDeckTokens({ deckId: selectedDeckId });
     const tokens = res.ok ? res.data?.tokens || [] : [];
     if (!tokens.length) return;
 
     for (const t of tokens) {
-      const key = (t.name || '').toLowerCase();
-      // Don't clobber a real deck card's already-resolved art if a token
-      // happens to share its name — the card entry is authoritative.
-      if (!key || merged.has(key)) continue;
+      if (!t.image_small && !t.image_normal) continue;
       const entry = {
         small: t.image_small || null,
         normal: t.image_normal || null,
         card: t,
       };
-      merged.set(key, entry);
-      // Also seed cardImages.js's own cache — cardHoverDetail.js's tooltip
-      // reads only that one, not this view's local `imageCache`, so without
-      // this a token's hover detail stays stuck at "Lädt …" forever.
-      cacheResolvedCard(key, entry);
+      // Id first: unique per exact (name, power, toughness, colors) variant,
+      // so two same-named tokens printed at different stats (e.g. several
+      // "Shapeshifter" stat lines) each keep their own art instead of
+      // whichever variant's entry happened to land last under a shared name.
+      if (t.id) merged.set(t.id, entry);
+      const key = (t.name || '').toLowerCase();
+      // The by-name entry is a same-name fallback (and cardImages.js's own
+      // tooltip-cache key) — first one in wins, and it never clobbers a real
+      // deck card's already-resolved art under that same name.
+      if (key && !merged.has(key)) {
+        merged.set(key, entry);
+        // Also seed cardImages.js's own cache — cardHoverDetail.js's tooltip
+        // reads only that one, not this view's local `imageCache`, so without
+        // this a token's hover detail stays stuck at "Lädt …" forever.
+        cacheResolvedCard(key, entry);
+      }
     }
 
     const urls = tokens.map((t) => t.image_small).filter(Boolean);
@@ -315,7 +344,7 @@ export function createGoldfishView() {
     if (!setup) return;
     if (mulliganBottom.size !== setup.bottom_count) {
       setStatus(
-        `Bitte genau ${setup.bottom_count} Karte(n) zum Unterlegen auswählen.`,
+        t('play.pickExactBottom', { count: setup.bottom_count }),
         'warning'
       );
       render();
@@ -349,14 +378,14 @@ export function createGoldfishView() {
         applyView(res.data);
         setStatus('', '');
       } else if (res.status === 400) {
-        setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? ''}`, 'warning');
+        setStatus(t('play.actionNotAllowed', { detail: res.data?.detail ?? '' }), 'warning');
       } else if (res.status === 404) {
-        setStatus('Spielsitzung abgelaufen – bitte neu starten.', 'warning');
+        setStatus(t('play.sessionExpired'), 'warning');
         sessionId = null;
         view = null;
         phase = 'pick';
       } else {
-        setStatus(`Fehler (${res.status}).`, 'warning');
+        setStatus(t('play.error', { status: res.status }), 'warning');
       }
     });
   }
@@ -366,13 +395,13 @@ export function createGoldfishView() {
   // doesn't draw, so this stays goldfish's own rather than the board's.
   async function restart() {
     if (!sessionId) return;
-    await withBusy('Spiel wird neu gestartet …', async () => {
+    await withBusy(t('play.restarting'), async () => {
       const res = await restartGame(sessionId);
       if (res.ok) {
         applyView(res.data);
-        setStatus('Spiel neu gestartet.', 'ok');
+        setStatus(t('play.restarted'), 'ok');
       } else {
-        setStatus(`Neustart fehlgeschlagen (${res.status}).`, 'warning');
+        setStatus(t('play.restartFailed', { status: res.status }), 'warning');
       }
     });
   }
@@ -461,10 +490,10 @@ export function createGoldfishView() {
     const pct = total ? Math.round((loaded / total) * 100) : 100;
     root.innerHTML = `
       <div class="goldfish-loading">
-        <h3>Spiel wird vorbereitet …</h3>
-        <p class="hint">Kartenbilder werden geladen, damit beim Start alles sofort verfügbar ist.</p>
+        <h3>${t('play.preparing')}</h3>
+        <p class="hint">${t('goldfish.loadingHint')}</p>
         <div class="gf-loading-bar"><div class="gf-loading-fill" style="width: ${pct}%"></div></div>
-        <p class="server-status pending">${total ? `${loaded} / ${total} Bilder geladen …` : 'Lädt …'}</p>
+        <p class="server-status pending">${total ? escapeHtml(t('play.imagesLoaded', { loaded, total })) : t('play.loading')}</p>
       </div>
     `;
   }
@@ -474,24 +503,19 @@ export function createGoldfishView() {
     const canStart = !!selectedDeckId && legal && !busy;
     root.innerHTML = `
       <div class="goldfish-start">
-        <h3>Goldfisch-Modus</h3>
-        <p class="hint">
-          Teste ein gespeichertes Deck ohne Gegner gegen die echten Regeln:
-          Schritt für Schritt durch den Zug, Länder spielen, Mana tappen,
-          Sprüche wirken – jederzeit mit <strong>Zurücknehmen</strong> und
-          <strong>Neu starten</strong>. Nur legale Decks können starten.
-        </p>
+        <h3>${t('goldfish.heading')}</h3>
+        <p class="hint">${escapeHtml(t('goldfish.intro'))}</p>
 
         <div class="gf-deck-picker">
-          <label for="gf-deck-select">Deck</label>
+          <label for="gf-deck-select">${t('play.deck')}</label>
           <select id="gf-deck-select" ${decksLoading ? 'disabled' : ''}>
             ${deckOptionsHtml()}
           </select>
-          <button id="gf-refresh-decks" type="button" title="Deckliste neu laden">⟳</button>
+          <button id="gf-refresh-decks" type="button" title="${escapeHtml(t('play.reloadDecks'))}">⟳</button>
         </div>
 
         <div class="gf-deck-picker">
-          <label for="gf-format-select">Format</label>
+          <label for="gf-format-select">${t('play.format')}</label>
           <select id="gf-format-select" ${gameFormats === null ? 'disabled' : ''}>
             ${formatOptionsHtml()}
           </select>
@@ -500,7 +524,7 @@ export function createGoldfishView() {
         ${deckLegalityHtml()}
 
         <button id="gf-start-btn" type="button" class="primary" ${canStart ? '' : 'disabled'}>
-          Goldfisch-Spiel starten
+          ${t('goldfish.startBtn')}
         </button>
         ${statusHtml()}
       </div>
@@ -514,52 +538,38 @@ export function createGoldfishView() {
     root.querySelector('#gf-start-btn')?.addEventListener('click', start);
   }
 
-  // Favorites (Profil tab) first, alphabetical order preserved within each
-  // group — `Array.prototype.sort` is stable, so ties keep the server's
-  // original order rather than being re-sorted by name.
-  function decksFavoritesFirst() {
-    if (!savedDecks) return [];
-    return [...savedDecks].sort(
-      (a, b) => (favoriteDeckIds.has(b.id) ? 1 : 0) - (favoriteDeckIds.has(a.id) ? 1 : 0),
-    );
-  }
-
+  // Deck / format `<option>` lists — the favorites-first sort, the loading /
+  // error / empty states, and the format fallback are all shared with the
+  // Solo and Multiplayer pickers (`gameSetup.js`).
   function deckOptionsHtml() {
-    if (decksLoading && savedDecks === null) return '<option>Lädt …</option>';
-    if (decksLoadError) return '<option value="">— Server nicht erreichbar (⟳ erneut versuchen) —</option>';
-    if (!savedDecks || !savedDecks.length) {
-      return '<option value="">— keine gespeicherten Decks —</option>';
-    }
-    const options = ['<option value="">— Deck wählen —</option>'];
-    for (const d of decksFavoritesFirst()) {
-      const name = (d.name || '').trim() || 'Unbenanntes Deck';
-      const label = favoriteDeckIds.has(d.id) ? `★ ${name}` : name;
-      const selected = d.id === selectedDeckId ? ' selected' : '';
-      options.push(`<option value="${escapeHtml(d.id)}"${selected}>${escapeHtml(label)}</option>`);
-    }
-    return options.join('');
+    return deckSelectOptionsHtml({
+      savedDecks,
+      selectedId: selectedDeckId,
+      favoriteDeckIds,
+      unmodeledDeckIds,
+      decksLoading,
+      decksLoadError,
+      errorText: t('play.serverUnreachableRetry'),
+    });
   }
 
   function formatOptionsHtml() {
-    if (gameFormats === null) return '<option>Lädt …</option>';
-    if (!gameFormats.length) return '<option value="commander">Commander</option>';
-    return gameFormats
-      .map((f) => `<option value="${escapeHtml(f.name)}"${f.name === selectedFormat ? ' selected' : ''}>${escapeHtml(f.label)}</option>`)
-      .join('');
+    if (gameFormats === null) return `<option>${t('play.loading')}</option>`;
+    return formatSelectOptionsHtml(gameFormats, selectedFormat);
   }
 
   function deckLegalityHtml() {
     if (!selectedDeckId) return '';
-    if (validating) return '<p class="server-status pending">Prüfe Legalität …</p>';
+    if (validating) return `<p class="server-status pending">${t('play.checkingLegality')}</p>`;
     if (selectedValidation === null) {
-      return '<p class="server-status warning">Legalität konnte nicht geprüft werden (Server?).</p>';
+      return `<p class="server-status warning">${t('play.legalityUnknown')}</p>`;
     }
     if (selectedValidation.isLegal) {
-      return '<p class="server-status ok">✅ Deck ist legal.</p>';
+      return `<p class="server-status ok">${t('play.deckLegal')}</p>`;
     }
     const reasons = (selectedValidation.errors || []).map((e) => `<li>${escapeHtml(e)}</li>`).join('');
     return `
-      <div class="server-status warning">🛑 Deck ist nicht legal – Start nicht möglich.</div>
+      <div class="server-status warning">${t('play.deckIllegal')}</div>
       ${reasons ? `<ul class="issue-list validation-errors">${reasons}</ul>` : ''}
     `;
   }
@@ -573,29 +583,29 @@ export function createGoldfishView() {
     const nextHand = setup.next_hand_size ?? 7;
     root.innerHTML = `
       <div class="goldfish-mulligan">
-        <h3>Starthand</h3>
+        <h3>${t('play.openingHand')}</h3>
         <p class="hint">
           ${
             mulliganCount === 0
-              ? `Deine Starthand: ${me.hand.length} Karten. Behalten, oder neu mischen (Mulligan)?`
-              : mulliganText(setup, mulliganCount, bottomCount, me.hand.length) +
-                (bottomCount > 0 ? ' Wähle sie unten aus.' : '')
+              ? escapeHtml(t('play.handIntro', { count: me.hand.length }))
+              : escapeHtml(mulliganText(setup, mulliganCount, bottomCount, me.hand.length) +
+                (bottomCount > 0 ? t('play.pickBottomHint') : ''))
           }
         </p>
         ${statusHtml()}
         <div class="card-grid gf-mulligan-hand">
           ${me.hand.map((o) => mulliganCardHtml(o, bottomCount)).join('')}
         </div>
-        <label class="gf-draw-first" title="Wer zieht in Zug 1? Standard: du bist am Zug und ziehst nicht (Regel 103.7a).">
+        <label class="gf-draw-first" title="${escapeHtml(t('goldfish.drawFirstTitle'))}">
           <input type="checkbox" id="gf-draw-first" ${drawFirst ? 'checked' : ''} />
-          In Zug 1 eine Karte ziehen (sonst zieht der Goldfisch — du bist am Zug)
+          ${t('goldfish.drawFirstLabel')}
         </label>
         <div class="gf-controls">
-          <button id="gf-mulligan-btn" type="button" ${busy ? 'disabled' : ''}>🔀 Mulligan (${nextHand} Karten ziehen)</button>
+          <button id="gf-mulligan-btn" type="button" ${busy ? 'disabled' : ''}>${escapeHtml(t('play.mulliganBtn', { count: nextHand }))}</button>
           <button id="gf-keep-btn" type="button" class="primary" ${busy || !canKeep ? 'disabled' : ''}>
-            ${bottomCount === 0 ? 'Hand behalten' : `Behalten (${mulliganBottom.size}/${bottomCount} unten ausgewählt)`}
+            ${bottomCount === 0 ? t('play.keepHand') : escapeHtml(t('play.keepHandBottom', { picked: mulliganBottom.size, count: bottomCount }))}
           </button>
-          <button id="gf-quit-mulligan" type="button" ${busy ? 'disabled' : ''}>Abbrechen</button>
+          <button id="gf-quit-mulligan" type="button" ${busy ? 'disabled' : ''}>${t('play.cancel')}</button>
         </div>
       </div>
     `;
@@ -611,22 +621,11 @@ export function createGoldfishView() {
   }
 
   function mulliganCardHtml(o, bottomCount) {
-    const imageCache = getState().imageCache;
-    const image = imageCache?.get((o.name || '').toLowerCase());
-    const inner = image?.small
-      ? `<img src="${image.small}" alt="${escapeHtml(o.name)}" loading="lazy" />`
-      : escapeHtml(o.name);
-    const selected = mulliganBottom.has(o.instance_id);
-    const classes = ['card'];
-    if (image?.small) classes.push('has-image');
-    if (bottomCount > 0) classes.push('clickable');
-    if (selected) classes.push('selected-bottom');
-    const toggleAttr = bottomCount > 0 ? ` data-bottom-toggle="${o.instance_id}"` : '';
-    return `
-      <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}"${toggleAttr}>${inner}</div>
-        ${bottomCount > 0 ? `<button type="button" class="gf-card-action" data-bottom-toggle="${o.instance_id}">${selected ? '✓ unten' : 'Nach unten legen'}</button>` : ''}
-      </div>`;
+    return mulliganTileHtml(o, {
+      imageCache: getState().imageCache,
+      selected: mulliganBottom.has(o.instance_id),
+      bottomEnabled: bottomCount > 0,
+    });
   }
 
   // The end-of-match review shown after "Beenden": the final stats digest
@@ -638,14 +637,14 @@ export function createGoldfishView() {
     const ended = s && s.game_over;
     const intro = ended
       ? gameResultBanner(s, me)
-      : `<p class="hint">Partie nach ${summary.analysis?.turns ?? 0} Zügen beendet.</p>`;
+      : `<p class="hint">${escapeHtml(t('play.gameEndedAfter', { turns: summary.analysis?.turns ?? 0 }))}</p>`;
     root.innerHTML = `
       <div class="goldfish-summary">
-        <h3>Partie-Auswertung</h3>
+        <h3>${t('play.summaryHeading')}</h3>
         ${intro}
         ${analysisHtml(summary.analysis)}
         <div class="gf-controls">
-          <button id="gf-summary-new" type="button" class="primary">Neues Spiel</button>
+          <button id="gf-summary-new" type="button" class="primary">${t('play.newGame')}</button>
         </div>
       </div>`;
     root.querySelector('#gf-summary-new')?.addEventListener('click', () => {
@@ -664,9 +663,9 @@ export function createGoldfishView() {
     const youWon = winner && me && winner.id === me.id;
     const banner = winner
       ? youWon
-        ? '🏆 Gewonnen – der Goldfisch liegt bei 0 Leben.'
-        : `Verloren – Sieger: ${escapeHtml(winner.name)}.`
-      : 'Spiel beendet.';
+        ? t('goldfish.won')
+        : escapeHtml(t('play.lost', { name: winner.name }))
+      : t('play.gameOver');
     return `<p class="server-status ${youWon ? 'ok' : 'warning'}">${banner}</p>`;
   }
 
@@ -676,10 +675,4 @@ export function createGoldfishView() {
   }
 
   return { mount, onShown };
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str == null ? '' : String(str);
-  return div.innerHTML;
 }

@@ -46,6 +46,13 @@ def shock():
     )
 
 
+def foretell_spell():
+    return Card(
+        id="Foretell Test", name="Foretell Test", type_line="Instant",
+        mana_cost_string="{3}{U}", converted_mana_cost=4, is_instant=True,
+    )
+
+
 def make_session(library=None, commanders=None, hand=7):
     library = library if library is not None else [land()] * 30
     engine = build_goldfish_engine(library, commanders=commanders, starting_hand=hand)
@@ -56,7 +63,7 @@ def advance_until(session, *, turn=None, step=None, limit=80):
     """Single-step the session until (turn, step) is reached (no auto-skip)."""
     for _ in range(limit):
         st = session.engine.state
-        if (turn is None or st.turn_number == turn) and (step is None or st.current_step == step):
+        if (turn is None or st.internal_turn.number == turn) and (step is None or st.current_step == step):
             return
         session.apply_action({"type": "advance_step"})
     raise AssertionError(f"never reached turn={turn} step={step}")
@@ -106,6 +113,63 @@ class TestStackAndChoices:
 
         assert state.stack[-1].obj.kicker_count == 1
         assert state.active_player.mana_pool.total() == 0
+
+    def test_foretell_action_dispatches_from_the_session_payload(self):
+        session = make_session(library=[land()] * 10 + [foretell_spell(), land()], hand=7)
+        self._advance_to_main1(session)
+        state = session.engine.state
+        spell = next(o for o in state.active_player.hand if o.name == "Foretell Test")
+        spell.parametric_keywords = {"foretell": {"cost": "{1}{U}"}}
+        state.active_player.mana_pool.add_many({"C": 2})
+
+        action = next(a for a in session.legal_actions() if a["type"] == "foretell")
+        session.apply_action({"type": "foretell", "instance_id": action["instance_id"]})
+
+        assert spell in state.active_player.exile
+        assert spell.foretold and spell.face_down_in_exile
+
+    def test_cast_spell_forwards_discard_choices_for_an_additional_cost(self):
+        # RULE 601.2b/602.1: a spell's "as an additional cost to cast this
+        # spell, discard a card" — *which* card is the caster's own choice,
+        # round-tripped through the session action as `discard_choices`. The
+        # handler used to drop the field (like `kicked` above), so the engine
+        # silently auto-discarded from the back of the hand and the UI had no
+        # way to prompt. `legal_actions` now also surfaces the pool.
+        from mtg_analyzer.models.game_object import GameObject, Zone
+        from mtg_analyzer.game.costs import ActivationCost
+
+        session = make_session(library=[land()] * 20, hand=0)
+        self._advance_to_main1(session)
+        state = session.engine.state
+        p = state.active_player
+
+        spell_obj = GameObject(shock(), owner_id=p.id, zone=Zone.HAND)
+        p.hand.append(spell_obj)
+        spell_obj.additional_cast_cost = ActivationCost(discard=1)
+        keep = GameObject(bear(), owner_id=p.id, zone=Zone.HAND)
+        p.hand.append(keep)
+        toss = GameObject(land("Mountain"), owner_id=p.id, zone=Zone.HAND)
+        p.hand.append(toss)
+        p.mana_pool.add("R", 1)
+
+        cast = next(
+            a for a in session.legal_actions()
+            if a["type"] == "cast_spell" and a["instance_id"] == spell_obj.instance_id
+        )
+        assert cast["discard_cost"]["count"] == 1
+        # The pool is the rest of the hand — never the spell paying the cost.
+        offered = {o["instance_id"] for o in cast["discard_cost"]["options"]}
+        assert {keep.instance_id, toss.instance_id} <= offered
+        assert spell_obj.instance_id not in offered
+
+        session.apply_action({
+            "type": "cast_spell",
+            "instance_id": spell_obj.instance_id,
+            "discard_choices": [toss.instance_id],
+        })
+
+        assert toss in p.graveyard
+        assert keep in p.hand
 
     def test_tap_for_mana_with_option_index(self):
         session = make_session(library=[land()] * 10, hand=7)
@@ -190,7 +254,7 @@ class TestSetup:
         player = session.engine.state.active_player
         assert len(player.hand) == 7
         assert len(player.command) == 1
-        assert session.engine.state.turn_number == 1
+        assert session.engine.state.internal_turn.number == 1
 
     def test_view_has_state_and_legal_actions(self):
         view = make_session().view()
@@ -627,17 +691,17 @@ class TestActions:
         session.apply_action({"type": "auto_turn"})
         # Auto-turn drives the cursor (not a fresh begin_turn), ending at
         # the next turn without desyncing.
-        assert session.engine.state.turn_number == 2
+        assert session.engine.state.internal_turn.number == 2
         # The whole auto-turn is a single undo step back to the opening.
         session.rewind(1)
-        assert session.engine.state.turn_number == 1
+        assert session.engine.state.internal_turn.number == 1
 
     def test_auto_turn_resumes_from_a_mid_turn_manual_position(self):
         session = make_session()
         advance_until(session, step="main1")  # manually reach main1 of turn 1
         session.apply_action({"type": "auto_turn"})
         # Finishing turn 1 lands on turn 2 — not turn 3 (no double begin_turn).
-        assert session.engine.state.turn_number == 2
+        assert session.engine.state.internal_turn.number == 2
 
 
 class TestSingleStep:
@@ -742,15 +806,15 @@ class TestRewind:
         session = make_session()
         # Single-step just into turn 2, then rewind the boundary crossing.
         advance_until(session, turn=2, step="untap")
-        assert session.engine.state.turn_number == 2
+        assert session.engine.state.internal_turn.number == 2
         session.rewind(1)
         # Restored to the last step of turn 1 (cleanup) — the cursor travels
         # with the snapshot, so the turn counter doesn't jump forward.
-        assert session.engine.state.turn_number == 1
+        assert session.engine.state.internal_turn.number == 1
         assert session.engine.state.current_step == "cleanup"
         # Continuing crosses the boundary again, not an extra turn.
         session.apply_action({"type": "advance_step"})
-        assert session.engine.state.turn_number == 2
+        assert session.engine.state.internal_turn.number == 2
         assert session.engine.state.current_step == "untap"
 
     def test_rewind_more_than_history_restarts(self):
@@ -758,7 +822,7 @@ class TestRewind:
         session.apply_action({"type": "advance_step"})
         session.rewind(10)
         assert not session.can_rewind
-        assert session.engine.state.turn_number == 1
+        assert session.engine.state.internal_turn.number == 1
 
     def test_rewind_requires_positive_steps(self):
         session = make_session()
@@ -775,7 +839,7 @@ class TestRestart:
 
         session.restart()
         state = session.engine.state
-        assert state.turn_number == 1
+        assert state.internal_turn.number == 1
         assert len(state.active_player.hand) == 7
         assert len(state.battlefield) == 0
         assert not session.can_rewind
@@ -788,7 +852,7 @@ class TestRestart:
         # From the restored opening state, single-stepping reaches main1 again.
         advance_until(session, step="main1")
         assert session.engine.state.current_step == "main1"
-        assert session.engine.state.turn_number == 1
+        assert session.engine.state.internal_turn.number == 1
 
 
 class TestCombat:
@@ -863,7 +927,7 @@ class TestGoldfishDummy:
             if session.engine.advance_step() is None:
                 break
         assert session.engine.state.active_player.id == "p1"
-        assert session.engine.state.turn_number >= 2  # turns did advance
+        assert session.engine.state.internal_turn.number >= 2  # turns did advance
 
     def test_view_carries_analysis_digest(self):
         session = GameSessionManager().create_goldfish(library=[land()] * 40)

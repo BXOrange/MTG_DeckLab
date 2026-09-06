@@ -5,6 +5,7 @@
 // state.js.
 
 import { checkHealth } from './api.js';
+import { t } from './i18n.js';
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -42,12 +43,6 @@ export async function refreshConnectionStatus() {
 refreshConnectionStatus();
 setInterval(refreshConnectionStatus, POLL_INTERVAL_MS);
 
-const STATUS_LABELS = {
-  checking: 'Prüfe …',
-  connected: 'Verbunden',
-  disconnected: 'Nicht erreichbar',
-};
-
 /**
  * Render a compact "dot + label" connection indicator into `container`,
  * kept in sync with the shared status for as long as the page lives.
@@ -56,9 +51,9 @@ export function renderConnectionIndicator(container) {
   function render() {
     const current = getConnectionStatus();
     container.innerHTML = `
-      <span class="connection-indicator ${current}" title="Verbindung zum Server">
+      <span class="connection-indicator ${current}" title="${t('header.connectionTitle')}">
         <span class="connection-dot"></span>
-        ${STATUS_LABELS[current]}
+        ${t(`connection.${current}`)}
       </span>
     `;
   }

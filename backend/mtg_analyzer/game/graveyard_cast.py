@@ -37,6 +37,19 @@ def _is_permanent_card(card: "Card") -> bool:
     )
 
 
+def permanent_types(card: "Card") -> set[str]:
+    """The printed permanent types relevant to Muldrotha's separate
+    once-per-type permissions. A multi-type card may consume any one still
+    unused type when it is cast/played."""
+    return {
+        kind for kind, present in (
+            ("artifact", card.is_artifact), ("creature", card.is_creature),
+            ("enchantment", card.is_enchantment), ("land", card.is_land),
+            ("planeswalker", getattr(card, "is_planeswalker", False)),
+        ) if present
+    }
+
+
 def active_graveyard_cast_grants(player: "Player", state: "GameState") -> list[GraveyardCastPermissionEffect]:
     """Every currently-active `GraveyardCastPermissionEffect` ``player``
     controls — excluding a ``once_per_turn`` grant whose granting permanent
@@ -47,9 +60,9 @@ def active_graveyard_cast_grants(player: "Player", state: "GameState") -> list[G
         for effect in getattr(obj, "static_effects", None) or []:
             if not isinstance(effect, GraveyardCastPermissionEffect):
                 continue
-            if effect.once_per_turn and getattr(obj, "graveyard_casts_this_turn", 0):
+            if effect.once_per_turn and not effect.per_permanent_type and getattr(obj, "graveyard_casts_this_turn", 0):
                 continue
-            if effect.expires_turn is not None and effect.expires_turn != state.turn_number:
+            if effect.expires_turn is not None and effect.expires_turn != state.internal_turn.number:
                 continue
             grants.append(effect)
     return grants
@@ -73,12 +86,25 @@ def graveyard_cast_grant_for(
             continue
         if effect.max_mana_value is not None and card.converted_mana_cost > effect.max_mana_value:
             continue
+        if effect.per_permanent_type and permanent_types(card) <= getattr(effect.source, "graveyard_cast_types_this_turn", set()):
+            continue
         return effect
     return None
 
 
 def may_cast_spell_from_graveyard(player: "Player", state: "GameState", card: "Card") -> bool:
     return graveyard_cast_grant_for(player, state, card) is not None
+
+
+def graveyard_land_play_grant_for(player: "Player", state: "GameState", card: "Card") -> Optional[GraveyardCastPermissionEffect]:
+    if not card.is_land:
+        return None
+    for effect in active_graveyard_cast_grants(player, state):
+        if not effect.per_permanent_type:
+            continue
+        if "land" not in getattr(effect.source, "graveyard_cast_types_this_turn", set()):
+            return effect
+    return None
 
 
 def has_temporary_graveyard_play_permission(player: "Player", state: "GameState") -> bool:
@@ -91,4 +117,4 @@ def has_temporary_graveyard_play_permission(player: "Player", state: "GameState"
     this one covers the caster's *whole* graveyard, lands included, for
     exactly the turn it was granted on.
     """
-    return player.graveyard_play_permission_until_turn == state.turn_number
+    return player.graveyard_play_permission_until_turn == state.internal_turn.number

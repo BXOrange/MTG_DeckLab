@@ -77,7 +77,10 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
-from .effects import ActivatedAbility, ConditionalEffect, EffectRegistry, StaticAbility, TriggeredAbility
+from .effects import (
+    ActivatedAbility, ConditionalEffect, EffectRegistry, ReplacementEffect,
+    ReplacementRegistry, StaticAbility, TriggeredAbility,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..models.game_object import GameObject
@@ -303,6 +306,15 @@ def group_selector_objects(
         ]
     elif affects == "creatures_you_control":
         result = [o for o in battlefield if o.is_creature and o.controller_id == controller_id]
+    elif affects == "creatures_you_control_with_a_counter":
+        # "Each creature you control with a counter on it gains firebending
+        # N …" (Iroh, Dragon of the West, PAR-30) — any counter kind, any
+        # positive count (RULE 122.1 / 701.19).
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id == controller_id
+            and any(v for v in (o.counters or {}).values())
+        ]
     elif affects == "nontoken_creatures_you_control":
         # "Nontoken creatures you control are Forest lands in addition to
         # their other types." (Ashaya, Soul of the Wild, MEC-12) — the
@@ -389,6 +401,16 @@ def group_selector_objects(
         ]
     elif affects == "lands_you_control":
         result = [o for o in battlefield if o.is_land and o.controller_id == controller_id]
+    elif affects.startswith("lands_you_control_of_type_"):
+        # "Untap all Forests you control." (Woodland Guidance — RULE 205.3i
+        # land subtypes), the land sibling of ``creatures_you_control_of_
+        # type_<x>`` just above.
+        land_subtype = affects[len("lands_you_control_of_type_"):]
+        result = [
+            o for o in battlefield
+            if o.is_land and o.controller_id == controller_id
+            and land_subtype in o.card.type_line.lower()
+        ]
     elif affects == "commander_creatures_you_own":
         # "Commander creatures you own have '<ability>'." (Acolyte of
         # Bahamut/Agent of the Iron Throne/Candlekeep Sage-shaped) —
@@ -652,6 +674,16 @@ def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
         for ab in getattr(src, "static_effects", [])
         if isinstance(ab, StaticAbility)
     ]
+    # MEC-55: a nested static granted by "X have '<static ability>'"
+    # (Inspiring Leader) — populated per affected battlefield object during
+    # `_apply_layer_6_ability`, then an ordinary static source from here on
+    # (same layers/timestamp ordering). Empty until layer 6 runs, so
+    # `recompute` re-gathers this list after that pass for layers 7+.
+    for obj in state.battlefield:
+        abilities.extend(
+            ab for ab in getattr(obj, "_granted_static_abilities", ())
+            if isinstance(ab, StaticAbility)
+        )
     # RULE 112.7a's own printed exception — "As long as this card is in
     # your graveyard [and `<condition>`], `<static>`." (Anger/Brawn/Filth/
     # Valor/Wonder-shaped) is one of the rare statics that explicitly
@@ -752,6 +784,21 @@ def count_selector(
         # be given (a bare test fixture omitting it gets 0, the same safe
         # fallback every self-referential selector here gets).
         return len(getattr(source, "exiled_with_ids", None) or [])
+    if selector == "source_x_paid":
+        # "When this creature enters, incubate 3 **X times**." (Progenitor
+        # Exarch) — the repeat count is the source permanent's own announced
+        # {X} (`GameObject.x_paid`, RULE 107.3c, set at cast time), not a
+        # board count. ``source`` required; a fixture without one gets 0,
+        # the same safe fallback `exiled_with_count` above takes.
+        return int(getattr(source, "x_paid", 0) or 0)
+    if selector == "source_power":
+        # "…gets +X/+X …, where X is ~'s power." (Hardy Outlander's granted
+        # attack trigger, PAR-32) — the source's own *derived* power (RULE
+        # 613), the amount sibling of `dynamic_threshold`'s identically-
+        # named comparison branch. ``source`` required.
+        return int(getattr(source, "power", 0) or 0) if source is not None else 0
+    if selector == "source_toughness":
+        return int(getattr(source, "toughness", 0) or 0) if source is not None else 0
     if selector == "sacrificed_cost_mana_value":
         # "…target player mills cards equal to the sacrificed creature's
         # mana value." (MEC-43) — reads `GameObject.sacrificed_cost_mana_
@@ -791,6 +838,15 @@ def count_selector(
         if controller_id is None:
             return 0
         return state.spells_cast_this_turn.get(controller_id, 0)
+    if selector == "cards_discarded_this_turn":
+        # "…for each card you've discarded this turn." (Living Laser's
+        # self-copy count; Change of Fortune / Astonishing Spider-Man's
+        # "draw a card for each card you've discarded this turn") —
+        # `GameState.cards_discarded_this_turn`, bumped at every
+        # `DISCARD_CARD` fire site (`RulesEngine._note_discarded`).
+        if controller_id is None:
+            return 0
+        return state.cards_discarded_this_turn.get(controller_id, 0)
     if selector == "opponents_dealt_combat_damage_this_turn":
         # "...where X is the number of opponents that were dealt combat
         # damage this turn." (Tymna the Weaver, MEC-42) — unlike `GameState.
@@ -1048,6 +1104,31 @@ def count_selector(
         except KeyError:
             player = None
         return len(player.graveyard) if player is not None else 0
+    if selector == "creature_cards_in_your_graveyard":
+        # "Incubate X, where X is the number of creature cards in your
+        # graveyard." (Blight Titan, PAR-30) — the creature-filtered sibling
+        # of ``cards_in_your_graveyard`` just above.
+        try:
+            player = state.player_by_id(controller_id) if controller_id else None
+        except KeyError:
+            player = None
+        return sum(1 for c in player.graveyard if c.card.is_creature) if player is not None else 0
+    if selector.endswith("_cards_in_your_graveyard"):
+        # PAR-30: "for each `<subtype>` card in your graveyard" (Katara,
+        # Seeking Revenge — "+1/+1 for each lesson card in your graveyard").
+        # A live type-line scan (main type or subtype), the same convention
+        # `static_conditions.subtype_in_graveyard` /
+        # `effects.ConditionalEffect`'s `graveyard_has_type` use. The
+        # `creature_cards_in_your_graveyard` branch above stays its own row
+        # (`Card.is_creature` rather than a "creature" substring).
+        word = selector[: -len("_cards_in_your_graveyard")].replace("_", " ")
+        try:
+            player = state.player_by_id(controller_id) if controller_id else None
+        except KeyError:
+            player = None
+        if player is None or not word:
+            return 0
+        return sum(1 for c in player.graveyard if word in c.card.type_line.lower())
     if selector == "cards_in_your_hand":
         # RULE 604.3 CDA beater — Maro/Psychosis Crawler/Soramaro's
         # "power and toughness are each equal to the number of cards in
@@ -1057,6 +1138,19 @@ def count_selector(
         except KeyError:
             player = None
         return len(player.hand) if player is not None else 0
+    if selector == "distinct_named_artifact_tokens_you_control":
+        # "Bolster X, where X is the number of differently named artifact
+        # tokens you control." (Sandsteppe War Riders, PAR-29) — a distinct-
+        # name count (RULE 201.4b treats each name as a separate value),
+        # scoped to artifact tokens the way `tapped_<type>_you_control`
+        # scopes to a printed type.
+        return len({
+            obj.name
+            for obj in bf
+            if obj.controller_id == controller_id
+            and getattr(obj, "is_token", False)
+            and obj.card.is_artifact
+        })
     if selector.startswith("devotion_to_"):
         # RULE 202.2f/700.5: "your devotion to <colour>" is the number of
         # mana symbols of that colour in the mana costs of permanents you
@@ -1292,7 +1386,9 @@ _GRANTED_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id", "COUNTER": "target
 #: granted-to permanent's own controller (the same "resolve 'your' against
 #: `target`, not the granting source's controller" rule `phase_relation`
 #: documents below).
-_PLAYER_SUBJECT_GRANTED_EVENTS = frozenset({"LIFE_GAINED"})
+_PLAYER_SUBJECT_GRANTED_EVENTS = frozenset(
+    {"LIFE_GAINED", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"}
+)
 
 
 def _granted_trigger_condition(
@@ -1704,6 +1800,12 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                     obj._loses_all_abilities = True
             if obj_power is not None and obj_toughness is not None:
                 animation_pt[obj.instance_id] = (obj_power, obj_toughness)
+            if ability.params.get("legendary"):
+                # RULE 205.4a: "it becomes a legendary creature…" (Tenth
+                # District Hero's second level) — the same `_granted_
+                # legendary` flag The Ring's "your Ring-bearer is legendary"
+                # sets, so the RULE 704.5j legend-rule SBA sees it.
+                obj._granted_legendary = True
             label = ", ".join(added + add_subtypes) if (added or add_subtypes) else ", ".join(set_subtypes or [])
             _trace(obj, 4, _source_name(ability), f"becomes {label}")
 
@@ -1783,6 +1885,13 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
     live_grant_keys: set[tuple[int, int]] = set()
     for ability in _in_layer(abilities, "ability"):
         keywords = ability.params.get("keywords", [])
+        #: ENG-31: parametric keyword *grants* — ``[{"name": "firebending",
+        #: "n": 2}, ...]``. A number-carrying keyword can't ride the flat
+        #: `keywords` slug list; stamped onto `GameObject.
+        #: _granted_parametric_keywords` and, where the keyword's RULE 702
+        #: text is itself a triggered ability, re-synthesized onto
+        #: `_granted_triggered_abilities` every pass.
+        parametric_grants = ability.params.get("parametric_keywords", [])
         remove_keywords = ability.params.get("remove_keywords", [])
         lose_all = bool(ability.params.get("lose_all_abilities", False))
         mana = ability.params.get("mana", [])
@@ -1819,6 +1928,24 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
             if keywords:
                 obj._granted_keywords.update(keywords)
                 _trace(obj, 6, _source_name(ability), "gains " + ", ".join(keywords))
+            for pk in parametric_grants:
+                pname = str(pk.get("name") or "")
+                pn = pk.get("n")
+                if not pname or pn is None:
+                    continue
+                obj._granted_parametric_keywords[pname] = int(pn)
+                _trace(obj, 6, _source_name(ability), f"gains {pname} {int(pn)}")
+                # ``int(pn)`` in the key so a changed amount (a dynamic grant)
+                # mints a fresh ability and the stale one is pruned below.
+                key = (id(ability), obj.instance_id, "parametric", pname, int(pn))
+                live_grant_keys.add(key)
+                built = state._granted_ability_cache.get(key)
+                if built is None:
+                    from .effect_binder import parametric_keyword_triggered_abilities  # local: avoid an import cycle
+
+                    built = parametric_keyword_triggered_abilities(obj, pname, int(pn))
+                    state._granted_ability_cache[key] = built
+                obj._granted_triggered_abilities.extend(built)
             if remove_keywords:
                 obj._removed_keywords.update(remove_keywords)
                 _trace(obj, 6, _source_name(ability), "loses " + ", ".join(remove_keywords))
@@ -1845,17 +1972,59 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 live_grant_keys.add(key)
                 granted = state._granted_ability_cache.get(key)
                 if granted is None:
+                    group_condition = ability.params.get("group_condition")
+                    if group_condition:
+                        # PAR-32: "X have 'Whenever an artifact or creature
+                        # you control dies, …'" (Agent of the Iron Throne).
+                        # Reuse `effect_binder`'s printed-trigger group
+                        # predicate, sourced on the *granted-to* permanent
+                        # so "you control"/"other" re-scope to it.
+                        from .effect_binder import _build_group_ok  # local: avoid an import cycle
+
+                        cond = _build_group_ok(
+                            group_condition, obj, {"event": trigger_event}, obj.instance_id
+                        )
+                    else:
+                        cond = _granted_trigger_condition(
+                            obj, bool(ability.params.get("controllers_turn_only", False)),
+                            trigger_event, ability.params.get("filter"),
+                            ability.params.get("phase_relation"),
+                        )
+                    # PAR-32: AND any firing-event gate flags the re-granted
+                    # trigger carried ("no opponent has more life than that
+                    # player" — Guild Artisan; "cast a spell from exile" —
+                    # Passionate Archaeologist; a phase trigger's RULE 603.4
+                    # intervening-if — Cloakwood Hermit), each scoped to the
+                    # granted-to permanent's controller.
+                    from .effect_binder import (
+                        regrant_active_if_predicate,
+                        regrant_trigger_gate_predicate,
+                    )
+
+                    _gates = [
+                        regrant_trigger_gate_predicate(_k, obj.controller_id, obj)
+                        for _k in ("attacked_player_has_lowest_life", "spell_from_exile",
+                                   "spell_shares_creature_type_with_source")
+                        if ability.params.get(_k)
+                    ]
+                    if isinstance(ability.params.get("active_if"), dict):
+                        _gates.append(
+                            regrant_active_if_predicate(ability.params["active_if"], obj)
+                        )
+                    for _gate in _gates:
+                        if _gate is None:
+                            continue
+                        _base_cond = cond
+
+                        def cond(event, context, _b=_base_cond, _g=_gate):  # noqa: F811
+                            return _b(event, context) and _g(event, context)
                     granted = TriggeredAbility(
                         trigger_event=trigger_event,
                         effects=[
                             _build_grant_effect(spec, obj)
                             for spec in ability.params.get("grant_effects", [])
                         ],
-                        condition=_granted_trigger_condition(
-                            obj, bool(ability.params.get("controllers_turn_only", False)),
-                            trigger_event, ability.params.get("filter"),
-                            ability.params.get("phase_relation"),
-                        ),
+                        condition=cond,
                         optional=bool(ability.params.get("optional", False)),
                         once_per_turn=bool(ability.params.get("once_per_turn", False)),
                         controller_id=obj.controller_id,
@@ -1897,6 +2066,65 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     state._granted_ability_cache[key] = granted_activated
                 obj._granted_activated_abilities.append(granted_activated)
                 _trace(obj, 6, _source_name(ability), "gains an activated ability")
+            static_specs = ability.params.get("static_specs")
+            if static_specs:
+                # MEC-55: "X have '<static ability>'" (Inspiring Leader) —
+                # build the nested static once per affected object, sourced
+                # on that object so its own "you control" selector resolves
+                # against the granted-to permanent's controller. Cached on
+                # `_granted_ability_cache` (identity-stable across passes)
+                # and yielded by `_battlefield_static_abilities`.
+                for i, spec in enumerate(static_specs):
+                    key = (id(ability), obj.instance_id, "static", i)
+                    live_grant_keys.add(key)
+                    granted_static = state._granted_ability_cache.get(key)
+                    if granted_static is None:
+                        # MEC-57: the nested spec's ``type`` can also name a
+                        # `ReplacementEffect` (Scion of Halaster's granted
+                        # "first draw each turn" rewrite) rather than a
+                        # `StaticAbility` — `EffectRegistry` stays the
+                        # primary lookup (every existing static_specs user:
+                        # anthem/grant_keyword/extra_etb_counter/…),
+                        # `ReplacementRegistry` a fallback for the shapes
+                        # that only ever exist as a granted replacement.
+                        if EffectRegistry.is_registered(spec["type"]):
+                            granted_static = EffectRegistry.create(
+                                spec["type"], dict(spec.get("params", {}))
+                            )
+                        else:
+                            granted_static = ReplacementRegistry.create(
+                                spec["type"], dict(spec.get("params", {}))
+                            )
+                        granted_static.source = obj
+                        state._granted_ability_cache[key] = granted_static
+                    if isinstance(granted_static, ReplacementEffect):
+                        obj._granted_replacement_effects.append(granted_static)
+                    else:
+                        obj._granted_static_abilities.append(granted_static)
+                _trace(obj, 6, _source_name(ability), "gains a static ability")
+
+    # ENG-31: "until end of turn" parametric keyword grants from a resolved
+    # effect ("target creature gains firebending N until end of turn" — Fire
+    # Nation Palace). The parametric sibling of the `temp_keywords` merge
+    # below; folded in here (before the prune) so its synthesized abilities
+    # share the same `_granted_ability_cache` identity-preservation. Cleared
+    # at cleanup (RULE 514.2) with `temp_keywords`.
+    for obj in state.battlefield:
+        for pname, pn in (obj.temp_parametric_keywords or {}).items():
+            if pn is None:
+                continue
+            obj._granted_parametric_keywords[pname] = int(pn)
+            key = (id(obj), obj.instance_id, "parametric_temp", pname, int(pn))
+            live_grant_keys.add(key)
+            built = state._granted_ability_cache.get(key)
+            if built is None:
+                from .effect_binder import parametric_keyword_triggered_abilities  # local: avoid an import cycle
+
+                built = parametric_keyword_triggered_abilities(obj, pname, int(pn))
+                state._granted_ability_cache[key] = built
+            obj._granted_triggered_abilities.extend(built)
+            _trace(obj, 6, "Until-EOT", f"gains {pname} {int(pn)}", duration="end_of_turn")
+
     # Prune cache entries for relationships that no longer hold (the granting
     # ability left, or this object is no longer among its `affects`) — so a
     # later re-grant starts a fresh instance (fresh "once per turn" state),
@@ -2346,6 +2574,13 @@ def recompute(state: "GameState") -> None:
     _apply_layer_5_color(state, abilities)
     _apply_layer_6_ability(state, abilities)
     _apply_borrowed_activated_abilities(state, abilities)
+    # MEC-55: layer 6 may have populated `_granted_static_abilities` on
+    # affected objects ("X have '<anthem/lord>'" — Inspiring Leader). Re-
+    # gather so those nested statics reach layers 7+ in this same pass; an
+    # ability-*layer* granted static (a granted keyword/lord) still settles
+    # on the next recompute (always ≤1 SBA-loop lag).
+    if any(getattr(o, "_granted_static_abilities", None) for o in state.battlefield):
+        abilities = [ab for ab in _battlefield_static_abilities(state) if ab.layer != "cost"]
     _apply_layer_7_pt(state, abilities, animation_pt)
     _apply_post_layer_combat_restrictions_and_goad(state, abilities)
 
@@ -2384,7 +2619,8 @@ def _spell_type_matches(obj: "GameObject", spell_type: Union[str, list]) -> bool
 
 
 def cost_reduction_for(
-    state: "GameState", player: "Player", obj: Optional["GameObject"] = None
+    state: "GameState", player: "Player", obj: Optional["GameObject"] = None,
+    targets: Optional[list[Any]] = None,
 ) -> tuple[int, list[dict[str, Any]]]:
     """Net generic-mana reduction for a spell ``player`` casts (RULE 601.2f).
 
@@ -2418,6 +2654,17 @@ def cost_reduction_for(
         # permanent's own controller.
         if ability.affects == "opponents_spells" and getattr(ability.source, "controller_id", None) == player.id:
             continue
+        # "…that target ~ cost {N} more to cast." (Icefall Regent) — the
+        # spell being cast must target this static's own source. Targets are
+        # chosen before the cost is locked in (RULE 601.2c precedes
+        # 601.2f), so ``targets`` is the caster's already-picked list.
+        if ability.params.get("targets_source"):
+            src_id = getattr(ability.source, "instance_id", None)
+            chosen_ids = {
+                getattr(t, "instance_id", None) for t in (targets or [])
+            }
+            if src_id is None or src_id not in chosen_ids:
+                continue
         spell_type = ability.params.get("spell_type")
         if spell_type and (obj is None or not _spell_type_matches(obj, spell_type)):
             continue
@@ -2677,6 +2924,34 @@ def mana_type_override_for(
     return None
 
 
+def life_gain_prohibited_for(state: "GameState", player: "Player") -> bool:
+    """Whether ``player`` currently can't gain life because of a standing
+    battlefield static — "Players can't gain life." (Everlasting Torment /
+    Forsaken Wastes / Havoc Festival / Leyline of Punishment / Sulfuric
+    Vortex, unscoped: stops *everyone*, including the static's own
+    controller) or "Your opponents can't gain life." (Erebos, God of the
+    Dead — scoped to the static's controller's opponents). Consulted by
+    `RulesEngine.gain_life`. Same "live battlefield read, no separate
+    lifecycle" shape as `skipped_steps_for` / `mana_type_override_for`.
+    Honours any `active_if` gate (Erebos-shaped "as long as your devotion …").
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "life_gain_prohibition":
+            continue
+        active_if = ability.params.get("active_if")
+        src_controller = getattr(ability.source, "controller_id", None)
+        if active_if and not static_conditions.condition_holds(
+            active_if, state, ability.source, src_controller
+        ):
+            continue
+        if ability.params.get("scope") == "opponents":
+            if player.id != src_controller:
+                return True
+        else:
+            return True
+    return False
+
+
 def cost_floor_for(state: "GameState", player: "Player", obj: Optional["GameObject"] = None) -> int:
     """"Each spell that would cost less than N mana to cast costs N mana to
     cast instead." (Trinisphere) — a floor, not a delta, so it's kept out of
@@ -2707,8 +2982,41 @@ def cost_floor_for(state: "GameState", player: "Player", obj: Optional["GameObje
     return floor
 
 
+def _obj_matches_target_criteria(
+    target: Any, criteria: dict[str, Any], state: "GameState",
+    caster_id: Optional[str] = None,
+) -> bool:
+    """Whether a resolved spell target matches a `reduce_if_targets` criteria
+    dict (RULE 601.2f "if it targets a `<criteria>`"). ``target`` may be a
+    `GameObject` or an instance-id/descriptor; a player target never matches
+    (every printed criterion in this cycle names a permanent)."""
+    from . import combat  # function-scoped: combat imports this module
+
+    obj = target
+    if not hasattr(obj, "instance_id"):
+        iid = target.get("instance_id") if isinstance(target, dict) else target
+        obj = state.find_object(iid) if iid is not None else None
+    if obj is None or not hasattr(obj, "card"):
+        return False
+    crit = dict(criteria)
+    card_type = crit.pop("card_type", None)
+    if card_type and card_type.lower() not in obj.card.type_line.lower():
+        return False
+    if crit.pop("legendary", False) and "legendary" not in obj.card.type_line.lower():
+        return False
+    if crit.pop("is_token", False) and not getattr(obj, "is_token", False):
+        return False
+    controller = crit.pop("controller", None)
+    if controller == "you" and getattr(obj, "controller_id", None) != caster_id:
+        return False
+    if controller == "not_you" and getattr(obj, "controller_id", None) == caster_id:
+        return False
+    return combat.matches_object_filter(obj, crit) if crit else True
+
+
 def self_cost_reduction_for(
-    obj: "GameObject", state: "GameState", caster_id: Optional[str] = None
+    obj: "GameObject", state: "GameState", caster_id: Optional[str] = None,
+    targets: Optional[list[Any]] = None,
 ) -> tuple[int, list[dict[str, Any]]]:
     """Net generic-mana reduction from a "cost" static printed on ``obj``
     itself (Delve/Affinity-shaped: "This spell costs {1} less to cast for
@@ -2742,6 +3050,20 @@ def self_cost_reduction_for(
         active_if = ability.params.get("active_if")
         if active_if and not static_conditions.condition_holds(active_if, state, obj, controller_id):
             continue
+        # RULE 601.2f: "This spell costs {N} less to cast **if it targets a
+        # `<criteria>`**." (Ajani's Response / Knockout Blow cycle) — the
+        # discount only applies once the spell's targets are known and at
+        # least one matches. ``targets is None`` is the offer-time /
+        # can-cast probe (targets not chosen yet): treat the discount as
+        # available so affordability isn't understated, the same best-case
+        # treatment `help_pay`/kicker get.
+        reduce_if_targets = ability.params.get("reduce_if_targets")
+        if reduce_if_targets and targets is not None:
+            if not any(
+                _obj_matches_target_criteria(t, reduce_if_targets, state, caster_id)
+                for t in targets
+            ):
+                continue
         except_same = ability.params.get("except_same_controller_as")
         if except_same is not None and caster_id == except_same:
             continue
@@ -3270,6 +3592,111 @@ def granted_escape_for(state: "GameState", obj: "GameObject") -> Optional[dict[s
     return None
 
 
+def granted_retrace_for(state: "GameState", obj: "GameObject") -> Optional[dict[str, Any]]:
+    """The ``"grant_retrace"`` static granting ``obj`` Retrace right now
+    (RULE 702.81 as a *granted* keyword), as its params dict, or ``None``.
+
+    "Instant and sorcery cards in your graveyard have retrace." (Wrenn and
+    Six's −7 emblem); "Merfolk and Druid cards in your graveyard have
+    retrace." (Deeproot Historian); "…nonland permanent cards in your
+    graveyard have retrace." (Six). The exact `granted_escape_for` idiom —
+    a layer-6 ability grant onto cards in a **graveyard**, kept out of
+    `recompute` proper (nothing about the card's characteristics changes),
+    scoped to the granting permanent's controller's own graveyard.
+
+    Optional filters, all AND-combined: ``card_types`` (a list of main-type
+    words, ORed — "instant"/"sorcery"), ``subtypes`` (a list, ORed —
+    "Merfolk"/"Druid"), ``nonland_only``. No filter = every card.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "grant_retrace":
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        if controller_id is None:
+            continue
+        owner = next((p for p in state.players if p.id == controller_id), None)
+        if owner is None or obj not in owner.graveyard:
+            continue
+        if ability.params.get("nonland_only") and obj.card.is_land:
+            continue
+        card_types = ability.params.get("card_types")
+        if card_types and not any(_has_card_type(obj, str(t)) for t in card_types):
+            continue
+        subtypes = ability.params.get("subtypes")
+        if subtypes and not any(_has_subtype(obj, str(s)) for s in subtypes):
+            continue
+        return dict(ability.params)
+    return None
+
+
+def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, int]:
+    """Extra RULE 614.1-style entry counters ``obj`` gets from any live
+    ``"extra_etb_counter"`` static (MEC-56 — Master Chef's twin-quoted
+    grant), as ``{kind: total_amount}``. Called from `RulesEngine._apply_
+    entry_counters` right after the object's own printed entry-counter
+    condition, so a granted extra counter is present at the same moment a
+    printed one would be — before `obj` is added to the battlefield and
+    before ENTERS_BATTLEFIELD fires.
+
+    Each qualifying ability contributes its own ``count`` for its own
+    ``kind`` (summed across kinds and across multiple granting sources —
+    real Magic doesn't merge two separate replacement effects into one).
+    ``self_only`` scopes to the granting ability's own ``source`` (the
+    commander creature "this creature enters with…" was granted to);
+    unset scopes to every *other* creature that source's controller
+    controls ("other creatures you control enter with…") — creature-only
+    (`obj.is_creature`), matching both printed clauses' own wording.
+    """
+    totals: dict[str, int] = {}
+    if not getattr(obj, "is_creature", False):
+        return totals
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "extra_etb_counter":
+            continue
+        source = ability.source
+        controller_id = getattr(source, "controller_id", None)
+        if controller_id is None:
+            continue
+        if ability.params.get("self_only"):
+            if obj is not source:
+                continue
+        else:
+            if obj.controller_id != controller_id or obj is source:
+                continue
+        kind = str(ability.params.get("kind", "+1/+1"))
+        totals[kind] = totals.get(kind, 0) + int(ability.params.get("count", 1) or 1)
+    return totals
+
+
+def dungeon_room_trigger_doubler_bonus(state: "GameState", player_id: Optional[str]) -> int:
+    """RULE 603.3d: how many *additional* times ``player_id``'s own RULE
+    309.4c dungeon-room triggered ability should be placed on the stack
+    (Dungeon Delver's "Room abilities of dungeons you own trigger an
+    additional time.") — the `trigger_doubler_bonus`/`TriggerDoublerEffect`
+    idiom (Roaming Throne), narrowed to a dungeon-room trigger specifically:
+    that trigger is built off a `Dungeon` in the command zone
+    (`RulesEngine._collect_dungeon_room_triggers`), never a battlefield
+    `GameObject`, so `trigger_doubler_bonus`'s own ``obj: GameObject``
+    signature can't reach it — consulted out-of-band, the
+    `granted_escape_for`/`granted_retrace_for`/`extra_etb_counters_for`
+    convention, instead.
+
+    Every active ``dungeon_room_trigger_doubler`` whose granting source's
+    controller is ``player_id`` contributes ``+1`` (additive stacking,
+    same as every other RULE 603.3d doubler — two Dungeon Delvers make a
+    room trigger three times, not four).
+    """
+    if player_id is None:
+        return 0
+    bonus = 0
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "dungeon_room_trigger_doubler":
+            continue
+        if getattr(ability.source, "controller_id", None) == player_id:
+            bonus += 1
+    return bonus
+
+
 def max_draws_per_turn(state: "GameState", player: Optional["Player"] = None) -> Optional[int]:
     """The most restrictive "Each player can't draw more than N cards each
     turn." cap in play (RULE 121.5-adjacent — Spirit of the Labyrinth), or
@@ -3365,6 +3792,11 @@ def has_no_maximum_hand_size(state: "GameState", player: "Player") -> bool:
     ("…for the rest of the game") is a different, unmodeled shape (Card-pool
     Batch 8's writeup).
     """
+    # Spirit Water Revival — a resolve-time "…for the rest of the game"
+    # grant, keyed by player id on `GameState` rather than a battlefield
+    # static (RULE 400.7-safe, no duration to track).
+    if player.id in getattr(state, "no_max_hand_size_player_ids", set()):
+        return True
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "no_max_hand_size":
             continue
@@ -3539,6 +3971,39 @@ def standing_free_cast_grants_flash(state: "GameState", player: "Player", card: 
     """
     ability = _active_free_cast_permission(state, player, card)
     return ability is not None and bool(ability.params.get("grants_flash"))
+
+
+def granted_alt_cast_cost_for(
+    state: "GameState", player: "Player", card: Any
+) -> Optional[Any]:
+    """An `ActivationCost` a standing ``"granted_alt_cast_cost"`` static
+    (Conspiracy Unraveler — "You may collect evidence N rather than pay the
+    mana cost for spells you cast.") lets ``player`` pay in place of
+    ``card``'s mana cost right now, or ``None``.
+
+    The RULE 118.9 *alternative cost* sibling of
+    `_active_free_cast_permission` (Aluren): that one is genuinely free,
+    this replaces the mana cost with a payable non-mana cost. Controller-
+    scoped, with the same optional ``creature_only`` / ``max_mana_value``
+    narrowing.
+    """
+    from .costs import parse_activation_cost  # function-scoped: import cycle
+
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "granted_alt_cast_cost":
+            continue
+        if getattr(ability.source, "controller_id", None) != player.id:
+            continue
+        if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
+            continue
+        max_mv = ability.params.get("max_mana_value")
+        if max_mv is not None and getattr(card, "converted_mana_cost", 0) > max_mv:
+            continue
+        n = int(ability.params.get("collect_evidence") or 0)
+        if n <= 0:
+            continue
+        return parse_activation_cost({"collect_evidence": n})
+    return None
 
 
 def granted_evoke_cost_for(state: "GameState", obj: Any) -> Optional["ManaCost"]:
@@ -3834,12 +4299,12 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
-     "extra_land_drop", "no_max_hand_size", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape",
+     "extra_land_drop", "no_max_hand_size", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
      "uncast_creature_entry_exile",
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
-     "cost_restriction"}
+     "cost_restriction", "life_gain_prohibition"}
 )
 
 

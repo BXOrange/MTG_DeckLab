@@ -228,6 +228,7 @@ class TriggerCollectionMixin:
         self._collect_rad_counter_damage_triggers(event)
         self._collect_attacks_you_rad_counter_triggers(event)
         self._collect_temporary_player_triggers(event)
+        self._advance_turn_controls(event)
         self._collect_counter_death_return_triggers(event)
         self._collect_undying_persist_triggers(event)
         self._collect_mill_return_from_graveyard_triggers(event)
@@ -696,14 +697,24 @@ class TriggerCollectionMixin:
                 remaining.append(trig)
                 continue
             # phase == "active": the *next* TURN_BEGIN (anyone's) after their
-            # own turn started means their turn just ended — drop it.
+            # own turn started means their turn just ended — drop it. For a
+            # ``"this_turn"`` trigger (armed active immediately, `active_
+            # since_turn` == install turn), that same check is exactly
+            # "until end of this turn".
             if (
                 event.type == EventType.TURN_BEGIN
                 and trig.active_since_turn is not None
                 and int(event.get("turn", 0)) > trig.active_since_turn
             ):
                 continue
-            if event.type == trig.event_type and event.get("player_id") == trig.player_id:
+            # RULE 603.1: ``"self"`` scope fires only when the event names
+            # this player; ``"any"`` fires on every matching event_type
+            # (Ruinous Waterbending's "whenever **a** creature dies").
+            _player_ok = (
+                trig.event_player_scope == "any"
+                or event.get("player_id") == trig.player_id
+            )
+            if event.type == trig.event_type and _player_ok:
                 ability = TriggeredAbility(
                     trigger_event=trig.event_type,
                     effects=trig.effects,
@@ -713,6 +724,56 @@ class TriggerCollectionMixin:
                 self.pending_triggers.append((ability, event))
             remaining.append(trig)
         self.state.temporary_player_triggers = remaining
+    def _advance_turn_controls(self, event: GameEvent) -> None:
+        """MEC-51 (RULE 720): run the `TURN_BEGIN` state machine for
+        `GameState.turn_controls` — the twin of
+        `_collect_temporary_player_triggers`' own phase machine.
+
+        * ``"waiting"`` → ``"active"`` when the controlled player's own next
+          turn begins (strictly *after* the turn the control was installed
+          on — RULE 720.6: a control taken during that player's turn waits
+          for their following one).
+        * ``"active"`` entry dropped at the next `TURN_BEGIN` after
+          ``active_since_turn`` — "the end of that player's turn".
+        """
+        controls = self.state.turn_controls
+        if not controls:
+            return
+        if event.type == EventType.TURN_END:
+            # Emrakul, the Promised End: "After that turn, that player takes
+            # an extra turn." Queue it as the controlled turn *ends*, so it
+            # is taken at the very next `begin_turn` (RULE 500.7) — right
+            # after the controlled turn, before the normal rotation.
+            ended_id = event.get("player_id")
+            for tc in controls:
+                if (
+                    tc.phase == "active"
+                    and tc.controlled_id == ended_id
+                    and getattr(tc, "grant_extra_turn_after", False)
+                    and tc.controlled_id not in self.state.extra_turns
+                ):
+                    self.state.extra_turns.append(tc.controlled_id)
+            return
+        if event.type != EventType.TURN_BEGIN:
+            return
+        turn = int(event.get("turn", 0))
+        begun_id = event.get("player_id")
+        remaining: list = []
+        for tc in controls:
+            if tc.phase == "waiting":
+                if begun_id == tc.controlled_id and turn > tc.install_turn:
+                    tc.phase = "active"
+                    tc.active_since_turn = turn
+                remaining.append(tc)
+                continue
+            # phase == "active": expire once a later turn than the one it
+            # became active on has begun.
+            if tc.active_since_turn is not None and turn > tc.active_since_turn:
+                continue
+            remaining.append(tc)
+        if len(remaining) != len(controls):
+            self.state.turn_controls = remaining
+
     def _collect_counter_death_return_triggers(self, event: GameEvent) -> None:
         """"Whenever a creature you control with a counter of
         ``counter_kind`` on it dies, return that card to the battlefield
@@ -1022,6 +1083,24 @@ class TriggerCollectionMixin:
             # gathered as two requirements (`GameEffect.extra_target_specs`).
             specs.extend(getattr(effect, "target_specs", None) or [])
         return specs
+    def _trigger_controller_id(
+        self, ability: "TriggeredAbility", event: Optional[GameEvent]
+    ) -> str:
+        """Which player chooses this firing's target(s)/mode/"you may" —
+        ordinarily ``ability.controller_id`` (this ability's own source's
+        controller), but for a group-subject trigger built with
+        `TriggeredAbility.controller_from_trigger_event` (PAR-30 — Confusion
+        in the Ranks' "**its** controller chooses target permanent…") it's
+        the firing event's own subject controller instead, since the two can
+        genuinely differ: the ability's static source triggers off *any*
+        artifact/creature/enchantment entering, not just its controller's
+        own. Falls back to the ordinary path if the event carries no
+        ``controller_id`` (a player-only event, or no event at all)."""
+        if ability.controller_from_trigger_event and event is not None:
+            event_controller = event.get("controller_id")
+            if event_controller is not None:
+                return event_controller
+        return ability.controller_id or self.state.active_player.id
     def _place_triggers(self, queue: list[tuple["TriggeredAbility", GameEvent]]) -> None:
         """Place queued triggers (RULE 603.3), pausing on one that's modal
         (RULE 700.2 — the mode is chosen first, before any target/"you may"
@@ -1054,10 +1133,31 @@ class TriggerCollectionMixin:
                 # object (spell already off the stack) drops the trigger
                 # (RULE 603.3c), same as a required target with no legal pick.
                 obj = self.state.find_object(event.get("instance_id"))
-                if obj is not None:
-                    self._place_trigger(ability, targets=[obj], event=event)
+                if obj is None:
+                    continue
+                if ability.optional:
+                    # RULE 603.5 (Perplexing Chimera — "you may exchange
+                    # control of this creature and **that spell**."): still a
+                    # real "do it or don't" even though the target is fixed,
+                    # not chosen — the same `trigger_target` "do"/"decline"
+                    # UI a targetless "you may" uses, just carrying the
+                    # already-resolved object across the pause instead of
+                    # nothing.
+                    self._pending_trigger_ability = ability
+                    self._pending_trigger_queue = queue
+                    self._pending_trigger_event = event
+                    self._pending_trigger_reflexive_target = obj
+                    self.state.pending_choice = self._trigger_may_choice(ability, event=event)
+                    return
+                self._place_trigger(ability, targets=[obj], event=event)
                 continue
             if ability.modes:
+                if getattr(ability, "modes_exhaust_per_turn", False):
+                    key = (str(getattr(getattr(ability, "source", None), "instance_id", "")), id(ability))
+                    if len(self.state.trigger_mode_history.get(key, set())) >= len(ability.modes):
+                        # RULE 603.3c analogue: this firing has no legal
+                        # mandatory mode, so no trigger object is created.
+                        continue
                 self._pending_trigger_ability = ability
                 self._pending_trigger_queue = queue
                 self._pending_trigger_event = event
@@ -1100,7 +1200,7 @@ class TriggerCollectionMixin:
         specs, spans = expand_counts(
             specs,
             self.state,
-            ability.controller_id or self.state.active_player.id,
+            self._trigger_controller_id(ability, event),
             ability.source,
         )
         override = effects if effects is not ability.effects else None
@@ -1114,14 +1214,14 @@ class TriggerCollectionMixin:
             self._pending_trigger_effects = override
             self._pending_trigger_queue = queue
             self._pending_trigger_event = event
-            self.state.pending_choice = self._trigger_may_choice(ability)
+            self.state.pending_choice = self._trigger_may_choice(ability, event=event)
             return False
         if len(specs) == 1:
             # The overwhelming common case — one targeting effect, unchanged
             # from before `target_groups` existed (a flat ``targets`` list
             # of exactly this one effect's picks).
             spec = specs[0]
-            controller_id = ability.controller_id or self.state.active_player.id
+            controller_id = self._trigger_controller_id(ability, event)
             options = legal_targets(self.state, controller_id, spec, source=ability.source, trigger_event=event)
             if not options:
                 if spec.optional:
@@ -1149,7 +1249,7 @@ class TriggerCollectionMixin:
             # "up to one" only ever showed a decline button when the whole
             # ability happened to *also* be a "you may".
             self.state.pending_choice = self._trigger_target_choice(
-                ability, options, allow_decline=spec.optional or ability.optional,
+                ability, options, allow_decline=spec.optional or ability.optional, event=event,
             )
             return False
         # RULE 115.1/603.3c generalized: 2+ *different* targeting effects (or
@@ -1227,7 +1327,7 @@ class TriggerCollectionMixin:
             )
             return True
         spec = specs[idx]
-        controller_id = ability.controller_id or self.state.active_player.id
+        controller_id = self._trigger_controller_id(ability, event)
         options = legal_targets(self.state, controller_id, spec, source=ability.source, trigger_event=event)
         # RULE 601.2c: the same object can't be chosen twice for one
         # requirement, so the rounds an expanded multi-target spec was split
@@ -1253,7 +1353,8 @@ class TriggerCollectionMixin:
         # then on the ability is already committed to, so later specs are
         # never declinable on their own.
         choice = self._trigger_target_choice(
-            ability, options, kind="trigger_target_multi", allow_decline=(idx == 0 and ability.optional)
+            ability, options, kind="trigger_target_multi",
+            allow_decline=(idx == 0 and ability.optional), event=event,
         )
         # RULE 115.1a: "up to N target …" lets the player stop before N. That
         # is a *different* answer from the "you may" decline just above —
@@ -1267,6 +1368,34 @@ class TriggerCollectionMixin:
             choice["options"].append({"id": "stop", "label": "Keine weiteren"})
         self.state.pending_choice = choice
         return False
+    def _trigger_modal_choice_config(self, ability: "TriggeredAbility") -> tuple[int, bool]:
+        """Active count for a triggered conditional modal header."""
+        choose, at_least = ability.modes_choose, ability.modes_at_least
+        override = getattr(ability, "modes_override", None) or {}
+        condition = override.get("condition") if isinstance(override, dict) else None
+        if not isinstance(condition, dict):
+            return choose, at_least
+        player = next((p for p in self.state.players if p.id == ability.controller_id), None)
+        if player is None:
+            return choose, at_least
+        kind = condition.get("kind")
+        active = False
+        if kind == "card_types_in_graveyard_at_least":
+            types: set[str] = set()
+            for card in player.graveyard:
+                types |= card.type_words
+            types.discard("permanent")
+            active = len(types) >= int(condition.get("amount", 0))
+        elif kind == "life_total_exactly":
+            active = player.life == int(condition.get("amount", -1))
+        elif kind == "descended_this_turn":
+            active = player.id in (getattr(self.state, "permanent_card_to_graveyard_this_turn", set()) or set())
+        elif kind == "controls_commander_as_cast":
+            active = any(o.controller_id == player.id and o.is_commander for o in self.state.battlefield)
+        if active:
+            return int(override.get("choose", choose)), bool(override.get("at_least", False))
+        return choose, at_least
+
     def _trigger_mode_choice(
         self, ability: "TriggeredAbility", chosen: Optional[list[int]] = None
     ) -> dict[str, Any]:
@@ -1285,16 +1414,29 @@ class TriggerCollectionMixin:
         ``modes_at_least``).
         """
         options = ability.modes or []
+        choose, at_least = self._trigger_modal_choice_config(ability)
         picked = set(chosen or [])
+        repeatable = bool(getattr(ability, "modes_repeatable", False))
+        history_key = (
+            str(getattr(getattr(ability, "source", None), "instance_id", "")), id(ability),
+        )
+        exhausted = (
+            self.state.trigger_mode_history.get(history_key, set())
+            if getattr(ability, "modes_exhaust_per_turn", False)
+            else set()
+        )
         choice_options: list[dict[str, Any]] = [
             {"id": str(i), "label": opt.get("description") or f"Modus {i + 1}"}
             for i, opt in enumerate(options)
-            if i not in picked
+            if (repeatable or i not in picked) and i not in exhausted
         ]
-        if ability.modes_or_both and ability.modes_choose == 1 and len(options) == 2 and not picked:
+        if (
+            ability.modes_or_both and choose == 1 and len(options) == 2 and not picked
+            and not ({0, 1} & exhausted)
+        ):
             # RULE 700.2e — only offered for the fixed choose-1-of-2 case.
             choice_options.append({"id": "both", "label": "Beides"})
-        if ability.modes_at_least and len(picked) >= ability.modes_choose and len(picked) < len(options):
+        if at_least and len(picked) >= choose and len(picked) < len(options):
             # RULE 700.2 "choose N or more" — the minimum is met, so the
             # player may stop here instead of picking every remaining mode.
             choice_options.append({"id": "done", "label": "Fertig"})
@@ -1310,6 +1452,7 @@ class TriggerCollectionMixin:
             "prompt": ability.description or "Modus für ausgelöste Fähigkeit wählen",
             "options": choice_options,
             "chosen": list(chosen or []),
+            "mode_history_key": history_key,
         }
     def resolve_trigger_mode_choice(self, answer: Optional[str]) -> None:
         """Answer a pending `trigger_mode` choice (RULE 700.2): pick which
@@ -1351,15 +1494,19 @@ class TriggerCollectionMixin:
             return
 
         already_chosen: list[int] = list(choice.get("chosen") or [])
+        choose, at_least = self._trigger_modal_choice_config(ability)
 
-        if answer == "both" and ability.modes_or_both and ability.modes_choose == 1 and len(options) == 2:
+        if (
+            answer == "both" and ability.modes_or_both and ability.modes_choose == 1
+            and len(options) == 2 and not getattr(ability, "modes_exhaust_per_turn", False)
+        ):
             effects: list[Any] = []
             for opt in options:
                 effects.extend(opt["effects"])
         elif (
             answer == "done"
-            and ability.modes_at_least
-            and len(already_chosen) >= ability.modes_choose
+            and at_least
+            and len(already_chosen) >= choose
         ):
             effects = []
             for i in sorted(already_chosen):
@@ -1372,16 +1519,38 @@ class TriggerCollectionMixin:
             # for an unrecognized answer).
             effects = []
         else:
-            available = [i for i in range(len(options)) if i not in already_chosen]
+            history_key = tuple(choice.get("mode_history_key") or ())
+            exhausted = (
+                self.state.trigger_mode_history.get(history_key, set())
+                if getattr(ability, "modes_exhaust_per_turn", False)
+                else set()
+            )
+            available = [
+                i for i in range(len(options))
+                if (getattr(ability, "modes_repeatable", False) or i not in already_chosen)
+                and i not in exhausted
+            ]
+            if not available:
+                # Every per-turn mode is exhausted. This firing has no legal
+                # mandatory choice, so it simply produces no stack object.
+                effects = []
+                self.state.pending_choice = None
+                self._pending_trigger_ability = None
+                self._pending_trigger_queue = []
+                self._pending_trigger_event = None
+                self._place_triggers(queue)
+                return
             try:
                 idx = int(answer) if answer is not None else available[0]
             except (TypeError, ValueError):
                 idx = available[0]
             if idx not in available:
                 idx = available[0]
+            if getattr(ability, "modes_exhaust_per_turn", False):
+                self.state.trigger_mode_history.setdefault(history_key, set()).add(idx)
             picked = already_chosen + [idx]
-            more_needed = len(picked) < ability.modes_choose or (
-                ability.modes_at_least and len(picked) < len(options)
+            more_needed = len(picked) < choose or (
+                at_least and len(picked) < len(options)
             )
             if more_needed:
                 # RULE 700.2 "choose N"/"choose N or more": re-open, excluding what's picked.
@@ -1404,6 +1573,7 @@ class TriggerCollectionMixin:
         options: list[dict[str, Any]],
         kind: str = "trigger_target",
         allow_decline: Optional[bool] = None,
+        event: Optional[GameEvent] = None,
     ) -> dict[str, Any]:
         """Build the `pending_choice` offering ``options`` as an ability's
         target — one button per legal permanent/player, matching the generic
@@ -1416,7 +1586,10 @@ class TriggerCollectionMixin:
         `resolve_trigger_target_multi_choice`, so the single-spec path below
         stays byte-for-byte unchanged); ``allow_decline=None`` keeps this
         method's original behaviour of following ``ability.optional``
-        (RULE 603.5 "you may").
+        (RULE 603.5 "you may"). ``event`` is only consulted (via
+        `_trigger_controller_id`) for a `controller_from_trigger_event`
+        ability (PAR-30, Confusion in the Ranks) — every other trigger keeps
+        prompting `ability.controller_id` exactly as before.
         """
         choice_options: list[dict[str, Any]] = []
         for opt in options:
@@ -1431,11 +1604,13 @@ class TriggerCollectionMixin:
             choice_options.append({"id": "decline", "label": "Nichts wählen"})
         return {
             "kind": kind,
-            "player_id": ability.controller_id or self.state.active_player.id,
+            "player_id": self._trigger_controller_id(ability, event),
             "prompt": ability.description or "Ziel für ausgelöste Fähigkeit wählen",
             "options": choice_options,
         }
-    def _trigger_may_choice(self, ability: "TriggeredAbility") -> dict[str, Any]:
+    def _trigger_may_choice(
+        self, ability: "TriggeredAbility", event: Optional[GameEvent] = None,
+    ) -> dict[str, Any]:
         """Build the `pending_choice` for a targetless "you may" trigger
         (RULE 603.5) — do it, or don't. Reuses the ``trigger_target`` kind
         (same resolver, same generic choice UI); ``"do"`` is the sentinel
@@ -1443,7 +1618,7 @@ class TriggerCollectionMixin:
         target"."""
         return {
             "kind": "trigger_target",
-            "player_id": ability.controller_id or self.state.active_player.id,
+            "player_id": self._trigger_controller_id(ability, event),
             "prompt": ability.description or "Ausgelöste Fähigkeit ausführen?",
             "options": [
                 {"id": "do", "label": "Ausführen"},
@@ -1467,14 +1642,24 @@ class TriggerCollectionMixin:
         queue = self._pending_trigger_queue
         effects_override = self._pending_trigger_effects
         event = self._pending_trigger_event
+        reflexive_target = self._pending_trigger_reflexive_target
         self._pending_trigger_ability = None
         self._pending_trigger_queue = []
         self._pending_trigger_effects = None
         self._pending_trigger_event = None
+        self._pending_trigger_reflexive_target = None
 
         if answer == "do":
             if ability is not None:
-                self._place_trigger(ability, effects_override=effects_override, event=event)
+                # RULE 603.3d + 603.5: a reflexive "you may" carries its
+                # already-fixed target across the pause instead of a
+                # targetless "you may" (`_place_triggers`'s reflexive
+                # branch) — see `_pending_trigger_reflexive_target`.
+                self._place_trigger(
+                    ability,
+                    targets=[reflexive_target] if reflexive_target is not None else None,
+                    effects_override=effects_override, event=event,
+                )
             self._place_triggers(queue)
             return
 

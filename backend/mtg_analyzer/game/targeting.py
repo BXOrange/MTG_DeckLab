@@ -52,6 +52,11 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "land": lambda o: o.is_land,
     "artifact": lambda o: bool(o.card.is_artifact),
     "enchantment": lambda o: bool(o.card.is_enchantment),
+    # "exile up to one target non-Aura enchantment card from your graveyard"
+    # (Anikthea, Hand of Erebos — PAR-30 reanimator-token residue): an
+    # enchantment whose printed type line carries no "Aura" subtype.
+    "non_aura_enchantment": lambda o: bool(o.card.is_enchantment)
+    and "aura" not in o.card.type_line.lower(),
     "instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery),
     # "target **sorcery** card in your graveyard gains flashback…" (MEC-24,
     # Recoup) — the sorcery-only narrowing of the combined filter above.
@@ -140,6 +145,12 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # narrowed to exclude the ability's own controller.
         "opponent",
         "creature_you_control", "land_you_control",
+        # "target land an opponent controls" (Political Trickery/Vedalken
+        # Plotter's own exchange-control targets, PAR-29) — the
+        # `land_you_control` mirror, same "you control"/"you don't
+        # control" pairing `nonland_permanent_you_control`/`_dont_control`
+        # already has.
+        "land_you_dont_control",
         # RULE 109.5's "*another* target creature you control" (Giver of
         # Runes) — `creature_you_control` minus the ability's own source.
         "other_creature_you_control",
@@ -161,12 +172,26 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target permanent you own/control." (Reality Scramble) — the
         # controller-scoped mirror of `permanent_you_dont_control` above.
         "permanent_you_control",
+        # "target permanent you neither own nor control" (PAR-30 — Conjured
+        # Currency) — the double-negative sibling excluding both ownership
+        # and control, unlike either single-negative kind above.
+        "permanent_you_neither_own_nor_control",
+        # "{T}: Transform target Incubator token you control." (Progenitor
+        # Exarch) — a name-keyed token target, the Incubate family's own
+        # two-state token (`ability_catalogue` "Incubator").
+        "incubator_token_you_control",
         # "target nonland permanent" (Retraction Helix-shaped) — any
         # controller's, unlike the `_you_control`/`_you_dont_control`
-        # suffixed forms below (which already had their own row here); the
+        # suffixed forms (which have their own `legal_targets` branch); the
         # bare unscoped form's own `legal_targets` branch already existed
         # but was never whitelisted.
         "nonland_permanent",
+        # "target nonland permanent an opponent controls" / "… you don't
+        # control" (Lyev Skyknight/New Prahv Guildmage's detain, PAR-29) and
+        # its "you control" mirror — the `legal_targets` branch has always
+        # handled both (see the ``nonland_permanent_you_control`` case), just
+        # never whitelisted here until a real card's TARGET row needed it.
+        "nonland_permanent_you_control", "nonland_permanent_you_dont_control",
         # "target spell or nonland permanent an opponent controls" (Sink
         # into Stupor) — the ``"spell"``/``nonland_permanent_you_dont_
         # control`` union.
@@ -250,6 +275,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # `creature_or_planeswalker_you_control`; only resolvable when
         # `legal_targets` is given the firing ``trigger_event``.
         "creature_or_planeswalker_that_player_controls",
+        # PAR-32: the creature-only sibling (Popular Entertainer's granted
+        # "goad target creature that player controls" — the damaged player
+        # off `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`).
+        "creature_that_player_controls",
         # "target creature or planeswalker" (Imodane deck batch —
         # Stonesplitter Bolt/Lithomantic Barrage/Torch Breath/Torch the
         # Tower, a hugely common modern removal-spell template) — the
@@ -284,6 +313,7 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "land": "Landkarte",
     "artifact": "Artefaktkarte",
     "enchantment": "Verzauberungskarte",
+    "non_aura_enchantment": "Nicht-Aura-Verzauberungskarte",
     "instant_or_sorcery": "Spontanzauber- oder Hexereikarte",
     "permanent": "Karte eines bleibenden Kartentyps",
     "nonland_permanent": "Karte eines nichtländlichen bleibenden Kartentyps",
@@ -501,11 +531,14 @@ class TargetSpec:
                 "Kreatur oder Planeswalker unter deiner Kontrolle",
             "creature_or_planeswalker_that_player_controls":
                 "Kreatur oder Planeswalker unter der Kontrolle dieses Spielers",
+            "creature_that_player_controls":
+                "Kreatur unter der Kontrolle dieses Spielers",
             "battle_or_opponent": "Schlacht oder Gegner",
             "creature_planeswalker_or_battle": "Kreatur, Planeswalker oder Schlacht",
             "attached_aura_or_equipment_you_control":
                 "Aura oder Ausrüstung an einer Kreatur unter deiner Kontrolle",
             "land_you_control": "Land unter deiner Kontrolle",
+            "land_you_dont_control": "Land, das du nicht kontrollierst",
             "attached_equipment_you_control": "befestigte Ausrüstung unter deiner Kontrolle",
             "equipment_you_control": "Ausrüstung unter deiner Kontrolle",
             "nonbasic_land": "nichtgrundlegendes Land",
@@ -688,6 +721,8 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
             "artifact": bool(obj.card.is_artifact),
             "enchantment": bool(obj.card.is_enchantment),
             "planeswalker": obj.is_planeswalker,
+            # "counter target creature or battle spell" (Assimilate Essence)
+            "battle": bool(obj.card.is_battle),
         }
         if not any(type_checks.get(t, False) for t in card_types):
             return False
@@ -784,8 +819,26 @@ def legal_targets(
                 and _targetable_by(o, source)
             ]
         if attachment_kind == "enchant":
-            quality = ((source.parametric_keywords or {}).get("enchant") or {}).get("quality", "")
-            quality = str(quality).strip().lower()
+            enchant_params = (source.parametric_keywords or {}).get("enchant") or {}
+            quality = str(enchant_params.get("quality", "")).strip().lower()
+            # RULE 303.4c: "Enchant creature **you control**" / "… **you
+            # don't control**" / "Enchant creature **an opponent
+            # controls**" (Betrayal, MEC-63 bug report 2026-09-04) — a real
+            # targeting restriction the parser used to discard entirely
+            # (`keywords.py`'s own regex only ever captured the bare type),
+            # so nothing here ever filtered by it: a bot's "first legal
+            # target" default (or a human clicking without reading closely)
+            # could enchant a creature this Aura can't legally attach to at
+            # all. ``None`` (no qualifier printed, e.g. plain "Enchant
+            # creature") means unrestricted, same as before this existed.
+            enchant_controller = enchant_params.get("controller")
+
+            def controller_ok(o: Any, want=enchant_controller) -> bool:
+                if want == "you":
+                    return o.controller_id == controller_id
+                if want == "not_you":
+                    return o.controller_id != controller_id
+                return True
             if quality.endswith("card in a graveyard"):
                 # RULE 303.4f (MEC-34): "Enchant creature card in a
                 # graveyard" (Animate Dead-shaped reanimator Auras) — the
@@ -809,7 +862,7 @@ def legal_targets(
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o is not source and _targetable_by(o, source)
+                    if o is not source and controller_ok(o) and _targetable_by(o, source)
                 ]
             if " or " in quality:
                 # "Enchant creature or Vehicle" (Swift Reconfiguration,
@@ -829,37 +882,42 @@ def legal_targets(
                         {"instance_id": o.instance_id, "name": o.name}
                         for o in state.permanents()
                         if any(p(o) for p in predicates)
-                        and o is not source and _targetable_by(o, source)
+                        and o is not source and controller_ok(o) and _targetable_by(o, source)
                     ]
             if quality == "creature":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.is_creature and o is not source and _targetable_by(o, source)
+                    if o.is_creature and o is not source
+                    and controller_ok(o) and _targetable_by(o, source)
                 ]
             if quality == "artifact":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.card.is_artifact and o is not source and _targetable_by(o, source)
+                    if o.card.is_artifact and o is not source
+                    and controller_ok(o) and _targetable_by(o, source)
                 ]
             if quality == "enchantment":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.card.is_enchantment and o is not source and _targetable_by(o, source)
+                    if o.card.is_enchantment and o is not source
+                    and controller_ok(o) and _targetable_by(o, source)
                 ]
             if quality == "land":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.is_land and o is not source and _targetable_by(o, source)
+                    if o.is_land and o is not source
+                    and controller_ok(o) and _targetable_by(o, source)
                 ]
             if quality == "planeswalker":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.permanents()
-                    if o.is_planeswalker and o is not source and _targetable_by(o, source)
+                    if o.is_planeswalker and o is not source
+                    and controller_ok(o) and _targetable_by(o, source)
                 ]
     if kind == "player":
         return [
@@ -942,6 +1000,19 @@ def legal_targets(
             and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
+    if kind == "incubator_token_you_control":
+        # "{T}: Transform target Incubator token you control." (Progenitor
+        # Exarch) — a token named "Incubator" (RULE 111.1) this ability's
+        # controller controls; the Incubate family's own two-state token.
+        return [
+            {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
+            for o in state.permanents()
+            if o.controller_id == controller_id
+            and getattr(o, "is_token", False)
+            and (o.name or "") == "Incubator"
+            and o is not source
+            and _targetable_by(o, source)
+        ]
     if kind == "permanent_you_dont_control":
         # RULE 115: "target permanent an opponent controls." (Assassin's
         # Trophy/Geomancer's Gambit-shaped) — the controller-scoped sibling
@@ -956,6 +1027,25 @@ def legal_targets(
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+        ]
+    if kind == "permanent_you_neither_own_nor_control":
+        # RULE 115 (PAR-30 — Conjured Currency's "target permanent you
+        # **neither own nor control**"): excludes both this ability's
+        # controller's own cards (even one they've lost control of, unlike
+        # ``permanent_you_dont_control``'s controller-only exclusion) and
+        # any permanent someone else owns but *this* controller currently
+        # controls (a control-effect target that already changed hands) —
+        # the double negative RULE 108.4/701.10 exchange cards specifically
+        # want so the target can't be swapped right back to where it came
+        # from another way.
+        return [
+            {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
+            for o in state.permanents()
+            if o.owner_id != controller_id
+            and o.controller_id != controller_id
+            and o is not source
+            and _targetable_by(o, source)
+            and _color_ok(spec, o.colors)
         ]
     if kind == "nonland_permanent":
         # RULE 115: every permanent that isn't a land (Geistwave/Beast
@@ -1088,6 +1178,17 @@ def legal_targets(
             and ("aura" in o.card.type_line.lower() or "equipment" in o.card.type_line.lower())
             and _targetable_by(o, source)
         ]
+    if kind == "land_you_dont_control":
+        # "target land an opponent controls" (PAR-29) — the controller-
+        # scoped mirror of `land_you_control` just below, same "you don't
+        # control" shape `nonland_permanent_you_dont_control` already has.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_land
+            and o.controller_id != controller_id
+            and _targetable_by(o, source)
+        ]
     if kind in (
         "creature_you_control", "land_you_control", "other_creature_you_control"
     ):
@@ -1110,6 +1211,10 @@ def legal_targets(
             and not (exclude_source and o is source)
             and _targetable_by(o, source)
             and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
+            # "return target `<c1>` or `<c2>` creature you control …" (Escape
+            # Routes) — the same `_color_ok` narrowing every other creature
+            # branch above applies; a no-op when ``colors``/``color`` unset.
+            and _color_ok(spec, o.colors)
         ]
     if kind == "creature_or_enchantment_you_control":
         # "put a +1/+1 counter on target creature or enchantment you
@@ -1290,14 +1395,18 @@ def legal_targets(
             and o is not source
             and _targetable_by(o, source)
         ]
-    if kind == "creature_or_planeswalker_that_player_controls":
-        # "target creature or planeswalker **that player** controls"
-        # (Chandra's Incinerator, MEC-45) — "that player" is whoever the
-        # firing DAMAGE trigger event named as its recipient
-        # (``target_id``, only meaningful when ``is_player`` is set); no
-        # event in hand (or a non-player recipient) means no legal player
-        # to scope to, so this fails closed to an empty list rather than
-        # guessing a fixed role.
+    if kind in (
+        "creature_or_planeswalker_that_player_controls",
+        "creature_that_player_controls",
+    ):
+        # "target creature [or planeswalker] **that player** controls"
+        # (Chandra's Incinerator, MEC-45; Popular Entertainer's granted
+        # goad, PAR-32) — "that player" is whoever the firing trigger event
+        # named as its recipient (``target_id``, only meaningful when
+        # ``is_player`` is set); no event in hand (or a non-player
+        # recipient) means no legal player to scope to, so this fails
+        # closed to an empty list rather than guessing a fixed role.
+        planeswalkers_ok = kind == "creature_or_planeswalker_that_player_controls"
         event = trigger_event or {}
         target_player_id = event.get("target_id") if event.get("is_player") else None
         if target_player_id is None:
@@ -1305,7 +1414,7 @@ def legal_targets(
         return [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
-            if (o.is_creature or o.is_planeswalker)
+            if (o.is_creature or (planeswalkers_ok and o.is_planeswalker))
             and o.controller_id == target_player_id
             and o is not source
             and _targetable_by(o, source)
@@ -1397,6 +1506,18 @@ def legal_targets(
             and o.attached_to is not None
             and _targetable_by(o, source)
         ]
+    if kind == "equipment_attached_to_source":
+        # "destroy target Equipment attached to **it**" — "it" is this
+        # ability's own source (Shackles of Treachery's granted trigger:
+        # the creature it handed the quoted ability to).
+        src_id = getattr(source, "instance_id", None)
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if "equipment" in o.card.type_line.lower()
+            and src_id is not None and o.attached_to == src_id
+            and _targetable_by(o, source)
+        ]
     if kind == "equipment_you_control":
         return [
             {"instance_id": o.instance_id, "name": o.name}
@@ -1434,6 +1555,10 @@ def legal_targets(
             if type_filter(o)
             and (not spec.subtype or spec.subtype in o.card.type_line.lower())
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+            # "exile target red, white, or black creature card from your
+            # graveyard" (Offspring's Revenge) — the same `_color_ok` colour
+            # narrowing the battlefield-object branches apply (RULE 105).
+            and _color_ok(spec, o.colors)
             and o is not source
         ]
     if kind in ("spell", "spell_you_dont_control"):

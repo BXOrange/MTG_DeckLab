@@ -10,6 +10,7 @@
 
 import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, getDeckCoverage, saveDeck, listArchetypes } from './api.js';
 import { escapeHtml } from './cardTile.js';
+import { t, tPlural, fmtDate } from './i18n.js';
 
 // Archetype id -> label lookup (mtg_analyzer/data/archetypes.json via GET
 // /api/archetypes), fetched once and cached module-wide — the same static,
@@ -27,27 +28,26 @@ async function ensureArchetypeLabels() {
   return archetypeLabels;
 }
 
-const COLOR_FILTER_OPTIONS = [
-  { key: 'W', label: '⚪ Weiß' },
-  { key: 'U', label: '🔵 Blau' },
-  { key: 'B', label: '⚫ Schwarz' },
-  { key: 'R', label: '🔴 Rot' },
-  { key: 'G', label: '🟢 Grün' },
-  { key: 'C', label: '🔘 Farblos' },
-];
+// Labels resolved at import — i18n initializes first, a language change
+// reloads the page (see i18n.js). Colour glyphs stay inline.
+const COLOR_GLYPHS = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢', C: '🔘' };
+const COLOR_FILTER_OPTIONS = ['W', 'U', 'B', 'R', 'G', 'C'].map((key) => ({
+  key,
+  label: `${COLOR_GLYPHS[key]} ${t(`common.color.${key}`)}`,
+}));
 
 const LEGALITY_FILTER_OPTIONS = [
-  { key: 'legal', label: '✅ Legal' },
-  { key: 'illegal', label: '🛑 Nicht legal' },
-  { key: 'unknown', label: '❔ Unbekannt / wird geprüft' },
+  { key: 'legal', label: t('savedDecks.legality.legal') },
+  { key: 'illegal', label: t('savedDecks.legality.illegal') },
+  { key: 'unknown', label: t('savedDecks.legality.unknown') },
 ];
 
 //: `isCube` (models/deck.py) marks a saved decklist as a card pool (e.g. a
 //: curated "staples" reference list) rather than a real Commander deck —
 //: no legality check runs for it (see the skipped fetch below).
 const DECK_TYPE_FILTER_OPTIONS = [
-  { key: 'deck', label: '📋 Deck' },
-  { key: 'cube', label: '🧊 Collection' },
+  { key: 'deck', label: t('savedDecks.type.deck') },
+  { key: 'cube', label: t('savedDecks.type.cube') },
 ];
 
 function filterGroupHtml(legend, filterName, options) {
@@ -100,17 +100,17 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
   container.innerHTML = `
     <div class="saved-decks-panel">
       <div class="cache-toolbar">
-        <h2>Gespeicherte Decks</h2>
-        <button id="refresh-saved-decks-btn" type="button">Aktualisieren</button>
+        <h2>${t('savedDecks.title')}</h2>
+        <button id="refresh-saved-decks-btn" type="button">${t('savedDecks.refresh')}</button>
         <span class="cache-count"></span>
       </div>
       <div class="cache-filters" id="saved-decks-filters">
-        ${filterGroupHtml('Farbe', 'color', COLOR_FILTER_OPTIONS)}
-        ${filterGroupHtml('Legalität', 'legality', LEGALITY_FILTER_OPTIONS)}
-        ${filterGroupHtml('Art', 'deckType', DECK_TYPE_FILTER_OPTIONS)}
-        <button type="button" id="saved-decks-filter-reset">Filter zurücksetzen</button>
+        ${filterGroupHtml(t('savedDecks.filter.color'), 'color', COLOR_FILTER_OPTIONS)}
+        ${filterGroupHtml(t('savedDecks.filter.legality'), 'legality', LEGALITY_FILTER_OPTIONS)}
+        ${filterGroupHtml(t('savedDecks.filter.type'), 'deckType', DECK_TYPE_FILTER_OPTIONS)}
+        <button type="button" id="saved-decks-filter-reset">${t('savedDecks.filter.reset')}</button>
       </div>
-      <div id="saved-decks-result"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lade gespeicherte Decks …</p></div>
+      <div id="saved-decks-result"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('savedDecks.loading')}</p></div>
     </div>
   `;
 
@@ -141,32 +141,31 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     });
     countEl.textContent =
       visibleCount === currentDecks.length
-        ? `${currentDecks.length} gespeichertes Deck(s)`
-        : `${visibleCount} von ${currentDecks.length} gespeichertes Deck(s)`;
+        ? tPlural('savedDecks.count', currentDecks.length)
+        : t('savedDecks.countFiltered', { shown: visibleCount, total: currentDecks.length });
   }
 
   let latestRequestId = 0;
 
   async function load() {
     const requestId = ++latestRequestId;
-    resultEl.innerHTML = '<p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lade gespeicherte Decks …</p>';
+    resultEl.innerHTML = `<p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('savedDecks.loading')}</p>`;
     countEl.textContent = '';
 
     const [decks] = await Promise.all([listSavedDecks(), ensureArchetypeLabels()]);
     if (requestId !== latestRequestId) return; // superseded by a later refresh click
 
     if (decks === null) {
-      resultEl.innerHTML = '<p class="server-status warning">Server nicht erreichbar.</p>';
+      resultEl.innerHTML = `<p class="server-status warning">${t('common.serverUnreachable')}</p>`;
       return;
     }
 
     currentDecks = decks;
     validationById.clear();
-    countEl.textContent = `${decks.length} gespeichertes Deck(s)`;
+    countEl.textContent = tPlural('savedDecks.count', decks.length);
 
     if (!decks.length) {
-      resultEl.innerHTML =
-        '<p class="empty-state">Noch keine Decks gespeichert – im Tab "Deck importieren" einen Namen vergeben und speichern.</p>';
+      resultEl.innerHTML = `<p class="empty-state">${t('savedDecks.empty')}</p>`;
       return;
     }
 
@@ -203,7 +202,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
         const deck = await getSavedDeck(btn.dataset.deckId);
         btn.disabled = false;
         if (!deck) {
-          window.alert('Deck konnte nicht geladen werden – Server nicht erreichbar oder Deck wurde gelöscht.');
+          window.alert(t('savedDecks.loadFailed'));
           return;
         }
         onLoadDeck?.(deck);
@@ -216,7 +215,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
         const deck = await getSavedDeck(btn.dataset.deckId);
         btn.disabled = false;
         if (!deck) {
-          window.alert('Deck konnte nicht geladen werden – Server nicht erreichbar oder Deck wurde gelöscht.');
+          window.alert(t('savedDecks.loadFailed'));
           return;
         }
         onAnalyzeDeck?.(deck);
@@ -232,7 +231,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
         const deck = decks.find((d) => d.id === btn.dataset.deckId);
         if (!deck) return;
         const currentName = btn.dataset.deckName || '';
-        const newName = window.prompt('Neuer Name:', currentName);
+        const newName = window.prompt(t('savedDecks.renamePrompt'), currentName);
         if (newName === null) return; // cancelled
         const trimmed = newName.trim();
         if (!trimmed || trimmed === currentName) return;
@@ -240,7 +239,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
         const saved = await saveDeck({ ...deck, name: trimmed });
         if (!saved) {
           btn.disabled = false;
-          window.alert('Umbenennen fehlgeschlagen – Server nicht erreichbar.');
+          window.alert(t('savedDecks.renameFailed'));
           return;
         }
         load();
@@ -252,11 +251,11 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
         const deck = decks.find((d) => d.id === btn.dataset.deckId);
         if (!deck) return;
         btn.disabled = true;
-        const baseName = deck.name?.trim() || 'Unbenanntes Deck';
-        const saved = await saveDeck({ ...deck, id: null, name: `${baseName} (Kopie)` });
+        const baseName = deck.name?.trim() || t('common.unnamedDeck');
+        const saved = await saveDeck({ ...deck, id: null, name: t('savedDecks.copySuffix', { name: baseName }) });
         if (!saved) {
           btn.disabled = false;
-          window.alert('Duplizieren fehlgeschlagen – Server nicht erreichbar.');
+          window.alert(t('savedDecks.duplicateFailed'));
           return;
         }
         load();
@@ -265,13 +264,13 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
 
     resultEl.querySelectorAll('.delete-deck-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        const name = btn.dataset.deckName || 'dieses Deck';
-        if (!window.confirm(`"${name}" wirklich löschen?`)) return;
+        const name = btn.dataset.deckName || t('savedDecks.deleteFallbackName');
+        if (!window.confirm(t('savedDecks.deleteConfirm', { name }))) return;
         btn.disabled = true;
         const deleted = await deleteSavedDeck(btn.dataset.deckId);
         if (!deleted) {
           btn.disabled = false;
-          window.alert('Löschen fehlgeschlagen – Server nicht erreichbar.');
+          window.alert(t('savedDecks.deleteFailed'));
           return;
         }
         load();
@@ -284,19 +283,19 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     if (!el) return;
     if (validation === null) {
       el.className = 'saved-deck-legality unknown';
-      el.textContent = 'Legalität nicht prüfbar';
+      el.textContent = t('savedDecks.legalityNotCheckable');
       el.removeAttribute('title');
       return;
     }
     if (validation.isLegal) {
       el.className = 'saved-deck-legality legal';
-      el.textContent = '✅ legal';
+      el.textContent = t('savedDecks.legalityLegal');
       el.removeAttribute('title');
       return;
     }
-    const reasons = (validation.errors || []).join('\n') || 'Deck ist nicht legal.';
+    const reasons = (validation.errors || []).join('\n') || t('savedDecks.legalityIllegalDefault');
     el.className = 'saved-deck-legality illegal';
-    el.textContent = '🛑 nicht legal';
+    el.textContent = t('savedDecks.legalityIllegal');
     el.title = reasons;
   }
 
@@ -305,7 +304,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
   function updateCoverageBadge(deckId, coverage) {
     const el = resultEl.querySelector(`.saved-deck-coverage[data-deck-id="${cssEscape(deckId)}"]`);
     if (!el || !coverage || !coverage.unmodeledCount) return;
-    el.textContent = `⚠️ ${coverage.unmodeledCount} Karte(n) nicht modelliert`;
+    el.textContent = tPlural('savedDecks.coverageBadge', coverage.unmodeledCount);
     el.title = (coverage.unmodeledCardNames || []).join('\n');
   }
 
@@ -327,7 +326,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
 
 function renderDeckRow(deck) {
   const created = formatTimestamp(deck.createdAt);
-  const name = deck.name?.trim() || 'Unbenanntes Deck';
+  const name = deck.name?.trim() || t('common.unnamedDeck');
 
   return `
     <div class="saved-deck-row" data-deck-id="${escapeHtml(deck.id)}">
@@ -337,21 +336,21 @@ function renderDeckRow(deck) {
         ${commanderHtml(deck.commanders)}
         ${authorHtml(deck.author)}
         ${archetypeHtml(deck.archetypes)}
-        <span class="saved-deck-meta">Gespeichert: ${escapeHtml(created)}${colorIdentityHtml(deck.colorIdentity)}</span>
+        <span class="saved-deck-meta">${escapeHtml(t('savedDecks.savedAt', { date: created }))}${colorIdentityHtml(deck.colorIdentity)}</span>
         ${deck.isCube
-          ? '<span class="saved-deck-legality cube">🧊 Collection – keine Legalitätsprüfung</span>'
-          : `<span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>`}
+          ? `<span class="saved-deck-legality cube">${t('savedDecks.cubeNoLegality')}</span>`
+          : `<span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">${t('savedDecks.checkingLegality')}</span>`}
         <span class="saved-deck-coverage" data-deck-id="${escapeHtml(deck.id)}"></span>
       </div>
       <div class="saved-deck-actions">
         <div class="saved-deck-actions-row">
-          <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">Deck editieren</button>
-          <button type="button" class="analyze-deck-btn" data-deck-id="${deck.id}">Deck analysieren</button>
+          <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">${t('savedDecks.editDeck')}</button>
+          <button type="button" class="analyze-deck-btn" data-deck-id="${deck.id}">${t('savedDecks.analyzeDeck')}</button>
         </div>
         <div class="saved-deck-actions-row">
-          <button type="button" class="rename-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Umbenennen</button>
-          <button type="button" class="duplicate-deck-btn" data-deck-id="${deck.id}">Duplizieren</button>
-          <button type="button" class="delete-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Löschen</button>
+          <button type="button" class="rename-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">${t('savedDecks.rename')}</button>
+          <button type="button" class="duplicate-deck-btn" data-deck-id="${deck.id}">${t('savedDecks.duplicate')}</button>
+          <button type="button" class="delete-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">${t('common.delete')}</button>
         </div>
       </div>
     </div>
@@ -360,11 +359,11 @@ function renderDeckRow(deck) {
 
 //: WUBRG mana symbol → CSS class + label, in canonical color order.
 const COLOR_PIPS = [
-  { code: 'W', className: 'w', label: 'Weiß' },
-  { code: 'U', className: 'u', label: 'Blau' },
-  { code: 'B', className: 'b', label: 'Schwarz' },
-  { code: 'R', className: 'r', label: 'Rot' },
-  { code: 'G', className: 'g', label: 'Grün' },
+  { code: 'W', className: 'w', label: t('common.color.W') },
+  { code: 'U', className: 'u', label: t('common.color.U') },
+  { code: 'B', className: 'b', label: t('common.color.B') },
+  { code: 'R', className: 'r', label: t('common.color.R') },
+  { code: 'G', className: 'g', label: t('common.color.G') },
 ];
 
 // The commander line under a saved deck's name (Commander decks only;
@@ -380,7 +379,7 @@ function commanderHtml(commanders) {
 // (deckImportView.js), same treatment as author/sleeve.
 function cubeHtml(isCube) {
   if (!isCube) return '';
-  return '<span class="saved-deck-cube-badge" title="Kartensammlung: keine 100-Karten-/Singleton-Regel, keine Commander-Legalität">🧊 Collection</span>';
+  return `<span class="saved-deck-cube-badge" title="${escapeHtml(t('savedDecks.cubeBadgeTitle'))}">🧊 Collection</span>`;
 }
 
 // The author, shown read-only here — editable only in "Deck editieren"
@@ -404,7 +403,7 @@ function archetypeHtml(archetypes) {
 function colorIdentityHtml(colorIdentity) {
   if (!colorIdentity) return '';
   if (!colorIdentity.length) {
-    return ' · <span class="color-identity"><span class="color-pip color-pip--c" title="Farblos">C</span></span>';
+    return ` · <span class="color-identity"><span class="color-pip color-pip--c" title="${escapeHtml(t('common.color.C'))}">C</span></span>`;
   }
   const set = new Set(colorIdentity);
   const pips = COLOR_PIPS.filter((p) => set.has(p.code))
@@ -421,5 +420,5 @@ function cssEscape(value) {
 
 function formatTimestamp(isoString) {
   const date = new Date(isoString);
-  return Number.isNaN(date.getTime()) ? isoString : date.toLocaleString('de-DE');
+  return Number.isNaN(date.getTime()) ? isoString : fmtDate(date);
 }

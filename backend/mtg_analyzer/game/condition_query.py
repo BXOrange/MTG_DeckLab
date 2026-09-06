@@ -57,7 +57,29 @@ def conditional_flash_holds(
             if not bool(value):
                 return False
         elif key == "entered_this_turn":
-            if bool(value) != (obj.turn_entered == state.turn_number):
+            if bool(value) != (obj.turn_entered == state.internal_turn.number):
+                return False
+        elif key == "controller_beholds_subtype":
+            # PAR-30, Molten Exhale: "…flash if you behold a Dragon…" — the
+            # caster *could* behold one iff they control a permanent of that
+            # subtype or hold a card of it in hand (`RulesEngine.behold`'s
+            # own scan order). Documented simplification: the reveal/
+            # additional-cost payment isn't separately modeled.
+            from . import continuous  # local: avoid the continuous import cycle
+
+            want = str(value).lower()
+            try:
+                player = state.player_by_id(obj.controller_id)
+            except (KeyError, ValueError, AttributeError):
+                player = None
+            if player is None:
+                return False
+            on_bf = any(
+                o.controller_id == player.id and continuous.has_subtype(o, want)
+                for o in state.battlefield
+            )
+            in_hand = any(continuous.has_subtype(c, want) for c in player.hand)
+            if not (on_bf or in_hand):
                 return False
         elif key == "targets_a_commander":
             if targets is None:

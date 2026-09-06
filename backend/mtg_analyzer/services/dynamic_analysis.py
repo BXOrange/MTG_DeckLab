@@ -69,7 +69,9 @@ usually comes online around turn N" than as a bare yes/no.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
+import os
 import queue
 import random
 import statistics
@@ -132,6 +134,13 @@ DUMMY_ANALYSIS_LIFE = 100_000
 #: Per-turn metrics this module samples/derives. Kept as one tuple so the
 #: match loop, the aggregator, and the job result shape can't drift apart.
 PER_TURN_METRICS = ("mana_potential", "lands_drawn", "cards_drawn", "card_advantage", "mana_produced")
+
+#: Below this many matches, `run_dynamic_analysis` runs them in-process
+#: even when `config.DYNAMIC_ANALYSIS_MATCH_WORKERS` would allow a pool: a
+#: `ProcessPoolExecutor` worker spawns a fresh interpreter that re-imports
+#: the whole engine (~1s each on a `spawn` platform like macOS), which
+#: isn't worth paying to parallelise only a handful of short simulations.
+_MIN_MATCHES_FOR_PROCESS_POOL = 4
 
 
 @dataclass
@@ -217,14 +226,14 @@ def run_one_match(
                 return
             name = getattr(obj, "name", None)
             if name in commander_names and name not in commander_turns:
-                commander_turns[name] = state.turn_number
+                commander_turns[name] = state.turn_nr
         elif event.type == EventType.SPELL_CAST:
             name = event.get("spell")
             # A countered spell was still cast (RULE 601.2i) — SPELL_CAST
             # fires at cast time, before resolution, which is exactly the
             # "was it played" semantics wanted here, not "did it resolve".
             if name in favorite_names and favorite_cast_turn.get(name) is None:
-                favorite_cast_turn[name] = state.turn_number
+                favorite_cast_turn[name] = state.turn_nr
 
     state.subscribe(on_event)
 
@@ -237,7 +246,7 @@ def run_one_match(
         # stops "Nächste Entscheidung" there, so every turn that starts at
         # all reaches this point, and by then that turn's land drop/casts
         # have already happened.
-        turn = state.turn_number
+        turn = state.turn_nr
         if turn < 1 or turn in sampled_turns or state.current_step != "main2":
             return
         sampled_turns.add(turn)
@@ -262,7 +271,7 @@ def run_one_match(
     actions_used = 0
     action_budget = max(200, max_turns * _ACTIONS_PER_TURN_BUDGET)
     while actions_used < action_budget:
-        if state.game_over or state.turn_number > max_turns:
+        if state.game_over or state.turn_nr > max_turns:
             break
         actions = session.legal_actions()
         if not actions:
@@ -275,7 +284,7 @@ def run_one_match(
             hand_names = {o.name for o in player.hand}
             for name in favorite_names:
                 if name in hand_names and favorite_drawn_turn.get(name) is None:
-                    favorite_drawn_turn[name] = state.turn_number
+                    favorite_drawn_turn[name] = state.turn_nr
             # Reuses the engine's own affordability/legality check (an
             # offered, unlocked cast_spell action already means "this can be
             # paid and cast right now") rather than recomputing mana
@@ -285,7 +294,7 @@ def run_one_match(
                     continue
                 name = action.get("name")
                 if name in favorite_names and favorite_castable_turn.get(name) is None:
-                    favorite_castable_turn[name] = state.turn_number
+                    favorite_castable_turn[name] = state.turn_nr
         view = session.view()
         action = bot.decide(view, actions)
         if action is None:
@@ -320,8 +329,8 @@ def run_one_match(
         # its whole snapshot rather than let that one turn's aggregate mean
         # get dragged along with it. Every earlier turn's data is unaffected
         # (sampled before the loop started) and stays in.
-        aborted_turn = state.turn_number
-        per_turn.pop(state.turn_number, None)
+        aborted_turn = state.turn_nr
+        per_turn.pop(state.turn_nr, None)
 
     # Mana actually produced is already tracked per turn — read it back
     # rather than re-deriving it from the timeline ourselves.
@@ -339,7 +348,7 @@ def run_one_match(
     }
 
     return MatchResult(
-        turns_reached=min(state.turn_number, max_turns),
+        turns_reached=min(state.turn_nr, max_turns),
         per_turn=per_turn,
         tutors_resolved=tutors_resolved,
         commander_turns=commander_turns,
@@ -431,6 +440,94 @@ class DynamicAnalysisResult:
         }
 
 
+class _ProcessPoolUnavailable(RuntimeError):
+    """Raised inside `run_dynamic_analysis` when a `ProcessPoolExecutor`
+    can't be created or every worker died before doing any work — the
+    caller then re-runs the whole batch in-process."""
+
+
+def _match_worker_count(num_matches: int) -> int:
+    """How many worker processes to fan this job's matches across.
+
+    Reads `config.DYNAMIC_ANALYSIS_MATCH_WORKERS` (0 = one per CPU core),
+    then clamps: never more workers than matches, and a return of ``1``
+    means "run in-process, no pool" — which is also what a small job
+    (`_MIN_MATCHES_FOR_PROCESS_POOL`) always gets, spawn cost not being
+    worth it there.
+    """
+    configured = config.DYNAMIC_ANALYSIS_MATCH_WORKERS
+    if configured == 0:
+        configured = os.cpu_count() or 1
+    if configured <= 1 or num_matches < _MIN_MATCHES_FOR_PROCESS_POOL:
+        return 1
+    return max(1, min(configured, num_matches))
+
+
+def _run_one_match_worker(payload: dict[str, Any]) -> MatchResult:
+    """`ProcessPoolExecutor` entrypoint: rebuild the bot in this process
+    and play one match.
+
+    Only picklable data crosses the process boundary — a pre-shuffled
+    `list[Card]` plus primitives in, a `MatchResult` of plain
+    dicts/ints/bools out. The `GameSession`/`GameEngine` a match builds
+    never leaves the worker. Kept module-level so it's picklable by
+    reference.
+    """
+    bot = create_bot(payload["bot_kind"], "p1")
+    return run_one_match(
+        payload["library"],
+        payload["commanders"],
+        bot=bot,
+        starting_life=payload["starting_life"],
+        starting_hand=payload["starting_hand"],
+        game_format=payload["game_format"],
+        max_turns=payload["max_turns"],
+        favorite_card_names=payload["favorite_card_names"],
+    )
+
+
+def _run_matches_pooled(
+    shuffled_libraries: list[list[Card]],
+    payload_base: dict[str, Any],
+    worker_count: int,
+    on_progress: Optional[Callable[[int, int], None]],
+    total: int,
+) -> list[Optional[MatchResult]]:
+    """Play every pre-shuffled library in a `ProcessPoolExecutor`, one
+    submission per match, returning results in completion order (a match
+    that raised in its worker contributes ``None``, same skip-don't-abort
+    rule as the in-process path).
+
+    Raises `_ProcessPoolUnavailable` if the pool can't be constructed at
+    all, so the caller can fall back to running the batch in-process.
+    """
+    try:
+        executor = concurrent.futures.ProcessPoolExecutor(max_workers=worker_count)
+    except (OSError, ValueError) as exc:  # pragma: no cover - platform/rlimit dependent
+        raise _ProcessPoolUnavailable(str(exc)) from exc
+
+    results: list[Optional[MatchResult]] = []
+    completed = 0
+    with executor:
+        futures = [
+            executor.submit(_run_one_match_worker, {**payload_base, "library": library})
+            for library in shuffled_libraries
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            completed += 1
+            try:
+                results.append(future.result())
+            except concurrent.futures.BrokenProcessPool:
+                logger.exception("dynamic analysis: a worker process died, skipping its match")
+                results.append(None)
+            except Exception:  # pragma: no cover - defensive, see run_one_match
+                logger.exception("dynamic analysis: a match raised in a worker process, skipping")
+                results.append(None)
+            if on_progress:
+                on_progress(completed, total)
+    return results
+
+
 def run_dynamic_analysis(
     library: list[Card],
     commanders: Optional[list[Card]],
@@ -446,6 +543,15 @@ def run_dynamic_analysis(
 ) -> DynamicAnalysisResult:
     """Run `num_matches` independent `run_one_match` calls (a fresh library
     shuffle each time) and aggregate every metric into mean/stddev.
+
+    The matches are independent and CPU-bound, so when
+    `config.DYNAMIC_ANALYSIS_MATCH_WORKERS` allows it (and the job is big
+    enough to be worth the spawn cost — `_match_worker_count`) they run in
+    parallel across a `ProcessPoolExecutor`, which is real GIL-bypassing
+    speed-up. Otherwise they run one after another in this process. Either
+    way the shuffles happen here, up front, off the process-global RNG, so
+    a given RNG state produces the same set of matches regardless of how
+    they're scheduled.
 
     ``on_progress(completed, total)`` is called after every match (including
     a failed one) — the job-manager below uses it to drive a progress bar.
@@ -472,27 +578,12 @@ def run_dynamic_analysis(
     matches_run = 0
     matches_aborted_infinite_mana = 0
     infinite_mana_turn_values: list[float] = []
-    for i in range(num_matches):
-        shuffled = list(library)
-        random.shuffle(shuffled)
-        bot = create_bot(bot_kind, "p1")
-        try:
-            result = run_one_match(
-                shuffled,
-                commanders,
-                bot=bot,
-                starting_life=starting_life,
-                starting_hand=starting_hand,
-                game_format=game_format,
-                max_turns=max_turns,
-                favorite_card_names=favorite_names,
-            )
-        except Exception:  # pragma: no cover - defensive, see docstring
-            logger.exception("dynamic analysis: match %d/%d failed, skipping", i + 1, num_matches)
-            if on_progress:
-                on_progress(i + 1, num_matches)
-            continue
 
+    def ingest(result: MatchResult) -> None:
+        """Fold one finished match's numbers into the running aggregates.
+        Order-independent (every step is an append or a counter bump), so
+        it's safe to feed matches back in whatever order they complete."""
+        nonlocal matches_run, matches_aborted_infinite_mana
         matches_run += 1
         if result.aborted_infinite_mana:
             matches_aborted_infinite_mana += 1
@@ -515,8 +606,71 @@ def run_dynamic_analysis(
                 favorite_cast_turn_values[name].append(float(card_result["cast_turn"]))
             elif card_result["castable_turn"] is not None:
                 favorite_castable_never_cast_count[name] += 1
-        if on_progress:
-            on_progress(i + 1, num_matches)
+
+    # Shuffle every match's library up front, off the process-global RNG,
+    # so the set of games played is fixed before any scheduling decision —
+    # a pooled run and an in-process run see the same inputs.
+    shuffled_libraries: list[list[Card]] = []
+    for _ in range(num_matches):
+        shuffled = list(library)
+        random.shuffle(shuffled)
+        shuffled_libraries.append(shuffled)
+    payload_base: dict[str, Any] = {
+        "bot_kind": bot_kind,
+        "commanders": commanders,
+        "starting_life": starting_life,
+        "starting_hand": starting_hand,
+        "game_format": game_format,
+        "max_turns": max_turns,
+        "favorite_card_names": favorite_names,
+    }
+
+    worker_count = _match_worker_count(num_matches)
+    pooled_results: Optional[list[Optional[MatchResult]]] = None
+    if worker_count > 1:
+        try:
+            pooled_results = _run_matches_pooled(
+                shuffled_libraries, payload_base, worker_count, on_progress, num_matches
+            )
+        except _ProcessPoolUnavailable as exc:
+            logger.warning(
+                "dynamic analysis: process pool unavailable (%s); running matches in-process", exc
+            )
+            pooled_results = None
+
+    if pooled_results is not None:
+        for result in pooled_results:
+            if result is not None:
+                ingest(result)
+        if matches_run == 0 and num_matches > 0:
+            # Every worker failed before doing anything useful — treat the
+            # pool as unusable rather than reporting an empty analysis, and
+            # replay the same shuffled libraries in-process below.
+            logger.warning("dynamic analysis: no match completed under the process pool; retrying in-process")
+            pooled_results = None
+
+    if pooled_results is None:
+        for i, shuffled in enumerate(shuffled_libraries):
+            bot = create_bot(bot_kind, "p1")
+            try:
+                result = run_one_match(
+                    shuffled,
+                    commanders,
+                    bot=bot,
+                    starting_life=starting_life,
+                    starting_hand=starting_hand,
+                    game_format=game_format,
+                    max_turns=max_turns,
+                    favorite_card_names=favorite_names,
+                )
+            except Exception:  # pragma: no cover - defensive, see docstring
+                logger.exception("dynamic analysis: match %d/%d failed, skipping", i + 1, num_matches)
+                if on_progress:
+                    on_progress(i + 1, num_matches)
+                continue
+            ingest(result)
+            if on_progress:
+                on_progress(i + 1, num_matches)
 
     per_turn = [
         {"turn": turn, **{metric: _mean_stddev(values[metric]) for metric in PER_TURN_METRICS}}
@@ -592,6 +746,13 @@ class _JobWorkerPool:
     daemon threads that block on `queue.get()` forever — same lifetime
     convention as every other background thread in this module, so the
     process still exits cleanly without an explicit shutdown hook.
+
+    This pool is an **admission cap**, not the thing that makes an analysis
+    fast: each job's own matches are what get parallelised for speed, over
+    a `ProcessPoolExecutor` inside `run_dynamic_analysis`
+    (`config.DYNAMIC_ANALYSIS_MATCH_WORKERS`). Keeping the job count capped
+    here stops N concurrent jobs from launching N process pools that
+    together oversubscribe the machine.
     """
 
     def __init__(self, num_workers: int) -> None:

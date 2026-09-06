@@ -1,4 +1,5 @@
 import { importArchidektDeck } from './api.js';
+import { t } from './i18n.js';
 
 /**
  * "Import Deck" tab: pull a public decklist from an external deck builder
@@ -14,18 +15,14 @@ export function renderImportDeckView(container, { onImported } = {}) {
   container.innerHTML = `
     <div class="import-panel">
       <div class="import-input">
-        <h2>Deck importieren</h2>
-        <p class="hint">
-          Deck-Link oder Deck-ID eines externen Deckbuilders einfügen.
-          Nach erfolgreichem Import öffnet sich "Deck editieren" mit der
-          eingelesenen Liste.
-        </p>
+        <h2>${t('import.title')}</h2>
+        <p class="hint">${t('import.hint')}</p>
 
         <div class="deck-section">
-          <label for="archidekt-input">Archidekt (Deck-Link oder ID)</label>
+          <label for="archidekt-input">${t('import.archidektLabel')}</label>
           <div class="save-deck-controls">
             <input id="archidekt-input" type="text" placeholder="https://archidekt.com/decks/…" />
-            <button id="archidekt-import-btn" type="button" class="primary">Importieren</button>
+            <button id="archidekt-import-btn" type="button" class="primary">${t('import.button')}</button>
           </div>
           <p class="server-status" id="archidekt-status"></p>
         </div>
@@ -42,7 +39,7 @@ export function renderImportDeckView(container, { onImported } = {}) {
     if (!deckIdOrUrl) return;
 
     btn.disabled = true;
-    statusEl.textContent = 'Importiere von Archidekt …';
+    statusEl.textContent = t('import.importing');
     statusEl.className = 'server-status pending';
 
     const result = await importArchidektDeck(deckIdOrUrl);

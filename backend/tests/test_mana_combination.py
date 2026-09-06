@@ -109,15 +109,33 @@ def test_greatest_power_with_no_creatures_is_zero():
     assert ability.options == [{"W": 0}, {"U": 0}, {"B": 0}, {"R": 0}, {"G": 0}]
 
 
-def test_unrecognised_x_subject_leaves_no_mana_ability():
-    # Fail-soft: an "X mana in any combination of colors, where X is ..."
-    # naming a subject outside the recognised vocabulary parses to no mana
-    # ability at all, same as before this shape existed (never a
-    # regression — it produced nothing before either).
+def test_count_subject_resolves_via_the_shared_count_selector_helper():
+    # "the number of <subject> you control" now shares `_selector_from_
+    # subject` with the `_WHERE_X_RE`/`_FOR_EACH_RE` single-colour/"for
+    # each" shapes (bug report, 2026-09-04: originally only Selvala's own
+    # "the greatest power among creatures you control" was recognised here
+    # at all) — a real printed shape (a planeswalker's "+1: Add X mana in
+    # any combination of {R} and/or {G}, where X is the number of creatures
+    # you control.").
     card = _dork(
         "Hypothetical",
         "{T}: Add X mana in any combination of colors, "
         "where X is the number of lands you control.",
+    )
+    [ability] = parse_mana_abilities(card)
+    assert ability.any_combination is True
+    assert ability.amount_selector == {"kind": "count", "scope": "control", "subtype": "land"}
+
+
+def test_unrecognised_x_subject_leaves_no_mana_ability():
+    # Fail-soft: an "X mana in any combination of colors, where X is ..."
+    # naming a subject outside the recognised vocabulary (not a power/count
+    # reference at all) parses to no mana ability, same as before this
+    # shape existed.
+    card = _dork(
+        "Hypothetical",
+        "{T}: Add X mana in any combination of colors, "
+        "where X is the amount of life you've lost this turn.",
     )
     assert parse_mana_abilities(card) == []
 

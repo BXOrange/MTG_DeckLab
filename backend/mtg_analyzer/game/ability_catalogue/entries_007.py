@@ -478,7 +478,10 @@ def _ardenn_intrepid_archaeologist() -> list[AbilitySpec]:
             [EffectSpec("attach_chosen", {
                 "what_kind": "attached_aura_or_equipment_you_control", "to_kind": "creature_you_control",
             })],
-            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "combat"}, "phase_relation": "you"},
+            # Bug report, 2026-09-04 (same typo as Sam, Loyal Attendant's own
+            # entry): the real step name (`game/phases.py`) is "begin_combat",
+            # not "combat" — this never matched, so the ability never fired.
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "begin_combat"}, "phase_relation": "you"},
             optional=True,
             raw_text="Zu Beginn des Kampfes in deinem Zug kannst du eine Verzauberung "
                      "oder Ausrüstung unter deiner Kontrolle an eine andere Zielkreatur "

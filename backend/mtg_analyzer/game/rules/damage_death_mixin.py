@@ -133,6 +133,16 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     return True  # unknown type word → any permanent, so the cost is payable
 
 
+class _MaxLifeTotalMarker:
+    """MEC-54: a permanent "your maximum life total is N." marker on
+    `Player.player_effects` (You Compleat Me). Duck-typed like
+    `effects.PlayerShieldEffect`'s `player_life_locked` — the only attribute
+    anything reads is ``max_life_total``."""
+
+    def __init__(self, cap: int) -> None:
+        self.max_life_total = int(cap)
+
+
 def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
     """The creature-type choices to offer for a RULE 601.2b "as ~ enters,
     choose a creature type" pick.
@@ -192,6 +202,12 @@ class DamageDeathMixin:
         # the permanent check above, which `is_protected_from` can't answer
         # because players carry no printed protection.
         if is_player and self._player_protected_from_everything(target):
+            return
+        # MEC-62 (Noble Heritage): "you gain protection from that player" —
+        # the single-player-scoped sibling just above, checked only when a
+        # source is actually known (an unattributed/sourceless damage event
+        # can't match "controlled by that player" either way).
+        if is_player and source is not None and self._player_protected_from_source_controller(target, source):
             return
         target_id = target.id if is_player else target.instance_id
         event = GameEvent(
@@ -279,6 +295,9 @@ class DamageDeathMixin:
                 counts[final_target.id] = counts.get(final_target.id, 0) + final
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
+                    if source.controller_id is not None:
+                        by = self.state.damage_dealt_by_this_turn
+                        by[source.controller_id] = by.get(source.controller_id, 0) + final
                     if combat and source.is_commander:
                         final_target.add_commander_damage(source.instance_id, source.name, final)
                     if combat:
@@ -304,6 +323,9 @@ class DamageDeathMixin:
                 counts[final_target.id] = counts.get(final_target.id, 0) + final
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
+                    if source.controller_id is not None:
+                        by = self.state.damage_dealt_by_this_turn
+                        by[source.controller_id] = by.get(source.controller_id, 0) + final
                     # RULE 903.10a: combat damage from a commander is tallied
                     # separately toward the 21-damage loss threshold.
                     if combat and source.is_commander:
@@ -370,6 +392,19 @@ class DamageDeathMixin:
                 toxic_n = toxic_value(source)
                 if toxic_n:
                     self.add_player_counters(final_target, toxic_n, "poison", source=source)
+            # MEC-49: remember which sources dealt damage to this creature
+            # this turn — "whenever a creature dealt damage by ~ this turn
+            # dies, …" (`GameState.creatures_damaged_by_source_this_turn`).
+            # Any damage to a creature, combat or not, infect/wither
+            # included (RULE 702.90b/702.91a still deal damage, just recolor
+            # its result), so it sits here rather than in a type-specific
+            # branch above.
+            if not final_is_player and source is not None and getattr(
+                final_target, "is_creature", False
+            ):
+                self.state.creatures_damaged_by_source_this_turn.setdefault(
+                    final_target.instance_id, set()
+                ).add(source.instance_id)
             # `copy_with` (not a fresh `GameEvent`) so `source_id`/`combat`/
             # `source_controller_id` survive onto the broadcast event — a
             # "whenever equipped creature deals combat damage to a player"
@@ -410,6 +445,13 @@ class DamageDeathMixin:
             self.gain_life(player, amount)
             return
         player.lose_life(amount)
+        # RULE 118-119 running per-turn total, the mirror of `gain_life`'s own
+        # `life_gained_this_turn` bump — every life-loss path funnels through
+        # here (see this method's docstring), so this one site covers damage,
+        # life-paid costs and "loses N life" alike.
+        self.state.life_lost_this_turn[player.id] = (
+            self.state.life_lost_this_turn.get(player.id, 0) + amount
+        )
         self.state.fire_event(
             GameEvent(EventType.LIFE_LOST, player_id=player.id, amount=amount, cause=cause)
         )
@@ -515,6 +557,8 @@ class DamageDeathMixin:
             obj
             for obj in self.state.permanents_controlled_by(player.id)
             if _matches_permanent_type(obj, what)
+            # "You can't sacrifice those creatures this turn." (Call for Aid)
+            and not obj.cant_be_sacrificed_this_turn
         ]
         if count == "all_but_one":
             count = max(0, len(candidates) - 1)
@@ -550,6 +594,10 @@ class DamageDeathMixin:
                     # amount_from_trigger_event`, since a live re-lookup
                     # after this fires would see the *new* post-move object.
                     power=obj.power,
+                    # MEC-49: the toughness sibling — "you gain life equal to
+                    # that creature's toughness" on a DIES trigger (Abattoir
+                    # Ghoul), read the same RULE 400.7 last-known way.
+                    toughness=obj.toughness,
                 )
             )
             self.state.remove_from_battlefield(obj)
@@ -600,6 +648,10 @@ class DamageDeathMixin:
                     # amount_from_trigger_event`, since a live re-lookup
                     # after this fires would see the *new* post-move object.
                     power=obj.power,
+                    # MEC-49: the toughness sibling — "you gain life equal to
+                    # that creature's toughness" on a DIES trigger (Abattoir
+                    # Ghoul), read the same RULE 400.7 last-known way.
+                    toughness=obj.toughness,
                 )
             )
             self.state.remove_from_battlefield(obj)
@@ -857,6 +909,28 @@ class DamageDeathMixin:
         """RULE 119.6: "your life total can't change" (Teferi's Protection),
         a marker on `Player.player_effects` — see `PlayerShieldEffect`."""
         return any(getattr(e, "player_life_locked", False) for e in player.player_effects)
+
+    @staticmethod
+    def _max_life_total(player: Player) -> Optional[int]:
+        """MEC-54: the tightest "your maximum life total is N" cap in force
+        on ``player`` (You Compleat Me), or ``None``. A duck-typed marker on
+        `Player.player_effects` (`max_life_total` attr), the `player_life_
+        locked` idiom; permanent ("for the rest of the game")."""
+        caps = [
+            int(getattr(e, "max_life_total"))
+            for e in player.player_effects
+            if getattr(e, "max_life_total", None) is not None
+        ]
+        return min(caps) if caps else None
+
+    def set_max_life_total(self, player: Player, cap: int) -> None:
+        """RULE 119-adjacent (MEC-54): install a permanent "your maximum life
+        total is ``cap``" effect and clamp a currently-higher total down to
+        it at once (You Compleat Me's own "…it becomes 10." rider handles
+        the same clamp for the exact-10 case, but this stands on its own)."""
+        player.player_effects.append(_MaxLifeTotalMarker(cap))
+        if player.life > cap:
+            player.lose_life(player.life - cap)
     @staticmethod
     def _player_protected_from_everything(player: Player) -> bool:
         """RULE 702.16e: "you gain protection from everything" (Teferi's
@@ -866,11 +940,32 @@ class DamageDeathMixin:
             getattr(e, "player_protected_from_everything", False)
             for e in player.player_effects
         )
+    @staticmethod
+    def _player_protected_from_source_controller(player: Player, source: GameObject) -> bool:
+        """RULE 702.16e-adjacent: "you gain protection from [that player]"
+        (Noble Heritage, MEC-62) — the single-player-scoped sibling of
+        `_player_protected_from_everything`: only damage from a source
+        ``player`` doesn't control but the *protected-from* player does is
+        prevented, read off each `PlayerShieldEffect.protected_from_
+        player_id` marker."""
+        source_controller = getattr(source, "controller_id", None)
+        if source_controller is None:
+            return False
+        return any(
+            getattr(e, "protected_from_player_id", None) == source_controller
+            for e in player.player_effects
+        )
     def gain_life(self, player: Player, amount: int) -> None:
         if amount <= 0:
             return
         if self._life_locked(player):
             return  # RULE 119.6 — see `lose_life`
+        # "Players can't gain life." (Everlasting Torment / Forsaken Wastes /
+        # Leyline of Punishment) — a standing board-wide rule modification,
+        # read live off the battlefield (`continuous.life_gain_globally_
+        # prohibited`); cancels the gain outright, no replacement/event.
+        if continuous.life_gain_prohibited_for(self.state, player):
+            return
         # RULE 119.3/616.1: a life gain is routed through `apply_replacements`
         # first, so a "you gain that much life plus N / twice that much
         # instead" replacement (Angel of Vitality/Boon Reflection) can
@@ -884,6 +979,11 @@ class DamageDeathMixin:
             if resolved is None:
                 return
             final = int(resolved.get("amount", amount) or 0)
+            # MEC-54: "your maximum life total is N." (You Compleat Me) — a
+            # gain can raise the total only up to the cap, never past it.
+            cap = self._max_life_total(player)
+            if cap is not None:
+                final = min(final, max(cap - player.life, 0))
             if final <= 0:
                 return
             player.gain_life(final)
@@ -1381,6 +1481,20 @@ class DamageDeathMixin:
             if shield_source is not None:
                 self.add_counters(shield_source, 1, str(rider.get("counter", "+1/+1")), source=shield_source)
             return
+        if kind == "remove_self_counter":
+            # "…prevent that damage. Remove a +1/+1 counter from ~." (the
+            # Phantom cycle — Phantom Centaur / Phantom Flock / Phantom
+            # Nantuko / Phantom Nishoba / …). A *fixed* count (1 on every
+            # real card), unscaled by ``prevented`` — the counter loss is
+            # the price of the shield, not proportional to the hit. Once the
+            # last +1/+1 counter goes the RULE 704.5g "0 toughness" SBA
+            # (these are printed 0/0) kills it, no extra code.
+            if shield_source is not None:
+                self.add_counters(
+                    shield_source, -int(rider.get("count", 1)),
+                    str(rider.get("counter", "+1/+1")),
+                )
+            return
         if kind == "deal_damage_to_source_controller":
             # Always the *source's* controller, unconditionally — never the
             # generic ``recipient`` resolution below, which would otherwise
@@ -1554,7 +1668,7 @@ class DamageDeathMixin:
         exile it instead" clause (`GraveyardCastPermissionEffect.exile_
         if_would_be_put_into_graveyard`).
         """
-        if obj.cast_via_graveyard_cast_permission_until_turn == self.state.turn_number:
+        if obj.cast_via_graveyard_cast_permission_until_turn == self.state.internal_turn.number:
             self.exile(obj)
             return
         owner = self.state.player_by_id(obj.owner_id)
@@ -1564,7 +1678,7 @@ class DamageDeathMixin:
         # graveyard (RULE 404.4/700.4), which is exactly what "your
         # graveyard" means here; the player-scoped, whole-turn sibling of
         # the per-object check just above.
-        if owner is not None and owner.graveyard_redirect_to_exile_until_turn == self.state.turn_number:
+        if owner is not None and owner.graveyard_redirect_to_exile_until_turn == self.state.internal_turn.number:
             self.exile(obj)
             return
         # "If a card would be put into an opponent's graveyard from
@@ -1625,6 +1739,10 @@ class DamageDeathMixin:
                     # amount_from_trigger_event`, since a live re-lookup
                     # after this fires would see the *new* post-move object.
                     power=obj.power,
+                    # MEC-49: the toughness sibling — "you gain life equal to
+                    # that creature's toughness" on a DIES trigger (Abattoir
+                    # Ghoul), read the same RULE 400.7 last-known way.
+                    toughness=obj.toughness,
                 )
             )
             # RULE 700.4: "dies" means "is put into a graveyard from the
@@ -1667,6 +1785,13 @@ class DamageDeathMixin:
                     # permanent from combat as it leaves the battlefield.
                     goaded=bool(combat.is_goaded(obj)),
                     in_combat=bool(obj.attacking) or obj.blocking is not None,
+                    # RULE 400.7 last-known information: "whenever a nonland
+                    # creature you control dies, earthbend X, where X is
+                    # **that creature's power**" (Beifong's Bounty Hunters) —
+                    # read via `EarthbendEffect.amount_from_trigger_event`,
+                    # since a live re-lookup after this fires sees nothing.
+                    # Mirrors the same snapshot on LEAVES_BATTLEFIELD above.
+                    power=obj.power,
                 )
             )
             if cause == "sacrifice":
@@ -1758,4 +1883,19 @@ class DamageDeathMixin:
             return
         owner = self.state.player_by_id(obj.owner_id)
         self._remove_from_current_zone(owner, obj)
+        # RULE 400.7 (bug report, 2026-09-04): a commander redirected here
+        # came from the graveyard/exile/hand/library, each of which only
+        # ever reset `tapped`/`damage_marked` on the way there — its
+        # battlefield-only state (`attacking`/`combat_defender`/`blocking`/
+        # counters/attachments/…) was still sitting on the object,
+        # unnoticed while it stayed off the battlefield. Left alone, that
+        # state survives all the way to a later recast, since `_resolve_
+        # permanent_spell` never resets it either — a commander that died
+        # mid-combat could re-enter the battlefield *this* turn already
+        # "attacking" a defender from a previous combat, corrupting
+        # `attackers()`/every per-attacker aggregate (`_fire_player_
+        # attacked_events` et al.) built from that flag. The same "new
+        # object, no memory" reset `blink`/`return_from_graveyard` already
+        # give a battlefield-bound move applies just as well to this one.
+        obj.reset_as_new_object()
         owner.add_to_zone(obj, Zone.COMMAND)

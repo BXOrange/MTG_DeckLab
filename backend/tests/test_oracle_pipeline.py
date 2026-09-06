@@ -106,6 +106,56 @@ def test_normalize_folds_alchemy_a_prefix_self_reference():
     assert out.count(SELF) == 2
 
 
+def test_normalize_folds_comma_less_legendary_given_name():
+    # "Kaalia of the Vast" self-refers as "Kaalia" — the given name (the
+    # single word before " of ") folds to ~ where it's a genuine
+    # self-reference.
+    out = normalize(
+        "Whenever Kaalia attacks an opponent, you may put a Demon creature "
+        "card from your hand onto the battlefield.",
+        "Kaalia of the Vast",
+    )
+    assert out.startswith(f"whenever {SELF} attacks an opponent")
+    # a possessive / mid-sentence occurrence folds too
+    out2 = normalize(
+        "Whenever you gain life, put two +1/+1 counters on Karlov.",
+        "Karlov of the Ghost Council",
+    )
+    assert out2 == f"whenever you gain life, put 2 +1/+1 counters on {SELF}."
+
+
+def test_normalize_given_name_prefix_keeps_a_creature_type_reading():
+    # "Cleric of Life's Bond" → "another Cleric you control" is a tribal
+    # filter, not a self-reference; "Knight of the New Coalition" → "a …
+    # Knight creature token" is a token subtype; "Fear of Fear Itself" →
+    # "gains fear until end of turn" is the keyword. None fold.
+    assert "another cleric you control" in normalize(
+        "Whenever another Cleric you control enters, you gain 1 life.",
+        "Cleric of Life's Bond",
+    )
+    assert "knight creature token" in normalize(
+        "When this creature enters, create a 2/2 white and blue Knight "
+        "creature token with vigilance.",
+        "Knight of the New Coalition",
+    )
+    assert "gains fear until end of turn" in normalize(
+        "{2}: Target creature gains fear until end of turn.",
+        "Fear of Fear Itself",
+    )
+
+
+def test_normalize_given_name_prefix_only_when_single_word_and_has_of():
+    # "Ghost Council of Orzhova" — the pre-" of " span is two words, so
+    # nothing extra folds (and "Ghost"/"Council" alone must not).
+    out = normalize(
+        "Whenever Ghost Council of Orzhova attacks, target opponent loses 1 life.",
+        "Ghost Council of Orzhova",
+    )
+    assert out == f"whenever {SELF} attacks, target opponent loses 1 life."
+    # a comma name is unaffected by the new prefix path
+    assert normalize("Krenko, Mob Boss taps.", "Krenko, Mob Boss") == f"{SELF} taps."
+
+
 def test_fold_self_name_does_not_strip_a_prefix_when_next_char_not_a_letter():
     # Guard against a name that merely starts with "A-" followed by
     # something that isn't the Alchemy rebalance convention (a digit) —
@@ -434,12 +484,24 @@ def test_static_bare_land_scope_uses_dedicated_selector():
     assert "card_type" not in e.params
 
 
-def test_static_compound_noncreature_scope_stays_unclaimed():
+def test_static_compound_noncreature_scope_grant():
     # "Artifacts and enchantments you control have shroud." (Fountain Watch)
-    # — no engine selector ORs two card types yet, so this deliberately
-    # stays fail-closed rather than guessing (PAR-3 is single-word only).
+    # — PAR-31: `continuous.affected_objects` now ORs a `card_type` list
+    # (Grand Abolisher-shaped), so a compound permanent-type scope is a
+    # `grant_keyword` on `permanents_you_control` narrowed by that list,
+    # no longer fail-closed. (`static_handlers._MULTI_PERMANENT_TYPE_GRANT_RE`.)
     r, statics = _static_specs("Artifacts and enchantments you control have shroud.")
-    assert statics == [] and r.coverage == UNMODELED
+    assert r.coverage != UNMODELED and len(statics) == 1
+    assert list(statics[0].effects) == [
+        EffectSpec("grant_keyword", {
+            "keywords": ["shroud"],
+            "affects": "permanents_you_control",
+            "card_type": ["artifact", "enchantment"],
+        })
+    ]
+    # A three-word non-permanent word in the list still fails closed.
+    r2, statics2 = _static_specs("Artifacts and goblins you control have haste.")
+    assert statics2 == [] and r2.coverage == UNMODELED
 
 
 def test_static_enchanted_creatures_group_scope_stays_unclaimed():

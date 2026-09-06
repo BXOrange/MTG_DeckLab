@@ -1165,6 +1165,95 @@ def _resculpt() -> list[AbilitySpec]:
 register("Resculpt", _resculpt)
 
 
+def _crib_swap() -> list[AbilitySpec]:
+    """Changeling (This card is every creature type.)
+    Exile target creature. Its controller creates a 1/1 colorless
+    Shapeshifter creature token with changeling.
+
+    The one-card token-replacement shape is not worth a parser row (the
+    cache probe finds Crib Swap alone), but its behaviour is exact: the
+    existing atomic ``exile_create_token`` preserves the exiled creature's
+    last controller and now accepts the token's printed keyword.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exile_create_token", {
+                "target_kind": "creature", "power": 1, "toughness": 1,
+                "subtypes": ["Shapeshifter"], "keywords": ["changeling"],
+                "token_name": "Shapeshifter",
+            })],
+            raw_text="Schicke eine Zielkreatur ins Exil. Ihr Beherrscher erzeugt "
+                     "einen farblosen 1/1-Gestaltwandler-Kreaturenspielstein mit "
+                     "Changeling.",
+        )
+    ]
+
+
+register("Crib Swap", _crib_swap)
+
+
+def _lamentation() -> list[AbilitySpec]:
+    """When this creature enters, destroy target creature an opponent controls.
+    You gain 3 life.
+    Encore {6}{B}{B}
+
+    A singleton precon creature: the engine already composes one targeted
+    destruction with a following untargeted life gain, and the existing
+    Encore keyword binding supplies its graveyard activated ability.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("destroy", {"target_kind": "creature_you_dont_control"}),
+                EffectSpec("gain_life", {"amount": 3}),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, zerstöre eine Zielkreatur, die ein "
+                     "Gegner kontrolliert. Du erhältst 3 Lebenspunkte dazu.",
+        )
+    ]
+
+
+register("Lamentation", _lamentation)
+
+
+def _springleaf_parade() -> list[AbilitySpec]:
+    """When this enchantment enters, create X 1/1 colorless Shapeshifter
+    creature tokens with changeling. (They're every creature type.)
+    Creature tokens you control have "{T}: Add one mana of any color."
+
+    A deck-local singleton: the X-token sentinel and layer-6 mana grant
+    already exist, so a catalogue entry is smaller and safer than widening
+    the oracle token grammar for one card.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count_selector": "source_x_paid", "power": 1, "toughness": 1,
+                "subtypes": ["Shapeshifter"], "keywords": ["changeling"],
+                "token_name": "Shapeshifter",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Verzauberung ins Spiel kommt, erzeuge X farblose "
+                     "1/1-Gestaltwandler-Kreaturenspielsteine mit Changeling.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_mana_ability", {
+                "affects": "creatures_you_control", "tokens": True,
+                "mana": [{"W": 1}, {"U": 1}, {"B": 1}, {"R": 1}, {"G": 1}],
+            })],
+            raw_text='Kreaturenspielsteine, die du kontrollierst, haben "{T}: Erzeuge ein Mana einer beliebigen Farbe."',
+        ),
+    ]
+
+
+register("Springleaf Parade", _springleaf_parade)
+
+
 def _mirage_mirror() -> list[AbilitySpec]:
     """{2}: This artifact becomes a copy of target artifact, creature,
     enchantment, or land until end of turn.
@@ -1569,3 +1658,326 @@ def _power_artifact() -> list[AbilitySpec]:
 register("Power Artifact", _power_artifact)
 
 
+def _fertile_ground() -> list[AbilitySpec]:
+    """Enchant land
+    Whenever enchanted land is tapped for mana, its controller adds an
+    additional one mana of any color.
+
+    The attached-land trigger is Wild Growth's existing triggered-mana
+    ability.  ``ANY`` preserves the controller's colour choice and
+    ``event_controller`` correctly follows the enchanted land if control
+    changes.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_mana", {"colors": ["ANY"], "recipient": "event_controller"})],
+            trigger={
+                "event": EventType.TAPPED_FOR_MANA,
+                "condition": {"subject": "attached_permanent"},
+                "mana_ability": True,
+            },
+            raw_text="Whenever enchanted land is tapped for mana, its controller adds an "
+                     "additional one mana of any color.",
+        )
+    ]
+
+
+register("Fertile Ground", _fertile_ground)
+
+
+def _reality_shift() -> list[AbilitySpec]:
+    """Exile target creature. Its controller manifests the top card of their library."""
+    return [AbilitySpec(
+        "spell_effect",
+        [
+            EffectSpec("exile", {"target_kind": "creature"}),
+            EffectSpec("manifest", {"player": "previous_target_controller"}),
+        ],
+        raw_text="Exile target creature. Its controller manifests the top card of their library.",
+    )]
+
+
+register("Reality Shift", _reality_shift)
+
+
+def _shatter_the_sky() -> list[AbilitySpec]:
+    """Each player who controls a creature with power 4 or greater draws a card.
+    Then destroy all creatures."""
+    return [AbilitySpec("spell_effect", [
+        EffectSpec("draw_each_player_with_creature_power", {"min_power": 4}),
+        EffectSpec("destroy", {"selector": "all_creatures"}),
+    ], raw_text="Each player who controls a creature with power 4 or greater draws a card. Then destroy all creatures.")]
+
+
+register("Shatter the Sky", _shatter_the_sky)
+
+
+def _greenwarden_of_murasa() -> list[AbilitySpec]:
+    """Both recursion triggers of Greenwarden of Murasa."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_from_graveyard", {
+                "target_kind": "graveyard_card", "destination": "hand",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD},
+            raw_text="When this creature enters, you may return target card from your graveyard to your hand.",
+            optional=True,
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("may_exile_source_then", {"then_trigger": [
+                {"type": "return_from_graveyard", "params": {
+                    "target_kind": "graveyard_card", "destination": "hand",
+                }},
+            ]})],
+            trigger={"event": EventType.DIES},
+            raw_text="When this creature dies, you may exile it. If you do, return target card from your graveyard to your hand.",
+        ),
+    ]
+
+
+register("Greenwarden of Murasa", _greenwarden_of_murasa)
+
+
+def _risen_reef() -> list[AbilitySpec]:
+    return [AbilitySpec(
+        "triggered", [EffectSpec("peek_top_land_or_hand", {})],
+        trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {
+            "subject_subtype": "Elemental", "controller": "you",
+        }},
+        raw_text="Whenever this creature or another Elemental enters under your control, look at the top card of your library. If it's a land card, you may put it onto the battlefield tapped. If you don't put the card onto the battlefield, put it into your hand.",
+    )]
+
+
+register("Risen Reef", _risen_reef)
+
+
+def _muldrotha_the_gravetide() -> list[AbilitySpec]:
+    return [AbilitySpec(
+        "static", [EffectSpec("graveyard_cast_permission", {
+            "per_permanent_type": True, "once_per_turn": False,
+        })],
+        raw_text="During each of your turns, you may play a land and cast a permanent spell of each permanent type from your graveyard.",
+    )]
+
+
+register("Muldrotha, the Gravetide", _muldrotha_the_gravetide)
+
+
+def _distant_melody() -> list[AbilitySpec]:
+    return [AbilitySpec("spell_effect", [
+        EffectSpec("request_choose_creature_type_grant", {"then_specs": [
+            {"type": "draw_controlled_chosen_creature_type", "params": {}},
+        ]}),
+    ], raw_text="Choose a creature type. Draw a card for each permanent you control of that type.")]
+
+
+register("Distant Melody", _distant_melody)
+
+
+def _bane_of_progress() -> list[AbilitySpec]:
+    return [AbilitySpec("triggered", [EffectSpec("destroy_artifacts_enchantments_then_counters", {})],
+                        trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+                        raw_text="When this creature enters, destroy all artifacts and enchantments. Put a +1/+1 counter on this creature for each permanent destroyed this way.")]
+
+
+register("Bane of Progress", _bane_of_progress)
+
+
+def _yarok_the_desecrated() -> list[AbilitySpec]:
+    return [AbilitySpec(
+        "static", [EffectSpec("trigger_doubler", {"cause_filter": [EventType.ENTERS_BATTLEFIELD]})],
+        raw_text="If a permanent entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.",
+    )]
+
+
+register("Yarok, the Desecrated", _yarok_the_desecrated)
+
+
+def _titan_of_industry() -> list[AbilitySpec]:
+    return [AbilitySpec(
+        "triggered", [], trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+        modes={"choose": 2, "options": [
+            [EffectSpec("destroy", {"target_kind": "artifact_or_enchantment"})],
+            [EffectSpec("gain_life", {"amount": 5, "target_kind": "player"})],
+            [EffectSpec("create_token", {"token_name": "Rhino", "power": 4, "toughness": 4, "colors": ["G"], "subtypes": ["Rhino", "Warrior"]})],
+            [EffectSpec("add_counters", {"amount": 1, "kind": "shield", "target_kind": "creature_you_control"})],
+        ]}, raw_text="When this creature enters, choose two — Destroy target artifact or enchantment; target player gains 5 life; create a 4/4 green Rhino Warrior creature token; put a shield counter on a creature you control.",
+    )]
+
+
+register("Titan of Industry", _titan_of_industry)
+
+
+def _raging_ravine() -> list[AbilitySpec]:
+    """Raging Ravine's animation and its self-attack growth trigger.
+
+    Entering tapped and the two-colour mana ability are parsed from the card
+    itself.  The colour layer of the animation is not represented by this
+    engine yet, but the creature type, base P/T, and attack counter are.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_until", {
+                "duration": "end_of_turn", "target_kind": None,
+                "static": {"type": "type_change", "params": {
+                    "add_types": ["creature"], "add_subtypes": ["Elemental"],
+                    "power": 3, "toughness": 3,
+                }},
+            })],
+            cost={"mana": "{2}{R}{G}"},
+            raw_text="{2}{R}{G}: Until end of turn, this land becomes a 3/3 Elemental creature. It's still a land.",
+        ),
+        AbilitySpec(
+            "triggered", [EffectSpec("add_counters", {"amount": 1, "kind": "+1/+1", "target_kind": None})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Whenever this creature attacks, put a +1/+1 counter on it.",
+        ),
+    ]
+
+
+register("Raging Ravine", _raging_ravine)
+
+
+def _haunting_voyage() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("request_choose_creature_type_grant", {"then_specs": [
+                {"type": "return_chosen_creature_type_from_graveyard", "params": {}},
+            ]})],
+            raw_text="Choose a creature type. Return up to two creature cards of that type from your graveyard to the battlefield. If this spell was foretold, return all creature cards of that type from your graveyard to the battlefield instead.",
+        ),
+        AbilitySpec("keyword", [], keyword={"name": "foretell", "cost": "{5}{B}{B}"}, raw_text="Foretell {5}{B}{B}"),
+    ]
+
+
+register("Haunting Voyage", _haunting_voyage)
+
+
+def _horde_of_notions() -> list[AbilitySpec]:
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "vigilance"}, raw_text="Vigilance"),
+        AbilitySpec("keyword", [], keyword={"name": "trample"}, raw_text="Trample"),
+        AbilitySpec("keyword", [], keyword={"name": "haste"}, raw_text="Haste"),
+        AbilitySpec(
+            "activated", [EffectSpec("cast_target_elemental_from_graveyard_free", {})],
+            cost={"mana": "{W}{U}{B}{R}{G}"},
+            raw_text="{W}{U}{B}{R}{G}: You may play target Elemental card from your graveyard without paying its mana cost.",
+        ),
+    ]
+
+
+register("Horde of Notions", _horde_of_notions)
+
+
+def _descendants_fury() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("descendants_fury_sacrifice", {})],
+            trigger={
+                "event": EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
+                "condition": {"subject": "you"},
+            },
+            raw_text="Whenever one or more creatures you control deal combat damage to a player, you may sacrifice one of them. If you do, reveal cards from the top of your library until you reveal a creature card that shares a creature type with the sacrificed creature. Put that card onto the battlefield and the rest on the bottom of your library in a random order.",
+        ),
+    ]
+
+
+register("Descendants' Fury", _descendants_fury)
+
+
+def _kindred_summons() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("request_choose_creature_type_grant", {"then_specs": [
+                {"type": "kindred_summons", "params": {}},
+            ]})],
+            raw_text="Choose a creature type. Reveal cards from the top of your library until you reveal X creature cards of the chosen type, where X is the number of creatures you control of that type. Put those cards onto the battlefield, then shuffle the rest of the revealed cards into your library.",
+        ),
+    ]
+
+
+register("Kindred Summons", _kindred_summons)
+
+
+def _eclipsed_flamekin() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("inspect_top_choose", {
+                "count": 4,
+                "filter": {"subtypes": ["Elemental", "Island", "Mountain"]},
+                "action": "library_to_hand",
+                "rest_destination": "library_bottom_random",
+                "optional": True,
+                "prompt": "Elemental-, Island- oder Mountain-Karte wählen",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD},
+            raw_text="When this creature enters, look at the top four cards of your library. You may reveal an Elemental, Island, or Mountain card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+        ),
+    ]
+
+
+register("Eclipsed Flamekin", _eclipsed_flamekin)
+
+
+def _cream_of_the_crop() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("inspect_top_choose", {
+                "count": "trigger_power",
+                "action": "library_top",
+                "rest_destination": "library_bottom_random",
+                "optional": True,
+                "decline_leaves_untouched": True,
+                "prompt": "Eine Karte oben auf die Bibliothek legen (Rest nach unten)",
+            })],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "group", "type": "creature", "controller": "you"},
+            },
+            raw_text="Whenever a creature you control enters, you may look at the top X cards of your library, where X is that creature's power. If you do, put one of those cards on top of your library and the rest on the bottom of your library in any order.",
+        ),
+    ]
+
+
+register("Cream of the Crop", _cream_of_the_crop)
+
+
+def _cavalier_of_thorns() -> list[AbilitySpec]:
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "reach"}, raw_text="Reach"),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("inspect_top_choose", {
+                "count": 5,
+                "filter": {"is_land": True},
+                "action": "library_to_battlefield",
+                "rest_destination": "graveyard",
+                "optional": False,
+                "prompt": "Länderkarte auf das Spielfeld bringen (Rest in den Friedhof)",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD},
+            raw_text="When this creature enters, reveal the top five cards of your library. Put a land card from among them onto the battlefield and the rest into your graveyard.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("may_exile_source_then", {"then_trigger": [
+                {"type": "return_from_graveyard", "params": {
+                    "target_kind": "graveyard_card", "destination": "library_top",
+                }},
+            ]})],
+            trigger={"event": EventType.DIES},
+            raw_text="When this creature dies, you may exile it. If you do, put another target card from your graveyard on top of your library.",
+        ),
+    ]
+
+
+register("Cavalier of Thorns", _cavalier_of_thorns)

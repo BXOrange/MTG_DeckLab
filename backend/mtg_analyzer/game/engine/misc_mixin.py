@@ -190,7 +190,7 @@ class MiscMixin:
             raise ValueError(f"{player.name} cannot pay {{2}} for the search exemption")
         life_spent = player.mana_pool.pay(cost, life_available=player.life)
         self.rules.lose_life(player, life_spent, cause="cost")
-        self.state.search_exempt_until_turn[player.id] = self.state.turn_number
+        self.state.search_exempt_until_turn[player.id] = self.state.internal_turn.number
         # RULE 117.3c: taking an action reclaims priority for its taker.
         self.give_priority(player)
     def run_goldfish_turn(self) -> None:

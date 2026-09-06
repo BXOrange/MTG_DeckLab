@@ -23,6 +23,8 @@ import { escapeHtml } from './cardTile.js';
 import { renderDynamicAnalysisPanel } from './dynamicAnalysisPanel.js';
 import { analyzeArchetypes, listSavedDecks, listFavoriteDecks } from './api.js';
 import { getPlayerName } from './settings.js';
+import { t, tPlural, fmtNumber } from './i18n.js';
+
 
 function escapeAttr(str) {
   return String(str).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
@@ -36,7 +38,7 @@ function cardNameHtml(name, qty = 1) {
   return `<span class="analyze-card-name" data-hover-card="${escapeHtml(name)}">${escapeHtml(name)}</span>${qty > 1 ? ` ×${qty}` : ''}`;
 }
 
-const COLOR_NAMES = { W: 'Weiß', U: 'Blau', B: 'Schwarz', R: 'Rot', G: 'Grün' };
+const COLOR_NAMES = { W: t('common.color.W'), U: t('common.color.U'), B: t('common.color.B'), R: t('common.color.R'), G: t('common.color.G') };
 const COLOR_CLASS = { W: 'w', U: 'u', B: 'b', R: 'r', G: 'g' };
 
 /**
@@ -93,14 +95,14 @@ export function renderAnalyzeView(container) {
   }
 
   function deckPickerOptionsHtml() {
-    if (decksLoading && savedDecks === null) return '<option>Lädt …</option>';
-    if (decksLoadError) return '<option value="">— Server nicht erreichbar (⟳ erneut versuchen) —</option>';
+    if (decksLoading && savedDecks === null) return `<option>${t('an.picker.loading')}</option>`;
+    if (decksLoadError) return `<option value="">${t('an.picker.unreachable')}</option>`;
     if (!savedDecks || !savedDecks.length) {
-      return '<option value="">— keine gespeicherten Decks —</option>';
+      return `<option value="">${t('an.picker.none')}</option>`;
     }
-    const options = ['<option value="">— Deck wählen —</option>'];
+    const options = [`<option value="">${t('an.picker.choose')}</option>`];
     for (const d of decksFavoritesFirst()) {
-      const name = (d.name || '').trim() || 'Unbenanntes Deck';
+      const name = (d.name || '').trim() || t('common.unnamedDeck');
       const label = favoriteDeckIds.has(d.id) ? `★ ${name}` : name;
       const selected = d.id === currentDeckId ? ' selected' : '';
       options.push(`<option value="${escapeHtml(d.id)}"${selected}>${escapeHtml(label)}</option>`);
@@ -111,9 +113,9 @@ export function renderAnalyzeView(container) {
   function deckPickerHtml() {
     return `
       <div class="gf-deck-picker">
-        <label for="analyze-deck-select">Deck</label>
+        <label for="analyze-deck-select">${t('an.deckLabel')}</label>
         <select id="analyze-deck-select" ${decksLoading ? 'disabled' : ''}>${deckPickerOptionsHtml()}</select>
-        <button id="analyze-deck-refresh" type="button" title="Deckliste neu laden">⟳</button>
+        <button id="analyze-deck-refresh" type="button" title="${escapeAttr(t('an.reloadDecks'))}">⟳</button>
       </div>
     `;
   }
@@ -197,11 +199,11 @@ export function renderAnalyzeView(container) {
   }
 
   function loadArchetypeSuggestions(root, deckSource, myRequestId) {
-    root.innerHTML = '<p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt …</p>';
+    root.innerHTML = `<p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('an.picker.loading')}</p>`;
     analyzeArchetypes(deckSource).then((res) => {
       if (myRequestId !== requestId || !document.body.contains(root)) return;
       if (!res.ok || !res.data) {
-        root.innerHTML = '<p class="issue-list">🛑 Spielstil-Analyse konnte nicht geladen werden.</p>';
+        root.innerHTML = `<p class="issue-list">🛑 ${escapeHtml(t('an.playstyleLoadFailed'))}</p>`;
         return;
       }
       root.innerHTML = archetypeSuggestionsHtml(res.data);
@@ -213,12 +215,9 @@ export function renderAnalyzeView(container) {
   function emptyShellHtml() {
     return `
       <div class="analyze-panel">
-        <h2>Deck analysieren</h2>
+        <h2>${t('an.title')}</h2>
         ${deckPickerHtml()}
-        <p class="empty-state">
-          Oben ein Deck auswählen, oder in "Decks verwalten" ein Deck
-          auswählen und auf "Deck analysieren" klicken.
-        </p>
+        <p class="empty-state">${t('an.pickHint')}</p>
       </div>
     `;
   }
@@ -226,10 +225,10 @@ export function renderAnalyzeView(container) {
   function loadingShellHtml(deckName) {
     return `
       <div class="analyze-panel">
-        <h2>Deck analysieren</h2>
+        <h2>${t('an.title')}</h2>
         ${deckPickerHtml()}
-        <p class="analyze-deck-name">${escapeHtml(deckName?.trim() || 'Unbenanntes Deck')}</p>
-        <p class="empty-state"><span class="spinner" aria-hidden="true"></span>Lädt Kartendaten …</p>
+        <p class="analyze-deck-name">${escapeHtml(deckName?.trim() || t('common.unnamedDeck'))}</p>
+        <p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('an.loadingCards')}</p>
       </div>
     `;
   }
@@ -238,15 +237,15 @@ export function renderAnalyzeView(container) {
 // --- Sub-tabs (Statische/Dynamische/Bracket-Analyse) -----------------------
 
 const ANALYZE_SUBTABS = [
-  { key: 'static', label: 'Statische Analyse' },
-  { key: 'dynamic', label: 'Dynamische Analyse' },
-  { key: 'bracket', label: 'Bracket-Analyse' },
+  { key: 'static', label: t('an.subtab.static') },
+  { key: 'dynamic', label: t('an.subtab.dynamic') },
+  { key: 'bracket', label: t('an.subtab.bracket') },
 ];
 
 function analyzeSubtabsHtml() {
   const buttons = ANALYZE_SUBTABS.map(
-    (t, i) =>
-      `<button type="button" class="analyze-subtab${i === 0 ? ' active' : ''}" data-subtab="${t.key}">${escapeHtml(t.label)}</button>`
+    (tab, i) =>
+      `<button type="button" class="analyze-subtab${i === 0 ? ' active' : ''}" data-subtab="${tab.key}">${escapeHtml(tab.label)}</button>`
   ).join('');
   return `<div class="analyze-subtabs" role="tablist">${buttons}</div>`;
 }
@@ -264,22 +263,22 @@ function wireAnalyzeTabs(container) {
 }
 
 const TOC_ENTRIES = [
-  { id: 'toc-mana-curve', label: 'Manakurve' },
-  { id: 'toc-expected-mana-curve', label: 'Erwartete verfügbare Mana pro Zug' },
-  { id: 'toc-type-distribution', label: 'Kartentyp-Verteilung' },
-  { id: 'toc-land-archetypes', label: 'Land-Archetypen' },
-  { id: 'toc-color-pips', label: 'Manasymbole: Kartenbedarf vs. Manaquellen' },
-  { id: 'toc-opening-hand', label: 'Starthand & Landziehungen' },
-  { id: 'toc-accelerants', label: 'Erkannte Beschleuniger' },
-  { id: 'toc-command-zone', label: 'Funktionale Kategorien' },
-  { id: 'toc-playstyle', label: 'Spielstil-Analyse' },
+  { id: 'toc-mana-curve', label: t('an.toc.manaCurve') },
+  { id: 'toc-expected-mana-curve', label: t('an.toc.expectedMana') },
+  { id: 'toc-type-distribution', label: t('an.toc.typeDistribution') },
+  { id: 'toc-land-archetypes', label: t('an.toc.landArchetypes') },
+  { id: 'toc-color-pips', label: t('an.toc.colorPips') },
+  { id: 'toc-opening-hand', label: t('an.toc.openingHand') },
+  { id: 'toc-accelerants', label: t('an.toc.accelerants') },
+  { id: 'toc-command-zone', label: t('an.toc.commandZone') },
+  { id: 'toc-playstyle', label: t('an.toc.playstyle') },
 ];
 
 function tableOfContentsHtml() {
   const items = TOC_ENTRIES.map((e) => `<li><a href="#${e.id}">${escapeHtml(e.label)}</a></li>`).join('');
   return `
-    <nav class="analyze-toc" aria-label="Inhaltsverzeichnis">
-      <strong class="analyze-toc-title">Inhaltsverzeichnis</strong>
+    <nav class="analyze-toc" aria-label="${escapeAttr(t('an.toc.title'))}">
+      <strong class="analyze-toc-title">${t('an.toc.title')}</strong>
       <ul class="analyze-toc-list">${items}</ul>
     </nav>
   `;
@@ -288,9 +287,9 @@ function tableOfContentsHtml() {
 function resultShellHtml(deckName, stats, pickerHtml) {
   return `
     <div class="analyze-panel">
-      <h2>Deck analysieren</h2>
+      <h2>${t('an.title')}</h2>
       ${pickerHtml}
-      <p class="analyze-deck-name">${escapeHtml(deckName?.trim() || 'Unbenanntes Deck')}</p>
+      <p class="analyze-deck-name">${escapeHtml(deckName?.trim() || t('common.unnamedDeck'))}</p>
       ${commanderLineHtml(stats.commanders)}
       ${unresolvedWarningHtml(stats.unresolvedNames)}
       ${analyzeSubtabsHtml()}
@@ -298,14 +297,8 @@ function resultShellHtml(deckName, stats, pickerHtml) {
       <div class="analyze-subtab-panel active" data-subtab-panel="static">
         ${tableOfContentsHtml()}
         <section class="analyze-section">
-          <h3>Statische Analyse</h3>
-          <p class="hint">
-            Rein numerisch, aus den Kartendaten berechnet — keine
-            Bewertung von Stärke, Synergien oder Archetyp (siehe
-            "Dynamische Analyse"-Tab). Die erwartete Mana-Kurve und die
-            Beschleuniger-Erkennung sind vereinfachte Schätzungen, keine
-            Simulation.
-          </p>
+          <h3>${t('an.static.heading')}</h3>
+          <p class="hint">${escapeHtml(t('an.static.hint'))}</p>
 
           ${summaryTilesHtml(stats)}
           <div id="toc-mana-curve">${manaCurveSectionHtml(stats)}</div>
@@ -336,7 +329,7 @@ function commanderLineHtml(commanders) {
   const items = commanders
     .map((c) => {
       const pips = colorPipBadgesHtml(c.colorIdentity);
-      return `<span class="analyze-commander-entry">👑 ${cardNameHtml(c.name)} (MW ${c.cmc})${pips}</span>`;
+      return `<span class="analyze-commander-entry">👑 ${cardNameHtml(c.name)} (${t('an.col.mv')} ${c.cmc})${pips}</span>`;
     })
     .join(' ');
   return `<p class="analyze-commander-line">${items}</p>`;
@@ -346,25 +339,24 @@ function unresolvedWarningHtml(names) {
   if (!names.length) return '';
   return `
     <ul class="issue-list not-found-list">
-      <li>🛑 ${names.length} Karte(n) nicht gefunden, aus der Analyse ausgeschlossen:
-        ${names.map(escapeHtml).join(', ')}</li>
+      <li>🛑 ${escapeHtml(t('an.unresolved', { count: names.length, names: names.join(', ') }))}</li>
     </ul>
   `;
 }
 
 function colorPipBadgesHtml(colors) {
   if (!colors || !colors.length) {
-    return ' <span class="color-identity"><span class="color-pip color-pip--c" title="Farblos">C</span></span>';
+    return ` <span class="color-identity"><span class="color-pip color-pip--c" title="${escapeAttr(t('common.color.C'))}">C</span></span>`;
   }
   const pips = ['W', 'U', 'B', 'R', 'G']
     .filter((c) => colors.includes(c))
-    .map((c) => `<span class="color-pip color-pip--${COLOR_CLASS[c]}" title="${COLOR_NAMES[c]}">${c}</span>`)
+    .map((c) => `<span class="color-pip color-pip--${COLOR_CLASS[c]}" title="${escapeAttr(COLOR_NAMES[c])}">${c}</span>`)
     .join('');
   return ` <span class="color-identity">${pips}</span>`;
 }
 
 function fmt(n, digits = 1) {
-  return n.toLocaleString('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return fmtNumber(n, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 function statTileHtml(label, value, hint = '') {
@@ -381,12 +373,12 @@ function summaryTilesHtml(stats) {
   const { manaValue, librarySize } = stats;
   return `
     <div class="analyze-stat-grid">
-      ${statTileHtml('Tutoren', stats.tutorCount, 'durchsucht die Bibliothek nach einer Karte')}
-      ${statTileHtml('Länder', manaValue.landCount, librarySize ? `${fmt((manaValue.landCount / librarySize) * 100, 0)}%` : '')}
-      ${statTileHtml('Ø Manawert (mit Ländern)', fmt(manaValue.averageWithLands))}
-      ${statTileHtml('Ø Manawert (ohne Länder)', fmt(manaValue.averageWithoutLands))}
-      ${statTileHtml('Gesamt-Manawert', manaValue.total)}
-      ${statTileHtml('Beschleuniger', stats.openingHand.accelerantCount, 'Manarocks + -dorks + Land-Ramp')}
+      ${statTileHtml(t('an.tile.tutors'), stats.tutorCount, t('an.tile.tutorsHint'))}
+      ${statTileHtml(t('an.tile.lands'), manaValue.landCount, librarySize ? `${fmt((manaValue.landCount / librarySize) * 100, 0)}%` : '')}
+      ${statTileHtml(t('an.tile.avgMvWithLands'), fmt(manaValue.averageWithLands))}
+      ${statTileHtml(t('an.tile.avgMvWithoutLands'), fmt(manaValue.averageWithoutLands))}
+      ${statTileHtml(t('an.tile.totalMv'), manaValue.total)}
+      ${statTileHtml(t('an.tile.accelerants'), stats.openingHand.accelerantCount, t('an.tile.accelerantsHint'))}
     </div>
   `;
 }
@@ -406,7 +398,7 @@ function manaCurveSectionHtml(stats) {
         .sort((a, c) => a.name.localeCompare(c.name))
         .map((n) => (n.qty > 1 ? `${n.name} ×${n.qty}` : n.name))
         .join(', ');
-      const title = names || 'Keine Karten';
+      const title = names || t('an.noCards');
       return `
         <div class="bar-col">
           <span class="bar-value">${b.count || ''}</span>
@@ -433,11 +425,11 @@ function manaCurveSectionHtml(stats) {
 
   return `
     <div class="analyze-chart-card">
-      <h4>Manakurve</h4>
-      <p class="hint">Nichtland-Karten nach Manawert (MW). Balken zeigen die Kartenanzahl je MW.</p>
+      <h4>${t('an.manaCurve.heading')}</h4>
+      <p class="hint">${t('an.manaCurve.hint')}</p>
       <div class="bar-chart bar-chart--columns">${bars}</div>
       <table class="analyze-table">
-        <thead><tr><th>MW</th><th>Anzahl</th><th>Karten</th></tr></thead>
+        <thead><tr><th>${t('an.col.mv')}</th><th>${t('an.col.count')}</th><th>${t('an.col.cards')}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -460,20 +452,16 @@ function expectedManaCurveSectionHtml(stats) {
 
   return `
     <div class="analyze-chart-card">
-      <h4>Erwartete verfügbare Mana pro Zug</h4>
-      <p class="hint">
-        Basis: deck-spezifische, fetch-bereinigte Land-Erwartung (max. 1 Landdrop/Zug). 
-        Bonus von Mana-Quellen (Rocks/Dorks/Ramp): nur mit aktuellem Mana bezahlbar, ab Folgezug wirksam; Einmalige Rituale zählen nicht. 
-        Zwei Beschleuniger-Kurven: „maximal" – gezogen sobald bezahlbar, gedeckelt auf bisher gesehene Karten; „realistisch" – hypergeometrisch erwartet.
-      </p>
+      <h4>${t('an.expectedMana.heading')}</h4>
+      <p class="hint">${escapeHtml(t('an.expectedMana.hint'))}</p>
       <div class="line-legend">
-        <span class="line-legend-item"><span class="line-key line-key--context"></span>Nur Länder (Zug ${last.turn}: ${fmt(last.withoutRamp)})</span>
-        <span class="line-legend-item"><span class="line-key line-key--info"></span>Länder + Beschleuniger, realistisch (Zug ${last.turn}: ${fmt(last.withRampRealistic)})</span>
-        <span class="line-legend-item"><span class="line-key line-key--accent"></span>Länder + Beschleuniger, maximal (Zug ${last.turn}: ${fmt(last.withRampMax)})</span>
+        <span class="line-legend-item"><span class="line-key line-key--context"></span>${escapeHtml(t('an.expectedMana.legendLands', { turn: last.turn, value: fmt(last.withoutRamp) }))}</span>
+        <span class="line-legend-item"><span class="line-key line-key--info"></span>${escapeHtml(t('an.expectedMana.legendRealistic', { turn: last.turn, value: fmt(last.withRampRealistic) }))}</span>
+        <span class="line-legend-item"><span class="line-key line-key--accent"></span>${escapeHtml(t('an.expectedMana.legendMax', { turn: last.turn, value: fmt(last.withRampMax) }))}</span>
       </div>
       ${svg}
       <table class="analyze-table">
-        <thead><tr><th>Zug</th><th>Nur Länder</th><th>Mit Beschleunigern (realistisch)</th><th>Mit Beschleunigern (maximal)</th></tr></thead>
+        <thead><tr><th>${t('an.col.turn')}</th><th>${t('an.expectedMana.colLands')}</th><th>${t('an.expectedMana.colRealistic')}</th><th>${t('an.expectedMana.colMax')}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -511,7 +499,7 @@ function expectedCurveSvg(points) {
     points.map((p, i) => `<circle cx="${xFor(i)}" cy="${yFor(p[key])}" r="4" class="${cls}" />`).join('');
 
   return `
-    <svg viewBox="0 0 ${width} ${height}" class="analyze-svg" role="img" aria-label="Erwartete verfügbare Mana pro Zug">
+    <svg viewBox="0 0 ${width} ${height}" class="analyze-svg" role="img" aria-label="${escapeAttr(t('an.expectedMana.svgAria'))}">
       ${gridLines}
       ${polyline('withoutRamp', 'chart-line chart-line--context')}
       ${polyline('withRampRealistic', 'chart-line chart-line--info')}
@@ -547,8 +535,8 @@ function typeDistributionSectionHtml(stats) {
 
   return `
     <div class="analyze-chart-card">
-      <h4>Kartentyp-Verteilung</h4>
-      <p class="hint">Eine Karte kann mehrere Typen haben (z.B. Artefaktkreatur) und zählt dann in beiden Balken.</p>
+      <h4>${t('an.typeDist.heading')}</h4>
+      <p class="hint">${t('an.typeDist.hint')}</p>
       <div class="bar-chart bar-chart--rows">${bars}</div>
     </div>
   `;
@@ -588,19 +576,11 @@ function landArchetypesSectionHtml(stats) {
 
   return `
     <div class="analyze-chart-card">
-      <h4>Land-Archetypen</h4>
-      <p class="hint">
-        Heuristisch aus Typzeile/Kartentext erkannt (Fetch/Schock/Schmerz/
-        Check/Fast/Slow/Kampfland/Triome/Bounce/Kreaturland/Utility/…) —
-        bei ungewöhnlichen Formulierungen kann ein Land in "Sonstiges"
-        landen. "MDFC-Land" sind modale Zauber//Land-Karten (Malakir
-        Rebirth // Malakir Mire, …), die zwar kein Land sind (die
-        Vorderseite entscheidet), aber üblicherweise wie ein flexibles
-        Land eingeplant werden.
-      </p>
+      <h4>${t('an.landArch.heading')}</h4>
+      <p class="hint">${escapeHtml(t('an.landArch.hint'))}</p>
       <div class="bar-chart bar-chart--rows">${bars}</div>
       <table class="analyze-table">
-        <thead><tr><th>Archetyp</th><th>Anzahl</th><th>Länder</th></tr></thead>
+        <thead><tr><th>${t('an.landArch.colArchetype')}</th><th>${t('an.col.count')}</th><th>${t('an.landArch.colLands')}</th></tr></thead>
         <tbody>${tableRows}</tbody>
       </table>
     </div>
@@ -636,15 +616,11 @@ function colorPipsSectionHtml(stats) {
 
   return `
     <div class="analyze-chart-card">
-      <h4>Manasymbole: Kartenbedarf vs. Manaquellen</h4>
-      <p class="hint">
-        Oben je Farbe: farbige Manasymbole in den Kartenkosten (Bedarf). Unten:
-        Länder/Manarocks/-dorks, die diese Farbe erzeugen können (Quellen,
-        anhand der Farbidentität).
-      </p>
+      <h4>${t('an.colorPips.heading')}</h4>
+      <p class="hint">${escapeHtml(t('an.colorPips.hint'))}</p>
       <div class="pip-compare-legend">
-        <span class="line-legend-item"><span class="line-key line-key--solid"></span>Kartenbedarf</span>
-        <span class="line-legend-item"><span class="line-key line-key--light"></span>Manaquellen</span>
+        <span class="line-legend-item"><span class="line-key line-key--solid"></span>${t('an.colorPips.legendDemand')}</span>
+        <span class="line-legend-item"><span class="line-key line-key--light"></span>${t('an.colorPips.legendSources')}</span>
       </div>
       <div class="pip-compare-chart">${rows}</div>
     </div>
@@ -674,44 +650,32 @@ function openingHandSectionHtml(stats) {
 
   const overTimeRows = landsOverTime
     .map(
-      (t) =>
-        `<tr><td>${t.turn === 1 ? '1 (Starthand)' : t.turn}</td><td>${fmt(t.withoutFetchBonus)}</td><td>${fmt(t.withFetchBonus)}</td></tr>`
+      (row) =>
+        `<tr><td>${row.turn === 1 ? t('an.openingHand.turn1') : row.turn}</td><td>${fmt(row.withoutFetchBonus)}</td><td>${fmt(row.withFetchBonus)}</td></tr>`
     )
     .join('');
 
   const fetchHint = fetchCount
-    ? `
-      <p class="hint">
-        ${fetchCount} Fetchland(s) im Deck: Jedes gezogene Fetchland zählt
-        selbst bereits als Land, zieht beim Cracken aber zusätzlich ein
-        weiteres Land aus der verbliebenen Bibliothek (Deck-"Thinning") –
-        das erhöht die ab dann verbliebene Landdichte für spätere Züge
-        leicht. Geschätzter Effekt bis Zug ${lastTurn.turn}: +${fmt(fetchBonusAtEnd, 2)}
-        Länder im Schnitt (Erwartungswert-Näherung, keine Simulation).
-      </p>
-    `
+    ? `<p class="hint">${escapeHtml(t('an.openingHand.fetchHint', { count: fetchCount, turn: lastTurn.turn, bonus: fmt(fetchBonusAtEnd, 2) }))}</p>`
     : '';
 
   return `
     <div class="analyze-chart-card">
-      <h4>Starthand &amp; Landziehungen (7 Karten, aus ${librarySize} Bibliothekskarten)</h4>
+      <h4>${escapeHtml(t('an.openingHand.heading', { size: librarySize }))}</h4>
       <div class="analyze-stat-grid analyze-stat-grid--compact">
-        ${statTileHtml('Ø Länder in der Starthand', fmt(expectedLands))}
-        ${statTileHtml('Ø Länder + Beschleuniger in der Starthand', fmt(expectedLandsPlusAccel))}
-        ${statTileHtml('Länder im Deck', landCount)}
-        ${statTileHtml('davon Fetchlands', fetchCount)}
-        ${statTileHtml('Beschleuniger im Deck', accelerantCount)}
+        ${statTileHtml(t('an.openingHand.tileAvgLands'), fmt(expectedLands))}
+        ${statTileHtml(t('an.openingHand.tileAvgLandsAccel'), fmt(expectedLandsPlusAccel))}
+        ${statTileHtml(t('an.openingHand.tileLandsInDeck'), landCount)}
+        ${statTileHtml(t('an.openingHand.tileFetchlands'), fetchCount)}
+        ${statTileHtml(t('an.openingHand.tileAccelInDeck'), accelerantCount)}
       </div>
-      <p class="hint">Wahrscheinlichkeit für genau k Länder in der Starthand (hypergeometrisch):</p>
+      <p class="hint">${t('an.openingHand.probHint')}</p>
       <div class="prob-row">${probRow}</div>
 
-      <p class="hint" style="margin-top:0.8rem">
-        Erwartete Länder in Hand/Spiel im Zeitverlauf (kumulativ; Zug 1 =
-        Starthand, danach ein Kartenzug pro Zug):
-      </p>
+      <p class="hint" style="margin-top:0.8rem">${t('an.openingHand.overTimeHint')}</p>
       ${fetchHint}
       <table class="analyze-table">
-        <thead><tr><th>Zug</th><th>Ø Länder ohne Fetch-Effekt</th><th>Ø Länder mit Fetch-Effekt</th></tr></thead>
+        <thead><tr><th>${t('an.col.turn')}</th><th>${t('an.openingHand.colWithoutFetch')}</th><th>${t('an.openingHand.colWithFetch')}</th></tr></thead>
         <tbody>${overTimeRows}</tbody>
       </table>
     </div>
@@ -726,8 +690,8 @@ function accelerantsSectionHtml(stats) {
   if (groups.every((g) => !g.length)) {
     return `
       <div class="analyze-chart-card">
-        <h4>Erkannte Beschleuniger</h4>
-        <p class="empty-state">Keine Manarocks/-dorks/Ramp-Zauber/Treasure-Generatoren erkannt.</p>
+        <h4>${t('an.accel.heading')}</h4>
+        <p class="empty-state">${t('an.accel.none')}</p>
       </div>
     `;
   }
@@ -736,30 +700,21 @@ function accelerantsSectionHtml(stats) {
     const li = items
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((c) => `<li>${cardNameHtml(c.name, c.qty)} <span class="accelerant-cmc">MW ${c.cmc}</span></li>`)
+      .map((c) => `<li>${cardNameHtml(c.name, c.qty)} <span class="accelerant-cmc">${t('an.col.mv')} ${c.cmc}</span></li>`)
       .join('');
     return `<div class="accelerant-group"><strong>${title} (${items.length})</strong><ul class="card-list">${li}</ul></div>`;
   };
   return `
     <div class="analyze-chart-card">
-      <h4>Erkannte Beschleuniger</h4>
-      <p class="hint">
-        Heuristisch aus dem Kartentext erkannt — bei ungewöhnlichen
-        Formulierungen kann eine Karte fehlen oder fälschlich auftauchen.
-        Nur Manarocks, -dorks, Land-Auren (z.B. Wild Growth) und Land-Ramp
-        (Land-Tutoren) zählen als dauerhafte Mana-Beschleunigung (siehe
-        Manakurve/Starthand oben) – Rituale (einmaliger Mana-Stoß) und
-        Treasure-Generatoren (Bedingung/Trigger nötig, Token wird beim
-        Nutzen verbraucht) sind nur zur Übersicht gelistet und fließen
-        dort nicht mit ein.
-      </p>
+      <h4>${t('an.accel.heading')}</h4>
+      <p class="hint">${escapeHtml(t('an.accel.hint'))}</p>
       <div class="accelerant-groups">
-        ${list('Manarocks', manaRocks)}
-        ${list('Manadorks', manaDorks)}
-        ${list('Land-Auren', manaLandAuras)}
-        ${list('Land-Ramp (Tutoren)', landRampSpells)}
-        ${list('Rituale', rituals)}
-        ${list('Treasure-Generatoren', treasureGenerators)}
+        ${list(t('an.accel.manaRocks'), manaRocks)}
+        ${list(t('an.accel.manaDorks'), manaDorks)}
+        ${list(t('an.accel.landAuras'), manaLandAuras)}
+        ${list(t('an.accel.landRamp'), landRampSpells)}
+        ${list(t('an.accel.rituals'), rituals)}
+        ${list(t('an.accel.treasure'), treasureGenerators)}
       </div>
     </div>
   `;
@@ -804,7 +759,7 @@ function commandZoneSectionHtml(stats) {
     return `
       <h5>${escapeHtml(title)}</h5>
       <table class="analyze-table">
-        <thead><tr><th>Typ</th><th>Anzahl</th><th>Karten</th></tr></thead>
+        <thead><tr><th>${t('an.commandZone.colType')}</th><th>${t('an.col.count')}</th><th>${t('an.col.cards')}</th></tr></thead>
         <tbody>${trs}</tbody>
       </table>
     `;
@@ -819,36 +774,24 @@ function commandZoneSectionHtml(stats) {
       .map((c) => `<li>${cardNameHtml(c.name, c.qty)}</li>`)
       .join('');
     return `
-      <h5>Tutoren (${total})</h5>
-      <p class="hint">
-        Durchsucht die Bibliothek nach einer Karte — schneidet quer durch
-        die Kategorien oben (ein Land-Tutor zählt z.B. weiterhin als
-        Ramp), daher separat statt als eigene Kategorie gelistet.
-      </p>
+      <h5>${escapeHtml(t('an.commandZone.tutorsHeading', { count: total }))}</h5>
+      <p class="hint">${t('an.commandZone.tutorsHint')}</p>
       <ul class="card-list">${li}</ul>
     `;
   };
 
   return `
     <div class="analyze-chart-card">
-      <h4>Funktionale Kategorien</h4>
-      <p class="hint">
-        Heuristische Einordnung nach Deck-Funktion, angelehnt an gängige
-        Commander-Deckbau-Templates (Lands / Ramp / Card Advantage /
-        Targeted Disruption / Mass Disruption / Plan Cards) — jede
-        Nichtland-Karte zählt zu genau einer Kategorie (Ramp vor Mass- vor
-        Targeted Disruption vor Card Advantage, der Rest zählt als Plan
-        Cards). Aus dem Kartentext erkannt — bei ungewöhnlichen
-        Formulierungen kann eine Karte in der falschen Kategorie landen.
-      </p>
+      <h4>${t('an.commandZone.heading')}</h4>
+      <p class="hint">${escapeHtml(t('an.commandZone.hint'))}</p>
       <div class="bar-chart bar-chart--rows">${bars}</div>
       <table class="analyze-table">
-        <thead><tr><th>Kategorie</th><th>Anzahl</th><th>Karten</th></tr></thead>
+        <thead><tr><th>${t('an.commandZone.colCategory')}</th><th>${t('an.col.count')}</th><th>${t('an.col.cards')}</th></tr></thead>
         <tbody>${tableRows}</tbody>
       </table>
-      ${subKindTable('Card Advantage – Details', cardAdvantage)}
-      ${subKindTable('Targeted Disruption – Details', targetedDisruption)}
-      ${subKindTable('Mass Disruption – Details', massDisruption)}
+      ${subKindTable(t('an.commandZone.cardAdvantageDetails'), cardAdvantage)}
+      ${subKindTable(t('an.commandZone.targetedDetails'), targetedDisruption)}
+      ${subKindTable(t('an.commandZone.massDetails'), massDisruption)}
       ${tutorListHtml(tutors)}
     </div>
   `;
@@ -876,25 +819,17 @@ function archetypeSuggestionsHtml({ suggestions = [], typalSignals = [] }) {
 
   const typalItems = typalSignals
     .map(
-      (t) =>
-        `<li>${escapeHtml(t.creatureType)} — ${t.count} Kreaturen (${Math.round(t.share * 100)}% der Kreaturen)</li>`
+      (sig) =>
+        `<li>${escapeHtml(t('an.playstyle.typalItem', { type: sig.creatureType, count: sig.count, share: Math.round(sig.share * 100) }))}</li>`
     )
     .join('');
 
   return `
     <div class="analyze-chart-card">
-      <h4>Spielstil-Analyse</h4>
-      <p class="hint">
-        Heuristischer Abgleich der Deckliste gegen einen kuratierten
-        Archetyp-Katalog (Signalkarten + Textmuster,
-        server-seitig ausgewertet) — keine Bewertung von Stärke, nur
-        Ähnlichkeit zu bekannten Archetypen (Aristocrats, Voltron, Stax, …).
-        Mehrere Archetypen können gleichzeitig hoch bewertet werden; ein
-        passender Archetyp lässt sich im Bearbeiten-Modus als Deck-Archetyp
-        übernehmen.
-      </p>
-      ${bars ? `<div class="bar-chart bar-chart--rows">${bars}</div>` : '<p class="empty-state">Keine Archetyp-Signale erkannt.</p>'}
-      ${typalItems ? `<h5>Typal-Signale</h5><ul class="card-list">${typalItems}</ul>` : ''}
+      <h4>${t('an.playstyle.heading')}</h4>
+      <p class="hint">${escapeHtml(t('an.playstyle.hint'))}</p>
+      ${bars ? `<div class="bar-chart bar-chart--rows">${bars}</div>` : `<p class="empty-state">${t('an.playstyle.noSignals')}</p>`}
+      ${typalItems ? `<h5>${t('an.playstyle.typalHeading')}</h5><ul class="card-list">${typalItems}</ul>` : ''}
     </div>
   `;
 }
@@ -907,7 +842,7 @@ function bracketAnalysisSectionHtml(stats) {
   const list = (title, items) => {
     const total = items.reduce((s, c) => s + c.qty, 0);
     if (!items.length) {
-      return `<div class="accelerant-group"><strong>${escapeHtml(title)} (0)</strong><p class="empty-state">Keine erkannt.</p></div>`;
+      return `<div class="accelerant-group"><strong>${escapeHtml(title)} (0)</strong><p class="empty-state">${t('an.bracket.noneDetected')}</p></div>`;
     }
     const li = items
       .slice()
@@ -918,8 +853,8 @@ function bracketAnalysisSectionHtml(stats) {
   };
 
   const verdictText = minimumBracket
-    ? `Geschätzte Mindest-Bracket: Bracket ${minimumBracket}+`
-    : 'Keine der prüfbaren Signale (Game Changers / Mass Land Denial) gefunden';
+    ? t('an.bracket.verdict', { bracket: minimumBracket })
+    : t('an.bracket.verdictNone');
 
   const reasonsHtml = reasons.length
     ? `<ul class="issue-list">${reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join('')}</ul>`
@@ -927,30 +862,18 @@ function bracketAnalysisSectionHtml(stats) {
 
   return `
     <section class="analyze-section">
-      <h3>Bracket-Analyse</h3>
-      <p class="hint">
-        Heuristische Annäherung an Wizards of the Coasts offizielles
-        "Commander Brackets"-Beta-System — eine 5-stufige Einschätzung der
-        Power-Level-Erwartung vor dem Spiel (1 Exhibition … 5 cEDH). Von
-        den Kriterien, die Brackets unterscheiden, sind nur drei
-        überhaupt aus einer Kartenliste ablesbar: die offizielle
-        Game-Changers-Liste, Mass Land Denial und Extra-Turn-Karten.
-        <strong>Zwei-Karten-Combos</strong> (ein weiteres Kriterium für
-        Bracket 3) lassen sich nicht aus einzelnen Kartentexten erkennen —
-        dafür z.B. Commander Spellbook nutzen. Tutoren sind seit dem
-        Oktober-2025-Update kein Bracket-Kriterium mehr. Unverbindliche
-        Annäherung, kein offizielles Urteil.
-      </p>
+      <h3>${t('an.bracket.heading')}</h3>
+      <p class="hint">${escapeHtml(t('an.bracket.hint'))}</p>
       <div class="analyze-chart-card">
         <h4>${escapeHtml(verdictText)}</h4>
         ${reasonsHtml}
       </div>
       <div class="analyze-chart-card">
-        <h4>Erkannte Signale</h4>
+        <h4>${t('an.bracket.signalsHeading')}</h4>
         <div class="accelerant-groups">
-          ${list('Game Changers', gameChangers)}
-          ${list('Mass Land Denial', massLandDenial)}
-          ${list('Extra-Turn-Karten', extraTurnSpells)}
+          ${list(t('an.bracket.gameChangers'), gameChangers)}
+          ${list(t('an.bracket.massLandDenial'), massLandDenial)}
+          ${list(t('an.bracket.extraTurns'), extraTurnSpells)}
         </div>
       </div>
     </section>
