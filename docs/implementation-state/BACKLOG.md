@@ -243,12 +243,6 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-- **MEC-73 · Dance — subtype-filtered hand cheat with delayed sacrifice.**
-  Generalize the existing Sneak-Attack-shaped hand-to-battlefield primitive
-  with a subtype criterion and an explicit player choice. Grant haste and
-  create the next-end-step sacrifice trigger for **Incandescent Soulstoke**.
-  It must not let a non-Elemental hand card satisfy the ability.
-
 - **MEC-74 · Dance — tribal/count-sensitive ETB and landfall triggers.**
   Provide shared count selectors and target/conditional composition for:
   land-count token creation plus Plant-landfall counters (**Avenger of

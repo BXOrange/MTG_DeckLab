@@ -53,6 +53,7 @@ from ..effects import (
     LoseLifeEffect,
     ReturnUncastExiledEffect,
     SacrificeSpecificEffect,
+    SacrificeObjectEffect,
     TheRingTemptsYouEffect,
     GameContext,
     GameEffect,
@@ -3077,6 +3078,9 @@ class MiscSystemsMixin:
             # ``not_entered_via_self`` condition) can tell a card THIS
             # ability just placed apart from any other entering permanent.
             "hand_to_battlefield",
+            # MEC-73: Sneak Attack / Incandescent Soulstoke's selected hand
+            # creature enters with haste and a RULE 603.7 delayed sacrifice.
+            "hand_to_battlefield_haste_sacrifice",
             # MEC-46 (Expropriate — "choose a permanent owned by the voter
             # and gain control of it"): the chosen permanent's control
             # moves to the *chooser* (``player``), indefinitely (RULE 701.38
@@ -3607,6 +3611,31 @@ class MiscSystemsMixin:
             if source is not None:
                 obj.entered_via_ability_id = source.instance_id
             self._put_searched_card(player, obj, "battlefield")
+        elif action == "hand_to_battlefield_haste_sacrifice":
+            # RULE 400.7: a hand card entering the battlefield is a new
+            # object. It is selected first, then reset before the entry event
+            # so its ETB abilities see the fresh permanent.
+            if obj not in player.hand:
+                return
+            player.remove_from_zone(obj, Zone.HAND)
+            obj.reset_as_new_object()
+            obj.controller_id = player.id
+            self._put_searched_card(player, obj, "battlefield")
+            obj.temp_keywords.add("haste")
+            continuous.recompute(self.state)
+            source_name = source.name if source is not None else None
+            label = f"{obj.name}: geopfert" + (f" ({source_name})" if source_name else "")
+            # RULE 603.7: "the next end step" is the next end step of any
+            # player's turn, and captures this particular new object.
+            self.state.delayed_triggers.append(
+                DelayedTrigger(
+                    controller_id=player.id,
+                    step="end",
+                    scope="any",
+                    effects=[SacrificeObjectEffect(obj, source=source)],
+                    description=label,
+                )
+            )
         elif action == "choose_permanent" and source is not None:
             # MEC-26: Scheming Fence's own ETB pick — nothing happens to
             # ``obj`` itself, just a pointer stamped onto the source

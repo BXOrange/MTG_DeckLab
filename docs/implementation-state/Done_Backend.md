@@ -1489,9 +1489,11 @@ is in the rules-engine categories below them.
 
 ### Delayed-Trigger Showcase Primitives
 
-- **What:** Ephemerate's Rebound (RULE 702.88b, a standing free-cast window via `GameState.free_cast_instance_ids`), Marchesa the Black Rose's per-firing "counter-death return" delayed trigger, and Sneak Attack/Meek Attack's "cheat a creature into play with haste, sacrifice it at next end step" (`CheatCreatureFromHandEffect`/`RulesEngine.put_hand_creature_onto_battlefield`).
-- **Files:** `game/effects.py`, `game/rules_engine.py`, `game/ability_catalogue.py`
+- **What:** Ephemerate's Rebound (RULE 702.88b, a standing free-cast window via `GameState.free_cast_instance_ids`), Marchesa the Black Rose's per-firing "counter-death return" delayed trigger, and Sneak Attack/Meek Attack's "cheat a creature into play with haste, sacrifice it at next end step" (`CheatCreatureFromHandEffect`).
+- **Files:** `game/effects.py`, `game/rules/misc_mixin.py`, `game/ability_catalogue.py`
 - **Bug fixed:** `RulesEngine.blink` left a phantom duplicate reference in the owner's exile zone after returning the object to the battlefield; and `legal_actions`' exile loop never offered a temp-play-permission-exiled card as castable at all, despite `can_cast`/`cast_spell` fully supporting it.
+- **MEC-73:** Generalized `CheatCreatureFromHandEffect` with an optional creature-subtype OR filter and replaced its automatic first-card pick with the clone-safe `request_choose_objects` path. The selected hand card enters as a fresh object (RULE 400.7), gains haste, and gets its own RULE 603.7 next-end-step sacrifice trigger; the action consequently supports Sneak Attack/Meek Attack and **Incandescent Soulstoke** without permitting an off-tribe card. The oracle handler recognizes the full haste/sacrifice sequence, so Soulstoke is parser-modeled rather than a catalogue-only exception (PARSER_VERSION 273).
+- **Files/tests:** `game/effects.py`, `game/rules/misc_mixin.py`, `parser/oracle/catalogue/handlers.py`; `tests/test_delayed_trigger_examples.py`, `tests/test_mec73_hand_cheat_parser.py`.
 
 ### Group-Subject Damage Triggers
 

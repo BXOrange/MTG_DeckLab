@@ -9652,8 +9652,6 @@ class ReturnTopGraveyardCreatureWithHasteEffect(GameEffect):
         self.delayed_exile_step = delayed_exile_step
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..models.game_state import DelayedTrigger
-
         player = _controller_of(self.source, context)
         if player is None:
             return
@@ -12929,16 +12927,23 @@ class CheatCreatureFromHandEffect(GameEffect):
     the next end step." (Sneak Attack/Meek Attack-shaped — RULE 701 "cheat
     into play" plus a RULE 603.7 delayed sacrifice tail). ``max_total_pt``
     is Meek Attack's own "total power and toughness 5 or less" filter
-    (``None`` for Sneak Attack's unrestricted version). The eligible
-    creature is auto-picked — no chooser in this MVP, the same idiom
-    `RulesEngine.discard` already uses for an un-targeted hand-card pick.
+    (``None`` for Sneak Attack's unrestricted version). ``subtypes`` is an
+    optional OR-filter for cards such as Incandescent Soulstoke's Elemental
+    restriction. The controller chooses the eligible card, including the
+    option not to put one onto the battlefield; that choice has to survive
+    a session snapshot, so it uses `RulesEngine.request_choose_objects`
+    rather than a resolution-time callback.
     """
 
     def __init__(
-        self, max_total_pt: Optional[int] = None, source: Optional["GameObject"] = None,
+        self,
+        max_total_pt: Optional[int] = None,
+        subtypes: Optional[list[str]] = None,
+        source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.max_total_pt = max_total_pt
+        self.subtypes = tuple(str(subtype) for subtype in (subtypes or []) if subtype)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..models.game_state import DelayedTrigger
@@ -12946,21 +12951,29 @@ class CheatCreatureFromHandEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        creature = context.engine.put_hand_creature_onto_battlefield(player, self.max_total_pt)
-        if creature is None:
+        from . import continuous  # function-scoped: avoid the module cycle
+
+        candidates = [
+            obj for obj in player.hand
+            if obj.card.is_creature
+            and (self.max_total_pt is None or (
+                (obj.card.power or 0) + (obj.card.toughness or 0) <= self.max_total_pt
+            ))
+            # RULE 702.73a: changeling is visible in every zone, including
+            # the hand, through `continuous.has_subtype`.
+            and (not self.subtypes or any(continuous.has_subtype(obj, subtype) for subtype in self.subtypes))
+        ]
+        if not candidates:
             return
-        creature.temp_keywords.add("haste")
-        context.recompute()
-        source_name = self.source.name if self.source is not None else None
-        label = f"{creature.name}: geopfert" + (f" ({source_name})" if source_name else "")
-        context.state.delayed_triggers.append(
-            DelayedTrigger(
-                controller_id=player.id,
-                step="end",
-                scope="any",
-                effects=[SacrificeObjectEffect(creature, source=self.source)],
-                description=label,
-            )
+        criterion = " oder ".join(self.subtypes) if self.subtypes else "Kreatur"
+        context.engine.request_choose_objects(
+            player,
+            candidates,
+            action="hand_to_battlefield_haste_sacrifice",
+            count=1,
+            optional=True,
+            prompt=f"{criterion}-Kreaturenkarte aus deiner Hand ins Spiel bringen",
+            source=self.source,
         )
 
 
@@ -22591,7 +22604,9 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "cheat_creature_from_hand",  # Sneak Attack/Meek Attack
-    lambda p: CheatCreatureFromHandEffect(max_total_pt=p.get("max_total_pt")),
+    lambda p: CheatCreatureFromHandEffect(
+        max_total_pt=p.get("max_total_pt"), subtypes=p.get("subtypes"),
+    ),
 )
 EffectRegistry.register(
     "grant_protection",

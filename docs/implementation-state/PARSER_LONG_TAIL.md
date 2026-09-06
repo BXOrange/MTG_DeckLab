@@ -13,7 +13,12 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**40.3% covered — 14,029 / 34,811 — as of 2026-09-06, PARSER_VERSION 272.**
+**40.3% covered — 14,029 / 34,811 — as of 2026-09-06, PARSER_VERSION 273.**
+(v273, MEC-73: recognizes the full subtype-filtered "put from hand, gain
+haste, sacrifice at the next end step" sequence and routes it to the
+interactive `cheat_creature_from_hand` primitive; Incandescent Soulstoke is
+fully modeled. The local coverage cache does not contain that card, so this
+parser reachability fix does not change the measured aggregate.)
 (215 + a hand-authored batch = PAR-30, **Waterbend (RULE 701.67) residue —
 closed**. v215's three parser wins: "Whenever you / an opponent draws
 their **second** card each turn, …" (`segmenter._DRAW_CARD_TRIGGER_NTH_RE`

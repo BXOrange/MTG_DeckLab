@@ -1289,6 +1289,25 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("put_from_hand_onto_battlefield", params)]
 
 
+#: MEC-73: Sneak Attack's hand cheat with the haste/delayed-sacrifice tail.
+#: The optional subtype is deliberately limited to one word: it is a creature
+#: subtype in the printed ``<Subtype> creature card`` grammar, not an
+#: arbitrary card-query string. The whole sequence must be one effect because
+#: the chosen hand card is only known after the interactive choice resolves.
+_CHEAT_CREATURE_FROM_HAND_RE = _c(
+    r"(?:you may )?put an? (?:(?P<subtype>[a-z]+) )?creature card from your hand onto the battlefield\. "
+    r"that creature gains haste until end of turn\. "
+    r"sacrifice (?:it|that creature|the creature) at the beginning of the next end step"
+)
+
+
+def _cheat_creature_from_hand(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict[str, object] = {}
+    if m.group("subtype"):
+        params["subtypes"] = [m.group("subtype").capitalize()]
+    return [EffectSpec("cheat_creature_from_hand", params)]
+
+
 #: RULE 119/701.8's "Target opponent/player reveals their hand. You choose
 #: a `<filter>` card from it[ with mana value N or less]. That player
 #: discards that card[. You lose N life]." (Duress/Thoughtseize/Coercion/
@@ -9176,6 +9195,11 @@ HANDLERS: list[EffectHandler] = [
         "free_cast_from_hand",
         _FREE_CAST_FROM_HAND_RE,
         _free_cast_from_hand,
+    ),
+    EffectHandler(
+        "cheat_creature_from_hand",
+        _CHEAT_CREATURE_FROM_HAND_RE,
+        _cheat_creature_from_hand,
     ),
     # ENG-33: "you may put a <type> card from your hand onto the
     # battlefield" (Dr. Eggman — a villainous-choice option body).

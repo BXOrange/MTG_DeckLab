@@ -1971,37 +1971,6 @@ class SearchMixin:
         self.state.free_cast_instance_ids.add(obj.instance_id)
         if ignore_timing:
             self.state.free_cast_ignore_timing_instance_ids.add(obj.instance_id)
-    def put_hand_creature_onto_battlefield(
-        self, player: Player, max_total_pt: Optional[int] = None
-    ) -> Optional[GameObject]:
-        """"You may put a creature card from your hand onto the
-        battlefield." (RULE 701 "cheat into play" — Sneak Attack/Meek
-        Attack-shaped). Auto-picks the first eligible creature in hand — no
-        chooser in this MVP, the same idiom `discard`/`put_hand_cards_on_
-        top` already use for an un-targeted hand-card pick — optionally
-        filtered by ``max_total_pt`` (Meek Attack's own "total power and
-        toughness 5 or less"). Returns the object placed, or ``None`` if no
-        eligible creature was in hand. RULE 400.7: leaving the hand makes
-        this a new object.
-        """
-        creature = next(
-            (
-                o for o in player.hand
-                if o.card.is_creature
-                and (
-                    max_total_pt is None
-                    or (o.card.power or 0) + (o.card.toughness or 0) <= max_total_pt
-                )
-            ),
-            None,
-        )
-        if creature is None:
-            return None
-        self._remove_from_current_zone(player, creature)
-        creature.reset_as_new_object()
-        creature.controller_id = player.id
-        self._put_searched_card(player, creature, "battlefield")
-        return creature
     def shuffle_library(self, player: Player) -> None:
         """Shuffle a player's library and announce it (RULE 701.20)."""
         player.shuffle_library()
