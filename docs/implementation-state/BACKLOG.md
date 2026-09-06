@@ -243,16 +243,6 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-- **MEC-72 · Dance — tribal reveal/dig and top-card ordering.**
-  Two related library primitives, both chooser-driven and deterministic in
-  the session API: (a) reveal until a qualifying creature type, placing the
-  hit(s) onto the battlefield and returning/shuffling the remainder
-  (**Descendants' Fury**, **Kindred Summons**); (b) inspect a bounded top-N
-  group, select a filtered card for hand/battlefield/top, then put the rest
-  on bottom or into the graveyard (**Eclipsed Flamekin**, **Cream of the
-  Crop**, **Cavalier of Thorns**). Preserve cards' actual zones and choices;
-  do not auto-pick the first match.
-
 - **MEC-73 · Dance — subtype-filtered hand cheat with delayed sacrifice.**
   Generalize the existing Sneak-Attack-shaped hand-to-battlefield primitive
   with a subtype criterion and an explicit player choice. Grant haste and
