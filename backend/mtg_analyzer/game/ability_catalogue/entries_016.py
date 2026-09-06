@@ -2882,6 +2882,7 @@ def _avenger_of_zendikar() -> list[AbilitySpec]:
                 "event": EventType.ENTERS_BATTLEFIELD,
                 "condition": {"subject": "group", "type": "land", "controller": "you"},
             },
+            optional=True,
             raw_text="Landung — Immer wenn ein Land unter deiner Kontrolle ins Spiel kommt, "
                      "kannst du auf jede Pflanze, die du kontrollierst, eine +1/+1-Marke legen.",
         ),
@@ -2988,3 +2989,51 @@ def _vernal_sovereign() -> list[AbilitySpec]:
 
 
 register("Vernal Sovereign", _vernal_sovereign)
+
+
+# ---------------------------------------------------------------------------
+# MEC-75: Dance of the Elements — temporary parameterized trigger grants
+# ---------------------------------------------------------------------------
+
+
+def _subterfuge() -> list[AbilitySpec]:
+    """Give the ETB target flying and its own combat-damage draw trigger.
+
+    The quoted trigger is deliberately a second ``grant_until`` static,
+    rather than a marker keyword on the target: each affected creature needs
+    a real RULE 603 ability whose source is that creature, and whose draw
+    amount is read from the particular DAMAGE event that made it trigger.
+    ``GrantUntilEffect`` keeps both statics in the existing duration store,
+    so the grant is re-derived while it lasts and disappears at cleanup.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("grant_until", {
+                "duration": "end_of_turn",
+                "target_kind": "creature",
+                "static": {
+                    "type": "grant_keyword",
+                    "params": {"keywords": ["flying"]},
+                },
+                "extra_statics": [{
+                    "type": "grant_triggered_ability",
+                    "params": {
+                        "trigger_event": EventType.DAMAGE,
+                        "filter": {"combat": True, "is_player": True},
+                        "grant_effects": [{
+                            "type": "draw",
+                            "params": {"count_from_trigger_event": "amount"},
+                        }],
+                    },
+                }],
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text=("When this creature enters, target creature gains flying and "
+                      "\"Whenever this creature deals combat damage to a player, "
+                      "draw that many cards\" until end of turn."),
+        ),
+    ]
+
+
+register("Subterfuge", _subterfuge)

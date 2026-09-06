@@ -243,12 +243,6 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-- **MEC-75 · Dance — temporary granted triggered abilities.**
-  A target must be able to gain a real parameterized trigger until end of
-  turn, including its combat-damage amount, not merely a display keyword.
-  Required for **Subterfuge**'s flying plus "draw that many cards" combat
-  rider, and should reuse the existing temporary-static duration cleanup.
-
 - **MEC-76 · Dance — remaining card-resolution packages.**
   Hand-author and execute the smaller, still distinct bodies after the shared
   primitives above: **Return of the Wildspeaker** (non-Human greatest-power

@@ -6040,3 +6040,17 @@ table, re-measured after each batch.
   land/Elemental/creature counts, targeted damage, Plant-only counters,
   eight-land conditional draw, Garruk threshold/trample, and Vernal's live
   token P/T; `tests/test_dance_elements_batch.py` remains green.
+
+### MEC-75 — Dance: temporary granted triggered abilities
+
+- **What:** Hand-authored **Subterfuge**'s ETB as a pair of duration-bound
+  statics on its chosen creature: a flying keyword grant and a genuine
+  self-scoped combat-damage trigger. The latter is a real layer-6
+  `grant_triggered_ability`, filtered to combat damage dealt to a player;
+  its `DrawCardEffect` reads `count_from_trigger_event="amount"`, preserving
+  the amount of the particular damage event that triggered it. Both statics
+  use `GrantUntilEffect`'s existing end-of-turn duration storage and cleanup.
+- **Files:** `game/ability_catalogue/entries_016.py` and
+  `tests/test_mec75_dance_temporary_trigger.py`.
+- **Verification:** The regression covers normal ETB target selection,
+  combat-only self scoping, parameterized draw count, and cleanup expiry.

@@ -46,8 +46,12 @@ def test_avenger_counts_lands_for_plants_then_landfall_counters_only_plants():
     assert len(plants) == 2
 
     land = _put(eng, _card("Mountain", "Basic Land — Mountain"))
-    _resolve_event(eng, GameEvent(EventType.ENTERS_BATTLEFIELD, instance_id=land.instance_id,
-                                  controller_id="p1", object_types=["land"]))
+    eng.state.fire_event(GameEvent(EventType.ENTERS_BATTLEFIELD, instance_id=land.instance_id,
+                                   controller_id="p1", object_types=["land"]))
+    eng.resolve_until_stable()
+    assert eng.state.pending_choice["kind"] == "trigger_target"
+    eng.resolve_pending_choice("do")
+    eng.resolve_until_stable()
     assert [plant.counters.get("+1/+1") for plant in plants] == [1, 1]
 
 
