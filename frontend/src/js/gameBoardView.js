@@ -230,6 +230,7 @@ export function createGameBoardView(opts = {}) {
   // it's derived, view-only state, same footing as `flippedForView` above.
   let targetedInstanceIds = new Set();
   let mutualTargetPairIds = new Set();
+  let abilitySourceInstanceIds = new Set();
 
   function updateTargetOverlays(s) {
     targetedInstanceIds = new Set();
@@ -261,6 +262,23 @@ export function createGameBoardView(opts = {}) {
       }
     }
     mutualTargetPairIds = mutual;
+  }
+
+  // Highlight the permanent that owns an ability currently waiting on the
+  // stack or on an interactive choice. The source is derived from the stack
+  // so the mark also survives while the ability has paused on a choice.
+  function updateAbilitySourceOverlays(s, pending) {
+    const sourceIds = new Set();
+    for (const item of s.stack || []) {
+      if (item.kind !== 'ability') continue;
+      const sourceId = item.source?.instance_id;
+      if (sourceId != null) sourceIds.add(sourceId);
+    }
+    for (const key of ['source_instance_id', 'source_id', 'explorer_id', 'permanent_id']) {
+      const sourceId = pending?.[key];
+      if (sourceId != null) sourceIds.add(sourceId);
+    }
+    abilitySourceInstanceIds = sourceIds;
   }
   // --- "Time to react" countdown (RULE 117, interactive-priority sessions) ---
   // This is a *response* clock, not a turn clock: it always runs while this
@@ -1148,6 +1166,7 @@ export function createGameBoardView(opts = {}) {
     const stackNonEmpty = s.stack.length > 0;
     if (!pending) choiceAside = false;
     updateTargetOverlays(s);
+    updateAbilitySourceOverlays(s, pending);
 
     root.innerHTML = `
       <div class="goldfish${(pending && !choiceAside) || castTargeting ? ' choosing' : ''}" style="--gf-scale: ${(getBoardScale() / 100).toFixed(2)}">
@@ -2867,6 +2886,7 @@ export function createGameBoardView(opts = {}) {
     // instead of just the plain target overlay, so the pairing itself reads
     // at a glance.
     if (mutualTargetPairIds.has(o.instance_id)) classes.push('gf-mutual-target');
+    if (abilitySourceInstanceIds.has(o.instance_id)) classes.push('gf-ability-source');
     // "Mana-Potenzial": server-computed (`services/game_session.py`'s
     // `_annotate_castable`) — whether this hand card could be paid for by
     // tapping/exiling untapped mana sources, purely a mana-affordability
