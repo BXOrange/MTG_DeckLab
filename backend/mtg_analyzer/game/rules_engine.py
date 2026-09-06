@@ -244,6 +244,11 @@ class RulesEngine(
         #: opponent {2}); see `request_pay_cost_then`/
         #: `resolve_pay_cost_then_choice`.
         self._pending_pay_cost_then: Optional[dict[str, Any]] = None
+        #: Backing state for an optional "exile this card. If you do, …"
+        #: resolution.  Unlike an activation cost the source can already be
+        #: in a graveyard when this is offered (Greenwarden of Murasa), so it
+        #: deliberately has its own zone-aware primitive.
+        self._pending_exile_source_then: Optional[dict[str, Any]] = None
         #: Backing state for a `request_each_player_pay_or` mass sweep
         #: (PAR-13's "each player loses N life unless they `<pay cost>`" —
         #: Bellowing Mauler/Lim-Dûl's Hex/Tomb of Annihilation's own two

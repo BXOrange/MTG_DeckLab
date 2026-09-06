@@ -165,9 +165,11 @@ its block back into the matching section here.
     `count_selector` per phrase in `continuous.py`, plus the **Aura** form
     (`enchanted creature gets +N/+N for each <X>` — `affects=
     "attached_permanent"` instead of `"self"`). See `Done_Backend.md`.
-  - **PAR-44** — static permission / prohibition (`you may play lands from
-    your graveyard` #9, `a deck can have any number of cards named ~` #10 —
-    a deckbuilding clause, claim-without-spec).
+  - **PAR-44** — static permission / prohibition. The graveyard-land side is
+    now closed for the Muldrotha-shaped permanent-type permission: the shared
+    graveyard grant tracks one use for each permanent type, including a land
+    play, and resets at untap. The remaining `a deck can have any number of
+    cards named ~` #10 is a deckbuilding clause, claim-without-spec.
   - **PAR-45** — ETB compound utility. Left: `as ~ enters, choose an
     opponent` (#10). Closed: `target opponent loses <n> life and you gain
     <n> life` (the Blood Artist / Zulaport drain family — `lose_life`'s
@@ -240,6 +242,55 @@ its block back into the matching section here.
     Thrull, Belfry Spirit, Blind Hunter, Exhumer Thrull, Graven Dominator.
 
 ## MEC — Game mechanics
+
+- **MEC-71 · Dance — chosen creature type, graveyard return and free cast.**
+  Add a reusable chooser for a creature type that persists for the resolving
+  spell, then support returning a bounded/all set of matching creature cards
+  from its controller's graveyard to the battlefield. It must support an
+  alternative cast history condition (Foretell already supplies that marker)
+  for **Haunting Voyage**. The same package needs the targeted "play/cast an
+  Elemental card from your graveyard without paying its mana cost" permission
+  of **Horde of Notions**, including the normal exile-on-resolution redirect
+  when a spell was free-cast from a graveyard.
+
+- **MEC-72 · Dance — tribal reveal/dig and top-card ordering.**
+  Two related library primitives, both chooser-driven and deterministic in
+  the session API: (a) reveal until a qualifying creature type, placing the
+  hit(s) onto the battlefield and returning/shuffling the remainder
+  (**Descendants' Fury**, **Kindred Summons**); (b) inspect a bounded top-N
+  group, select a filtered card for hand/battlefield/top, then put the rest
+  on bottom or into the graveyard (**Eclipsed Flamekin**, **Cream of the
+  Crop**, **Cavalier of Thorns**). Preserve cards' actual zones and choices;
+  do not auto-pick the first match.
+
+- **MEC-73 · Dance — subtype-filtered hand cheat with delayed sacrifice.**
+  Generalize the existing Sneak-Attack-shaped hand-to-battlefield primitive
+  with a subtype criterion and an explicit player choice. Grant haste and
+  create the next-end-step sacrifice trigger for **Incandescent Soulstoke**.
+  It must not let a non-Elemental hand card satisfy the ability.
+
+- **MEC-74 · Dance — tribal/count-sensitive ETB and landfall triggers.**
+  Provide shared count selectors and target/conditional composition for:
+  land-count token creation plus Plant-landfall counters (**Avenger of
+  Zendikar**); Elemental-count damage and the eight-lands conditional draw
+  (**Omnath, Locus of the Roil**); power-threshold ETB draw and an all-creature
+  trample static (**Garruk's Uprising**); and the dynamic creature-count P/T
+  Elemental token of **Vernal Sovereign**.
+
+- **MEC-75 · Dance — temporary granted triggered abilities.**
+  A target must be able to gain a real parameterized trigger until end of
+  turn, including its combat-damage amount, not merely a display keyword.
+  Required for **Subterfuge**'s flying plus "draw that many cards" combat
+  rider, and should reuse the existing temporary-static duration cleanup.
+
+- **MEC-76 · Dance — remaining card-resolution packages.**
+  Hand-author and execute the smaller, still distinct bodies after the shared
+  primitives above: **Return of the Wildspeaker** (non-Human greatest-power
+  modal draw/pump), **Mass of Mysteries** (temporary myriad grant),
+  **Slithermuse** (leave-battlefield opponent choice and hand-size delta
+  draw), and **Impulsivity** (graveyard instant/sorcery free cast plus a
+  one-spell graveyard-to-exile replacement). Each needs an end-to-end
+  contract; none may be marked covered solely by catalogue registration.
 
 
 - **MEC-67 · Teamwork optional additional cost (RULE 702.194).** Offer a

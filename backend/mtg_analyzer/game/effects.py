@@ -2112,6 +2112,7 @@ class GraveyardCastPermissionEffect(GameEffect):
         source: Optional["GameObject"] = None,
         instant_sorcery_only: bool = False,
         expires_turn: Optional[int] = None,
+        per_permanent_type: bool = False,
     ) -> None:
         super().__init__(source)
         self.max_mana_value = max_mana_value
@@ -2133,6 +2134,9 @@ class GraveyardCastPermissionEffect(GameEffect):
         #: "as long as the granting permanent is on the battlefield", same
         #: as before this field existed.
         self.expires_turn = expires_turn
+        #: Muldrotha: one permanent spell of *each* permanent type, rather
+        #: than this grant's ordinary single use per turn.
+        self.per_permanent_type = per_permanent_type
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # continuous marker — consulted by graveyard_cast.py, not applied
@@ -3794,6 +3798,22 @@ class DrawEachPlayerWithCreaturePowerEffect(GameEffect):
                 for obj in context.state.permanents_controlled_by(player.id)
             ):
                 context.draw(player, 1)
+
+
+class DrawControlledChosenCreatureTypeEffect(GameEffect):
+    """Draw for each creature of this spell's resolve-time chosen type."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from . import continuous
+        player = _controller_of(self.source, context)
+        chosen = getattr(self.source, "chosen_type", None)
+        if player is None or not chosen:
+            return
+        count = sum(
+            1 for obj in context.state.permanents_controlled_by(player.id)
+            if obj.is_creature and continuous.has_subtype(obj, chosen)
+        )
+        context.draw(player, count)
 
 
 class SylvanLibraryEffect(GameEffect):
@@ -9778,6 +9798,18 @@ class PeekTopLandBattlefieldTappedEffect(GameEffect):
         context.engine.peek_top_land_battlefield_tapped(player, source=self.source)
 
 
+class PeekTopLandOrHandEffect(GameEffect):
+    """Look at the top card; optionally put a land from it onto the
+    battlefield tapped, otherwise put that card into hand (Risen Reef)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.engine.peek_top_land_battlefield_tapped(
+                player, source=self.source, otherwise_hand=True,
+            )
+
+
 class CreateTokenMayAttachEquipmentEffect(GameEffect):
     """Create a token, then optionally attach a *targeted* Equipment you
     control to it (Nahiri, Heir of the Ancients' +1) — the attach target is
@@ -10962,6 +10994,33 @@ class PayCostThenPreviousMvEffect(GameEffect):
             source=self.source,
             prompt=f"Manakosten von {card_obj.name} bezahlen?",
             captured_previous=[card_obj],
+        )
+
+
+class MayExileSourceThenEffect(GameEffect):
+    """``You may exile this card. If you do, <targeted payoff>.``
+
+    Dies abilities need this as a resolution primitive rather than an
+    activation cost: by the time the trigger resolves, its source is a card
+    in a graveyard. The payoff is emitted as a reflexive trigger so ordinary
+    target selection happens after the optional exile has succeeded.
+    """
+
+    def __init__(
+        self, then_trigger: Optional[list[dict[str, Any]]] = None,
+        prompt: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.then_trigger_specs = list(then_trigger or [])
+        self.prompt = prompt
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        context.engine.request_exile_source_then(
+            player, self.source, self.then_trigger_specs, prompt=self.prompt,
         )
 
 
@@ -20128,6 +20187,23 @@ class ChooseTargetsEffect(GameEffect):
         return
 
 
+class DestroyArtifactsEnchantmentsThenCountersEffect(GameEffect):
+    """Destroy every artifact and enchantment, then grow the source by the
+    number actually destroyed (Bane of Progress)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        destroyed = 0
+        for obj in list(context.state.battlefield):
+            if not (obj.card.is_artifact or obj.card.is_enchantment):
+                continue
+            was_present = obj in context.state.battlefield
+            context.destroy(obj)
+            if was_present and obj not in context.state.battlefield:
+                destroyed += 1
+        if destroyed and self.source is not None and self.source in context.state.battlefield:
+            context.add_counters(self.source, destroyed, "+1/+1", source=self.source)
+
+
 class DestroyEachWithManaValueEffect(GameEffect):
     """"Destroy each artifact with mana value X." (Dauntless Dismantler's
     ``{X}{X}{W}`` ability) — a mass destroy whose *filter* is the ability's
@@ -20488,6 +20564,9 @@ EffectRegistry.register(
 EffectRegistry.register(
     "draw_each_player_with_creature_power",
     lambda p: DrawEachPlayerWithCreaturePowerEffect(min_power=int(p.get("min_power", 4))),
+)
+EffectRegistry.register(
+    "draw_controlled_chosen_creature_type", lambda p: DrawControlledChosenCreatureTypeEffect(),
 )
 EffectRegistry.register(
     "discard",
@@ -21453,6 +21532,7 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register("peek_top_land_battlefield_tapped", lambda p: PeekTopLandBattlefieldTappedEffect())
+EffectRegistry.register("peek_top_land_or_hand", lambda p: PeekTopLandOrHandEffect())
 EffectRegistry.register(
     "target_player_draw_lose_life",  # Sign in Blood
     lambda p: TargetPlayerDrawLoseLifeEffect(
@@ -21625,6 +21705,15 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "You may exile this card. If you do, ..." while the source is already
+    # in a graveyard (Greenwarden of Murasa). The `then_trigger` gets fresh
+    # targets only after the optional exile actually happened.
+    "may_exile_source_then",
+    lambda p: MayExileSourceThenEffect(
+        then_trigger=list(p.get("then_trigger", [])), prompt=p.get("prompt"),
+    ),
+)
+EffectRegistry.register(
     # RULE 118.3 resolve-time optional payment, generalized past energy:
     # "you may pay <cost>. If you do, <effect>. [If you don't, <effect>.]"
     # (Mana Vault's upkeep untap, Wandering Archaic's per-opponent {2}).
@@ -21760,6 +21849,10 @@ EffectRegistry.register(
         distinct_controllers=bool(p.get("distinct_controllers", False)),
         optional=bool(p.get("optional", False)),
     ),
+)
+EffectRegistry.register(
+    "destroy_artifacts_enchantments_then_counters",
+    lambda p: DestroyArtifactsEnchantmentsThenCountersEffect(),
 )
 EffectRegistry.register(
     # "Destroy each artifact with mana value X." (Dauntless Dismantler)
@@ -22669,6 +22762,7 @@ EffectRegistry.register(
         permanent_only=p.get("permanent_only", True),
         once_per_turn=p.get("once_per_turn", True),
         exile_if_would_be_put_into_graveyard=p.get("exile_if_would_be_put_into_graveyard", False),
+        per_permanent_type=bool(p.get("per_permanent_type", False)),
     ),
 )
 EffectRegistry.register(

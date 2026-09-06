@@ -710,6 +710,7 @@ class TurnLoopMixin:
             # during each of your turns" restriction (Lurrus-shaped) resets
             # the same way.
             obj.graveyard_casts_this_turn = 0
+            obj.graveyard_cast_types_this_turn = set()
             # ENG-27: "if you haven't added mana with this ability this
             # turn" (Carpet of Flowers) resets the same way too.
             obj.added_mana_with_ability_this_turn = False
@@ -1270,6 +1271,8 @@ class TurnLoopMixin:
             # Vault, Wandering Archaic) — "pay" charges the cost and runs
             # the follow-up; anything else runs the "if you don't" branch.
             self.rules.resolve_pay_cost_then_choice(None if declined else str(answer))
+        elif kind == "exile_source_then":
+            self.rules.resolve_exile_source_then_choice(None if declined else str(answer))
         elif kind == "pay_life_or_return_to_library":
             # Sylvan Library (MEC-40): "…pay 4 life or put the card on top
             # of your library." — a mandatory per-card either/or, not a

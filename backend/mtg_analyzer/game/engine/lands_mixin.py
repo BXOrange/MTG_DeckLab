@@ -57,7 +57,7 @@ from ..targeting import (
     resolved_count,
     spell_target_specs,
 )
-from ..graveyard_cast import graveyard_cast_grant_for, has_temporary_graveyard_play_permission
+from ..graveyard_cast import graveyard_cast_grant_for, graveyard_land_play_grant_for, has_temporary_graveyard_play_permission
 from ..top_library import (
     may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
@@ -92,7 +92,8 @@ class LandsMixin:
             or (
                 obj.zone == Zone.GRAVEYARD
                 and obj in player.graveyard
-                and has_temporary_graveyard_play_permission(player, self.state)
+                and (has_temporary_graveyard_play_permission(player, self.state)
+                     or graveyard_land_play_grant_for(player, self.state, card) is not None)
             )
         )
         return (
@@ -131,6 +132,10 @@ class LandsMixin:
         """
         if not self.can_play_land(player, obj, face=face):
             raise ValueError(f"{player.id} cannot play {obj.name} now")
+        graveyard_grant = (
+            graveyard_land_play_grant_for(player, self.state, obj.card)
+            if obj.zone == Zone.GRAVEYARD else None
+        )
         if face == "back":
             self.rules.switch_to_face(obj, obj.card.back_face())
         # Zone-agnostic (not just hand) so a land can be played from the top
@@ -149,6 +154,9 @@ class LandsMixin:
             self.rules.enter_land_tapped(obj)
             self.state.add_to_battlefield(obj)
             player.lands_played_this_turn += 1
+            if graveyard_grant is not None and graveyard_grant.source is not None:
+                used = getattr(graveyard_grant.source, "graveyard_cast_types_this_turn", set())
+                graveyard_grant.source.graveyard_cast_types_this_turn = used | {"land"}
             self.state.record_stat(player.id, "land", name=obj.name)
             self.state.fire_event(
                 GameEvent(

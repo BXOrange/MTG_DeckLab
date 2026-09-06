@@ -361,7 +361,8 @@ class SearchMixin:
             found_land=False,
         )
     def peek_top_land_battlefield_tapped(
-        self, player: Player, source: Optional[GameObject] = None
+        self, player: Player, source: Optional[GameObject] = None,
+        otherwise_hand: bool = False,
     ) -> None:
         """"Look at the top card of your library. If it's a land card, you
         may put it onto the battlefield tapped." (Explorer's Scope) — RULE
@@ -385,14 +386,17 @@ class SearchMixin:
         if top.card.is_land:
             options = [
                 {"id": "put", "label": "Getappt ins Spiel legen", "instance_id": top.instance_id},
-                {"id": "decline", "label": "Oben liegen lassen"},
+                ({"id": "hand", "label": "Auf die Hand nehmen"}
+                 if otherwise_hand else {"id": "decline", "label": "Oben liegen lassen"}),
             ]
             prompt = f'{prefix}„{top.card.name}“ getappt ins Spiel legen?'
         else:
             # No real decision — a single acknowledgement button just so
             # the peeked card is actually shown (see docstring above).
-            options = [{"id": "ok", "label": "OK", "instance_id": top.instance_id}]
-            prompt = f'{prefix}Oberste Karte: „{top.card.name}“ (kein Land).'
+            options = ([{"id": "hand", "label": "Auf die Hand nehmen", "instance_id": top.instance_id}]
+                       if otherwise_hand else [{"id": "ok", "label": "OK", "instance_id": top.instance_id}])
+            prompt = (f'{prefix}„{top.card.name}“ auf die Hand nehmen?'
+                      if otherwise_hand else f'{prefix}Oberste Karte: „{top.card.name}“ (kein Land).')
         self.state.pending_choice = {
             "kind": "peek_top_land",
             "player_id": player.id,
@@ -414,14 +418,16 @@ class SearchMixin:
         if not choice or choice.get("kind") != "peek_top_land":
             raise ValueError("no pending peek-top-land choice to resolve")
         self.state.pending_choice = None
-        if answer != "put":
-            return
         player = self.state.player_by_id(choice["player_id"])
         top = next((o for o in player.library if o.instance_id == choice["card_id"]), None)
         if top is None:
             return
-        player.remove_from_zone(top, top.zone)
-        self._put_searched_card(player, top, "battlefield_tapped")
+        if answer == "put":
+            player.remove_from_zone(top, top.zone)
+            self._put_searched_card(player, top, "battlefield_tapped")
+        elif answer == "hand":
+            player.remove_from_zone(top, top.zone)
+            player.add_to_zone(top, Zone.HAND)
     def _look_top_choice(
         self,
         player: Player,

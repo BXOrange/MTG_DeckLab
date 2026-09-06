@@ -5880,3 +5880,52 @@ table, re-measured after each batch.
   existing Encore keyword machinery continues to supply the separate
   graveyard activation. The end-to-end test answers the triggered target
   choice and verifies both the destruction and life total.
+
+### Greenwarden of Murasa and Risen Reef (Dance of the Elements deck batch)
+
+- **What:** Added two reusable resolution primitives. `may_exile_source_then`
+  offers an actual optional exile while a dies-trigger source is already in a
+  graveyard, then creates a reflexive targeted follow-up only if it was
+  exiled. `peek_top_land_or_hand` extends the existing top-card land flow
+  with the mandatory hand fallback used by Risen Reef.
+- **Yield:** Greenwarden of Murasa and Risen Reef fully playable; Dance of
+  the Elements coverage is now 66 / 89. End-to-end contracts live in
+  `tests/test_dance_elements_batch.py`.
+
+### Muldrotha, the Gravetide (Dance of the Elements deck batch)
+
+- **What:** Extended the standing graveyard-cast permission with Muldrotha's
+  separate once-per-turn bucket for every permanent type, including a land
+  play from the graveyard. Multi-type permanent spells use one still-unused
+  printed type; all buckets reset at the controller's untap step.
+- **Yield:** Dance of the Elements coverage is now 67 / 89; the regression
+  test casts an artifact and creature, then plays a land, all from a single
+  graveyard in the same turn.
+
+### Distant Melody (Dance of the Elements deck batch)
+
+- **What:** Reused the resolve-time creature-type choice and added the
+  generic follow-up that counts controlled creatures of that chosen type.
+- **Yield:** Dance of the Elements coverage is now 68 / 89; the end-to-end
+  contract verifies an Elf choice and three resulting draws.
+
+### Bane of Progress, Yarok and Titan of Industry (Dance deck batch)
+
+- **What:** Added the atomic artifact/enchantment wipe with an actual
+  destroyed-permanent counter result; bound Yarok to the shared ETB trigger
+  doubler; and modeled Titan of Industry's four choose-two ETB modes.
+- **Yield:** Dance of the Elements coverage reached 71 / 89; focused deck
+  contracts cover the Bane resolution and Titan's modal registration.
+
+### Foretell engine primitive
+
+- **What:** Implemented RULE 702.143 end to end. `foretell` is a hand-zone
+  special action which validates the active turn, pays `{2}` (including
+  normal auto-tap), and exiles the card face down. The stamped object becomes
+  castable only from its owner's exile on a later turn; `effective_cast_cost`
+  substitutes its parsed Foretell cost. The cast retains `foretold=True`, so
+  existing `source_was_foretold` conditional effects now work. Legal actions
+  expose both the special action and the later cast, while `GameSession`
+  accepts `{"type":"foretell","instance_id":...}` through the regular API.
+- **Verification:** Deck regression plus session-dispatch coverage in
+  `tests/test_dance_elements_batch.py` and `tests/test_game_session.py`.

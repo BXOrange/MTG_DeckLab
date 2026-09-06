@@ -193,6 +193,12 @@ class GameObject:
         #: time (`RulesEngine.cast_spell`), same "survives past the object
         #: leaving the stack" reasoning.
         self.cast_from_exile: bool = False
+        #: RULE 702.143: set by Foretell's special action and retained on
+        #: the subsequently cast spell for "if this spell was foretold".
+        self.foretold: bool = False
+        #: The internal turn on which this card was foretold.  Foretell only
+        #: permits casting it on a later turn.
+        self.foretold_turn: Optional[int] = None
         #: RULE 601.3a: whether this spell was cast at a time a sorcery
         #: couldn't have been (not the caster's main phase, a nonempty
         #: stack, or not their own turn) — legal only via a flash grant

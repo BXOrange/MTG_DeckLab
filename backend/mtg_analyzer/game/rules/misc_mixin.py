@@ -333,6 +333,48 @@ class MiscSystemsMixin:
         # since that dict is only ever populated by the mass primitive.
         if self._pending_each_player_pay_or is not None:
             self._advance_each_player_pay_or()
+
+    def request_exile_source_then(
+        self, player: Player, source: GameObject, then_trigger_specs: list[dict],
+        prompt: Optional[str] = None,
+    ) -> None:
+        """Offer ``You may exile this card. If you do, ...`` during a
+        resolution.  This is intentionally separate from ``ActivationCost``:
+        a dies trigger's source has already moved to its owner's graveyard.
+        The follow-up is a reflexive trigger so its target is chosen only
+        after the source was actually exiled (RULE 603.11)."""
+        if source.zone != Zone.GRAVEYARD:
+            return
+        self._pending_exile_source_then = {
+            "player_id": player.id,
+            "source": source,
+            "then_trigger_specs": [dict(d) for d in then_trigger_specs],
+        }
+        self.state.pending_choice = {
+            "kind": "exile_source_then",
+            "player_id": player.id,
+            "prompt": prompt or f"{source.name} ins Exil schicken?",
+            "options": [
+                {"id": "exile", "label": "Ins Exil schicken"},
+                {"id": "decline", "label": "Nicht ins Exil schicken"},
+            ],
+        }
+
+    def resolve_exile_source_then_choice(self, answer: Optional[str]) -> None:
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "exile_source_then":
+            raise ValueError("no pending exile-source-then choice to resolve")
+        self.state.pending_choice = None
+        pending = self._pending_exile_source_then
+        self._pending_exile_source_then = None
+        if pending is None or answer != "exile":
+            return
+        source = pending["source"]
+        # Re-check the zone: another replacement or response may have moved it.
+        if source.zone != Zone.GRAVEYARD:
+            return
+        self.exile(source)
+        self.enqueue_reflexive_trigger(pending["then_trigger_specs"], source)
     def enqueue_reflexive_trigger(
         self,
         effect_specs: list[dict[str, Any]],

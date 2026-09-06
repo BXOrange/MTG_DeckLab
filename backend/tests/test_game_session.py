@@ -46,6 +46,13 @@ def shock():
     )
 
 
+def foretell_spell():
+    return Card(
+        id="Foretell Test", name="Foretell Test", type_line="Instant",
+        mana_cost_string="{3}{U}", converted_mana_cost=4, is_instant=True,
+    )
+
+
 def make_session(library=None, commanders=None, hand=7):
     library = library if library is not None else [land()] * 30
     engine = build_goldfish_engine(library, commanders=commanders, starting_hand=hand)
@@ -106,6 +113,20 @@ class TestStackAndChoices:
 
         assert state.stack[-1].obj.kicker_count == 1
         assert state.active_player.mana_pool.total() == 0
+
+    def test_foretell_action_dispatches_from_the_session_payload(self):
+        session = make_session(library=[land()] * 10 + [foretell_spell(), land()], hand=7)
+        self._advance_to_main1(session)
+        state = session.engine.state
+        spell = next(o for o in state.active_player.hand if o.name == "Foretell Test")
+        spell.parametric_keywords = {"foretell": {"cost": "{1}{U}"}}
+        state.active_player.mana_pool.add_many({"C": 2})
+
+        action = next(a for a in session.legal_actions() if a["type"] == "foretell")
+        session.apply_action({"type": "foretell", "instance_id": action["instance_id"]})
+
+        assert spell in state.active_player.exile
+        assert spell.foretold and spell.face_down_in_exile
 
     def test_cast_spell_forwards_discard_choices_for_an_additional_cost(self):
         # RULE 601.2b/602.1: a spell's "as an additional cost to cast this

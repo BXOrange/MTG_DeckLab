@@ -1040,6 +1040,10 @@ class GameSession:
         # refuses without a planar deck.
         self.engine.roll_planar_die(active)
 
+    def _dispatch_foretell(self, action: dict[str, Any], active: Player) -> None:
+        """RULE 702.143a's special action; it does not use the stack."""
+        self.engine.foretell(active, self._object(action))
+
     def _dispatch_turn_face_up(self, action: dict[str, Any], active: Player) -> None:
         # RULE 116.2b: the special action of turning a face-down
         # permanent face up (morph/disguise/manifest/cloak) — no stack,
@@ -1141,6 +1145,7 @@ class GameSession:
         "activate_hand_mana": _dispatch_activate_hand_mana,
         "auto_tap_for": _dispatch_auto_tap_for,
         "cast_spell": _dispatch_cast_spell,
+        "foretell": _dispatch_foretell,
         "roll_planar_die": _dispatch_roll_planar_die,
         "turn_face_up": _dispatch_turn_face_up,
         "pay_search_exemption": _dispatch_pay_search_exemption,

@@ -86,6 +86,46 @@ def _fury() -> Card:
     )
 
 
+def _poison_the_cup() -> Card:
+    return Card(
+        id="Poison the Cup", name="Poison the Cup", type_line="Instant",
+        mana_cost_string="{1}{B}{B}", converted_mana_cost=3, is_instant=True,
+        oracle_text=("Destroy target creature. If this spell was foretold, scry 2.\n"
+                     "Foretell {1}{B}"),
+    )
+
+
+def test_foretell_exiles_face_down_then_casts_for_its_alt_cost_on_a_later_turn():
+    engine = _engine([_poison_the_cup()])
+    state = engine.state
+    p1, p2 = state.players
+    spell = p1.hand[0]
+    victim = GameObject(
+        Card(id="Foretell victim", name="Foretell victim", type_line="Creature — Bear",
+             is_creature=True, power=2, toughness=2), owner_id=p2.id, zone=Zone.BATTLEFIELD,
+    )
+    state.add_to_battlefield(victim)
+
+    p1.mana_pool.add_many({"C": 2})
+    assert any(a["type"] == "foretell" for a in engine.legal_actions(p1))
+    engine.foretell(p1, spell)
+    assert spell in p1.exile and spell.face_down_in_exile and spell.foretold
+    assert not engine.can_cast(p1, spell)  # never on the same turn
+
+    state.internal_turn.number += 1
+    p1.mana_pool.add_many({"B": 1, "C": 1})
+    cast_action = next(
+        a for a in engine.legal_actions(p1)
+        if a["type"] == "cast_spell" and a["instance_id"] == spell.instance_id
+    )
+    assert cast_action["foretell"] is True
+    assert cast_action["foretell_cost_label"] == "{1}{B}"
+    engine.cast_spell(p1, spell, targets=[victim])
+    assert spell.foretold and spell.cast_from_exile
+    engine.resolve_until_stable()
+    assert victim.zone == Zone.GRAVEYARD
+
+
 def test_crib_swap_is_registered_with_a_full_spell_effect():
     (spec,) = specs_for(_crib_swap())
     assert spec.ability_kind == "spell_effect"
@@ -257,6 +297,142 @@ def test_fertile_ground_reuses_attached_land_triggered_mana_with_a_colour_choice
         "mana_ability": True,
     }
     assert spec.effects[0].params == {"colors": ["ANY"], "recipient": "event_controller"}
+
+
+def test_greenwarden_dies_can_exile_it_then_return_a_graveyard_card():
+    greenwarden = Card(
+        id="Greenwarden of Murasa", name="Greenwarden of Murasa",
+        type_line="Creature — Elemental", mana_cost_string="{4}{G}{G}",
+        converted_mana_cost=6, is_creature=True, power=5, toughness=4,
+        oracle_text=("When this creature enters, you may return target card from your graveyard to your hand.\n"
+                     "When this creature dies, you may exile it. If you do, return target card from your graveyard to your hand."),
+    )
+    regrowth_target = Card(id="Regrowth target", name="Regrowth target", type_line="Sorcery", is_sorcery=True)
+    engine = _engine([greenwarden, regrowth_target])
+    state = engine.state
+    p1 = state.active_player
+    target = next(obj for obj in p1.hand if obj.name == "Regrowth target")
+    p1.hand.remove(target)
+    p1.add_to_zone(target, Zone.GRAVEYARD)
+    greenwarden_obj = next(obj for obj in p1.hand if obj.name == "Greenwarden of Murasa")
+    p1.mana_pool.add_many({"G": 2, "C": 4})
+    engine.cast_spell(p1, greenwarden_obj)
+    engine.resolve_until_stable()
+    assert state.pending_choice and state.pending_choice["kind"] == "trigger_target"
+    engine.resolve_pending_choice(None)
+    engine.resolve_until_stable()
+    engine.rules.destroy(greenwarden_obj)
+    engine.resolve_until_stable()
+    assert state.pending_choice and state.pending_choice["kind"] == "exile_source_then"
+    engine.resolve_pending_choice("exile")
+    engine.resolve_until_stable()
+    assert greenwarden_obj.zone == Zone.EXILE
+    assert state.pending_choice and state.pending_choice["kind"] == "trigger_target"
+    engine.resolve_pending_choice(target.instance_id)
+    engine.resolve_until_stable()
+    assert target.zone == Zone.HAND
+
+
+def test_risen_reef_puts_a_top_land_tapped_or_a_nonland_into_hand():
+    reef = Card(
+        id="Risen Reef", name="Risen Reef", type_line="Creature — Elemental",
+        mana_cost_string="{1}{G}{U}", converted_mana_cost=3, is_creature=True,
+        power=1, toughness=1,
+        oracle_text="Whenever this creature or another Elemental enters under your control, look at the top card of your library. If it's a land card, you may put it onto the battlefield tapped. If you don't put the card onto the battlefield, put it into your hand.",
+    )
+    engine = _engine([reef])
+    state, p1 = engine.state, engine.state.active_player
+    land = GameObject(Card(id="Island", name="Island", type_line="Basic Land — Island", is_land=True), owner_id=p1.id, zone=Zone.LIBRARY)
+    p1.add_to_zone(land, Zone.LIBRARY)
+    reef_obj = p1.hand[0]
+    p1.mana_pool.add_many({"G": 1, "U": 1, "C": 1})
+    engine.cast_spell(p1, reef_obj)
+    engine.resolve_until_stable()
+    assert state.pending_choice and state.pending_choice["kind"] == "peek_top_land"
+    engine.resolve_pending_choice("put")
+    engine.resolve_until_stable()
+    assert land.zone == Zone.BATTLEFIELD and land.tapped
+
+
+def test_muldrotha_allows_one_graveyard_permanent_of_each_type_and_a_land():
+    muldrotha = Card(
+        id="Muldrotha, the Gravetide", name="Muldrotha, the Gravetide",
+        type_line="Legendary Creature — Elemental Avatar", is_creature=True,
+        power=6, toughness=6,
+        oracle_text="During each of your turns, you may play a land and cast a permanent spell of each permanent type from your graveyard.",
+    )
+    artifact = Card(id="GY Artifact", name="GY Artifact", type_line="Artifact", mana_cost_string="{1}", converted_mana_cost=1)
+    creature = Card(id="GY Creature", name="GY Creature", type_line="Creature — Bear", mana_cost_string="{1}", converted_mana_cost=1, is_creature=True, power=1, toughness=1)
+    land_card = Card(id="GY Land", name="GY Land", type_line="Land", is_land=True)
+    engine = _engine([muldrotha, artifact, creature, land_card])
+    state, p1 = engine.state, engine.state.active_player
+    muldrotha_obj = next(o for o in p1.hand if o.name == "Muldrotha, the Gravetide")
+    p1.hand.remove(muldrotha_obj)
+    state.add_to_battlefield(muldrotha_obj)
+    for obj in list(p1.hand):
+        p1.hand.remove(obj)
+        p1.add_to_zone(obj, Zone.GRAVEYARD)
+    artifact_obj = next(o for o in p1.graveyard if o.name == "GY Artifact")
+    creature_obj = next(o for o in p1.graveyard if o.name == "GY Creature")
+    land_obj = next(o for o in p1.graveyard if o.name == "GY Land")
+    p1.mana_pool.add_many({"C": 2})
+    assert engine.can_cast(p1, artifact_obj) and engine.can_cast(p1, creature_obj)
+    engine.cast_spell(p1, artifact_obj)
+    engine.resolve_until_stable()
+    engine.cast_spell(p1, creature_obj)
+    engine.resolve_until_stable()
+    assert engine.can_play_land(p1, land_obj)
+    engine.play_land(p1, land_obj)
+    assert {"artifact", "creature", "land"} <= muldrotha_obj.graveyard_cast_types_this_turn
+
+
+def test_distant_melody_chooses_a_type_then_draws_for_matching_creatures():
+    melody = Card(id="Distant Melody", name="Distant Melody", type_line="Sorcery", mana_cost_string="{3}{U}", converted_mana_cost=4, is_sorcery=True,
+                  oracle_text="Choose a creature type. Draw a card for each permanent you control of that type.")
+    engine = _engine([melody])
+    state, p1 = engine.state, engine.state.active_player
+    for n in range(3):
+        state.add_to_battlefield(GameObject(Card(id=f"Elf {n}", name=f"Elf {n}", type_line="Creature — Elf", is_creature=True, power=1, toughness=1), owner_id=p1.id, zone=Zone.BATTLEFIELD))
+        p1.add_to_zone(GameObject(Card(id=f"Draw {n}", name=f"Draw {n}", type_line="Sorcery", is_sorcery=True), owner_id=p1.id, zone=Zone.LIBRARY), Zone.LIBRARY)
+    spell = p1.hand[0]
+    p1.mana_pool.add_many({"U": 1, "C": 3})
+    engine.cast_spell(p1, spell)
+    engine.resolve_until_stable()
+    assert state.pending_choice and state.pending_choice["kind"] == "choose_type_for_source"
+    engine.resolve_pending_choice("Elf")
+    engine.resolve_until_stable()
+    assert len(p1.hand) == 3
+
+
+def test_bane_of_progress_destroys_artifacts_and_enchantments_then_grows():
+    bane = Card(id="Bane of Progress", name="Bane of Progress", type_line="Creature — Elemental", mana_cost_string="{4}{G}{G}", converted_mana_cost=6, is_creature=True, power=2, toughness=2,
+                oracle_text="When this creature enters, destroy all artifacts and enchantments. Put a +1/+1 counter on this creature for each permanent destroyed this way.")
+    engine = _engine([bane])
+    state, p1, p2 = engine.state, engine.state.players[0], engine.state.players[1]
+    for name, typ in (("Artifact", "Artifact"), ("Enchantment", "Enchantment")):
+        state.add_to_battlefield(GameObject(Card(id=name, name=name, type_line=typ), owner_id=p2.id, zone=Zone.BATTLEFIELD))
+    obj = p1.hand[0]
+    p1.mana_pool.add_many({"G": 2, "C": 4})
+    engine.cast_spell(p1, obj)
+    engine.resolve_until_stable()
+    assert obj.counters.get("+1/+1") == 2
+    assert all(o.zone == Zone.GRAVEYARD for o in p2.graveyard)
+
+
+def test_titan_of_industry_registers_its_four_choose_two_modes():
+    card = Card(id="Titan of Industry", name="Titan of Industry", type_line="Creature — Elemental", is_creature=True,
+                oracle_text="When this creature enters, choose two — Destroy target artifact or enchantment; target player gains 5 life; create a 4/4 green Rhino Warrior creature token; put a shield counter on a creature you control.")
+    (spec,) = specs_for(card)
+    assert spec.modes["choose"] == 2
+    assert len(spec.modes["options"]) == 4
+
+
+def test_yarok_uses_the_shared_etb_trigger_doubler():
+    card = Card(id="Yarok, the Desecrated", name="Yarok, the Desecrated", type_line="Legendary Creature — Elemental Horror", is_creature=True,
+                oracle_text="If a permanent entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.")
+    (spec,) = specs_for(card)
+    assert spec.effects[0].type == "trigger_doubler"
+    assert spec.effects[0].params["cause_filter"] == ["ENTERS_BATTLEFIELD"]
 
 
 def test_reality_shift_exiles_then_manifests_for_the_exiled_creatures_controller():

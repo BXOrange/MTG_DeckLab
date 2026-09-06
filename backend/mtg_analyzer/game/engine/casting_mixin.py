@@ -123,6 +123,45 @@ class CastingMixin:
             return ManaCost.parse(str(granted))
         return None
     @staticmethod
+    def _foretell_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """Return the printed Foretell cost, if present."""
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("foretell")
+        if not param or not param.get("cost"):
+            return None
+        return ManaCost.parse(str(param["cost"]))
+
+    def _can_cast_foretold(self, player: Player, obj: GameObject) -> bool:
+        """RULE 702.143d: cast a foretold card from exile on a later turn."""
+        return (
+            obj in player.exile and bool(getattr(obj, "foretold", False))
+            and self._foretell_cost(obj) is not None
+            and self.state.internal_turn.number > int(getattr(obj, "foretold_turn", -1) or -1)
+        )
+
+    def can_foretell(self, player: Player, obj: GameObject, *, assume_mana_available: bool = False) -> bool:
+        """RULE 702.143a's hand-zone special action, including its {2}."""
+        if obj not in player.hand or player is not self.state.active_player:
+            return False
+        if self._foretell_cost(obj) is None:
+            return False
+        return assume_mana_available or player.mana_pool.can_pay(ManaCost.parse("{2}"), life_available=player.life)
+
+    def foretell(self, player: Player, obj: GameObject) -> None:
+        """Pay {2}, then exile a hand card face down (no stack involved)."""
+        if not self.can_foretell(player, obj):
+            if self.can_foretell(player, obj, assume_mana_available=True):
+                try:
+                    self.auto_tap_for(player, cost=ManaCost.parse("{2}"))
+                except ValueError:
+                    pass
+        if not self.can_foretell(player, obj):
+            raise ValueError(f"{player.id} cannot foretell {obj.name} now")
+        player.mana_pool.pay(ManaCost.parse("{2}"), life_available=player.life)
+        self.rules.exile(obj)
+        obj.face_down_in_exile = True
+        obj.foretold = True
+        obj.foretold_turn = self.state.internal_turn.number
+    @staticmethod
     def _mutate_cost(obj: GameObject) -> Optional["ManaCost"]:
         """RULE 702.140b: ``obj``'s Mutate cost as a `ManaCost`, or ``None``
         if it carries no Mutate keyword (or one with no parsed cost) — the
@@ -407,6 +446,7 @@ class CastingMixin:
             or (obj in player.exile and self._castable_from_exile(obj))
             or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player))
             or (obj.zone == Zone.EXILE and self._has_conditional_exile_permission(obj, player))
+            or self._can_cast_foretold(player, obj)
             or (obj in player.graveyard and self._castable_from_graveyard(obj))
             or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
             or (
@@ -890,7 +930,9 @@ class CastingMixin:
                 # and ordinary cost adjustments (RULE 118.9).
                 return self._adjust_cost(ManaCost.parse("{0}"), player, obj)
         override = self.state.exile_cast_cost_override.get(obj.instance_id)
-        if override is not None and getattr(obj, "zone", None) == Zone.EXILE:
+        if self._can_cast_foretold(player, obj):
+            cost = self._foretell_cost(obj) or self.rules.mana_cost_of(card)
+        elif override is not None and getattr(obj, "zone", None) == Zone.EXILE:
             # RULE 701.65 (Airbend, PAR-29): "its owner may cast it for {2}
             # rather than its mana cost." — a *fixed* alternative cost
             # while the card sits in exile under an `exile_cast_condition`
@@ -1813,6 +1855,12 @@ class CastingMixin:
             # by `_step_untap` alongside `activated_loyalty_this_turn`.
             if graveyard_grant is not None and graveyard_grant.source is not None:
                 graveyard_grant.source.graveyard_casts_this_turn += 1
+                if graveyard_grant.per_permanent_type:
+                    from ..graveyard_cast import permanent_types
+                    used = getattr(graveyard_grant.source, "graveyard_cast_types_this_turn", set())
+                    available = permanent_types(obj.card) - used
+                    if available:
+                        graveyard_grant.source.graveyard_cast_types_this_turn = used | {sorted(available)[0]}
         if from_command:
             player.commander_casts[obj.instance_id] = (
                 player.commander_casts.get(obj.instance_id, 0) + 1

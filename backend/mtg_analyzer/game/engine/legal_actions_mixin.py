@@ -291,6 +291,11 @@ class LegalActionsMixin:
                 action["lock_reason"] = "Manakosten nicht bezahlbar"
             return action
         action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
+        if self._can_cast_foretold(player, obj):
+            foretell_cost = self._foretell_cost(obj)
+            action["foretell"] = True
+            if foretell_cost is not None:
+                action["foretell_cost_label"] = foretell_cost.raw
         if bargained:
             # RULE 702.166: Bargain is an optional additional cost, so this
             # is a distinct cast offer rather than a decoration on the plain
@@ -785,6 +790,16 @@ class LegalActionsMixin:
                 actions.append(self._land_action(obj))
             if self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
+            if self.can_foretell(player, obj):
+                actions.append({
+                    "type": "foretell", "instance_id": obj.instance_id,
+                    "name": obj.name, "cost_label": "{2}",
+                })
+            elif self.can_foretell(player, obj, assume_mana_available=True):
+                actions.append({
+                    "type": "foretell", "instance_id": obj.instance_id,
+                    "name": obj.name, "cost_label": "{2}", "auto_tap": True,
+                })
             # A second castable face offers its own action(s) too — a modal
             # DFC's back (RULE 712.10), a split card's other half (RULE
             # 709.3), or an Adventure's instant/sorcery half (RULE 715.2b) —
@@ -858,6 +873,7 @@ class LegalActionsMixin:
                 self._castable_from_exile(obj)
                 or self._has_temp_play_permission(obj, player)
                 or self._has_conditional_exile_permission(obj, player)
+                or self._can_cast_foretold(player, obj)
             )
             if castable and self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)

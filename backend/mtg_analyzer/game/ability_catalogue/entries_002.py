@@ -1712,3 +1712,131 @@ def _shatter_the_sky() -> list[AbilitySpec]:
 
 register("Shatter the Sky", _shatter_the_sky)
 
+
+def _greenwarden_of_murasa() -> list[AbilitySpec]:
+    """Both recursion triggers of Greenwarden of Murasa."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_from_graveyard", {
+                "target_kind": "graveyard_card", "destination": "hand",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD},
+            raw_text="When this creature enters, you may return target card from your graveyard to your hand.",
+            optional=True,
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("may_exile_source_then", {"then_trigger": [
+                {"type": "return_from_graveyard", "params": {
+                    "target_kind": "graveyard_card", "destination": "hand",
+                }},
+            ]})],
+            trigger={"event": EventType.DIES},
+            raw_text="When this creature dies, you may exile it. If you do, return target card from your graveyard to your hand.",
+        ),
+    ]
+
+
+register("Greenwarden of Murasa", _greenwarden_of_murasa)
+
+
+def _risen_reef() -> list[AbilitySpec]:
+    return [AbilitySpec(
+        "triggered", [EffectSpec("peek_top_land_or_hand", {})],
+        trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {
+            "subject_subtype": "Elemental", "controller": "you",
+        }},
+        raw_text="Whenever this creature or another Elemental enters under your control, look at the top card of your library. If it's a land card, you may put it onto the battlefield tapped. If you don't put the card onto the battlefield, put it into your hand.",
+    )]
+
+
+register("Risen Reef", _risen_reef)
+
+
+def _muldrotha_the_gravetide() -> list[AbilitySpec]:
+    return [AbilitySpec(
+        "static", [EffectSpec("graveyard_cast_permission", {
+            "per_permanent_type": True, "once_per_turn": False,
+        })],
+        raw_text="During each of your turns, you may play a land and cast a permanent spell of each permanent type from your graveyard.",
+    )]
+
+
+register("Muldrotha, the Gravetide", _muldrotha_the_gravetide)
+
+
+def _distant_melody() -> list[AbilitySpec]:
+    return [AbilitySpec("spell_effect", [
+        EffectSpec("request_choose_creature_type_grant", {"then_specs": [
+            {"type": "draw_controlled_chosen_creature_type", "params": {}},
+        ]}),
+    ], raw_text="Choose a creature type. Draw a card for each permanent you control of that type.")]
+
+
+register("Distant Melody", _distant_melody)
+
+
+def _bane_of_progress() -> list[AbilitySpec]:
+    return [AbilitySpec("triggered", [EffectSpec("destroy_artifacts_enchantments_then_counters", {})],
+                        trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+                        raw_text="When this creature enters, destroy all artifacts and enchantments. Put a +1/+1 counter on this creature for each permanent destroyed this way.")]
+
+
+register("Bane of Progress", _bane_of_progress)
+
+
+def _yarok_the_desecrated() -> list[AbilitySpec]:
+    return [AbilitySpec(
+        "static", [EffectSpec("trigger_doubler", {"cause_filter": [EventType.ENTERS_BATTLEFIELD]})],
+        raw_text="If a permanent entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.",
+    )]
+
+
+register("Yarok, the Desecrated", _yarok_the_desecrated)
+
+
+def _titan_of_industry() -> list[AbilitySpec]:
+    return [AbilitySpec(
+        "triggered", [], trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+        modes={"choose": 2, "options": [
+            [EffectSpec("destroy", {"target_kind": "artifact_or_enchantment"})],
+            [EffectSpec("gain_life", {"amount": 5, "target_kind": "player"})],
+            [EffectSpec("create_token", {"token_name": "Rhino", "power": 4, "toughness": 4, "colors": ["G"], "subtypes": ["Rhino", "Warrior"]})],
+            [EffectSpec("add_counters", {"amount": 1, "kind": "shield", "target_kind": "creature_you_control"})],
+        ]}, raw_text="When this creature enters, choose two — Destroy target artifact or enchantment; target player gains 5 life; create a 4/4 green Rhino Warrior creature token; put a shield counter on a creature you control.",
+    )]
+
+
+register("Titan of Industry", _titan_of_industry)
+
+
+def _raging_ravine() -> list[AbilitySpec]:
+    """Raging Ravine's animation and its self-attack growth trigger.
+
+    Entering tapped and the two-colour mana ability are parsed from the card
+    itself.  The colour layer of the animation is not represented by this
+    engine yet, but the creature type, base P/T, and attack counter are.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_until", {
+                "duration": "end_of_turn", "target_kind": None,
+                "static": {"type": "type_change", "params": {
+                    "add_types": ["creature"], "add_subtypes": ["Elemental"],
+                    "power": 3, "toughness": 3,
+                }},
+            })],
+            cost={"mana": "{2}{R}{G}"},
+            raw_text="{2}{R}{G}: Until end of turn, this land becomes a 3/3 Elemental creature. It's still a land.",
+        ),
+        AbilitySpec(
+            "triggered", [EffectSpec("add_counters", {"amount": 1, "kind": "+1/+1", "target_kind": None})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Whenever this creature attacks, put a +1/+1 counter on it.",
+        ),
+    ]
+
+
+register("Raging Ravine", _raging_ravine)
