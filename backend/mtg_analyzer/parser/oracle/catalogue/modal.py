@@ -50,7 +50,7 @@ from typing import Optional
 #: "choose 2 or both" isn't a real template); ``or_more`` captures "Choose
 #: *N* or more —" (a variable N from ``choose`` to every mode).
 MODAL_HEADER_RE = re.compile(
-    r"^choose (?P<n>\d+)(?P<or_both> or both)?(?P<or_more> or more)?"
+    r"^choose (?P<n>\d+)(?P<exhausted> that hasn't been chosen this turn)?(?P<or_both> or both)?(?P<or_more> or more)?"
     r"(?:\s*—\s*|\.\s*you may choose (?:the )?same mode more than once\.?)$"
 )
 

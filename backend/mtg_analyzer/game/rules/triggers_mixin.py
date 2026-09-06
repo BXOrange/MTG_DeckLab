@@ -1152,6 +1152,12 @@ class TriggerCollectionMixin:
                 self._place_trigger(ability, targets=[obj], event=event)
                 continue
             if ability.modes:
+                if getattr(ability, "modes_exhaust_per_turn", False):
+                    key = (str(getattr(getattr(ability, "source", None), "instance_id", "")), id(ability))
+                    if len(self.state.trigger_mode_history.get(key, set())) >= len(ability.modes):
+                        # RULE 603.3c analogue: this firing has no legal
+                        # mandatory mode, so no trigger object is created.
+                        continue
                 self._pending_trigger_ability = ability
                 self._pending_trigger_queue = queue
                 self._pending_trigger_event = event
@@ -1411,12 +1417,23 @@ class TriggerCollectionMixin:
         choose, at_least = self._trigger_modal_choice_config(ability)
         picked = set(chosen or [])
         repeatable = bool(getattr(ability, "modes_repeatable", False))
+        history_key = (
+            str(getattr(getattr(ability, "source", None), "instance_id", "")), id(ability),
+        )
+        exhausted = (
+            self.state.trigger_mode_history.get(history_key, set())
+            if getattr(ability, "modes_exhaust_per_turn", False)
+            else set()
+        )
         choice_options: list[dict[str, Any]] = [
             {"id": str(i), "label": opt.get("description") or f"Modus {i + 1}"}
             for i, opt in enumerate(options)
-            if repeatable or i not in picked
+            if (repeatable or i not in picked) and i not in exhausted
         ]
-        if ability.modes_or_both and choose == 1 and len(options) == 2 and not picked:
+        if (
+            ability.modes_or_both and choose == 1 and len(options) == 2 and not picked
+            and not ({0, 1} & exhausted)
+        ):
             # RULE 700.2e — only offered for the fixed choose-1-of-2 case.
             choice_options.append({"id": "both", "label": "Beides"})
         if at_least and len(picked) >= choose and len(picked) < len(options):
@@ -1435,6 +1452,7 @@ class TriggerCollectionMixin:
             "prompt": ability.description or "Modus für ausgelöste Fähigkeit wählen",
             "options": choice_options,
             "chosen": list(chosen or []),
+            "mode_history_key": history_key,
         }
     def resolve_trigger_mode_choice(self, answer: Optional[str]) -> None:
         """Answer a pending `trigger_mode` choice (RULE 700.2): pick which
@@ -1478,7 +1496,10 @@ class TriggerCollectionMixin:
         already_chosen: list[int] = list(choice.get("chosen") or [])
         choose, at_least = self._trigger_modal_choice_config(ability)
 
-        if answer == "both" and ability.modes_or_both and ability.modes_choose == 1 and len(options) == 2:
+        if (
+            answer == "both" and ability.modes_or_both and ability.modes_choose == 1
+            and len(options) == 2 and not getattr(ability, "modes_exhaust_per_turn", False)
+        ):
             effects: list[Any] = []
             for opt in options:
                 effects.extend(opt["effects"])
@@ -1498,16 +1519,35 @@ class TriggerCollectionMixin:
             # for an unrecognized answer).
             effects = []
         else:
+            history_key = tuple(choice.get("mode_history_key") or ())
+            exhausted = (
+                self.state.trigger_mode_history.get(history_key, set())
+                if getattr(ability, "modes_exhaust_per_turn", False)
+                else set()
+            )
             available = [
                 i for i in range(len(options))
-                if getattr(ability, "modes_repeatable", False) or i not in already_chosen
+                if (getattr(ability, "modes_repeatable", False) or i not in already_chosen)
+                and i not in exhausted
             ]
+            if not available:
+                # Every per-turn mode is exhausted. This firing has no legal
+                # mandatory choice, so it simply produces no stack object.
+                effects = []
+                self.state.pending_choice = None
+                self._pending_trigger_ability = None
+                self._pending_trigger_queue = []
+                self._pending_trigger_event = None
+                self._place_triggers(queue)
+                return
             try:
                 idx = int(answer) if answer is not None else available[0]
             except (TypeError, ValueError):
                 idx = available[0]
             if idx not in available:
                 idx = available[0]
+            if getattr(ability, "modes_exhaust_per_turn", False):
+                self.state.trigger_mode_history.setdefault(history_key, set()).add(idx)
             picked = already_chosen + [idx]
             more_needed = len(picked) < choose or (
                 at_least and len(picked) < len(options)

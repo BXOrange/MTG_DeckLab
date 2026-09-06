@@ -6054,3 +6054,48 @@ table, re-measured after each batch.
   `tests/test_mec75_dance_temporary_trigger.py`.
 - **Verification:** The regression covers normal ETB target selection,
   combat-only self scoping, parameterized draw count, and cleanup expiry.
+
+### MEC-64 — Suspend hand-zone special action
+
+- **What:** Implemented RULE 702.62a's first Suspend ability as the
+  `GameEngine.suspend` special action. It validates the printed `Suspend
+  N—cost` keyword in hand, pays that alternate cost, exiles the card, and
+  adds N time counters. The existing exile-zone trigger machinery then
+  handles the later upkeep countdown and free cast without a second codepath.
+- **Surface:** `legal_actions` now exposes the action (including the normal
+  auto-tap hint), and `GameSession` dispatches it as a non-stack special
+  action. A Suspend granted by another effect intentionally does not expose
+  this action because it has no printed N/cost pair.
+- **Verification:** `tests/test_mec42_family.py` covers the offer, payment,
+  exile/counter result, full countdown into the existing free-cast window,
+  and the active-player restriction.
+
+### MEC-68 / PAR-57 — Exhausted triggered modes per turn
+
+- **What:** Added the `choose N that hasn't been chosen this turn` modal
+  header grammar and binds it to `TriggeredAbility.modes_exhaust_per_turn`.
+  `GameState.trigger_mode_history` records chosen mode indices by source
+  instance and ability identity, and `begin_turn` clears it at the actual
+  turn boundary.
+- **Rules behaviour:** The trigger-mode chooser filters prior choices before
+  it is shown, records a mode only after it is legally selected, and drops a
+  firing with no legal mode. Different abilities on the same permanent have
+  distinct keys; ordinary repeatable/in-one-firing modal behaviour remains
+  unchanged.
+- **Verification:** `tests/test_mec68_modal_history.py`, the existing modal
+  choice regressions, and parser/engine inspection of The Vision all pass.
+
+### MEC-67 — Teamwork optional additional cost
+
+- **What:** Added the RULE 702.194 Teamwork cast variant. It exposes eligible
+  untapped creatures and the printed power threshold in `legal_actions`,
+  validates the submitted selection server-side (control, uniqueness,
+  untapped status, and combined power), taps the selected creatures only
+  after cast legality succeeds, and records `teamwork_paid` on the spell.
+- **Integration:** The session action transports selected instance ids. The
+  temporary cast-time marker also activates a `teamwork_paid` modal override,
+  so Go Nuts!-shaped cards offer the required combined mode while preserving
+  their normal cast variants.
+- **Verification:** `tests/test_mec67_teamwork.py`, modal-choice regressions,
+  and a live Go Nuts! legal-action inspection pass. PAR-56 remains open for
+  the unrelated unmodelled Teamwork card-body/rider grammar.

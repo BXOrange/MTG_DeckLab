@@ -1300,6 +1300,7 @@ class TriggeredAbility(GameEffect):
         modes_choose: int = 1,
         modes_at_least: bool = False,
         modes_repeatable: bool = False,
+        modes_exhaust_per_turn: bool = False,
         modes_optional: bool = False,
         modes_override: Optional[dict[str, Any]] = None,
         reflexive: bool = False,
@@ -1374,6 +1375,11 @@ class TriggeredAbility(GameEffect):
         self.modes_choose = modes_choose
         self.modes_at_least = modes_at_least
         self.modes_repeatable = modes_repeatable
+        #: "Choose a mode that hasn't been chosen this turn" (MEC-68).
+        #: This is deliberately separate from `modes_repeatable`: the latter
+        #: concerns several picks in one firing, while this excludes choices
+        #: made by earlier firings of this exact ability.
+        self.modes_exhaust_per_turn = modes_exhaust_per_turn
         #: RULE 700.2's "choose *up to* one —" (Hullbreaker Horror) — the
         #: 0-or-1 sibling of the plain "choose one" (always exactly 1,
         #: `modes_choose == 1` alone) and "choose one **or both**"
@@ -11252,6 +11258,7 @@ class PayCostThenEffect(GameEffect):
         prompt: Optional[str] = None,
         remember_trigger_stack_id: bool = False,
         then_trigger: Optional[list[dict[str, Any]]] = None,
+        then_trigger_modes: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.cost_text = str(cost)
@@ -11268,6 +11275,7 @@ class PayCostThenEffect(GameEffect):
         #: ``effects``/``else_effects`` in practice; an "if you don't" on a
         #: reflexive card doesn't occur.
         self.then_trigger_specs = list(then_trigger or [])
+        self.then_trigger_modes = dict(then_trigger_modes or {})
         self.payer = payer
         #: "…unless they sacrifice a nonland permanent of their choice or
         #: discard a card." (Tergrid's Lantern, MEC-43 round 4E) — ORed
@@ -11371,6 +11379,7 @@ class PayCostThenEffect(GameEffect):
             targets=list(targets or []),
             prompt=self.prompt,
             then_trigger_specs=self.then_trigger_specs or None,
+            then_trigger_modes=self.then_trigger_modes or None,
             # The outer trigger's own event, so a "When you do" payoff that
             # names it ("that player", "defending player's graveyard") can
             # read it back off its own `StackItem.trigger_event`.
@@ -21963,6 +21972,7 @@ EffectRegistry.register(
         prompt=p.get("prompt"),
         remember_trigger_stack_id=bool(p.get("remember_trigger_stack_id", False)),
         then_trigger=p.get("then_trigger"),
+        then_trigger_modes=p.get("then_trigger_modes"),
     ),
 )
 EffectRegistry.register(

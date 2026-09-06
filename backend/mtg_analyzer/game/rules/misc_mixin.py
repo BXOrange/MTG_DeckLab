@@ -227,6 +227,7 @@ class MiscSystemsMixin:
         prompt: Optional[str] = None,
         targets: Optional[list[Any]] = None,
         then_trigger_specs: Optional[list[dict]] = None,
+        then_trigger_modes: Optional[dict[str, Any]] = None,
         then_trigger_event: Optional[GameEvent] = None,
         captured_previous: Optional[list[Any]] = None,
     ) -> None:
@@ -271,6 +272,7 @@ class MiscSystemsMixin:
         specs = [dict(d) for d in effect_specs]
         else_specs = [dict(d) for d in (else_effect_specs or [])]
         then_trigger = [dict(d) for d in (then_trigger_specs or [])]
+        modal_trigger = dict(then_trigger_modes or {})
         if not self._can_pay_player_cost(player, cost):
             self._apply_effect_specs(else_specs, source, targets)
             return
@@ -282,6 +284,7 @@ class MiscSystemsMixin:
             "source": source,
             "targets": list(targets or []),
             "then_trigger_specs": then_trigger,
+            "then_trigger_modes": modal_trigger,
             "then_trigger_event": then_trigger_event,
             "captured_previous": list(captured_previous) if captured_previous else None,
         }
@@ -381,6 +384,7 @@ class MiscSystemsMixin:
         effect_specs: list[dict[str, Any]],
         source: Optional[GameObject],
         event: Optional[GameEvent] = None,
+        modes: Optional[dict[str, Any]] = None,
     ) -> None:
         """RULE 603.11: "`<effect with its own condition>`. **When you
         do**, `<targeted payoff>`." fires the payoff as its *own* fresh
@@ -400,7 +404,7 @@ class MiscSystemsMixin:
         you do" gated on whether a *targeted effect* actually happened,
         not a cost payment).
         """
-        if not effect_specs:
+        if not effect_specs and not modes:
             return
         from ..effect_binder import build_effects  # function-scoped: effects↔binder cycle
         from ...parser.oracle.spec import EffectSpec
@@ -409,6 +413,20 @@ class MiscSystemsMixin:
             [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in effect_specs],
             source,
         )
+        modal_options = None
+        modal = dict(modes or {})
+        if modal:
+            modal_options = []
+            for option in modal.get("options") or []:
+                modal_options.append({
+                    "effects": build_effects(
+                        [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in option], source,
+                    ),
+                    "description": "",
+                })
+            descriptions = list(modal.get("descriptions") or [])
+            for index, option in enumerate(modal_options):
+                option["description"] = descriptions[index] if index < len(descriptions) else f"Modus {index + 1}"
         controller_id = getattr(source, "controller_id", None) or self.state.active_player.id
         ability = TriggeredAbility(
             trigger_event=getattr(event, "type", None) or EventType.SPELL_RESOLVED,
@@ -417,6 +435,11 @@ class MiscSystemsMixin:
             controller_id=controller_id,
             optional=False,  # the "may"/"if" was already decided; the payoff itself is not
             description=getattr(source, "name", "") or "reflexive ability",
+            modes=modal_options,
+            modes_or_both=bool(modal.get("or_both", False)),
+            modes_choose=int(modal.get("choose", 1)),
+            modes_at_least=bool(modal.get("at_least", False)),
+            modes_repeatable=bool(modal.get("repeatable", False)),
         )
         # Carry the outer event so a payoff naming it ("that player") reads
         # it off its own `StackItem.trigger_event`.
@@ -428,7 +451,7 @@ class MiscSystemsMixin:
         `enqueue_reflexive_trigger`."""
         self.enqueue_reflexive_trigger(
             pending.get("then_trigger_specs") or [], pending.get("source"),
-            pending.get("then_trigger_event"),
+            pending.get("then_trigger_event"), pending.get("then_trigger_modes"),
         )
     def request_pay_life_or_return_to_library(
         self, player: Player, objs: list[GameObject], amount: int = 4,

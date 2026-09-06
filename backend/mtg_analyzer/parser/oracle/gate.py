@@ -2498,7 +2498,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: now emits a closed modal-override IR for kicker/additional-cost, cast-time
 #: subtype/commander, delirium, life-total and descend conditions.  Triggered
 #: modal headers use the same IR, evaluated at their choice point.
-PARSER_VERSION = "273"
+PARSER_VERSION = "274"
 
 
 def parser_source_hash() -> str:
@@ -2611,7 +2611,7 @@ def _is_spell(card: Any) -> bool:
 
 def _split_triggered_modal_block(
     lines: list[str], start: int, provenance: ParserProvenance
-) -> Optional[tuple[dict[str, Any], bool, bool, bool, int, list[str], int]]:
+) -> Optional[tuple[dict[str, Any], bool, bool, bool, bool, int, list[str], int]]:
     """A permanent's modal *triggered* ability: "When ~ enters, choose 1 —"
     on one line, then two or more "• " mode lines (RULE 700.2 wrapped in a
     RULE 603.1 trigger) — the trigger-wrapped sibling of `split_modal_block`
@@ -2628,7 +2628,7 @@ def _split_triggered_modal_block(
     ability would claim also drives a modal block (Elder Gargaroth, Ojutai
     Exemplars, Etherwrought Page, Cosmogrand Zenith, …).
 
-    Returns ``(trigger, or_both, or_more, repeatable, choose, mode_bodies, next_index)``,
+    Returns ``(trigger, or_both, or_more, repeatable, exhausted, choose, mode_bodies, next_index)``,
     or ``None`` if ``lines[start]`` isn't this shape at all, its wrapper
     isn't a recognised trigger, or ``choose`` exceeds the number of mode
     lines actually printed — fail-closed, the caller falls back to ordinary
@@ -2670,10 +2670,60 @@ def _split_triggered_modal_block(
         bool(header and header.group("or_both")),
         bool(header and header.group("or_more")),
         "same mode more than once" in modal_body.lower(),
+        bool(header and header.group("exhausted")),
         override,
         choose,
         mode_bodies,
         next_i,
+    )
+
+
+_REFLEXIVE_MODAL_RE = re.compile(
+    r"^you may pay (?P<cost>[^.]+)\.\s*when you do,?\s*(?P<header>choose .+)$"
+)
+
+
+def _split_reflexive_modal_block(
+    lines: list[str], start: int,
+) -> Optional[tuple[Optional[dict[str, Any]], str, bool, bool, bool, int, list[str], int]]:
+    """Recognise ``You may pay <cost>. When you do, choose N —`` plus bullets.
+
+    This is intentionally a gate-level block wrapper: its payoff is a fresh
+    RULE 603.11 triggered ability, so treating it as the ordinary synchronous
+    ``pay_cost_then`` clause would choose targets/modes at the wrong time.
+    """
+    line = lines[start].strip()
+    trigger: Optional[dict[str, Any]] = None
+    match = _REFLEXIVE_MODAL_RE.match(line)
+    if match is None:
+        wrapper = _TRIGGER_RE.match(line)
+        if wrapper is None:
+            return None
+        match = _REFLEXIVE_MODAL_RE.match(wrapper.group("body").strip())
+        if match is None:
+            return None
+        probe = segment_line(
+            line[: wrapper.start("body")] + "draw a card.",
+            allow_spell_effect=False,
+            provenance=ParserProvenance(version=PARSER_VERSION, source="reflexive-modal", confidence=1.0),
+        )
+        if not probe.claimed or probe.spec is None or probe.spec.ability_kind != "triggered":
+            return None
+        trigger = probe.spec.trigger
+    header = MODAL_HEADER_RE.match(match.group("header").strip())
+    if header is None:
+        return None
+    collected = collect_mode_bodies(lines, start + 1)
+    if collected is None:
+        return None
+    bodies, next_i = collected
+    choose = int(header.group("n"))
+    if choose < 1 or choose > len(bodies):
+        return None
+    return (
+        trigger, match.group("cost").strip(), bool(header.group("or_both")),
+        bool(header.group("or_more")), "same mode more than once" in match.group("header").lower(),
+        choose, bodies, next_i,
     )
 
 
@@ -3011,6 +3061,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         or_both: bool,
         or_more: bool,
         repeatable: bool,
+        exhausted: bool,
         override: Optional[dict[str, Any]],
         choose: int,
         mode_bodies: list[str],
@@ -3039,11 +3090,41 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 "or_both": or_both,
                 "at_least": or_more,
                 "repeatable": repeatable,
+                "exhaust_per_turn": exhausted,
                 "override": override,
                 "choose": choose,
                 "options": options,
                 "descriptions": descriptions,
             },
+            raw_text=header,
+            parser=provenance,
+        ))
+
+    def _process_reflexive_modal_block(
+        header: str, trigger: Optional[dict[str, Any]], cost: str, or_both: bool, or_more: bool,
+        repeatable: bool, choose: int, mode_bodies: list[str],
+    ) -> None:
+        nonlocal all_claimed
+        parsed = _parse_mode_options(mode_bodies)
+        if parsed is None:
+            all_claimed = False
+            unclaimed.append(header)
+            unclaimed.extend(f"• {body}" for body in mode_bodies)
+            return
+        options, descriptions = parsed
+        payment = EffectSpec("pay_cost_then", {
+                "cost": cost,
+                "then_trigger_modes": {
+                    "or_both": or_both, "at_least": or_more,
+                    "repeatable": repeatable, "choose": choose,
+                    "options": [[spec.to_dict() for spec in option] for option in options],
+                    "descriptions": descriptions,
+                },
+            })
+        effect_specs.append(AbilitySpec(
+            "triggered" if trigger is not None else "spell_effect",
+            [payment],
+            trigger=trigger,
             raw_text=header,
             parser=provenance,
         ))
@@ -3210,6 +3291,14 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         lines = [line for line in normalized.split("\n") if line.strip()]
         i = 0
         while i < len(lines):
+            reflexive_modal = _split_reflexive_modal_block(lines, i)
+            if reflexive_modal is not None:
+                trigger, cost, or_both, or_more, repeatable, choose, mode_bodies, next_i = reflexive_modal
+                _process_reflexive_modal_block(
+                    lines[i], trigger, cost, or_both, or_more, repeatable, choose, mode_bodies,
+                )
+                i = next_i
+                continue
             spree_block = split_spree_block(lines, i) if allow_spell_effect else None
             if spree_block is not None:
                 mode_costs, mode_bodies, next_i = spree_block
@@ -3224,9 +3313,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 continue
             trig_block = _split_triggered_modal_block(lines, i, provenance)
             if trig_block is not None:
-                trigger, or_both, or_more, repeatable, override, choose, mode_bodies, next_i = trig_block
+                trigger, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies, next_i = trig_block
                 _process_triggered_modal_block(
-                    lines[i], trigger, or_both, or_more, repeatable, override, choose, mode_bodies
+                    lines[i], trigger, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies
                 )
                 i = next_i
                 continue

@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**40.3% covered — 14,029 / 34,811 — as of 2026-09-06, PARSER_VERSION 273.**
+**40.3% covered — 14,029 / 34,811 — as of 2026-09-06, PARSER_VERSION 274.**
 (v273, MEC-73: recognizes the full subtype-filtered "put from hand, gain
 haste, sacrifice at the next end step" sequence and routes it to the
 interactive `cheat_creature_from_hand` primitive; Incandescent Soulstoke is

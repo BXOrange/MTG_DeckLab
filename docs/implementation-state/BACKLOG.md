@@ -224,11 +224,6 @@ its block back into the matching section here.
     conditional riders to a `teamwork_paid` condition; the optional tapping
     cost and cast-state marker are **MEC-67**. Seed cards: Go Nuts!, Widow's
     Bite, HULK SMASH!, Atlantis Attacks, Murdock's Crusade.
-  - **PAR-57 · Per-turn exhausted triggered modes.** Parse `choose N that
-    hasn't been chosen [this turn] —` and carry an ability-stable mode key;
-    mode-history state and trigger chooser filtering are **MEC-68**. Seed
-    cards: The Vision, Monument to Endurance, Galadriel, Light of Valinor,
-    Kimoyo Beads, Teval's Judgment, Wardens of the Cycle, Immard.
   - **PAR-58 · Reflexive modal trigger wrapper.** Parse `you may pay <cost>.
     When you do, choose N —` as a `pay_cost_then` continuation whose payoff
     is a modal triggered ability, retaining RULE 603.11 stack/target order;
@@ -252,21 +247,6 @@ its block back into the matching section here.
   one-spell graveyard-to-exile replacement). Each needs an end-to-end
   contract; none may be marked covered solely by catalogue registration.
 
-
-- **MEC-67 · Teamwork optional additional cost (RULE 702.194).** Offer a
-  cast variant that taps any number of creatures the caster controls whose
-  total power meets the printed threshold, records `teamwork_paid` on the
-  spell, and fires the corresponding cast/payment signals. It must coexist
-  with ordinary mana, Kicker, Convoke, targets, and cast-time mode selection.
-  PAR-56 owns parser reachability; the remaining Teamwork rider families are
-  separately measured PAR-12 work, not silently claimed here.
-
-- **MEC-68 · Persistent per-object modal history.** Store a mode set keyed
-  by the permanent/ability and current turn, clear it at turn boundary, and
-  exclude those entries from each later `trigger_mode` offer. Record only
-  after a mode is legally chosen; modes from different abilities on the same
-  object must not collide. PAR-57 owns its header grammar.
-
 - **MEC-69 · Modal reflexive continuations (RULE 603.11).** Extend the
   existing `pay_cost_then` path so a successful optional payment can enqueue
   a modal triggered payoff, then present its mode choice before its targets
@@ -279,35 +259,6 @@ its block back into the matching section here.
   the exiled card's haunt abilities. Cover the activated `exile ~ haunting
   target creature` variant as well. PAR-59 owns the parser forms; unrelated
   Haunt card bodies remain normal parser-tail work.
-
-- **MEC-64 · Suspend's own "activate from hand" special action (RULE
-  702.62a, first ability).** Only the *second/third* abilities are
-  implemented — tick down a time counter each upkeep, then free-cast at zero
-  (`SuspendUpkeepEffect`, `game/effects.py`; `_has_suspend`/
-  `_collect_suspend_triggers`, `game/rules/triggers_mixin.py`) — plus
-  Delay's own redirect-with-counters shortcut (`counter_spell`'s
-  `suspend_time_counters` param, `game/rules/misc_mixin.py`). There is no
-  action anywhere that offers a hand card's own printed "Suspend N—cost" as
-  a player-choosable alternative to casting it (checked
-  `legal_actions_mixin.py`/`casting_mixin.py`/`activation_mixin.py` —
-  nothing implements it). Explicitly flagged as a known gap in
-  `game/ability_catalogue/entries_014.py` (Delay's own comment). Ordinary
-  hard-casting of a card that happens to have Suspend is unaffected (e.g.
-  Ancestral Vision casts fine at its own printed — free — cost); this is
-  purely about the alternative "exile it with N time counters instead of
-  casting it" action. Build it the way Escape/Flashback add their own
-  alternate cast-cost path in `game/engine/casting_mixin.py`
-  (`_escape_cost`/`_flashback_cost` + their `legal_actions` offers): parse/
-  read the printed "Suspend N—{cost}" cost, add a special action that pays
-  it, exiles the card with N time counters, and sets whatever bookkeeping
-  `_has_suspend`/the upkeep tick-down already expects to find. Found while
-  fixing the back-face mana-cost bug (2026-09-05, `models/card.py`
-  `back_face()`) — not the same bug, just adjacent code read during that
-  investigation; no regression, just a pre-existing unimplemented action.
-
-> MEC-47/49/51/51b/52/53/54/55/56/57/58/59/60/61/62 all closed
-> (`Done_Backend.md`); MEC-48's Specialize-rider tail is parked in
-> [DEFERRED.md](DEFERRED.md).
 
 ## PLR — Player management
 

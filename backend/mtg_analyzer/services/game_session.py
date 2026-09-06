@@ -1031,6 +1031,9 @@ class GameSession:
             # stamps on the "cast + pay it" offer (a separate action entry
             # from the plain one), same as `evoke`/`help_pay`.
             pay_additional=bool(action.get("pay_additional", False)),
+            teamwork=bool(action.get("teamwork", False)),
+            teamwork_choices=[int(value) for value in (action.get("teamwork_choices") or [])]
+            if action.get("teamwork_choices") is not None else None,
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:
@@ -1043,6 +1046,10 @@ class GameSession:
     def _dispatch_foretell(self, action: dict[str, Any], active: Player) -> None:
         """RULE 702.143a's special action; it does not use the stack."""
         self.engine.foretell(active, self._object(action))
+
+    def _dispatch_suspend(self, action: dict[str, Any], active: Player) -> None:
+        """RULE 702.62a's hand-zone special action; it does not use the stack."""
+        self.engine.suspend(active, self._object(action))
 
     def _dispatch_turn_face_up(self, action: dict[str, Any], active: Player) -> None:
         # RULE 116.2b: the special action of turning a face-down
@@ -1146,6 +1153,7 @@ class GameSession:
         "auto_tap_for": _dispatch_auto_tap_for,
         "cast_spell": _dispatch_cast_spell,
         "foretell": _dispatch_foretell,
+        "suspend": _dispatch_suspend,
         "roll_planar_die": _dispatch_roll_planar_die,
         "turn_face_up": _dispatch_turn_face_up,
         "pay_search_exemption": _dispatch_pay_search_exemption,

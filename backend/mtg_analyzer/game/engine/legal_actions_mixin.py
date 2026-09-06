@@ -224,6 +224,7 @@ class LegalActionsMixin:
         bestow: bool = False,
         pay_additional: bool = False,
         bargained: bool = False,
+        teamwork: bool = False,
     ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
@@ -291,6 +292,18 @@ class LegalActionsMixin:
                 action["lock_reason"] = "Manakosten nicht bezahlbar"
             return action
         action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
+        if teamwork:
+            # Preview the conditional modal header with this optional cost
+            # announced; the real cast sets the same ephemeral marker before
+            # target legality is checked.
+            obj._modal_announced_teamwork = True
+            params = (getattr(obj, "parametric_keywords", None) or {}).get("teamwork") or {}
+            action["teamwork"] = True
+            action["teamwork_power"] = int(params.get("n", 0))
+            action["teamwork_candidates"] = [
+                {"instance_id": candidate.instance_id, "name": candidate.name, "power": candidate.power}
+                for candidate in self._teamwork_candidates(player)
+            ]
         if self._can_cast_foretold(player, obj):
             foretell_cost = self._foretell_cost(obj)
             action["foretell"] = True
@@ -503,6 +516,8 @@ class LegalActionsMixin:
             if not all_requirements_satisfiable(requirements):
                 action["locked"] = True
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
+        if teamwork:
+            delattr(obj, "_modal_announced_teamwork")
         return action
     def _modal_cast_actions(
         self, player: Player, obj: GameObject, kicked: int = 0, include_kicker: bool = True,
@@ -694,7 +709,24 @@ class LegalActionsMixin:
         no printed card needs a modal free/alt-cost combination yet.
         """
         if getattr(obj, "spell_modes", None):
-            actions.extend(self._modal_cast_actions(player, obj))
+            modal_actions = self._modal_cast_actions(player, obj)
+            actions.extend(modal_actions)
+            # Teamwork is an independent optional additional cost, so every
+            # otherwise legal modal choice gets its paid sibling.
+            override = getattr(obj, "spell_modes_override", None) or {}
+            condition = override.get("condition") if isinstance(override, dict) else None
+            teamwork_override = isinstance(condition, dict) and condition.get("kind") == "teamwork_paid"
+            for action in modal_actions:
+                mode = action.get("mode")
+                if not teamwork_override and self.can_cast(player, obj, mode=mode, teamwork=True):
+                    actions.append(self._cast_action(player, obj, mode=mode, teamwork=True))
+            if (
+                isinstance(condition, dict) and condition.get("kind") == "teamwork_paid"
+                and self.can_cast(player, obj, teamwork=True)
+            ):
+                actions.append(self._cast_action(
+                    player, obj, mode=list(range(len(obj.spell_modes))), teamwork=True,
+                ))
             return
         # RULE 702.35b (PAR-26): a Madness card sitting in exile after a
         # discard may be cast *only* for its madness cost (`alt_cast_cost`),
@@ -704,6 +736,8 @@ class LegalActionsMixin:
         madness_exiled = getattr(obj, "madness_exiled", False) and obj.zone == Zone.EXILE
         if not madness_exiled and self._plain_castable_now_or_via_potential(player, obj):
             actions.append(self._cast_action(player, obj))
+        if self.can_cast(player, obj, teamwork=True):
+            actions.append(self._cast_action(player, obj, teamwork=True))
         # RULE 702.166: offer the paid Bargain variant alongside the ordinary
         # cast when the card actually has Bargain and a legal permanent can
         # pay its sacrifice cost.  Previously the engine accepted
@@ -799,6 +833,20 @@ class LegalActionsMixin:
                 actions.append({
                     "type": "foretell", "instance_id": obj.instance_id,
                     "name": obj.name, "cost_label": "{2}", "auto_tap": True,
+                })
+            if self.can_suspend(player, obj):
+                params = self._suspend_params(obj) or {}
+                actions.append({
+                    "type": "suspend", "instance_id": obj.instance_id,
+                    "name": obj.name, "cost_label": str(params.get("cost", "")),
+                    "time_counters": int(params.get("n", 0)),
+                })
+            elif self.can_suspend(player, obj, assume_mana_available=True):
+                params = self._suspend_params(obj) or {}
+                actions.append({
+                    "type": "suspend", "instance_id": obj.instance_id,
+                    "name": obj.name, "cost_label": str(params.get("cost", "")),
+                    "time_counters": int(params.get("n", 0)), "auto_tap": True,
                 })
             # A second castable face offers its own action(s) too — a modal
             # DFC's back (RULE 712.10), a split card's other half (RULE

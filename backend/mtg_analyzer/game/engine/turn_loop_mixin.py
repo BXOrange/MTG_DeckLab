@@ -169,6 +169,9 @@ class TurnLoopMixin:
             state.turn_nr += 1
     def begin_turn(self) -> None:
         """Advance to the next player's turn and reset per-turn state."""
+        # RULE 700.2 / MEC-68: "this turn" modal history expires before a
+        # new turn's triggers can be collected or placed.
+        self.state.trigger_mode_history.clear()
         if self.state.internal_turn.number == 0:
             self.state.internal_turn.number = 1
             self.state.active_player_index = 0

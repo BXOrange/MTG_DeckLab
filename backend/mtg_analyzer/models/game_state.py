@@ -507,6 +507,12 @@ class GameState:
         #: `_apply_effects_partitioned`, drained by `RulesEngine.
         #: resume_deferred_effects` from `GameEngine.resolve_until_stable`.
         self.deferred_effects: list[dict[str, Any]] = []
+        #: RULE 700.2 / MEC-68: modes selected by a particular triggered
+        #: ability during the current turn. Keys are stable for the lifetime
+        #: of a bound ability (source instance id + ability object id), and
+        #: values are mode indices. `GameEngine.begin_turn` clears this at
+        #: the turn boundary.
+        self.trigger_mode_history: dict[tuple[str, int], set[int]] = {}
 
         #: A temporary "you may play this card" permission granted to a
         #: card sitting outside hand/command/graveyard/library-top (Light

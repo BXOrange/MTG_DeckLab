@@ -1850,6 +1850,7 @@ def bind_ability(
                 modes_choose=int(spec.modes.get("choose", 1)) if spec.modes else 1,
                 modes_at_least=bool(spec.modes.get("at_least", False)) if spec.modes else False,
                 modes_repeatable=bool(spec.modes.get("repeatable", False)) if spec.modes else False,
+                modes_exhaust_per_turn=bool(spec.modes.get("exhaust_per_turn", False)) if spec.modes else False,
                 modes_optional=bool(spec.modes.get("optional", False)) if spec.modes else False,
                 modes_override=spec.modes.get("override") if spec.modes else None,
                 # PAR-30 (Confusion in the Ranks) — "its controller chooses

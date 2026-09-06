@@ -146,6 +146,63 @@ class CastingMixin:
             return False
         return assume_mana_available or player.mana_pool.can_pay(ManaCost.parse("{2}"), life_available=player.life)
 
+    @staticmethod
+    def _suspend_params(obj: GameObject) -> Optional[dict[str, Any]]:
+        """Return the printed Suspend parameters, if this card has them.
+
+        RULE 702.62a's first ability is a hand-zone special action. A
+        Suspend granted later (for example by Delay) deliberately does not
+        create that action: it has no printed ``N—cost`` to pay.
+        """
+        params = (getattr(obj, "parametric_keywords", None) or {}).get("suspend")
+        if not isinstance(params, dict) or params.get("cost") is None:
+            return None
+        try:
+            if int(params.get("n", 0)) < 0:
+                return None
+        except (TypeError, ValueError):
+            return None
+        return params
+
+    def can_suspend(self, player: Player, obj: GameObject, *, assume_mana_available: bool = False) -> bool:
+        """RULE 702.62a: may ``player`` suspend this hand card now?"""
+        params = self._suspend_params(obj)
+        if obj not in player.hand or player is not self.state.active_player or params is None:
+            return False
+        # Suspending is permitted only at a time the card could be cast.
+        # ``can_cast`` cannot be reused because it also requires payment of
+        # the normal mana cost, which is precisely what Suspend replaces.
+        card = obj.card
+        sorcery_speed = not (card.is_instant or combat.has(obj, "flash"))
+        if sorcery_speed and (not self._in_main_phase() or bool(self.state.stack)):
+            return False
+        cost = ManaCost.parse(str(params["cost"]))
+        return assume_mana_available or player.mana_pool.can_pay(cost, life_available=player.life)
+
+    def suspend(self, player: Player, obj: GameObject) -> None:
+        """Pay Suspend's alternate cost and exile the card with time counters.
+
+        This is a special action, so it never uses the stack (RULE 116.2f).
+        The existing upkeep trigger scans exile for the printed keyword plus
+        these counters; no separate marker is necessary for a printed
+        Suspend card.
+        """
+        if not self.can_suspend(player, obj):
+            if self.can_suspend(player, obj, assume_mana_available=True):
+                try:
+                    params = self._suspend_params(obj)
+                    assert params is not None
+                    self.auto_tap_for(player, cost=ManaCost.parse(str(params["cost"])))
+                except ValueError:
+                    pass
+        if not self.can_suspend(player, obj):
+            raise ValueError(f"{player.id} cannot suspend {obj.name} now")
+        params = self._suspend_params(obj)
+        assert params is not None
+        player.mana_pool.pay(ManaCost.parse(str(params["cost"])), life_available=player.life)
+        self.rules.exile(obj)
+        obj.add_counters("time", int(params["n"]))
+
     def foretell(self, player: Player, obj: GameObject) -> None:
         """Pay {2}, then exile a hand card face down (no stack involved)."""
         if not self.can_foretell(player, obj):
@@ -307,6 +364,39 @@ class CastingMixin:
         if not candidates:
             return None
         return next((o for o in candidates if o.is_token), candidates[0])
+
+    def _teamwork_candidates(self, player: Player) -> list[GameObject]:
+        """Untapped creatures available for Teamwork (RULE 702.194)."""
+        self.recompute_continuous_effects()
+        return [obj for obj in self.state.permanents_controlled_by(player.id)
+                if obj.is_creature and not obj.tapped]
+
+    def _teamwork_selection(self, player: Player, obj: GameObject,
+                            choices: Optional[list[int]] = None) -> Optional[list[GameObject]]:
+        params = (getattr(obj, "parametric_keywords", None) or {}).get("teamwork") or {}
+        try:
+            threshold = int(params.get("n", -1))
+        except (TypeError, ValueError):
+            return None
+        candidates = self._teamwork_candidates(player)
+        by_id = {candidate.instance_id: candidate for candidate in candidates}
+        if choices is None:
+            picked: list[GameObject] = []
+            power = 0
+            for candidate in sorted(candidates, key=lambda c: c.power, reverse=True):
+                picked.append(candidate)
+                power += candidate.power
+                if power >= threshold:
+                    return picked
+            return None
+        picked = []
+        seen: set[int] = set()
+        for instance_id in choices:
+            if instance_id in seen or instance_id not in by_id:
+                return None
+            seen.add(instance_id)
+            picked.append(by_id[instance_id])
+        return picked if sum(candidate.power for candidate in picked) >= threshold else None
     def _escape_cost(self, obj: GameObject) -> Optional["ActivationCost"]:
         """RULE 702.138b: ``obj``'s Escape cost — mana plus "exile N other
         cards from your graveyard" — as a parsed `ActivationCost`, or
@@ -354,6 +444,8 @@ class CastingMixin:
         assume_mana_available: bool = False,
         help_pay: bool = False,
         pay_additional: bool = False,
+        teamwork: bool = False,
+        teamwork_choices: Optional[list[int]] = None,
     ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
@@ -439,6 +531,8 @@ class CastingMixin:
             # RULE 702.51/702.66/702.126 (PAR-23): the "cast using Convoke/
             # Delve/Improvise" offer is illegal for a spell that has none of
             # them — same guard shape as `evoke`/`buyback` without the keyword.
+            return False
+        if teamwork and self._teamwork_selection(player, obj, teamwork_choices) is None:
             return False
         in_castable_zone = (
             obj in player.hand
@@ -1117,6 +1211,8 @@ class CastingMixin:
         discard_choices: Optional[list[int]] = None,
         help_pay: bool = False,
         pay_additional: bool = False,
+        teamwork: bool = False,
+        teamwork_choices: Optional[list[int]] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -1230,7 +1326,7 @@ class CastingMixin:
                     target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                     mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                     sacrifice_choice=sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
-                    pay_additional=pay_additional,
+                    pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
                 )
             except Exception:
                 self.rules.restore_face(obj, snapshot)
@@ -1243,6 +1339,7 @@ class CastingMixin:
         # Keep that prospective value only for this validation/resolution
         # window; the successful cast later persists `kicker_count` normally.
         obj._modal_announced_kicked = kicked
+        obj._modal_announced_teamwork = teamwork
         # Snapshot non-cost conditional modal headers at the choice point.
         # In particular, "as you cast" reads the pre-cast battlefield, not
         # whatever it looks like when the spell eventually resolves.
@@ -1253,10 +1350,11 @@ class CastingMixin:
                 target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                 mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
-                pay_additional=pay_additional,
+                pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
             )
         finally:
             delattr(obj, "_modal_announced_kicked")
+            delattr(obj, "_modal_announced_teamwork")
             delattr(obj, "_modal_override_condition_met")
 
     def _modal_override_active(self, obj: GameObject) -> bool:
@@ -1273,7 +1371,7 @@ class CastingMixin:
         if kind == "additional_cost_paid":
             return bool(getattr(obj, "additional_cost_paid", False))
         if kind == "teamwork_paid":
-            return bool(getattr(obj, "teamwork_paid", False))
+            return bool(getattr(obj, "_modal_announced_teamwork", getattr(obj, "teamwork_paid", False)))
         if hasattr(obj, "_modal_override_condition_met"):
             return bool(obj._modal_override_condition_met)
         player = next((p for p in self.state.players if p.id == obj.controller_id), None)
@@ -1489,6 +1587,8 @@ class CastingMixin:
         targets: Optional[list[Any]] = None,
         help_pay: bool = False,
         pay_additional: bool = False,
+        teamwork: bool = False,
+        teamwork_choices: Optional[list[int]] = None,
     ) -> None:
         """"Automatisches Tappen": best-effort, silent mana top-up right
         before a real cast attempt — only when ``obj`` would already be
@@ -1530,6 +1630,7 @@ class CastingMixin:
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             targets=targets, help_pay=help_pay, pay_additional=pay_additional,
+            teamwork=teamwork, teamwork_choices=teamwork_choices,
         ):
             return
         if not self.can_cast(
@@ -1537,6 +1638,7 @@ class CastingMixin:
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             targets=targets, assume_mana_available=True, help_pay=help_pay, pay_additional=pay_additional,
+            teamwork=teamwork, teamwork_choices=teamwork_choices,
         ):
             return  # illegal for a reason other than mana — never auto-tap
         cost = self.effective_cast_cost(
@@ -1572,6 +1674,8 @@ class CastingMixin:
         help_pay: bool = False,
         bestow: bool = False,
         pay_additional: bool = False,
+        teamwork: bool = False,
+        teamwork_choices: Optional[list[int]] = None,
     ):
         """The common cast body, reading whatever `obj.card` currently is.
 
@@ -1615,12 +1719,14 @@ class CastingMixin:
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets, help_pay=help_pay, pay_additional=pay_additional,
+                teamwork=teamwork, teamwork_choices=teamwork_choices,
             )
             if not self.can_cast(
                 player, obj, x, face=bestow_face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets, help_pay=help_pay, pay_additional=pay_additional,
+                teamwork=teamwork, teamwork_choices=teamwork_choices,
             ):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 601.2c: a spell that requires a target can't be cast unless
@@ -1792,6 +1898,14 @@ class CastingMixin:
             # `RulesEngine.resolve_top_of_stack` to route the spell back to
             # hand instead of the graveyard.
             obj.buyback_paid = buyback
+            obj.teamwork_paid = False
+            if teamwork:
+                selected = self._teamwork_selection(player, obj, teamwork_choices)
+                if selected is None:
+                    raise ValueError(f"{obj.name}: illegal Teamwork payment")
+                for creature in selected:
+                    self.rules.set_tapped(creature, True)
+                obj.teamwork_paid = True
             if mutate:
                 # RULE 702.140a/601.2c: the host must be a legal mutate
                 # target — checked here rather than by the ordinary
