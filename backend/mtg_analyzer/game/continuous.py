@@ -306,6 +306,12 @@ def group_selector_objects(
         ]
     elif affects == "creatures_you_control":
         result = [o for o in battlefield if o.is_creature and o.controller_id == controller_id]
+    elif affects == "non_human_creatures_you_control":
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id == controller_id
+            and not _has_subtype(o, "human")
+        ]
     elif affects == "creatures_you_control_with_a_counter":
         # "Each creature you control with a counter on it gains firebending
         # N …" (Iroh, Dragon of the West, PAR-30) — any counter kind, any
@@ -896,6 +902,16 @@ def count_selector(
         return len(colors_present)
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
+    if selector == "greatest_non_human_creature_power_you_control":
+        # Return of the Wildspeaker: this is a magnitude, not a target
+        # restriction. Derived power is read live at resolution (RULE 613),
+        # and an empty eligible set has greatest value zero.
+        eligible = [
+            int(o.power or 0) for o in bf
+            if o.is_creature and o.controller_id == controller_id
+            and not _has_subtype(o, "human")
+        ]
+        return max(eligible, default=0)
     if selector == "multicolored_permanents_you_control":
         # "…if an opponent controls a multicolored permanent." (Ghostfire
         # Slice's own `active_if`, read via `opponent_count`'s per-opponent

@@ -54,6 +54,7 @@ from ..effects import (
     TheRingTemptsYouEffect,
     GameContext,
     GameEffect,
+    HauntLinkedDeathEffect,
     ImpulsiveDrawEffect,
     IncreaseSpeedEffect,
     MarchesaDelayedReturnEffect,
@@ -929,6 +930,26 @@ class TriggerCollectionMixin:
                         continue
                     if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
                         self.pending_triggers.append((ability, event))
+
+    def _collect_haunt_triggers(self, event: GameEvent) -> None:
+        """RULE 702.55: an exiled haunter sees its linked creature die."""
+        if event.type != EventType.DIES:
+            return
+        dying_id = event.get("instance_id")
+        if dying_id is None:
+            return
+        for owner in self.state.players:
+            for obj in owner.exile:
+                if getattr(obj, "haunting_instance_id", None) != dying_id:
+                    continue
+                for ability in obj.triggered_abilities:
+                    if not isinstance(ability, TriggeredAbility):
+                        continue
+                    if ability.trigger_event != EventType.DIES:
+                        continue
+                    if not any(isinstance(effect, HauntLinkedDeathEffect) for effect in ability.effects):
+                        continue
+                    self.pending_triggers.append((ability, event))
     def _collect_cycled_triggers(self, event: GameEvent) -> None:
         """RULE 702.28c: "When you cycle this card, `<effect>`." fires from
         the graveyard the Cycling cost's own ``discard_self`` just put its

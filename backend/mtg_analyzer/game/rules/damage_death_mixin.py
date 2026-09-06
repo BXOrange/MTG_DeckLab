@@ -1668,6 +1668,10 @@ class DamageDeathMixin:
         exile it instead" clause (`GraveyardCastPermissionEffect.exile_
         if_would_be_put_into_graveyard`).
         """
+        if getattr(obj, "exile_after_free_cast", False):
+            obj.exile_after_free_cast = False
+            self.exile(obj)
+            return
         if obj.cast_via_graveyard_cast_permission_until_turn == self.state.internal_turn.number:
             self.exile(obj)
             return

@@ -609,6 +609,12 @@ class GameObject:
         #: `ReturnLinkedExileEffect` on this object's own leaves-battlefield
         #: trigger. ``None`` when nothing is currently linked.
         self.linked_exile_id: Optional[int] = None
+        #: RULE 702.55 Haunt: the creature this exiled card currently haunts.
+        #: The link is cleared by any later zone change (`reset_as_new_object`).
+        self.haunting_instance_id: Optional[int] = None
+        #: A one-shot free-cast rider (Impulsivity): exile this spell rather
+        #: than letting it reach a graveyard after it resolves.
+        self.exile_after_free_cast: bool = False
         #: MEC-21's generalized sibling of `linked_exile_id` above — "cards
         #: exiled **with** ~" (Agatha's Soul Cauldron/Dark Impostor/Bruna,
         #: Light of Alabaster-shaped, ~185 cached cards per this ticket's
@@ -1280,6 +1286,8 @@ class GameObject:
         self.last_unattached_from_id = None
         self.control_change_until_eot = None
         self.linked_exile_id = None
+        self.haunting_instance_id = None
+        self.exile_after_free_cast = False
         self.exiled_with_ids = []
         self.remembered_instance_id = None
         self.remembered_stack_id = None

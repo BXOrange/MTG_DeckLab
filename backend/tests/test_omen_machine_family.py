@@ -97,15 +97,20 @@ def test_draw_step_exiles_and_puts_a_land_onto_the_battlefield():
     assert p1.exile == []
 
 
-def test_draw_step_exiles_and_free_casts_a_nonland_card_if_able():
+def test_draw_step_opens_a_free_cast_window_for_a_nonland_card():
     eng, p1, p2 = two_player_engine([land(), any_target_instant("Shock")])
     _put_omen_machine(eng)
-    life_before = p1.life
+    life_before = p2.life
     _advance_to_draw_step(eng)
     eng.resolve_until_stable()
     assert [c.name for c in p1.library] == ["Forest"]
+    shock = next(o for o in p1.exile if o.name == "Shock")
+    assert shock.instance_id in eng.state.free_cast_instance_ids
+    # The controller decides to cast and deliberately chooses the opponent.
+    eng.cast_spell(p1, shock, targets=[p2])
+    eng.resolve_until_stable()
     assert "Shock" in [o.name for o in p1.graveyard]
-    assert p1.life == life_before - 2  # auto-targeted itself, the first legal option
+    assert p2.life == life_before - 2
 
 
 def test_draw_step_leaves_an_uncastable_nonland_card_exiled():

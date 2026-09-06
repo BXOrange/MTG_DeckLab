@@ -454,6 +454,9 @@ class RulesEngine(
         state.subscribe(self._track_spell_cast)
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)
+        # RULE 702.55: Haunt abilities function from exile, but only for the
+        # creature instance their source is currently haunting.
+        state.subscribe(self._collect_haunt_triggers)
         # Tally creatures that died this turn (RULE 700.4) — see
         # `GameState.creatures_died_this_turn`.
         state.subscribe(self._track_creature_death)

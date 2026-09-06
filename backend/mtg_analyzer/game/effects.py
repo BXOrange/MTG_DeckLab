@@ -1861,6 +1861,71 @@ class RequestChoosePlayerEffect(GameEffect):
         context.engine.request_choose_player(player, self.source)
 
 
+class SlithermuseEffect(GameEffect):
+    """Slithermuse's non-targeting leaves trigger and live hand delta."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None and self.source is not None:
+            context.engine.request_slithermuse_opponent(player, self.source)
+
+
+class HauntEffect(GameEffect):
+    """RULE 702.55a: exile this card haunting the chosen creature."""
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="creature")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets or [None])[0]
+        if self.source is None or target is None or target.zone != Zone.BATTLEFIELD:
+            return
+        if self.source.zone not in (Zone.GRAVEYARD, Zone.BATTLEFIELD):
+            return
+        context.exile(self.source)
+        self.source.haunting_instance_id = target.instance_id
+
+
+class HauntLinkedDeathEffect(GameEffect):
+    """The body of ``when the creature this card haunts dies``."""
+
+    def __init__(self, effects: Optional[list[dict[str, Any]]] = None,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.effects = [dict(effect) for effect in (effects or [])]
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event or {}
+        if (
+            self.source is not None
+            and self.source.zone == Zone.EXILE
+            and getattr(self.source, "haunting_instance_id", None) == event.get("instance_id")
+        ):
+            context.engine._apply_effect_specs(self.effects, self.source)
+
+
+class CastGraveyardInstantSorceryFreeExileEffect(GameEffect):
+    """Impulsivity's targeted free-cast window plus exile rider."""
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="any_graveyard_instant_or_sorcery")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets or [None])[0]
+        player = _controller_of(self.source, context)
+        if player is None or target is None or target.zone != Zone.GRAVEYARD:
+            return
+        # The player, not the engine, chooses whether to cast and supplies
+        # every RULE 115 target through the ordinary cast flow. Moving the
+        # card to exile first makes the existing per-card free-cast window
+        # available without inventing an off-stack target-selection shortcut.
+        target.exile_after_free_cast = True
+        context.exile(target)
+        context.engine.grant_free_cast_window_from_exile(target, caster=player)
+
+
 class DealDamageToChosenPlayerEffect(GameEffect):
     """"…it deals that much damage to the chosen player." (Stuffy Doll) —
     reads the firing `DAMAGE` event's own ``amount`` (the "that much" it
@@ -7635,15 +7700,9 @@ class LandOrFreeCastEffect(GameEffect):
     exactly where the source effect left it (in exile, or wherever) —
     neither card's text says to do anything else with it.
 
-    **Documented simplification**: a targeted card is auto-targeted at its
-    first legal option per requirement rather than opening a real choice —
-    this engine has no "pause mid-resolution for a nested cast+targeting
-    cycle" primitive yet (`game/rules/misc_mixin.py`'s own `"grant_free_
-    cast"` branch, MEC-20, names the same gap for Expertise's own same-turn
-    free cast), so every other automatic-cast primitive in this codebase
-    accepts the same "first legal candidate, no prompt" reading rather than
-    leaving the card silently uncast whenever it happens to have 2+ legal
-    targets.
+    A nonland card opens the ordinary per-card free-cast window instead of
+    being cast during this resolution. Its controller consciously decides
+    whether to cast and supplies all targets through the standard cast flow.
     """
 
     def __init__(self, player_selector: str = "controller", source: Optional["GameObject"] = None) -> None:
@@ -7674,24 +7733,7 @@ class LandOrFreeCastEffect(GameEffect):
                 )
             )
             return
-        requirements = requirements_with_targets(context.state, player.id, obj)
-        if not all_requirements_satisfiable(requirements):
-            return  # "if able" — no legal target, so it can't be cast
-        cast_targets: list[Any] = []
-        for req in requirements:
-            options = req.get("options") or []
-            if not options:
-                continue
-            pick = options[0]
-            if "instance_id" in pick:
-                resolved = context.state.find_object(pick["instance_id"])
-            elif "player_id" in pick:
-                resolved = context.state.player_by_id(pick["player_id"])
-            else:
-                resolved = None
-            if resolved is not None:
-                cast_targets.append(resolved)
-        context.engine.cast_without_paying(player, obj, targets=cast_targets or None)
+        context.engine.grant_free_cast_window_from_exile(obj, caster=player)
 
 
 class ExileAnyNumberYouControlEffect(GameEffect):
@@ -10429,12 +10471,9 @@ class ReturnChosenCreatureTypeFromGraveyardEffect(GameEffect):
 class CastTargetElementalFromGraveyardFreeEffect(GameEffect):
     """Horde of Notions' targeted graveyard permission.
 
-    This follows the engine's existing automatic free-cast family: the
-    selected card is cast as the activated ability resolves.  A creature
-    Elemental has no spell targets; an Elemental instant/sorcery uses the
-    normal first-legal-target fallback shared by `LandOrFreeCastEffect`.
-    The card follows its normal later zone changes; Horde's Oracle text does
-    not contain Flashback's "exile it instead" rider.
+    The selected card moves to exile and opens the ordinary free-cast window,
+    so its controller makes the cast and target choices. The card follows its
+    normal later zone changes; Horde's Oracle text has no exile rider.
     """
 
     def __init__(self, source: Optional["GameObject"] = None) -> None:
@@ -10446,7 +10485,8 @@ class CastTargetElementalFromGraveyardFreeEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None or target is None or target not in player.graveyard:
             return
-        context.engine.cast_without_paying(player, target)
+        context.exile(target)
+        context.engine.grant_free_cast_window_from_exile(target, caster=player)
 
 
 class KindredSummonsEffect(GameEffect):
@@ -21730,6 +21770,15 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "request_choose_player", lambda p: RequestChoosePlayerEffect()  # Stuffy Doll
+)
+EffectRegistry.register("slithermuse", lambda p: SlithermuseEffect())
+EffectRegistry.register("haunt", lambda p: HauntEffect())
+EffectRegistry.register(
+    "haunt_linked_death", lambda p: HauntLinkedDeathEffect(effects=p.get("effects")),
+)
+EffectRegistry.register(
+    "cast_graveyard_instant_sorcery_free_exile",
+    lambda p: CastGraveyardInstantSorceryFreeExileEffect(),
 )
 EffectRegistry.register(
     "deal_damage_to_chosen_player", lambda p: DealDamageToChosenPlayerEffect()  # Stuffy Doll

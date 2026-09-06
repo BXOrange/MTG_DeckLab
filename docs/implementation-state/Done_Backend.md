@@ -1458,6 +1458,54 @@ is in the rules-engine categories below them.
 - **Not yet:** Memory Vampire (also needs a dynamic multi-target mill + a "cast target nonland card from a graveyard without paying its mana cost" one-shot) and Incinerator of the Guilty (dynamic "collect evidence X" + event-scoped group damage) — tracked in `BACKLOG.md`. Narrows the Red Hulk documented simplification (`DamageEqualToCountersEffect` docstring) to "not yet wired for that card", not "no primitive exists".
 - **Files:** `game/effects.py` (`PayCostThenEffect.then_trigger_specs`, `pay_cost_then` factory), `game/rules/misc_mixin.py` (`request_pay_cost_then`/`resolve_pay_cost_then_choice`/`_enqueue_pay_cost_then_trigger`), `parser/oracle/catalogue/handlers.py` (`_pay_cost_then_general`), `parser/oracle/gate.py` (PARSER_VERSION 206).
 - **Tests:** `tests/test_reflexive_when_you_do_trigger.py` — parse (targeted → `then_trigger`, untargeted → `effects`), and execute: Sample Collector's reflexive +1/+1-counter ability goes on the stack, offers a `trigger_target` choice, and resolves onto the picked creature; declining the cost queues nothing; the mana-cost variant (Surgespanner bounce) and the blight-cost variant (Warren Torchmaster haste) both resolve end-to-end.
+- **MEC-69 · Modal reflexive continuations:** The same per-payment trigger path
+  accepts `pay_cost_then.then_trigger_modes`: `enqueue_reflexive_trigger`
+  builds its mode options as a fresh `TriggeredAbility`, so its `trigger_mode`
+  choice appears only after the optional cost is paid and before any mode's
+  targets. Voltstorm Angel's `{E}{E}` combat trigger is the end-to-end
+  contract; declining it queues no modal ability. Parser forms remain
+  PAR-58's scope. `tests/test_mec69_reflexive_modal.py` verifies both paths.
+
+### Card-resolution packages: Dance residual bodies (MEC-76)
+
+- **What:** Hand-authored the four residual card bodies that did not justify a
+  new oracle grammar. Return of the Wildspeaker is a true modal spell whose
+  new live selector finds the greatest derived power among controlled
+  non-Humans; its other mode uses the matching non-Human group selector.
+  Mass of Mysteries' beginning-of-combat trigger targets only another
+  controlled Elemental and grants temporary myriad. Slithermuse's
+  non-targeting opponent choice resolves after it leaves and draws exactly
+  the live positive hand-size difference. Impulsivity targets an
+  instant/sorcery card in any graveyard, opens its free-cast window, and
+  stamps the shared per-cast graveyard redirect so the resolving spell is
+  exiled.
+- **Why:** Impulsivity now moves the chosen card to exile and opens the
+  ordinary per-card free-cast window. The controller explicitly decides
+  whether to cast it and supplies every target through the standard casting
+  flow; its one-spell exile rider survives that deferred choice.
+- **Files:** `game/ability_catalogue/entries_016.py`, `game/continuous.py`,
+  `game/effects.py`, `game/rules/misc_mixin.py`,
+  `game/engine/turn_loop_mixin.py`.
+- **Tests:** `tests/test_mec76_dance_packages.py` executes each named card's
+  contract, including the Impulsivity exile replacement.
+
+### Haunt (RULE 702.55, MEC-70)
+
+- **What:** The Haunt keyword now binds its inherent dies trigger. On
+  resolution `HauntEffect` exiles the source and records the chosen
+  creature's instance id; the same effect also supports the activated
+  ``exile ~ haunting target creature`` variant. A dedicated exile-zone
+  trigger scan observes only the linked creature's later `DIES` event and
+  queues `haunt_linked_death`'s body from the exiled card, so unrelated
+  deaths cannot fire it. Zone changes clear the link under RULE 400.7.
+- **Scope:** PAR-59 remains responsible for recognizing the printed
+  enter-or-haunted-death and standalone haunted-death card bodies; this
+  ticket supplies the mechanic and its event lifecycle.
+- **Files:** `models/game_object.py`, `game/effects.py`,
+  `game/effect_binder.py`, `game/rules/triggers_mixin.py`,
+  `game/rules_engine.py`.
+- **Tests:** `tests/test_mec70_haunt.py` verifies a real keyword-bound dies
+  link, its exile-zone linked-death trigger, and the activated form.
 
 ### Self-referential-trigger family: ability words, controller-scoped phases, self-damage
 
@@ -4299,6 +4347,10 @@ is in the rules-engine categories below them.
 ### MEC-33: Omen Machine — an existing draw cap at zero, plus a genuine "each player's step, that player" tail
 
 - **What:** "Players can't draw cards. At the beginning of each player's draw step, that player exiles the top card of their library. If it's a land card, the player puts it onto the battlefield. Otherwise, the player casts it without paying its mana cost if able." Two independent pieces, both diagnosed against what already existed rather than assumed new. (1) "Players can't draw cards" turned out to need **no new code at all**: `continuous.max_draws_per_turn` (RULE 121.5-adjacent, already built for Spirit of the Labyrinth/Narset, Parter of Veils) is a flat per-turn draw cap, `affects="all"` already its own default — a cap of `max_per_turn=0` *is* an outright ban, a value nobody had ever asked the primitive for before. (2) The replacement action needed a real primitive: a `STEP_BEGIN` trigger on the "draw" step with **no `phase_relation` at all**. Since RULE 500.1 gives only the active player a draw step on any given turn, an unscoped "at the beginning of the draw step" trigger already fires exactly once per turn, for whoever that is — the same set of firings "each player's draw step" describes, just never phrased that way in this catalogue before. `ExileTopOfLibraryEffect` (MEC-38, Necropotence) gained a `player_selector="active_player"` option, reading `GameState.active_player` live at resolution instead of the source's own controller — the same "no subject of its own" idiom `DealDamageEffect`'s existing `"active_player"` recipient key already established (Roiling Vortex-shaped, RULE 121-adjacent), just not previously reused anywhere else. The land/free-cast tail is a new `LandOrFreeCastEffect`, reading whatever the exile effect just made available (`GameContext.created_objects[-1]`, the same "read what an earlier clause created" idiom `AttachEffect`/`ReturnFromGraveyardEffect` use) — a land goes straight to the battlefield (`RulesEngine._remove_from_current_zone` first, a real bug caught in testing: `GameState.add_to_battlefield` never removes the object from wherever it currently sits, so skipping this left it listed in both `player.exile` and the battlefield at once), anything else is cast via `RulesEngine.cast_without_paying` when RULE 601.2c's target requirements are satisfiable (replicated directly off `targeting.requirements_with_targets`/`all_requirements_satisfiable` — an effect has no `GameEngine` to call `has_legal_targets` through, only `GameContext.engine`, which is the `RulesEngine`), left in exile untouched otherwise ("if able" names no other fallback). **Documented simplification**, consistent with the rest of the codebase: a castable card is auto-targeted at its first legal option per requirement rather than opening a real interactive choice — this engine has no "pause mid-resolution for a nested cast+targeting cycle" primitive yet (`game/rules/misc_mixin.py`'s own `"grant_free_cast"` branch, MEC-20, already names the identical gap for Expertise's same-turn free cast), so every other automatic-cast primitive already accepts the same reading.
+- **Superseded targeting note (MEC-76):** The preceding historical note's
+  automatic "first legal target" simplification is no longer current.
+  `LandOrFreeCastEffect` now opens a per-card free-cast window; the player
+  elects whether to cast and supplies targets through the standard cast flow.
 - **General primitive, not a one-off:** the exact same tail — "if it's a land card, the player puts it onto the battlefield. Otherwise, the player casts it without paying its mana cost if able." — also prints on Wild Evocation, off a *revealed random hand card* rather than an exiled library card. `LandOrFreeCastEffect` only consumes `created_objects[-1]`, so a future Wild Evocation catalogue entry only needs its own source half (a random-hand-reveal effect) to reuse this tail unchanged.
 - **Files:** `game/effects.py` (`ExileTopOfLibraryEffect.player_selector`, `LandOrFreeCastEffect`, the `"exile_top_of_library"`/new `"land_or_free_cast"` `EffectRegistry` factories, `targeting` imports widened), `game/ability_catalogue.py` (Omen Machine).
 - **Tests:** `tests/test_omen_machine_family.py` (new, 6 tests — flat draw ban incl. the controller's own draws, the land branch, the free-cast branch with life loss, an uncastable-nonland-card-stays-exiled negative case, and the trigger firing for both players' own draw steps across a turn rotation).

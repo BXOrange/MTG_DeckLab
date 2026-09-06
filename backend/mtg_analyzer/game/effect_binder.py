@@ -54,6 +54,7 @@ from .effects import (
     GameEffect,
     GetCityBlessingEffect,
     GrantUntilEffect,
+    HauntEffect,
     LivingWeaponEffect,
     LoseLifeEffect,
     PumpEffect,
@@ -2560,6 +2561,20 @@ def _kw_annihilator(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbilit
     ]
 
 
+def _kw_haunt(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.55a's inherent dies trigger; the card-specific payoff when
+    the haunted creature dies is represented separately by PAR-59."""
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.DIES,
+            effects=[HauntEffect(source=obj)],
+            condition=_self_only_condition(getattr(obj, "instance_id", None)),
+            source=obj,
+            description=spec.raw_text or "Haunt",
+        )
+    ]
+
+
 def _kw_afflict(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     if n is None:
         return []
@@ -2797,6 +2812,7 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "cumulative_upkeep": _kw_cumulative_upkeep,
     "renown": _kw_renown,
     "annihilator": _kw_annihilator,
+    "haunt": _kw_haunt,
     "afflict": _kw_afflict,
     "bushido": _kw_bushido,
     "prowess": _kw_prowess,

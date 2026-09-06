@@ -238,28 +238,6 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-- **MEC-76 · Dance — remaining card-resolution packages.**
-  Hand-author and execute the smaller, still distinct bodies after the shared
-  primitives above: **Return of the Wildspeaker** (non-Human greatest-power
-  modal draw/pump), **Mass of Mysteries** (temporary myriad grant),
-  **Slithermuse** (leave-battlefield opponent choice and hand-size delta
-  draw), and **Impulsivity** (graveyard instant/sorcery free cast plus a
-  one-spell graveyard-to-exile replacement). Each needs an end-to-end
-  contract; none may be marked covered solely by catalogue registration.
-
-- **MEC-69 · Modal reflexive continuations (RULE 603.11).** Extend the
-  existing `pay_cost_then` path so a successful optional payment can enqueue
-  a modal triggered payoff, then present its mode choice before its targets
-  and resolve it as an independent stack object. Must not collapse `When you
-  do` into an ordinary same-resolution effect.
-
-- **MEC-70 · Haunt (RULE 702.55).** Implement the death-triggered exile/link
-  to a chosen creature, retain the haunt relationship while that creature
-  remains on the battlefield, and emit the linked creature's death event for
-  the exiled card's haunt abilities. Cover the activated `exile ~ haunting
-  target creature` variant as well. PAR-59 owns the parser forms; unrelated
-  Haunt card bodies remain normal parser-tail work.
-
 ## PLR — Player management
 
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token

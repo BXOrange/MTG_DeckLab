@@ -1240,6 +1240,8 @@ class TurnLoopMixin:
             # ~ enters, choose a player") — mandatory, same "default to
             # the first option" treatment as the type-choice sibling above.
             self.rules.resolve_choose_player_choice(None if declined else str(answer))
+        elif kind == "slithermuse_opponent":
+            self.rules.resolve_slithermuse_opponent_choice(None if declined else str(answer))
         elif kind == "ring_bearer":
             # RULE 701.52a: "you choose a creature you control as your
             # Ring-bearer" — mandatory (the choice only opens with 2+

@@ -142,7 +142,7 @@ def test_haunting_voyage_chooses_type_then_returns_up_to_two_or_all_if_foretold(
     assert elf_c in state.battlefield and goblin in p1.graveyard
 
 
-def test_horde_of_notions_casts_a_target_elemental_from_graveyard_for_free_then_exiles_it():
+def test_horde_of_notions_opens_a_free_cast_window_for_the_targeted_elemental():
     horde = Card(
         id="Horde of Notions", name="Horde of Notions", type_line="Legendary Creature — Elemental",
         mana_cost_string="{W}{U}{B}{R}{G}", converted_mana_cost=5, is_creature=True,
@@ -160,6 +160,10 @@ def test_horde_of_notions_casts_a_target_elemental_from_graveyard_for_free_then_
 
     engine.activate_ability(p1, horde_obj, 0, targets=[elemental])
     engine.resolve_until_stable()
+    assert elemental in p1.exile
+    assert elemental.instance_id in state.free_cast_instance_ids
+    engine.cast_spell(p1, elemental)
+    engine.resolve_until_stable()
     assert elemental in state.battlefield
 
     # Horde grants no Flashback-style redirect; later zone changes are normal.
@@ -175,6 +179,9 @@ def test_horde_of_notions_casts_a_target_elemental_from_graveyard_for_free_then_
     p1.add_to_zone(tribal, Zone.GRAVEYARD)
     p1.mana_pool.add_many({"W": 1, "U": 1, "B": 1, "R": 1, "G": 1})
     engine.activate_ability(p1, horde_obj, 0, targets=[tribal])
+    engine.resolve_until_stable()
+    assert tribal in p1.exile
+    engine.cast_spell(p1, tribal)
     engine.resolve_until_stable()
     assert tribal.was_cast and tribal in p1.graveyard
 

@@ -2717,6 +2717,83 @@ def _haunted_one() -> list[AbilitySpec]:
 register("Haunted One", _haunted_one)
 
 
+def _return_of_the_wildspeaker() -> list[AbilitySpec]:
+    """Return of the Wildspeaker's two modal, non-Human-only effects."""
+    return [
+        AbilitySpec(
+            "spell_effect", [],
+            modes={
+                "choose": 1,
+                "options": [
+                    [EffectSpec("draw", {
+                        "amount_from_count_selector":
+                        "greatest_non_human_creature_power_you_control",
+                    })],
+                    [EffectSpec("pump", {
+                        "power": 3, "toughness": 3,
+                        "selector": "non_human_creatures_you_control",
+                    })],
+                ],
+                "descriptions": [
+                    "Draw cards equal to the greatest power among non-Human creatures you control.",
+                    "Non-Human creatures you control get +3/+3 until end of turn.",
+                ],
+            },
+            raw_text="Choose one — Return of the Wildspeaker",
+        ),
+    ]
+
+
+register("Return of the Wildspeaker", _return_of_the_wildspeaker)
+
+
+def _mass_of_mysteries() -> list[AbilitySpec]:
+    """Combat trigger granting myriad to another controlled Elemental."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("pump", {
+                "keywords": ["myriad"],
+                "target_kind": "other_creature_you_control",
+                "creature_filter": {"subtype": "elemental"},
+            })],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "begin_combat"},
+                     "phase_relation": "you"},
+            raw_text="At the beginning of combat on your turn, another target Elemental you control gains myriad until end of turn.",
+        ),
+    ]
+
+
+register("Mass of Mysteries", _mass_of_mysteries)
+
+
+def _slithermuse() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "triggered", [EffectSpec("slithermuse", {})],
+            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="When this creature leaves the battlefield, choose an opponent. If that player has more cards in hand than you, draw cards equal to the difference.",
+        ),
+    ]
+
+
+register("Slithermuse", _slithermuse)
+
+
+def _impulsivity() -> list[AbilitySpec]:
+    return [
+        AbilitySpec(
+            "triggered", [EffectSpec("cast_graveyard_instant_sorcery_free_exile", {})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            optional=True,
+            raw_text="When this creature enters, you may cast target instant or sorcery card from a graveyard without paying its mana cost. If that spell would be put into a graveyard, exile it instead.",
+        ),
+    ]
+
+
+register("Impulsivity", _impulsivity)
+
+
 def _acolyte_of_bahamut() -> list[AbilitySpec]:
     """Commander creatures you own have "The first Dragon spell you cast
     each turn costs {2} less to cast."

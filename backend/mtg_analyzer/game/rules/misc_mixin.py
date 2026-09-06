@@ -1359,6 +1359,35 @@ class MiscSystemsMixin:
         source = self._object_by_instance_id(choice.get("source_id"))
         if source is not None:
             source.chosen_player_id = chosen
+
+    def request_slithermuse_opponent(self, player: Player, source: GameObject) -> None:
+        """Slithermuse's non-targeting ``choose an opponent`` resolution."""
+        opponents = [p for p in self.state.living_players() if p.id != player.id]
+        if not opponents:
+            return
+        self.state.pending_choice = {
+            "kind": "slithermuse_opponent", "player_id": player.id,
+            "prompt": "Gegner für Slithermuse wählen",
+            "options": [{"id": p.id, "label": p.name} for p in opponents],
+            "source_id": source.instance_id,
+        }
+
+    def resolve_slithermuse_opponent_choice(self, answer: Optional[str]) -> None:
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "slithermuse_opponent":
+            raise ValueError("no pending Slithermuse opponent choice to resolve")
+        self.state.pending_choice = None
+        options = choice.get("options") or []
+        ids = {str(option["id"]) for option in options}
+        selected = str(answer) if answer is not None and str(answer) in ids else (
+            str(options[0]["id"]) if options else None
+        )
+        if selected is None:
+            return
+        chooser = self.state.player_by_id(choice["player_id"])
+        opponent = self.state.player_by_id(selected)
+        if chooser is not None and opponent is not None:
+            self.draw(chooser, max(0, len(opponent.hand) - len(chooser.hand)))
     def resolve_choose_type_for_source_choice(self, answer: Optional[str]) -> None:
         """Answer a `request_choose_creature_type_grant` choice."""
         choice = self.state.pending_choice
