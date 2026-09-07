@@ -1050,7 +1050,8 @@ textarea {
 
 .gf-card-slot.gf-drag-target-valid > .card,
 .gf-zone.gf-battlefield.gf-drag-target-valid,
-.gf-player-board.gf-drag-target-valid {
+.gf-player-board.gf-drag-target-valid,
+.gf-opponent.gf-drag-target-valid {
   box-shadow: 0 0 0 3px rgba(88, 183, 255, 0.8);
   border-color: rgba(88, 183, 255, 0.8);
 }

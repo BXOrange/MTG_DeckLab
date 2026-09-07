@@ -13,7 +13,21 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**40.4% covered — 14,072 / 34,811 — as of 2026-09-06, PARSER_VERSION 275.**
+**40.8% covered — 14,193 / 34,812 — as of 2026-09-07, PARSER_VERSION 277.**
+(v276–277, Blight Curse deck completion: v276 = Abrade second-mode
+`_DESTROY_COLOR_NOUN_KINDS` fix; v277 = Persist / Aberrant Return
+(`_RETURN_FROM_GRAVEYARD_RE` nonlegendary + enters-with-`-1/-1`-counter,
+`reanimate_multi_under_your_control`), Liliana Death Wielder −3
+(`has_counter` / `has_counter_kind` creature-filter alternatives),
+Incremental Blight/Growth (`incremental_counters` 3-target), The Scorpion God
+(`(?:another|other) target creature` → `creature` subgrammar row, +65 latent
+cards), Dread Tiller / Village Pillagers (`PutFromHandOntoBattlefield.zones`,
+`each_creature_opponents_control` damage selector, leading-`tapped` named
+token), Binding the Old Gods (`_destroy` guard `nonland_permanent*`), plus a
+`_GROUP_SUBJECT_RE` "an opponent controls" + "with a counter on it"
+qualifier. The remaining 20 deck cards are hand-`AUTHORED` in
+`ability_catalogue/entries_017.py` — see `Done_Backend.md` "Deck/Cube
+Playability Batches".)
 (v275, Blight Curse: `put X -1/-1 counters on each creature`, plus the
 global `each creature` / `each other creature` / `each creature your
 opponents control` counter selectors, now emit live mass-counter effects.

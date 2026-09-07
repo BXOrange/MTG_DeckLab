@@ -152,6 +152,10 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # Cultist) — new per-turn `GameState` trackers.
         "creature_card_to_graveyard_this_turn",
         "you_dealt_damage_this_turn_at_least",
+        # "At the beginning of each end step, if you put a counter on a
+        # creature this turn, …" (Lasting Tarfire) — `GameState.
+        # counter_placed_on_creature_this_turn`, a set of causer ids.
+        "you_placed_counter_on_creature_this_turn",
         # MEC-60 (Acolyte of Bahamut): "The first `<subtype>` spell you cast
         # each turn costs `{N}` less to cast." + ``subtype`` — a
         # `cost_reduction` ``active_if`` gate, true only while `controller_
@@ -481,6 +485,12 @@ def condition_holds(
         # graveyard from anywhere this turn" — `GameState.creature_card_to_
         # graveyard_this_turn`, a set of owner ids.
         seen = getattr(state, "creature_card_to_graveyard_this_turn", None) or set()
+        return controller_id in seen
+    if kind == "you_placed_counter_on_creature_this_turn":
+        # Lasting Tarfire: "if you put a counter on a creature this turn" —
+        # `GameState.counter_placed_on_creature_this_turn`, a set of the
+        # COUNTER event's causer (``source_controller_id``) ids.
+        seen = getattr(state, "counter_placed_on_creature_this_turn", None) or set()
         return controller_id in seen
     if kind == "first_subtype_spell_this_turn":
         # MEC-60 (Acolyte of Bahamut): "The first Dragon spell you cast each

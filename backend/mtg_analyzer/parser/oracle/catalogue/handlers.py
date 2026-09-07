@@ -830,6 +830,11 @@ _SELECTOR_WORD_MAP: dict[str, str] = {
     # own regex row (`damage_selector`) opts these keys in.
     "each creature and each player": "each_creature_and_player",
     "each creature and each planeswalker": "each_creature_and_planeswalker",
+    # "~ deals N damage to each creature your opponents control." (Village
+    # Pillagers) / "…an opponent controls" — `DealDamageEffect`'s
+    # ``each_creature_opponents_control`` (opponents' creatures, no players).
+    "each creature your opponents control": "each_creature_opponents_control",
+    "each creature an opponent controls": "each_creature_opponents_control",
     # "~ deals N damage to **you**" (RULE 109.5 — the source's own
     # controller, and only them; Mana Vault / Fledgling Djinn / Juzám Djinn
     # / Sulfuric Vortex-shaped upkeep bleed). `DealDamageEffect`'s
@@ -1200,14 +1205,17 @@ _PUT_FROM_HAND_RE = _c(
     # value N or less" (fixed) / "with mana value x or less" (dynamic, needs
     # the trailing ", where X is …" clause below to resolve X).
     r"(?P<filt> with lesser power| with mana value (?P<mv>\d+) or less| with mana value x or less)?"
-    r" from your hand onto the battlefield"
-    # RULE 508.4: "…tapped and attacking" (Preeminent Captain, Kaalia of
-    # the Vast) → `PutFromHandOntoBattlefieldEffect.attacking`. The trailing
-    # "that player"/"that opponent" (Kaalia, The Vast Scrier) names the
-    # defender the source is already attacking — `put_onto_battlefield_
-    # attacking` derives that from the other attackers, so the phrase is
-    # consumed, not re-modeled.
-    r"(?P<tapped_attacking> tapped and attacking)?(?P<atk_defender> that (?:player|opponent))?"
+    r" from your hand(?P<or_gy> or graveyard)? onto the battlefield"
+    # RULE 508.4 "…tapped and attacking" (Preeminent Captain, Kaalia of the
+    # Vast) → `PutFromHandOntoBattlefieldEffect.attacking`; or the plain
+    # "…tapped" entry (Dread Tiller, Arboreal Grazer, Cultivator Colossus).
+    # Longer alternative first so "tapped and attacking" isn't mis-split.
+    r"(?:(?P<tapped_attacking> tapped and attacking)|(?P<tapped_plain> tapped))?"
+    # The trailing "that player"/"that opponent" (Kaalia, The Vast Scrier)
+    # names the defender the source is already attacking — `put_onto_
+    # battlefield_attacking` derives that from the other attackers, so the
+    # phrase is consumed, not re-modeled.
+    r"(?P<atk_defender> that (?:player|opponent))?"
     r"(?P<xdef>, where x is the number of attacking creatures you control)?"
     # The Vast Scrier's two trailing sentences: (1) a reminder that the
     # placed creature's own "whenever ~ attacks" triggers fire — the engine
@@ -1278,6 +1286,10 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get("tapped_attacking"):
         params["tapped"] = True
         params["attacking"] = True
+    elif m.groupdict().get("tapped_plain"):
+        params["tapped"] = True
+    if m.groupdict().get("or_gy"):
+        params["zones"] = ["hand", "graveyard"]
     elsebody = (m.groupdict().get("elsebody") or "").strip().rstrip(".")
     if elsebody:
         from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
@@ -2022,7 +2034,13 @@ _SINGLE_TYPE_PERMANENT_KINDS: tuple[str, ...] = ("artifact", "enchantment", "lan
 def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None or kind not in (
-        "creature", "permanent", "permanent_you_dont_control", *_SINGLE_TYPE_PERMANENT_KINDS,
+        "creature", "permanent", "permanent_you_dont_control",
+        # "destroy target nonland permanent [an opponent controls]"
+        # (Binding the Old Gods' chapter I, Assassin's Trophy-adjacent) —
+        # `targeting.legal_targets` has all three branches (RULE 115.1c).
+        "nonland_permanent", "nonland_permanent_you_control",
+        "nonland_permanent_you_dont_control",
+        *_SINGLE_TYPE_PERMANENT_KINDS,
     ):
         return None
     color = resolve_color_word(m.groupdict().get("cond_color"))
@@ -2138,6 +2156,11 @@ def _creature_filter_clause(suffix: str) -> str:
         rf"power (?P<pwr{suffix}>\d+) or (?P<pwr_cmp{suffix}>greater|less)"
         rf"|toughness (?P<tough{suffix}>\d+) or (?P<tough_cmp{suffix}>greater|less)"
         rf"|(?P<kw{suffix}>{'|'.join(_CREATURE_FILTER_KEYWORD_WORDS)})"
+        # "with a -1/-1 counter on it" (Liliana, Death Wielder's -3 —
+        # `TargetSpec.creature_filter` ``has_counter_kind``) / the kindless
+        # "with a counter on it" (``has_counter``). Longer alternative first.
+        rf"|a (?P<ctrkind{suffix}>-1/-1|\+1/\+1) counter on it"
+        rf"|a (?P<ctrany{suffix}>counter) on it"
     )
 
 
@@ -2161,6 +2184,10 @@ def _creature_quality_filter_clause(groups: dict, suffix: str) -> Optional[dict]
         return {"min_toughness": n} if groups[f"tough_cmp{suffix}"] == "greater" else {"max_toughness": n}
     if groups.get(f"kw{suffix}"):
         return {"keyword": _CREATURE_FILTER_KEYWORD_WORDS[groups[f"kw{suffix}"]]}
+    if groups.get(f"ctrkind{suffix}"):
+        return {"has_counter_kind": groups[f"ctrkind{suffix}"]}
+    if groups.get(f"ctrany{suffix}"):
+        return {"has_counter": True}
     return None
 
 
@@ -2268,9 +2295,17 @@ def _destroy_non_creature(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: already accepts. Tried before the plain `destroy` handler below — with
 #: no colour word present it matches identically (same `target_kind`
 #: mapping), so it never changes behaviour for an uncoloured clause.
+#: RULE 115.1c: each single printed permanent type maps to its own narrow
+#: target kind (`targeting.legal_targets` has a dedicated
+#: artifact/enchantment/land branch that still honours `_color_ok`), exactly
+#: as `_destroy`'s `resolve_target_kind` route does — so "destroy target
+#: artifact" (Abrade's second mode) offers only artifacts, not every
+#: permanent. This row used to collapse those three to "permanent"; once the
+#: plain `_destroy` handler stopped doing that, this was the one place the
+#: broad-pool bug still survived.
 _DESTROY_COLOR_NOUN_KINDS: dict[str, str] = {
-    "creature": "creature", "permanent": "permanent", "artifact": "permanent",
-    "enchantment": "permanent", "land": "permanent",
+    "creature": "creature", "permanent": "permanent", "artifact": "artifact",
+    "enchantment": "enchantment", "land": "land",
 }
 #: A two-colour adjective list ("black or red") — `TargetSpec.colors`'
 #: OR narrowing, the multi-letter sibling of the single ``color`` form
@@ -3105,10 +3140,15 @@ def _return_from_graveyard_two_color(m: re.Match[str]) -> Optional[list[EffectSp
 #: same `TargetSpec.max_mana_value` offer-time filter `destroy_mv` already
 #: uses, not a new one.
 _RETURN_FROM_GRAVEYARD_RE = _c(
-    rf"return (?P<up_to_one>{UP_TO_ONE})target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card"
+    rf"return (?P<up_to_one>{UP_TO_ONE})target (?:(?P<nonleg>nonlegendary) )?"
+    rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card"
     rf"(?: with mana value (?P<mv>\d+) or less)? from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
     r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
+    # "…to the battlefield with a -1/-1 counter on it." (Persist — RULE
+    # 701.3 recursion plus an enters-with rider, distinct from the Persist
+    # *keyword*'s in-place return).
+    r"(?P<ewc> with a -1/-1 counter on it)?"
 )
 _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = _c(
     rf"put (?P<up_to_one>{UP_TO_ONE})target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
@@ -3128,6 +3168,12 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     mv = m.groupdict().get("mv")
     if mv is not None:
         params["max_mana_value"] = int(mv)
+    if m.groupdict().get("nonleg"):
+        params["exclude_legendary"] = True
+    if m.groupdict().get("ewc"):
+        if destination != "battlefield":
+            return None  # an enters-with rider is meaningless returning to hand
+        params["extra_counters"] = {"kind": "-1/-1", "count": 1}
     return [EffectSpec("return_from_graveyard", params)]
 
 
@@ -3212,6 +3258,40 @@ def _reanimate_under_your_control(m: re.Match[str]) -> Optional[list[EffectSpec]
     params: dict = {"target_kind": kind, "destination": "battlefield", "under_your_control": True}
     if m.groupdict().get("up_to_one"):
         params["optional"] = True
+    return [EffectSpec("return_from_graveyard", params)]
+
+
+#: "Put one, two, or three target creature cards from graveyards onto the
+#: battlefield under your control. Each of them enters with an additional
+#: -1/-1 counter on it." (Aberrant Return) — an enumerated RULE 601.2c
+#: target-count range ("1, 2, or 3" → min 1, `count_max` 3) folded into the
+#: same `return_from_graveyard` effect the singular reanimate row emits,
+#: plus the whole-body enters-with rider (`ReturnFromGraveyardEffect.
+#: extra_counters`, applied per returned card). Matched as one two-sentence
+#: clause (`parse_effect_body` tries the whole body first) since the rider
+#: has no standalone handler.
+_REANIMATE_MULTI_UNDER_YOUR_CONTROL_RE = _c(
+    r"put (?P<lo>\d+), (?:\d+, )*or (?P<hi>\d+) target "
+    rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards from graveyards "
+    r"onto the battlefield under your control"
+    r"(?:\. (?:each of them|they) enters? with an additional "
+    r"(?P<ck>-1/-1|\+1/\+1) counter on it)?"
+)
+
+
+def _reanimate_multi_under_your_control(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_target_kind(m.groupdict().get("type"), "a")  # "from graveyards" = any
+    if kind is None:
+        return None
+    lo, hi = int(m.group("lo")), int(m.group("hi"))
+    if lo < 1 or hi <= lo:
+        return None
+    params: dict = {
+        "target_kind": kind, "destination": "battlefield", "under_your_control": True,
+        "count": lo, "count_max": hi,
+    }
+    if m.groupdict().get("ck"):
+        params["extra_counters"] = {"kind": m.group("ck"), "count": 1}
     return [EffectSpec("return_from_graveyard", params)]
 
 
@@ -5638,7 +5718,10 @@ _NAMED_TOKEN_WORDS: dict[str, str] = {"treasure": "Treasure", "clue": "Clue", "f
 #: the created object keeps its real activated ability, not a blank card.
 def _create_named_token(m: re.Match[str]) -> list[EffectSpec]:
     name = _NAMED_TOKEN_WORDS[m.group("name")]
-    return [EffectSpec("create_token", {"count": count_of(m.group("n")), "token_name": name})]
+    params: dict = {"count": count_of(m.group("n")), "token_name": name}
+    if m.groupdict().get("tapped"):  # "create a tapped Treasure token" (Village Pillagers)
+        params["tapped"] = True
+    return [EffectSpec("create_token", params)]
 
 
 #: The compound sibling of `_create_token_and_attach` — "create a Food
@@ -5762,6 +5845,38 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind, mag = _counter_kind_and_multiplier(m.group("ckind"))
     params: dict = {"count": count_of(m.group("n")) * mag, "kind": kind}
     return _add_counters_target_params(m, params)
+
+
+#: "Put a -1/-1 counter on target creature, two -1/-1 counters on another
+#: target creature, and three -1/-1 counters on a third target creature."
+#: (Incremental Blight; the +1/+1 sibling is Incremental Growth) — three
+#: escalating RULE 115 targets in one clause, each getting a different
+#: number of counters, so it can't be one ``add_counters`` with a target
+#: ``count``. Emitted as three ``add_counters`` `EffectSpec`s (the spell-
+#: resolution loop partitions its targets per effect); the 2nd/3rd carry
+#: ``distinct_from_others`` for RULE 109.5's "another"/"a third".
+_INCREMENTAL_COUNTERS_RE = _c(
+    r"put a (?P<k1>[+\-−]1/[+\-−]1) counter on target creature, "
+    r"(?P<n2>\d+) (?P<k2>[+\-−]1/[+\-−]1) counters on another target creature, "
+    r"and (?P<n3>\d+) (?P<k3>[+\-−]1/[+\-−]1) counters on a third target creature"
+)
+
+
+def _incremental_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kinds = {_counter_sign(m.group("k1")), _counter_sign(m.group("k2")), _counter_sign(m.group("k3"))}
+    if len(kinds) != 1:
+        return None  # all three clauses use the same counter kind on every real card
+    kind = kinds.pop()
+    n2, n3 = int(m.group("n2")), int(m.group("n3"))
+    return [
+        EffectSpec("add_counters", {"count": 1, "kind": kind, "target_kind": "creature"}),
+        EffectSpec("add_counters", {
+            "count": n2, "kind": kind, "target_kind": "creature", "distinct_from_others": True,
+        }),
+        EffectSpec("add_counters", {
+            "count": n3, "kind": kind, "target_kind": "creature", "distinct_from_others": True,
+        }),
+    ]
 
 
 # MEC-46 (Galadriel, Elven-Queen) — "[you ]put a +1/+1 counter on your
@@ -9114,6 +9229,7 @@ HANDLERS: list[EffectHandler] = [
         _c(
             rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to "
             rf"(?P<selector>each creature and each player|each creature and each planeswalker"
+            rf"|each creature your opponents control|each creature an opponent controls"
             rf"|each creature|each player|each opponent|that player|them|you)"
         ),
         _damage_selector,
@@ -9978,6 +10094,15 @@ HANDLERS: list[EffectHandler] = [
         _REANIMATE_UNDER_YOUR_CONTROL_RE,
         _reanimate_under_your_control,
     ),
+    # "put 1, 2, or 3 target creature cards from graveyards onto the
+    # battlefield under your control. each of them enters with an
+    # additional -1/-1 counter on it." (Aberrant Return) — enumerated
+    # RULE 601.2c range + whole-body enters-with rider.
+    EffectHandler(
+        "reanimate_multi_under_your_control",
+        _REANIMATE_MULTI_UNDER_YOUR_CONTROL_RE,
+        _reanimate_multi_under_your_control,
+    ),
     # PAR-15's "any number of" graveyard-recursion siblings — new
     # destinations (library top / shuffle into library) rather than a new
     # targeting primitive.
@@ -10483,6 +10608,15 @@ HANDLERS: list[EffectHandler] = [
         "add_counters_ring_bearer",
         _ADD_COUNTERS_RING_BEARER_RE,
         _add_counters_ring_bearer,
+    ),
+    # "put a -1/-1 counter on target creature, two -1/-1 counters on another
+    # target creature, and three -1/-1 counters on a third target creature."
+    # (Incremental Blight / Incremental Growth) — three escalating targets,
+    # tried before the plain `add_counters` row.
+    EffectHandler(
+        "incremental_counters",
+        _INCREMENTAL_COUNTERS_RE,
+        _incremental_counters,
     ),
     # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" /
     # "… on ~"/"this creature" (Walking Ballista's "{4}: Put a +1/+1 counter
@@ -11678,7 +11812,7 @@ HANDLERS: list[EffectHandler] = [
     # `data/tokens.json`).
     EffectHandler(
         "create_named_token",
-        _c(rf"(?:you )?creates? {COUNT} (?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) tokens?"),
+        _c(rf"(?:you )?creates? {COUNT} (?P<tapped>tapped )?(?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) tokens?"),
         _create_named_token,
     ),
     # "Investigate." / "Investigate twice." / "Investigate 3 times." (RULE

@@ -285,6 +285,14 @@ class DamageDeathMixin:
             # below (neither rule mentions those permanent types).
             infect = source is not None and has_infect(source)
             wither = source is not None and has_wither(source)
+            if not wither:
+                # "All damage is dealt as though its source had wither."
+                # (Everlasting Torment) — RULE 609.4b as-though, a standing
+                # battlefield static that recolours *every* source's damage
+                # to creatures into -1/-1 counters.
+                from .. import continuous  # local: avoid the continuous↔rules cycle
+
+                wither = continuous.global_wither_active(self.state)
             if final_is_player and infect:
                 self.add_player_counters(final_target, final, "poison", source=source)
                 self.state.record_stat(final_target.id, "damage_taken", amount=final)
@@ -1796,6 +1804,11 @@ class DamageDeathMixin:
                     # since a live re-lookup after this fires sees nothing.
                     # Mirrors the same snapshot on LEAVES_BATTLEFIELD above.
                     power=obj.power,
+                    # "…dies, **if its toughness was less than 1**, draw a
+                    # card." (Massacre Girl, Known Killer —
+                    # `ConditionalEffect.dying_creature_toughness_below`),
+                    # the same RULE 400.7 last-known snapshot as ``power``.
+                    toughness=obj.toughness,
                 )
             )
             if cause == "sacrifice":

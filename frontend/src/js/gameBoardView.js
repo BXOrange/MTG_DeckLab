@@ -3607,7 +3607,7 @@ export function createGameBoardView(opts = {}) {
   // thing you're racing down), plus hidden hand/graveyard/library counts.
   function opponentStripHtml(opp) {
     return `
-      <div class="gf-opponent">
+      <div class="gf-opponent" data-player-id="${escapeAttr(opp.id)}">
         <span class="gf-opp-name">🐟 ${escapeHtml(opp.name)}</span>
         <span class="gf-opp-life" title="${escapeAttr(t('bd.opp.lifeTitle'))}">❤️ ${opp.life}</span>
         ${commanderDamageHtml(opp.commander_damage)}

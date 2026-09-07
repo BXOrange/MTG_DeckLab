@@ -579,6 +579,19 @@ def matches_object_filter(
     keyword = filt.get("keyword")
     if keyword is not None and not has(obj, str(keyword)):
         return False
+    # "destroy target creature **with a -1/-1 counter on it**" (Liliana,
+    # Death Wielder's -3) / "…with a counter on it" (the kindless form) —
+    # RULE 122: reads `GameObject.counters` directly, so a layer pass isn't
+    # needed (counters aren't a continuous effect).
+    has_counter_kind = filt.get("has_counter_kind")
+    if has_counter_kind is not None and (getattr(obj, "counters", {}) or {}).get(
+        str(has_counter_kind), 0
+    ) <= 0:
+        return False
+    if filt.get("has_counter") and not any(
+        v > 0 for v in (getattr(obj, "counters", {}) or {}).values()
+    ):
+        return False
     keyword_any = filt.get("keyword_any")
     if keyword_any and not any(has(obj, str(k)) for k in keyword_any):
         return False

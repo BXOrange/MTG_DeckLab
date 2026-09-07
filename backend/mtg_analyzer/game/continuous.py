@@ -308,6 +308,16 @@ def group_selector_objects(
             o for o in battlefield
             if o.is_creature and o.controller_id not in (None, controller_id)
         ]
+    elif affects == "creatures_opponents_control_with_a_counter":
+        # "Creatures your opponents control with counters on them can't
+        # attack or block." (Kulrath Knight) — the opponent-scoped sibling
+        # of ``creatures_you_control_with_a_counter`` below; any counter
+        # kind, any positive count (RULE 122.1).
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id not in (None, controller_id)
+            and any(v for v in (o.counters or {}).values())
+        ]
     elif affects == "creatures_you_control":
         result = [o for o in battlefield if o.is_creature and o.controller_id == controller_id]
     elif affects == "non_human_creatures_you_control":
@@ -813,6 +823,17 @@ def count_selector(
         return int(getattr(source, "power", 0) or 0) if source is not None else 0
     if selector == "source_toughness":
         return int(getattr(source, "toughness", 0) or 0) if source is not None else 0
+    if selector == "charge_counters_on_source":
+        # "…where X is the number of charge counters on this artifact."
+        # (Wickersmith's Tools) — read straight off ``source.counters``
+        # (counters aren't a continuous effect); ``0`` without a source.
+        return int((getattr(source, "counters", None) or {}).get("charge", 0)) if source is not None else 0
+    if selector == "converge":
+        # RULE 702.108a Converge — "where X is the number of colors of mana
+        # spent to cast this spell." (Painful Truths). The mana-payment
+        # solver stamps `GameObject.colors_spent_to_cast` (a WUBRG
+        # frozenset) on the spell at cast; ``0`` without a source.
+        return len(getattr(source, "colors_spent_to_cast", None) or ()) if source is not None else 0
     if selector == "sacrificed_cost_mana_value":
         # "…target player mills cards equal to the sacrificed creature's
         # mana value." (MEC-43) — reads `GameObject.sacrificed_cost_mana_
@@ -2288,14 +2309,19 @@ def _apply_layer_7_pt(
             p, t = base[obj.instance_id]
             _trace(obj, 7, _source_name(ability), f"defined as {p}/{t}", p, t)
 
-    # 7b: set power/toughness to a specific value.
+    # 7b: set power/toughness to a specific value. ``power``/``toughness`` of
+    # ``None`` leaves that half at its layer-7a value — "Exchange target
+    # opponent's life total with ~'s toughness." (Tree of Perdition) sets
+    # only the toughness.
     for ability in _in_layer(abilities, "pt_set"):
         power = ability.params.get("power", 0)
         toughness = ability.params.get("toughness", 0)
         for obj in affected_objects(state, ability):
             if obj.instance_id in base:
-                base[obj.instance_id] = [power, toughness]
-                _trace(obj, 7, _source_name(ability), f"set to {power}/{toughness}", power, toughness)
+                new_p = base[obj.instance_id][0] if power is None else power
+                new_t = base[obj.instance_id][1] if toughness is None else toughness
+                base[obj.instance_id] = [new_p, new_t]
+                _trace(obj, 7, _source_name(ability), f"set to {new_p}/{new_t}", new_p, new_t)
 
     # 7c: counters (RULE 613.7 counters sublayer / 122).
     for obj in state.battlefield:
@@ -2972,6 +2998,33 @@ def life_gain_prohibited_for(state: "GameState", player: "Player") -> bool:
             if player.id != src_controller:
                 return True
         else:
+            return True
+    return False
+
+
+def damage_prevention_globally_disabled(state: "GameState") -> bool:
+    """"Damage can't be prevented." (Everlasting Torment) — a standing
+    battlefield static making RULE 615 prevention shields inert while it is
+    on the battlefield, the board-permanent sibling of the turn-scoped
+    `GameState.damage_prevention_disabled`. Consulted by
+    `RulesEngine._run_replacement_loop`. Same "live battlefield read, no
+    separate lifecycle" shape as `life_gain_prohibited_for`.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer == "damage_prevention_prohibition":
+            return True
+    return False
+
+
+def global_wither_active(state: "GameState") -> bool:
+    """"All damage is dealt as though its source had wither." (Everlasting
+    Torment) — RULE 609.4b as-though, a standing battlefield static that
+    recolours every source's damage to creatures into -1/-1 counters.
+    Consulted by `RulesEngine.deal_damage` on top of the source's own
+    `has_wither`. Same live-read shape as `damage_prevention_globally_disabled`.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer == "global_wither":
             return True
     return False
 
@@ -4328,7 +4381,8 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
      "uncast_creature_entry_exile",
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
-     "cost_restriction", "life_gain_prohibition"}
+     "cost_restriction", "life_gain_prohibition",
+     "damage_prevention_prohibition", "global_wither"}
 )
 
 

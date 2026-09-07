@@ -153,13 +153,31 @@ def test_return_from_graveyard_recognizes_any_and_opponent_scope():
 
 
 def test_return_from_graveyard_fails_closed_on_an_unrecognized_shape():
-    # A qualifier this batch doesn't model (mana value, "nonlegendary", …)
-    # correctly stays unclaimed rather than guessed at.
+    # A qualifier this batch doesn't model (exact mana value rather than
+    # "or less", an unmodeled tribal restriction, …) correctly stays
+    # unclaimed rather than guessed at.
     assert parse_effect_body(
         "return target creature card with mana value 2 from your graveyard to the battlefield"
     ) is None
     assert parse_effect_body(
-        "return target nonlegendary creature card from your graveyard to the battlefield"
+        "return target creature card you don't own from your graveyard to the battlefield"
+    ) is None
+
+
+def test_return_from_graveyard_nonlegendary_and_enters_with_counter():
+    # Persist — "nonlegendary" supertype exclusion + "with a -1/-1 counter
+    # on it" enters-with rider (both wired for the Blight Curse batch).
+    specs = parse_effect_body(
+        "return target nonlegendary creature card from your graveyard "
+        "to the battlefield with a -1/-1 counter on it"
+    )
+    assert specs and specs[0].type == "return_from_graveyard"
+    assert specs[0].params["exclude_legendary"] is True
+    assert specs[0].params["extra_counters"] == {"kind": "-1/-1", "count": 1}
+    # The rider is meaningless returning to hand → still fails closed there.
+    assert parse_effect_body(
+        "return target nonlegendary creature card from your graveyard "
+        "to your hand with a -1/-1 counter on it"
     ) is None
 
 

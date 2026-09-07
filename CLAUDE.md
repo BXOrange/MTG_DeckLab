@@ -317,7 +317,7 @@ the process group and reports the last test that had started.
 
 ## Claude Code skills
 
-Four project-scoped skills live in `.claude/skills/` and should be invoked
+Five project-scoped skills live in `.claude/skills/` and should be invoked
 (not reimplemented ad hoc) for the work they cover:
 
 - **`extend-parser`** (`.claude/skills/extend-parser/SKILL.md`) — extending
@@ -350,6 +350,20 @@ Four project-scoped skills live in `.claude/skills/` and should be invoked
   (path, schema, gotchas), so a lookup only ever loads the one store that
   matters. Ships `query.py`, a read-only SQL runner that resolves each
   store's real on-disk path itself and refuses non-`SELECT` statements.
+- **`understand-card`** (`.claude/skills/understand-card/SKILL.md`) — the
+  read-and-explain step *before* the other four: what does a card do under
+  the Comprehensive Rules, and how far does the pipeline already get. Ships
+  `understand_card.py` (`card`/`clause`/`check`/`term`/`rulings`) — raw vs
+  `normalize`d text, per-clause `MODELED`/`UNMODELED` verdict, every keyword +
+  the RULE that defines it, a governing-rules roll-up from the glossary terms
+  in the text (the two-hop `rules_wiki` lookup done for you), a `check` that
+  cross-references parser coverage against what `bind_from_catalogue` actually
+  produces, and `rulings` — Scryfall's "Notes and Rules Information" fetched
+  once (project UA + rate limit) and cached under `<CACHE_DIR>/rulings/`, with
+  the `RULE <n>`s each ruling cites resolved to passages and any ruling that
+  looks like it explains an `UNCLAIMED` clause flagged. Reads only (bar that
+  one rulings fetch); hands off to `parser_probe.py` / `engine_bench.py` /
+  `author_card.py` for the work itself.
 
 ## Architecture & data flow
 
@@ -473,7 +487,7 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 40.4% (14,072 / 34,811) as of 2026-09-06, PARSER_VERSION 275**
+**Coverage: 40.8% (14,193 / 34,812) as of 2026-09-07, PARSER_VERSION 277**
 (parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)

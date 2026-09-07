@@ -1125,6 +1125,16 @@ class GameState:
         #: trace a live scan could reach).
         self.bends_this_turn: dict[str, set[str]] = {}
 
+        #: Player ids who have put one or more counters on a creature *this
+        #: turn* — "At the beginning of each end step, if you put a counter
+        #: on a creature this turn, …" (Lasting Tarfire). Populated in
+        #: `RulesEngine.add_counters`'s post-replacement `_finish` (keyed by
+        #: the COUNTER event's causer-scoped ``source_controller_id``) and
+        #: cleared wholesale in `GameEngine.begin_turn`, the same game-wide
+        #: history-question shape `bends_this_turn` / `creatures_died_this_turn`
+        #: use above.
+        self.counter_placed_on_creature_this_turn: set[str] = set()
+
         #: Chronological log of everything fired; also the record the
         #: WebSocket layer can diff to build ``game_state_update``s.
         self.event_log: list[GameEvent] = []

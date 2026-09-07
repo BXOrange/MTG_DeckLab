@@ -3151,6 +3151,15 @@ class MiscSystemsMixin:
             # clears its own suspected designation. ``optional`` so declining
             # keeps the menace a suspected creature has.
             "remove_suspected",
+            # "Remove any number of counters from among permanents on the
+            # battlefield. You draw cards and lose life equal to the number
+            # of counters removed this way." (Eventide's Shadow) — each
+            # chosen permanent has *all* its counters removed (a documented
+            # permanent-granularity simplification of "any number of
+            # counters", the same RULE 122 precision `MoveCountersEffect`
+            # already accepts); the caller tallies the total via a
+            # cards-removed delta in its ``then_specs``.
+            "strip_all_counters",
         }
     )
     def request_choose_objects(
@@ -3513,6 +3522,15 @@ class MiscSystemsMixin:
         """Do the one thing a `choose_objects` action names to one pick."""
         if action == "tap":
             self.set_tapped(obj, True)
+        elif action == "strip_all_counters":
+            # Eventide's Shadow: remove every counter from the pick, via the
+            # negative-`add_counters` idiom (`ProliferateEffect`/
+            # `RemoveCountersEffect`) so a "counter removed" consumer still
+            # sees it correctly.
+            for kind in list((obj.counters or {}).keys()):
+                amount = obj.counters.get(kind, 0)
+                if amount:
+                    self.add_counters(obj, -amount, kind)
         elif action == "sacrifice":
             # RULE 701.17a: non-destructive, so no regeneration shield saves it.
             self.put_into_graveyard(obj)

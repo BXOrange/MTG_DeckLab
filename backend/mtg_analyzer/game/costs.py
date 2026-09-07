@@ -513,6 +513,13 @@ class ActivationCost:
     #: paid, so `game/mana_potential.py`'s tap-plan simulation (which only
     #: cares about resource payability) needs no matching check.
     any_player_may_activate: bool = False
+    #: "Only your opponents may activate this ability." (Oft-Nabbed Goat) —
+    #: the inverse standing exception to `any_player_may_activate`: the
+    #: eligibility set becomes *every player except this permanent's own
+    #: controller*. Enforced in `GameEngine.can_activate` (the controller is
+    #: rejected, non-controllers admitted) and offered to non-controllers by
+    #: `legal_actions` exactly like `any_player_may_activate`.
+    only_opponents_may_activate: bool = False
     #: PAR-10: "…and only if `<condition>`." stacked on (or standing in
     #: for) sorcery-speed timing (Cabal Inquisitor/Dread Wanderer/Hall of
     #: Oracles/Jin-Gitaxias/Potioner's Trove) — a `game/static_conditions.py`
@@ -892,6 +899,8 @@ def parse_activation_cost(
         parsed.spend_only_chosen_color = bool(cost["spend_only_chosen_color"])
     if "any_player_may_activate" in cost:
         parsed.any_player_may_activate = bool(cost["any_player_may_activate"])
+    if "only_opponents_may_activate" in cost:
+        parsed.only_opponents_may_activate = bool(cost["only_opponents_may_activate"])
     if "exile_top_of_library" in cost:
         # int(True) == 1, so a hand-authored bool (meaning "one card") and a
         # real printed count both parse correctly through the same line.

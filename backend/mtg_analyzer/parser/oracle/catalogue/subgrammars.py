@@ -112,6 +112,12 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # mirror image, onto the already-existing `creature_you_dont_control`
     # kind. Also above the bare "target creature" row.
     (r"target creature (?:an opponent controls|you don't control)", "creature_you_dont_control"),
+    # "another target creature" (RULE 109.5 — The Scorpion God's "{1}{B}{R}:
+    # Put a -1/-1 counter on another target creature") — "another" adds no
+    # distinct engine kind (the bare `creature` pick already excludes the
+    # ability's own source, RULE 115.6), exactly like the "another target
+    # permanent" → `permanent` row further down.
+    (r"(?:another|other) target creature", "creature"),
     (r"target creature", "creature"),
     # "target legendary permanent" (Minamo, School at Water's Edge) — a
     # supertype-filtered pick (RULE 205.4a), above the bare "target

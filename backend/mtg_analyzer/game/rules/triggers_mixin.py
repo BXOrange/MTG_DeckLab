@@ -63,6 +63,7 @@ from ..effects import (
     RadiationMillEffect,
     ReboundFreeCastWindowEffect,
     ReplacementEffect,
+    ReturnFromGraveyardEffect,
     ReturnSelfFromGraveyardEffect,
     SiegeDefeatedEffect,
     StaticAbility,
@@ -797,21 +798,46 @@ class TriggerCollectionMixin:
         dying_counters = event.get("counters") or {}
         for obj in self.state.permanents():
             marker = getattr(obj, "counter_death_return", None)
-            if not marker or obj.controller_id != dying_controller_id:
+            if not marker:
+                continue
+            # Marchesa scope: the dying creature is one *this* permanent's
+            # controller owns. ``opponent`` flips it (Necroskitter / The
+            # Reaper, King No More — "a creature an opponent controls …").
+            if marker.get("opponent"):
+                if dying_controller_id == obj.controller_id:
+                    continue
+            elif obj.controller_id != dying_controller_id:
                 continue
             kind = marker.get("counter_kind", "+1/+1")
             if dying_counters.get(kind, 0) <= 0:
                 continue
+            # RULE 603.2 per-instance "do this only once each turn" (Reaper).
+            if marker.get("once_per_turn") and getattr(obj, "_counter_death_return_turn", None) == self.state.turn_nr:
+                continue
             dying_obj = self.state.find_object(dying_id)
             if dying_obj is None:
                 continue
-            effect = MarchesaDelayedReturnEffect(dying_object=dying_obj, source=obj)
+            if marker.get("once_per_turn"):
+                obj._counter_death_return_turn = self.state.turn_nr
+            if marker.get("immediate"):
+                # "return/put that card to the battlefield under your
+                # control" with no "next end step" delay — resolve now.
+                effect: GameEffect = ReturnFromGraveyardEffect(
+                    target=dying_obj, destination="battlefield",
+                    under_your_control=True, optional=bool(marker.get("optional")),
+                    source=obj,
+                )
+                desc = f"{obj.name}: {dying_obj.name} unter deine Kontrolle zurückbringen"
+            else:
+                effect = MarchesaDelayedReturnEffect(dying_object=dying_obj, source=obj)
+                desc = f"{obj.name}: {dying_obj.name} zum Ende des Zuges zurückbringen"
             ability = TriggeredAbility(
                 trigger_event=EventType.DIES,
                 effects=[effect],
                 controller_id=obj.controller_id,
                 source=obj,
-                description=f"{obj.name}: {dying_obj.name} zum Ende des Zuges zurückbringen",
+                optional=bool(marker.get("optional")),
+                description=desc,
             )
             self.pending_triggers.append((ability, event))
     def _collect_undying_persist_triggers(self, event: GameEvent) -> None:

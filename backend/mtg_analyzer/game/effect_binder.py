@@ -630,6 +630,15 @@ def _build_group_ok(
     # "…by **enchanted creature**" (Vampiric Embrace) — the damage source is
     # this Aura's host, not the Aura itself.
     damaged_by_via_attached = bool(condition.get("via_attached"))
+    # "whenever a creature [you control / an opponent controls] **with a
+    # -1/-1 counter on it** dies" (the -1/-1 & +1/+1 aristocrats archetype
+    # — Necroskitter, Skyclave Shadowcat, The Scorpion God, …). Read off
+    # the DIES event's snapshotted ``counters`` (RULE 400.7 — the object is
+    # gone), with a live-board fallback for verbs that keep the object
+    # around (ATTACKS &c.). ``has_counter_kind`` names the counter kind;
+    # ``has_counter`` is the kindless "with a counter on it".
+    want_has_counter = bool(condition.get("has_counter"))
+    want_has_counter_kind = condition.get("has_counter_kind")
 
     def _group_ok(
         event: Any,
@@ -654,6 +663,8 @@ def _build_group_ok(
         want_not_entered_via_self=want_not_entered_via_self,
         want_damaged_by_self=want_damaged_by_self,
         damaged_by_via_attached=damaged_by_via_attached,
+        want_has_counter=want_has_counter,
+        want_has_counter_kind=want_has_counter_kind,
     ) -> bool:
         event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
@@ -785,6 +796,18 @@ def _build_group_ok(
                 return False
             if want_in_combat and not snapshot_combat:
                 return False
+        if want_has_counter or want_has_counter_kind:
+            ctrs = event.get("counters")
+            if ctrs is None and event_instance is not None:
+                state = getattr(context, "state", None)
+                obj = state.find_object(event_instance) if state is not None else None
+                ctrs = dict(getattr(obj, "counters", {}) or {}) if obj is not None else None
+            if not ctrs:
+                return False
+            if want_has_counter_kind and int(ctrs.get(want_has_counter_kind, 0)) <= 0:
+                return False
+            if want_has_counter and not any(int(v) > 0 for v in ctrs.values()):
+                return False
         return True
 
     return _group_ok
@@ -872,8 +895,21 @@ def _trigger_condition(
 
     filt = trigger.get("filter")
     if filt:
-        def _filter_ok(event: Any, context: Any, f=dict(filt)) -> bool:
-            return all(event.get(k) == v for k, v in f.items())
+        # ``by_you`` (Hapatra, Vizier of Poisons — "whenever **you** put one
+        # or more -1/-1 counters on a creature") is causer-scoped rather
+        # than an exact-match payload key: the counters' source must be this
+        # ability's own controller (`EventType.COUNTER`'s
+        # ``source_controller_id``). Popped out so it isn't fed to the
+        # exact-match loop below.
+        by_you = bool(filt.get("by_you"))
+        exact = {k: v for k, v in dict(filt).items() if k != "by_you"}
+
+        def _filter_ok(event: Any, context: Any, f=exact, want_by_you=by_you) -> bool:
+            if not all(event.get(k) == v for k, v in f.items()):
+                return False
+            if want_by_you and event.get("source_controller_id") != getattr(source, "controller_id", None):
+                return False
+            return True
 
         predicates.append(_filter_ok)
 
@@ -1618,6 +1654,26 @@ def _trigger_condition(
             return getattr(src, "chosen_mode", None) == mode
 
         predicates.append(_named_mode_ok)
+
+    # RULE 603.4 intervening-if on the *dying* creature's own last-known
+    # state (Blight Curse batch) — checked at trigger time so an untriggered
+    # ability never prompts for a target. ``dying_toughness_below``:
+    # "…dies, if its toughness was less than 1, …" (Massacre Girl, Known
+    # Killer). ``dying_had_counter``: "…dies, if it had a -1/-1 counter on
+    # it, …" (Blowfly Infestation). Both read the DIES event's snapshotted
+    # ``toughness`` / ``counters`` (RULE 400.7), fail closed if absent.
+    dying_toughness_below = trigger.get("dying_toughness_below")
+    if dying_toughness_below is not None:
+        def _dying_toughness_ok(event: Any, context: Any, n=int(dying_toughness_below)) -> bool:
+            t = event.get("toughness")
+            return t is not None and int(t) < n
+        predicates.append(_dying_toughness_ok)
+
+    dying_had_counter = trigger.get("dying_had_counter")
+    if dying_had_counter is not None:
+        def _dying_had_counter_ok(event: Any, context: Any, kind=str(dying_had_counter)) -> bool:
+            return int((event.get("counters") or {}).get(kind, 0)) > 0
+        predicates.append(_dying_had_counter_ok)
 
     if not predicates:
         return None

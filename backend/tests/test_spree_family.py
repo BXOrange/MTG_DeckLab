@@ -172,6 +172,12 @@ def test_legal_actions_offers_one_locked_or_unlocked_action_per_combination():
     eng = make_engine()
     p1 = _ready_main_phase(eng)
     bear = _put(eng, creature("Bear"), controller="p2")
+    # Mode 1 destroys "target artifact" (RULE 115.1c — artifacts only, not
+    # any permanent), so it needs a real artifact on the board to be
+    # target-legal; without one its lock reason would be "no valid target",
+    # masking the mana-affordability check this test is about.
+    _put(eng, Card(id="Sol Ring", name="Sol Ring", type_line="Artifact"),
+         controller="p2")
     obj = _in_hand(eng, spree_instant())
     bind_from_catalogue(obj)
     p1.mana_pool.add_many({"R": 3})  # {R}{R} base + {1} — exactly mode 0 alone

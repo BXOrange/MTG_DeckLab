@@ -150,13 +150,24 @@ class ActivationMixin:
                 return False
         elif source not in self.state.permanents():
             return False  # RULE 702.26c: a phased-out permanent's abilities can't be activated
-        elif source.controller_id != player.id and not ability.cost.any_player_may_activate:
+        elif source.controller_id != player.id and not (
+            ability.cost.any_player_may_activate
+            or getattr(ability.cost, "only_opponents_may_activate", False)
+        ):
             # "Any player may activate this ability." (Mercenaries, MEC-30)
             # is a standing exception to the ordinary "controller only"
             # eligibility gate — the ability's *effect* still protects
             # whoever actually activates it (RULE 602.2b), not this
             # permanent's own controller; see `GameContext.
-            # resolving_controller_id`.
+            # resolving_controller_id`. "Only your opponents may activate this
+            # ability." (Oft-Nabbed Goat) widens it the same way, minus the
+            # controller themselves — handled by the next branch.
+            return False
+        elif source.controller_id == player.id and getattr(
+            ability.cost, "only_opponents_may_activate", False
+        ):
+            # Oft-Nabbed Goat: this permanent's own controller is the one
+            # player who *can't* activate it.
             return False
         if ability not in source.activated_abilities and ability not in source.granted_activated_abilities:
             return False

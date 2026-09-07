@@ -143,6 +143,12 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # (waterbend/earthbend/firebend/airbend) is in the ability
         # controller's `GameState.bends_this_turn` set. A bool.
         "did_all_bends_this_turn",
+        # Blight Curse batch — "draw a card **if you control that
+        # creature**. If you don't control it, …" (Auntie Ool, Cursewretch)
+        # — the firing `EventType.COUNTER`'s ``recipient_controller_id`` vs
+        # this ability's controller. A bool; ``False`` is the "if you don't
+        # control it" branch.
+        "counter_recipient_is_you",
     }
 )
 
@@ -982,6 +988,13 @@ class AbilitySpec:
         kind = spec.get("counter_kind", "+1/+1")
         if not isinstance(kind, str) or not kind:
             raise SpecValidationError("'counter_death_return' counter_kind must be a non-empty str")
+        # Optional booleans (Necroskitter / The Reaper, King No More):
+        # ``opponent`` — the dying creature is an opponent's, not this
+        # permanent's controller's; ``immediate`` — no "next end step"
+        # delay; ``optional`` — "you may"; ``once_per_turn`` — RULE 603.2.
+        for flag in ("opponent", "immediate", "optional", "once_per_turn"):
+            if flag in spec and not isinstance(spec[flag], bool):
+                raise SpecValidationError(f"'counter_death_return' {flag} must be a bool")
 
     def _validate_strive_cost(self) -> None:
         """Structural check for a ``strive_cost`` clause: a non-empty run of

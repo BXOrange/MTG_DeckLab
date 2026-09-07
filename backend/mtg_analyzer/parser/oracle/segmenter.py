@@ -1137,7 +1137,17 @@ _GROUP_SUBJECT_RE = re.compile(
     # already ORs a `type` list.
     r"(?P<type>(?:" + "|".join(_GROUP_TYPE_WORDS) + r")"
     r"(?:,? or (?:" + "|".join(_GROUP_TYPE_WORDS) + r"))*)"
-    r"(?P<you_a> you control)?"
+    # "you control" or its mirror "an opponent controls" (Necroskitter /
+    # The Reaper, King No More — `_build_group_ok` maps the latter to the
+    # existing ``controller="not_you"`` scope).
+    r"(?:(?P<you_a> you control)|(?P<opp> an opponent controls))?"
+    # "…**with a -1/-1 counter on it**" / "…with a +1/+1 counter on it" /
+    # the kindless "…with a counter on it" (the whole -1/-1 & +1/+1
+    # aristocrats archetype — Skyclave Shadowcat, Gladehart Cavalry,
+    # Necroskitter, The Scorpion God, …). Read off the DIES event's
+    # snapshotted ``counters`` (RULE 400.7) / live for other verbs —
+    # `effect_binder._build_group_ok`'s ``has_counter``/``has_counter_kind``.
+    r"(?P<ctr>\s+with an?\s+(?:(?P<ctrkind>-1/-1|\+1/\+1)\s+)?counter on it)?"
     rf"\s+(?:{_VERB_ALT})"
     r"(?:\s+the\s+battlefield)?(?:\s+alone)?"
     r"(?P<you_b> under your control)?$"
@@ -2584,12 +2594,23 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     m = _GROUP_SUBJECT_RE.match(cond)
     if m is not None:
         type_words = [w for w in re.split(r",?\s+or\s+", m.group("type")) if w]
+        if m.group("you_a") or m.group("you_b"):
+            controller = "you"
+        elif m.group("opp"):
+            controller = "not_you"  # "an opponent controls" — reuse the mirror scope
+        else:
+            controller = "any"
         out = {
             "subject": "group",
             "type": type_words if len(type_words) > 1 else type_words[0],
-            "controller": "you" if (m.group("you_a") or m.group("you_b")) else "any",
+            "controller": controller,
             "other": m.group("article") == "another",
         }
+        if m.group("ctr"):
+            if m.group("ctrkind"):
+                out["has_counter_kind"] = m.group("ctrkind")
+            else:
+                out["has_counter"] = True
         if m.group("nonland"):
             # RULE 111 / 205: "a **nonland** creature/permanent you control
             # dies" (Beifong's Bounty Hunters) — a negated main type on the

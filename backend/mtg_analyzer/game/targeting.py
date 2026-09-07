@@ -459,6 +459,11 @@ class TargetSpec:
     #: match `_has_subtype`'s own convention. ``None`` means unfiltered.
     #: Only meaningful for a graveyard kind; ignored elsewhere.
     subtype: Optional[str] = None
+    #: RULE 205.4a supertype exclusion — "target **nonlegendary** creature
+    #: card from your graveyard" (Persist). Like ``subtype``, only wired for
+    #: the `_GRAVEYARD_TARGET_KINDS` branch today (the only printed shape
+    #: that needs it); ignored elsewhere.
+    exclude_legendary: bool = False
     #: Best-effort "is this target on the receiving end of something good or
     #: bad" hint — ``"harmful"``/``"beneficial"``/``None`` (no opinion).
     #: Not rules data and never read by the engine itself: stamped by
@@ -774,6 +779,14 @@ def legal_targets(
     if spec.max_mana_value in ("x", "-x"):
         x_paid = int(getattr(source, "x_paid", 0) or 0)
         spec = replace(spec, max_mana_value=x_paid if spec.max_mana_value == "x" else -x_paid)
+    if spec.max_mana_value == "trigger_dying_counters":
+        # "…with mana value less than or equal to the number of counters on
+        # that creature…" (Puca's Covenant) — "that creature" is the one
+        # whose death fired this triggered ability; its counter total is on
+        # the DIES event's RULE 400.7 snapshot (the object is gone).
+        _snap = (trigger_event or {}).get("counters") or {}
+        _total = sum(v for v in _snap.values() if isinstance(v, int) and v > 0)
+        spec = replace(spec, max_mana_value=_total)
     if kind == "permanent" and source is not None:
         attachment_kind = None
         if hasattr(source, "parametric_keywords"):
@@ -1554,6 +1567,7 @@ def legal_targets(
             for o in gy
             if type_filter(o)
             and (not spec.subtype or spec.subtype in o.card.type_line.lower())
+            and not (spec.exclude_legendary and o.card.is_legendary)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
             # "exile target red, white, or black creature card from your
             # graveyard" (Offspring's Revenge) — the same `_color_ok` colour

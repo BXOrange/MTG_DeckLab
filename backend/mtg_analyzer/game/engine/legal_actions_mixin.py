@@ -1232,7 +1232,10 @@ class LegalActionsMixin:
             if source.controller_id == player.id or source.phased_out:
                 continue
             for index, ability in enumerate(source.activated_abilities + source.granted_activated_abilities):
-                if not getattr(ability.cost, "any_player_may_activate", False):
+                if not (
+                    getattr(ability.cost, "any_player_may_activate", False)
+                    or getattr(ability.cost, "only_opponents_may_activate", False)
+                ):
                     continue
                 if self._activatable_now_or_via_potential(player, source, ability):
                     actions.extend(self._activate_actions_for(player, source, index, ability))
