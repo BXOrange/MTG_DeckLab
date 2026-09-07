@@ -243,6 +243,12 @@ class EventType:
     BENT = "BENT"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
+    #: One or more cards left graveyards in one zone-change event (RULE
+    #: 603.3f). ``cards`` is a last-known-information snapshot containing
+    #: each card's instance id, mana value, owner and graveyard owner; the
+    #: aggregate shape makes Quintorius-style "one or more" triggers fire
+    #: once for a mass move, not once per card.
+    CARDS_LEFT_GRAVEYARD = "CARDS_LEFT_GRAVEYARD"
     #: The Ring tempted a player (RULE 701.51a, Tales of Middle-earth) —
     #: fired by `RulesEngine.the_ring_tempts_you` after the emblem levels up
     #: and the Ring-bearer choice resolves, for "whenever the Ring tempts

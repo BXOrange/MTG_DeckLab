@@ -531,6 +531,7 @@ export default {
   'bd.step.main1': "Main phase I",
   'bd.step.begin_combat': "Begin combat",
   'bd.step.declare_attackers': "Attackers",
+  'bd.attackTax.confirm': 'Pay the {cost} attack tax?',
   'bd.step.declare_blockers': "Blockers",
   'bd.step.combat_damage': "Combat damage",
   'bd.step.end_combat': "End of combat",

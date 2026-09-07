@@ -1017,6 +1017,43 @@ def _draw_that_many(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("draw", {"count_from_trigger_event": "amount"})]
 
 
+#: "Target player draws N cards, then discards M cards." (Prismari Command /
+#: Whispering Madness-adjacent) — the loot shape aimed at a chosen player.
+#: The trailing bare "discards" has no explicit subject, so the connector
+#: split can't link it (that only fires after a *creature* target); this
+#: dedicated row emits the `previous_subject` link itself.
+_TARGET_PLAYER_LOOT_RE = _c(
+    r"target player draws (?P<draw_n>a|an|\d+) cards?, "
+    r"then discards (?P<disc_n>a|an|\d+|x) cards?"
+)
+
+
+def _target_player_loot(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec("draw", {"count": count_of(m.group("draw_n")), "target_kind": "player"}),
+        EffectSpec("discard", {
+            "count": count_or_x_of(m.group("disc_n")), "previous_subject": True,
+        }),
+    ]
+
+
+#: "You and target opponent each draw N cards." (Secret Rendezvous / Sky
+#: Crier / Loran of the Third Path / Farsight Adept / Flumph) — a symmetric
+#: two-player draw: one untargeted draw for the source's controller and one
+#: `RULE 115` targeted draw for the chosen opponent, resolved in that order.
+_YOU_AND_TARGET_OPP_DRAW_RE = _c(
+    r"you and target opponent each draw (?P<n>a|an|\d+) cards?"
+)
+
+
+def _you_and_target_opponent_draw(m: re.Match[str]) -> list[EffectSpec]:
+    n = count_of(m.group("n"))
+    return [
+        EffectSpec("draw", {"count": n}),
+        EffectSpec("draw", {"count": n, "target_kind": "opponent"}),
+    ]
+
+
 def _draw(m: re.Match[str]) -> list[EffectSpec]:
     # `COUNT_X` also matches a literal "x" (RULE 107.3c's own announced
     # {X}, "draw X cards" — Contaminated Drink), resolved via the same
@@ -1714,6 +1751,33 @@ def _gain_life_eq_that_prev(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("gain_life", {"amount_from_subject": f"previous_subject_{m.group('char')}"})]
 
 
+#: "When ~ dies, draw cards equal to its power." (Lifeblood Hydra / Return
+#: of the Wildspeaker / Kavu Lair-shaped) and its combined sibling "…you
+#: gain life **and** draw cards equal to its power." (Lifeblood Hydra's own
+#: single clause, where "equal to its power" scopes both verbs at once, so
+#: the ordinary "and" connector split can't reach it). ``trigger_subject_``
+#: reads the DIES event's RULE 400.7 power/toughness snapshot
+#: (`_characteristic_of_subject`); `DrawCardEffect.amount_from_subject` is
+#: the new draw-side sibling of `GainLifeEffect`'s own field. `self_subject_
+#: only` — "its" here is the trigger's own subject.
+_DRAW_EQ_ITS_RE = _c(r"draw cards equal to its (?P<char>power|toughness)")
+_GAIN_LIFE_AND_DRAW_EQ_ITS_RE = _c(
+    r"you gain life and draw cards equal to its (?P<char>power|toughness)"
+)
+
+
+def _draw_eq_its_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("draw", {"amount_from_subject": f"trigger_subject_{m.group('char')}"})]
+
+
+def _gain_life_and_draw_eq_its_self(m: re.Match[str]) -> list[EffectSpec]:
+    key = f"trigger_subject_{m.group('char')}"
+    return [
+        EffectSpec("gain_life", {"amount_from_subject": key}),
+        EffectSpec("draw", {"amount_from_subject": key}),
+    ]
+
+
 #: "Whenever a player casts a spell, they lose 1 life for each spell
 #: they've cast this turn." (Rug of Smothering) — the caster's own running
 #: `GameState.spells_cast_this_turn` count (`LoseLifeEffect.
@@ -2028,7 +2092,15 @@ def _add_rad_counters_half_x(m: re.Match[str]) -> list[EffectSpec]:
 #: broad, untyped "target permanent" kind, so narrowing that mapping (fixing
 #: e.g. Abrade's "Destroy target artifact." from wrongly offering any
 #: permanent, including lands) doesn't regress these families to UNMODELED.
-_SINGLE_TYPE_PERMANENT_KINDS: tuple[str, ...] = ("artifact", "enchantment", "land")
+_SINGLE_TYPE_PERMANENT_KINDS: tuple[str, ...] = (
+    "artifact", "enchantment", "land",
+    # "destroy/exile target nonbasic land [an opponent controls]" (Fulminator
+    # Mage / Dust Bowl / Field of Ruin / Ravenous Baboons — 21 SOLO on the
+    # bare form). RULE 205.4 supertype filter; `targeting.legal_targets` has
+    # a fully-implemented `nonbasic_land` branch and a new `nonbasic_land_
+    # you_dont_control` sibling — same narrow-single-noun shape as `land`.
+    "nonbasic_land", "nonbasic_land_you_dont_control",
+)
 
 
 def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -3557,7 +3629,7 @@ def _search_destination_kind(phrase: str) -> Optional[str]:
 #: this spell's own caster.
 _DESTROY_CONTROLLER_SEARCH_BASIC_LAND_RE = _c(
     r"its controller may search (?:its|their) library for a basic land card, "
-    r"put it onto the battlefield, then shuffle"
+    r"put it onto the battlefield(?P<tapped> tapped)?, then shuffle"
 )
 
 
@@ -3567,7 +3639,10 @@ def _destroy_controller_search_basic_land(m: re.Match[str]) -> list[EffectSpec]:
             "search",
             {
                 "criteria": {"basic": True},
-                "destination": "battlefield",
+                # "…put it onto the battlefield **tapped**" (White Orchid
+                # Phantom) — the same optional-tapped tail Ghost Quarter's
+                # untapped form doesn't carry.
+                "destination": "battlefield_tapped" if m.group("tapped") else "battlefield",
                 "optional": True,
                 "player": "previous_target_controller",
             },
@@ -4715,6 +4790,32 @@ def _damage_equal_to_power_selector(dealer_kind: Optional[str]):
     return build
 
 
+# "<creature> deals damage to itself equal to its power." — the dealer *is*
+# the recipient (Justice Strike / Inner Struggle / Wrack with Madness on a
+# target, Wave of Reckoning / Solar Blaze as an "each creature" mass form).
+# `damage_equal_to_power` with `to_self`; the "each" form is `each_creature`
+# selector + no dealer target, each creature reading its own power.
+_SELF_DAMAGE_POWER = r"deals? damage to itself equal to its power"
+_POWER_DAMAGE_TO_SELF_TARGET_RE = _c(rf"{TARGET} {_SELF_DAMAGE_POWER}")
+_POWER_DAMAGE_TO_SELF_EACH_RE = _c(rf"each creature {_SELF_DAMAGE_POWER}")
+
+
+def _damage_to_self_equal_to_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dealer = _fight_kind(m.group("target"))
+    if dealer is None:
+        return None
+    return [EffectSpec("damage_equal_to_power", {
+        "dealer_kind": dealer, "target_kind": None, "to_self": True,
+        **_optional_param(m),
+    })]
+
+
+def _damage_to_self_equal_to_power_each(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage_equal_to_power", {
+        "selector": "each_creature", "target_kind": None, "to_self": True,
+    })]
+
+
 #: The subset of `_SELECTOR_WORD_MAP` a *damage* clause can legally match —
 #: "each other player" is a lose_life/rad-counter-only phrasing (no card
 #: prints "deals damage to each other player"), so these selector rows must
@@ -4795,6 +4896,15 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     (
         "damage_equal_to_power_previous", _POWER_DAMAGE_PREVIOUS_RE,
         _damage_equal_to_power_implicit("previous_target"), {"previous_subject_only": True},
+    ),
+    # "… deals damage to itself equal to its power." — dealer == recipient.
+    (
+        "damage_to_self_equal_to_power", _POWER_DAMAGE_TO_SELF_TARGET_RE,
+        _damage_to_self_equal_to_power, {},
+    ),
+    (
+        "damage_to_self_equal_to_power_each", _POWER_DAMAGE_TO_SELF_EACH_RE,
+        _damage_to_self_equal_to_power_each, {},
     ),
 ]
 
@@ -5461,6 +5571,9 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     }
     if parametric_keywords:  # ENG-31: "… token with firebending N"
         params["parametric_keywords"] = parametric_keywords
+    if m.groupdict().get("dies_life"):
+        # STX Pest — "with \"when ~ dies, you gain N life.\""
+        params["token_dies_gain_life"] = int(m.group("dies_life"))
     if is_artifact:
         params["is_artifact"] = True
     if subtypes:
@@ -5716,10 +5829,49 @@ _NAMED_TOKEN_WORDS: dict[str, str] = {"treasure": "Treasure", "clue": "Clue", "f
 #: "creature" word, just a bare recognised token name. Looked up in the
 #: curated `TokenDatabase` at resolve time (`CreateTokenEffect.apply`), so
 #: the created object keeps its real activated ability, not a blank card.
-def _create_named_token(m: re.Match[str]) -> list[EffectSpec]:
+#: The subject prefix on a named-token create — "you"/nothing, or a targeted/
+#: mass player ("target player creates a Treasure token." — Prismari Command;
+#: "each opponent creates a Clue token." — Tamiyo's Safekeeping-adjacent).
+_NAMED_TOKEN_CREATOR: dict[str, str] = {
+    "": "you", "you ": "you",
+    "each opponent ": "each_opponent", "each player ": "each_player",
+    "target player ": "target",
+}
+
+
+def _create_named_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     name = _NAMED_TOKEN_WORDS[m.group("name")]
     params: dict = {"count": count_of(m.group("n")), "token_name": name}
     if m.groupdict().get("tapped"):  # "create a tapped Treasure token" (Village Pillagers)
+        params["tapped"] = True
+    who = (m.groupdict().get("who") or "").lower()
+    creator = _NAMED_TOKEN_CREATOR.get(who)
+    if creator is None:
+        return None
+    if creator != "you":
+        params["creators"] = creator
+    if creator == "target":
+        params["target_kind"] = "player"
+    return [EffectSpec("create_token", params)]
+
+
+#: "When ~ dies, create a number of tapped Treasure tokens equal to its
+#: power." (Goldvein Hydra) — the named-token count-from-power sibling;
+#: `CreateTokenEffect.count_from_subject` reads the DIES event's RULE 400.7
+#: power/toughness snapshot (`_characteristic_of_subject`). `self_subject_
+#: only` — "its" is the trigger's own subject.
+_CREATE_NAMED_TOKEN_EQ_ITS_RE = _c(
+    rf"creates? a number of (?P<tapped>tapped )?(?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) tokens? "
+    r"equal to its (?P<char>power|toughness)"
+)
+
+
+def _create_named_token_eq_its_self(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {
+        "token_name": _NAMED_TOKEN_WORDS[m.group("name")],
+        "count_from_subject": f"trigger_subject_{m.group('char')}",
+    }
+    if m.groupdict().get("tapped"):
         params["tapped"] = True
     return [EffectSpec("create_token", params)]
 
@@ -6030,7 +6182,12 @@ def _pump_self_from_life_gained(m: re.Match[str]) -> list[EffectSpec]:
 #: Literal digits or the `{X}` form (Katara — "X can't be 0", a documented
 #: simplification: X is announced, and 0 is already meaningless for it).
 _BASE_PT_UNTIL_EOT_RE = _c(
-    rf"(?:{_SELF_SUBJECT}|(?P<group>creatures you control)) "
+    rf"(?:{_SELF_SUBJECT}|(?P<group>creatures you control)"
+    # "target creature [you control] has base power and toughness N/N until
+    # end of turn" (Quandrix Charm / Turn to Frog / Snakeform / Creeperhulk
+    # / Ovinize — 59 SOLO). `grant_until` already resolves a RULE 115 target
+    # and scopes the parked `pt_set` to those ids.
+    rf"|(?P<tgt>target creature(?: you control)?)) "
     rf"(?:has|have) base power and toughness (?P<p>\d+|x)/(?P<t>\d+|x) until end of turn"
     rf"(?:\. x can'?t be 0)?(?:\. activate only during your turn)?"
 )
@@ -6040,14 +6197,18 @@ def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     def _v(g: str) -> "int | str":
         return "x" if g.lower() == "x" else int(g)
 
+    tgt = (m.groupdict().get("tgt") or "").strip()
     params: dict = {
         "power": _v(m.group("p")), "toughness": _v(m.group("t")),
         "affects": "creatures_you_control" if m.groupdict().get("group") else "self",
     }
+    target_kind = None
+    if tgt:
+        target_kind = "creature_you_control" if "you control" in tgt else "creature"
     return [EffectSpec("grant_until", {
         "static": {"type": "pt_set", "params": params},
         "duration": "end_of_turn",
-        "target_kind": None,
+        "target_kind": target_kind,
     })]
 
 
@@ -6184,6 +6345,32 @@ def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "power": _signed_int(m.group("p")),
         "toughness": _signed_int(m.group("t")),
     }
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None  # unmodeled granted ability → fail-closed
+        params["keywords"] = keywords
+    if target_kind:
+        params["target_kind"] = target_kind
+    if selector:
+        params["selector"] = selector
+    return [EffectSpec("pump", params)]
+
+
+def _pump_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """"<subject> gets +x/+x [and gains <kw>] until end of turn" — an
+    {X}-cost spell/ability's own announced {X} scaling the pump (Tyvar's
+    Stand, Untamed Might, Primal Might's first clause). Emits the ``"x"``
+    power/toughness sentinel that `RulesEngine._substitute_x` already
+    rewrites to `GameObject.x_paid` at resolution; `PumpEffect.
+    target_polarity` already tolerates the bare string. Only the symmetric
+    "+x/+x" form (no "where X is …" tail — that's a *dynamic board count*,
+    a different family)."""
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    params: dict = {"power": "x", "toughness": "x"}
     if m.groupdict().get("kw"):
         keywords = _token_keywords(m.group("kw"))
         if keywords is None:
@@ -6755,9 +6942,13 @@ def _lockdown(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def _scry_or_surveil(m: re.Match[str]) -> list[EffectSpec]:
-    # "scry N" (RULE 701.18) / "surveil N" (RULE 701.31) — identical grammar
-    # and params, differing only in which verb was matched; the matched word
-    # is itself the EffectSpec type string.
+    # "[you] scry N" (RULE 701.18) / "[you] surveil N" (RULE 701.31) —
+    # identical grammar and params, differing only in which verb was
+    # matched; the matched word is itself the EffectSpec type string. The
+    # optional leading "you " is the redundant subject a trigger body
+    # spells out ("whenever enchanted creature attacks, you scry 2" —
+    # Psychic Impetus; "then you scry 2" — Overwhelmed Apprentice): scry is
+    # always the controller's, so it drops to the same self effect.
     return [EffectSpec(m.group("verb"), {"count": int(m.group("n"))})]
 
 
@@ -6779,6 +6970,42 @@ def _look_top_reorder(m: re.Match[str]) -> list[EffectSpec]:
 
 def _proliferate(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("proliferate", {})]
+
+
+#: "double the number of [+1/+1 / each kind of] counter(s) on <object>."
+#: (RULE 701.19-adjacent — Primordial Hydra / Tanazir Quandrix / Kalonian
+#: Hydra / Bristly Bill / Growth Curve / Dragonsguard Elite / Vorel). Four
+#: subject shapes, each its own `DoubleCountersOnTargetEffect.mode`:
+#:   * "~"                                    → ``mode="self"``
+#:   * "target creature [you control]"        → ``mode="target"`` (RULE 115)
+#:   * "each creature you control"             → ``mode="each_you_control"``
+#:   * "it" / "that creature"                  → ``mode="previous_subject"``
+#: A "+1/+1" (or other named kind) narrows the doubling; bare "each kind
+#: of" / "the" doubles every kind (Vorel).
+_DOUBLE_COUNTERS_RE = _c(
+    r"double the number of (?:each kind of |(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counters? on "
+    r"(?P<subject>~|it|that creature|target creature(?: you control)?|"
+    r"each creature you control|each of those creatures)"
+)
+
+
+def _double_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subj = m.group("subject").strip()
+    params: dict = {}
+    if m.group("kind"):
+        params["kind"] = m.group("kind")
+    if subj == "~":
+        params["mode"] = "self"
+    elif subj in ("it", "that creature", "each of those creatures"):
+        params["mode"] = "previous_subject"
+    elif subj == "each creature you control":
+        params["mode"] = "each_you_control"
+    elif subj.startswith("target creature"):
+        params["mode"] = "target"
+        params["target_kind"] = "creature_you_control" if "you control" in subj else "creature"
+    else:
+        return None
+    return [EffectSpec("double_counters_on_target", params)]
 
 
 #: "Damage can't be prevented this turn." (RULE 615.6 — Flaring Pain, the
@@ -9284,6 +9511,22 @@ HANDLERS: list[EffectHandler] = [
         _DRAW_THAT_MANY_RE,
         _draw_that_many,
     ),
+    # "Target player draws N cards, then discards M cards." (Prismari
+    # Command) — tried before the plain `draw` row, whose bare match would
+    # leave the trailing "then discards …" dangling with no subject link.
+    EffectHandler(
+        "target_player_loot",
+        _TARGET_PLAYER_LOOT_RE,
+        _target_player_loot,
+    ),
+    # "you and target opponent each draw N cards." — before the generic
+    # `draw` row (whose optional `who` group would otherwise claim just the
+    # "you" prefix and choke on the "and target opponent" tail).
+    EffectHandler(
+        "you_and_target_opponent_draw",
+        _YOU_AND_TARGET_OPP_DRAW_RE,
+        _you_and_target_opponent_draw,
+    ),
     # "draw a card" / "draw 3 cards" / "you draw two cards" / "draw X cards" /
     # "target player draws a card" / "each opponent draws a card"
     EffectHandler(
@@ -9460,6 +9703,16 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "gain_life_eq_that_group", _GAIN_LIFE_EQ_THAT_RE, _gain_life_eq_its_group,
         group_subject_only=True,
+    ),
+    # "When ~ dies, [you gain life and] draw cards equal to its power."
+    # (Lifeblood Hydra) — the combined row tried first so its "you gain
+    # life and " prefix isn't left dangling by the bare draw row.
+    EffectHandler(
+        "gain_life_and_draw_eq_its_self", _GAIN_LIFE_AND_DRAW_EQ_ITS_RE,
+        _gain_life_and_draw_eq_its_self, self_subject_only=True,
+    ),
+    EffectHandler(
+        "draw_eq_its_self", _DRAW_EQ_ITS_RE, _draw_eq_its_self, self_subject_only=True,
     ),
     # Tried before the plain `lose_life` row below (its own bare
     # `{NUMBER} life` would otherwise stop right after the digit, leaving
@@ -10796,6 +11049,17 @@ HANDLERS: list[EffectHandler] = [
         _PUMP_TARGET_TWO_COLOR_RE,
         _pump_target_two_color,
     ),
+    # "<subject> gets +x/+x [and gains <kw>] until end of turn" — the
+    # {X}-cost-spell pump (Tyvar's Stand, Untamed Might). Tried before the
+    # plain `pump` row below, whose `_PT_DELTA` only matches digits anyway.
+    EffectHandler(
+        "pump_x",
+        _c(
+            rf"{_SUBJECT} gets? \+x/\+x"
+            rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+        ),
+        _pump_x,
+    ),
     # "target creature gets +3/+3 until end of turn" / "gets -2/-2 …" /
     # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …" /
     # "creatures you control get +2/+1 until end of turn" (plural "get").
@@ -11145,7 +11409,7 @@ HANDLERS: list[EffectHandler] = [
     # (the controller scries/surveils), same grammar, one handler.
     EffectHandler(
         "scry_or_surveil",
-        _c(rf"(?P<verb>scry|surveil) {NUMBER}"),
+        _c(rf"(?:you )?(?P<verb>scry|surveil) {NUMBER}"),
         _scry_or_surveil,
     ),
     EffectHandler(
@@ -11677,6 +11941,14 @@ HANDLERS: list[EffectHandler] = [
         _c(r"proliferate"),
         _proliferate,
     ),
+    # "double the number of [+1/+1] counters on <~ / target creature / each
+    # creature you control / it>." (Primordial Hydra / Tanazir Quandrix /
+    # Kalonian Hydra / Growth Curve — 27 SOLO).
+    EffectHandler(
+        "double_counters",
+        _DOUBLE_COUNTERS_RE,
+        _double_counters,
+    ),
     # "Damage can't be prevented this turn." (RULE 615.6)
     EffectHandler(
         "disable_damage_prevention",
@@ -11779,6 +12051,11 @@ HANDLERS: list[EffectHandler] = [
             # ``0-9`` in the keyword capture is ENG-31's "… token with
             # firebending N" (Fire Nation Attacks/Occupation).
             rf"(?: with (?P<kw>[a-z0-9, ]+))?"
+            # "…creature token with \"when ~ dies, you gain N life.\"" — the
+            # STX Pest token's own printed death trigger (Blight Mound,
+            # Feral Appetite, Pest Rescuer, Hunt for Specimens, …). Baked
+            # onto each token via `CreateTokenEffect.token_dies_gain_life`.
+            rf'(?: with "when (?:~|it) dies, you gain (?P<dies_life>\d+) life\.?")?'
             + _TOKEN_TAPPED_ATTACKING
         ),
         _create_token,
@@ -11812,8 +12089,18 @@ HANDLERS: list[EffectHandler] = [
     # `data/tokens.json`).
     EffectHandler(
         "create_named_token",
-        _c(rf"(?:you )?creates? {COUNT} (?P<tapped>tapped )?(?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) tokens?"),
+        _c(rf"(?P<who>you |target player |each opponent |each player )?"
+           rf"creates? {COUNT} (?P<tapped>tapped )?(?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) tokens?"),
         _create_named_token,
+    ),
+    # "create a number of tapped Treasure tokens equal to its power."
+    # (Goldvein Hydra) — tried before the flat-count row above (its `COUNT`
+    # can't match "a number of … equal to …").
+    EffectHandler(
+        "create_named_token_eq_its_self",
+        _CREATE_NAMED_TOKEN_EQ_ITS_RE,
+        _create_named_token_eq_its_self,
+        self_subject_only=True,
     ),
     # "Investigate." / "Investigate twice." / "Investigate 3 times." (RULE
     # 701.19a) — a Clue-token-creation alias.

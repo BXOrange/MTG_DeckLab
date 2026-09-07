@@ -524,6 +524,7 @@ export default {
   'bd.step.main1': "Hauptphase I",
   'bd.step.begin_combat': "Kampfbeginn",
   'bd.step.declare_attackers': "Angreifer",
+  'bd.attackTax.confirm': 'Angriffssteuer von {cost} bezahlen?',
   'bd.step.declare_blockers': "Blocker",
   'bd.step.combat_damage': "Kampfschaden",
   'bd.step.end_combat': "Kampfende",

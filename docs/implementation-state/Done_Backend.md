@@ -2187,6 +2187,38 @@ is in the rules-engine categories below them.
 
 ## Combat
 
+### MEC-78 — Graveyard-exit batch triggers (RULE 603.3f)
+
+- **What:** `CARDS_LEFT_GRAVEYARD` carries a last-known-information card
+  snapshot and is emitted by the shared zone-removal path, covering casts,
+  reanimation, exile and library moves. `graveyard_exit_batch()` coalesces
+  simultaneous mass recursion into exactly one event.
+- **Parser:** "Whenever one or more cards leave your graveyard [during your
+  turn]" binds its owner and optional active-turn scope against that event.
+  Quintorius, Field Historian is now fully modeled.
+- **Verification:** `tests/test_mec78_graveyard_exit.py` covers parser output,
+  a single exit, and a two-card batch yielding only one Spirit trigger.
+
+### MEC-77 — Attack taxes (RULE 508.1g)
+
+- **What:** The `attack_tax` marker static now supports both a fixed amount
+  (Propaganda, Ghostly Prison, Windborn Muse) and `{X}` determined by a live
+  `count_selector`: enchantments for Sphere of Safety, or distinct basic land
+  types for Collective Restraint. It applies only to the defenders each card
+  actually names — Sphere reaches planeswalkers its controller controls;
+  neither wording taxes battles.
+- **Interaction:** `legal_actions` supplies each defender's tax and the board
+  asks before posting an attack. A declined prompt posts nothing; API clients
+  can equivalently submit `pay_attack_tax=False`, which preserves mana and
+  rejects the attempted declaration. Accepted costs retain the existing
+  floating-mana-then-auto-tap payment path.
+- **Files:** `parser/oracle/catalogue/static_handlers.py`, `game/effects.py`,
+  `game/continuous.py`, `game/engine/combat_mixin.py`,
+  `game/engine/legal_actions_mixin.py`, `services/game_session.py`,
+  `frontend/src/js/gameBoardView.js`, `tests/test_strixhaven_secrets_wave5.py`.
+- **Verification:** Parser regressions cover all five cards, dynamic counts,
+  opt-out/no-spend behavior, and Sphere's planeswalker scope.
+
 ### Put onto the battlefield attacking (RULE 508.4) — PAR-30, v177
 
 - **What:** `RulesEngine.put_onto_battlefield_attacking(obj, defender=None)` — an already-on-the-battlefield creature is placed into the current combat *attacking* without being declared: no tap for the attack (RULE 508.4), summoning sickness is irrelevant (it never "attacked"), an `ATTACKS` event fires so "whenever ~ attacks" / battalion triggers still see it. RULE 508.4a's defender choice is auto-made — the defender the rest of the combat is attacking if that's unambiguous, else the controller's sole/first opponent. The shared primitive behind "create a … token that's tapped **and attacking**" (`CreateTokenEffect.attacking`, v177 — Captain's Claws, Hanweir Garrison, Hero of Bladehold, +10) and, when wired, "put a card … onto the battlefield tapped and attacking".
@@ -4176,6 +4208,59 @@ is in the rules-engine categories below them.
 - **Parser side (v277):** `_RETURN_FROM_GRAVEYARD_RE` nonlegendary + enters-with-`-1/-1`-counter rider and `reanimate_multi_under_your_control` (Persist, Aberrant Return); `has_counter`/`has_counter_kind` creature-filter alternatives shared by destroy/damage/exile (Liliana Death Wielder); `incremental_counters` 3-target (Incremental Blight/Growth); `(?:another|other) target creature → creature` subgrammar row (The Scorpion God, +fight/2-target-pump family); `PutFromHandOntoBattlefieldEffect.zones`, an `each_creature_opponents_control` damage selector, leading-`tapped` named tokens (Dread Tiller, Village Pillagers); `_destroy` guard `nonland_permanent*` (Binding the Old Gods); `_GROUP_SUBJECT_RE` gained an "an opponent controls" + "with a counter on it" qualifier and `_trigger_condition`/`_build_group_ok` read it off the DIES-event `counters` snapshot.
 - **Engine primitives shipped alongside the hand-authoring:** `MoveCountersEffect` ("move_counters"), `DoubleCountersOnTargetEffect` ("double_counters_on_target", RULE 701.19 — also Vorel/Gilder Bairn), `RemoveCountersFromAmongThenDrawLoseLifeEffect` + `strip_all_counters` choose-object action (Eventide's Shadow), `DiscardUpToThenDrawThatManyEffect` (Cathartic Pyre mode 2 — reusable for Kinetic Augur / Daretti / Jaya Ballard), `ExchangeLifeTotalWithToughnessEffect` (Tree of Perdition) + layer-7b `pt_set` accepting a `None` half, `OwnerDrawOthersLosePerDyingCounterEffect` + `ActivationCost.only_opponents_may_activate` + `GainControlBySourceEffect` `recipient="activator"` (Oft-Nabbed Goat), `CreateTokensPerCounterAmongTargetPlayerCreaturesEffect` (Ferrafor), two marker statics `damage_cant_be_prevented` / `global_wither` (Everlasting Torment), per-turn tracker `GameState.counter_placed_on_creature_this_turn` + `static_conditions` kind `you_placed_counter_on_creature_this_turn` (Lasting Tarfire), `ImpulsiveDrawEffect.count_if_additional_cost_paid` (Burning Curiosity), `continuous.count_selector` `converge`/`charge_counters_on_source`, `affected_objects` `creatures_opponents_control_with_a_counter` (Kulrath Knight), `targeting.legal_targets` `max_mana_value="trigger_dying_counters"` sentinel (Puca's Covenant), `by_you` / `counter_recipient_is_you` trigger/condition keys and `counter_death_return` `opponent`/`immediate`/`optional`/`once_per_turn` flags (Necroskitter, The Reaper, Hapatra, Auntie Ool). `toughness` added to the DIES event snapshot.
 - **Files:** `game/ability_catalogue/entries_017.py` (per-card), `parser/oracle/catalogue/{handlers,subgrammars}.py`, `parser/oracle/segmenter.py`, `parser/oracle/spec.py`, `parser/oracle/gate.py`, `game/effects.py`, `game/continuous.py`, `game/targeting.py`, `game/effect_binder.py`, `game/costs.py`, `game/static_conditions.py`, `game/engine/{activation,legal_actions,turn_loop}_mixin.py`, `game/rules/{triggers,damage_death,mana_counters,misc}_mixin.py`, `game/rules_engine.py`, `models/game_state.py`.
+
+### Secrets of Strixhaven Commander decks (PAR-60, in progress) (Deck/Cube Playability Batches)
+
+- **What:** Deck-first playability push for the five *Secrets of Strixhaven*
+  saved decks (Witherbloom Pestilence, Silverquill Influence, Quandrix
+  Unlimited, Prismari Artistry, Lorehold Spirit), 2026-09-07, PARSER_VERSION
+  277 → 287. Worked in waves per uncovered-clause cluster; the still-open
+  follow-ups per wave stay in `BACKLOG.md` (PAR-60). Waves fully shipped
+  with no remaining follow-up:
+  - **wave 1** — `SearchLibraryEffect.untap_if_lands_at_least` threaded
+    through `GameContext.request_search` → `RulesEngine.request_search` →
+    `_search_choice` → `resolve_search_choice` → `_finish_search` (untap the
+    land put onto the battlefield tapped once the controller's land count
+    clears the threshold). Fabled Passage (all 5 decks) hand-`AUTHORED` in
+    the new `game/ability_catalogue/entries_018.py`.
+  - **wave 5** — RULE 508.1g **attack tax** base form (Propaganda / Ghostly
+    Prison / Windborn Muse): `EffectRegistry` `attack_tax` `StaticAbility`
+    layer (in `continuous._NON_RULE_613_LAYERS`), `continuous.attack_tax_
+    per_creature_for(state, defending_player_id)`, and a `declare_attackers`
+    block that auto-taxes and auto-taps for `{N}` per taxed defender or
+    raises if unpayable. PARSER_VERSION 281, +3 cache. Full fidelity
+    ({X}-scaled variants, opt-out, planeswalker defenders) is **MEC-77**.
+  - **wave 8** — "a creature **token** you control deals combat damage to a
+    player": `is_token` group-condition slot on the damage-trigger regex
+    (`segmenter._DAMAGE_TRIGGER_RE`) + positive `want_token` filter in
+    `effect_binder._build_group_ok` (re-derives token status from the live
+    source, since the DAMAGE event carries no source `is_token`).
+    PARSER_VERSION 284, +1 cache (Curiosity Crafter).
+  - **wave 12** — the three remaining modal Charm/Command deck spells
+    (**Quandrix Command**, **Lorehold Charm**, **Witherbloom Command**)
+    hand-`AUTHORED` wholesale in `entries_018.py` as `spell_effect` modal
+    `AbilitySpec`s (the fail-closed parser claims most modes but each spell
+    has one mode on a family the grammar can't reach, so the whole "choose
+    N —" block fail-closes). No PARSER_VERSION change. New engine pieces:
+    `ShuffleTargetGraveyardCardsIntoLibraryEffect`
+    ("shuffle_target_graveyard_cards_into_library") — the spell's
+    controller picks up to N cards in the *targeted* player's graveyard via
+    `request_choose_objects` (new `graveyard_to_library` action, which also
+    shuffles per RULE 701.20), an accepted RULE 115 precision loss over
+    three separate card targets; and a `noncreature_nonland_permanent`
+    target kind (`nonland_permanent` minus creatures) for Witherbloom
+    Command's "destroy target noncreature, nonland permanent…" mode.
+    Lorehold Charm's reanimate mode reused `graveyard_artifact_or_creature`
+    + `max_mana_value`. Simplifications: Lorehold Charm mode 1's "nontoken"
+    (not on `SacrificeEffect.what`); Witherbloom Command mode 1's "you
+    return a land card" as a `graveyard_land` target in the controller's
+    own graveyard.
+- **Files:** `game/ability_catalogue/entries_018.py`, `game/effects.py`,
+  `game/continuous.py`, `game/engine/combat_mixin.py`,
+  `game/effect_binder.py`, `game/rules/search_mixin.py`,
+  `game/rules/misc_mixin.py`, `game/targeting.py`,
+  `parser/oracle/segmenter.py`, `parser/oracle/gate.py`. Tests:
+  `backend/tests/test_strixhaven_secrets_wave{1,5,8,12}.py`.
 
 ### Kinnan/M-K Batch: New General Primitives (MEC-12)
 

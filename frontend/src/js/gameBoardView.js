@@ -2140,7 +2140,17 @@ export function createGameBoardView(opts = {}) {
 
     root.querySelectorAll('[data-action]').forEach((el) => {
       el.addEventListener('click', () => {
-        act(JSON.parse(el.dataset.action));
+        const action = JSON.parse(el.dataset.action);
+        // RULE 508.1g makes paying an attack tax optional. The board asks at
+        // the declaration click, before the backend's auto-payment path can
+        // consume floating mana; declining simply leaves this creature out
+        // of combat.
+        if (action.attack_tax_amount > 0) {
+          if (!window.confirm(t('bd.attackTax.confirm', { cost: `{${action.attack_tax_amount}}` }))) return;
+          delete action.attack_tax_amount;
+          action.pay_attack_tax = true;
+        }
+        act(action);
       });
     });
 
@@ -3560,25 +3570,31 @@ export function createGameBoardView(opts = {}) {
   function attackControlHtml(a) {
     const defenders = a.legal_defenders || [];
     const iid = a.instance_id;
+    const attackAction = (defender, index) => ({
+      type: 'declare_attackers', instance_ids: [iid],
+      ...(defender ? { defender: defenderPayload(defender) } : {}),
+      attack_tax_amount: a.attack_tax_amounts?.[index] || 0,
+      name: a.name,
+    });
     if (defenders.length === 0) {
       return actionButton(
-        { type: 'declare_attackers', instance_ids: [iid], name: a.name },
+        attackAction(null, 0),
         '⚔️ Angreifen'
       );
     }
     if (defenders.length === 1) {
       const d = defenders[0];
       return actionButton(
-        { type: 'declare_attackers', instance_ids: [iid], defender: defenderPayload(d), name: a.name },
+        attackAction(d, 0),
         `⚔️ Angreifen → ${escapeHtml(d.label)}`
       );
     }
     const open = attackMenuOpen.has(iid);
     const menu = open
       ? `<div class="gf-attack-defenders">${defenders
-          .map((d) =>
+          .map((d, index) =>
             actionButton(
-              { type: 'declare_attackers', instance_ids: [iid], defender: defenderPayload(d), name: a.name },
+              attackAction(d, index),
               `→ ${escapeHtml(d.label)}`
             )
           )

@@ -405,8 +405,20 @@ _SPELL_CAST_TYPE_WORDS: frozenset[str] = frozenset(
 #: player" subjects need no new engine primitive (`effect_binder`'s
 #: existing group/controller scoping over `SPELL_CAST`), so this is purely
 #: widening the *typed* row's own subject the same way.
+#:
+#: ``(?:or copy )?`` (2026-09-07) folds in RULE ~702.153 **Magecraft** —
+#: "Magecraft — Whenever you cast **or copy** an instant or sorcery spell,
+#: …" (Archmage Emeritus / Veyran / Storm-Kiln Artist / Prismari Pianist-
+#: adjacent). The old `_MAGECRAFT_RE` whole-line recognizer is unreachable
+#: now that `normalize._strip_unregistered_keyword_labels` peels the
+#: "Magecraft — " ability-word label (it isn't a registered RULE 702
+#: keyword), leaving exactly this shape; the engine still has no spell-copy
+#: event bus, so — as that recognizer's own docstring notes — only the
+#: "cast" half binds (`EventType.SPELL_CAST`) and the "copy" branch is
+#: unreachable by any state the engine can currently produce, not silently
+#: wrong.
 _CAST_SPELL_TRIGGER_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? (?:an?|another) "
+    r"^whenever (?P<subj>you|an opponent|a player) casts? (?:or copy )?(?:an?|another) "
     r"(?P<types>[a-z][a-z,\s]*?) spell,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
@@ -670,6 +682,15 @@ _CAST_SPELL_SUBTYPE_WORDS: frozenset[str] = frozenset({
     "treefolk", "wolf",
 })
 
+#: "Whenever you cast a **red** spell, …" (Balefire Liege, Runaway Steam-Kin)
+#: — a single colour word in `_CAST_SPELL_TRIGGER_RE`'s ``types`` slot maps
+#: to `effect_binder`'s existing ``cast_of_color`` trigger key (a live
+#: colour check on the cast object). "colorless" is deliberately excluded:
+#: `cast_of_color` is a membership test, not an empty-identity one.
+_CAST_SPELL_COLOR_WORDS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+}
+
 #: RULE 702.28c's own trigger condition — "When you cycle this card,
 #: `<effect>`." (Krosan Tusker/Shark Typhoon-shaped — ranked the single
 #: biggest template blocker in this family, ~37 real cards). Fires off the
@@ -809,6 +830,10 @@ _DAMAGE_TRIGGER_RE = re.compile(
     r"|(?P<attached>(?:enchanted|equipped) (?:creature|permanent|land|artifact))"
     r"|(?P<article>another|an|a) (?P<goaded>goaded )?(?P<type>"
     + "|".join(_GROUP_TYPE_WORDS) + r")"
+    # "a creature **token** you control deals combat damage to a player"
+    # (Curiosity Crafter / Reconnaissance Mission-for-tokens) — RULE 111.9's
+    # is-a-token filter on the acting object.
+    r"(?P<token> token)?"
     r"(?P<yours> you control)?"
     # RULE 310: "…to a player or battle" (Furnace Reins-shaped) — the battle
     # case rides the same ``{"is_player": true}`` DAMAGE filter (a documented
@@ -1002,6 +1027,28 @@ _YOU_DEALT_DAMAGE_IF_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: PAR-60 wave 18 — a phase trigger's leading RULE 603.4 intervening-if
+#: "if you control no `<subtype>`[s]" / "if you don't control a `<subtype>`
+#: [creature] token" (Ophiomancer, Pest Rescuer, Jadar). Attached as the
+#: trigger's `active_if` via `static_conditions`' ``control_count`` with
+#: ``max=0`` over the ``creatures_you_control_of_type_<subtype>`` selector
+#: `continuous.count_selector` already resolves. **Documented
+#: simplification:** the "…token" qualifier is dropped (a non-token Snake/
+#: Pest is a rare edge). A curated subtype whitelist — an open one would
+#: over-fire (an unknown word counts 0, so "control no <word>" is always
+#: true).
+_CONTROL_NO_SUBTYPE_WORDS: frozenset[str] = frozenset({
+    "snake", "pest", "thopter", "zombie", "saproling", "spirit", "goblin",
+    "elf", "soldier", "insect", "wolf", "cat", "bird", "elemental", "dragon",
+    "servo", "myr", "golem", "wall", "faerie", "rat", "squid", "eldrazi",
+})
+_YOU_CONTROL_NO_SUBTYPE_IF_RE = re.compile(
+    r"^if you (?:control no (?P<sub1>[a-z][a-z-]+?)s"
+    r"|don'?t control (?:a|an|any) (?P<sub2>[a-z][a-z-]+?)(?: creature)?(?: token)?)"
+    r",\s*(?P<rest>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 _PHASE_TRIGGER_RE = re.compile(
     r"^at the beginning of (?:"
     # "each player's upkeep" reads exactly like "each upkeep" to this engine
@@ -1081,6 +1128,30 @@ _BATCH_ATTACK_TRIGGER_RE = re.compile(
     r"creatures you control attack(?: a player)?$"
 )
 
+#: RULE 603.3f's "one or more <X> die" batch death trigger (Morbid
+#: Opportunist / Sengir Connoisseur / Vraan / Dramatic Finale / Ghoulish
+#: Procession / Homicide Investigator …). The engine fires a per-object
+#: `DIES` event, not a per-batch aggregate, so this is modeled as an
+#: ordinary `{"subject": "group", "type": "creature"}` DIES trigger — but
+#: **only claimed when the body also carries "This ability triggers only
+#: once each turn."** (`_TRIGGER_ONCE_PER_TURN_RE` → `limit`), which makes
+#: the per-object firing collapse to the once-per-turn net behaviour the
+#: real card has. The handful of un-limited "1 or more … die" cards (Great
+#: Fierce Bee, Vengeful Townsfolk) stay unclaimed — a per-object model
+#: would over-fire on a board wipe (that needs a real batch aggregate —
+#: MEC, see PAR-60).
+_BATCH_DIES_TRIGGER_RE = re.compile(
+    r"^(?:1|one) or more (?P<other>other )?(?P<nontoken>nontoken )?"
+    r"creatures(?P<yours> you control)? die$"
+)
+
+#: RULE 603.3f — Quintorius, Field Historian: one trigger for the complete
+#: zone-change event, whether one card is flashback-cast or many are returned
+#: together. The optional timing tail is an intervening trigger condition.
+_CARDS_LEAVE_YOUR_GRAVEYARD_TRIGGER_RE = re.compile(
+    r"^(?:1|one) or more cards leave your graveyard(?P<during> during your turn)?$"
+)
+
 
 def _batch_attack_group_filter(filt: Optional[str]) -> Optional[dict[str, Any]]:
     """The optional ``<filter>`` before "creatures you control attack" in a
@@ -1115,6 +1186,17 @@ def _batch_attack_group_filter(filt: Optional[str]) -> Optional[dict[str, Any]]:
 _ATTACHED_SUBJECT_RE = re.compile(
     r"^(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)\s+"
     rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
+)
+
+#: The two-verb sibling — "whenever enchanted creature **attacks or blocks**,
+#: …" (Sinister Possession / Contaminated Bond / Luminous Wake / the
+#: Curse/Impetus Aura cycles). Maps to a list-valued ``event`` with a
+#: ``{"subject": "attached_permanent"}`` condition, exactly the way
+#: `_SELF_MULTI_EVENT_RE` does for the bare-`~` subject.
+_ATTACHED_MULTI_EVENT_RE = re.compile(
+    r"^(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)\s+"
+    rf"(?P<v1>{_VERB_ALT})(?:\s+the\s+battlefield)?\s+or\s+"
+    rf"(?P<v2>{_VERB_ALT})(?:\s+the\s+battlefield)?$"
 )
 
 #: RULE 603.1's condition subject — a *group* of objects, not just the
@@ -3979,6 +4061,27 @@ def segment_line(
         # would never be reached, and placed before it would just invert
         # the same problem onto genuine main-type cards.
         single_word = raw_types.strip().lower()
+        if types is None and single_word in _CAST_SPELL_COLOR_WORDS:
+            # "Whenever you cast a red spell, …" (Balefire Liege) — the
+            # colour sibling of the subtype branch just below; reuses
+            # `effect_binder`'s existing ``cast_of_color`` predicate.
+            body, optional = _peel_optional(cast_spell_trig.group("body"))
+            effects = parse_effect_body(body)
+            if effects is None:
+                return Segment(raw=raw)
+            spec = AbilitySpec(
+                "triggered",
+                effects=effects,
+                trigger={
+                    "event": "SPELL_CAST",
+                    "condition": _cast_spell_trigger_condition(pos_subj),
+                    "cast_of_color": _CAST_SPELL_COLOR_WORDS[single_word],
+                },
+                optional=optional,
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
         if types is None and single_word in _CAST_SPELL_SUBTYPE_WORDS:
             body, optional = _peel_optional(cast_spell_trig.group("body"))
             effects = parse_effect_body(body)
@@ -4149,6 +4252,8 @@ def segment_line(
                 condition["controller"] = "you"
             if damage_trig.group("goaded"):  # RULE 701.15b — see `_GOADED_SUBJECT_RE`
                 condition["goaded"] = True
+            if damage_trig.group("token"):  # "a creature token you control …"
+                condition["is_token"] = True
         spec = AbilitySpec(
             "triggered",
             effects=effects,
@@ -4757,6 +4862,7 @@ def segment_line(
         entered_if = _ANOTHER_SUBTYPE_ENTERED_IF_RE.match(body)
         gy_if = _CREATURE_CARD_TO_GY_IF_RE.match(body)
         dmg_if = _YOU_DEALT_DAMAGE_IF_RE.match(body)
+        no_subtype_if = _YOU_CONTROL_NO_SUBTYPE_IF_RE.match(body)
         if entered_if is not None:
             phase_active_if = {
                 "kind": "another_subtype_entered_this_turn",
@@ -4772,6 +4878,17 @@ def segment_line(
                 "amount": int(dmg_if.group("n")),
             }
             body = dmg_if.group("rest").strip()
+        elif no_subtype_if is not None and (
+            (no_subtype_if.group("sub1") or no_subtype_if.group("sub2") or "").lower()
+            in _CONTROL_NO_SUBTYPE_WORDS
+        ):
+            sub = (no_subtype_if.group("sub1") or no_subtype_if.group("sub2")).lower()
+            phase_active_if = {
+                "kind": "control_count",
+                "selector": f"creatures_you_control_of_type_{sub}",
+                "max": 0,
+            }
+            body = no_subtype_if.group("rest").strip()
         if relation is None:
             them_damage = _PHASE_DAMAGE_TO_THEM_RE.match(body)
             if them_damage is not None:
@@ -4838,6 +4955,56 @@ def segment_line(
                 optional=optional,
                 raw_text=raw,
                 parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        # RULE 603.3f "1 or more [other] [nontoken] [artifact] creatures
+        # [you control] die" — modeled as a per-object DIES group trigger,
+        # claimed ONLY when the body's own "this ability triggers only once
+        # each turn." marker makes that collapse to the correct net. See
+        # `_BATCH_DIES_TRIGGER_RE`.
+        batch_dies = _BATCH_DIES_TRIGGER_RE.match(cond_text.strip())
+        if batch_dies is not None:
+            body, optional = _peel_optional(trig.group("body"))
+            effects = parse_effect_body(body, group_subject=True)
+            if effects is None:
+                return Segment(raw=raw)
+            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+            if not (limit or body_limit):
+                # No once-per-turn marker — a per-object model would
+                # over-fire on simultaneous deaths. Fail closed.
+                return Segment(raw=raw)
+            condition = {"subject": "group", "type": "creature",
+                         "other": bool(batch_dies.group("other"))}
+            if batch_dies.group("yours"):
+                condition["controller"] = "you"
+            if batch_dies.group("nontoken"):
+                condition["nontoken"] = True
+            spec = AbilitySpec(
+                "triggered",
+                effects=effects,
+                trigger={"event": "DIES", "condition": condition, "limit": True},
+                optional=optional,
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        graveyard_exit = _CARDS_LEAVE_YOUR_GRAVEYARD_TRIGGER_RE.match(cond_text.strip())
+        if graveyard_exit is not None:
+            body, optional = _peel_optional(trig.group("body"))
+            effects = parse_effect_body(body)
+            if effects is None:
+                return Segment(raw=raw)
+            trigger: dict[str, Any] = {
+                "event": "CARDS_LEFT_GRAVEYARD",
+                "graveyard_owner": "you",
+            }
+            if graveyard_exit.group("during"):
+                trigger["during_your_turn"] = True
+            spec = AbilitySpec(
+                "triggered", effects=effects, trigger=trigger, optional=optional,
+                raw_text=raw, parser=provenance,
             )
             return Segment(raw=raw, spec=spec, claimed=True)
 
@@ -4971,6 +5138,7 @@ def segment_line(
         defender_lands_min: Optional[int] = None
         atk_lands = _ATTACKS_DEFENDER_LANDS_RE.match(cond_text.strip())
         multi = _SELF_MULTI_EVENT_RE.match(cond_text.strip())
+        attached_multi = _ATTACHED_MULTI_EVENT_RE.match(cond_text.strip())
         if atk_lands is not None:
             event: "str | list[str]" = "ATTACKS"
             condition: Optional[dict[str, Any]] = {"subject": "self"}
@@ -4980,6 +5148,16 @@ def segment_line(
             if not all(event):
                 return Segment(raw=raw)  # an unrecognised verb → fail closed
             condition = {"subject": "self"}
+        elif attached_multi is not None:
+            # "whenever enchanted creature attacks or blocks, …" (RULE
+            # 303.4c) — one trigger, two firing events, on the Aura's host.
+            event = [
+                _multi_event_name(attached_multi.group("v1")),
+                _multi_event_name(attached_multi.group("v2")),
+            ]
+            if not all(event):
+                return Segment(raw=raw)
+            condition = {"subject": "attached_permanent"}
         else:
             event = _trigger_event(cond_text)
             if event is None:

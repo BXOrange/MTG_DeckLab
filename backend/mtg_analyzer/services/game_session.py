@@ -1092,7 +1092,11 @@ class GameSession:
         # own defender). None → the engine auto-assigns / bare swing.
         defender = self._resolve_defender(action.get("defender"))
         declarations = [
-            {"attacker": self._object_by_id(i), "defender": defender}
+            {
+                "attacker": self._object_by_id(i),
+                "defender": defender,
+                "pay_attack_tax": bool(action.get("pay_attack_tax", True)),
+            }
             for i in (ids or [])
         ]
         self.engine.declare_attackers(active, declarations)

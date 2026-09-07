@@ -993,6 +993,16 @@ class LegalActionsMixin:
             # the count to decide a one-step declaration (0/1 defender) vs. a
             # two-step "pick a defender" choice (RULE 508.1a).
             defenders = self.legal_defenders_for(player)
+            attack_tax_amounts = []
+            for defender in defenders:
+                defending = self._defending_player(defender)
+                attack_tax_amounts.append(
+                    continuous.attack_tax_per_creature_for(
+                        self.state,
+                        defending.id if defending is not None else "",
+                        str(defender.get("kind", "player")),
+                    )
+                )
             for obj in self.state.permanents_controlled_by(player.id):
                 # RULE 508.1a: attackers are declared once per combat. A
                 # creature already attacking (most visibly a vigilant one,
@@ -1014,6 +1024,11 @@ class LegalActionsMixin:
                             "instance_id": obj.instance_id,
                             "name": obj.name,
                             "legal_defenders": defenders,
+                            # RULE 508.1g is a may-pay cost. The matching
+                            # positional list lets the client ask before it
+                            # submits its one-attacker declaration instead
+                            # of silently spending floating mana.
+                            "attack_tax_amounts": attack_tax_amounts,
                             # RULE 702.19a: whether the client may offer an
                             # "exert as it attacks" checkbox alongside this
                             # declaration (`GameEngine.declare_attackers`'s

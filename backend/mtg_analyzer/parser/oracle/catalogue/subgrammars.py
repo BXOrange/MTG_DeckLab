@@ -176,6 +176,16 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # creature an opponent controls" above.
     (r"target land you control", "land_you_control"),
     (r"target land (?:an opponent controls|you don't control)", "land_you_dont_control"),
+    # "target nonbasic land [an opponent controls]" (Fulminator Mage / Dust
+    # Bowl / Field of Ruin / Demolition Field / Ravenous Baboons — 21 SOLO
+    # blockers) — RULE 205.4 supertype filter. `targeting.legal_targets`
+    # already has a fully-implemented ``nonbasic_land`` branch (built for
+    # Encroaching Wastes); the controller-scoped ``nonbasic_land_you_dont_
+    # control`` mirror is new, matching the `land_you_dont_control` pattern.
+    # Above the bare "target land" row so the longer phrase wins.
+    (r"target nonbasic land (?:an opponent controls|you don't control)",
+     "nonbasic_land_you_dont_control"),
+    (r"target nonbasic land", "nonbasic_land"),
     # "target land" (Sinkhole) — same RULE 115.1c precision as the artifact/
     # enchantment rows just above.
     (r"target land", "land"),

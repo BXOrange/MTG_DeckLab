@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+from contextlib import contextmanager
 from typing import Any, Callable, Optional, Union
 
 from ...models import card_query
@@ -821,6 +822,40 @@ class CastingResolutionMixin:
         )
         self.check_ward(item, player)
         return item
+    @contextmanager
+    def graveyard_exit_batch(self):
+        """Group simultaneous graveyard exits into one RULE 603.3f event."""
+        depth = getattr(self, "_graveyard_exit_batch_depth", 0)
+        if depth == 0:
+            self._graveyard_exit_batch_cards: list[dict[str, Any]] = []
+        self._graveyard_exit_batch_depth = depth + 1
+        try:
+            yield
+        finally:
+            self._graveyard_exit_batch_depth -= 1
+            if self._graveyard_exit_batch_depth == 0:
+                cards = self._graveyard_exit_batch_cards
+                self._graveyard_exit_batch_cards = []
+                if cards:
+                    self.state.fire_event(GameEvent(EventType.CARDS_LEFT_GRAVEYARD, cards=cards))
+
+    def _note_graveyard_exit(self, obj: GameObject) -> None:
+        """Record a card leaving its owner's graveyard before it becomes new.
+
+        This is called from the one zone-removal choke point, covering casts,
+        reanimation, exile, shuffle-in and any future route using it.
+        """
+        card = {
+            "instance_id": obj.instance_id,
+            "mana_value": int(getattr(obj.card, "converted_mana_cost", 0) or 0),
+            "owner_id": obj.owner_id,
+            "graveyard_owner_id": obj.owner_id,
+        }
+        if getattr(self, "_graveyard_exit_batch_depth", 0):
+            self._graveyard_exit_batch_cards.append(card)
+        else:
+            self.state.fire_event(GameEvent(EventType.CARDS_LEFT_GRAVEYARD, cards=[card]))
+
     def _remove_from_current_zone(self, player: Player, obj: GameObject) -> None:
         """Pull ``obj`` out of whichever zone currently holds it.
 
@@ -838,10 +873,13 @@ class CastingResolutionMixin:
         change, and this is the one point every cast path funnels through.
         """
         obj.face_down_in_exile = False
+        left_graveyard = obj.zone == Zone.GRAVEYARD
         for candidate in self.state.players:
             for cards in candidate.zones.values():
                 if obj in cards:
                     cards.remove(obj)
+                    if left_graveyard:
+                        self._note_graveyard_exit(obj)
                     return
         if obj in self.state.battlefield:
             self.state.remove_from_battlefield(obj)

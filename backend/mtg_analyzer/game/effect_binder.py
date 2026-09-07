@@ -553,6 +553,9 @@ def _build_group_ok(
     type_word = condition.get("type")
     subtypes = condition.get("subtypes")
     nontoken = bool(condition.get("nontoken"))
+    # "a creature **token** you control deals combat damage to a player"
+    # (Curiosity Crafter) — the positive mirror of ``nontoken`` (RULE 111.9).
+    want_token = bool(condition.get("is_token"))
     # "a **non-Human** creature you control attacks" (Winota) — the negated
     # mirror of ``subtypes``: the acting object must NOT have any of these
     # creature subtypes. Read off the event's live subtypes (ATTACKS keeps
@@ -649,6 +652,7 @@ def _build_group_ok(
         stypes=subtypes,
         excl_stypes=excluded_subtypes,
         want_nontoken=nontoken,
+        want_token=want_token,
         you=wants_you,
         not_you=wants_not_you,
         other=other_only,
@@ -684,6 +688,17 @@ def _build_group_ok(
         # or Mutant" — The Ghoul, Gunslinger).
         if want_nontoken and event.get("is_token"):
             return False
+        if want_token:
+            # The DAMAGE event carries no `is_token` for its *source*, so
+            # re-derive it from the still-live acting object (a creature that
+            # just dealt combat damage is on the battlefield, RULE 510.2).
+            tok = event.get("is_token")
+            if tok is None and event_instance is not None:
+                state = getattr(context, "state", None)
+                obj = state.find_object(event_instance) if state is not None else None
+                tok = bool(getattr(obj, "is_token", False)) if obj is not None else None
+            if not tok:
+                return False
         if tword and tword != "permanent":
             types = event.get("object_types")
             if types is None and event_instance is not None:
@@ -892,6 +907,23 @@ def _trigger_condition(
     subject_ok = _subject_condition(trigger, source)
     if subject_ok is not None:
         predicates.append(subject_ok)
+
+    if trigger.get("graveyard_owner") == "you":
+        def _your_graveyard_exit_ok(event: Any, context: Any, src=source) -> bool:
+            controller_id = getattr(src, "controller_id", None)
+            return controller_id is not None and any(
+                card.get("graveyard_owner_id") == controller_id
+                for card in (event.get("cards") or [])
+            )
+
+        predicates.append(_your_graveyard_exit_ok)
+
+    if trigger.get("during_your_turn"):
+        def _during_your_turn_ok(event: Any, context: Any, src=source) -> bool:
+            state = getattr(context, "state", None)
+            return getattr(getattr(state, "active_player", None), "id", None) == getattr(src, "controller_id", None)
+
+        predicates.append(_during_your_turn_ok)
 
     filt = trigger.get("filter")
     if filt:

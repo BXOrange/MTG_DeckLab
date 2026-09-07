@@ -50,6 +50,7 @@ from . import entries_014  # noqa: F401
 from . import entries_015  # noqa: F401
 from . import entries_016  # noqa: F401
 from . import entries_017  # noqa: F401
+from . import entries_018  # noqa: F401
 
 __all__ = [
     "_REGISTRY",

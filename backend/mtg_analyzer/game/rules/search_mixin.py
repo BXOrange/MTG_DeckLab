@@ -863,6 +863,7 @@ class SearchMixin:
         then_specs_if_none: Optional[list[dict]] = None,
         source: Optional[GameObject] = None,
         track_exiled_with: bool = False,
+        untap_if_lands_at_least: Optional[int] = None,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -993,6 +994,7 @@ class SearchMixin:
             total_mana_value_budget=total_mana_value_budget,
             chooser=chooser,
             share_land_type=share_land_type,
+            untap_if_lands_at_least=untap_if_lands_at_least,
             then_specs_if_none=then_specs_if_none,
             then_source_id=getattr(source, "instance_id", None),
             track_exiled_with=track_exiled_with,
@@ -1263,6 +1265,7 @@ class SearchMixin:
                 spent_mana_value=spent_mana_value,
                 chooser=self.state.player_by_id(chooser_id),
                 share_land_type=share_land_type,
+                untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
                 then_specs_if_none=choice.get("then_specs_if_none"),
                 then_source_id=choice.get("then_source_id"),
                 track_exiled_with=choice.get("track_exiled_with", False),
@@ -1282,6 +1285,7 @@ class SearchMixin:
             chooser_id=chooser_id,
             track_exiled_with=choice.get("track_exiled_with", False),
             track_source_id=choice.get("then_source_id"),
+            untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
         )
         # "…if you don't put a card … this way, <body>." (The Vast Scrier) —
         # the search finished and nothing was picked.
@@ -1309,6 +1313,7 @@ class SearchMixin:
         spent_mana_value: int = 0,
         chooser: Optional[Player] = None,
         share_land_type: bool = False,
+        untap_if_lands_at_least: Optional[int] = None,
         then_specs_if_none: Optional[list[dict]] = None,
         then_source_id: Optional[int] = None,
         track_exiled_with: bool = False,
@@ -1359,6 +1364,10 @@ class SearchMixin:
             "extra_counters": dict(extra_counters) if extra_counters else None,
             "destination_if": [dict(rule) for rule in destination_if] if destination_if else None,
             "attach_to_creature_you_control": bool(attach_to_creature_you_control),
+            # "…then if you control N or more lands, untap that land."
+            # (Fabled Passage) — applied to the fetched land in
+            # `_finish_search`; only meaningful for battlefield_tapped.
+            "untap_if_lands_at_least": untap_if_lands_at_least,
             "remember_source_id": remember_source_id,
             "total_mana_value_budget": total_mana_value_budget,
             "spent_mana_value": spent_mana_value,
@@ -1403,6 +1412,7 @@ class SearchMixin:
         chooser_id: Optional[str] = None,
         track_exiled_with: bool = False,
         track_source_id: Optional[int] = None,
+        untap_if_lands_at_least: Optional[int] = None,
     ) -> None:
         """Move every chosen card to its destination, then shuffle the
         library (RULE 701.19e) — unless ``exile_rest`` suppresses it
@@ -1481,6 +1491,22 @@ class SearchMixin:
                 self.exile(obj)
                 continue
             self._put_searched_card(player, obj, dest, chooser_id=chooser_id)
+            if (
+                untap_if_lands_at_least is not None
+                and dest == "battlefield_tapped"
+                and obj.is_land
+            ):
+                # "…then if you control N or more lands, untap that land."
+                # (Fabled Passage) — RULE 701.19-adjacent: the fetched land
+                # has already entered (it counts itself), and this trailing
+                # conditional untaps it only when the controller now has at
+                # least N lands on the battlefield.
+                own_lands = sum(
+                    1 for o in self.state.battlefield
+                    if o.is_land and o.controller_id == player.id
+                )
+                if own_lands >= untap_if_lands_at_least:
+                    obj.tapped = False
             if redirect_controller_id is not None:
                 # RULE 605.1a/601.3a-adjacent: "you may play those cards for
                 # as long as they remain exiled, and you may spend mana as

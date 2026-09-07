@@ -3063,6 +3063,12 @@ class MiscSystemsMixin:
         {
             "tap", "sacrifice", "return_to_hand", "return_from_graveyard", "soulbond_pair", "library_top", "discard",
             "library_to_hand", "sacrifice_for_descendants_fury",
+            # Quandrix Command mode 4 ("target player shuffles up to three
+            # target cards from their graveyard into their library") — the
+            # pick moves from its owner's graveyard to its owner's library,
+            # which is then shuffled (RULE 701.20). A graveyard-zone pick,
+            # unlike the battlefield/hand actions around it.
+            "graveyard_to_library",
             # PAR-13 (Dungeon of the Mad Mage's "Mad Wizard's Lair" — "Draw
             # three cards and reveal them. You may cast one of them without
             # paying its mana cost."): a hand-zone pick, unlike every other
@@ -3538,6 +3544,17 @@ class MiscSystemsMixin:
             self.return_to_hand(obj)
         elif action == "return_from_graveyard":
             self.return_from_graveyard(obj, "battlefield")
+        elif action == "graveyard_to_library":
+            # Quandrix Command mode 4: move the pick from its owner's
+            # graveyard to its owner's library, then shuffle that library
+            # (RULE 701.20). ``player`` here is the spell's controller (the
+            # chooser), who need not own the card.
+            owner = self.state.player_by_id(obj.owner_id)
+            if owner is not None and obj in owner.graveyard:
+                owner.remove_from_zone(obj, Zone.GRAVEYARD)
+                obj.zone = Zone.LIBRARY
+                owner.add_to_zone(obj, Zone.LIBRARY)
+                self.shuffle_library(owner)
         elif action == "discard":
             # RULE 701.47 (connive, MEC-43 — Ledger Shredder): "if a
             # nonland card was discarded this way, put a +1/+1 counter on

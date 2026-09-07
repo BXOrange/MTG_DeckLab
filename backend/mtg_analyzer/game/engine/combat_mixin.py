@@ -563,7 +563,7 @@ class CombatMixin:
 
         Each entry is either a bare `GameObject` (the engine picks the
         defender when it is unambiguous) or a ``{"attacker": obj, "defender":
-        spec, "exert": bool}`` dict, where ``spec`` is one of the entries
+        spec, "exert": bool, "pay_attack_tax": bool}`` dict, where ``spec`` is one of the entries
         `legal_defenders_for` returns (or None for a bare swing). Declaring is
         *additive* — the UI declares creatures one at a time so each can pick
         its own target below it — so repeated calls accumulate the combat.
@@ -584,11 +584,17 @@ class CombatMixin:
 
         legal = self.legal_defenders_for(player)
         resolved: list[tuple[GameObject, Optional[dict[str, Any]], bool]] = []
+        pay_attack_tax = True
         for entry in declarations:
             if isinstance(entry, dict):
                 obj = entry["attacker"]
                 defender = entry.get("defender")
                 exert = bool(entry.get("exert"))
+                # RULE 508.1g is a declaration-time choice. A client can
+                # explicitly decline it, which leaves this submitted attack
+                # illegal and, crucially, spends none of the player's mana.
+                # Omitting the flag preserves the goldfish auto-pay default.
+                pay_attack_tax = pay_attack_tax and bool(entry.get("pay_attack_tax", True))
             else:
                 obj, defender, exert = entry, None, False
             # RULE 508.1a: a creature is declared as an attacker once per
@@ -612,6 +618,40 @@ class CombatMixin:
             if not self._can_attack(player, obj, self._defending_player(assigned)):
                 raise ValueError(f"{obj.name} cannot attack")
             resolved.append((obj, assigned, exert))
+
+        # RULE 508.1g attack tax (Propaganda / Ghostly Prison / Windborn
+        # Muse): "creatures can't attack you unless their controller pays {N}
+        # for each creature they control that's attacking you." Summed over
+        # every taxed defending player in this declaration and auto-paid from
+        # the active player's mana (floating first, then an auto-tap plan) —
+        # the same "make the cost happen so the card functions" treatment
+        # `_auto_tap_for_cast_if_needed` gives spell costs in a solo/goldfish
+        # session. If it genuinely can't be paid, the whole declaration is
+        # illegal (RULE 508.1g — those attackers are removed from combat).
+        tax_total = 0
+        for _obj, _defender, _exert in resolved:
+            defending = self._defending_player(_defender)
+            if defending is not None:
+                defender_kind = str((_defender or {}).get("kind", "player"))
+                tax_total += continuous.attack_tax_per_creature_for(
+                    self.state, defending.id, defender_kind
+                )
+        if tax_total > 0:
+            if not pay_attack_tax:
+                raise ValueError("attack tax declined; those creatures cannot be declared as attackers")
+            tax_cost = ManaCost.parse(f"{{{tax_total}}}")
+            if not player.mana_pool.can_pay(tax_cost):
+                try:
+                    self.auto_tap_for(player, cost=tax_cost)
+                except ValueError:
+                    raise ValueError(
+                        f"cannot pay the {{{tax_total}}} attack tax to declare these attackers"
+                    )
+            if not player.mana_pool.can_pay(tax_cost):
+                raise ValueError(
+                    f"cannot pay the {{{tax_total}}} attack tax to declare these attackers"
+                )
+            player.mana_pool.pay(tax_cost)
 
         for obj, defender, exert in resolved:
             # Vigilance (RULE 702.21b): attacking doesn't cause it to tap.

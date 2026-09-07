@@ -384,6 +384,25 @@ def group_selector_objects(
             o for o in battlefield
             if o.is_creature and o.attacking and o is not src
         ]
+    elif affects == "attacking_creatures_you_control":
+        # "Attacking creatures you control have first strike …" — the
+        # controller-scoped sibling of ``attacking_creatures``.
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.attacking and o.controller_id == controller_id
+        ]
+    elif affects.startswith("attacking_creatures_you_control_of_type_"):
+        # "Attacking Pests/Vampires/Pirates/Elves you control get/have …"
+        # (Blight Mound, Crossway Troublemakers, Dire Fleet Neckbreaker,
+        # Elderfang Venom, PAR-60 wave 19) — ``attacking_creatures_you_
+        # control`` narrowed by a printed creature subtype, the combat-state
+        # sibling of ``creatures_you_control_of_type_<subtype>`` above.
+        creature_type = affects[len("attacking_creatures_you_control_of_type_"):]
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.attacking and o.controller_id == controller_id
+            and _has_subtype(o, creature_type)
+        ]
     elif affects == "legendary_creatures_you_control":
         # "Legendary creatures you control get +2/+1 and have ward {1}."
         # (Flowering of the White Tree) — RULE 205.4a's supertype, the
@@ -929,6 +948,20 @@ def count_selector(
             if permanent.controller_id == controller_id:
                 colors_present |= (permanent.colors or set())
         return len(colors_present)
+    if selector == "basic_land_types_among_lands_you_control":
+        # Collective Restraint — RULE 305.6's five basic land types count
+        # once each, even if several lands share one type or one land has
+        # several (for example, a Forest Plains).
+        if controller_id is None:
+            return 0
+        present: set[str] = set()
+        for permanent in bf:
+            if permanent.is_land and permanent.controller_id == controller_id:
+                present.update(
+                    land_type for land_type in _BASIC_LAND_TYPES
+                    if _has_subtype(permanent, land_type)
+                )
+        return len(present)
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
     if selector == "greatest_non_human_creature_power_you_control":
@@ -969,6 +1002,18 @@ def count_selector(
             if o.card.is_instant or o.card.is_sorcery
             or "adventure" in (o.card.type_line or "").lower()
         )
+    if selector == "instant_or_sorcery_cards_in_your_graveyard":
+        # "This spell costs {1} less to cast for each instant and sorcery
+        # card in your graveyard." (Cryptic Serpent / Tolarian Terror /
+        # Furygale Flocking) — the plain instant-OR-sorcery count, without
+        # the Adventure union `instant_sorcery_or_adventure_…` above adds.
+        if controller_id is None:
+            return 0
+        try:
+            graveyard = state.player_by_id(controller_id).graveyard
+        except (KeyError, ValueError):
+            return 0
+        return sum(1 for o in graveyard if o.card.is_instant or o.card.is_sorcery)
     if selector == "tapped_lands_opponents_control":
         # "Add {R} for each tapped land your opponents control." (Mana
         # Geyser) — every opponent's tapped land, unioned rather than
@@ -1119,6 +1164,8 @@ def count_selector(
         )
     if selector == "artifacts_you_control":
         return sum(1 for o in bf if o.card.is_artifact and o.controller_id == controller_id)
+    if selector == "enchantments_you_control":
+        return sum(1 for o in bf if o.card.is_enchantment and o.controller_id == controller_id)
     if selector == "artifacts_and_or_enchantments_you_control":
         return sum(
             1 for o in bf
@@ -2878,6 +2925,43 @@ def forced_sorcery_speed_only(state: "GameState", player: "Player") -> bool:
     return False
 
 
+def attack_tax_per_creature_for(
+    state: "GameState", defending_player_id: str, defender_kind: str = "player"
+) -> int:
+    """RULE 508.1g — "creatures can't attack you unless their controller pays
+    {N} for each creature they control that's attacking you" (Propaganda /
+    Ghostly Prison / Windborn Muse). Returns the total {N} charged **per
+    newly-declared attacking creature** by every such static whose own
+    controller is ``defending_player_id`` (the "you" the clause protects); 0
+    if there is none. `combat_mixin.declare_attackers` multiplies this by how
+    many of that player's creatures are being declared against the taxed
+    player and pays the sum before the attack locks in. ``defender_kind`` is
+    the chosen RULE 508.1a defender: the ordinary Propaganda wording taxes
+    only a player, while Sphere of Safety includes that player's planeswalkers
+    as printed. Battles are not covered by either wording (RULE 310.8d's
+    defending-player relation does not turn "attack you" into "attack a
+    battle you protect").
+    """
+    total = 0
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "attack_tax":
+            continue
+        if getattr(ability.source, "controller_id", None) != defending_player_id:
+            continue
+        params = ability.params or {}
+        scope = str(params.get("defender_scope", "player"))
+        if defender_kind != "player" and not (
+            defender_kind == "planeswalker" and scope == "player_or_planeswalker"
+        ):
+            continue
+        selector = params.get("amount_count_selector")
+        if selector:
+            total += count_selector(state, defending_player_id, str(selector), ability.source)
+        else:
+            total += int(params.get("amount", 0))
+    return total
+
+
 def exile_discount_spec_for(obj: Any) -> Optional[dict[str, Any]]:
     """"As an additional cost to cast this spell, you may exile any number
     of `<color>` cards from your hand. This spell costs `<N>` less to cast
@@ -4382,7 +4466,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "uncast_creature_entry_exile",
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
      "cost_restriction", "life_gain_prohibition",
-     "damage_prevention_prohibition", "global_wither"}
+     "damage_prevention_prohibition", "global_wither", "attack_tax"}
 )
 
 

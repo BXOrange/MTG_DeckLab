@@ -186,6 +186,11 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # bare unscoped form's own `legal_targets` branch already existed
         # but was never whitelisted.
         "nonland_permanent",
+        # "destroy target noncreature, nonland permanent with mana value 2
+        # or less" (Witherbloom Command mode 2) — `nonland_permanent`
+        # further excluding creatures (an artifact creature is still a
+        # creature and stays out).
+        "noncreature_nonland_permanent",
         # "target nonland permanent an opponent controls" / "… you don't
         # control" (Lyev Skyknight/New Prahv Guildmage's detain, PAR-29) and
         # its "you control" mirror — the `legal_targets` branch has always
@@ -246,8 +251,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # broader than `attached_equipment_you_control` above.
         "equipment_you_control",
         # "Target nonbasic land" (Encroaching Wastes) — any player's, unlike
-        # the controller-restricted kinds above.
-        "nonbasic_land", "basic_land",
+        # the controller-restricted kinds above. ``nonbasic_land_you_dont_
+        # control`` is the "an opponent controls" narrowing (Field of Ruin).
+        "nonbasic_land", "basic_land", "nonbasic_land_you_dont_control",
         # "Target legendary permanent" (Minamo, School at Water's Edge,
         # RULE 205.4a) — any player's, supertype-filtered.
         "legendary_permanent",
@@ -547,9 +553,12 @@ class TargetSpec:
             "attached_equipment_you_control": "befestigte Ausrüstung unter deiner Kontrolle",
             "equipment_you_control": "Ausrüstung unter deiner Kontrolle",
             "nonbasic_land": "nichtgrundlegendes Land",
+            "nonbasic_land_you_dont_control": "nichtgrundlegendes Land, das du nicht kontrollierst",
             "legendary_permanent": "legendäre bleibende Karte",
             "forest_you_control": "Wald unter deiner Kontrolle",
             "creature_source_is_blocking": "Kreatur, die dies blockiert",
+            "noncreature_nonland_permanent":
+                "bleibende Karte, die weder Kreatur noch Land ist",
         }.get(self.kind, self.kind)
 
 
@@ -1073,6 +1082,22 @@ def legal_targets(
             and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
+    if kind == "noncreature_nonland_permanent":
+        # RULE 115: "destroy target noncreature, nonland permanent…"
+        # (Witherbloom Command mode 2) — the `nonland_permanent` branch
+        # above, further excluding every creature (an artifact creature is
+        # still a creature): what's left is an artifact, enchantment, or
+        # planeswalker that isn't also a creature.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.is_planeswalker or o.card.is_artifact or o.card.is_enchantment)
+            and not o.is_creature
+            and o is not source
+            and _targetable_by(o, source)
+            and _color_ok(spec, o.colors)
+            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+        ]
     if kind in ("nonland_permanent_you_control", "nonland_permanent_you_dont_control"):
         # RULE 115 controller-scoped nonland-permanent bounce: Cyclonic Rift
         # ("… you don't control"), Alchemist's Retrieval / Chain of Vapor
@@ -1200,6 +1225,19 @@ def legal_targets(
             for o in state.permanents()
             if o.is_land
             and o.controller_id != controller_id
+            and _targetable_by(o, source)
+        ]
+    if kind == "nonbasic_land_you_dont_control":
+        # "destroy target nonbasic land an opponent controls" (Field of
+        # Ruin / Demolition Field / Magmatic Hellkite) — `land_you_dont_
+        # control` above plus the RULE 205.4 supertype filter `nonbasic_
+        # land` already applies.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_land
+            and o.controller_id != controller_id
+            and "basic" not in o.card.type_line.lower()
             and _targetable_by(o, source)
         ]
     if kind in (

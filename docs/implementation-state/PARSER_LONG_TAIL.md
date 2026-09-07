@@ -13,7 +13,193 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe:
 
-**40.8% covered — 14,193 / 34,812 — as of 2026-09-07, PARSER_VERSION 277.**
+**41.3% covered — 14,390 / 34,812 — as of 2026-09-07, PARSER_VERSION 298.**
+(v298, PAR-60 wave 21: "**you and target opponent each draw N cards**" —
+Secret Rendezvous, Sky Crier, Loran of the Third Path, Farsight Adept, Flumph,
+Love Song of Night and Day. A `handlers.py` row emits two `draw` `EffectSpec`s:
+one untargeted (the source's controller) and one `target_kind="opponent"`,
+resolved in that order. 6 SOLO cache-wide; +Secret Rendezvous (Silverquill +
+Lorehold decks).)
+(v297, PAR-60 wave 20: "**`<creature>` deals damage to itself equal to its
+power**" — Justice Strike / Inner Struggle / Wrack with Madness / Repentance /
+Kiku's Shadow on a target, Wave of Reckoning / Solar Blaze as an "each
+creature" mass form. `DamageEqualToPowerEffect` gained a `to_self` flag: the
+dealer is also the recipient (no second target), and the mass form has no
+dealer target at all — every creature reads its *own* power, so amounts differ
+per creature. 9 SOLO cache-wide; +Wave of Reckoning (Lorehold deck).)
+(v296, MEC-78: `CARDS_LEFT_GRAVEYARD` is a RULE 603.3f aggregate event,
+emitted from the zone-removal choke point and explicitly batched for mass
+returns. "Whenever one or more cards leave your graveyard" now parses and
+binds to it; Quintorius, Field Historian is covered.)
+(v295, PAR-60 wave 19: "**Attacking `<subtype>` you control get/have …**"
+(Blight Mound, Dire Fleet Neckbreaker, Elderfang Venom, Crossway
+Troublemakers). `static_handlers._scope` strips a leading "attacking" into a
+new `_Scope.attacking` flag; `_scope_params` folds it into an
+`attacking_creatures_you_control[_of_type_<subtype>]` `affects` selector, with
+matching branches added to `continuous`'s anthem resolver (the combat-state
+sibling of `creatures_you_control_of_type_<subtype>`). +Blight Mound
+(Witherbloom deck); narrows Feral Appetite to its one activated-ability
+clause.)
+(v294, PAR-60 wave 18: a phase trigger's leading RULE 603.4 intervening-if
+"**if you control no `<subtype>`[s]** / **if you don't control a `<subtype>`
+[creature] token**, …" (`segmenter._YOU_CONTROL_NO_SUBTYPE_IF_RE`, curated
+`_CONTROL_NO_SUBTYPE_WORDS`) → the trigger's `active_if` as `static_conditions`'
+`control_count` with `max=0` over the `creatures_you_control_of_type_<subtype>`
+selector `continuous.count_selector` already resolves. The "…token" qualifier
+is a documented simplification (a non-token Snake/Pest is a rare edge).
++Ophiomancer and Pest Rescuer (Witherbloom deck); an unwhitelisted word falls
+through unchanged so Butterbur's "no Food" keeps its own handler.)
+(v293, PAR-60 wave 17: 'create a … creature token with **"when ~ dies, you
+gain N life."**' — the STX Pest token's own printed death trigger. The
+inline-create-token regex gained a quoted-ability tail alternative;
+`CreateTokenEffect.token_dies_gain_life` binds a `dies`→`gain_life`
+`TriggeredAbility` onto each created token (the triggered-ability sibling of
+`grant_self_anthem`'s baked-on static). ~5 SOLO (Hunt for Specimens,
+Professor of Zoomancy, …); narrows Blight Mound / Feral Appetite / Pest
+Rescuer [Witherbloom deck] to their remaining clauses.)
+(v292, PAR-60 wave 16: "**this spell costs {N} less to cast for each <type>
+card in your graveyard**" — new `static_handlers._SELF_COST_REDUCTION_GY_RE`
+emits `affects="self"` + a `per` graveyard-count selector already resolved by
+`continuous.count_selector` (creature / `<word>` type-line scan), plus a new
+`instant_or_sorcery_cards_in_your_graveyard` selector for the one compound
+real cards print. Single-type / "instant and sorcery" only — "cave",
+"artifact and/or creature", "…in exile and in your graveyard" fail-closed.
+~7 SOLO: Ghoultree, Molderhulk, Cryptic Serpent, Tolarian Terror, Ore-Scale
+Guardian, Rumbleweed, Overwhelming Remorse; narrows Furygale Flocking
+(Prismari deck) to one remaining clause.)
+(v291, PAR-60 wave 15: "**<subject> gets +x/+x [and gains <kw>] until end of
+turn**" — new `handlers._pump_x`, tried ahead of the digits-only `pump` row,
+emits the `"x"` power/toughness sentinel `RulesEngine._substitute_x` already
+rewrites to `GameObject.x_paid`. Symmetric bare form only — a "where X is
+<board count>" tail stays fail-closed (a different `amount_from_count_selector`
+family). ~6 SOLO: +Tyvar's Stand and Primal Might (Quandrix deck), Untamed
+Might.)
+(v290, PAR-60 wave 14: "**whenever you cast a <colour> spell, …**" —
+`segmenter._CAST_SPELL_TRIGGER_RE`'s dispatch gained a colour branch
+(`_CAST_SPELL_COLOR_WORDS`) beside the existing main-type and creature-subtype
+branches, emitting `effect_binder`'s already-shipped `cast_of_color` trigger
+key (the Runaway Steam-Kin predicate). ~11 SOLO + Balefire Liege (Lorehold
+deck) — Cinder Pyromancer, Emberstrike Duo, Clever Lumimancer … "colorless"
+excluded (membership test, not empty-identity). The "whenever 1 or more cards
+leave your graveyard" batch trigger — Quintorius, Field Historian / History
+Chaser — is deferred to MEC-78 (needs a graveyard-exit batch event).)
+(v289, PAR-60 wave 13 — two small widenings. (a) "**[then] you scry N**" as an
+effect body: `handlers.scry_or_surveil`'s regex gained an optional leading
+`you ` so a trigger body that spells out the redundant subject folds to the
+same self `scry`/`surveil` EffectSpec (Psychic Impetus, Clockwork Droid).
+(b) "**<subtype> spells you cast cost {N} less/more to cast**":
+`static_handlers`'s `_SPELL_COST_TAX_YOU_CAST_RE` handler routes a single
+curated creature/Aura/Equipment/Arcane subtype word to `spell_subtype`
+(already resolved by `continuous.cost_reduction_for` via `has_subtype`),
+staying fail-closed on groupings ("historic"/"commander"). ~17 SOLO — the
+Banneret/Warchief tribal-discount cycle + Transcendent Envoy (Silverquill
+deck).)
+(v287, PAR-60 wave 11: "**target creature [you control] has base power and
+toughness N/N until end of turn**" — `handlers._BASE_PT_UNTIL_EOT_RE`
+widened from its ~/creatures-you-control subjects to a RULE 115 target
+(`grant_until` already resolves the target and scopes the parked layer-7b
+`pt_set` to those ids — no engine change). ~59 SOLO: +Quandrix Charm
+(Quandrix deck) and a broad slice of the "shrink/set-P/T" instant family.
+The compound "loses all abilities and becomes a <colour> <type> with base
+P/T" forms (Turn to Frog, Snakeform, Ovinize) and the "until end of turn,
+… and gains <kw>" front-loaded-duration form (Creeperhulk) stay open —
+PAR-60.)
+(v286, PAR-60 wave 10 — modal-mode sub-clauses that were fail-closing whole
+Charm/Command spells: "**target player creates a <named> token**"
+(`CreateTokenEffect.creators="target"` + a player `target_kind`; plus the
+already-present `each_opponent`/`each_player` for "each opponent creates
+…") and "**target player draws N cards, then discards M cards**"
+(`_TARGET_PLAYER_LOOT_RE` — the bare trailing "discards" has no subject and
+the connector split only links after a *creature* target, so this row emits
+the `previous_subject` discard itself). Unblocks Prismari Command. Quandrix
+Charm/Command, Lorehold Charm, Witherbloom Command each still fail on one
+*other* mode — see PAR-60.)
+(v285, PAR-60 wave 9: "**double the number of [+1/+1] counters on**
+<~ / target creature [you control] / each creature you control / it>"
+(`handlers._DOUBLE_COUNTERS_RE`). The `double_counters_on_target` effect
+(built for Ferrafor) grew a `mode` — self / target / each_you_control /
+previous_subject — and an optional `kind` filter. ~27 SOLO: +Primordial
+Hydra (Quandrix deck), Kalonian Hydra, Dragonsguard Elite, Growth Curve,
+Invigorating Surge, Bristly Bill. Vorel's "target artifact, creature, or
+land" union kind and the "each of those creatures" post-distribute tail
+(Biogenic Upgrade / Court of Garenbrig) stay open — PAR-60.)
+(v284, PAR-60 wave 8: "a creature **token** you control deals combat damage
+to a player" (Curiosity Crafter) — a `(?P<token>)` slot on
+`segmenter._DAMAGE_TRIGGER_RE` → `condition["is_token"]`, bound by a new
+positive `want_token` filter in `effect_binder._build_group_ok` (mirror of
+`want_nontoken`; re-derives the source's token status from the still-live
+acting object, since the DAMAGE event carries none for its source).)
+(v283, PAR-60 wave 7: RULE 603.3f **"1 or more [other] [nontoken] creatures
+[you control] die"** batch-death triggers (`segmenter._BATCH_DIES_TRIGGER_
+RE`). The engine fires a per-object `DIES`, not a per-batch aggregate, so
+this is modeled as an ordinary `{"subject": "group", "type": "creature"}`
+DIES trigger — claimed **only when the body also says "This ability triggers
+only once each turn."** (`_TRIGGER_ONCE_PER_TURN_RE` → `limit`), which makes
+the per-object firing collapse to the correct once-per-turn net. +Morbid
+Opportunist / Sengir Connoisseur / Vraan / Dramatic Finale / Ghoulish
+Procession / Homicide Investigator. The un-limited "1 or more … die" cards
+(Great Fierce Bee, Vengeful Townsfolk) stay unclaimed — they'd need a real
+batch aggregate event, filed under PAR-60.)
+(v282, PAR-60 wave 6: **"target nonbasic land"** — the engine's
+`targeting.legal_targets` already had a `nonbasic_land` branch (Encroaching
+Wastes); only `subgrammars`'s parser mapping + the `handlers.
+_SINGLE_TYPE_PERMANENT_KINDS` guard tuple were missing. Added
+`nonbasic_land` and a new `nonbasic_land_you_dont_control` ("an opponent
+controls") sibling, and widened the Ghost-Quarter "its controller may search
+for a basic land" follow-up to accept "…onto the battlefield **tapped**".
+~21 SOLO on the bare form: +Fulminator Mage / Dust Bowl / Wasteland /
+Dwarven Miner / Ravenous Baboons / Shivan Harvest / Goblin Ruinblaster /
+Trench Wurm, and White Orchid Phantom (Lorehold deck). The "…an opponent
+controls. each player / that land's controller searches …" multi-search
+tails (Field of Ruin, Demolition Field, Magmatic Hellkite's stun-counter
+form) stay open — PAR-60.)
+(v288, **MEC-77**: RULE 508.1g attack tax completed. `{X}` variants now use
+`amount_count_selector` — `enchantments_you_control` for Sphere of Safety,
+and distinct `basic_land_types_among_lands_you_control` for Collective
+Restraint. Sphere's explicit `you or planeswalkers you control` scope reaches
+its controller's planeswalkers but not battles, as printed. `legal_actions`
+exposes the per-defender amount; the board asks before paying and an explicit
+`pay_attack_tax=False` protocol declaration leaves the creature out of combat
+without spending mana. PARSER_VERSION 288, +2 cache.)
+(v281, PAR-60 wave 5 / **MEC-77**: RULE 508.1g attack tax — "creatures can't
+attack you unless their controller pays {N} for each creature they control
+that's attacking you" (Propaganda / Ghostly Prison / Windborn Muse). New
+`EffectRegistry` `attack_tax` marker static + `continuous.attack_tax_per_
+creature_for`, auto-paid in `combat_mixin.declare_attackers`. {X}-scaled
+variants (Sphere of Safety / Collective Restraint) and the RULE 508.1g
+opt-out stay open — MEC-77. +3 cache.)
+(v280, PAR-60 wave 4: "when ~ dies, [you gain life and] draw cards equal to
+its power/toughness" (Lifeblood Hydra) + "create a number of tapped Treasure
+tokens equal to its power" (Goldvein Hydra). New
+`DrawCardEffect.amount_from_subject` and `CreateTokenEffect.count_from_subject`,
+both via `_characteristic_of_subject` — a DIES trigger reads the RULE 400.7
+power/toughness snapshot. +Lifeblood/Goldvein Hydra, Doom Weaver, Gregor.
+Quandrix's Primordial Hydra ("double the number of +1/+1 counters on ~" as
+an upkeep body) and Hydroid Krasis ("gain half X life and draw half X cards"
+cast trigger) still open — PAR-60.)
+(v279, PAR-60 wave 3: `segmenter._ATTACHED_MULTI_EVENT_RE` — "whenever
+enchanted/equipped creature **attacks or blocks**, …", the two-verb sibling
+of `_SELF_MULTI_EVENT_RE`, a list-valued `event` on a
+`{"subject": "attached_permanent"}` condition (Luminous Wake / Ferocity /
+the Aura-Curse cycles). Engine-side, `LoseLifeEffect.selector=
+"attached_permanent_controller"` ("its controller" on an Aura). Silverquill's
+Impetus cycle — Parasitic / Martial / Ghoulish Impetus — is hand-`AUTHORED`
+in `entries_018.py` (attack-trigger drain, group pump of other attackers,
+delayed self-return on the enchanted creature's death). Open follow-ups:
+bare "its controller loses N life" as a body (needs a previous-subject vs.
+attached-subject split so it doesn't mis-model Vapor Snag / Countersquall),
+and `you scry N` as a generic effect body — filed under PAR-60.)
+(v278, PAR-60 Secrets of Strixhaven: RULE 702.153 **Magecraft** folds into
+`segmenter._CAST_SPELL_TRIGGER_RE` via an optional `(?:or copy )?` — the old
+`_MAGECRAFT_RE` whole-line recognizer went unreachable once
+`normalize._strip_unregistered_keyword_labels` started peeling the
+"Magecraft — " ability-word label, leaving exactly the plain
+"whenever you cast or copy an instant or sorcery spell, …" shape. Only the
+"cast" half binds — no spell-copy event bus exists yet. +12 cache
+(Archmage Emeritus, the Pledgemage/Apprentice spellslinger tail). Engine-side,
+`SearchLibraryEffect.untap_if_lands_at_least` was added for Fabled Passage's
+trailing "if you control four or more lands, untap that land"
+(hand-`AUTHORED`, `entries_018.py`).)
 (v276–277, Blight Curse deck completion: v276 = Abrade second-mode
 `_DESTROY_COLOR_NOUN_KINDS` fix; v277 = Persist / Aberrant Return
 (`_RETURN_FROM_GRAVEYARD_RE` nonlegendary + enters-with-`-1/-1`-counter,

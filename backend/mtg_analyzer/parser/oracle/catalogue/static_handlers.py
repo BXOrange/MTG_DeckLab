@@ -366,6 +366,23 @@ def _type_word_list(text: str) -> Optional[list[str]]:
 _SPELL_TYPE_WORDS: frozenset[str] = frozenset(
     {"noncreature", "creature", "artifact", "instant", "sorcery", "enchantment", "planeswalker"}
 )
+#: Printed *subtype* words a "<subtype> spells you cast cost {N} less" static
+#: may name (RULE 205.3 — Banneret/Warchief tribal-discount cycle, plus the
+#: Aura/Equipment/Arcane discounters). Emitted as ``spell_subtype``, which
+#: `continuous.cost_reduction_for` already resolves through
+#: `continuous.has_subtype` (a substring match on the stack object's printed
+#: type line). Kept explicit for the same reason `_CONDITION_SUBTYPE_WORDS`
+#: is: an open subtype vocabulary would claim clauses whose word ("historic",
+#: "commander", "colorless") is really a grouping or designation, not a
+#: subtype `has_subtype` can check.
+_SPELL_COST_SUBTYPE_WORDS: frozenset[str] = frozenset({
+    "aura", "equipment", "arcane",
+    "dragon", "dinosaur", "goblin", "soldier", "angel", "hydra", "demon",
+    "giant", "elf", "zombie", "human", "wizard", "merfolk", "vampire",
+    "spirit", "knight", "warrior", "elemental", "dwarf", "faerie", "sliver",
+    "rogue", "cleric", "shaman", "druid", "beast", "bird", "cat", "snake",
+    "kavu", "ally", "rebel", "ninja", "samurai",
+})
 _SPELL_COST_TAX_RE = re.compile(
     r"(?:(?P<word>[a-z]+) )?spells cost \{(?P<n>\d+)\} (?P<dir>more|less) to cast", re.IGNORECASE
 )
@@ -454,6 +471,34 @@ _SELF_COST_REDUCTION_ATTACKING_RE = re.compile(
     r"(?P<yours> you control)?",
     re.IGNORECASE,
 )
+
+# "This spell costs {N} less to cast for each <type> card in your
+# graveyard."  (RULE 601.2f, Ghoultree / Molderhulk / Cryptic Serpent /
+# Tolarian Terror-shaped, MEC-6's graveyard sibling of the attacking-count
+# discount above) — ``affects="self"`` with a `per` count-selector
+# `continuous.count_selector` already resolves (`creature_cards_in_your_
+# graveyard`, the generic `<word>_cards_in_your_graveyard` type-line scan,
+# and the new `instant_or_sorcery_cards_in_your_graveyard` for the one
+# compound real cards print). Single-type/`instant and sorcery` only —
+# any other filter ("artifact and/or creature", "…you own in exile and in
+# your graveyard", "cave you control and…") stays fail-closed.
+_SELF_COST_REDUCTION_GY_RE = re.compile(
+    r"this spell costs \{(?P<n>\d+)\} less to cast for each "
+    r"(?P<word>[a-z]+(?: and sorcery)?) cards? in your graveyard",
+    re.IGNORECASE,
+)
+#: The `<type>` words `_SELF_COST_REDUCTION_GY_RE` accepts, → the
+#: `continuous.count_selector` name. Kept explicit for the same reason
+#: `_SPELL_COST_SUBTYPE_WORDS` is.
+_GY_COST_COUNT_SELECTORS: dict[str, str] = {
+    "creature": "creature_cards_in_your_graveyard",
+    "land": "land_cards_in_your_graveyard",
+    "artifact": "artifact_cards_in_your_graveyard",
+    "enchantment": "enchantment_cards_in_your_graveyard",
+    "instant": "instant_cards_in_your_graveyard",
+    "sorcery": "sorcery_cards_in_your_graveyard",
+    "instant and sorcery": "instant_or_sorcery_cards_in_your_graveyard",
+}
 
 # "This spell costs {N} less to cast if `<condition>`." (RULE 601.2f,
 # Ghostfire Slice-shaped) — the self cost-reduction sibling of the above,
@@ -965,6 +1010,24 @@ _CANT_BLOCK_AND_CANT_BE_BLOCKED_RE = re.compile(
 )
 _CANT_ATTACK_RE = re.compile(
     rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t attack", re.IGNORECASE
+)
+#: RULE 508.1g attack tax — "Creatures can't attack you unless their
+#: controller pays {N} for each creature they control that's attacking you."
+#: (Propaganda / Ghostly Prison / Windborn Muse). A `"you"`-scoped marker
+#: static (`EffectRegistry` ``"attack_tax"`` → `continuous.attack_tax_per_
+#: creature_for`, enforced in `combat_mixin.declare_attackers`), NOT a
+#: `combat_restriction` flag on the attackers. Anchored to exactly this
+#: printed sentence plus the two count-defined siblings. Sphere of Safety
+#: explicitly extends its protection to planeswalkers its controller owns;
+#: the marker carries that scope because RULE 508.1g's cost check sees the
+#: chosen defender, not merely that defender's player. Other qualified
+#: variants ("except by <text>") stay unclaimed (fail-closed).
+_ATTACK_TAX_RE = re.compile(
+    r"creatures can'?t attack you(?P<planeswalkers> or planeswalkers you control)? "
+    r"unless their controller pays (?:\{(?P<n>\d+)\}|\{x\}) "
+    r"for each (?:creature they control that'?s attacking you|of those creatures)"
+    r"(?:, where x is the number of (?P<x_source>enchantments you control|basic land types among lands you control))?",
+    re.IGNORECASE,
 )
 _CANT_BLOCK_RE = re.compile(
     rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t block", re.IGNORECASE
@@ -2146,6 +2209,13 @@ class _Scope(NamedTuple):
     #: word, not a subtype) — this instead rides the generic ``card_type``
     #: filter param every `affected_objects` selector already supports.
     card_type: Optional[str] = None
+    #: PAR-60 wave 19: "**Attacking** Pests/Vampires/Pirates/Elves you
+    #: control get/have …" (Blight Mound, Crossway Troublemakers, Dire
+    #: Fleet Neckbreaker, Elderfang Venom) — a leading combat-state filter
+    #: narrowing the (usually subtype-scoped) creature set to just those
+    #: currently attacking. Folded into an ``attacking_creatures_you_
+    #: control[_of_type_<sub>]`` `affects` selector by `_scope_params`.
+    attacking: bool = False
 
 
 def _singularize(word: str) -> str:
@@ -2169,6 +2239,13 @@ def _scope(body: str) -> Optional[_Scope]:
     while words and words[0] in ("all", "each"):  # global emphasis, no scope change
         words = words[1:]
 
+    # PAR-60 wave 19: a leading "attacking" narrows the set by combat state
+    # ("Attacking Elves you control have deathtouch").
+    attacking = False
+    if words and words[0] == "attacking":
+        attacking = True
+        words = words[1:]
+
     colors: list = []
     while words:
         if words[0] in _COLOR_WORDS:
@@ -2184,10 +2261,10 @@ def _scope(body: str) -> Optional[_Scope]:
         tokens = True
         words = words[:-1]
         if not words:  # bare "tokens" (creature tokens implied)
-            return _Scope(None, True, colors)
+            return _Scope(None, True, colors, attacking=attacking)
 
     if words in (["creature"], ["creatures"]):
-        return _Scope(None, tokens, colors)
+        return _Scope(None, tokens, colors, attacking=attacking)
     if not words:
         return None
     if words[-1] == "creatures":
@@ -2197,7 +2274,7 @@ def _scope(body: str) -> Optional[_Scope]:
         # "creatures" narrows *which* creatures, it doesn't change the scope
         # away from creatures the way a bare "Artifacts you control" would.
         if len(prefix) == 1 and prefix[0] in (_CARD_TYPE_WORDS - {"creature"}):
-            return _Scope(None, tokens, colors, card_type=prefix[0])
+            return _Scope(None, tokens, colors, card_type=prefix[0], attacking=attacking)
         sub = _singularize(" ".join(prefix))
     elif len(words) == 1:
         sub = _singularize(words[0])
@@ -2215,7 +2292,7 @@ def _scope(body: str) -> Optional[_Scope]:
         return None  # multi-word non-"creatures" scope — don't guess
     if not sub or sub in _NONCREATURE_TYPES:
         return None
-    return _Scope(sub.capitalize(), tokens, colors)
+    return _Scope(sub.capitalize(), tokens, colors, attacking=attacking)
 
 
 def _scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
@@ -2252,6 +2329,20 @@ def _scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
         params["tokens"] = True
     if scope.colors:
         params["color"] = scope.colors
+    if scope.attacking:
+        # PAR-60 wave 19: fold the leading "Attacking …" filter into the
+        # `affects` selector itself (the engine's anthem resolver keys on
+        # the string). A subtype rides in the selector name rather than the
+        # separate ``subtype`` param.
+        if yours and scope.subtype:
+            params["affects"] = (
+                f"attacking_creatures_you_control_of_type_{scope.subtype.lower()}"
+            )
+            params.pop("subtype", None)
+        elif yours:
+            params["affects"] = "attacking_creatures_you_control"
+        else:
+            params["affects"] = "attacking_creatures"
     return params
 
 
@@ -3120,12 +3211,20 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _SPELL_COST_TAX_YOU_CAST_RE.fullmatch(text)
     if m is not None:
         words = [w.lower() for w in (m.group("word1"), m.group("word2")) if w]
-        if any(w not in _SPELL_TYPE_WORDS for w in words):
-            return None  # fail-closed — colour/subtype-scoped, not a main type
         params = {
             "generic": int(m.group("n")),
             "increase": m.group("dir") == "more",
         }
+        # A single subtype word ("Aura/Dragon/Equipment spells you cast cost
+        # {1} less…" — the Banneret/Warchief tribal-discount cycle) routes to
+        # ``spell_subtype`` instead; the two-word "and" compound only ever
+        # names main types (Baral). Anything else (colour → its own regex
+        # below; "historic"/"commander") stays fail-closed.
+        if len(words) == 1 and words[0] in _SPELL_COST_SUBTYPE_WORDS:
+            params["spell_subtype"] = words[0]
+            return [EffectSpec("cost_reduction", params)]
+        if any(w not in _SPELL_TYPE_WORDS for w in words):
+            return None  # fail-closed — colour/subtype-scoped, not a main type
         if len(words) == 1:
             params["spell_type"] = words[0]
         elif len(words) == 2:
@@ -3149,6 +3248,18 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _SELF_COST_REDUCTION_ATTACKING_RE.fullmatch(text)
     if m is not None:
         selector = "attacking_creatures_you_control" if m.group("yours") else "attacking_creatures"
+        return [
+            EffectSpec(
+                "cost_reduction",
+                {"affects": "self", "generic": int(m.group("n")), "per": selector},
+            )
+        ]
+
+    m = _SELF_COST_REDUCTION_GY_RE.fullmatch(text)
+    if m is not None:
+        selector = _GY_COST_COUNT_SELECTORS.get(m.group("word").lower())
+        if selector is None:
+            return None  # fail-closed — a filter this doesn't model
         return [
             EffectSpec(
                 "cost_reduction",
@@ -3556,6 +3667,19 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # every branch uses `fullmatch`, a shorter regex simply fails on any
     # unconsumed trailing text (fail-closed), so the ordering is for clarity
     # rather than correctness.
+    m = _ATTACK_TAX_RE.fullmatch(text)
+    if m is not None:
+        params: dict[str, object] = {
+            "defender_scope": "player_or_planeswalker" if m.group("planeswalkers") else "player",
+        }
+        if m.group("n") is not None:
+            params["amount"] = int(m.group("n"))
+        elif m.group("x_source") == "enchantments you control":
+            params["amount_count_selector"] = "enchantments_you_control"
+        else:
+            params["amount_count_selector"] = "basic_land_types_among_lands_you_control"
+        return [EffectSpec("attack_tax", params)]
+
     m = _CANT_ATTACK_OR_BLOCK_LOCK_RE.fullmatch(text)
     if m is not None:
         return _combat_restriction_specs(

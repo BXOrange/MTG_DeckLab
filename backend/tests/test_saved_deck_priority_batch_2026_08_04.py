@@ -201,10 +201,17 @@ def test_color_scoped_variant_parses():
     ]
 
 
-def test_subtype_scoped_variant_stays_unclaimed():
-    # Same reasoning for a creature-subtype qualifier (Banneret cycle,
-    # Bureau Headmaster's "Equipment spells…").
-    assert static_effect_specs("equipment spells you cast cost {1} less to cast") is None
+def test_subtype_scoped_variant_parses():
+    # PAR-60 wave 13: a curated creature/Aura/Equipment/Arcane subtype
+    # qualifier (Banneret/Warchief cycle, Bureau Headmaster's "Equipment
+    # spells…", Transcendent Envoy's "Aura spells…") now routes to
+    # ``spell_subtype`` (`continuous.cost_reduction_for` resolves it via
+    # `has_subtype`). Groupings that `has_subtype` can't check stay
+    # fail-closed.
+    assert static_effect_specs("equipment spells you cast cost {1} less to cast") == [
+        EffectSpec("cost_reduction", {"generic": 1, "increase": False, "spell_subtype": "equipment"})
+    ]
+    assert static_effect_specs("historic spells you cast cost {1} less to cast") is None
 
 
 def test_baral_full_card_is_modeled():
