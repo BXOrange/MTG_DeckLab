@@ -4290,14 +4290,12 @@ is in the rules-engine categories below them.
     Pestfinder (+ `// Turn Stones` alias), Merchant of Venom, Mazirek Kraul
     Death Priest, Smothering Abomination, Dina Soul Steeper, Dina Essence
     Brewer (Witherbloom deck 55 → 65).
-  - **waves 24–69** (2026-09-08) — the tail, all hand-`AUTHORED` in
-    `entries_019.py` (no PARSER_VERSION change), 265 → 396/433 covered
-    (~131 cards). Reusable engine primitives added along the way (each
-    small, all regression-clean against the full ~6.3k-test suite —
-    confirmed 6282 passed / 3 fail, the 3 all pre-existing and unrelated:
-    two on this checkout since before the batch, one a behavior-neutral
-    `PARSER_VERSION.lock` re-pin from spec.py `_ALLOWED_CONDITION_KEYS`
-    widenings):
+  - **waves 24–96** (2026-09-08) — the tail, all hand-`AUTHORED` in
+    `entries_019.py` (no PARSER_VERSION change), 265 → 423/433 covered
+    (~158 cards). Reusable engine primitives added along the way (each
+    small, all regression-clean against the full ~6.4k-test suite — the
+    final round-3 gate was 6373 passed / 0 fail bar the 2 known
+    pre-existing/unrelated failures on this checkout):
     - **`static_conditions` kinds:** `gained_life_this_turn`,
       `opponent_life_at_most`, `card_left_graveyard_this_turn`,
       `opponent_controls_more_lands`, `graveyard_card_type_count_at_least`,
@@ -4396,7 +4394,61 @@ is in the rules-engine categories below them.
       players" → each opponent; Promise of Loyalty drops the vow counter +
       can't-attack rider; Songbirds' Blessing's revealed Aura always goes
       to hand).
-    - **cards registered** (~131): the Silverquill Aura / attack-trigger
+    - **round 3 (waves 70–96 — "model the remaining; exiled-with ~ Agatha's
+      Soul Cauldron; voting is implemented — similar shapes exist")**, 396 →
+      423/433 (+27 cards). Reuse of two user-pointed subsystems plus a batch
+      of small bespoke effects, each with a documented in-code
+      simplification where a full build was disproportionate:
+      MEC-21's `GameObject.exiled_with_ids` accumulating tracker —
+      `ExileTriggeringDiscardMayPlayThisTurnEffect` gained `track_exiled_with`,
+      new `currency_converter_cash_out` (Currency Converter); the PAR-29 vote
+      subsystem (`VoteEffect`/`request_vote` `per_vote_specs`) + new
+      `mill_then_damage_each_opponent_by_mv` (Fateful Tempest);
+      `each_player_exile_from_graveyard_then_counters` (Augusta); new binder
+      trigger predicates `defender_is_opponent` +
+      `defending_opponent_leads_an_opponent`, `attacker_creates_attacking_
+      token` effect, `DrawCardEffect` `selector="attacking_player"` (Combat
+      Calligrapher, Breena); `attached_aura_controller_ids` snapshot on the
+      DIES event + `draw_per_attached_aura_controller` (Hateful Eidolon);
+      `gift_of_immortality_dies` + `ReturnDyingSubjectToBattlefieldEffect` +
+      delayed re-attach (Gift of Immortality); `create_attached_aura_token`
+      + a "Contract" token authored under its token name reusing
+      `LoseLifeEffect` `selector="attached_permanent_controller"` (Scriv);
+      `target_player_counter_each_creature` + modal `choose 2` on a
+      triggered ability (Shadrix); `return_creatures_by_power_parity` as a
+      2-option `modes` choice (Zimone's Hypothesis); new
+      `GameState.lands_entered_this_turn` tracker + self-gating
+      `zimone_all_questioning_end_step` with an inline `_is_prime` (Zimone,
+      All-Questioning); `move_all_plus_one_counters_from_self` (Forgotten
+      Ancient); `animists_awakening` (fixed-X reveal, take all lands) +
+      `budget_dig_onto_battlefield` (greedy cheapest-first under a total-MV
+      budget — Ao, the Dawn Sky mode 1); `expressive_iteration` (two chained
+      `request_choose_objects`, state stashed on `GameState` since a
+      resolving spell leaves the stack before `then_specs` run);
+      `tragic_arrogance` (auto keep highest-MV of each type for caster,
+      lowest for opponents); `oversimplify` (per-player creature-power
+      snapshot → sized Fractal token); `redoubled_stormsinger_copies` +
+      `create_delayed_trigger(capture="created_objects")`+`sacrifice_specific`;
+      `surge_to_victory` (exile target i/s from gy, team +X/+0);
+      `brudiclad_combat` + `brudiclad_become_copies` (reuse `become_copy`,
+      RULE 706.2); `hofri_ghostforge_dies` (reuse `copy_permanent`
+      `add_subtypes=["Spirit"]`); reuse of `graveyard_cast_permission`
+      (`exile_if_would_be_put_into_graveyard`) for Serra Paragon; reuse of
+      `cost_reduction` (`spell_type` + `per` selector) + Kor Spiritdancer's
+      aura-cast group trigger for Pearl-Ear; reuse of `AddManaEffect`
+      (`target_kind="opponent"` + `amount_from_target_hand_size`) for
+      Rousing Refrain; `dance_with_calamity` (greedy MV-13 exile loop →
+      this-turn free-casts); `abstract_performance` (two piles, higher-MV
+      pile → graveyard, kept pile: highest-MV nonland free-cast, rest to
+      hand); `plargg_and_nassari` (each player digs to a nonland;
+      highest-MV nonland denied; up to 2 of the rest → free-cast).
+      Documented simplifications noted in-code per card (e.g. Scriv drops
+      the "+2/+0 if attacking your opponent" fork, Augusta auto-picks each
+      player's oldest graveyard card, Shadrix drops the "each mode targets a
+      different player" constraint, Nils / Immoral Bargain / Laelia /
+      Mirrorwing Dragon / Primo / Unbound Flourishing / the two Class cards
+      deferred — see BACKLOG PAR-60 "Still open").
+    - **cards registered** (~158): the Silverquill Aura / attack-trigger
       cluster, the Witherbloom lifegain / sacrifice / Eldrazi-Spawn / devour
       tail, Quandrix {X} / counter / fractal / charge-counter singletons,
       the STX "becomes prepared" DFC trigger cluster, Prismari
@@ -4405,23 +4457,27 @@ is in the rules-engine categories below them.
       "choose one [or more]" spells, and a broad singleton tail. Documented
       simplifications are noted in-code per card. Per-wave detail lives in
       `secrets_of_strixhaven_plan.md`.
-    - **still open** (37 cards): the bespoke tail — each was probed and
-      found to need a genuinely new mechanism (a missing condition key,
-      event, effect, or interactive chooser), enumerated by cluster in
-      `BACKLOG.md`'s PAR-60 "Still open" (spell-copy fan-out,
-      spell/ability copy gated on {X}, exile-then-play residue,
-      per-player-graveyard-exile-with-distribution, mass keep-one-of-each,
-      odd/even & prime counting, distribute-any-number-of-counters,
-      become-a-copy-from-a-set, modal-dies / dig-until, and assorted
-      singletons — Chaos Warp, Entrancing Melody, Gift of Immortality, …).
+    - **still open** (10 cards): the irreducible tail — each was probed and
+      found to need a genuinely new subsystem with real regression surface,
+      enumerated card-by-card in `BACKLOG.md`'s PAR-60 "Still open":
+      additional-cost-{X}-that-defines-the-spell's-X (Immoral Bargain, Plumb
+      the Forbidden); multi-level Class re-authoring or a parser
+      trigger-grammar extension (Intermediate Chirography, Advanced
+      Reconstruction); for-each-player-target + per-attacker-variable attack
+      tax (Nils); "twice X" enter counters + base-power-0 combat trigger
+      (Primo, the Unbounded); double-X / copy-{X}-spell (Unbound
+      Flourishing); spell-copy-per-legal-target with retargeting (Mirrorwing
+      Dragon); combat-damage-prevention-then-tokenize (Inkshield); a batched
+      `CARDS_EXILED` event for library/graveyard exiles + binder
+      EXILE-trigger support (Laelia).
 - **Files:** `game/ability_catalogue/entries_{018,019}.py`,
   `game/effects.py`, `game/continuous.py`, `game/static_conditions.py`,
-  `game/rules/casting_mixin.py`, `game/engine/{combat,turn_loop}_mixin.py`,
-  `game/effect_binder.py`, `game/rules/{search,misc}_mixin.py`,
+  `game/rules/{casting,search,misc,damage_death,draw_discard}_mixin.py`,
+  `game/engine/{combat,turn_loop}_mixin.py`, `game/effect_binder.py`,
   `game/targeting.py`, `game/combat.py`, `models/game_state.py`,
-  `game/rules/draw_discard_mixin.py`, `parser/oracle/{segmenter,gate,spec}.py`,
+  `parser/oracle/{segmenter,gate,spec}.py`,
   `parser/oracle/PARSER_VERSION.lock` (behavior-neutral re-pin).
-  Tests: `backend/tests/test_strixhaven_secrets_wave{1,5,8,12,22-45,47_48,49,50,51,52,53,54,55_56,57_59,60,61_62,63_65,66,67,68_69}.py`.
+  Tests: `backend/tests/test_strixhaven_secrets_wave{1,5,8,12,22-45,47_48,49,50,51,52,53,54,55_56,57_59,60,61_62,63_65,66,67,68_69,70..96}.py`.
 
 ### Kinnan/M-K Batch: New General Primitives (MEC-12)
 

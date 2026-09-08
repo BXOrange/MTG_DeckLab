@@ -1155,6 +1155,43 @@ def _trigger_condition(
 
         predicates.append(_defender_is_you_ok)
 
+    # "Whenever a player attacks one of your opponents, …" (Combat
+    # Calligrapher, Breena the Demagogue, PAR-60) — the `PLAYER_ATTACKED`
+    # aggregate's ``defending_player_id`` must be someone *other* than this
+    # ability's own controller (an opponent of it). The attacker itself can
+    # be anyone, including this controller (they can attack an opponent).
+    if trigger.get("defender_is_opponent"):
+        def _defender_is_opponent_ok(event: Any, context: Any, src=source) -> bool:
+            did = event.get("defending_player_id")
+            return did is not None and did != getattr(src, "controller_id", None)
+
+        predicates.append(_defender_is_opponent_ok)
+
+    # "…if that opponent has more life than another of your opponents, …"
+    # (Breena, the Demagogue, PAR-60) — an intervening-if on the
+    # `PLAYER_ATTACKED` aggregate's ``defending_player_id``: the attacked
+    # opponent must have strictly more life than at least one *other*
+    # opponent of this ability's controller. Only meaningful with 2+
+    # opponents (three-plus-player games).
+    if trigger.get("defending_opponent_leads_an_opponent"):
+        def _defending_opp_leads_ok(event: Any, context: Any, src=source) -> bool:
+            state = getattr(context, "state", None) or context
+            did = event.get("defending_player_id")
+            cid = getattr(src, "controller_id", None)
+            if did is None or did == cid:
+                return False
+            try:
+                attacked = state.player_by_id(did)
+            except (KeyError, ValueError, AttributeError):
+                return False
+            others = [
+                p for p in state.players
+                if p.id != cid and p.id != did
+            ]
+            return any((attacked.life or 0) > (p.life or 0) for p in others)
+
+        predicates.append(_defending_opp_leads_ok)
+
     # "Whenever one or more creatures you control with power 7 or greater
     # deal combat damage to a player, …" (MEC-29, Tifa, Martial Artist) — a
     # threshold on `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`'s own

@@ -997,6 +997,11 @@ class GameState:
         #: had enter … this turn"). Bumped in `add_to_battlefield`, cleared
         #: each `GameEngine.begin_turn` for the incoming active player.
         self.nontoken_creatures_entered_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: PAR-60 (Zimone, All-Questioning): lands entering under each
+        #: player's control this turn — a superset of ``lands_played_this_
+        #: turn`` (also counts fetch/ramp puts). Reset for the active player
+        #: at ``begin_turn`` like its creature sibling above.
+        self.lands_entered_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: Whether each player has cast an instant or sorcery spell *this
         #: turn* (PAR-10 — `game/static_conditions.py`'s
         #: ``cast_instant_or_sorcery_this_turn`` condition: Hall of Oracles/
@@ -1410,6 +1415,14 @@ class GameState:
             if _entrant is not None:
                 self.nontoken_creatures_entered_this_turn[_entrant] = (
                     self.nontoken_creatures_entered_this_turn.get(_entrant, 0) + 1
+                )
+        # PAR-60 (Zimone, All-Questioning): "if a land entered the
+        # battlefield under your control this turn …".
+        if obj.is_land:
+            _lentrant = obj.controller_id or obj.owner_id
+            if _lentrant is not None:
+                self.lands_entered_this_turn[_lentrant] = (
+                    self.lands_entered_this_turn.get(_lentrant, 0) + 1
                 )
         # RULE 606.5b: a planeswalker enters with its printed starting loyalty.
         if obj.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:

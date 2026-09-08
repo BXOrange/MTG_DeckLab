@@ -273,6 +273,7 @@ class TurnLoopMixin:
         self.state.cards_left_graveyard_this_turn.clear()
         self.state.cast_x_spell_this_turn.clear()
         self.state.nontoken_creatures_entered_this_turn[active.id] = 0
+        self.state.lands_entered_this_turn[active.id] = 0
         self.state.permanent_card_to_graveyard_this_turn.clear()
         # MEC-57: "the first time you would draw a card each turn, instead
         # …" (Scion of Halaster) — game-wide, same reason.

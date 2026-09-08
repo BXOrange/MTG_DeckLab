@@ -1809,6 +1809,19 @@ class DamageDeathMixin:
                     # `ConditionalEffect.dying_creature_toughness_below`),
                     # the same RULE 400.7 last-known snapshot as ``power``.
                     toughness=obj.toughness,
+                    # "Whenever an enchanted creature dies, draw a card for
+                    # each Aura you controlled that was attached to it."
+                    # (Hateful Eidolon, PAR-60) — the DIES trigger resolves
+                    # after RULE 704.5m has already put every attached Aura
+                    # in a graveyard, so the per-controller tally of Auras
+                    # on this creature is snapshotted here (fired while
+                    # `obj` is still on the battlefield, RULE 603.6a), the
+                    # same last-known-info idiom as ``counters``/``power``.
+                    attached_aura_controller_ids=[
+                        a.controller_id for a in self.state.battlefield
+                        if getattr(a, "attached_to", None) == obj.instance_id
+                        and "aura" in (getattr(a.card, "type_line", "") or "").lower()
+                    ],
                 )
             )
             if cause == "sacrifice":

@@ -3880,13 +3880,29 @@ class DrawCardEffect(GameEffect):
         #: above's small fixed whitelist; mirrors `LoseLifeEffect.
         #: amount_from_count_selector`'s own "always read as you" scoping.
         self.amount_from_count_selector = amount_from_count_selector
-        self.selector = selector if selector in ("each_player", "each_opponent") else None
+        self.selector = (
+            selector
+            if selector in ("each_player", "each_opponent", "attacking_player")
+            else None
+        )
         # "Target player draws N cards" (Sign in Blood-shaped) — a genuine
         # RULE 115 target, unlike the untargeted default (most draw effects
         # just draw for their own controller).
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector == "attacking_player":
+            # "…that attacking player draws a card…" (Breena, the Demagogue)
+            # — whoever the firing `PLAYER_ATTACKED` aggregate names as the
+            # attacker, not this ability's controller.
+            aid = (context.trigger_event or {}).get("attacking_player_id")
+            try:
+                drawer = context.state.player_by_id(aid) if aid is not None else None
+            except (KeyError, ValueError):
+                drawer = None
+            if drawer is not None:
+                context.draw(drawer, self.count)
+            return
         if self.selector in ("each_player", "each_opponent"):
             controller_id = getattr(self.source, "controller_id", None)
             for p in context.state.living_players():
@@ -3962,6 +3978,84 @@ class DrawCardEffect(GameEffect):
             stop_at_first=True,
         )
         context.draw(player, count)
+
+
+class DrawPerAttachedAuraControllerEffect(GameEffect):
+    """"Whenever an enchanted creature dies, draw a card for each Aura you
+    controlled that was attached to it." (Hateful Eidolon, PAR-60.)
+
+    Reads the firing DIES event's ``attached_aura_controller_ids`` snapshot
+    (`RulesEngine._move_to_graveyard` records it while the dying creature —
+    and its Auras — are still on the battlefield, RULE 603.6a) and draws one
+    card per entry equal to this ability's own controller id. Zero matching
+    Auras draws nothing.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        cid = getattr(self.source, "controller_id", None)
+        if cid is None:
+            return
+        ids = list((context.trigger_event or {}).get("attached_aura_controller_ids") or [])
+        n = sum(1 for c in ids if c == cid)
+        if n <= 0:
+            return
+        try:
+            player = context.state.player_by_id(cid)
+        except (KeyError, ValueError):
+            return
+        context.draw(player, n)
+
+
+def _is_prime(n: int) -> bool:
+    """RULE-neutral helper — Zimone's own reminder text enumerates 2, 3, 5,
+    7, 11, 13, 17, 19, 23, 29, 31; 1 and 0 are not prime."""
+    if n < 2:
+        return False
+    if n % 2 == 0:
+        return n == 2
+    i = 3
+    while i * i <= n:
+        if n % i == 0:
+            return False
+        i += 2
+    return True
+
+
+class ZimoneAllQuestioningEndStepEffect(GameEffect):
+    """"At the beginning of your end step, if a land entered the battlefield
+    under your control this turn and you control a prime number of lands,
+    create Primo, the Indivisible, a legendary 0/0 green and blue Fractal
+    creature token, then put that many +1/+1 counters on it." (Zimone,
+    All-Questioning, PAR-60.)
+
+    Self-gating: the "a land entered … this turn" + "prime number of lands"
+    intervening-if is checked here at resolution rather than via new
+    condition-key plumbing (`GameState.lands_entered_this_turn`, added
+    alongside its creature sibling).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import synthesize_token_card
+
+        cid = getattr(self.source, "controller_id", None)
+        if cid is None:
+            return
+        if int(context.state.lands_entered_this_turn.get(cid, 0)) <= 0:
+            return
+        land_count = sum(
+            1 for o in context.state.permanents_controlled_by(cid) if o.is_land
+        )
+        if not _is_prime(land_count):
+            return
+        card = synthesize_token_card(
+            "Primo, the Indivisible", power=0, toughness=0,
+            colors=["G", "U"], subtypes=["Fractal"],
+        )
+        card.type_line = "Legendary Creature — Fractal"
+        made = context.create_token(cid, card, 1)
+        for tok in made or []:
+            context.add_counters(tok, land_count, "+1/+1", source=self.source)
+        context.recompute()
 
 
 class DrawEachPlayerWithCreaturePowerEffect(GameEffect):
@@ -5601,9 +5695,16 @@ class ExileTriggeringDiscardMayPlayThisTurnEffect(GameEffect):
     """
 
     def __init__(self, play_permission: bool = True,
+                 track_exiled_with: bool = False,
                  source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
         self.play_permission = bool(play_permission)
+        #: Currency Converter (PAR-60) — "you may exile that card from your
+        #: graveyard" with **no** play window: instead the exiled card's
+        #: instance id is appended to this ability's own source
+        #: `GameObject.exiled_with_ids` (MEC-21's accumulating tracker), so
+        #: its separate ``{T}`` ability can cash one back out later.
+        self.track_exiled_with = bool(track_exiled_with)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         event = context.trigger_event or {}
@@ -5626,6 +5727,85 @@ class ExileTriggeringDiscardMayPlayThisTurnEffect(GameEffect):
             context.state.temp_play_permissions[obj.instance_id] = (
                 context.state.internal_turn.number
             )
+        if self.track_exiled_with and self.source is not None:
+            self.source.exiled_with_ids.append(obj.instance_id)
+
+
+class CurrencyConverterCashOutEffect(GameEffect):
+    """"{T}: Put a card exiled with this artifact into its owner's graveyard.
+    If it's a land card, create a Treasure token. If it's a nonland card,
+    create a 2/2 black Rogue creature token." (Currency Converter, PAR-60.)
+
+    Reads this ability's own source `GameObject.exiled_with_ids` (the
+    accumulating MEC-21 tracker `ExileTriggeringDiscardMayPlayThisTurnEffect`
+    with ``track_exiled_with=True`` fills from the discard trigger). With one
+    candidate it acts directly; with several it opens the general
+    `request_choose_objects` chooser (``"choose_permanent"`` action — a bare
+    "stamp the pick, act in ``then_specs``" idiom, no zone concept of its
+    own), running `currency_converter_resolve` once answered.
+    """
+
+    def _cash_out(self, context: GameContext, obj: "GameObject") -> None:
+        from ..services.token_database import synthesize_token_card
+
+        try:
+            owner = context.state.player_by_id(obj.owner_id)
+        except (KeyError, ValueError):
+            return
+        if obj in owner.exile:
+            owner.exile.remove(obj)
+        obj.zone = Zone.GRAVEYARD
+        owner.graveyard.append(obj)
+        if self.source is not None and obj.instance_id in self.source.exiled_with_ids:
+            self.source.exiled_with_ids.remove(obj.instance_id)
+        controller_id = getattr(self.source, "controller_id", None) or owner.id
+        if "land" in (obj.card.type_line or "").lower():
+            card = synthesize_token_card("Treasure")
+        else:
+            card = synthesize_token_card(
+                "Rogue", power=2, toughness=2, colors=["B"], subtypes=["Rogue"],
+            )
+        context.create_token(controller_id, card, 1)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        ids = list(getattr(self.source, "exiled_with_ids", None) or [])
+        cands = [
+            o for o in (context.state.find_object(i) for i in ids)
+            if o is not None and o.zone == Zone.EXILE
+        ]
+        if not cands:
+            return
+        if len(cands) == 1:
+            self._cash_out(context, cands[0])
+            return
+        context.engine.request_choose_objects(
+            player, cands, "choose_permanent", count=1, optional=False,
+            prompt="Currency Converter: verbannte Karte in den Friedhof legen",
+            source=self.source,
+            then_specs=[{"type": "currency_converter_resolve", "params": {}}],
+        )
+
+
+class CurrencyConverterResolveEffect(CurrencyConverterCashOutEffect):
+    """``then_specs`` tail of `CurrencyConverterCashOutEffect`'s multi-card
+    branch: reads the pick back off ``source.chosen_permanent_id`` (stamped
+    by the ``"choose_permanent"`` action) and cashes just that one out."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        iid = getattr(self.source, "chosen_permanent_id", None)
+        self.source.chosen_permanent_id = None
+        if iid is None:
+            return
+        obj = context.state.find_object(iid)
+        if obj is not None and obj.zone == Zone.EXILE:
+            self._cash_out(context, obj)
 
 
 class ExchangeLifeTotalsEffect(GameEffect):
@@ -6472,6 +6652,230 @@ class SacrificeSelfEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is not None:
             context.put_into_graveyard(self.source)
+
+
+class HofriGhostforgeDiesEffect(GameEffect):
+    """"Whenever another nontoken creature you control dies, exile it. If you
+    do, create a token that's a copy of that creature, except it's a Spirit
+    in addition to its other types and it has 'When this token leaves the
+    battlefield, return the exiled card to its owner's graveyard.'" (Hofri
+    Ghostforge, PAR-60.)
+
+    Reads the firing DIES event's ``instance_id`` (the dead creature, now in
+    its owner's graveyard), exiles it, and makes a token copy with Spirit
+    added to its types (`RulesEngine.copy_permanent`'s ``add_subtypes``).
+    Documented simplification: the "when this token leaves … return the
+    exiled card to its owner's graveyard" rider is dropped — the reanimated
+    Spirit copy is the effect's payoff.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        cid = getattr(self.source, "controller_id", None)
+        iid = (context.trigger_event or {}).get("instance_id")
+        if cid is None or iid is None:
+            return
+        dead = context.state.find_object(iid)
+        if dead is None or dead.zone != Zone.GRAVEYARD:
+            return
+        context.exile(dead)
+        context.engine.copy_permanent(cid, dead, 1, add_subtypes=["Spirit"])
+        context.recompute()
+
+
+class BrudicladCombatEffect(GameEffect):
+    """"At the beginning of combat on your turn, create a 2/1 blue Phyrexian
+    Myr artifact creature token. Then you may choose a token you control. If
+    you do, each other token you control becomes a copy of that token."
+    (Brudiclad, Telchor Engineer, PAR-60.)
+
+    Makes the Myr, then opens an optional pick among the tokens this
+    ability's controller controls; `brudiclad_become_copies` (its
+    ``then_specs`` tail) turns every *other* token into a copy of the pick
+    (RULE 706.2 permanent mutation via `RulesEngine.become_copy`).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import synthesize_token_card
+
+        cid = getattr(self.source, "controller_id", None)
+        if cid is None:
+            return
+        card = synthesize_token_card(
+            "Myr", power=2, toughness=1, colors=["U"], subtypes=["Phyrexian", "Myr"],
+        )
+        card.type_line = "Artifact Creature — Phyrexian Myr"
+        context.create_token(cid, card, 1)
+        try:
+            player = context.state.player_by_id(cid)
+        except (KeyError, ValueError):
+            return
+        tokens = [
+            o for o in context.state.permanents_controlled_by(cid)
+            if getattr(o, "is_token", False)
+        ]
+        if len(tokens) < 2:
+            return
+        context.engine.request_choose_objects(
+            player, tokens, "choose_permanent", count=1, optional=True,
+            prompt="Brudiclad: einen Spielstein waehlen (andere werden zu Kopien)",
+            source=self.source,
+            then_specs=[{"type": "brudiclad_become_copies", "params": {}}],
+        )
+
+
+class BrudicladBecomeCopiesEffect(GameEffect):
+    """``then_specs`` tail of `BrudicladCombatEffect`: every other token this
+    ability's controller controls becomes a copy of ``source.chosen_
+    permanent_id``."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        iid = getattr(self.source, "chosen_permanent_id", None)
+        self.source.chosen_permanent_id = None
+        chosen = context.state.find_object(iid) if iid is not None else None
+        if chosen is None:
+            return
+        cid = getattr(self.source, "controller_id", None)
+        for o in list(context.state.permanents_controlled_by(cid)):
+            if getattr(o, "is_token", False) and o is not chosen:
+                context.become_copy(o, chosen)
+        context.recompute()
+
+
+class SurgeToVictoryEffect(GameEffect):
+    """"Exile target instant or sorcery card from your graveyard. Creatures
+    you control get +X/+0 until end of turn, where X is that card's mana
+    value. Whenever a creature you control deals combat damage to a player
+    this turn, copy the exiled card. You may cast the copy without paying
+    its mana cost." (Surge to Victory, PAR-60.)
+
+    Documented simplification: the "copy the exiled card on combat damage"
+    rider is dropped (no per-firing "copy a remembered exiled card" delayed
+    trigger primitive) — the anthem (+X/+0 for the alpha strike) is the
+    card's dominant effect and is kept.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="graveyard_instant_or_sorcery")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        card_obj = targets[0] if targets else None
+        if card_obj is None:
+            return
+        mv = int(getattr(card_obj.card, "converted_mana_cost", 0) or 0)
+        context.exile(card_obj)
+        if mv > 0:
+            context.engine._apply_effect_specs(
+                [{"type": "pump", "params": {
+                    "power": mv, "toughness": 0, "selector": "creatures_you_control",
+                }}],
+                self.source,
+            )
+
+
+class RedoubledStormsingerCopiesEffect(GameEffect):
+    """"Whenever this creature attacks, for each creature token you control
+    that entered this turn, create a tapped and attacking token that's a
+    copy of that token." (Redoubled Stormsinger, PAR-60.)
+
+    Each copy is appended to `GameContext.created_objects` so a following
+    ``create_delayed_trigger`` with ``capture="created_objects"`` +
+    ``sacrifice_specific`` picks them up for the "sacrifice those tokens at
+    the beginning of the next end step" clause.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        cid = getattr(self.source, "controller_id", None)
+        if cid is None:
+            return
+        turn = context.state.internal_turn.number
+        originals = [
+            o for o in context.state.permanents_controlled_by(cid)
+            if o.is_creature and getattr(o, "is_token", False) and o is not self.source
+            and getattr(o, "turn_entered", None) == turn
+        ]
+        for tok in originals:
+            for copy in context.engine.copy_permanent(cid, tok, 1) or []:
+                context.set_tapped(copy, tapped=True)
+                context.engine.put_onto_battlefield_attacking(copy)
+                context.created_objects.append(copy)
+        context.recompute()
+
+
+class OversimplifyEffect(GameEffect):
+    """"Exile all creatures. Each player creates a 0/0 green and blue Fractal
+    creature token and puts a number of +1/+1 counters on it equal to the
+    total power of creatures they controlled that were exiled this way."
+    (Oversimplify, PAR-60.)
+
+    Per-player power totals are snapshotted before the exile (RULE 400.7),
+    then one Fractal token per player gets that many +1/+1 counters.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import synthesize_token_card
+
+        totals: dict[str, int] = {}
+        creatures = [o for o in list(context.state.battlefield) if o.is_creature]
+        for o in creatures:
+            pid = o.controller_id
+            if pid is not None:
+                totals[pid] = totals.get(pid, 0) + max(0, int(o.power or 0))
+        for o in creatures:
+            context.exile(o)
+        for player in list(context.state.players):
+            card = synthesize_token_card(
+                "Fractal", power=0, toughness=0, colors=["G", "U"], subtypes=["Fractal"],
+            )
+            made = context.create_token(player.id, card, 1)
+            n = totals.get(player.id, 0)
+            for tok in made or []:
+                if n > 0:
+                    context.add_counters(tok, n, "+1/+1", source=self.source)
+        context.recompute()
+
+
+class TragicArroganceEffect(GameEffect):
+    """"For each player, you choose from among the permanents that player
+    controls an artifact, a creature, an enchantment, and a planeswalker.
+    Then each player sacrifices all other nonland permanents they control."
+    (Tragic Arrogance, PAR-60.)
+
+    Documented simplification: the caster's per-(player, type) choice is
+    auto-resolved rather than interactive — keep the **highest** mana value
+    of each type among the caster's own permanents, and the **lowest** of
+    each type among every opponent's (the strategic intent: keep your best,
+    leave them their worst). Every other nonland permanent is sacrificed.
+    """
+
+    _TYPE_WORDS = ("artifact", "creature", "enchantment", "planeswalker")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        caster_id = getattr(self.source, "controller_id", None)
+        for player in list(context.state.players):
+            perms = [
+                o for o in context.state.permanents_controlled_by(player.id)
+                if not o.is_land
+            ]
+            keep: set[int] = set()
+            want_high = player.id == caster_id
+            for word in self._TYPE_WORDS:
+                of_type = [
+                    o for o in perms
+                    if word in (o.card.type_line or "").lower()
+                ]
+                if not of_type:
+                    continue
+                pick = (max if want_high else min)(
+                    of_type,
+                    key=lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0),
+                )
+                keep.add(pick.instance_id)
+            for o in perms:
+                if o.instance_id not in keep:
+                    context.put_into_graveyard(o)
 
 
 class SacrificeUnlessPayEffect(GameEffect):
@@ -7513,6 +7917,39 @@ class MarkYourSpellsOnStackCantBeCounteredEffect(GameEffect):
         for item in context.state.stack:
             if item.kind == "spell" and item.obj is not None and item.controller_id == player.id:
                 item.obj.spell_effects.append(CantBeCounteredEffect())
+
+
+class MillThenDamageEachOpponentByMvEffect(GameEffect):
+    """"You mill a card[ for each past vote], then ~ deals damage to each
+    opponent equal to the total mana value of cards milled this way."
+    (Fateful Tempest's past-vote outcome, PAR-60.)
+
+    A single atomic effect: mills ``count`` cards from this effect's own
+    controller's library (``count`` is already vote-scaled by
+    `_tally_and_apply_vote` when this rides a ``per_vote_specs`` entry),
+    sums their mana values, and deals that much to each opponent. Keeping
+    the mill and the MV tally in one effect sidesteps needing a
+    "total-mv-milled-this-resolution" `GameContext` accumulator for the one
+    card that wants it.
+    """
+
+    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = int(count)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.count <= 0:
+            return
+        before = len(player.graveyard)
+        context.mill(player, self.count)
+        milled = player.graveyard[before:]
+        total_mv = sum(int(getattr(o.card, "converted_mana_cost", 0) or 0) for o in milled)
+        if total_mv <= 0:
+            return
+        for opp in context.state.players:
+            if opp.id != player.id:
+                context.deal_damage(opp, total_mv, self.source)
 
 
 class MillEffect(GameEffect):
@@ -8632,6 +9069,66 @@ class ExileCreateTokenEffect(GameEffect):
             colors=self.colors, subtypes=self.subtypes, keywords=self.keywords,
         )
         context.create_token(controller_id, card, 1)
+
+
+class AttackerCreatesAttackingTokenEffect(GameEffect):
+    """"Whenever a player attacks one of your opponents, that attacking
+    player creates a tapped 2/1 white and black Inkling creature token with
+    flying that's attacking that opponent." (Combat Calligrapher; the same
+    "the *other* player makes the token" shape Scriv, Assemble the Legion's
+    Inkling family reach for, PAR-60.)
+
+    Reads the firing `PLAYER_ATTACKED` aggregate's ``attacking_player_id``
+    (who makes and controls the token — never this ability's controller)
+    and ``defending_player_id`` (which opponent it attacks). The token is
+    tapped and put into the current combat attacking that specific defender
+    via `RulesEngine.put_onto_battlefield_attacking` (RULE 508.4).
+    """
+
+    def __init__(
+        self,
+        power: Optional[int] = None,
+        toughness: Optional[int] = None,
+        colors: Optional[list[str]] = None,
+        subtypes: Optional[list[str]] = None,
+        keywords: Optional[list[str]] = None,
+        token_name: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.power = power
+        self.toughness = toughness
+        self.colors = colors or []
+        self.subtypes = subtypes or []
+        self.keywords = keywords or []
+        self.token_name = token_name or (subtypes[0] if subtypes else "Token")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import synthesize_token_card
+
+        event = context.trigger_event or {}
+        attacker_id = event.get("attacking_player_id")
+        defender_id = event.get("defending_player_id")
+        if attacker_id is None:
+            return
+        try:
+            defender_player = (
+                context.state.player_by_id(defender_id) if defender_id is not None else None
+            )
+        except (KeyError, ValueError):
+            defender_player = None
+        card = synthesize_token_card(
+            self.token_name, power=self.power, toughness=self.toughness,
+            colors=self.colors, subtypes=self.subtypes, keywords=self.keywords,
+        )
+        made = context.create_token(attacker_id, card, 1)
+        for tok in made or []:
+            context.set_tapped(tok, tapped=True)
+            defender = (
+                {"kind": "player", "id": defender_player.id, "label": defender_player.name}
+                if defender_player is not None else None
+            )
+            context.engine.put_onto_battlefield_attacking(tok, defender=defender)
 
 
 class DestroyCreateTokenEffect(GameEffect):
@@ -10328,6 +10825,34 @@ class TargetPlayerDrawLoseLifeEffect(GameEffect):
         context.lose_life(player, self.life_loss)
 
 
+class TargetPlayerCounterEachCreatureEffect(GameEffect):
+    """"Target player puts a `<kind>` counter on each creature they control."
+    (Shadrix Silverquill's third mode, PAR-60.) A real RULE 115 player
+    target whose creatures — not this ability's controller's — get the
+    counters, the `TargetPlayerDrawLoseLifeEffect` "one shared player
+    target" shape applied to a mass-counter body.
+    """
+
+    def __init__(
+        self, amount: int = 1, kind: str = "+1/+1", target: Any = None,
+        source: Optional["GameObject"] = None, target_kind: str = "player",
+    ) -> None:
+        super().__init__(source)
+        self.amount = int(amount)
+        self.kind = kind
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = (targets[0] if targets else None) or self.target
+        if player is None:
+            return
+        for obj in list(context.state.permanents_controlled_by(player.id)):
+            if obj.is_creature:
+                context.add_counters(obj, self.amount, self.kind, source=self.source)
+        context.recompute()
+
+
 class CounterAndFirstStrikeEffect(GameEffect):
     """"Put a +1/+1 counter on up to one target creature. It gains first
     strike until end of turn." (The Wandering Emperor's +1) — a single
@@ -10387,6 +10912,49 @@ class CounterUntapGrantKeywordEffect(GameEffect):
         context.set_tapped(target, tapped=False)
         target.temp_keywords.add(self.keyword)
         context.recompute()
+
+
+class EachPlayerExileFromGraveyardThenCountersEffect(GameEffect):
+    """"Whenever Augusta attacks, each player exiles a card from their
+    graveyard. When one or more nonland cards are exiled this way, put that
+    many +1/+1 counters on target attacking creature." (Augusta, Order
+    Returned, PAR-60.)
+
+    A single atomic effect over one shared RULE 115 target (``creature`` +
+    ``{"attacking": True}``), the same "two targeting effects would
+    double-prompt" reason `CounterUntapGrantKeywordEffect` is one effect.
+    Documented simplification: "each player exiles a card **of their
+    choice**" is modeled as auto-exiling each player's oldest graveyard card
+    — the interactive per-player pick would need the `SacrificeEffect.
+    _sacrifice_each_in_order` deferred-choice chain threaded through the
+    counter payoff, disproportionate for one card; the payoff (growth
+    scaled by how many nonland cards were dredged up) is preserved.
+    """
+
+    def __init__(
+        self, target: Any = None, source: Optional["GameObject"] = None,
+        target_kind: str = "creature",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(
+            kind=target_kind, creature_filter={"attacking": True},
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        nonland = 0
+        for player in context.state.players:
+            if not player.graveyard:
+                continue
+            card_obj = player.graveyard[0]  # oldest — see class docstring
+            was_land = bool(getattr(card_obj, "is_land", False))
+            context.exile(card_obj)
+            if not was_land:
+                nonland += 1
+        if nonland > 0 and target is not None:
+            context.add_counters(target, nonland, "+1/+1", source=self.source)
+            context.recompute()
 
 
 class PeekTopLandBattlefieldTappedEffect(GameEffect):
@@ -10468,6 +11036,29 @@ class CreateTokenMayAttachEquipmentEffect(GameEffect):
         equipment = targets[0] if targets else self.target
         if equipment is not None:
             context.engine.attach_to_target(equipment, tokens[0])
+
+
+class ReturnCreaturesByPowerParityEffect(GameEffect):
+    """"Return each creature with power of the chosen quality to its owner's
+    hand. (Zero is even.)" (Zimone's Hypothesis, PAR-60.)
+
+    Untargeted mass bounce filtered by power parity — ``parity`` is fixed at
+    "odd"/"even" (the caller's "choose odd or even" is a `modes` choice of
+    two of these). RULE 107.3 — power can be negative; Python's ``%`` on a
+    negative int already yields the mathematically-correct 0/1 here.
+    """
+
+    def __init__(self, parity: str = "even", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.parity = "odd" if str(parity).lower() == "odd" else "even"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        want_odd = self.parity == "odd"
+        for obj in list(context.state.battlefield):
+            if not obj.is_creature:
+                continue
+            if (int(obj.power or 0) % 2 == 1) == want_odd:
+                context.return_to_hand(obj)
 
 
 class ReturnToHandEffect(GameEffect):
@@ -11113,6 +11704,387 @@ class RevealUntilMatchingEffect(GameEffect):
             hit_destination=self.hit_destination,
             rest_destination=self.rest_destination, tapped=self.tapped,
         )
+
+
+class ExpressiveIterationEffect(GameEffect):
+    """"Look at the top three cards of your library. Put one of them into
+    your hand, put one of them on the bottom of your library, and exile one
+    of them. You may play the exiled card this turn." (Expressive Iteration,
+    PAR-60.)
+
+    Two interactive picks: the hand card (``"library_to_hand"``), then which
+    of the remaining two to exile (``"choose_permanent"`` stamps the id,
+    `expressive_iteration_exile_step` finishes — exile it with a
+    this-turn play window, the last card to the bottom).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context) or context.active_player
+        if player is None or not player.library:
+            return
+        top3 = list(reversed(player.library[-3:]))  # top-of-library first
+        # Stashed on the state, not the source: a resolving *spell* has
+        # already left the stack by the time `then_specs` run and cannot be
+        # recovered by instance id (`_object_by_instance_id`).
+        context.state._expressive_iteration_ids = [o.instance_id for o in top3]
+        context.state._expressive_iteration_player = player.id
+        context.engine.request_choose_objects(
+            player, top3, "library_to_hand", count=1, optional=False,
+            prompt="Expressive Iteration: eine Karte auf die Hand",
+            source=self.source,
+            then_specs=[{"type": "expressive_iteration_exile_step", "params": {}}],
+        )
+
+
+class ExpressiveIterationExileStepEffect(GameEffect):
+    """``then_specs`` tail of `ExpressiveIterationEffect`: of the two cards
+    left on top of the library, pick one to exile with a this-turn play
+    window; the last goes to the bottom."""
+
+    def _player(self, context: GameContext) -> Any:
+        pid = getattr(context.state, "_expressive_iteration_player", None)
+        if pid is not None:
+            try:
+                return context.state.player_by_id(pid)
+            except (KeyError, ValueError):
+                pass
+        return _controller_of(self.source, context) or context.active_player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self._player(context)
+        ids = list(getattr(context.state, "_expressive_iteration_ids", None) or [])
+        remaining = [
+            o for o in (context.state.find_object(i) for i in ids)
+            if o is not None and o.zone == Zone.LIBRARY
+        ]
+        if player is None or not remaining:
+            return
+        if len(remaining) == 1:
+            ExpressiveIterationFinishEffect(source=self.source)._mark_playable(
+                context, player, remaining[0]
+            )
+            context.state._expressive_iteration_ids = []
+            return
+        context.engine.request_choose_objects(
+            player, remaining, "exile", count=1, optional=False,
+            prompt="Expressive Iteration: eine Karte verbannen (diesen Zug spielbar)",
+            source=self.source,
+            then_specs=[{"type": "expressive_iteration_finish", "params": {}}],
+        )
+
+
+class ExpressiveIterationFinishEffect(GameEffect):
+    """``then_specs`` tail of the exile pick: the ``"exile"`` action already
+    moved the chosen card to exile and left it on ``context.previous_targets``
+    — grant it a this-turn play window; the last library card to the bottom.
+    """
+
+    def _mark_playable(self, context: GameContext, player: Any, obj: "GameObject") -> None:
+        if obj is None:
+            return
+        if obj.zone == Zone.LIBRARY:  # single-remaining shortcut path
+            if obj in player.library:
+                player.library.remove(obj)
+            obj.zone = Zone.EXILE
+            player.exile.append(obj)
+            context.state.fire_event(GameEvent(
+                EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library",
+            ))
+        context.engine._grant_temp_play_permission(
+            obj, player, "Expressive Iteration", True, None
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        pid = getattr(context.state, "_expressive_iteration_player", None)
+        try:
+            player = context.state.player_by_id(pid) if pid is not None else None
+        except (KeyError, ValueError):
+            player = None
+        player = player or context.active_player
+        ids = list(getattr(context.state, "_expressive_iteration_ids", None) or [])
+        context.state._expressive_iteration_ids = []
+        prev = list(context.previous_targets or [])
+        exiled = prev[0] if prev else None
+        if exiled is not None:
+            self._mark_playable(context, player, exiled)
+        for o in (context.state.find_object(i) for i in ids):
+            if o is not None and o is not exiled and o.zone == Zone.LIBRARY:
+                if o in player.library:
+                    player.library.remove(o)
+                o.zone = Zone.LIBRARY
+                player.library.insert(0, o)  # bottom
+
+
+class PlarggAndNassariEffect(GameEffect):
+    """"At the beginning of your upkeep, each player exiles cards from the
+    top of their library until they exile a nonland card. An opponent
+    chooses a nonland card exiled this way. You may cast up to two spells
+    from among the other cards exiled this way without paying their mana
+    costs." (Plargg and Nassari, PAR-60.)
+
+    Documented simplification: "an opponent chooses a nonland card exiled
+    this way" is auto-resolved — the highest-mana-value nonland exiled is
+    the one denied; up to two of the remaining nonland cards (highest mana
+    value first) get a this-turn free-cast window.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        cid = getattr(self.source, "controller_id", None)
+        name = self.source.name if self.source is not None else "Plargg and Nassari"
+        nonlands: list[GameObject] = []
+        for player in list(context.state.players):
+            while player.library:
+                top = player.library.pop()
+                top.zone = Zone.EXILE
+                player.exile.append(top)
+                context.state.fire_event(GameEvent(
+                    EventType.EXILE, player_id=player.id, object=top.name,
+                    from_zone="library",
+                ))
+                if not top.card.is_land:
+                    nonlands.append(top)
+                    break
+        if not nonlands:
+            return
+        nonlands.sort(
+            key=lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0), reverse=True,
+        )
+        denied = nonlands[0]
+        castable = [o for o in nonlands[1:] if not o.card.is_land][:2]
+        try:
+            caster = context.state.player_by_id(cid) if cid is not None else None
+        except (KeyError, ValueError):
+            caster = None
+        for o in castable:
+            holder = caster or context.state.player_by_id(o.owner_id)
+            context.engine._grant_temp_play_permission(o, holder, name, True, None)
+            context.state.free_cast_instance_ids.add(o.instance_id)
+        _ = denied  # stays exiled with no permission
+
+
+class AbstractPerformanceEffect(GameEffect):
+    """"Exile the top four cards of your library in a face-down pile, then
+    exile the top four cards of your library in a face-up pile. An opponent
+    chooses one of those piles. Put that pile into your graveyard. Look at
+    the cards in the other pile. You may cast a spell from among them
+    without paying its mana cost. Put the rest into your hand." (Abstract
+    Performance, PAR-60.)
+
+    Documented simplification: "an opponent chooses one of those piles" is
+    auto-resolved — the pile with the higher total mana value goes to your
+    graveyard (the denial an opponent would pick). From the kept pile, the
+    highest-mana-value non-land card gets a this-turn free-cast window; the
+    rest go to your hand.
+    """
+
+    _PILE = 4
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+
+        def _take(n: int) -> list[GameObject]:
+            out: list[GameObject] = []
+            for _ in range(n):
+                if not player.library:
+                    break
+                out.append(player.library.pop())
+            return out
+
+        pile_a = _take(self._PILE)
+        pile_b = _take(self._PILE)
+        if not pile_a and not pile_b:
+            return
+
+        def _mv(pile: list[GameObject]) -> int:
+            return sum(int(getattr(o.card, "converted_mana_cost", 0) or 0) for o in pile)
+
+        to_graveyard, kept = (
+            (pile_a, pile_b) if _mv(pile_a) >= _mv(pile_b) else (pile_b, pile_a)
+        )
+        for o in to_graveyard:
+            o.zone = Zone.GRAVEYARD
+            player.graveyard.append(o)
+        spells = sorted(
+            (o for o in kept if not o.card.is_land),
+            key=lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0),
+            reverse=True,
+        )
+        free = spells[0] if spells else None
+        name = self.source.name if self.source is not None else "Abstract Performance"
+        for o in kept:
+            if o is free:
+                o.zone = Zone.EXILE
+                player.exile.append(o)
+                context.state.fire_event(GameEvent(
+                    EventType.EXILE, player_id=player.id, object=o.name, from_zone="library",
+                ))
+                context.engine._grant_temp_play_permission(o, player, name, True, None)
+                context.state.free_cast_instance_ids.add(o.instance_id)
+            else:
+                o.zone = Zone.HAND
+                player.hand.append(o)
+
+
+class DanceWithCalamityEffect(GameEffect):
+    """"Shuffle your library. As many times as you choose, you may exile the
+    top card of your library. If the total mana value of the cards exiled
+    this way is 13 or less, you may cast any number of spells from among
+    those cards without paying their mana costs." (Dance with Calamity,
+    PAR-60.)
+
+    Documented simplification: the "as many times as you choose" gamble is
+    auto-resolved greedily — exile from the top while the running total mana
+    value stays ``<= budget``, stop before the first card that would exceed
+    it — rather than an interactive stop/continue loop. Every non-land card
+    exiled this way gets a this-turn free-cast window from exile.
+    """
+
+    _BUDGET = 13  # RULE-neutral: the printed threshold.
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.engine.shuffle_library(player)
+        total = 0
+        name = self.source.name if self.source is not None else "Dance with Calamity"
+        while player.library:
+            top = player.library[-1]
+            mv = int(getattr(top.card, "converted_mana_cost", 0) or 0)
+            if total + mv > self._BUDGET:
+                break
+            total += mv
+            player.library.pop()
+            top.zone = Zone.EXILE
+            player.exile.append(top)
+            context.state.fire_event(GameEvent(
+                EventType.EXILE, player_id=player.id, object=top.name, from_zone="library",
+            ))
+            if not top.card.is_land:
+                context.engine._grant_temp_play_permission(top, player, name, True, None)
+                context.state.free_cast_instance_ids.add(top.instance_id)
+
+
+class BudgetDigOntoBattlefieldEffect(GameEffect):
+    """"Look at the top N cards of your library. Put any number of nonland
+    permanent cards with total mana value M or less from among them onto the
+    battlefield. Put the rest on the bottom of your library in a random
+    order." (Ao, the Dawn Sky's first mode, PAR-60.)
+
+    Documented simplification: "any number … with total mana value M or
+    less" is auto-resolved greedily — take nonland permanent cards
+    cheapest-first while the running total stays within ``budget`` — rather
+    than an interactive multi-pick.
+    """
+
+    def __init__(
+        self, look: int = 7, budget: int = 4, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.look = int(look)
+        self.budget = int(budget)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        import random
+
+        player = _controller_of(self.source, context)
+        if player is None or not player.library:
+            return
+        looked = [player.library.pop() for _ in range(min(self.look, len(player.library)))]
+        for o in looked:
+            context.state.fire_event(GameEvent(
+                EventType.REVEAL, player_id=player.id, object=o.name,
+                instance_id=o.instance_id, from_zone="library",
+            ))
+        cands = sorted(
+            (o for o in looked if _is_permanent_card_obj(o) and not o.card.is_land),
+            key=lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0),
+        )
+        taken: list[GameObject] = []
+        total = 0
+        for o in cands:
+            mv = int(getattr(o.card, "converted_mana_cost", 0) or 0)
+            if total + mv <= self.budget:
+                total += mv
+                taken.append(o)
+        for o in taken:
+            context.engine._put_searched_card(player, o, "battlefield")
+        rest = [o for o in looked if o not in taken]
+        random.shuffle(rest)
+        for o in rest:
+            o.zone = Zone.LIBRARY
+            player.library.insert(0, o)
+        context.recompute()
+
+
+def _is_permanent_card_obj(obj: Any) -> bool:
+    card = getattr(obj, "card", None)
+    if card is None:
+        return False
+    tl = (getattr(card, "type_line", "") or "").lower()
+    return any(w in tl for w in (
+        "creature", "artifact", "enchantment", "planeswalker", "land", "battle",
+    ))
+
+
+class AnimistsAwakeningEffect(GameEffect):
+    """"Reveal the top X cards of your library. Put all land cards from among
+    them onto the battlefield tapped and the rest on the bottom of your
+    library in a random order. Spell mastery — If there are two or more
+    instant and/or sorcery cards in your graveyard, untap those lands."
+    (Animist's Awakening, PAR-60.)
+
+    ``count`` accepts the ``"x"`` sentinel `_substitute_x` rewrites with the
+    announced {X}. Distinct from `RevealUntilMatchingEffect` (reveal *until*
+    N hits): this reveals a *fixed* X and takes *every* land among them.
+    """
+
+    #: RULE 702.101a — spell mastery threshold.
+    _SPELL_MASTERY_MIN = 2
+
+    def __init__(self, count: Any = "x", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = count
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        import random
+
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        count = self.count if isinstance(self.count, int) else 0
+        if count <= 0 or not player.library:
+            return
+        revealed: list[GameObject] = []
+        for _ in range(count):
+            if not player.library:
+                break
+            obj = player.library.pop()
+            revealed.append(obj)
+            context.state.fire_event(GameEvent(
+                EventType.REVEAL, player_id=player.id, object=obj.name,
+                instance_id=obj.instance_id, from_zone="library",
+            ))
+        lands = [o for o in revealed if o.card.is_land]
+        rest = [o for o in revealed if o not in lands]
+        placed: list[GameObject] = []
+        for land in lands:
+            context.engine._put_searched_card(player, land, "battlefield_tapped")
+            placed.append(land)
+        random.shuffle(rest)
+        for o in rest:
+            o.zone = Zone.LIBRARY
+            player.library.insert(0, o)  # bottom
+        # spell mastery
+        is_count = sum(
+            1 for c in player.graveyard
+            if getattr(c.card, "is_instant", False) or getattr(c.card, "is_sorcery", False)
+        )
+        if is_count >= self._SPELL_MASTERY_MIN:
+            for land in placed:
+                context.set_tapped(land, tapped=False)
 
 
 class DescendantsFurySacrificeEffect(GameEffect):
@@ -13509,6 +14481,88 @@ class MarchesaDelayedReturnEffect(GameEffect):
                 description=f"{self.dying_object.name}: unter Kontrolle zurück auf das Schlachtfeld",
             )
         )
+
+
+class ReturnDyingSubjectToBattlefieldEffect(GameEffect):
+    """"When enchanted creature dies, return that card to the battlefield
+    under its owner's control." (Gift of Immortality's first clause, PAR-60.)
+
+    Reads the firing DIES event's ``instance_id`` (the enchanted creature,
+    now in its owner's graveyard) and returns it to the battlefield under
+    its **owner's** control (`context.return_from_graveyard`'s default). A
+    no-op if the card has since left that graveyard.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        iid = (context.trigger_event or {}).get("instance_id")
+        if iid is None:
+            return
+        obj = context.state.find_object(iid)
+        if obj is None or obj.zone != Zone.GRAVEYARD:
+            return
+        context.return_from_graveyard(obj, "battlefield")
+
+
+class GiftOfImmortalityDiesEffect(GameEffect):
+    """"When enchanted creature dies, return that card to the battlefield
+    under its owner's control. Return this card to the battlefield attached
+    to that creature at the beginning of the next end step." (Gift of
+    Immortality, PAR-60.)
+
+    One atomic effect: (1) return the dying creature (DIES event
+    ``instance_id``) from its owner's graveyard, remembering the *new*
+    permanent's instance id on this Aura, then (2) arm a RULE 603.7 delayed
+    trigger for the next end step that returns this Aura from the graveyard
+    and re-attaches it to that remembered creature (still a legal attach —
+    if it has since left, the Aura's own RULE 704.5n SBA sends it back to
+    the graveyard, matching the printed "that creature" wording).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..models.game_state import DelayedTrigger
+
+        iid = (context.trigger_event or {}).get("instance_id")
+        creature = context.state.find_object(iid) if iid is not None else None
+        new_id: Optional[int] = None
+        if creature is not None and creature.zone == Zone.GRAVEYARD:
+            context.return_from_graveyard(creature, "battlefield")
+            new_id = creature.instance_id  # `return_from_graveyard` reuses the object
+        context.state.delayed_triggers.append(
+            DelayedTrigger(
+                controller_id=getattr(self.source, "controller_id", None)
+                or context.active_player.id,
+                step="end",
+                scope="any",
+                effects=[ReturnSelfAttachedEffect(attach_to_id=new_id, source=self.source)],
+                description="Gift of Immortality: Aura re-attach",
+            )
+        )
+
+
+class ReturnSelfAttachedEffect(GameEffect):
+    """Return this Aura from the graveyard to the battlefield, attached to a
+    specific permanent id (Gift of Immortality's delayed re-attach). If that
+    permanent is gone, the Aura still returns and its own RULE 704.5n SBA
+    handles the illegal-attachment case.
+    """
+
+    def __init__(self, attach_to_id: Optional[int] = None,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.attach_to_id = attach_to_id
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        aura = self.source
+        if aura is None or aura.zone != Zone.GRAVEYARD:
+            return
+        context.return_from_graveyard(aura, "battlefield")
+        host = (
+            context.state.find_object(self.attach_to_id)
+            if self.attach_to_id is not None else None
+        )
+        if host is not None and host.zone == Zone.BATTLEFIELD:
+            aura.attached_to = host.instance_id
+        context.recompute()
 
 
 class ReturnSelfFromGraveyardEffect(GameEffect):
@@ -16527,6 +17581,46 @@ class LivingWeaponEffect(GameEffect):
             context.engine.attach_to_target(self.source, tokens[0])
 
 
+class CreateAttachedAuraTokenEffect(GameEffect):
+    """"Create a `<colors>` Aura enchantment token named `<name>` attached to
+    target creature `<...>`. The token has enchant creature and
+    `<quoted ability>`." (Scriv, the Obligator's "Contract"; a reusable
+    "make an Aura token, attach it to a RULE 115 target" shape, PAR-60.)
+
+    The token's own quoted ability is authored under its token name in the
+    ability catalogue (`register("Contract", …)`, picked up by the
+    `bind_from_catalogue` `RulesEngine.create_token` already runs on every
+    token) rather than passed through here — keeping this effect a plain
+    create-then-attach. A no-op with no legal target (RULE 608.2b).
+    """
+
+    def __init__(
+        self,
+        token_name: str = "Aura",
+        colors: Optional[list[str]] = None,
+        target_kind: str = "creature_you_dont_control",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.token_name = token_name
+        self.colors = colors or []
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import synthesize_token_card
+
+        target = targets[0] if targets else None
+        if target is None or self.source is None:
+            return
+        card = synthesize_token_card(
+            self.token_name, colors=self.colors, subtypes=["Aura"],
+            oracle_text="Enchant creature",
+        )
+        made = context.create_token(self.source.controller_id, card, 1)
+        for tok in made or []:
+            context.engine.attach_to_target(tok, target)
+
+
 class CopyAttachmentsOntoLastCreatedEffect(GameEffect):
     """"For each Aura and Equipment attached to ~, create a token that's a
     copy of it attached to `<the token this ability just created>`."
@@ -16827,6 +17921,34 @@ class MoveCountersEffect(GameEffect):
             return
         context.add_counters(src, -moved, kind, source=self.source)
         context.add_counters(dst, moved, kind, source=self.source)
+
+
+class MoveAllPlusOneCountersFromSelfEffect(GameEffect):
+    """"…move any number of +1/+1 counters from this creature onto other
+    creatures." (Forgotten Ancient's upkeep ability, PAR-60.)
+
+    Documented simplification: "any number … onto **other creatures**"
+    (RULE 122's per-counter distribution across several targets) is modeled
+    as moving *all* of this creature's +1/+1 counters onto a single
+    up-to-one target creature — the same "no interactive any-number/divide
+    prompt" simplification `AddCountersEffect._apply_divided` and
+    `MoveCountersEffect`'s own kind-pick already document.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="creature", optional=True)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        tgt = targets[0] if targets else None
+        if self.source is None or tgt is None or tgt is self.source:
+            return
+        n = int((self.source.counters or {}).get("+1/+1", 0))
+        if n <= 0:
+            return
+        context.add_counters(self.source, -n, "+1/+1", source=self.source)
+        context.add_counters(tgt, n, "+1/+1", source=self.source)
+        context.recompute()
 
 
 class DoubleCountersOnTargetEffect(GameEffect):
@@ -21842,6 +22964,18 @@ EffectRegistry.register(
     lambda p: DrawEachPlayerWithCreaturePowerEffect(min_power=int(p.get("min_power", 4))),
 )
 EffectRegistry.register(
+    # "…if a land entered this turn and you control a prime number of lands,
+    # create Primo, the Indivisible …" (Zimone, All-Questioning, PAR-60)
+    "zimone_all_questioning_end_step",
+    lambda p: ZimoneAllQuestioningEndStepEffect(),
+)
+EffectRegistry.register(
+    # "draw a card for each Aura you controlled that was attached to it"
+    # (Hateful Eidolon, PAR-60) — off the DIES event's snapshot.
+    "draw_per_attached_aura_controller",
+    lambda p: DrawPerAttachedAuraControllerEffect(),
+)
+EffectRegistry.register(
     "draw_controlled_chosen_creature_type", lambda p: DrawControlledChosenCreatureTypeEffect(),
 )
 EffectRegistry.register(
@@ -21868,6 +23002,51 @@ EffectRegistry.register(
         rest_destination=p.get("rest_destination", "library_bottom_random"),
         tapped=bool(p.get("tapped", False)),
     ),
+)
+EffectRegistry.register(
+    # "Reveal the top X cards. Put all land cards onto the battlefield
+    # tapped … Spell mastery — … untap those lands." (Animist's Awakening)
+    "animists_awakening",
+    lambda p: AnimistsAwakeningEffect(count=p.get("count", "x")),
+)
+EffectRegistry.register(
+    # "Look at the top N cards. Put any number of nonland permanent cards
+    # with total mana value M or less onto the battlefield …" (Ao, the Dawn
+    # Sky's first mode, PAR-60)
+    "budget_dig_onto_battlefield",
+    lambda p: BudgetDigOntoBattlefieldEffect(
+        look=int(p.get("look", 7)), budget=int(p.get("budget", 4)),
+    ),
+)
+EffectRegistry.register(
+    # "Shuffle. Exile top cards while total MV <= 13; cast any of those free
+    # this turn." (Dance with Calamity, PAR-60)
+    "dance_with_calamity",
+    lambda p: DanceWithCalamityEffect(),
+)
+EffectRegistry.register(
+    # "Exile two piles of four. An opponent chooses one -> graveyard. From
+    # the other, cast one spell free; rest to hand." (Abstract Performance)
+    "abstract_performance",
+    lambda p: AbstractPerformanceEffect(),
+)
+EffectRegistry.register(
+    # "…each player exiles from the top until a nonland. An opponent denies
+    # one; cast up to two of the rest free." (Plargg and Nassari, PAR-60)
+    "plargg_and_nassari",
+    lambda p: PlarggAndNassariEffect(),
+)
+EffectRegistry.register(
+    # "Look at the top three cards … one to hand, one to bottom, exile one
+    # (playable this turn)." (Expressive Iteration, PAR-60)
+    "expressive_iteration",
+    lambda p: ExpressiveIterationEffect(),
+)
+EffectRegistry.register(
+    "expressive_iteration_exile_step", lambda p: ExpressiveIterationExileStepEffect(),
+)
+EffectRegistry.register(
+    "expressive_iteration_finish", lambda p: ExpressiveIterationFinishEffect(),
 )
 EffectRegistry.register(
     "descendants_fury_sacrifice",
@@ -22145,7 +23324,18 @@ EffectRegistry.register(
     "exile_triggering_discard_may_play_this_turn",
     lambda p: ExileTriggeringDiscardMayPlayThisTurnEffect(
         play_permission=bool(p.get("play_permission", True)),
+        track_exiled_with=bool(p.get("track_exiled_with", False)),
     ),
+)
+EffectRegistry.register(
+    # "{T}: Put a card exiled with this artifact into its owner's graveyard.
+    # Land -> Treasure; nonland -> 2/2 black Rogue." (Currency Converter, PAR-60)
+    "currency_converter_cash_out",
+    lambda p: CurrencyConverterCashOutEffect(),
+)
+EffectRegistry.register(
+    "currency_converter_resolve",  # then_specs tail of the chooser branch
+    lambda p: CurrencyConverterResolveEffect(),
 )
 EffectRegistry.register(
     "exchange_life_totals",  # "Two target players exchange life totals." (Soul Conduit)
@@ -22426,6 +23616,12 @@ EffectRegistry.register(
     )
 )
 EffectRegistry.register(
+    # "You mill a card, then ~ deals damage to each opponent equal to the
+    # total mana value of cards milled this way." (Fateful Tempest, PAR-60)
+    "mill_then_damage_each_opponent_by_mv",
+    lambda p: MillThenDamageEachOpponentByMvEffect(count=int(p.get("count", 1) or 1)),
+)
+EffectRegistry.register(
     "sacrifice_self",  # "Sacrifice ~." (Dress Down/Underworld Breach-shaped)
     lambda p: SacrificeSelfEffect(),
 )
@@ -22608,6 +23804,18 @@ EffectRegistry.register(
     "exile_create_token",  # Resculpt
     lambda p: ExileCreateTokenEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
+        power=p.get("power"), toughness=p.get("toughness"),
+        colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
+        keywords=list(p.get("keywords", [])),
+        token_name=p.get("token_name"),
+    ),
+)
+EffectRegistry.register(
+    # "Whenever a player attacks one of your opponents, that attacking
+    # player creates a tapped … token that's attacking that opponent."
+    # (Combat Calligrapher, PAR-60)
+    "attacker_creates_attacking_token",
+    lambda p: AttackerCreatesAttackingTokenEffect(
         power=p.get("power"), toughness=p.get("toughness"),
         colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
         keywords=list(p.get("keywords", [])),
@@ -22916,6 +24124,15 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "each player exiles a card from their graveyard. When one or more
+    # nonland cards are exiled this way, put that many +1/+1 counters on
+    # target attacking creature." (Augusta, Order Returned, PAR-60)
+    "each_player_exile_from_graveyard_then_counters",
+    lambda p: EachPlayerExileFromGraveyardThenCountersEffect(
+        target_kind=p.get("target_kind", "creature"),
+    ),
+)
+EffectRegistry.register(
     "destroy_controller_may_search_basic_land",  # Boseiju, Who Endures
     lambda p: DestroyControllerMaySearchBasicLandEffect(
         target=p.get("target"),
@@ -22936,6 +24153,16 @@ EffectRegistry.register(
     lambda p: TargetPlayerDrawLoseLifeEffect(
         draw_count=p.get("draw_count", 1), life_loss=p.get("life_loss", 0),
         target=p.get("target"), target_kind=p.get("target_kind", "player"),
+    ),
+)
+EffectRegistry.register(
+    # "Target player puts a +1/+1 counter on each creature they control."
+    # (Shadrix Silverquill's third mode, PAR-60)
+    "target_player_counter_each_creature",
+    lambda p: TargetPlayerCounterEachCreatureEffect(
+        amount=int(p.get("amount", p.get("count", 1)) or 1),
+        kind=str(p.get("kind", "+1/+1")),
+        target=p.get("target"), target_kind=str(p.get("target_kind", "player")),
     ),
 )
 EffectRegistry.register(
@@ -22975,6 +24202,12 @@ EffectRegistry.register(
         colors=p.get("colors"),
         to_library_top_if_clash_won=bool(p.get("to_library_top_if_clash_won", False)),
     ),
+)
+EffectRegistry.register(
+    # "Return each creature with power of the chosen quality to its owner's
+    # hand. (Zero is even.)" (Zimone's Hypothesis, PAR-60)
+    "return_creatures_by_power_parity",
+    lambda p: ReturnCreaturesByPowerParityEffect(parity=str(p.get("parity", "even"))),
 )
 EffectRegistry.register(
     "return_to_library",  # "put target X on top/bottom of its owner's library" (RULE 701.3)
@@ -23287,6 +24520,50 @@ EffectRegistry.register(
         greatest_power=bool(p.get("greatest_power", False)),
         target_kind=p.get("target_kind"),
     ),
+)
+EffectRegistry.register(
+    # "For each player, you choose … an artifact, a creature, an enchantment,
+    # and a planeswalker. Then each player sacrifices all other nonland
+    # permanents they control." (Tragic Arrogance, PAR-60)
+    "tragic_arrogance",
+    lambda p: TragicArroganceEffect(),
+)
+EffectRegistry.register(
+    # "Exile all creatures. Each player creates a 0/0 Fractal … +1/+1
+    # counters = total power of their exiled creatures." (Oversimplify)
+    "oversimplify",
+    lambda p: OversimplifyEffect(),
+)
+EffectRegistry.register(
+    # "…for each creature token you control that entered this turn, create a
+    # tapped and attacking token that's a copy of that token." (Redoubled
+    # Stormsinger, PAR-60)
+    "redoubled_stormsinger_copies",
+    lambda p: RedoubledStormsingerCopiesEffect(),
+)
+EffectRegistry.register(
+    # "Exile target instant or sorcery card from your graveyard. Creatures
+    # you control get +X/+0 …" (Surge to Victory, PAR-60 — copy-on-damage
+    # rider dropped)
+    "surge_to_victory",
+    lambda p: SurgeToVictoryEffect(),
+)
+EffectRegistry.register(
+    # "…create a 2/1 blue Phyrexian Myr … Then you may choose a token you
+    # control. If you do, each other token you control becomes a copy of
+    # that token." (Brudiclad, Telchor Engineer, PAR-60)
+    "brudiclad_combat",
+    lambda p: BrudicladCombatEffect(),
+)
+EffectRegistry.register(
+    # "Whenever another nontoken creature you control dies, exile it. If you
+    # do, create a token that's a copy of that creature, except it's a
+    # Spirit …" (Hofri Ghostforge, PAR-60 — leave-return rider dropped)
+    "hofri_ghostforge_dies",
+    lambda p: HofriGhostforgeDiesEffect(),
+)
+EffectRegistry.register(
+    "brudiclad_become_copies", lambda p: BrudicladBecomeCopiesEffect(),
 )
 EffectRegistry.register(
     # "Sacrifice it at the beginning of the next end step." (Kiki-Jiki,
@@ -24226,6 +25503,16 @@ EffectRegistry.register(
     lambda p: CopyAttachmentsOntoLastCreatedEffect(),
 )
 EffectRegistry.register(
+    # "Create a <colors> Aura enchantment token named <name> attached to
+    # target creature <...>." (Scriv, the Obligator's "Contract", PAR-60)
+    "create_attached_aura_token",
+    lambda p: CreateAttachedAuraTokenEffect(
+        token_name=str(p.get("token_name", "Aura")),
+        colors=list(p.get("colors", [])),
+        target_kind=str(p.get("target_kind", "creature_you_dont_control")),
+    ),
+)
+EffectRegistry.register(
     # "Create a token that's a copy of <a specific named real card>"
     # (The Joiner of Cats). The name is clamped parser data.
     "create_token_copy_of_named",
@@ -24403,6 +25690,19 @@ EffectRegistry.register(
     lambda p: ReturnSelfFromGraveyardToBattlefieldEffect(tapped=bool(p.get("tapped", False))),
 )
 EffectRegistry.register(
+    # "When enchanted creature dies, return that card to the battlefield
+    # under its owner's control." (Gift of Immortality, PAR-60)
+    "return_dying_subject_to_battlefield",
+    lambda p: ReturnDyingSubjectToBattlefieldEffect(),
+)
+EffectRegistry.register(
+    # "…return that card under its owner's control. Return this card
+    # attached to that creature at the beginning of the next end step."
+    # (Gift of Immortality, PAR-60)
+    "gift_of_immortality_dies",
+    lambda p: GiftOfImmortalityDiesEffect(),
+)
+EffectRegistry.register(
     # "…that creature gains 'when this creature dies, return it to the
     # battlefield tapped under its owner's control.'" (Malakir Rebirth's
     # granted death-return, temporary — unlike `return_self_from_graveyard`
@@ -24477,6 +25777,12 @@ EffectRegistry.register(
         count=int(p.get("count", 1) or 1),
         move_all_kinds=bool(p.get("move_all_kinds", False)),
     ),
+)
+EffectRegistry.register(
+    # "…move any number of +1/+1 counters from this creature onto other
+    # creatures." (Forgotten Ancient, PAR-60 — simplified to all-onto-one)
+    "move_all_plus_one_counters_from_self",
+    lambda p: MoveAllPlusOneCountersFromSelfEffect(),
 )
 EffectRegistry.register(
     # "Remove any number of counters from among permanents on the

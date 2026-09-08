@@ -247,46 +247,44 @@ its block back into the matching section here.
   `Done_Backend.md` under "Secrets of Strixhaven"; the running per-wave log
   is the session scratchpad `secrets_of_strixhaven_plan.md`.
 
-  **Still open** — 37 uncovered as of wave 69 (396/433 covered: Witherbloom
-  84/86, Silverquill 76/86, Quandrix 82/89, Prismari 78/87, Lorehold 76/85).
+  **Still open** — 10 uncovered as of wave 96 (423/433 covered: Witherbloom
+  84/86, Silverquill 83/86, Quandrix 87/89, Prismari 86/87, Lorehold 83/85).
   Each remaining card needs a genuinely new subsystem or a large extension
   with real regression surface — probed individually, not a recombination of
-  shipped primitives. Grouped:
-  - **Prismari spell/token copy fan-out** — Mirrorwing Dragon ("copy for
-    each other creature the spell could target"), Redoubled Stormsinger
-    (tapped-attacking copy per just-entered token), Brudiclad (each other
-    token becomes a copy of a chosen one), Plargg and Nassari, Surge to
-    Victory (exiled-card copy on combat damage), Rousing Refrain
-    (ritual-into-suspend).
-  - **spell/ability copy gated on {X}** — Unbound Flourishing (both
-    clauses: "double the value of X" on a permanent cast + copy an
-    instant/sorcery/ability whose cost contains {X}).
-  - **"exile from library/graveyard, then play/cast for free" bespoke
-    shapes** — Abstract Performance (two piles, opp splits), Dance with
-    Calamity (player-driven MV-budget loop), Expressive Iteration (look 3,
-    1 hand / 1 bottom / 1 exile-playable), Fateful Tempest (council's
-    dilemma), Serra Paragon (once/turn graveyard land-play OR cast + exile
-    rider), Currency Converter (exiled-with-this bookkeeping), Advanced
-    Reconstruction (multi-level Class).
-  - **per-player graveyard exile with a distributed payoff** — Augusta,
-    Oversimplify.
-  - **mass "keep one of each" (chooser-marked)** — Tragic Arrogance,
-    Immoral Bargain (sacrifice-X cost that defines the spell's X).
-  - **odd/even & prime counting** — Zimone's Hypothesis (odd/even mass
-    bounce), Zimone All-Questioning (prime land count).
-  - **distribute-any-number-of-counters** — Forgotten Ancient.
-  - **become-a-copy-from-a-set / dies-exile-copy-token** — Hofri
-    Ghostforge, Primo the Unbounded (2nd clause).
-  - **modal dies / reveal-top-X-fixed variants** — Ao the Dawn Sky,
-    Animist's Awakening (reveal top X fixed, put all lands + spell-mastery
-    untap).
-  - **"cards leave graveyard/exile" +1/+1 counter trigger** — Laelia (needs
-    a batched CARDS_EXILED event for library-or-graveyard exiles).
-  - **`enchanted_by_your_aura` static/trigger reuse (wave 48/49 primitive)
-    plus a bespoke second clause** — Combat Calligrapher, Scriv, Nils,
-    Breena, Pearl-Ear, Hateful Eidolon, Gift of Immortality, Intermediate
-    Chirography, Shadrix Silverquill (modal-target-different-players),
-    Inkshield (prevent→token), Plumb the Forbidden.
+  shipped primitives:
+  - **additional-cost-{X} that defines the spell's X** — Immoral Bargain
+    ("sacrifice X creatures … destroy X target nonland permanents"), Plumb
+    the Forbidden ("sacrifice one or more creatures … copy this spell for
+    each"). Needs the RULE 601.2b cost-payment flow coupled to the {X}
+    announcement flow.
+  - **multi-level Class re-authoring** — Intermediate Chirography (only its
+    L3 "each end step, if a modified creature died … create token" clause
+    is unclaimed) and Advanced Reconstruction (all three level clauses
+    unclaimed: random-graveyard-exile L1, `CARDS_LEFT_GRAVEYARD` damage L2,
+    cast-from-anywhere-but-hand cost reduction L3). Either full Class
+    re-authoring with `min_level` gating, or a parser trigger-grammar
+    extension for the "at each end step, if <died>" shape.
+  - **Nils, Discipline Enforcer** — for-each-player "up to one target
+    creature that player controls" +1/+1 counter, plus a per-attacker
+    variable "can't attack you unless its controller pays {X}, X = its
+    counter count" tax.
+  - **Primo, the Unbounded** — "enters with **twice X** +1/+1 counters"
+    (`entry_counters` has no `x_multiplier`) + a "creatures you control with
+    base power 0 deal combat damage → Fractal token with counters = damage"
+    trigger.
+  - **Unbound Flourishing** — "double the value of X" on a permanent spell
+    cast + "copy an instant/sorcery/ability whose cost contains {X}".
+  - **Mirrorwing Dragon** — "copy that spell for each other creature they
+    control that the spell could target. Each copy targets a different one"
+    — spell-copy-per-legal-target with real per-copy retargeting
+    (`CopySpellEffect` keeps the original's targets by design).
+  - **Inkshield** — "prevent all combat damage that would be dealt to you
+    this turn. For each 1 damage prevented this way, create an Inkling" — a
+    combat-damage-step prevention replacement that counts what it prevents.
+  - **Laelia, the Blade Reforged** — "whenever one or more cards are put
+    into exile from your library and/or your graveyard, put a +1/+1 counter
+    on Laelia" — needs a batched `CARDS_EXILED` event (library and/or
+    graveyard, owner = you) and binder EXILE-trigger support.
 
 ## MEC — Game mechanics
 
