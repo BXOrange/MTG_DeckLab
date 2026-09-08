@@ -3623,3 +3623,648 @@ def _harmonic_prodigy() -> list[AbilitySpec]:
 
 
 register("Harmonic Prodigy", _harmonic_prodigy)
+
+
+# ===========================================================================
+# wave 52 — reveal-until-a-type impulse cast (PAR-60)
+# ===========================================================================
+# `RulesEngine.dig_until` (the generalized cascade dig) already does
+# "reveal from the top until <predicate>, free-cast the hit, rest to the
+# bottom in a random order". Creative Technique is exactly that with a
+# ``shuffle`` prologue.
+
+
+def _creative_technique() -> list[AbilitySpec]:
+    """Demonstrate (folds in from the RULE 702 keyword catalogue).
+    Shuffle your library, then reveal cards from the top of it until you
+    reveal a nonland card. Exile that card and put the rest on the bottom of
+    your library in a random order. You may cast the exiled card without
+    paying its mana cost."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("shuffle", {}),
+             EffectSpec("dig_until", {
+                 "criteria": {"without_type": "land"},
+                 "hit_destination": "cast_free_window",
+                 "rest_destination": "library_bottom_random",
+             })],
+            raw_text="Mische deine Bibliothek und decke dann Karten oben von ihr auf, "
+                     "bis du eine Nichtland-Karte aufdeckst. Exiliere jene Karte und lege "
+                     "den Rest zufaellig geordnet unter deine Bibliothek. Du darfst die "
+                     "exilierte Karte wirken, ohne ihre Manakosten zu bezahlen.",
+        ),
+    ]
+
+
+register("Creative Technique", _creative_technique)
+
+
+# ===========================================================================
+# wave 53 — ``entered_this_turn`` object filter key (PAR-60)
+# ===========================================================================
+# `combat.matches_object_filter` gained an ``entered_this_turn`` key
+# (`GameObject.turn_entered` vs the current turn), and `AddCountersEffect`'s
+# ``selector`` branch now threads ``state`` into that call so a mass
+# counter effect can narrow to just-entered creatures.
+
+
+def _oran_rief_the_vastwood() -> list[AbilitySpec]:
+    """This land enters tapped.  {T}: Add {G}.  (both from the land pipeline)
+    {T}: Put a +1/+1 counter on each green creature that entered this turn."""
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("add_counters", {
+                "kind": "+1/+1", "amount": 1, "selector": "each_creature",
+                "creature_filter": {"color": "G", "entered_this_turn": True},
+            })],
+            cost={"text": "{T}"},
+            raw_text="{T}: Lege eine +1/+1-Marke auf jede gruene Kreatur, die in diesem "
+                     "Zug ins Spiel gekommen ist.",
+        ),
+    ]
+
+
+register("Oran-Rief, the Vastwood", _oran_rief_the_vastwood)
+
+
+# ===========================================================================
+# wave 54 — permanent (RULE 611.2 no-duration) gain-control one-shot (PAR-60)
+# ===========================================================================
+# `GainControlUntilEndOfTurnEffect` (Zealous Conscripts family) gained a
+# ``duration`` axis: ``"permanent"`` + ``untap=False`` + ``haste=False`` is
+# the Mind Control / Control Magic / Persuasion / Corrupted Conscience /
+# Entrancing Melody family — a bare, non-reverting ``controller_id`` change.
+
+
+def _entrancing_melody() -> list[AbilitySpec]:
+    """Gain control of target creature with mana value X.
+
+    Documented simplification: modeled as ``max_mana_value`` (mv <= X), the
+    engine's only mana-value target cap — very slightly more permissive than
+    the printed exact "mana value X", but the caster picks X to hit the
+    creature they want anyway."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("gain_control_until_eot", {
+                "target_kind": "creature", "max_mana_value": "x",
+                "duration": "permanent", "untap": False, "haste": False,
+            })],
+            raw_text="Uebernimm die Kontrolle ueber eine Zielkreatur mit Manawert X.",
+        ),
+    ]
+
+
+register("Entrancing Melody", _entrancing_melody)
+
+
+# ===========================================================================
+# wave 55 — magecraft + ``impulsive_look`` (PAR-60)
+# ===========================================================================
+# `ImpulsiveLookEffect` ("look at the top N, take one matching a filter,
+# rest to Y") already does exactly Quandrix Apprentice's dig.
+
+
+def _quandrix_apprentice() -> list[AbilitySpec]:
+    """Magecraft — Whenever you cast or copy an instant or sorcery spell,
+    look at the top three cards of your library. You may reveal a land card
+    from among them and put that card into your hand. Put the rest on the
+    bottom of your library in any order.
+
+    Documented simplification: like the parser's own magecraft modeling,
+    "or copy" is treated as just the cast."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("impulsive_look", {
+                "count": 3, "criteria": {"type": "land"},
+                "hit_destination": "hand",
+                "miss_destination": "library_bottom_random",
+                "optional": True,
+            })],
+            trigger={"event": EventType.SPELL_CAST,
+                     "condition": {"subject": "group", "controller": "you"},
+                     "spell_card_types": ["instant", "sorcery"]},
+            raw_text="Magiekunst — Immer wenn du einen Spontanzauber oder eine Hexerei "
+                     "wirkst oder kopierst, sieh dir die obersten drei Karten deiner "
+                     "Bibliothek an. Du darfst eine Landkarte aus ihnen offen vorzeigen "
+                     "und auf deine Hand nehmen. Lege den Rest unter deine Bibliothek.",
+        ),
+    ]
+
+
+register("Quandrix Apprentice", _quandrix_apprentice)
+
+
+# ===========================================================================
+# wave 56 — ``per_opponent`` token creation (PAR-60)
+# ===========================================================================
+# `CreateTokenEffect.per_opponent` ("for each opponent, create a … token")
+# already exists; Furygale Flocking is that with ``count=2``.
+
+
+def _furygale_flocking() -> list[AbilitySpec]:
+    """This spell costs {1} less for each instant/sorcery card in your
+    graveyard (folds in from the parser).
+    For each opponent, create two 3/3 blue and red Elemental creature tokens
+    with flying that attack that opponent this turn if able. They gain haste
+    until end of turn.
+
+    Documented simplification: the "attack that opponent this turn if able"
+    directed requirement is dropped (no turn-scoped directed must-attack
+    designation for a freshly created token); the tokens keep flying + haste
+    and the caster swings them. Haste is baked on rather than until-end-of-
+    turn — unobservable past the turn they're made (summoning sickness)."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("create_token", {
+                "count": 2, "per_opponent": True, "power": 3, "toughness": 3,
+                "colors": ["U", "R"], "subtypes": ["Elemental"],
+                "keywords": ["flying", "haste"], "token_name": "Elemental",
+            })],
+            raw_text="Erzeuge fuer jeden Gegner zwei 3/3 blau-rote Elementar-"
+                     "Kreaturtoken mit Fliegend, die in diesem Zug jenen Gegner "
+                     "angreifen, wenn moeglich. Sie erhalten Eile bis zum Ende des Zuges.",
+        ),
+    ]
+
+
+register("Furygale Flocking", _furygale_flocking)
+
+
+# ===========================================================================
+# wave 57 — Chaos Warp (shuffle a permanent away + reveal-top) — PAR-60
+# ===========================================================================
+# New `shuffle_target_into_library_reveal_top` effect.
+
+
+def _chaos_warp() -> list[AbilitySpec]:
+    """The owner of target permanent shuffles it into their library, then
+    reveals the top card of their library. If it's a permanent card, they
+    put it onto the battlefield."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("shuffle_target_into_library_reveal_top",
+                        {"target_kind": "permanent"})],
+            raw_text="Der Besitzer einer bleibenden Zielkarte mischt sie in seine "
+                     "Bibliothek und deckt dann die oberste Karte seiner Bibliothek auf. "
+                     "Falls es eine bleibende Karte ist, bringt er sie ins Spiel.",
+        ),
+    ]
+
+
+register("Chaos Warp", _chaos_warp)
+
+
+# ===========================================================================
+# wave 58 — Thunderclap Drake (arm-a-spell-watcher + commander-cast-count
+# copy) — PAR-60
+# ===========================================================================
+# `CopySpellEffect` gained ``count_selector`` (copy count read live from a
+# `continuous.count_selector`); the delayed "when you next cast" hook is the
+# existing `arm_spell_watcher`. The ``commander_casts_this_game`` selector
+# was added in wave 41.
+
+
+def _thunderclap_drake() -> list[AbilitySpec]:
+    """Flying.  Instant and sorcery spells you cast cost {1} less (folds in
+    from the parser).
+    {2}{U}, Sacrifice this creature: When you next cast an instant or sorcery
+    spell this turn, copy it for each time you've cast your commander from
+    the command zone this game. You may choose new targets for the copies.
+
+    Documented simplification (shared with `CopySpellEffect`): the copies
+    keep the original's targets rather than opening a new-target pick."""
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("arm_spell_watcher", {
+                "card_types": ["instant", "sorcery"],
+                "then_specs": [{
+                    "type": "copy_spell",
+                    "params": {"count_selector": "commander_casts_this_game"},
+                }],
+            })],
+            cost={"text": "{2}{U}, Sacrifice ~"},
+            raw_text="{2}{U}, opfere diese Kreatur: Wenn du das naechste Mal in diesem Zug "
+                     "einen Spontanzauber oder eine Hexerei wirkst, kopiere ihn fuer jedes "
+                     "Mal, das du in diesem Spiel deinen Kommandeur aus der Kommandozone "
+                     "gewirkt hast.",
+        ),
+    ]
+
+
+register("Thunderclap Drake", _thunderclap_drake)
+
+
+# ===========================================================================
+# wave 59 — Priest of Forgotten Gods (pure composition of shipped primitives)
+# ===========================================================================
+
+
+def _priest_of_forgotten_gods() -> list[AbilitySpec]:
+    """{T}, Sacrifice two other creatures: Any number of target players each
+    lose 2 life and sacrifice a creature of their choice. You add {B}{B} and
+    draw a card.
+
+    Documented simplification: "any number of target players" is modeled as
+    "each opponent" (the standard goldfish reading — `LoseLifeEffect` /
+    `SacrificeEffect` both already take ``selector="each_opponent"``)."""
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("lose_life", {"amount": 2, "selector": "each_opponent"}),
+             EffectSpec("sacrifice", {"selector": "each_opponent", "what": "creature",
+                                      "count": 1}),
+             EffectSpec("add_mana", {"colors": ["B", "B"]}),
+             EffectSpec("draw", {"count": 1})],
+            cost={"text": "{T}", "sacrifice_count": [2, "creature"]},
+            raw_text="{T}, opfere zwei andere Kreaturen: Jeder Gegner verliert 2 "
+                     "Lebenspunkte und opfert eine Kreatur seiner Wahl. Du erzeugst "
+                     "{B}{B} und ziehst eine Karte.",
+        ),
+    ]
+
+
+register("Priest of Forgotten Gods", _priest_of_forgotten_gods)
+
+
+# ===========================================================================
+# wave 60 — Woe Strider ("escapes with counters") — PAR-60
+# ===========================================================================
+# New `GameObject.cast_via_escape` flag (stamped at the Escape cast site,
+# like ``cast_via_flashback``) + a ``cast_via_escape`` condition key. The
+# "enters with N +1/+1 counters" rider is modeled as an ETB add_counters
+# gated on it (the same enters-with-counters simplification prior waves use).
+
+
+def _woe_strider() -> list[AbilitySpec]:
+    """Escape—{3}{B}{B}, Exile four other cards from your graveyard (folds in
+    from the RULE 702 keyword catalogue).
+    When this creature enters, create a 0/1 white Goat creature token.
+    Sacrifice another creature: Scry 1.
+    This creature escapes with two +1/+1 counters on it."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count": 1, "power": 0, "toughness": 1, "colors": ["W"],
+                "subtypes": ["Goat"], "keywords": [], "token_name": "Goat"})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, erzeuge einen 0/1 weissen "
+                     "Ziegen-Kreaturtoken.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"kind": "+1/+1", "amount": 2},
+                        condition={"cast_via_escape": True})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Diese Kreatur flieht mit zwei +1/+1-Marken auf ihr.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("scry", {"count": 1})],
+            cost={"text": "Sacrifice another creature"},
+            raw_text="Opfere eine andere Kreatur: Hellsicht 1.",
+        ),
+    ]
+
+
+register("Woe Strider", _woe_strider)
+
+
+# ===========================================================================
+# wave 61 — Nexus Mentality (modal counter shuffle) — PAR-60
+# ===========================================================================
+# `MoveCountersEffect` gained ``move_all_kinds`` and `RemoveCountersEffect`
+# gained ``draw_per_removed``.
+
+
+def _nexus_mentality() -> list[AbilitySpec]:
+    """Choose one. If you control a commander as you cast this spell, you may
+    choose both instead.
+    • Move all counters from target nonland permanent you control onto
+      another target nonland permanent you control.
+    • Remove all counters from target nonland permanent you control. Draw a
+      card for each counter removed this way.
+
+    Documented simplification: the "choose both" upside is modeled as an
+    unconditional ``or_both`` (a Commander player virtually always controls
+    or has cast their commander), rather than gating it on live commander
+    control."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [],
+            modes={
+                "choose": 1,
+                "or_both": True,
+                "options": [
+                    [EffectSpec("move_counters", {
+                        "source_target_kind": "nonland_permanent_you_control",
+                        "dest_target_kind": "nonland_permanent_you_control",
+                        "move_all_kinds": True,
+                    })],
+                    [EffectSpec("remove_counters", {
+                        "target_kind": "nonland_permanent_you_control",
+                        "draw_per_removed": True,
+                    })],
+                ],
+                "descriptions": [
+                    "Bewege alle Marken von einer bleibenden Nichtland-Zielkarte, die du "
+                    "kontrollierst, auf eine andere.",
+                    "Entferne alle Marken von einer bleibenden Nichtland-Zielkarte, die du "
+                    "kontrollierst. Ziehe eine Karte fuer jede so entfernte Marke.",
+                ],
+            },
+            raw_text="Waehle eins. Falls du einen Kommandeur kontrollierst, waehle beides.",
+        )
+    ]
+
+
+register("Nexus Mentality", _nexus_mentality)
+
+
+# ===========================================================================
+# wave 62 — Open the Way (reveal-until-N-lands ramp) — PAR-60
+# ===========================================================================
+# New `RulesEngine.reveal_until_matching` (the `card_query`-predicate
+# sibling of `reveal_until_creature_type`) + a ``reveal_until`` effect.
+
+
+def _open_the_way() -> list[AbilitySpec]:
+    """X can't be greater than the number of players in the game.
+    Reveal cards from the top of your library until you reveal X land cards.
+    Put those land cards onto the battlefield tapped and the rest on the
+    bottom of your library in a random order.
+
+    Documented simplification: the "X can't be greater than the number of
+    players" cap is not enforced."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("reveal_until", {
+                "criteria": {"type": "land"}, "count": "x",
+                "hit_destination": "battlefield", "tapped": True,
+                "rest_destination": "library_bottom_random",
+            })],
+            raw_text="Decke Karten oben von deiner Bibliothek auf, bis du X Landkarten "
+                     "aufdeckst. Bringe jene Landkarten getappt ins Spiel und lege den "
+                     "Rest zufaellig geordnet unter deine Bibliothek.",
+        ),
+    ]
+
+
+register("Open the Way", _open_the_way)
+
+
+# ===========================================================================
+# wave 63 — Gorma, the Gullet (count-scaled extra ETB counters) — PAR-60
+# ===========================================================================
+# `continuous.extra_etb_counters_for` / the ``extra_etb_counter`` static
+# gained ``count_selector`` (live count instead of a fixed ``count``) and a
+# ``nontoken`` filter.
+
+
+def _gorma_the_gullet() -> list[AbilitySpec]:
+    """Lifelink (folds in).
+    Whenever another creature you control dies, put a +1/+1 counter on Gorma
+    (parser-claimed — re-added here).
+    Nontoken creatures you control enter with an additional +1/+1 counter on
+    them for each creature that died under your control this turn."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"count": 1, "kind": "+1/+1"})],
+            trigger={"event": EventType.DIES,
+                     "condition": {"subject": "group", "type": "creature",
+                                   "controller": "you", "other": True}},
+            raw_text="Immer wenn eine andere Kreatur, die du kontrollierst, stirbt, lege "
+                     "eine +1/+1-Marke auf Gorma.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("extra_etb_counter", {
+                "kind": "+1/+1", "nontoken": True,
+                "count_selector": "creatures_died_this_turn"})],
+            raw_text="Nichttoken-Kreaturen, die du kontrollierst, kommen mit einer "
+                     "zusaetzlichen +1/+1-Marke fuer jede Kreatur ins Spiel, die in "
+                     "diesem Zug unter deiner Kontrolle gestorben ist.",
+        ),
+    ]
+
+
+register("Gorma, the Gullet", _gorma_the_gullet)
+
+
+# ===========================================================================
+# wave 64 — Promise of Loyalty (each player keeps one creature) — PAR-60
+# ===========================================================================
+# Pure reuse: `SacrificeEffect(selector="each_player", count="all_but_one")`
+# is exactly "each player puts a vow counter on a creature they control and
+# sacrifices the rest" minus the mark.
+
+
+def _promise_of_loyalty() -> list[AbilitySpec]:
+    """Each player puts a vow counter on a creature they control and
+    sacrifices the rest. Each of those creatures can't attack you or
+    planeswalkers you control for as long as it has a vow counter on it.
+
+    Documented simplification: modeled as "each player sacrifices all
+    creatures but one" (`SacrificeEffect` ``count="all_but_one"``); the vow
+    counter on the kept creature and its "can't attack you" rider are
+    dropped (no hook to mark the specific creature left behind by an
+    interactive keep-one)."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("sacrifice", {"selector": "each_player", "what": "creature",
+                                      "count": "all_but_one"})],
+            raw_text="Jeder Spieler legt eine Geluebde-Marke auf eine Kreatur, die er "
+                     "kontrolliert, und opfert die restlichen.",
+        ),
+    ]
+
+
+register("Promise of Loyalty", _promise_of_loyalty)
+
+
+# ===========================================================================
+# wave 65 — Songbirds' Blessing (Aura attack-trigger dig) — PAR-60
+# ===========================================================================
+# Pure reuse: `dig_until` on an ``attached_permanent`` ATTACKS trigger.
+
+
+def _songbirds_blessing() -> list[AbilitySpec]:
+    """Enchant creature (folds in).
+    Whenever enchanted creature attacks, reveal cards from the top of your
+    library until you reveal an Aura card. You may put that card onto the
+    battlefield. If you don't, put it into your hand. Put the rest on the
+    bottom of your library in a random order.
+
+    Documented simplification: the "you may put that card onto the
+    battlefield" option is dropped (an Aura put onto the battlefield by an
+    effect needs an enchant-target choice not wired for this dig) — the
+    revealed Aura always goes to hand instead."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("dig_until", {
+                "criteria": {"type": "Aura"}, "hit_destination": "hand",
+                "rest_destination": "library_bottom_random"})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "attached_permanent"}},
+            raw_text="Immer wenn die verzauberte Kreatur angreift, decke Karten oben von "
+                     "deiner Bibliothek auf, bis du eine Aura-Karte aufdeckst. Nimm sie "
+                     "auf deine Hand. Lege den Rest zufaellig geordnet unter deine "
+                     "Bibliothek.",
+        ),
+    ]
+
+
+register("Songbirds' Blessing", _songbirds_blessing)
+
+
+# ===========================================================================
+# wave 66 — Altered Ego (Clone + X counters) — PAR-60
+# ===========================================================================
+# `EnterAsCopyReplacement` gained ``extra_counters_from_x`` (the copy spell's
+# own announced {X} as the extra-+1/+1 count, resolved when the copy is made).
+
+
+def _altered_ego() -> list[AbilitySpec]:
+    """This spell can't be countered (parser-claimed — re-added).
+    You may have this creature enter as a copy of any creature on the
+    battlefield, except it enters with X additional +1/+1 counters on it."""
+    return [
+        AbilitySpec("static", [EffectSpec("cant_be_countered", {})],
+                    raw_text="Dieser Zauberspruch kann nicht neutralisiert werden."),
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("enter_as_copy", {
+                "target_kind": "creature", "optional": True,
+                "extra_counters_from_x": True,
+            })],
+            raw_text="Du darfst diese Kreatur als Kopie einer beliebigen Kreatur im Spiel "
+                     "ins Spiel kommen lassen, doch kommt sie mit X zusaetzlichen "
+                     "+1/+1-Marken ins Spiel.",
+        ),
+    ]
+
+
+register("Altered Ego", _altered_ego)
+
+
+# ===========================================================================
+# wave 67 — Rootha, Mastering the Moment (greatest i/s mv this turn) — PAR-60
+# ===========================================================================
+# New `GameState.greatest_instant_sorcery_mv_this_turn` tracker (bumped in
+# `_track_spell_cast`, reset in `begin_turn`) + the
+# ``greatest_instant_sorcery_mv_this_turn`` count_selector + a
+# ``cast_instant_or_sorcery_this_turn`` trigger intervening-if predicate.
+# `CreateTokenEffect.pt_from_count_selector` already exists.
+
+
+def _rootha_mastering_the_moment() -> list[AbilitySpec]:
+    """At the beginning of combat on your turn, if you've cast an instant or
+    sorcery spell this turn, create an X/X blue and red Elemental creature
+    token with flying and haste, where X is the greatest mana value among
+    instant and sorcery spells you've cast this turn."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count": 1, "colors": ["U", "R"], "subtypes": ["Elemental"],
+                "keywords": ["flying", "haste"], "token_name": "Elemental",
+                "pt_from_count_selector": "greatest_instant_sorcery_mv_this_turn",
+            })],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "begin_combat"},
+                     "phase_relation": "you",
+                     "cast_instant_or_sorcery_this_turn": True},
+            raw_text="Zu Beginn des Kampfes in deinem Zug, falls du in diesem Zug einen "
+                     "Spontanzauber oder eine Hexerei gewirkt hast, erzeuge einen X/X "
+                     "blau-roten Elementar-Kreaturtoken mit Fliegend und Eile, wobei X "
+                     "der hoechste Manawert unter den Spontanzaubern und Hexereien ist, "
+                     "die du in diesem Zug gewirkt hast.",
+        ),
+    ]
+
+
+register("Rootha, Mastering the Moment", _rootha_mastering_the_moment)
+
+
+# ===========================================================================
+# wave 68 — Spirit of Resilience (graveyard-exit +1/+1) — PAR-60
+# ===========================================================================
+# Pure reuse of the batched ``CARDS_LEFT_GRAVEYARD`` trigger (Quintorius,
+# Advanced Reconstruction share it).
+
+
+def _spirit_of_resilience() -> list[AbilitySpec]:
+    """Whenever one or more cards leave your graveyard, put a +1/+1 counter
+    on this creature, then you may have this creature become a copy of an
+    artifact or creature card from among those cards until end of turn.
+
+    Documented simplification: the "become a copy of a card from among those
+    that left" rider is dropped (no primitive for BecomeCopy chosen from a
+    transient set of just-departed graveyard cards) — the +1/+1 growth,
+    the card's dominant effect, is kept."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"count": 1, "kind": "+1/+1"})],
+            trigger={"event": EventType.CARDS_LEFT_GRAVEYARD, "graveyard_owner": "you"},
+            raw_text="Immer wenn eine oder mehr Karten deinen Friedhof verlassen, lege "
+                     "eine +1/+1-Marke auf diese Kreatur.",
+        ),
+    ]
+
+
+register("Spirit of Resilience", _spirit_of_resilience)
+
+
+# ===========================================================================
+# wave 69 — Stensian Sanguinist (attack -> grant deathtouch -> prepared) —
+# PAR-60
+# ===========================================================================
+# Pure reuse: `PLAYER_ATTACKED` + `grant_until` (deathtouch) + a DAMAGE
+# trigger firing `become_prepared` (waves 23/27 primitive).
+
+
+def _stensian_sanguinist() -> list[AbilitySpec]:
+    """Whenever you attack, target creature gains deathtouch until end of
+    turn. Whenever that creature deals combat damage to a player this
+    combat, this creature becomes prepared.
+
+    Documented simplification: the "that creature" link between the two
+    clauses is approximated as "a creature you control" (no linked-target
+    delayed-DAMAGE-trigger primitive) — Stensian's own grant-then-connect
+    intent is preserved."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("grant_until", {
+                "target_kind": "creature", "duration": "end_of_turn",
+                "static": {"type": "grant_keyword", "params": {"keywords": ["deathtouch"]}},
+            })],
+            trigger={"event": EventType.PLAYER_ATTACKED, "condition": {"subject": "you"}},
+            raw_text="Immer wenn du angreifst, erhaelt eine Zielkreatur Todesberuehrung "
+                     "bis zum Ende des Zuges.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("become_prepared", {})],
+            trigger={"event": EventType.DAMAGE,
+                     "condition": {"subject": "group", "controller": "you", "type": "creature"},
+                     "filter": {"combat": True, "is_player": True}},
+            raw_text="Immer wenn eine Kreatur, die du kontrollierst, einem Spieler "
+                     "Kampfschaden zufuegt, wird diese Kreatur vorbereitet.",
+        ),
+    ]
+
+
+register("Stensian Sanguinist", _stensian_sanguinist)
+register("Stensian Sanguinist // Exsanguinate", _stensian_sanguinist)

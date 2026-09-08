@@ -1899,6 +1899,11 @@ class MiscSystemsMixin:
         object_types = event.get("object_types") or []
         if "instant" in object_types or "sorcery" in object_types:
             self.state.cast_instant_or_sorcery_this_turn[player_id] = True
+            # Rootha, Mastering the Moment (PAR-60) — running max of the
+            # instant/sorcery mana values this player has cast this turn.
+            mv = int(event.get("mana_value") or 0)
+            gmv = self.state.greatest_instant_sorcery_mv_this_turn
+            gmv[player_id] = max(gmv.get(player_id, 0), mv)
         if "creature" not in object_types:
             nc_counts = self.state.noncreature_spells_cast_this_turn
             nc_counts[player_id] = nc_counts.get(player_id, 0) + 1

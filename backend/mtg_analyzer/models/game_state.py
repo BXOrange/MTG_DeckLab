@@ -844,6 +844,14 @@ class GameState:
         #: instant_or_sorcery_this_turn` game-wide idiom below), incremented
         #: off the `SPELL_CAST` event by `RulesEngine._track_spell_cast`.
         self.spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: The greatest mana value among instant/sorcery spells each player
+        #: has cast *this turn* ("…where X is the greatest mana value among
+        #: instant and sorcery spells you've cast this turn." — Rootha,
+        #: Mastering the Moment, PAR-60). Bumped off the `SPELL_CAST` event
+        #: by `RulesEngine._track_spell_cast`, read via `continuous.
+        #: count_selector`'s ``"greatest_instant_sorcery_mv_this_turn"``;
+        #: reset per `GameEngine.begin_turn` alongside `spells_cast_this_turn`.
+        self.greatest_instant_sorcery_mv_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: Noncreature spells cast by each player *this turn* ("~ deals
         #: damage to that player equal to the number of noncreature spells
         #: they've cast this turn." — Magebane Lizard) — unlike

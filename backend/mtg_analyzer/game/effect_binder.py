@@ -1766,6 +1766,23 @@ def _trigger_condition(
 
         predicates.append(_min_opponent_creatures_ok)
 
+    # "…if you've cast an instant or sorcery spell this turn, …" (Rootha,
+    # Mastering the Moment, PAR-60) — a RULE 603.4 intervening-if reading
+    # `GameState.cast_instant_or_sorcery_this_turn` for this ability's own
+    # controller (the same per-player flag PAR-10's statics read).
+    if trigger.get("cast_instant_or_sorcery_this_turn"):
+        controller_id = getattr(source, "controller_id", None)
+
+        def _is_cast_this_turn_ok(event: Any, context: Any, cid=controller_id) -> bool:
+            state = getattr(context, "state", None)
+            if state is None or cid is None:
+                return False
+            return bool(
+                getattr(state, "cast_instant_or_sorcery_this_turn", {}).get(cid, False)
+            )
+
+        predicates.append(_is_cast_this_turn_ok)
+
     # "…if you haven't completed Tomb of Annihilation, …" (Acererak the
     # Archlich, MEC-43) — a RULE 603.4 intervening-if reading `Player.
     # completed_dungeons` (RULE 309.7's own record of which named dungeons

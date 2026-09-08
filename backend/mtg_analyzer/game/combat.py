@@ -540,6 +540,11 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # RULE 903.4's designation, not a subtype/colour word, so it needs
         # its own key rather than reusing ``subtype``.
         "is_commander",
+        # "…each green creature that **entered this turn**." (Oran-Rief, the
+        # Vastwood, PAR-60) — `GameObject.turn_entered` vs the current turn
+        # number; needs ``state`` (like ``power_lt_count_selector``), so
+        # callers without one in hand can't use this key.
+        "entered_this_turn",
     }
 )
 
@@ -734,6 +739,16 @@ def matches_object_filter(
 
         threshold = count_selector(state, reference.controller_id, str(lt_selector))
         if (obj.power or 0) >= threshold:
+            return False
+    # "…each green creature that **entered this turn**." (Oran-Rief, the
+    # Vastwood) — RULE 603.6e-adjacent history read: `GameObject.turn_entered`
+    # (stamped by `GameState.add_to_battlefield`) against the current turn.
+    entered_this_turn = filt.get("entered_this_turn")
+    if entered_this_turn is not None:
+        if state is None:
+            return False
+        entered = getattr(obj, "turn_entered", None) == state.internal_turn.number
+        if entered != bool(entered_this_turn):
             return False
     return True
 

@@ -4290,13 +4290,14 @@ is in the rules-engine categories below them.
     Pestfinder (+ `// Turn Stones` alias), Merchant of Venom, Mazirek Kraul
     Death Priest, Smothering Abomination, Dina Soul Steeper, Dina Essence
     Brewer (Witherbloom deck 55 → 65).
-  - **waves 24–51** (2026-09-08) — the tail, all hand-`AUTHORED` in
-    `entries_019.py` (no PARSER_VERSION change), 265 → 378/433 covered
-    (~113 cards). Reusable engine primitives added along the way (each
+  - **waves 24–69** (2026-09-08) — the tail, all hand-`AUTHORED` in
+    `entries_019.py` (no PARSER_VERSION change), 265 → 396/433 covered
+    (~131 cards). Reusable engine primitives added along the way (each
     small, all regression-clean against the full ~6.3k-test suite —
-    confirmed 6266 passed / 3 fail, the 3 all pre-existing and unrelated:
+    confirmed 6282 passed / 3 fail, the 3 all pre-existing and unrelated:
     two on this checkout since before the batch, one a behavior-neutral
-    `PARSER_VERSION.lock` re-pin from wave 46's whitelist widening):
+    `PARSER_VERSION.lock` re-pin from spec.py `_ALLOWED_CONDITION_KEYS`
+    widenings):
     - **`static_conditions` kinds:** `gained_life_this_turn`,
       `opponent_life_at_most`, `card_left_graveyard_this_turn`,
       `opponent_controls_more_lands`, `graveyard_card_type_count_at_least`,
@@ -4357,7 +4358,45 @@ is in the rules-engine categories below them.
       Veyran, prowess for Harmonic Prodigy. Documented simplification: "or
       copy" treated as just the cast, and Veyran doesn't double its own
       magecraft (shared `doubler is obj` skip).
-    - **cards registered** (~113): the Silverquill Aura / attack-trigger
+    - **round 2 (waves 52–62 — "search the whole pool for generalized
+      primitives")** — mostly reuse/small-extension: `shuffle` +
+      `dig_until(cast_free_window)` (Creative Technique); new
+      `entered_this_turn` key in `combat.matches_object_filter` +
+      `AddCountersEffect` selector branch threads `state` (Oran-Rief);
+      `GainControlUntilEndOfTurnEffect` gained `duration` ("permanent" =
+      Mind Control / Control Magic / Entrancing Melody, a non-reverting
+      RULE 611.2 change) + `untap` toggle; magecraft + existing
+      `impulsive_look` (Quandrix Apprentice); existing
+      `CreateTokenEffect.per_opponent` (Furygale Flocking, count=2); new
+      `ShuffleTargetIntoLibraryRevealTopEffect` (Chaos Warp);
+      `CopySpellEffect.count_selector` + existing `arm_spell_watcher`
+      (Thunderclap Drake, `commander_casts_this_game`); pure composition
+      lose_life/sacrifice `selector="each_opponent"` + cost
+      `sacrifice_count` (Priest of Forgotten Gods); new
+      `GameObject.cast_via_escape` flag + `cast_via_escape` condition key
+      (Woe Strider "escapes with 2 counters"); `MoveCountersEffect.
+      move_all_kinds` + `RemoveCountersEffect.draw_per_removed` (Nexus
+      Mentality); new `RulesEngine.reveal_until_matching` (the
+      `card_query`-predicate sibling of `reveal_until_creature_type`) +
+      `reveal_until` effect (Open the Way); `continuous.extra_etb_counters_
+      for` / the `extra_etb_counter` static gained `count_selector` (live
+      count) + a `nontoken` filter (Gorma, the Gullet); pure reuse of
+      `SacrificeEffect(selector="each_player", count="all_but_one")`
+      (Promise of Loyalty) and `dig_until` on an `attached_permanent`
+      ATTACKS trigger (Songbirds' Blessing); `EnterAsCopyReplacement.
+      extra_counters_from_x` (Altered Ego — the copy spell's own announced
+      {X}); new `GameState.greatest_instant_sorcery_mv_this_turn` tracker +
+      `greatest_instant_sorcery_mv_this_turn` count_selector + a
+      `cast_instant_or_sorcery_this_turn` trigger intervening-if predicate,
+      sizing a token via the existing `CreateTokenEffect.pt_from_count_
+      selector` (Rootha, Mastering the Moment). Documented simplifications
+      noted in-code per card (Furygale drops the directed must-attack;
+      Nexus Mentality's "choose both" is unconditional; Open the Way's
+      "X ≤ players" cap is unenforced; Priest's "any number of target
+      players" → each opponent; Promise of Loyalty drops the vow counter +
+      can't-attack rider; Songbirds' Blessing's revealed Aura always goes
+      to hand).
+    - **cards registered** (~131): the Silverquill Aura / attack-trigger
       cluster, the Witherbloom lifegain / sacrifice / Eldrazi-Spawn / devour
       tail, Quandrix {X} / counter / fractal / charge-counter singletons,
       the STX "becomes prepared" DFC trigger cluster, Prismari
@@ -4366,7 +4405,7 @@ is in the rules-engine categories below them.
       "choose one [or more]" spells, and a broad singleton tail. Documented
       simplifications are noted in-code per card. Per-wave detail lives in
       `secrets_of_strixhaven_plan.md`.
-    - **still open** (55 cards): the bespoke tail — each was probed and
+    - **still open** (37 cards): the bespoke tail — each was probed and
       found to need a genuinely new mechanism (a missing condition key,
       event, effect, or interactive chooser), enumerated by cluster in
       `BACKLOG.md`'s PAR-60 "Still open" (spell-copy fan-out,
@@ -4382,7 +4421,7 @@ is in the rules-engine categories below them.
   `game/targeting.py`, `game/combat.py`, `models/game_state.py`,
   `game/rules/draw_discard_mixin.py`, `parser/oracle/{segmenter,gate,spec}.py`,
   `parser/oracle/PARSER_VERSION.lock` (behavior-neutral re-pin).
-  Tests: `backend/tests/test_strixhaven_secrets_wave{1,5,8,12,22-45,47_48,49,50,51}.py`.
+  Tests: `backend/tests/test_strixhaven_secrets_wave{1,5,8,12,22-45,47_48,49,50,51,52,53,54,55_56,57_59,60,61_62,63_65,66,67,68_69}.py`.
 
 ### Kinnan/M-K Batch: New General Primitives (MEC-12)
 

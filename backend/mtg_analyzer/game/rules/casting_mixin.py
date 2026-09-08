@@ -1823,6 +1823,13 @@ class CastingResolutionMixin:
                 # permanent's real type is known.
                 if obj.is_creature and effect.extra_counter_if_creature:
                     self.add_counters(obj, 1, kind=effect.extra_counter_if_creature)
+                # "…except it enters with X additional +1/+1 counters on it."
+                # (Altered Ego, PAR-60) — X is this copy spell's own
+                # announced {X}.
+                if obj.is_creature and getattr(effect, "extra_counters_from_x", False):
+                    x = int(getattr(obj, "x_paid", 0) or 0)
+                    if x > 0:
+                        self.add_counters(obj, x, kind="+1/+1")
                 if obj.card.is_planeswalker and effect.extra_counter_if_planeswalker:
                     self.add_counters(obj, 1, kind=effect.extra_counter_if_planeswalker)
                 if effect.grant_mana_option:

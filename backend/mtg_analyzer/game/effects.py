@@ -2626,6 +2626,13 @@ class ConditionalEffect(GameEffect):
             # subsystem lands, and safely never fires until then.
             if bool(getattr(self.source, "foretold", False)) != bool(source_was_foretold):
                 return False
+        cast_via_escape = self.condition.get("cast_via_escape")
+        if cast_via_escape is not None:
+            # "~ escapes with two +1/+1 counters on it." (Woe Strider,
+            # PAR-60) — `GameObject.cast_via_escape`, stamped at the Escape
+            # cast site, read once here by this same object's own ETB.
+            if bool(getattr(self.source, "cast_via_escape", False)) != bool(cast_via_escape):
+                return False
         cast_outside_sorcery_speed = self.condition.get("cast_outside_sorcery_speed")
         if cast_outside_sorcery_speed is not None:
             # "If you cast it any time a sorcery couldn't have been cast,
@@ -6818,9 +6825,15 @@ class CopySpellEffect(GameEffect):
         optional: bool = False,
         spell_from_trigger_event: Optional[str] = None,
         controller_from_trigger_event: Optional[str] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
+        #: "…copy it for each time you've cast your commander from the
+        #: command zone this game." (Thunderclap Drake, PAR-60) — the copy
+        #: count read live from a `continuous.count_selector` at resolution
+        #: rather than a fixed ``count``; 0 makes no copies.
+        self.count_selector = count_selector
         self.spell_from_trigger_event = spell_from_trigger_event
         self.controller_from_trigger_event = controller_from_trigger_event
         spell_filter: dict[str, Any] = {}
@@ -6867,8 +6880,17 @@ class CopySpellEffect(GameEffect):
         controller_id = getattr(self.source, "controller_id", None)
         if controller_id is None:
             return
+        n = self.count
+        if self.count_selector is not None:
+            from .continuous import count_selector as _count_selector  # avoid import cycle
+
+            n = _count_selector(
+                context.state, controller_id, self.count_selector, source=self.source
+            )
+            if n <= 0:
+                return
         for target in targets:
-            context.copy_spell(target, controller_id, self.count)
+            context.copy_spell(target, controller_id, n)
 
 
 class CopyAbilityEffect(GameEffect):
@@ -8763,6 +8785,56 @@ class DestroyExileThenControllerRevealCreatureEffect(GameEffect):
         )
 
 
+class ShuffleTargetIntoLibraryRevealTopEffect(GameEffect):
+    """"The owner of target permanent shuffles it into their library, then
+    reveals the top card of their library. If it's a permanent card, they
+    put it onto the battlefield." (Chaos Warp — RULE 701.20 shuffle + a
+    RULE 701.15-style reveal, PAR-60.)
+
+    One atomic effect rather than composed pieces: the reveal is read off
+    *the owner's* library right after their own shuffle (the same "the
+    target's own controller/owner acts" shape `DestroyExileThenController
+    RevealCreatureEffect` uses), and the two halves share no RULE 115
+    target. The revealed card entering is not itself a target — Chaos Warp
+    famously can hit an indestructible/hexproof-from-you permanent and drop
+    a bomb for the opponent."""
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .graveyard_cast import _is_permanent_card  # local: avoid import cycle
+
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        owner_id = getattr(target, "owner_id", None)
+        context.shuffle_into_library(target)
+        if owner_id is None:
+            return
+        try:
+            owner = context.state.player_by_id(owner_id)
+        except (KeyError, ValueError):
+            return
+        if not owner.library:
+            return
+        top = owner.library[-1]
+        if _is_permanent_card(top.card):
+            owner.remove_from_zone(top, Zone.LIBRARY)
+            top.zone = Zone.BATTLEFIELD
+            context.state.add_to_battlefield(top)
+
+
 class GainControlUntilEndOfTurnEffect(GameEffect):
     """"Gain control of target permanent until end of turn. Untap that
     permanent. It gains haste until end of turn." (RULE 108.4-adjacent —
@@ -8798,9 +8870,22 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         count_selector: Optional[str] = None,
         mass_of_target_player: Optional[str] = None,
         mark_no_sacrifice: bool = False,
+        duration: str = "end_of_turn",
+        untap: bool = True,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Gain control of target creature **with mana value X**."
+        #: (Entrancing Melody, Mind Control / Control Magic / Persuasion /
+        #: Corrupted Conscience family, PAR-60) — ``"permanent"`` makes the
+        #: control change a RULE 611.2 no-duration continuous effect (a bare
+        #: `controller_id` reassignment that cleanup never reverts), vs the
+        #: default ``"end_of_turn"`` (`GameObject.control_change_until_eot`,
+        #: reverted by `_step_cleanup`).
+        self.duration = duration
+        #: The Zealous Conscripts family untaps what it takes; the
+        #: Mind-Control family does not — a toggle rather than always-on.
+        self.untap = bool(untap)
         #: "You can't sacrifice those creatures this turn." (Call for Aid) —
         #: stamp `GameObject.cant_be_sacrificed_this_turn` on every creature
         #: this effect takes control of, so the anti-abuse rider needs no
@@ -8847,10 +8932,17 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
 
     def _take(self, context: GameContext, target: "GameObject", controller: "Player") -> None:
         if target.controller_id != controller.id:
-            if target.control_change_until_eot is None:
-                target.control_change_until_eot = target.controller_id
-            target.controller_id = controller.id
-        context.set_tapped(target, tapped=False)
+            if self.duration == "permanent":
+                # RULE 611.2 no-duration continuous effect — cleanup must not
+                # revert it, so don't stamp ``control_change_until_eot``.
+                target.controller_id = controller.id
+                target.summoning_sick = True  # RULE 302.6 under a new controller
+            else:
+                if target.control_change_until_eot is None:
+                    target.control_change_until_eot = target.controller_id
+                target.controller_id = controller.id
+        if self.untap:
+            context.set_tapped(target, tapped=False)
         if self.haste:
             target.temp_keywords.add("haste")
         if self.mark_no_sacrifice:
@@ -10981,6 +11073,45 @@ class KindredSummonsEffect(GameEffect):
             count=x,
             hit_destination="battlefield",
             rest_destination="library_shuffled",
+        )
+
+
+class RevealUntilMatchingEffect(GameEffect):
+    """"Reveal cards from the top of your library until you reveal X `<type>`
+    cards. Put those onto the battlefield [tapped] / into your hand and the
+    rest on the bottom of your library in a random order." (Open the Way,
+    PAR-60) — a thin wrapper over `RulesEngine.reveal_until_matching`.
+
+    ``count`` may be the ``"x"`` sentinel (`_substitute_x`). Documented
+    simplification for Open the Way: the printed "X can't be greater than
+    the number of players in the game" cap is not enforced (the caster
+    chooses X and has no reason to over-announce it)."""
+
+    def __init__(
+        self,
+        criteria: Any = "land",
+        count: Any = 1,
+        hit_destination: str = "battlefield",
+        rest_destination: str = "library_bottom_random",
+        tapped: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.criteria = criteria
+        self.count = count
+        self.hit_destination = hit_destination
+        self.rest_destination = rest_destination
+        self.tapped = bool(tapped)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        count = self.count if isinstance(self.count, int) else 0
+        context.engine.reveal_until_matching(
+            player, self.criteria, count=count,
+            hit_destination=self.hit_destination,
+            rest_destination=self.rest_destination, tapped=self.tapped,
         )
 
 
@@ -15216,7 +15347,9 @@ class AddCountersEffect(GameEffect):
                 # (Midnight Banshee) — a `matches_object_filter` dict
                 # (``{"without_color": "B"}``) narrowing the mass group,
                 # the same key the single-target branch already honours.
-                if self.creature_filter and not combat.matches_object_filter(obj, self.creature_filter):
+                if self.creature_filter and not combat.matches_object_filter(
+                    obj, self.creature_filter, state=context.state
+                ):
                     continue
                 context.add_counters(obj, self.amount, self.kind, source=self.source)
             return
@@ -16529,16 +16662,25 @@ class RemoveCountersEffect(GameEffect):
         target_kind: Optional[str] = None,
         source: Optional["GameObject"] = None,
         max_count: Optional[int] = None,
+        draw_per_removed: bool = False,
     ) -> None:
         super().__init__(source)
         self.max_count = max_count
+        #: "Remove all counters from target … . Draw a card for each counter
+        #: removed this way." (Nexus Mentality, PAR-60) — the controller
+        #: draws N, where N is the positive-counter total actually stripped.
+        self.draw_per_removed = bool(draw_per_removed)
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
-    def _strip(self, context: GameContext, obj: "GameObject") -> None:
+    def _strip(self, context: GameContext, obj: "GameObject") -> int:
+        removed = 0
         for kind in list(obj.counters.keys()):
             amount = obj.counters.get(kind, 0)
             if amount:
+                if amount > 0:
+                    removed += amount
                 context.add_counters(obj, -amount, kind)
+        return removed
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.max_count is not None:
@@ -16551,7 +16693,11 @@ class RemoveCountersEffect(GameEffect):
         if self.target_spec is not None:
             target = targets[0] if targets else None
             if target is not None:
-                self._strip(context, target)
+                removed = self._strip(context, target)
+                if self.draw_per_removed and removed > 0:
+                    caster = _controller_of(self.source, context)
+                    if caster is not None:
+                        context.draw(caster, removed)
             return
         for obj in list(context.state.battlefield):
             self._strip(context, obj)
@@ -16650,9 +16796,14 @@ class MoveCountersEffect(GameEffect):
         dest_target_kind: str = "permanent",
         count: int = 1,
         source: Optional["GameObject"] = None,
+        move_all_kinds: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = int(count)
+        #: "Move **all** counters from target … onto another target …."
+        #: (Nexus Mentality, PAR-60) — every counter of every kind, not just
+        #: ``count`` of the first kind.
+        self.move_all_kinds = bool(move_all_kinds)
         self.target_spec = TargetSpec(kind=source_target_kind)
         self.extra_target_specs = (TargetSpec(kind=dest_target_kind, distinct_from_others=True),)
 
@@ -16661,6 +16812,12 @@ class MoveCountersEffect(GameEffect):
         src = picks[0] if picks else None
         dst = picks[1] if len(picks) > 1 else None
         if src is None or dst is None or src is dst:
+            return
+        if self.move_all_kinds:
+            for kind, n in list((src.counters or {}).items()):
+                if n and n > 0:
+                    context.add_counters(src, -n, kind, source=self.source)
+                    context.add_counters(dst, n, kind, source=self.source)
             return
         kind = next((k for k, n in (src.counters or {}).items() if n > 0), None)
         if kind is None:
@@ -18049,6 +18206,7 @@ class EnterAsCopyReplacement(GameEffect):
         description: str = "",
         extra_counter_if_creature: Optional[str] = None,
         extra_counter_if_planeswalker: Optional[str] = None,
+        extra_counters_from_x: bool = False,
         grant_mana_option: Optional[dict[str, int]] = None,
         only_types: Optional[list[str]] = None,
         add_keywords: Optional[list[str]] = None,
@@ -18103,6 +18261,11 @@ class EnterAsCopyReplacement(GameEffect):
         #: shape elsewhere.
         self.extra_counter_if_creature = extra_counter_if_creature
         self.extra_counter_if_planeswalker = extra_counter_if_planeswalker
+        #: "…except it enters with **X** additional +1/+1 counters on it."
+        #: (Altered Ego, PAR-60) — the count is the copy spell's own
+        #: announced {X} (`GameObject.x_paid`, RULE 107.3c), resolved when
+        #: the copy is made rather than a fixed 1.
+        self.extra_counters_from_x = bool(extra_counters_from_x)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # consulted by RulesEngine._offer_enter_as_copy, not applied
@@ -21694,6 +21857,19 @@ EffectRegistry.register(
     lambda p: KindredSummonsEffect(),
 )
 EffectRegistry.register(
+    # "Reveal cards from the top of your library until you reveal X land
+    # cards. Put those onto the battlefield tapped and the rest on the
+    # bottom of your library in a random order." (Open the Way, PAR-60)
+    "reveal_until",
+    lambda p: RevealUntilMatchingEffect(
+        criteria=p.get("criteria", "land"),
+        count=p.get("count", 1),
+        hit_destination=p.get("hit_destination", "battlefield"),
+        rest_destination=p.get("rest_destination", "library_bottom_random"),
+        tapped=bool(p.get("tapped", False)),
+    ),
+)
+EffectRegistry.register(
     "descendants_fury_sacrifice",
     lambda p: DescendantsFurySacrificeEffect(),
 )
@@ -22068,6 +22244,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         spell_from_trigger_event=p.get("spell_from_trigger_event"),
         controller_from_trigger_event=p.get("controller_from_trigger_event"),
+        count_selector=p.get("count_selector"),
     ),
 )
 EffectRegistry.register(
@@ -22481,7 +22658,11 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "gain_control_until_eot",  # Zealous Conscripts / Coercive Recruiter
+    # Zealous Conscripts / Coercive Recruiter (default: end-of-turn, untap,
+    # haste); with ``duration="permanent"`` + ``untap=False`` + ``haste=
+    # False`` it is the Mind Control / Control Magic / Entrancing Melody
+    # family instead (RULE 611.2 no-duration control change, PAR-60).
+    "gain_control_until_eot",
     lambda p: GainControlUntilEndOfTurnEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
         haste=bool(p.get("haste", True)), max_mana_value=p.get("max_mana_value"),
@@ -22489,6 +22670,8 @@ EffectRegistry.register(
         count_selector=p.get("count_selector"),
         mass_of_target_player=p.get("mass_of_target_player"),
         mark_no_sacrifice=bool(p.get("mark_no_sacrifice", False)),
+        duration=str(p.get("duration", "end_of_turn")),
+        untap=bool(p.get("untap", True)),
     ),
 )
 EffectRegistry.register(
@@ -22559,6 +22742,12 @@ EffectRegistry.register(
     lambda p: ChooseVoidCounterCardEffect(),
 )
 EffectRegistry.register("exile_library", lambda p: ExileLibraryEffect())
+EffectRegistry.register(
+    "shuffle_target_into_library_reveal_top",  # Chaos Warp
+    lambda p: ShuffleTargetIntoLibraryRevealTopEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
+    ),
+)
 EffectRegistry.register(
     "shuffle_graveyard_into_library", lambda p: ShuffleGraveyardIntoLibraryEffect()
 )
@@ -23800,6 +23989,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", True)),
         extra_counter_if_creature=p.get("extra_counter_if_creature"),
         extra_counter_if_planeswalker=p.get("extra_counter_if_planeswalker"),
+        extra_counters_from_x=bool(p.get("extra_counters_from_x", False)),
         grant_mana_option=p.get("grant_mana_option"),
         only_types=p.get("only_types"),
         add_keywords=p.get("add_keywords"),
@@ -24272,7 +24462,10 @@ EffectRegistry.register(
     # Inert-shaped "remove up to N counters") switches to the interactive
     # chosen-amount shape instead — see `RemoveCountersEffect`.
     "remove_counters",
-    lambda p: RemoveCountersEffect(target_kind=p.get("target_kind"), max_count=p.get("max_count")),
+    lambda p: RemoveCountersEffect(
+        target_kind=p.get("target_kind"), max_count=p.get("max_count"),
+        draw_per_removed=bool(p.get("draw_per_removed", False)),
+    ),
 )
 EffectRegistry.register(
     # "Move a counter from target permanent you control onto a second
@@ -24282,6 +24475,7 @@ EffectRegistry.register(
         source_target_kind=p.get("source_target_kind", "permanent_you_control"),
         dest_target_kind=p.get("dest_target_kind", "permanent"),
         count=int(p.get("count", 1) or 1),
+        move_all_kinds=bool(p.get("move_all_kinds", False)),
     ),
 )
 EffectRegistry.register(
@@ -24849,6 +25043,14 @@ EffectRegistry.register(
             "kind": str(p.get("kind", "+1/+1")),
             "count": int(p.get("count", 1) or 1),
             "self_only": bool(p.get("self_only", False)),
+            # "…an additional +1/+1 counter on them **for each creature that
+            # died under your control this turn**." (Gorma, the Gullet,
+            # PAR-60) — a live `continuous.count_selector`, overriding
+            # ``count`` when set.
+            **({"count_selector": p["count_selector"]} if p.get("count_selector") else {}),
+            # "**Nontoken** creatures you control enter with…" (Gorma) —
+            # RULE 111.9 filter on the entering object.
+            **({"nontoken": True} if p.get("nontoken") else {}),
         },
     ),
 )

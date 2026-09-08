@@ -1936,6 +1936,12 @@ class CastingMixin:
             # `RulesEngine.resolve_top_of_stack` to exile the spell instead
             # of returning it to the graveyard on resolution.
             obj.cast_via_flashback = graveyard_keyword == "flashback"
+            # RULE 702.138 (PAR-60, Woe Strider's "~ escapes with two +1/+1
+            # counters on it"): record an Escape cast so a hand-authored ETB
+            # can gate an enters-with-counters rider on it. Reassigned every
+            # cast (like ``cast_via_flashback``), so a later normal recast
+            # this same turn clears it.
+            obj.cast_via_escape = graveyard_keyword == "escape"
             # RULE 702.74a: record an Evoke cast — consulted right after
             # `_resolve_permanent_spell` adds the object to the battlefield
             # to sacrifice it (a *consequence* of entering, not a

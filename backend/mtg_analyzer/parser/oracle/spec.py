@@ -87,7 +87,7 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "not_already_exerted", "is_first_combat_phase", "is_your_turn",
         "opponent_cast_color_this_turn", "no_creatures_on_battlefield",
         "source_is_renowned", "shares_type_with_linked_exile", "source_was_cast",
-        "source_entered_untapped", "cast_outside_sorcery_speed",
+        "source_entered_untapped", "cast_outside_sorcery_speed", "cast_via_escape",
         "cards_in_graveyard_at_least", "entering_object_unique_name",
         # MEC-43 round 4C: Dark Petition's Spell mastery (a graveyard-count
         # gate narrowed to instant/sorcery cards) and Poison the Cup's

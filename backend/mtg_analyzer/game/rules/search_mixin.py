@@ -2751,6 +2751,66 @@ class SearchMixin:
                     player.graveyard.append(o)
         return hits
 
+    def reveal_until_matching(
+        self,
+        player: Player,
+        criteria: Any,
+        count: int = 1,
+        hit_destination: str = "battlefield",
+        rest_destination: str = "library_bottom_random",
+        tapped: bool = False,
+    ) -> list[GameObject]:
+        """Reveal from the top of ``player``'s library until ``count`` cards
+        matching ``criteria`` (a `models.card_query` dict) are revealed
+        (Open the Way — "reveal cards from the top of your library until you
+        reveal X land cards"), PAR-60. The generalized sibling of
+        `reveal_until_creature_type` — a `card_query` predicate instead of a
+        fixed creature-subtype list, plus a ``tapped`` option for "…onto the
+        battlefield tapped".
+        """
+        from ...models import card_query  # local: search_mixin already imports lazily
+
+        if count <= 0 or not player.library:
+            return []
+        hits: list[GameObject] = []
+        revealed: list[GameObject] = []
+        while player.library and len(hits) < count:
+            obj = player.library.pop()
+            revealed.append(obj)
+            self.state.fire_event(
+                GameEvent(EventType.REVEAL, player_id=player.id, object=obj.name,
+                          instance_id=obj.instance_id, from_zone="library")
+            )
+            if card_query.matches(obj.card, criteria):
+                hits.append(obj)
+
+        for obj in hits:
+            if hit_destination == "battlefield":
+                self._put_searched_card(player, obj, "battlefield")
+                if tapped:
+                    self.set_tapped(obj, tapped=True)
+            elif hit_destination == "hand":
+                obj.zone = Zone.HAND
+                player.add_to_zone(obj, Zone.HAND)
+
+        rest = [o for o in revealed if o not in hits]
+        if rest and rest_destination == "library_bottom_random":
+            import random
+            random.shuffle(rest)
+            for o in rest:
+                o.zone = Zone.LIBRARY
+                player.library.insert(0, o)
+        elif rest and rest_destination == "library_shuffled":
+            for o in rest:
+                o.zone = Zone.LIBRARY
+                player.library.append(o)
+            self.shuffle_library(player)
+        elif rest and rest_destination == "graveyard":
+            for o in rest:
+                o.zone = Zone.GRAVEYARD
+                player.graveyard.append(o)
+        return hits
+
     def _handle_rest_inspected(
         self, player: Player, rest_ids: list[int], destination: str
     ) -> None:

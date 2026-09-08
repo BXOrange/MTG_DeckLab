@@ -321,6 +321,11 @@ class GameObject:
         #: Flashback — if so, `RulesEngine.resolve_top_of_stack` exiles it
         #: instead of sending it to the graveyard, then clears this flag.
         self.cast_via_flashback: bool = False
+        #: RULE 702.138 (PAR-60, Woe Strider): whether this permanent spell
+        #: was cast for its Escape cost — read by a hand-authored ETB to
+        #: gate an "enters with N +1/+1 counters" rider. Reassigned every
+        #: cast, like `cast_via_flashback`.
+        self.cast_via_escape: bool = False
         #: RULE 702.74a (MEC-42): whether this permanent spell was cast for
         #: its Evoke cost — if so, `RulesEngine._resolve_permanent_spell`
         #: sacrifices it right after it enters the battlefield (a

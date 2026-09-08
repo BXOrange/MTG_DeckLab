@@ -247,42 +247,46 @@ its block back into the matching section here.
   `Done_Backend.md` under "Secrets of Strixhaven"; the running per-wave log
   is the session scratchpad `secrets_of_strixhaven_plan.md`.
 
-  **Still open** — 55 uncovered as of wave 51 (378/433 covered: Witherbloom
-  80/86, Silverquill 74/86, Quandrix 76/89, Prismari 73/87, Lorehold 75/85).
-  Every remaining card needs a genuinely new mechanism — each was probed and
-  found to need a missing condition key, event, effect, or interactive
-  chooser, not just a recombination of shipped primitives. Grouped:
-  - **Prismari spell-copy fan-out / copy-token-at-combat** — Mirrorwing
-    Dragon, Redoubled Stormsinger, Brudiclad, Rootha Mastering the Moment,
-    Plargg and Nassari, Surge to Victory, Creative Technique, Dance with
-    Calamity, Expressive Iteration.
-  - **spell/ability copy gated on {X}** — Unbound Flourishing (both clauses:
-    "double the value of X" on a permanent cast + copy an instant/sorcery/
-    ability whose cost contains {X}).
-  - **"exile a card from graveyard/library, then you may play it" residue** —
-    Abstract Performance, Serra Paragon, Currency Converter, Fateful Tempest,
-    Advanced Reconstruction, Laelia (2nd clause), Rousing Refrain.
+  **Still open** — 37 uncovered as of wave 69 (396/433 covered: Witherbloom
+  84/86, Silverquill 76/86, Quandrix 82/89, Prismari 78/87, Lorehold 76/85).
+  Each remaining card needs a genuinely new subsystem or a large extension
+  with real regression surface — probed individually, not a recombination of
+  shipped primitives. Grouped:
+  - **Prismari spell/token copy fan-out** — Mirrorwing Dragon ("copy for
+    each other creature the spell could target"), Redoubled Stormsinger
+    (tapped-attacking copy per just-entered token), Brudiclad (each other
+    token becomes a copy of a chosen one), Plargg and Nassari, Surge to
+    Victory (exiled-card copy on combat damage), Rousing Refrain
+    (ritual-into-suspend).
+  - **spell/ability copy gated on {X}** — Unbound Flourishing (both
+    clauses: "double the value of X" on a permanent cast + copy an
+    instant/sorcery/ability whose cost contains {X}).
+  - **"exile from library/graveyard, then play/cast for free" bespoke
+    shapes** — Abstract Performance (two piles, opp splits), Dance with
+    Calamity (player-driven MV-budget loop), Expressive Iteration (look 3,
+    1 hand / 1 bottom / 1 exile-playable), Fateful Tempest (council's
+    dilemma), Serra Paragon (once/turn graveyard land-play OR cast + exile
+    rider), Currency Converter (exiled-with-this bookkeeping), Advanced
+    Reconstruction (multi-level Class).
   - **per-player graveyard exile with a distributed payoff** — Augusta,
-    Oversimplify, Fateful Tempest (council's dilemma vote).
-  - **mass "keep one of each, sacrifice the rest"** — Promise of Loyalty
-    (vow counters), Tragic Arrogance, Immoral Bargain (sacrifice-X cost).
+    Oversimplify.
+  - **mass "keep one of each" (chooser-marked)** — Tragic Arrogance,
+    Immoral Bargain (sacrifice-X cost that defines the spell's X).
   - **odd/even & prime counting** — Zimone's Hypothesis (odd/even mass
     bounce), Zimone All-Questioning (prime land count).
-  - **distribute-any-number-of-counters** — Forgotten Ancient, Nexus
-    Mentality.
-  - **become-a-copy-from-a-set / dies-exile-copy-token** — Spirit of
-    Resilience, Hofri Ghostforge, Altered Ego, Primo the Unbounded (2nd
-    clause).
-  - **modal dies / dig-until** — Ao the Dawn Sky, Songbirds' Blessing,
-    Quandrix Apprentice, Animist's Awakening, Open the Way.
-  - **bespoke singletons** — Chaos Warp, Entrancing Melody (permanent
-    steal at mv X), Gorma the Gullet (dynamic ETB counters), Gift of
-    Immortality (Aura-return-attached-delayed), Hateful Eidolon, Inkshield
-    (prevent→token), Combat Calligrapher / Scriv / Nils / Breena / Shadrix
-    Silverquill / Pearl-Ear (attack-trigger token / affinity-for-Auras /
-    modal-target-different-players), Intermediate Chirography, Priest of
-    Forgotten Gods, Plumb the Forbidden, Stensian Sanguinist, Woe Strider
-    (escape-with-counters), Oran-Rief, Thunderclap Drake, Furygale Flocking.
+  - **distribute-any-number-of-counters** — Forgotten Ancient.
+  - **become-a-copy-from-a-set / dies-exile-copy-token** — Hofri
+    Ghostforge, Primo the Unbounded (2nd clause).
+  - **modal dies / reveal-top-X-fixed variants** — Ao the Dawn Sky,
+    Animist's Awakening (reveal top X fixed, put all lands + spell-mastery
+    untap).
+  - **"cards leave graveyard/exile" +1/+1 counter trigger** — Laelia (needs
+    a batched CARDS_EXILED event for library-or-graveyard exiles).
+  - **`enchanted_by_your_aura` static/trigger reuse (wave 48/49 primitive)
+    plus a bespoke second clause** — Combat Calligrapher, Scriv, Nils,
+    Breena, Pearl-Ear, Hateful Eidolon, Gift of Immortality, Intermediate
+    Chirography, Shadrix Silverquill (modal-target-different-players),
+    Inkshield (prevent→token), Plumb the Forbidden.
 
 ## MEC — Game mechanics
 

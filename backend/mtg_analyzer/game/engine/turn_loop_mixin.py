@@ -304,6 +304,9 @@ class TurnLoopMixin:
         # correctly too, not just the active player's own activation check.
         for player in self.state.players:
             self.state.cast_instant_or_sorcery_this_turn[player.id] = False
+            # Rootha, Mastering the Moment (PAR-60) — running max i/s mana
+            # value this turn, same game-wide reset scope.
+            self.state.greatest_instant_sorcery_mv_this_turn[player.id] = 0
         # Same game-wide reset scope as the row above — Magebane Lizard's
         # own running per-player noncreature-spell count.
         for player in self.state.players:

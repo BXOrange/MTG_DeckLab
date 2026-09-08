@@ -901,6 +901,13 @@ def count_selector(
         if controller_id is None:
             return 0
         return state.spells_cast_this_turn.get(controller_id, 0)
+    if selector == "greatest_instant_sorcery_mv_this_turn":
+        # "…where X is the greatest mana value among instant and sorcery
+        # spells you've cast this turn." (Rootha, Mastering the Moment,
+        # PAR-60) — a running max maintained by `_track_spell_cast`.
+        if controller_id is None:
+            return 0
+        return int(getattr(state, "greatest_instant_sorcery_mv_this_turn", {}).get(controller_id, 0))
     if selector == "cards_discarded_this_turn":
         # "…for each card you've discarded this turn." (Living Laser's
         # self-copy count; Change of Fortune / Astonishing Spider-Man's
@@ -3967,11 +3974,22 @@ def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, i
         if ability.params.get("self_only"):
             if obj is not source:
                 continue
+        elif ability.params.get("nontoken"):
+            # "Nontoken creatures you control enter with…" (Gorma, the
+            # Gullet) — includes the granting source itself if it's nontoken.
+            if obj.controller_id != controller_id or getattr(obj, "is_token", False):
+                continue
         else:
             if obj.controller_id != controller_id or obj is source:
                 continue
         kind = str(ability.params.get("kind", "+1/+1"))
-        totals[kind] = totals.get(kind, 0) + int(ability.params.get("count", 1) or 1)
+        selector = ability.params.get("count_selector")
+        if selector:
+            amount = count_selector(state, controller_id, str(selector), source)
+        else:
+            amount = int(ability.params.get("count", 1) or 1)
+        if amount:
+            totals[kind] = totals.get(kind, 0) + amount
     return totals
 
 
