@@ -16,9 +16,22 @@ from fastapi import APIRouter, Depends, HTTPException
 from mtg_analyzer.api.cards import coverage_for
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import SaveDeckRequest
+from mtg_analyzer.game.ability_catalogue import registry_signature
 from mtg_analyzer.models.deck import Deck
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.parser.oracle import PARSER_VERSION
+
+
+def _coverage_cache_key() -> str:
+    """The version stamp `Deck.unmodeled_coverage` is cached under.
+
+    Folds the hand-`AUTHORED` catalogue's own state (`registry_signature`)
+    into `PARSER_VERSION` so registering a card — which never bumps
+    `PARSER_VERSION` — still invalidates every deck's stale "N cards not
+    modeled" count on the next read, rather than freezing it until the
+    decklist text changes.
+    """
+    return f"{PARSER_VERSION}+cat{registry_signature()}"
 from mtg_analyzer.services.archetype_database import default_archetype_database
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.deck_validation import apply_legality, compute_deck_identity
@@ -216,7 +229,7 @@ def get_deck_coverage(
         raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
     if (
         deck.unmodeled_coverage is not None
-        and deck.unmodeled_coverage_version == PARSER_VERSION
+        and deck.unmodeled_coverage_version == _coverage_cache_key()
     ):
         return deck.unmodeled_coverage
     parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube)
@@ -241,7 +254,7 @@ def get_deck_coverage(
     # self-healing once resolution succeeds on a later view.
     if not resolved.not_found:
         deck.unmodeled_coverage = result
-        deck.unmodeled_coverage_version = PARSER_VERSION
+        deck.unmodeled_coverage_version = _coverage_cache_key()
         database.save_deck(deck)
     return result
 

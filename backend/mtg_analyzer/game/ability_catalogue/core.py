@@ -58,6 +58,27 @@ def register(name: str, factory: Callable[[], list[AbilitySpec]]) -> None:
     _REGISTRY[name.strip().lower()] = factory
 
 
+def registry_signature() -> str:
+    """A short, stable fingerprint of *which* cards are hand-`AUTHORED`.
+
+    A hand-authored catalogue entry makes a card fully playable without any
+    `parser/oracle/` change, so it never bumps `PARSER_VERSION`. Anything
+    that caches "how many of this deck's cards aren't modeled yet" keyed on
+    `PARSER_VERSION` alone (`api/saved_decks.py`'s `Deck.unmodeled_coverage`)
+    would therefore keep reporting a card as unmodeled forever after it's
+    registered, until the decklist text next changes. Folding this
+    signature into that cache key is the missing "reassess" trigger.
+
+    Only the *set of registered names* matters here (adding/removing a card),
+    not a factory's internal edits — those are picked up by the engine
+    directly, and a coverage count can't see them anyway.
+    """
+    import hashlib
+
+    joined = "\n".join(sorted(_REGISTRY))
+    return hashlib.sha1(joined.encode("utf-8")).hexdigest()[:12]
+
+
 def is_registered(name: str) -> bool:
     """Whether ``name`` (a card's own ``.name``) has a catalogue entry.
 

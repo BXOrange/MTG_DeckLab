@@ -692,9 +692,34 @@ class TestDeckCoverage:
         monkeypatch.setattr("mtg_analyzer.api.saved_decks.PARSER_VERSION", "next-version")
         response = client.get(f"/api/decks/{created['id']}/coverage")
 
+        from mtg_analyzer.api.saved_decks import _coverage_cache_key
+
         assert response.status_code == 200
         assert response.json() == {"unmodeledCount": 0, "unmodeledCardNames": []}
-        assert database.get_deck(created["id"]).unmodeled_coverage_version == "next-version"
+        assert database.get_deck(created["id"]).unmodeled_coverage_version == _coverage_cache_key()
+        assert database.get_deck(created["id"]).unmodeled_coverage_version.startswith("next-version+cat")
+
+    def test_registering_a_card_invalidates_cached_coverage(self, monkeypatch):
+        # A hand-AUTHORED catalogue entry makes a card playable without ever
+        # bumping PARSER_VERSION — the coverage cache must still reassess.
+        database = _override_database()
+        _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Lands", "mainboardText": "40 Forest\n"}).json()
+        client.get(f"/api/decks/{created['id']}/coverage")
+
+        deck = database.get_deck(created["id"])
+        deck.unmodeled_coverage = {"unmodeledCount": 40, "unmodeledCardNames": ["Forest"]}
+        database.save_deck(deck)
+
+        monkeypatch.setattr(
+            "mtg_analyzer.api.saved_decks.registry_signature", lambda: "deadbeefcafe"
+        )
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert response.status_code == 200
+        assert response.json() == {"unmodeledCount": 0, "unmodeledCardNames": []}
+        assert "catdeadbeefcafe" in database.get_deck(created["id"]).unmodeled_coverage_version
 
     def test_editing_decklist_text_invalidates_cached_coverage(self):
         database = _override_database()

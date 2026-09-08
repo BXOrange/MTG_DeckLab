@@ -28,6 +28,7 @@ from .core import (
     opening_hand_battlefield_permission,
     pregame_setup_permission,
     register,
+    registry_signature,
     specs_for,
 )
 
@@ -63,5 +64,6 @@ __all__ = [
     "opening_hand_battlefield_permission",
     "pregame_setup_permission",
     "register",
+    "registry_signature",
     "specs_for",
 ]
