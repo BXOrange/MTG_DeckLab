@@ -9,8 +9,7 @@ fail-closes over otherwise-claimable bodies, a recurring effect-body template
 that wants one parser handler, a set-specific keyword mechanic, a genuine
 missing engine primitive, or a true one-of that only hand-authoring will close.
 That segmentation is the input to the PAR-*/MEC-* ticket pipeline in
-`docs/implementation-state/BACKLOG.md` (see
-`.claude/plans/*commander*` / `PARSER_LONG_TAIL.md`).
+`docs/implementation-state/BACKLOG.md` (method: `PARSER_LONG_TAIL.md`).
 
 Buckets (each UNMODELED Commander-legal card lands in exactly one, tested in
 this order):
@@ -21,8 +20,9 @@ this order):
      its own (`match_clause`). The card is one segmenter/wrapper fix or one
      sibling-clause ticket away; no ticket of its own.
   D  primitive-blocked — an unclaimed clause matches a known missing-engine-
-     primitive signature (the PAR-30 clusters + Licid + the damage-source
-     tracker). -> MEC-* (primitive + handler + PARSER_VERSION bump in one batch).
+     primitive signature. -> MEC-* (primitive + handler + PARSER_VERSION
+     bump in one batch). NOTE: these labels name the *gap*, not a ticket -
+     file a fresh MEC-* when starting one (see BACKLOG.md's MEC section).
   C  set-specific mechanic — an unclaimed clause names a keyword mechanic the
      `PARSER_LONG_TAIL.md` "Two tracks" table lists as Not done (Doctor's
      companion, Party, Rebel/Mercenary, Ki/Spirit-or-Arcane, ...). -> PAR-*,
@@ -90,33 +90,34 @@ _MODE_BODY_PREFIX_RE = re.compile(r"^(?:•\s+|\+\s+.*?\s+—\s+)")
 
 #: Known missing-engine-primitive signatures -> Bucket D (MEC-*). Matched
 #: case-insensitively against the RAW unclaimed clause (keeps `~`, `{2}`, digits).
-#: The PAR-30 clusters that BACKLOG.md already enumerates, plus the two new
-#: ones this plan adds (Licid, the per-turn damage-source tracker).
+#: Labels name the missing primitive, deliberately NOT a ticket id: the
+#: tickets these once pointed at (MEC-47/49, PAR-30) are closed and MEC-48 is
+#: parked in DEFERRED.md, so citing them here went stale. File a fresh MEC-*.
 _PRIMITIVE_GAP_SIGNATURES: dict[str, re.Pattern[str]] = {
-    "Licid — creature becomes an Aura (MEC-47)":
+    "Licid — creature becomes an Aura":
         re.compile(r"loses this ability and becomes an aura enchantment", re.I),
-    "Specialize (Duskmourn) (MEC-48)":
+    "Specialize (Duskmourn) — parked, see DEFERRED.md":
         re.compile(r"\bspecial(?:ize|izes|ized)\b", re.I),
-    "damage-source-this-turn tracker (MEC-49)":
+    "damage-source-this-turn tracker":
         re.compile(r"dealt damage by ~ this turn\b", re.I),
-    "PAR-30: Waterbend residue":
+    "Waterbend residue":
         re.compile(r"\bwaterbend(?:s|ing)?\b", re.I),
-    "PAR-30: bending-verb trigger":
+    "bending-verb trigger":
         re.compile(r"whenever you (?:waterbend|earthbend|firebend|airbend)", re.I),
-    "PAR-30: Clash win-branch":
+    "Clash win-branch":
         re.compile(r"\bclash(?:es|ed)?\b", re.I),
-    "PAR-30: Suspect one-offs":
+    "Suspect one-offs":
         re.compile(r"\bsuspect(?:ed|s)?\b", re.I),
-    "PAR-30: Incubate primitives":
+    "Incubate primitives":
         re.compile(r"\bincubate[sd]?\b", re.I),
-    "PAR-30: Collect Evidence / Forage / Behold bodies":
+    "Collect Evidence / Forage / Behold bodies":
         re.compile(r"\bcollect evidence\b|\bforage[sd]?\b|\bbehold[s]?\b", re.I),
-    "PAR-30: Face a Villainous Choice residue":
+    "Face a Villainous Choice residue":
         re.compile(r"villainous choice|face a villainous", re.I),
-    "PAR-30: Exchange control / life totals":
+    "Exchange control / life totals":
         re.compile(r"\bexchange control of\b|exchange the control|exchange life totals|"
                    r"exchange (?:your |)life totals", re.I),
-    "PAR-30: tapped-and-attacking put-from-zone residue":
+    "tapped-and-attacking put-from-zone residue":
         re.compile(r"tapped and attacking", re.I),
 }
 

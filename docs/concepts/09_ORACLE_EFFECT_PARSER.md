@@ -257,6 +257,11 @@ present and future handler benefits, not with a local workaround scoped to
 the one card that exposed it — a local fix is a half-fix that leaves the
 same landmine for the next handler to step on.
 
+**How far the debt has actually run is now measured**, along with the deeper
+cause it turns out to be a symptom of (the IR has no sequencing/branching node,
+so a combination of known effects must be memorized rather than derived):
+[13_ORACLE_PARSER_GRAMMAR_REVIEW.md](13_ORACLE_PARSER_GRAMMAR_REVIEW.md).
+
 ---
 
 # THE COVERAGE GATE: FAIL-CLOSED, ALL-OR-NOTHING

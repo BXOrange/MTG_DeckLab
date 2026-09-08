@@ -43,9 +43,156 @@ its block back into the matching section here.
 
 ## ENG — Game engine
 
-> **(none open.)**
+> Scope and rationale for ENG-34…37 live in
+> [14_PARSER_GRAMMAR_DESIGN.md](../concepts/14_PARSER_GRAMMAR_DESIGN.md);
+> the evidence is
+> [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md).
+> Order is a dependency chain, not a preference. **ENG-34/35 should move
+> coverage by zero** — judge them on the counts named in each.
+
+- **ENG-34 · Atom inventory: classify the instruction set (`14_` S0).** Derive
+  the operation list from the CR (RULE 701 keyword actions + the zone-change /
+  damage / counter / life operations), then classify every one of
+  `RulesEngine`'s **254 public methods** and `EffectRegistry`'s **457 types** as
+  *instruction* / *continuation pair* / *fusion* / *alias* / *one-card special*.
+  A **fusion** is two instructions welded together because the IR cannot
+  sequence them (`LivingWeaponEffect`'s docstring states the problem); that list
+  is the backlog ENG-37's operators must retire, and every proposed operator has
+  to name the fusions it kills. Also declare each instruction's **argument
+  frame** (agent, patient, source zone, destination zone, amount, duration) -
+  frames are not canonical today (11,532 observed against ~130 operations), and
+  the frame vocabulary must be shared with the parser, replacing
+  `targeting.py`'s 59 opaque `kind` strings and its 58 hand-written
+  `kind == …` branches.
+  Side task: re-point `scripts/commander_tail_report.py`'s bucket-D signatures,
+  and file the CR-versus-engine diff as fresh `MEC-*` tickets — that diff is
+  what the `MEC` category means, produced systematically instead of
+  card-by-card.
+  **Exit:** every top-50 corpus operation has a named instruction with a frame;
+  all 457 types carry a classification. No behaviour change.
+  > **Cheap-exit checkpoint.** That a canonical frame exists for most
+  > instructions is asserted, not demonstrated. If frames do not canonicalize
+  > here, ENG-37 and PAR-62 lose their footing and the design should be dropped
+  > rather than pushed through.
+
+- **ENG-35 · Generalize the continuation primitive (`14_` S1).** **97 of the
+  254 public `RulesEngine` methods (38%) are `request_*`/`resolve_*_choice`
+  pairs** — there is no general "ask the player and resume", so every blocking
+  interaction was hand-written. Do **not** invent a mechanism: MEC-69 already
+  proved the right one, and `RulesEngine.enqueue_reflexive_trigger`
+  (`game/rules/misc_mixin.py`, already extracted, two callers) is it — it builds
+  a fresh `TriggeredAbility` from serialized payoff specs so the ordinary
+  resolve loop stacks it and gathers RULE 115 targets through the normal
+  interactive path. A trigger on the stack *is* a resumable continuation with
+  correct target selection. It already carries a mode choice
+  (`then_trigger_modes`), i.e. a branch resumed after suspension.
+  Promote it to the general path and retire the bespoke pairs onto it; make
+  `GameState.deferred_effects` **structure-aware** (it parks the tail of a flat
+  list *by position*, so it cannot resume into a tree).
+  **Blocks ENG-37** — `optional`/`for_each` must suspend inside a body.
+  **Exit:** suite green; method count 254 → ≤170; no coverage movement.
+
+- **ENG-36 · Structured effect conditions (`14_` S2).** Replace `spec.py`'s
+  **43 flat `_ALLOWED_CONDITION_KEYS`** with subject-qualified predicates
+  modelled on `static_conditions.py`'s `{kind, of, …}` + its `"all"`
+  combinator, reusing `condition_holds` — the generic-gate refactor
+  `effect_binder.py` already performed once for replacements. Collapses
+  duplicates that are one quantity at two thresholds
+  (`no_spells_cast_last_turn` / `two_or_more_spells_cast_last_turn`) and one
+  predicate against two subjects (`source_has_subtype` /
+  `previous_target_has_subtype`). The ~15 resolution-scoped predicates
+  (`kicked`, `clash_won`, `previous_target_*`) need `GameContext`, not just
+  `GameState`; carry them by extending `CONDITION_SUBJECTS` with
+  `previous_target` / `created_object`.
+  Retires `parse_effect_body`'s **26 hand-coded prefix-peelers** in favour of
+  one general `if <predicate>, <effect>` rule (PAR-62 consumes it; this ticket
+  owns the vocabulary).
+  **Exit:** condition keys structured; peeler cascade 26 → 1.
+
+- **ENG-37 · Composite IR nodes (`14_` S3).** Add nesting to `EffectSpec` -
+  `seq`, `if/else`, `optional`, `for_each`, `bind` — with
+  `AbilitySpec.validate()` recursing. Binds onto the nested-spec machinery that
+  already exists (`pay_cost_then`, `repeat_process`, `create_delayed_trigger`,
+  `choose_objects.then`), all of which build through `build_effects`, so the
+  `type` whitelist keeps gating every depth. `bind` is what the shared
+  `{DEVOTION}`-scaled-X handler cluster works around; `if/else` is what the
+  kicked-override family works around.
+  Also closes a real hole: nested `params["effects"]` currently bypass
+  `_clamp_params` and `_validate_condition`, so `MAX_EFFECT_MAGNITUDE` is
+  **unenforced below depth 0**.
+  **Needs ENG-35.** **Exit:** each operator names the ENG-34 fusions it retires,
+  and those types are gone.
+
 
 ## PAR — Parser
+
+- **PAR-61 · Parser grammar/IR restructure: umbrella and order.** Evidence:
+  [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md).
+  Design:
+  [14_PARSER_GRAMMAR_DESIGN.md](../concepts/14_PARSER_GRAMMAR_DESIGN.md).
+  The parser is a whole-clause lookup table (`EffectHandler` uses
+  `regex.fullmatch`) over an IR with no sequencing/branching/binding node, so a
+  *combination* of two known effects must be memorized rather than derived -
+  **22,753 distinct unclaimed templates for 20,328 blocked cards**, 80.0% of
+  them failing on exactly one clause. The operation vocabulary underneath is
+  closed: **130 operations, top 50 covering 94.9%**. The explosion is
+  combinatorial, not lexical.
+
+  Execution order (dependency chain): **ENG-34** (atom inventory) → **ENG-35**
+  (continuations) → **ENG-36** (structured conditions) → **ENG-37** (composite
+  IR nodes) → **PAR-62** (clause grammar) → **PAR-63** (slot grammars).
+
+  This ticket holds only what is not in those six:
+
+  - **Cherry-pick `81c3320` onto this branch first** — its 44-line
+    "clause-tree grammar tier" conclusion in `09_` and its
+    `subgrammars.SELF_SUBJECT_PREFIX`. It lives on the unmerged
+    `arch/grammar-tier-prototype`, so a recorded architectural negative result
+    is currently invisible to anyone working here and will keep being
+    re-proposed. It rejected an *adjacent* proposal (a clause-tier for
+    handler-count reduction) and does not refute the above, but its
+    instruction — measure a family's genuinely-duplicated vs genuinely-distinct
+    rows before touching it — binds.
+  - **Do not displace the per-template track.** `PAR-12` / `PAR-31…PAR-53`
+    remain where the near-term coverage is; `13_` section 5.6 confirms it. Note
+    in particular the **1,279 clauses where the trigger body already parses and
+    only the condition fails** — the cleanest isolated target in the remainder,
+    needing none of this restructure.
+  - **Read `13_` section 5.6(a) with care.** Holding the atom inventory fixed at
+    what the handler table claims today, composition alone flips only 5.3% of
+    blocked cards. That bounds *retrofitting* composition, not *atoms +
+    composition* — the payoff is multiplicative. An earlier draft drew the wrong
+    conclusion.
+
+- **PAR-62 · Clause grammar with residue (`14_` S4).** Rewrite
+  `segmenter.parse_effect_body` as recursive descent over the connectives
+  measured in `13_` section 5.2 (`if` 16.5%, `you may` 13.8%, `then` 8.3%,
+  `for each` 5.9%, `instead` 3.4%, …), replacing the all-or-nothing
+  `fullmatch` with a **residue** mechanism: a rule may claim part of a clause
+  and hand the rest on, instead of one unmodelable fragment discarding every
+  sibling that parsed.
+  Fix the two standing positional gaps here — mid-body `you may` (a known gap
+  named in `09_`; `_peel_optional` strips only a *leading* one) and
+  `subgrammars.UP_TO_ONE`, hardcoded to N=1.
+  **Highest-risk ticket in the chain** — every currently-MODELED card is
+  re-derived through it, and there is no partial rollout. Mitigation: the full
+  suite plus a full-cache before/after coverage diff. **Needs ENG-34 + ENG-37**;
+  without an atom layer to hand residue *to*, recursive descent has nothing to
+  descend into.
+  **Exit:** coverage does not regress; templates-per-blocked-card (**1.12
+  today**) falls.
+
+- **PAR-63 · Cross-module sub-grammar reuse (`14_` S5).** `static_handlers.py`
+  (3,943 lines) imports five names from `subgrammars` and **not** `TARGET`;
+  `replacements.py` imports **none**; the same five-entry colour dict is
+  declared three times (`handlers.py`, `replacements.py`, `subgrammars.py`).
+  `PERMANENT_TYPE_WORD` has zero uses despite a docstring describing the
+  duplication it exists to remove.
+  Scope is *cross-module* reuse only. **Do not re-run `81c3320`'s experiment**
+  on the damage/destroy/exile rows — it already showed their count is driven by
+  genuine semantic and parse-context variety, not redundant surface grammar.
+  Measure any family the way that commit did before touching it.
+
 
 - **PAR-12 · The indefinite long tail (methodology pointer, not a closeable
   ticket).** Strategy, coverage, and worked examples live in
@@ -65,8 +212,10 @@ its block back into the matching section here.
   > keywords; `PAR-30` was `PAR-29`'s parser trail, closed PARSER_VERSION
   > 216 — all 24 RULE 701 keyword actions have recognition + an engine
   > primitive, and its last residue moved to `MEC-52`, closed). The first free
-  > parser ticket id is `PAR-54` (`PAR-31…PAR-53` are the Commander-legal
-  > tail clusters below).
+  > parser ticket id is **`PAR-62`** (checked 2026-09-08): `PAR-31…PAR-53` are
+  > the Commander-legal tail clusters below, `PAR-54`/`PAR-55`/`PAR-57`/`PAR-60`
+  > are shipped and written up in `Done_Backend.md`, `PAR-56`/`PAR-58`/`PAR-59`
+  > are open below, and `PAR-61` is the grammar-restructure decision above.
 
 - **PAR-31…PAR-53 · Commander-legal tail — one PAR per recurring template
   cluster.** Seeded from `scripts/commander_tail_report.py` (read-only,
@@ -79,8 +228,12 @@ its block back into the matching section here.
   SOLO count is always lower. Close each the normal way (delete the line,
   narrate in `Done_Backend.md`, bump `PARSER_VERSION`, sync the three
   coverage figures, sweep for siblings). Full method:
-  [`.claude/plans/analysiere-den-unmodelled-cardpool-und-crystalline-blanket.md`]
-  and `PARSER_LONG_TAIL.md`. Run cited: PARSER_VERSION 186, 2026-09-01. Every ticket shall be completed end to end without leaving residue before moving to the next ticket.
+  [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Counts below are from a
+  PARSER_VERSION 186 run (2026-09-01) and are stale; a fresh v298 segmentation
+  is in
+  [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md)
+  §5.3. Every ticket shall be completed end to end without leaving residue
+  before moving to the next ticket.
 
   Bucket B (recurring effect-body / static templates, `extend-parser` loop):
 
@@ -205,8 +358,9 @@ its block back into the matching section here.
     count-selector with PAR-46).
   - Doctor's companion (Doctor Who) (#28), Rebel/Mercenary recruiter
     tutor chains (Mercadian Masques) (#21), `enters prepared` (#23) —
-    file as PAR-54… when their batch comes up; not enumerated further here
-    to keep the list to the first wave.
+    file from the next free id (see the ticket-id note above) when their
+    batch comes up; not enumerated further here to keep the list to the
+    first wave.
   - **Non-goal / lowest priority, no ticket:** Attractions (RULE 717,
     #19 — permanent non-goal), Conspiracy draft-matters (#13), Banding
     (#13), Horsemanship (#8) — dead pools / non-goals, documented, kept
@@ -221,22 +375,33 @@ its block back into the matching section here.
 
   - **PAR-56 · Teamwork modal and rider grammar (RULE 702.194).** Route
     `if this spell was cast using teamwork` modal overrides and ordinary
-    conditional riders to a `teamwork_paid` condition; the optional tapping
-    cost and cast-state marker are **MEC-67**. Seed cards: Go Nuts!, Widow's
-    Bite, HULK SMASH!, Atlantis Attacks, Murdock's Crusade.
+    conditional riders to a `teamwork_paid` condition. The engine half
+    (MEC-67, optional tapping cost + cast-state marker) is **done**, so this
+    is parser-only. Seed cards: Go Nuts!, Widow's Bite, HULK SMASH!,
+    Atlantis Attacks, Murdock's Crusade.
   - **PAR-58 · Reflexive modal trigger wrapper.** Parse `you may pay <cost>.
     When you do, choose N —` as a `pay_cost_then` continuation whose payoff
-    is a modal triggered ability, retaining RULE 603.11 stack/target order;
-    the continuation plumbing is **MEC-69**. Seed cards: Voltstorm Angel,
+    is a modal triggered ability, retaining RULE 603.11 stack/target order.
+    The continuation plumbing (MEC-69, `enqueue_reflexive_trigger` +
+    `then_trigger_modes`) is **done**, so this is parser-only. Seed cards:
+    Voltstorm Angel,
     Hylda of the Icy Crown, Gorbag of Minas Morgul, Vision Synthezoid
     Avenger.
   - **PAR-59 · Haunt-trigger modal wrapper (RULE 702.55).** Parse `when ~
     enters or the creature it haunts dies, choose N —` and the standalone
     `when the creature this card haunts dies` form. The haunt link/exile
-    mechanic and event are **MEC-70**. Seed cards: Orzhov Pontiff, Absolver
+    mechanic and event (MEC-70) are **done**, so this is parser-only. Seed
+    cards: Orzhov Pontiff, Absolver
     Thrull, Belfry Spirit, Blind Hunter, Exhumer Thrull, Graven Dominator.
 
 ## MEC — Game mechanics
+
+> **(none open.)** `scripts/commander_tail_report.py`'s bucket D routes
+> ~132 Commander-legal cards here; its signature labels now name the *missing
+> primitive* rather than a ticket id (they previously cited MEC-47/49 and
+> PAR-30, all closed, and MEC-48, parked in `DEFERRED.md`). File a fresh
+> `MEC-*` when starting one. **ENG-34** will additionally derive this list
+> systematically — a CR-versus-`RulesEngine` diff — rather than card-by-card.
 
 ## PLR — Player management
 
