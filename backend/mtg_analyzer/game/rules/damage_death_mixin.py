@@ -583,6 +583,13 @@ class DamageDeathMixin:
         SBA-offered move to the command zone.
         """
         was_on_battlefield = obj in self.state.battlefield
+        # RULE 400.7 / Laelia, the Blade Reforged (PAR-60): the zone this
+        # card is leaving, snapshotted before the move for the `EXILE`
+        # event's own ``from_zone`` — a "…put into exile from your library
+        # and/or your graveyard" trigger needs to know where it came from.
+        _from_zone = getattr(getattr(obj, "zone", None), "value", None) or (
+            "battlefield" if was_on_battlefield else None
+        )
         owner = self.state.player_by_id(obj.owner_id)
         if was_on_battlefield:
             # RULE 603.6a "look back in time" — fire before removal, see
@@ -616,7 +623,10 @@ class DamageDeathMixin:
         owner.add_to_zone(obj, Zone.EXILE)
         self._flag_commander_zone_choice(obj)
         self.state.fire_event(
-            GameEvent(EventType.EXILE, object=obj.name, owner_id=obj.owner_id)
+            GameEvent(
+                EventType.EXILE, object=obj.name, owner_id=obj.owner_id,
+                instance_id=obj.instance_id, from_zone=_from_zone,
+            )
         )
     def return_to_hand(self, obj: GameObject) -> None:
         """Return ``obj`` to its owner's hand (RULE 701.3 "return"), from
@@ -1032,6 +1042,7 @@ class DamageDeathMixin:
         amount: Union[int, str] = "all",
         watched_source_id: Optional[int] = None,
         rider: Optional[dict] = None,
+        combat_only: bool = False,
     ) -> None:
         """RULE 615: grant ``player`` a turn-scoped damage-prevention shield
         (Riot Control's "all", Thought Lash's repeatable "the next 1") —
@@ -1062,6 +1073,11 @@ class DamageDeathMixin:
         before even if that source never actually deals damage this turn.
         ``rider`` fires a follow-up off the real prevented amount — see
         `apply_prevent_rider` (Deflecting Palm/Reverse Damage-shaped).
+
+        ``combat_only`` (Inkshield — "Prevent all combat damage that would be
+        dealt to you this turn") narrows the shield to RULE 510 combat
+        damage, checked against the `DAMAGE` event's own ``combat`` flag the
+        same way `prevent_all_combat_damage_this_turn` does.
         """
         remaining = None if amount == "all" else int(amount)
         effect = ReplacementEffect(
@@ -1070,6 +1086,7 @@ class DamageDeathMixin:
             condition=lambda e, c: (
                 bool(e.get("is_player")) and e.get("target_id") == player.id
                 and (watched_source_id is None or e.get("source_id") == watched_source_id)
+                and (not combat_only or bool(e.get("combat")))
             ),
             description=f"{player.name}: Schadensverhinderung",
         )

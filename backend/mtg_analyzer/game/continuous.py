@@ -2840,6 +2840,16 @@ def cost_reduction_for(
         spell_type = ability.params.get("spell_type")
         if spell_type and (obj is None or not _spell_type_matches(obj, spell_type)):
             continue
+        # "Spells you cast from anywhere other than your hand cost {N} less."
+        # (Advanced Reconstruction level 3, PAR-60) — the spell's own
+        # cast-origin flags; ``obj is None`` (offer-time probe) leaves the
+        # discount available so affordability isn't understated.
+        if ability.params.get("not_from_hand") and obj is not None and not (
+            getattr(obj, "cast_from_exile", False)
+            or getattr(obj, "cast_via_flashback", False)
+            or getattr(obj, "cast_via_escape", False)
+        ):
+            continue
         # "Spells you cast that target a creature cost {2} less to cast."
         # (Killian, Ink Duelist, PAR-60) — a RULE 601.2f reduction gated on
         # the chosen targets, the battlefield-static sibling of
@@ -3015,7 +3025,8 @@ def forced_sorcery_speed_only(state: "GameState", player: "Player") -> bool:
 
 
 def attack_tax_per_creature_for(
-    state: "GameState", defending_player_id: str, defender_kind: str = "player"
+    state: "GameState", defending_player_id: str, defender_kind: str = "player",
+    attacker: Any = None,
 ) -> int:
     """RULE 508.1g — "creatures can't attack you unless their controller pays
     {N} for each creature they control that's attacking you" (Propaganda /
@@ -3043,6 +3054,23 @@ def attack_tax_per_creature_for(
             defender_kind == "planeswalker" and scope == "player_or_planeswalker"
         ):
             continue
+        # Nils, Discipline Enforcer (PAR-60) — a per-attacker filtered,
+        # per-attacker-variable tax: only attackers matching ``attacker_
+        # filter`` are taxed, and each pays its own counter count.
+        attacker_filter = params.get("attacker_filter")
+        per_counter = params.get("amount_per_attacker_counter")
+        if (attacker_filter or per_counter) and attacker is not None:
+            if not _defender_attack_ban_matches(
+                state, attacker, ability.source, attacker_filter or {}
+            ):
+                continue
+            if per_counter:
+                counters = getattr(attacker, "counters", {}) or {}
+                if str(per_counter) == "any":
+                    total += sum(int(v) for v in counters.values() if int(v) > 0)
+                else:
+                    total += max(0, int(counters.get(str(per_counter), 0)))
+                continue
         selector = params.get("amount_count_selector")
         if selector:
             total += count_selector(state, defending_player_id, str(selector), ability.source)

@@ -263,6 +263,7 @@ class TurnLoopMixin:
         # RULE 700.4 history ("unless a creature died under your control this
         # turn", Bontu the Glorified) — game-wide for the same reason.
         self.state.creatures_died_this_turn.clear()
+        self.state.modified_creatures_died_this_turn.clear()
         # PAR-32: "if a source you controlled dealt N or more damage this
         # turn" (Dragon Cultist) / "if a creature card was put into your
         # graveyard from anywhere this turn" (Cloakwood Hermit) — per-

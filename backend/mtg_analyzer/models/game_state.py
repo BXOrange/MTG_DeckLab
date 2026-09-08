@@ -1126,6 +1126,14 @@ class GameState:
         #: restriction) is a *history* question — the creature is long gone
         #: from every zone a live board scan could reach.
         self.creatures_died_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: Intermediate Chirography (PAR-60), level 3: "if a **modified**
+        #: creature died under your control this turn". Same `DIES`-subscribed,
+        #: begin-turn-cleared, controller-keyed shape as
+        #: `creatures_died_this_turn` above. Documented simplification:
+        #: "modified" is read as "had one or more counters" (RULE 700.9's
+        #: Equipment/Aura modifications are not tracked here), off the DIES
+        #: event's snapshotted ``counters``.
+        self.modified_creatures_died_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: MEC-49: for each creature that took damage *this turn*, the set of
         #: `instance_id`s of the sources that dealt it — ``{damaged_obj_id:
         #: {source_id, …}}``. A *history* question no live board can answer:

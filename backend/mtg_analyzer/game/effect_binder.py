@@ -167,6 +167,10 @@ def build_replacements(
 #: you control) — instead; see the firing sites in `game/game_engine.py`.
 _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     "ATTACKS": "player_id",
+    # "Whenever you lose life for the first time each turn, …" (Intermediate
+    # Chirography level 2, PAR-60) — `RulesEngine.lose_life` fires
+    # `LIFE_LOST` per player, keyed by ``player_id``.
+    "LIFE_LOST": "player_id",
     # RULE 702.19b's "whenever you exert a creature, …" (Ahn-Crop
     # Champion-cycle payoffs) — `GameEngine.declare_attackers` fires this
     # per-exert, same ``player_id`` convention as `ATTACKS` above.
@@ -938,6 +942,29 @@ def _trigger_condition(
 
         predicates.append(_your_graveyard_exit_ok)
 
+    # "Whenever one or more cards are put into exile from your library and/or
+    # your graveyard, …" (Laelia, the Blade Reforged, PAR-60) — an
+    # `EventType.EXILE` predicate keyed on the event's own ``from_zone``
+    # (stamped by `RulesEngine.exile`) and the card's owner. Documented
+    # simplification: `EXILE` fires per card, so this fires once per card
+    # exiled from those zones rather than once per "one or more" batch —
+    # exact for the single-card exiles that dominate (Laelia's own attack
+    # trigger, impulse draws), an over-count only on a true mass exile.
+    if trigger.get("exiled_from_your_library_or_graveyard"):
+        def _exiled_from_your_lib_or_gy_ok(event: Any, context: Any, src=source) -> bool:
+            controller_id = getattr(src, "controller_id", None)
+            if controller_id is None:
+                return False
+            owner = event.get("owner_id")
+            if owner is None:
+                owner = event.get("player_id")
+            return (
+                owner == controller_id
+                and event.get("from_zone") in ("library", "graveyard")
+            )
+
+        predicates.append(_exiled_from_your_lib_or_gy_ok)
+
     if trigger.get("during_your_turn"):
         def _during_your_turn_ok(event: Any, context: Any, src=source) -> bool:
             state = getattr(context, "state", None)
@@ -1252,6 +1279,17 @@ def _trigger_condition(
             return bool(event.get("contributor_power_gt_base"))
 
         predicates.append(_contributor_power_gt_base_ok)
+
+    # "Whenever one or more creatures you control **with base power 0** deal
+    # combat damage to a player, …" (Primo, the Unbounded, PAR-60) — the
+    # printed-power sibling of ``contributor_power_gt_base`` just above, off
+    # the same aggregate event's own ``any_base_power_0`` flag (stamped by
+    # `combat_mixin._apply_combat_damage`).
+    if trigger.get("contributor_base_power_zero"):
+        def _contributor_base_power_zero_ok(event: Any, context: Any) -> bool:
+            return bool(event.get("any_base_power_0"))
+
+        predicates.append(_contributor_base_power_zero_ok)
 
     # "Whenever an opponent draws their **second** card each turn, …"
     # (Faerie Mastermind) — an ordinal on `GameState.cards_drawn_this_

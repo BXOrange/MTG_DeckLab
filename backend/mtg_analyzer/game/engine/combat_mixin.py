@@ -459,10 +459,21 @@ class CombatMixin:
                     key, {
                         "max_power": 0, "amount": 0, "subtypes": set(), "is_commander": False,
                         "power_gt_base": False, "any_nontoken": False, "contributor_ids": [],
+                        "any_base_power_0": False, "base_power_0_amount": 0,
                     }
                 )
                 entry["contributor_ids"].append(source.instance_id)
                 entry["max_power"] = max(entry["max_power"], source.power or 0)
+                # "…creatures you control **with base power 0**…" (Primo, the
+                # Unbounded, PAR-60) — "base power" is the printed/copied
+                # value (`Card.power`, RULE 707.2), not the derived
+                # `source.power` (counters + statics), the same distinction
+                # ``power_gt_base`` just below draws. ``base_power_0_amount``
+                # is the combat damage those base-power-0 creatures dealt to
+                # this player this step (Primo's "the damage dealt").
+                if int(getattr(source.card, "power", 0) or 0) == 0:
+                    entry["any_base_power_0"] = True
+                    entry["base_power_0_amount"] += amount
                 # "whenever **1 or more nontoken creatures** you control deal
                 # combat damage to a player" (Feywild Visitor's granted
                 # trigger) — true once any contributor to this pair is a
@@ -529,6 +540,8 @@ class CombatMixin:
                     contributor_power_gt_base=entry["power_gt_base"],
                     contributor_any_nontoken=entry["any_nontoken"],
                     contributor_ids=entry["contributor_ids"],
+                    any_base_power_0=entry["any_base_power_0"],
+                    base_power_0_amount=entry["base_power_0_amount"],
                 )
             )
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:
@@ -634,7 +647,7 @@ class CombatMixin:
             if defending is not None:
                 defender_kind = str((_defender or {}).get("kind", "player"))
                 tax_total += continuous.attack_tax_per_creature_for(
-                    self.state, defending.id, defender_kind
+                    self.state, defending.id, defender_kind, attacker=_obj
                 )
         if tax_total > 0:
             if not pay_attack_tax:

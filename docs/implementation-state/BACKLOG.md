@@ -236,56 +236,6 @@ its block back into the matching section here.
     mechanic and event are **MEC-70**. Seed cards: Orzhov Pontiff, Absolver
     Thrull, Belfry Spirit, Blind Hunter, Exhumer Thrull, Graven Dominator.
 
-- **PAR-60 · Secrets of Strixhaven Commander decks — saved-deck playability
-  (set-specific track, PAR-12).** Make all five *Secrets of Strixhaven*
-  saved decks (Witherbloom Pestilence, Silverquill Influence, Quandrix
-  Unlimited, Prismari Artistry, Lorehold Spirit) fully playable — every card
-  MODELED by the oracle parser or AUTHORED in `game/ability_catalogue/`.
-  Worked deck-first in waves (`scripts/deck_coverage.py --uncovered
-  "<deck>"`), building the minimal parser handler / engine primitive per
-  cluster and hand-authoring the singleton tail. Shipped work is filed in
-  `Done_Backend.md` under "Secrets of Strixhaven"; the running per-wave log
-  is the session scratchpad `secrets_of_strixhaven_plan.md`.
-
-  **Still open** — 10 uncovered as of wave 96 (423/433 covered: Witherbloom
-  84/86, Silverquill 83/86, Quandrix 87/89, Prismari 86/87, Lorehold 83/85).
-  Each remaining card needs a genuinely new subsystem or a large extension
-  with real regression surface — probed individually, not a recombination of
-  shipped primitives:
-  - **additional-cost-{X} that defines the spell's X** — Immoral Bargain
-    ("sacrifice X creatures … destroy X target nonland permanents"), Plumb
-    the Forbidden ("sacrifice one or more creatures … copy this spell for
-    each"). Needs the RULE 601.2b cost-payment flow coupled to the {X}
-    announcement flow.
-  - **multi-level Class re-authoring** — Intermediate Chirography (only its
-    L3 "each end step, if a modified creature died … create token" clause
-    is unclaimed) and Advanced Reconstruction (all three level clauses
-    unclaimed: random-graveyard-exile L1, `CARDS_LEFT_GRAVEYARD` damage L2,
-    cast-from-anywhere-but-hand cost reduction L3). Either full Class
-    re-authoring with `min_level` gating, or a parser trigger-grammar
-    extension for the "at each end step, if <died>" shape.
-  - **Nils, Discipline Enforcer** — for-each-player "up to one target
-    creature that player controls" +1/+1 counter, plus a per-attacker
-    variable "can't attack you unless its controller pays {X}, X = its
-    counter count" tax.
-  - **Primo, the Unbounded** — "enters with **twice X** +1/+1 counters"
-    (`entry_counters` has no `x_multiplier`) + a "creatures you control with
-    base power 0 deal combat damage → Fractal token with counters = damage"
-    trigger.
-  - **Unbound Flourishing** — "double the value of X" on a permanent spell
-    cast + "copy an instant/sorcery/ability whose cost contains {X}".
-  - **Mirrorwing Dragon** — "copy that spell for each other creature they
-    control that the spell could target. Each copy targets a different one"
-    — spell-copy-per-legal-target with real per-copy retargeting
-    (`CopySpellEffect` keeps the original's targets by design).
-  - **Inkshield** — "prevent all combat damage that would be dealt to you
-    this turn. For each 1 damage prevented this way, create an Inkling" — a
-    combat-damage-step prevention replacement that counts what it prevents.
-  - **Laelia, the Blade Reforged** — "whenever one or more cards are put
-    into exile from your library and/or your graveyard, put a +1/+1 counter
-    on Laelia" — needs a batched `CARDS_EXILED` event (library and/or
-    graveyard, owner = you) and binder EXILE-trigger support.
-
 ## MEC — Game mechanics
 
 ## PLR — Player management

@@ -2024,6 +2024,13 @@ class MiscSystemsMixin:
             return
         counts = self.state.creatures_died_this_turn
         counts[player_id] = counts.get(player_id, 0) + 1
+        # Intermediate Chirography (PAR-60), level 3 — "if a modified creature
+        # died under your control this turn". Documented simplification:
+        # "modified" == had one or more counters, read off the DIES event's
+        # snapshotted ``counters`` (RULE 400.7).
+        if any(int(v) > 0 for v in (event.get("counters") or {}).values()):
+            mods = self.state.modified_creatures_died_this_turn
+            mods[player_id] = mods.get(player_id, 0) + 1
 
     def _track_creature_card_to_graveyard(self, event: GameEvent) -> None:
         """PAR-32: record a *creature card* entering a graveyard from
@@ -3171,6 +3178,13 @@ class MiscSystemsMixin:
             # already accepts); the caller tallies the total via a
             # cards-removed delta in its ``then_specs``.
             "strip_all_counters",
+            # Immoral Bargain (PAR-60 round 4) — "Destroy X target nonland
+            # permanents", where X is only known after the additional-cost
+            # sacrifice is resolved: the destroy sibling of ``sacrifice``,
+            # applying `RulesEngine.destroy` (RULE 701.7, regeneration- and
+            # indestructible-respecting) to any battlefield permanent, not
+            # only the chooser's own.
+            "destroy",
         }
     )
     def request_choose_objects(
@@ -3545,6 +3559,10 @@ class MiscSystemsMixin:
         elif action == "sacrifice":
             # RULE 701.17a: non-destructive, so no regeneration shield saves it.
             self.put_into_graveyard(obj)
+        elif action == "destroy":
+            # Immoral Bargain (PAR-60 round 4): RULE 701.7 "destroy" — honours
+            # regeneration and indestructible, unlike ``sacrifice`` above.
+            self.destroy(obj)
         elif action == "return_to_hand":
             self.return_to_hand(obj)
         elif action == "return_from_graveyard":

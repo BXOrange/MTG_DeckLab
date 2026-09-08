@@ -4209,14 +4209,15 @@ is in the rules-engine categories below them.
 - **Engine primitives shipped alongside the hand-authoring:** `MoveCountersEffect` ("move_counters"), `DoubleCountersOnTargetEffect` ("double_counters_on_target", RULE 701.19 — also Vorel/Gilder Bairn), `RemoveCountersFromAmongThenDrawLoseLifeEffect` + `strip_all_counters` choose-object action (Eventide's Shadow), `DiscardUpToThenDrawThatManyEffect` (Cathartic Pyre mode 2 — reusable for Kinetic Augur / Daretti / Jaya Ballard), `ExchangeLifeTotalWithToughnessEffect` (Tree of Perdition) + layer-7b `pt_set` accepting a `None` half, `OwnerDrawOthersLosePerDyingCounterEffect` + `ActivationCost.only_opponents_may_activate` + `GainControlBySourceEffect` `recipient="activator"` (Oft-Nabbed Goat), `CreateTokensPerCounterAmongTargetPlayerCreaturesEffect` (Ferrafor), two marker statics `damage_cant_be_prevented` / `global_wither` (Everlasting Torment), per-turn tracker `GameState.counter_placed_on_creature_this_turn` + `static_conditions` kind `you_placed_counter_on_creature_this_turn` (Lasting Tarfire), `ImpulsiveDrawEffect.count_if_additional_cost_paid` (Burning Curiosity), `continuous.count_selector` `converge`/`charge_counters_on_source`, `affected_objects` `creatures_opponents_control_with_a_counter` (Kulrath Knight), `targeting.legal_targets` `max_mana_value="trigger_dying_counters"` sentinel (Puca's Covenant), `by_you` / `counter_recipient_is_you` trigger/condition keys and `counter_death_return` `opponent`/`immediate`/`optional`/`once_per_turn` flags (Necroskitter, The Reaper, Hapatra, Auntie Ool). `toughness` added to the DIES event snapshot.
 - **Files:** `game/ability_catalogue/entries_017.py` (per-card), `parser/oracle/catalogue/{handlers,subgrammars}.py`, `parser/oracle/segmenter.py`, `parser/oracle/spec.py`, `parser/oracle/gate.py`, `game/effects.py`, `game/continuous.py`, `game/targeting.py`, `game/effect_binder.py`, `game/costs.py`, `game/static_conditions.py`, `game/engine/{activation,legal_actions,turn_loop}_mixin.py`, `game/rules/{triggers,damage_death,mana_counters,misc}_mixin.py`, `game/rules_engine.py`, `models/game_state.py`.
 
-### Secrets of Strixhaven Commander decks (PAR-60, in progress) (Deck/Cube Playability Batches)
+### Secrets of Strixhaven Commander decks (PAR-60, complete — 433/433) (Deck/Cube Playability Batches)
 
 - **What:** Deck-first playability push for the five *Secrets of Strixhaven*
   saved decks (Witherbloom Pestilence, Silverquill Influence, Quandrix
-  Unlimited, Prismari Artistry, Lorehold Spirit), 2026-09-07, PARSER_VERSION
-  277 → 287. Worked in waves per uncovered-clause cluster; the still-open
-  follow-ups per wave stay in `BACKLOG.md` (PAR-60). Waves fully shipped
-  with no remaining follow-up:
+  Unlimited, Prismari Artistry, Lorehold Spirit), 2026-09-07 … 2026-09-08,
+  PARSER_VERSION 277 → 287. Worked in waves per uncovered-clause cluster.
+  **All five decks are now fully playable (433/433 covered)** — every card
+  MODELED by the parser or hand-`AUTHORED` in `game/ability_catalogue/`.
+  Waves fully shipped:
   - **wave 1** — `SearchLibraryEffect.untap_if_lands_at_least` threaded
     through `GameContext.request_search` → `RulesEngine.request_search` →
     `_search_choice` → `resolve_search_choice` → `_finish_search` (untap the
@@ -4290,9 +4291,9 @@ is in the rules-engine categories below them.
     Pestfinder (+ `// Turn Stones` alias), Merchant of Venom, Mazirek Kraul
     Death Priest, Smothering Abomination, Dina Soul Steeper, Dina Essence
     Brewer (Witherbloom deck 55 → 65).
-  - **waves 24–96** (2026-09-08) — the tail, all hand-`AUTHORED` in
-    `entries_019.py` (no PARSER_VERSION change), 265 → 423/433 covered
-    (~158 cards). Reusable engine primitives added along the way (each
+  - **waves 24–106** (2026-09-08) — the tail, all hand-`AUTHORED` in
+    `entries_019.py` (no PARSER_VERSION change), 265 → 433/433 covered
+    (~168 cards). Reusable engine primitives added along the way (each
     small, all regression-clean against the full ~6.4k-test suite — the
     final round-3 gate was 6373 passed / 0 fail bar the 2 known
     pre-existing/unrelated failures on this checkout):
@@ -4445,9 +4446,8 @@ is in the rules-engine categories below them.
       Documented simplifications noted in-code per card (e.g. Scriv drops
       the "+2/+0 if attacking your opponent" fork, Augusta auto-picks each
       player's oldest graveyard card, Shadrix drops the "each mode targets a
-      different player" constraint, Nils / Immoral Bargain / Laelia /
-      Mirrorwing Dragon / Primo / Unbound Flourishing / the two Class cards
-      deferred — see BACKLOG PAR-60 "Still open").
+      different player" constraint). The 10 cards deferred at the end of
+      round 3 were all closed in round 4 below.
     - **cards registered** (~158): the Silverquill Aura / attack-trigger
       cluster, the Witherbloom lifegain / sacrifice / Eldrazi-Spawn / devour
       tail, Quandrix {X} / counter / fractal / charge-counter singletons,
@@ -4457,19 +4457,66 @@ is in the rules-engine categories below them.
       "choose one [or more]" spells, and a broad singleton tail. Documented
       simplifications are noted in-code per card. Per-wave detail lives in
       `secrets_of_strixhaven_plan.md`.
-    - **still open** (10 cards): the irreducible tail — each was probed and
-      found to need a genuinely new subsystem with real regression surface,
-      enumerated card-by-card in `BACKLOG.md`'s PAR-60 "Still open":
-      additional-cost-{X}-that-defines-the-spell's-X (Immoral Bargain, Plumb
-      the Forbidden); multi-level Class re-authoring or a parser
-      trigger-grammar extension (Intermediate Chirography, Advanced
-      Reconstruction); for-each-player-target + per-attacker-variable attack
-      tax (Nils); "twice X" enter counters + base-power-0 combat trigger
-      (Primo, the Unbounded); double-X / copy-{X}-spell (Unbound
-      Flourishing); spell-copy-per-legal-target with retargeting (Mirrorwing
-      Dragon); combat-damage-prevention-then-tokenize (Inkshield); a batched
-      `CARDS_EXILED` event for library/graveyard exiles + binder
-      EXILE-trigger support (Laelia).
+    - **round 4 (waves 97–106 — "the last cards have mainly a generalization
+      for existing effects or a combination of mechanics that already
+      exist")**, 423 → 433/433 (+10 cards — the whole deferred tail). Every
+      one turned out to be an existing primitive + a small extension + a
+      documented simplification, not a new subsystem:
+      - **Inkshield** — `prevent_damage_to_player` gained a ``combat_only``
+        flag and pass-through ``rider``; the "for each 1 prevented, create
+        an Inkling" clause reuses `apply_prevent_rider`'s existing
+        ``create_tokens_scaled`` kind (Bone Mask family). No new class.
+      - **Plumb the Forbidden** — `sacrifice_any_number_draw_lose_scaled`,
+        the Eventide's Shadow optional-multi-pick `request_choose_objects`
+        (action ``sacrifice``) + graveyard-delta tail. "Copy this spell for
+        each" modeled as its net effect (one extra draw + 1 life loss per
+        creature).
+      - **Immoral Bargain** — `immoral_bargain` + a new ``destroy`` action
+        for `request_choose_objects` (the destroy sibling of ``sacrifice``).
+        X (== creatures sacrificed) and the destroy targets are both
+        resolved at resolution.
+      - **Primo, the Unbounded** — clause 1 is `AddCountersEffect.
+        x_multiplier` (Banquet Guests, already shipped); clause 2 is
+        `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` + a new
+        ``contributor_base_power_zero`` predicate (off new
+        ``any_base_power_0`` / ``base_power_0_amount`` aggregate fields
+        stamped by `_apply_combat_damage`) + `base0_combat_damage_fractal`.
+      - **Unbound Flourishing** — clause 2 is Owlin Spiralmancer's shape
+        (`copy_spell` from the SPELL_CAST event + ``spell_has_x`` +
+        ``spell_card_types``); clause 1 is a new `double_cast_x` that
+        doubles a permanent spell's announced X on its stack item. "Or
+        activate an ability" dropped.
+      - **Laelia, the Blade Reforged** — attack trigger reuses
+        `impulsive_draw` (`same_turn_only`); the counter trigger is a new
+        binder key ``exiled_from_your_library_or_graveyard`` on
+        `EventType.EXILE`, which now carries ``from_zone``. Per-card
+        (not per-batch) firing — a documented simplification.
+      - **Mirrorwing Dragon** — `mirrorwing_copy` calls `copy_spell` once
+        per other creature the caster controls, each with its own
+        ``new_targets``. "That the spell could target" read as "every other
+        creature they control".
+      - **Nils, Discipline Enforcer** — clause 1 is `nils_end_step_counters`
+        (auto-picks each player's highest-power creature); clause 2 extends
+        the `attack_tax` static with ``attacker_filter`` +
+        ``amount_per_attacker_counter`` (each counter-bearing attacker pays
+        its own counter count), plumbed through `attack_tax_per_creature_for`
+        (new ``attacker`` param) and `declare_attackers`.
+      - **Intermediate Chirography / Advanced Reconstruction** —
+        hand-authored as full Classes using the parser's own shapes
+        (`class_level` level-up activated ability per level + ``min_level``/
+        ``level_counter="class_level"`` gates on each body ability).
+        Intermediate Chirography's L3 "modified creature died" clause
+        self-gates on the new `GameState.modified_creatures_died_this_turn`
+        tracker (a `creatures_died_this_turn` sibling; "modified" ==
+        had a counter). Advanced Reconstruction's L1 is a new
+        `advanced_reconstruction_l1` (mill + random graveyard exile +
+        play-this-turn), L2 reuses the batched `CARDS_LEFT_GRAVEYARD`
+        trigger, L3 adds a ``not_from_hand`` param to `cost_reduction`
+        (checked against the spell's ``cast_from_exile`` /
+        ``cast_via_flashback`` / ``cast_via_escape`` flags — command-zone
+        casts not covered). `_GROUP_CONTROLLER_EVENT_KEYS` gained a
+        ``"LIFE_LOST": "player_id"`` entry for L2's "you lose life" trigger.
+    - **still open:** none — PAR-60 is closed.
 - **Files:** `game/ability_catalogue/entries_{018,019}.py`,
   `game/effects.py`, `game/continuous.py`, `game/static_conditions.py`,
   `game/rules/{casting,search,misc,damage_death,draw_discard}_mixin.py`,
@@ -4477,7 +4524,7 @@ is in the rules-engine categories below them.
   `game/targeting.py`, `game/combat.py`, `models/game_state.py`,
   `parser/oracle/{segmenter,gate,spec}.py`,
   `parser/oracle/PARSER_VERSION.lock` (behavior-neutral re-pin).
-  Tests: `backend/tests/test_strixhaven_secrets_wave{1,5,8,12,22-45,47_48,49,50,51,52,53,54,55_56,57_59,60,61_62,63_65,66,67,68_69,70..96}.py`.
+  Tests: `backend/tests/test_strixhaven_secrets_wave{1,5,8,12,22-45,47_48,49,50,51,52,53,54,55_56,57_59,60,61_62,63_65,66,67,68_69,70..106}.py`.
 
 ### Kinnan/M-K Batch: New General Primitives (MEC-12)
 

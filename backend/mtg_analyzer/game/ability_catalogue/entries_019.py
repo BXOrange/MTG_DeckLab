@@ -5256,3 +5256,450 @@ def _plargg_and_nassari() -> list[AbilitySpec]:
 
 
 register("Plargg and Nassari", _plargg_and_nassari)
+
+
+# ===========================================================================
+# wave 97 — Inkshield (prevent combat damage to you -> tokenize) — PAR-60
+# ===========================================================================
+# Reuses `RulesEngine.prevent_damage_to_player`'s existing ``rider`` hook
+# (`apply_prevent_rider`'s ``create_tokens_scaled`` kind — Bone Mask /
+# New Way Forward family) plus a new ``combat_only`` flag on the "…to you"
+# shield. No new effect class.
+
+
+def _inkshield() -> list[AbilitySpec]:
+    """Prevent all combat damage that would be dealt to you this turn. For
+    each 1 damage prevented this way, create a 2/1 white and black Inkling
+    creature token with flying."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("prevent_damage_shield", {
+                "amount": "all",
+                "combat_only": True,
+                "rider": {
+                    "kind": "create_tokens_scaled",
+                    "recipient": "you",
+                    "token": {
+                        "token_name": "Inkling", "power": 2, "toughness": 1,
+                        "colors": ["W", "B"], "subtypes": ["Inkling"],
+                        "keywords": ["flying"],
+                    },
+                },
+            })],
+            raw_text="Verhindere den gesamten Kampfschaden, der dir in diesem Zug "
+                     "zugefuegt wuerde. Fuer jeden 1 Schadenspunkt, der auf diese "
+                     "Weise verhindert wird, erzeuge einen 2/1 weiss-schwarzen "
+                     "Tintling-Spielstein mit Fliegend.",
+        ),
+    ]
+
+
+register("Inkshield", _inkshield)
+
+
+# ===========================================================================
+# wave 98 — Plumb the Forbidden (sacrifice one or more -> scaled draw/lose)
+# ===========================================================================
+# New `sacrifice_any_number_draw_lose_scaled` effect — the Eventide's Shadow
+# sacrifice-choose + graveyard-delta-tail idiom. Documented simplification:
+# "copy this spell for each creature sacrificed" is modeled as its net
+# effect (one extra draw + 1 life loss per creature), not real stack copies.
+
+
+def _plumb_the_forbidden() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, you may sacrifice one or
+    more creatures. When you do, copy this spell for each creature
+    sacrificed this way. You draw a card and lose 1 life."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("sacrifice_any_number_draw_lose_scaled", {})],
+            raw_text="Als zusaetzliche Kosten, um diesen Zauberspruch zu wirken, darfst "
+                     "du eine oder mehr Kreaturen opfern. Wenn du dies tust, kopiere "
+                     "diesen Zauberspruch fuer jede so geopferte Kreatur. Du ziehst eine "
+                     "Karte und verlierst 1 Lebenspunkt.",
+        ),
+    ]
+
+
+register("Plumb the Forbidden", _plumb_the_forbidden)
+
+
+# ===========================================================================
+# wave 99 — Immoral Bargain (sacrifice X creatures -> destroy X) — PAR-60
+# ===========================================================================
+# New `immoral_bargain` effect + a new ``destroy`` action for
+# `request_choose_objects` (the destroy sibling of ``sacrifice``). X is
+# defined by the additional-cost sacrifice, resolved at resolution.
+
+
+def _immoral_bargain() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, sacrifice X creatures.
+    Destroy X target nonland permanents."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("immoral_bargain", {})],
+            raw_text="Als zusaetzliche Kosten, um diesen Zauberspruch zu wirken, opfere "
+                     "X Kreaturen. Zerstoere X Ziel-Nichtland-bleibende-Karten.",
+        ),
+    ]
+
+
+register("Immoral Bargain", _immoral_bargain)
+
+
+# ===========================================================================
+# wave 100 — Primo, the Unbounded (twice-X entry counters + base-power-0
+# combat-damage Fractal) — PAR-60
+# ===========================================================================
+# Clause 1 reuses `AddCountersEffect.x_multiplier` (Banquet Guests). Clause
+# 2 reuses `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` with a new
+# ``contributor_base_power_zero`` predicate + a `base0_combat_damage_fractal`
+# effect. Trample folds in from the RULE 702 keyword catalogue.
+
+
+def _primo_the_unbounded() -> list[AbilitySpec]:
+    """Trample
+    Primo enters with twice X +1/+1 counters on it.
+    Whenever one or more creatures you control with base power 0 deal combat
+    damage to a player, create a 0/0 green and blue Fractal creature token.
+    Put a number of +1/+1 counters on it equal to the damage dealt."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"x_multiplier": 2})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Primo kommt mit doppelt X +1/+1-Marken ins Spiel.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("base0_combat_damage_fractal", {})],
+            trigger={
+                "event": EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
+                "condition": {"subject": "you"},
+                "contributor_base_power_zero": True,
+            },
+            raw_text="Immer wenn ein oder mehr Kreaturen, die du kontrollierst und "
+                     "deren Grundstaerke 0 ist, einem Spieler Kampfschaden zufuegen, "
+                     "erzeuge einen 0/0 gruen-blauen Fraktal-Spielstein. Lege so viele "
+                     "+1/+1-Marken darauf, wie Schaden zugefuegt wurde.",
+        ),
+    ]
+
+
+register("Primo, the Unbounded", _primo_the_unbounded)
+
+
+# ===========================================================================
+# wave 101 — Unbound Flourishing (double X on permanent spell + copy {X}
+# instant/sorcery) — PAR-60
+# ===========================================================================
+# Clause 2 is Owlin Spiralmancer's shape (SPELL_CAST + ``spell_has_x`` +
+# `copy_spell` from the trigger event). Clause 1 is a new `double_cast_x`
+# effect that doubles the announced X on the stack item.
+
+
+def _unbound_flourishing() -> list[AbilitySpec]:
+    """Whenever you cast a permanent spell with a mana cost that contains
+    {X}, double the value of X.
+    Whenever you cast an instant or sorcery spell or activate an ability, if
+    that spell's mana cost or that ability's activation cost contains {X},
+    copy that spell or ability. You may choose new targets for the copy.
+
+    Documented simplification: clause 2's "or activate an ability" half is
+    dropped (only spells are copied); clause 1 fires for every {X} spell you
+    cast and no-ops unless it is a permanent spell."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("double_cast_x", {})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "you"},
+                "spell_has_x": True,
+            },
+            raw_text="Immer wenn du einen Zauberspruch einer bleibenden Karte mit {X} "
+                     "in seinen Manakosten wirkst, verdopple den Wert von X.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("copy_spell", {"spell_from_trigger_event": "instance_id"})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "you"},
+                "spell_has_x": True,
+                "spell_card_types": ["instant", "sorcery"],
+            },
+            raw_text="Immer wenn du einen Hexerei- oder Spontanzauber wirkst, dessen "
+                     "Manakosten {X} enthalten, kopiere jenen Zauberspruch. Du darfst "
+                     "neue Ziele fuer die Kopie bestimmen.",
+        ),
+    ]
+
+
+register("Unbound Flourishing", _unbound_flourishing)
+
+
+# ===========================================================================
+# wave 102 — Laelia, the Blade Reforged (exile-from-library/graveyard
+# counter trigger) — PAR-60
+# ===========================================================================
+# Attack trigger reuses `impulsive_draw` (same_turn_only). The counter
+# trigger is a new binder key ``exiled_from_your_library_or_graveyard`` on
+# `EventType.EXILE` (which now carries ``from_zone``). Haste folds in from
+# the RULE 702 keyword catalogue.
+
+
+def _laelia_the_blade_reforged() -> list[AbilitySpec]:
+    """Haste
+    Whenever Laelia attacks, exile the top card of your library. You may
+    play that card this turn.
+    Whenever one or more cards are put into exile from your library and/or
+    your graveyard, put a +1/+1 counter on Laelia."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("impulsive_draw", {"count": 1, "same_turn_only": True})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Immer wenn Laelia angreift, verbanne die oberste Karte deiner "
+                     "Bibliothek. Du darfst jene Karte in diesem Zug spielen.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"count": 1, "kind": "+1/+1"})],
+            trigger={
+                "event": EventType.EXILE,
+                "exiled_from_your_library_or_graveyard": True,
+            },
+            raw_text="Immer wenn eine oder mehr Karten aus deiner Bibliothek und/oder "
+                     "deinem Friedhof ins Exil geschickt werden, lege eine "
+                     "+1/+1-Marke auf Laelia.",
+        ),
+    ]
+
+
+register("Laelia, the Blade Reforged", _laelia_the_blade_reforged)
+
+
+# ===========================================================================
+# wave 103 — Mirrorwing Dragon (spell-copy per other creature, retargeted)
+# ===========================================================================
+# New `mirrorwing_copy` effect — `RulesEngine.copy_spell` called once per
+# other creature the caster controls, each with its own ``new_targets``.
+# Flying folds in from the RULE 702 keyword catalogue.
+
+
+def _mirrorwing_dragon() -> list[AbilitySpec]:
+    """Flying
+    Whenever a player casts an instant or sorcery spell that targets only
+    this creature, that player copies that spell for each other creature
+    they control that the spell could target. Each copy targets a different
+    one of those creatures."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("mirrorwing_copy", {})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group"},
+                "spell_card_types": ["instant", "sorcery"],
+            },
+            raw_text="Immer wenn ein Spieler einen Spontan- oder Hexereizauber wirkt, "
+                     "der nur diese Kreatur als Ziel hat, kopiert jener Spieler jenen "
+                     "Zauberspruch fuer jede andere Kreatur, die er kontrolliert und "
+                     "die der Zauberspruch als Ziel haben koennte. Jede Kopie hat eine "
+                     "andere jener Kreaturen zum Ziel.",
+        ),
+    ]
+
+
+register("Mirrorwing Dragon", _mirrorwing_dragon)
+
+
+# ===========================================================================
+# wave 104 — Nils, Discipline Enforcer (per-player end-step counter +
+# per-attacker-variable counter attack tax) — PAR-60
+# ===========================================================================
+# Clause 1 is a new `nils_end_step_counters` effect (auto-picks each
+# player's highest-power creature — documented simplification of "up to one
+# target creature that player controls"). Clause 2 extends the existing
+# `attack_tax` static with ``attacker_filter`` + ``amount_per_attacker_
+# counter`` (each counter-bearing attacker pays its own counter count).
+
+
+def _nils_discipline_enforcer() -> list[AbilitySpec]:
+    """At the beginning of your end step, for each player, put a +1/+1
+    counter on up to one target creature that player controls.
+    Each creature with one or more counters on it can't attack you or
+    planeswalkers you control unless its controller pays {X}, where X is the
+    number of counters on that creature."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("nils_end_step_counters", {})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "end"},
+                     "phase_relation": "you"},
+            raw_text="Zu Beginn deines Endsegments legst du fuer jeden Spieler eine "
+                     "+1/+1-Marke auf bis zu eine Zielkreatur, die jener Spieler "
+                     "kontrolliert.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("attack_tax", {
+                "attacker_filter": {"has_any_counter": True},
+                "amount_per_attacker_counter": "any",
+                "defender_scope": "player_or_planeswalker",
+            })],
+            raw_text="Jede Kreatur mit einer oder mehr Marken kann dich oder "
+                     "Planeswalker, die du kontrollierst, nicht angreifen, es sei denn, "
+                     "ihr Beherrscher bezahlt {X}, wobei X die Anzahl der Marken auf "
+                     "jener Kreatur ist.",
+        ),
+    ]
+
+
+register("Nils, Discipline Enforcer", _nils_discipline_enforcer)
+
+
+# ===========================================================================
+# wave 105 — Intermediate Chirography (hand-authored Class) — PAR-60
+# ===========================================================================
+# The parser already claims 4 of 5 clauses; only the level-3 "modified
+# creature died" end-step trigger was a gap. Hand-authored as a full Class
+# instead (the parser's own Class shapes: a ``class_level`` level-up
+# activated ability per level + ``min_level``/``level_counter="class_level"``
+# gates on each body ability). The level-3 body self-gates on the new
+# `GameState.modified_creatures_died_this_turn` tracker.
+
+_INKLING = {
+    "count": 1, "token_name": "Inkling", "power": 2, "toughness": 1,
+    "colors": ["W", "B"], "subtypes": ["Inkling"], "keywords": ["flying"],
+}
+
+
+def _intermediate_chirography() -> list[AbilitySpec]:
+    """(Gain the next level as a sorcery to add its ability.)
+    When this Class enters, create a 2/1 white and black Inkling creature
+    token with flying.
+    {1}{B}: Level 2
+    Whenever you lose life for the first time each turn, put a +1/+1 counter
+    on target creature you control.
+    {2}{B}: Level 3
+    At the beginning of each end step, if a modified creature died under your
+    control this turn, create a 2/1 white and black Inkling creature token
+    with flying."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", dict(_INKLING))],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Klasse ins Spiel kommt, erzeuge einen 2/1 "
+                     "weiss-schwarzen Tintling-Spielstein mit Fliegend.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("class_level", {"level": 2})],
+            cost={"text": "{1}{B}", "sorcery_speed_only": True, "class_level": 2},
+            raw_text="{1}{B}: Stufe 2",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"count": 1, "kind": "+1/+1",
+                                         "target_kind": "creature_you_control"})],
+            trigger={
+                "event": "LIFE_LOST", "condition": {"subject": "you"}, "limit": True,
+                "min_level": 2, "level_counter": "class_level",
+            },
+            raw_text="Immer wenn du zum ersten Mal in einem Zug Lebenspunkte verlierst, "
+                     "lege eine +1/+1-Marke auf eine Zielkreatur, die du kontrollierst.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("class_level", {"level": 3})],
+            cost={"text": "{2}{B}", "sorcery_speed_only": True, "class_level": 3},
+            raw_text="{2}{B}: Stufe 3",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("intermediate_chirography_l3", {})],
+            trigger={
+                "event": EventType.STEP_BEGIN, "filter": {"step": "end"},
+                "min_level": 3, "level_counter": "class_level",
+            },
+            raw_text="Zu Beginn jedes Endsegments, falls in diesem Zug eine "
+                     "modifizierte Kreatur unter deiner Kontrolle gestorben ist, "
+                     "erzeuge einen 2/1 weiss-schwarzen Tintling-Spielstein mit Fliegend.",
+        ),
+    ]
+
+
+register("Intermediate Chirography", _intermediate_chirography)
+
+
+# ===========================================================================
+# wave 106 — Advanced Reconstruction (hand-authored Class) — PAR-60
+# ===========================================================================
+# Level 1: new `advanced_reconstruction_l1` effect (mill + random graveyard
+# exile + play-this-turn). Level 2: the batched ``CARDS_LEFT_GRAVEYARD``
+# trigger (Quintorius / Spirit of Resilience family) -> 2 damage to each
+# opponent. Level 3: `cost_reduction` with the new ``not_from_hand`` param.
+
+
+def _advanced_reconstruction() -> list[AbilitySpec]:
+    """(Gain the next level as a sorcery to add its ability.)
+    At the beginning of your first main phase, mill a card, then exile a
+    card from your graveyard at random. You may play the exiled card this
+    turn.
+    {1}{R}: Level 2
+    Whenever one or more cards leave your graveyard, this Class deals 2
+    damage to each opponent.
+    {1}{R}: Level 3
+    Spells you cast from anywhere other than your hand cost {2} less to
+    cast."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("advanced_reconstruction_l1", {})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "main1"},
+                     "phase_relation": "you"},
+            raw_text="Zu Beginn deiner ersten Hauptphase lege eine Karte in deinen "
+                     "Friedhof (mahlen), dann verbanne zufaellig eine Karte aus deinem "
+                     "Friedhof. Du darfst die verbannte Karte in diesem Zug spielen.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("class_level", {"level": 2})],
+            cost={"text": "{1}{R}", "sorcery_speed_only": True, "class_level": 2},
+            raw_text="{1}{R}: Stufe 2",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 2, "selector": "each_opponent"})],
+            trigger={
+                "event": EventType.CARDS_LEFT_GRAVEYARD, "graveyard_owner": "you",
+                "min_level": 2, "level_counter": "class_level",
+            },
+            raw_text="Immer wenn eine oder mehr Karten deinen Friedhof verlassen, fuegt "
+                     "diese Klasse jedem Gegner 2 Schadenspunkte zu.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("class_level", {"level": 3})],
+            cost={"text": "{1}{R}", "sorcery_speed_only": True, "class_level": 3},
+            raw_text="{1}{R}: Stufe 3",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_reduction", {
+                "affects": "your_spells", "generic": 2, "not_from_hand": True,
+                "min_level": 3, "level_counter": "class_level",
+            })],
+            raw_text="Zauberspreuche, die du von woanders als aus deiner Hand wirkst, "
+                     "kosten beim Wirken {2} weniger.",
+        ),
+    ]
+
+
+register("Advanced Reconstruction", _advanced_reconstruction)

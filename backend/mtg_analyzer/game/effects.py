@@ -415,8 +415,13 @@ class GameContext:
     def prevent_damage_to_player(
         self, player: "Player", amount: Union[int, str] = "all",
         watched_source_id: Optional[int] = None,
+        rider: Optional[dict] = None,
+        combat_only: bool = False,
     ) -> None:
-        self.engine.prevent_damage_to_player(player, amount, watched_source_id=watched_source_id)
+        self.engine.prevent_damage_to_player(
+            player, amount, watched_source_id=watched_source_id,
+            rider=rider, combat_only=combat_only,
+        )
 
     def prevent_life_gain_this_turn(self, players: list["Player"]) -> None:
         self.engine.prevent_life_gain_this_turn(players)
@@ -5169,12 +5174,22 @@ class PreventDamageEffect(GameEffect):
         self_only: bool = False,
         watched_source_is_self: bool = False,
         recipient_is_activator: bool = False,
+        combat_only: bool = False,
+        rider: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.amount_if_kicked = amount_if_kicked
         self.divided = divided
         self.target = target
+        #: Inkshield — "Prevent all **combat** damage that would be dealt to
+        #: you this turn. For each 1 damage prevented this way, create a …
+        #: token." ``combat_only`` narrows the untargeted "…to you" shield to
+        #: RULE 510 combat damage; ``rider`` is the "for each 1 prevented"
+        #: follow-up, a `RulesEngine.apply_prevent_rider` payload (here a
+        #: ``create_tokens_scaled`` rider).
+        self.combat_only = combat_only
+        self.rider = rider
         #: "Prevent the next N damage that would be dealt to `<this
         #: permanent>` this turn." (Opal-Eye, Konda's Yojimbo, MEC-30) — the
         #: object-recipient sibling of the untargeted "…to you" default:
@@ -5222,7 +5237,10 @@ class PreventDamageEffect(GameEffect):
                 player = _controller_of(self.source, context)
             if player is not None:
                 watched_source_id = self.source.instance_id if self.watched_source_is_self and self.source is not None else None
-                context.prevent_damage_to_player(player, amount, watched_source_id=watched_source_id)
+                context.prevent_damage_to_player(
+                    player, amount, watched_source_id=watched_source_id,
+                    rider=self.rider, combat_only=self.combat_only,
+                )
             return
         chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
         if not chosen:
@@ -12027,6 +12045,340 @@ def _is_permanent_card_obj(obj: Any) -> bool:
     return any(w in tl for w in (
         "creature", "artifact", "enchantment", "planeswalker", "land", "battle",
     ))
+
+
+# ===========================================================================
+# PAR-60 round 4 (waves 97-103) — the last Secrets of Strixhaven cards, each
+# reducible to an existing primitive + a small extension or a documented
+# simplification (per the user's read that "the last cards … have mainly a
+# generalization for existing effects or a combination of mechanics that
+# already exist").
+# ===========================================================================
+
+
+class SacrificeAnyNumberDrawLoseScaledEffect(GameEffect):
+    """Plumb the Forbidden — "As an additional cost to cast this spell, you
+    may sacrifice one or more creatures. When you do, copy this spell for
+    each creature sacrificed this way. You draw a card and lose 1 life."
+
+    Reuses the Eventide's Shadow idiom (`RemoveCountersFromAmongThenDraw
+    LoseLifeEffect`): an optional multi-pick `request_choose_objects`
+    (action ``sacrifice``) plus a queued ``then_specs`` tail that reads a
+    before/after graveyard-size delta to learn how many were sacrificed.
+
+    Documented simplifications: the additional cost is paid at *resolution*
+    rather than at announcement (RULE 601.2b), and "copy this spell for each
+    creature sacrificed" is modeled as its net effect — one extra "draw a
+    card, lose 1 life" per creature sacrificed — instead of putting real
+    copies on the stack.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        # Base spell effect (RULE 601.2b's cost is optional, so this always
+        # happens exactly once regardless of the sacrifice).
+        context.draw(player, 1)
+        context.lose_life(player, 1)
+        creatures = [
+            o for o in context.state.permanents_controlled_by(player.id) if o.is_creature
+        ]
+        if not creatures:
+            return
+        before = len(player.graveyard)
+        context.engine.request_choose_objects(
+            player, creatures, "sacrifice", count=len(creatures), optional=True,
+            source=self.source, prompt="Opfere beliebig viele Kreaturen",
+            then_specs=[{
+                "type": "sacrifice_count_draw_lose",
+                "params": {"player_id": player.id, "before": before},
+            }],
+        )
+
+
+class SacrificeCountDrawLoseTailEffect(GameEffect):
+    """The "…for each creature sacrificed this way" tail of
+    `SacrificeAnyNumberDrawLoseScaledEffect` — queued as ``then_specs``,
+    reads a graveyard-size delta against a snapshot. Not for direct card use.
+    """
+
+    def __init__(
+        self, player_id: Optional[str] = None, before: int = 0,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.player_id = player_id
+        self.before = int(before)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        try:
+            player = context.state.player_by_id(self.player_id)
+        except (KeyError, ValueError):
+            return
+        n = len(player.graveyard) - self.before
+        if n > 0:
+            context.draw(player, n)
+            context.lose_life(player, n)
+
+
+class ImmoralBargainEffect(GameEffect):
+    """Immoral Bargain — "As an additional cost to cast this spell, sacrifice
+    X creatures. Destroy X target nonland permanents."
+
+    Immoral Bargain has no {X} in its printed mana cost — X is defined
+    solely by how many creatures are sacrificed as the additional cost
+    (RULE 601.2b). Reuses the same sacrifice-choose + delta-tail idiom as
+    `SacrificeAnyNumberDrawLoseScaledEffect`, then destroys that many
+    nonland permanents chosen the same way (the new ``destroy`` action of
+    `request_choose_objects`).
+
+    Documented simplification: both the additional-cost sacrifice and the
+    number of targets are resolved at *resolution* rather than at
+    announcement.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        creatures = [
+            o for o in context.state.permanents_controlled_by(player.id) if o.is_creature
+        ]
+        if not creatures:
+            return
+        before = len(player.graveyard)
+        context.engine.request_choose_objects(
+            player, creatures, "sacrifice", count=len(creatures), optional=True,
+            source=self.source, prompt="Opfere X Kreaturen",
+            then_specs=[{
+                "type": "immoral_bargain_destroy",
+                "params": {"player_id": player.id, "before": before},
+            }],
+        )
+
+
+class ImmoralBargainDestroyTailEffect(GameEffect):
+    """The "Destroy X target nonland permanents" tail of `ImmoralBargain
+    Effect` — X is the graveyard-size delta from the sacrifice. Not for
+    direct card use.
+    """
+
+    def __init__(
+        self, player_id: Optional[str] = None, before: int = 0,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.player_id = player_id
+        self.before = int(before)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        try:
+            player = context.state.player_by_id(self.player_id)
+        except (KeyError, ValueError):
+            return
+        n = len(player.graveyard) - self.before
+        if n <= 0:
+            return
+        cands = [o for o in context.state.battlefield if not o.card.is_land]
+        if not cands:
+            return
+        context.engine.request_choose_objects(
+            player, cands, "destroy", count=min(n, len(cands)), optional=False,
+            source=self.source, prompt="Zerstoere X Nichtland-bleibende Karten",
+        )
+
+
+class Base0CombatDamageFractalEffect(GameEffect):
+    """Primo, the Unbounded's second ability — "Whenever one or more
+    creatures you control with base power 0 deal combat damage to a player,
+    create a 0/0 green and blue Fractal creature token. Put a number of
+    +1/+1 counters on it equal to the damage dealt."
+
+    The base-power-0 filter is a trigger predicate on `EventType.CREATURES_
+    DEALT_COMBAT_DAMAGE_TO_PLAYER`'s new ``any_base_power_0`` /
+    ``base_power_0_amount`` aggregate fields (stamped by
+    `combat_mixin._apply_combat_damage` alongside ``max_power``). This
+    effect reads ``base_power_0_amount`` for the counter count — the combat
+    damage those base-power-0 creatures dealt to that player this step.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import synthesize_token_card
+
+        cid = getattr(self.source, "controller_id", None)
+        if cid is None:
+            return
+        event = context.trigger_event or {}
+        n = int(event.get("base_power_0_amount") or event.get("amount") or 0)
+        card = synthesize_token_card(
+            "Fractal", power=0, toughness=0, colors=["G", "U"], subtypes=["Fractal"],
+        )
+        made = context.create_token(cid, card, 1)
+        for tok in made or []:
+            if n > 0:
+                context.add_counters(tok, n, "+1/+1", source=self.source)
+        context.recompute()
+
+
+class DoubleCastXEffect(GameEffect):
+    """Unbound Flourishing's first ability — "Whenever you cast a permanent
+    spell with a mana cost that contains {X}, double the value of X."
+
+    Finds the just-cast spell's `StackItem` (via the SPELL_CAST event's
+    ``instance_id``) and doubles its announced X (RULE 107.3-adjacent) so
+    the spell's own resolution — X entering counters, an X/X body, X tokens
+    — sees 2X.
+
+    Documented simplification: the trigger fires for every {X} spell you
+    cast; this effect no-ops unless the spell is a *permanent* spell (the
+    clause's own scope), and doubles the value on the stack item already
+    announced rather than as a RULE 614 cast-announcement replacement —
+    the same board state for every permanent spell in scope.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event or {}
+        iid = event.get("instance_id")
+        if iid is None:
+            return
+        for item in list(context.state.stack):
+            obj = getattr(item, "obj", None)
+            if obj is None or obj.instance_id != iid:
+                continue
+            if not _is_permanent_card_obj(obj):
+                return
+            if getattr(item, "x", 0):
+                item.x = int(item.x) * 2
+            if getattr(obj, "x_paid", 0):
+                obj.x_paid = int(obj.x_paid) * 2
+            return
+
+
+class MirrorwingCopyEffect(GameEffect):
+    """Mirrorwing Dragon — "Whenever a player casts an instant or sorcery
+    spell that targets only this creature, that player copies that spell for
+    each other creature they control that the spell could target. Each copy
+    targets a different one of those creatures."
+
+    Reuses `RulesEngine.copy_spell` once per creature with a per-copy
+    ``new_targets`` list — the "each copy targets a different one" clause
+    that `CopySpellEffect`'s shared-``new_targets`` path can't express on
+    its own.
+
+    Documented simplification: "that the spell could target" is read as
+    "every other creature that player controls" — the per-copy legality
+    re-check against the copied spell's own `TargetSpec` is skipped, which
+    is exact for the common "target creature"/"any target" burn and pump
+    Mirrorwing is built around.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        event = context.trigger_event or {}
+        iid = event.get("instance_id")
+        item = None
+        for entry in list(context.state.stack):
+            if getattr(entry, "obj", None) is not None and entry.obj.instance_id == iid:
+                item = entry
+                break
+        if item is None:
+            return
+        # "targets only this creature": every target of the spell is this
+        # permanent, and there is at least one.
+        tgts = list(getattr(item, "targets", []) or [])
+
+        def _tid(t: Any) -> Any:
+            return t.get("instance_id") if isinstance(t, dict) else getattr(t, "instance_id", None)
+
+        if not tgts or any(_tid(t) != self.source.instance_id for t in tgts):
+            return
+        caster_id = event.get("player_id") or getattr(item, "controller_id", None)
+        if caster_id is None:
+            return
+        others = [
+            o for o in context.state.permanents_controlled_by(caster_id)
+            if o.is_creature and o.instance_id != self.source.instance_id
+        ]
+        for creature in others:
+            context.engine.copy_spell(item, caster_id, 1, [creature])
+
+
+class NilsEndStepCountersEffect(GameEffect):
+    """Nils, Discipline Enforcer's first ability — "At the beginning of your
+    end step, for each player, put a +1/+1 counter on up to one target
+    creature that player controls."
+
+    Documented simplification: "up to one target creature that player
+    controls" is auto-resolved per player rather than an interactive pick —
+    Nils's controller would spread counters to grow their own board and to
+    load opponents' best attackers with the (clause-2) attack tax, so the
+    pick is that player's highest-power creature.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for player in list(context.state.players):
+            creatures = [
+                o for o in context.state.permanents_controlled_by(player.id) if o.is_creature
+            ]
+            if not creatures:
+                continue
+            pick = max(creatures, key=lambda o: int(o.power or 0))
+            context.add_counters(pick, 1, "+1/+1", source=self.source)
+        context.recompute()
+
+
+class IntermediateChirographyL3Effect(GameEffect):
+    """Intermediate Chirography's level-3 body — "At the beginning of each
+    end step, if a modified creature died under your control this turn,
+    create a 2/1 white and black Inkling creature token with flying."
+
+    Self-gates on `GameState.modified_creatures_died_this_turn` (a
+    ``creatures_died_this_turn`` sibling), the same inline-gate idiom
+    `ZimoneAllQuestioningEndStepEffect` uses rather than a `static_
+    conditions` intervening-if. Fires at every player's end step (no
+    ``phase_relation``); the level-3 gate is on the trigger.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import synthesize_token_card
+
+        cid = getattr(self.source, "controller_id", None)
+        if cid is None:
+            return
+        if context.state.modified_creatures_died_this_turn.get(cid, 0) <= 0:
+            return
+        card = synthesize_token_card(
+            "Inkling", power=2, toughness=1, colors=["W", "B"],
+            subtypes=["Inkling"], keywords=["Flying"],
+        )
+        context.create_token(cid, card, 1)
+
+
+class AdvancedReconstructionL1Effect(GameEffect):
+    """Advanced Reconstruction's level-1 body — "At the beginning of your
+    first main phase, mill a card, then exile a card from your graveyard at
+    random. You may play the exiled card this turn."
+
+    Mill + a uniformly-random graveyard pick + `RulesEngine._grant_temp_
+    play_permission` (a normal-cost "you may play this" window, not a free
+    cast).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        import random
+
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.mill(player, 1)
+        if not player.graveyard:
+            return
+        pick = random.choice(list(player.graveyard))
+        context.exile(pick)
+        name = self.source.name if self.source is not None else "Advanced Reconstruction"
+        context.engine._grant_temp_play_permission(pick, player, name, True, None)
 
 
 class AnimistsAwakeningEffect(GameEffect):
@@ -23043,6 +23395,68 @@ EffectRegistry.register(
     lambda p: ExpressiveIterationEffect(),
 )
 EffectRegistry.register(
+    # Plumb the Forbidden — "sacrifice one or more creatures … copy this
+    # spell for each" as an at-resolution optional sacrifice + net
+    # draw/lose scaled by the count. (PAR-60 round 4)
+    "sacrifice_any_number_draw_lose_scaled",
+    lambda p: SacrificeAnyNumberDrawLoseScaledEffect(),
+)
+EffectRegistry.register(
+    "sacrifice_count_draw_lose",
+    lambda p: SacrificeCountDrawLoseTailEffect(
+        player_id=p.get("player_id"), before=int(p.get("before", 0) or 0),
+    ),
+)
+EffectRegistry.register(
+    # Immoral Bargain — "sacrifice X creatures. Destroy X target nonland
+    # permanents." X defined by the additional-cost sacrifice. (PAR-60 rd 4)
+    "immoral_bargain",
+    lambda p: ImmoralBargainEffect(),
+)
+EffectRegistry.register(
+    "immoral_bargain_destroy",
+    lambda p: ImmoralBargainDestroyTailEffect(
+        player_id=p.get("player_id"), before=int(p.get("before", 0) or 0),
+    ),
+)
+EffectRegistry.register(
+    # Primo, the Unbounded's second ability — base-power-0 creatures deal
+    # combat damage -> sized Fractal token. (PAR-60 round 4)
+    "base0_combat_damage_fractal",
+    lambda p: Base0CombatDamageFractalEffect(),
+)
+EffectRegistry.register(
+    # Unbound Flourishing's first ability — double a permanent spell's
+    # announced X on the stack. (PAR-60 round 4)
+    "double_cast_x",
+    lambda p: DoubleCastXEffect(),
+)
+EffectRegistry.register(
+    # Mirrorwing Dragon — copy a spell that targets only this creature once
+    # per other creature you control, each copy retargeted. (PAR-60 round 4)
+    "mirrorwing_copy",
+    lambda p: MirrorwingCopyEffect(),
+)
+EffectRegistry.register(
+    # Nils, Discipline Enforcer — "for each player, put a +1/+1 counter on
+    # up to one target creature that player controls." (PAR-60 round 4)
+    "nils_end_step_counters",
+    lambda p: NilsEndStepCountersEffect(),
+)
+EffectRegistry.register(
+    # Intermediate Chirography level 3 — "at the beginning of each end step,
+    # if a modified creature died under your control this turn, create an
+    # Inkling." (PAR-60 round 4)
+    "intermediate_chirography_l3",
+    lambda p: IntermediateChirographyL3Effect(),
+)
+EffectRegistry.register(
+    # Advanced Reconstruction level 1 — "mill a card, then exile a card from
+    # your graveyard at random. You may play it this turn." (PAR-60 round 4)
+    "advanced_reconstruction_l1",
+    lambda p: AdvancedReconstructionL1Effect(),
+)
+EffectRegistry.register(
     "expressive_iteration_exile_step", lambda p: ExpressiveIterationExileStepEffect(),
 )
 EffectRegistry.register(
@@ -23214,6 +23628,8 @@ EffectRegistry.register(
         self_only=bool(p.get("self_only", False)),
         watched_source_is_self=bool(p.get("watched_source_is_self", False)),
         recipient_is_activator=bool(p.get("recipient_is_activator", False)),
+        combat_only=bool(p.get("combat_only", False)),
+        rider=p.get("rider"),
     ),
 )
 EffectRegistry.register(
@@ -26513,12 +26929,21 @@ EffectRegistry.register(
     # consulted live by `combat_mixin.declare_attackers` via
     # `continuous.attack_tax_per_creature_for`; scoped to its own controller
     # (the "you"), so ``affects="self"``.
+    #
+    # ``attacker_filter`` / ``amount_per_attacker_counter`` (Nils, Discipline
+    # Enforcer, PAR-60) narrow the tax to attackers matching a
+    # `_defender_attack_ban_matches`-shaped filter and set each such
+    # attacker's own tax to its counter count ("unless its controller pays
+    # {X}, where X is the number of counters on that creature") —
+    # ``"any"`` sums every counter kind, otherwise a specific kind.
     "attack_tax",
     lambda p: StaticAbility(
         "attack_tax", affects="self", params={
             "amount": int(p.get("amount", 0)),
             "amount_count_selector": p.get("amount_count_selector"),
             "defender_scope": p.get("defender_scope", "player"),
+            "attacker_filter": p.get("attacker_filter"),
+            "amount_per_attacker_counter": p.get("amount_per_attacker_counter"),
         }
     ),
 )
@@ -26712,6 +27137,13 @@ EffectRegistry.register(
             # `activation_prohibition`'s own identically-named rider; read by
             # `activation_cost_reduction_for`'s new ``is_mana_ability`` param.
             **({"except_mana_abilities": True} if p.get("except_mana_abilities") else {}),
+            # "Spells you cast from anywhere other than your hand cost {N}
+            # less to cast." (Advanced Reconstruction level 3, PAR-60) —
+            # `continuous.cost_reduction_for` checks the spell's own
+            # cast-origin flags (``cast_from_exile`` / ``cast_via_flashback``
+            # / ``cast_via_escape``). Documented simplification: a
+            # command-zone commander cast isn't covered by those flags.
+            **({"not_from_hand": True} if p.get("not_from_hand") else {}),
             # "A spell cast by an opponent this way costs {2} more to
             # cast." (MEC-12, Soul Partition) — a per-*instance* tax built
             # dynamically at exile time (`ExileEffect`'s new
