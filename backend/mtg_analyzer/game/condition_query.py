@@ -19,8 +19,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from ..models.game_object import GameObject
-    from ..models.game_state import GameState
+    from ..models.game.game_object import GameObject
+    from ..models.game.game_state import GameState
 
 
 def conditional_flash_holds(

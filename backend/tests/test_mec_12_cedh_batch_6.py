@@ -29,7 +29,7 @@ items were at exactly that point, so this pass closes every one of them:
   templates -- only `exile`'s own regex opts into the wider alternation
   (`_MULTI_TARGET_ALT_WITH_SPELL`), caught by a real regression test this
   pass had to fix (`test_multi_target.py`'s own "stays unclaimed" case).
-* **Eye of Ugin** -- two independent gaps: `models.card_query`'s `color`
+* **Eye of Ugin** -- two independent gaps: `models.cards.card_query`'s `color`
   key gained a `"colorless"` special case (empty colour identity, not a
   membership check -- kept local to the search vocabulary rather than
   widened into the shared WUBRG-only `resolve_color_word`, since "target
@@ -71,10 +71,10 @@ from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.ability_catalogue import is_registered
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
 
@@ -225,7 +225,7 @@ def test_eye_of_ugin_cost_reduction_needs_colorless_and_eldrazi_together():
 
 
 def test_eye_of_ugin_search_finds_only_colorless_creatures():
-    from mtg_analyzer.models import card_query
+    from mtg_analyzer.models.cards import card_query
 
     engine, state = _engine()
     land = _bf(state, _named("Eye of Ugin"), controller="p1")

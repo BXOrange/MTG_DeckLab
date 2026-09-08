@@ -20,9 +20,9 @@ then-engine-drive split.
 from mtg_analyzer.game.effects.core import DestroyEffect, ExileEffect, ReturnToHandEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import legal_targets, requirements_with_targets, TargetSpec
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
 

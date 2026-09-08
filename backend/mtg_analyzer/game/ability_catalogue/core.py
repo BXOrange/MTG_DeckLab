@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from ...models.events import EventType
+from ...models.game.events import EventType
 from ..costs import SACRIFICE_COUNT_X
 from ...parser.oracle.catalogue.counters import entry_counters as _entry_counters
 from ...parser.oracle.catalogue.keywords import parse_keywords
@@ -241,7 +241,7 @@ def kicker_x_mana_restriction(card: Any) -> Optional[str]:
     one mana of each color may be spent this way."), or ``None`` for an
     ordinary/no-``{X}`` Kicker cost. ``"distinct_colors"`` is the one
     recognized value today, consulted by `GameEngine.can_cast`/`cast_spell`
-    via `models.mana_pool.ManaPool.can_pay_distinct_colors`/
+    via `models.mana.mana_pool.ManaPool.can_pay_distinct_colors`/
     `pay_distinct_colors`.
 
     Delegates to `parser.oracle.catalogue.kicker_mana` (the coverage gate's

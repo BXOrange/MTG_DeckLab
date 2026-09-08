@@ -3520,7 +3520,7 @@ def _exile_target_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: "basic land" (Rampant Growth) which sets `criteria["basic"]` instead of a
 #: `type` filter — the two are mutually exclusive alternatives tried in that
 #: order (longest/most-specific first), never combined.
-#: "Equipment" is a subtype, not a main card type, but `models.card_query.
+#: "Equipment" is a subtype, not a main card type, but `models.cards.card_query.
 #: _type_matches` does a plain substring check against the whole printed
 #: type line ("Artifact — Equipment") rather than only the pre-em-dash main
 #: types — the same reason "Forest"/"Island" already work as entries here
@@ -3542,7 +3542,7 @@ _SEARCH_TYPE_LIST = (
 #: A colour word ahead of the type list — "search your library for a
 #: **blue** instant card" (Merchant Scroll), "a **green** creature card"
 #: (Green Sun's Zenith/Magus of the Order/Natural Order/Shadow-Rite
-#: Priest) — captured and mapped onto `models.card_query`'s own ``color``
+#: Priest) — captured and mapped onto `models.cards.card_query`'s own ``color``
 #: key (matched against the card's colour identity), the same key/matcher
 #: `_destroy_color_adj` already reuses via `resolve_color_word` — not
 #: dropped, despite this module's older docstrings elsewhere describing it
@@ -3800,7 +3800,7 @@ def _search_mv_lands_qualifier(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: disjoint criteria shapes (a "snow" supertype card that's also a
 #: *permanent*, vs. two plain type-line substrings) `_SEARCH_CRITERIA`'s own
 #: single type-list grammar can't express, so it's its own regex mapped
-#: straight onto `models.card_query`'s already-general ``"or"`` combinator —
+#: straight onto `models.cards.card_query`'s already-general ``"or"`` combinator —
 #: "snow permanent" is ``{"type": "Snow", "without_type": ["Instant",
 #: "Sorcery"]}`` (RULE 205.4g's supertype, minus the two non-permanent card
 #: types). This card's own trailing life-gain sentence is a wholly separate

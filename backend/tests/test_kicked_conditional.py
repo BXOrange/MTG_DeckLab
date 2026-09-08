@@ -23,9 +23,9 @@ import pytest
 from mtg_analyzer.game.binding.core import attach_to_object
 from mtg_analyzer.game.effects.core import ConditionalEffect, DrawCardEffect, GainLifeEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.parser.oracle import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec, SpecValidationError
@@ -103,8 +103,8 @@ def test_conditional_effect_fires_when_kicked():
 
     from mtg_analyzer.game.effects.core import GameContext
     from mtg_analyzer.game.rules_engine import RulesEngine
-    from mtg_analyzer.models.game_state import GameState
-    from mtg_analyzer.models.player import Player
+    from mtg_analyzer.models.game.game_state import GameState
+    from mtg_analyzer.models.game.player import Player
 
     p1 = Player(id="p1", life=20)
     state = GameState(players=[p1])
@@ -123,8 +123,8 @@ def test_conditional_effect_does_not_fire_when_not_kicked():
 
     from mtg_analyzer.game.effects.core import GameContext
     from mtg_analyzer.game.rules_engine import RulesEngine
-    from mtg_analyzer.models.game_state import GameState
-    from mtg_analyzer.models.player import Player
+    from mtg_analyzer.models.game.game_state import GameState
+    from mtg_analyzer.models.game.player import Player
 
     p1 = Player(id="p1", life=20)
     state = GameState(players=[p1])

@@ -6,9 +6,9 @@ so they're routed through the ordinary `ActivatedAbility`/`activate_ability`
 path with a hand-zone source instead.
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.effects.core import ActivatedAbility, DrawCardEffect, DestroyEffect, TriggeredAbility
@@ -362,7 +362,7 @@ def _hand_cycling_grantor(controller="p1", cost="{2}{W}", card_type="historic",
         is_creature=True, is_legendary=True, power=2, toughness=4,
         oracle_text=f"Each {filter_word}card in your hand has cycling {cost}.",
     )
-    from mtg_analyzer.models.game_object import GameObject as _GO
+    from mtg_analyzer.models.game.game_object import GameObject as _GO
     obj = _GO(card, owner_id=controller, zone=Zone.BATTLEFIELD)
     obj.summoning_sick = False
     return obj
@@ -371,8 +371,8 @@ def _hand_cycling_grantor(controller="p1", cost="{2}{W}", card_type="historic",
 def test_only_matching_hand_cards_are_granted_cycling():
     from mtg_analyzer.game import continuous
     from mtg_analyzer.game.binding.core import bind_from_catalogue
-    from mtg_analyzer.models.game_state import GameState
-    from mtg_analyzer.models.player import Player
+    from mtg_analyzer.models.game.game_state import GameState
+    from mtg_analyzer.models.game.player import Player
 
     p1, p2 = Player(id="p1", life=20), Player(id="p2", life=20)
     state = GameState(players=[p1, p2])
@@ -402,8 +402,8 @@ def test_only_matching_hand_cards_are_granted_cycling():
 def test_hand_cycling_grant_disappears_when_its_source_leaves():
     from mtg_analyzer.game import continuous
     from mtg_analyzer.game.binding.core import bind_from_catalogue
-    from mtg_analyzer.models.game_state import GameState
-    from mtg_analyzer.models.player import Player
+    from mtg_analyzer.models.game.game_state import GameState
+    from mtg_analyzer.models.game.player import Player
 
     p1, p2 = Player(id="p1", life=20), Player(id="p2", life=20)
     state = GameState(players=[p1, p2])

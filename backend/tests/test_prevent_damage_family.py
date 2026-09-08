@@ -11,7 +11,7 @@
   shields, Absorb N);
 * wires RULE 613.6's ``active_if`` generically onto *any* replacement via
   `effect_binder.build_replacements` (Hedron-Field Purists' Leveler bands);
-* fixes `models.emblem.Emblem` having no `replacement_effects` list and
+* fixes `models.game.emblem.Emblem` having no `replacement_effects` list and
   `RulesEngine._all_replacement_effects` never scanning `player.emblems`
   (Ajani Steadfast's own emblem);
 * adds `RulesEngine.prevent_damage_to_player`/`_to_target`'s new
@@ -29,10 +29,10 @@ from __future__ import annotations
 from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue, build_replacements
 from mtg_analyzer.game.effects.core import ReplacementRegistry
 from mtg_analyzer.game.rules_engine import RulesEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
 
 
@@ -280,7 +280,7 @@ def test_absorb_keyword_prevents_damage_to_self():
 
 
 # ---------------------------------------------------------------------------
-# Emblem replacement plumbing (Ajani Steadfast) — models.emblem/rules_engine
+# Emblem replacement plumbing (Ajani Steadfast) — models.game.emblem/rules_engine
 # ---------------------------------------------------------------------------
 
 

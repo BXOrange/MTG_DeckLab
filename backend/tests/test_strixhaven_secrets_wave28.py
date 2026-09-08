@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 28 (PAR-60).
 
 Prismari "Artistry": instant/sorcery cast-matters payoffs, hand-authored in
-`game/ability_catalogue/entries_019.py`. Engine change:
+`game/ability_catalogue/commander_cards.py`. Engine change:
 `PumpEffect.amount_from_count_selector_axis` now also governs the
 ``amount_from_trigger_event`` path (Renegade Bull's +X/+0).
 """
@@ -14,8 +14,8 @@ from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability, build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 WAVE28 = ["Prismari Pianist", "Manaform Hellkite", "Leitmotif Composer",

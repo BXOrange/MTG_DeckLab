@@ -35,9 +35,9 @@ from ..parser.oracle.catalogue.levels import leveler_base_text
 from ..parser.oracle.catalogue.station import station_base_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a model→game cycle
-    from ..models.card import Card
-    from ..models.game_object import GameObject
-    from ..models.game_state import GameState
+    from ..models.cards.card import Card
+    from ..models.game.game_object import GameObject
+    from ..models.game.game_state import GameState
 
 #: The combat-relevant keyword abilities we model, as canonical slugs. Other
 #: keywords (e.g. flash, ward, hexproof) are recognized elsewhere or not yet;

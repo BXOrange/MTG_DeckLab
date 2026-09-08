@@ -9,7 +9,7 @@ by mechanic or card type -- see `__init__.py` for the full picture.
 
 from __future__ import annotations
 
-from ...models.events import EventType
+from ...models.game.events import EventType
 from ...parser.oracle.spec import AbilitySpec, EffectSpec
 
 from .core import register
@@ -463,7 +463,7 @@ def _delver_of_secrets() -> list[AbilitySpec]:
     (`docs/implementation-state/BACKLOG.md` called it out by name): a *conditional*
     transform gated on a library-peek rather than RULE 731's day/night
     spells-cast count. `RevealTopThenTransformEffect` (`game/effects/core.py`)
-    is the new general-purpose primitive — it takes a `models.card_query`
+    is the new general-purpose primitive — it takes a `models.cards.card_query`
     criteria dict, so any future card sharing this exact template ("look at
     the top card…, if it's a[n] X card, transform ~") reuses it instead of
     a bespoke class. The "reveal" and "may" in the printed text don't

@@ -3,7 +3,7 @@
 color may be spent this way." / "If this creature was kicked, it enters with
 X +1/+1 counters on it." Three cooperating pieces:
 
-- `models.mana_pool.ManaPool.can_pay_distinct_colors`/`pay_distinct_colors`/
+- `models.mana.mana_pool.ManaPool.can_pay_distinct_colors`/`pay_distinct_colors`/
   `clone` — the RULE 605.3a-style "no more than one mana of each color"
   payment primitive.
 - `GameEngine.can_cast`/`effective_cast_cost`/`cast_spell`'s new `kicker_x`
@@ -18,10 +18,10 @@ X +1/+1 counters on it." Three cooperating pieces:
 from mtg_analyzer.game.ability_catalogue import kicker_x_mana_restriction
 from mtg_analyzer.game.binding.core import attach_to_object
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
-from mtg_analyzer.models.mana_pool import ManaPool
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
+from mtg_analyzer.models.mana.mana_pool import ManaPool
 from mtg_analyzer.parser.oracle import parse_oracle
 from mtg_analyzer.parser.oracle.catalogue.counters import entry_counters_condition
 from mtg_analyzer.parser.oracle.catalogue.kicker_mana import (

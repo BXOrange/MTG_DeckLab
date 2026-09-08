@@ -38,8 +38,8 @@ import re
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.subgrammars import DEVOTION, devotion_selector
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
@@ -260,7 +260,7 @@ def test_add_counters_devotion_scales_with_lands_you_control():
         "where x is the number of lands you control."
     )))
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     eng.state.fire_event(GameEvent(
         EventType.ENTERS_BATTLEFIELD, controller_id="p1", instance_id=source.instance_id,
         object=source.name, object_types=sorted(source.type_words),
@@ -304,7 +304,7 @@ def test_create_token_bare_devotion_scales_with_creatures_you_control():
         "tokens, where x is the number of creatures you control."
     )))
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     eng.state.fire_event(GameEvent(
         EventType.ENTERS_BATTLEFIELD, controller_id="p1", instance_id=source.instance_id,
         object=source.name, object_types=sorted(source.type_words),
@@ -371,7 +371,7 @@ def test_draw_devotion_scales_with_creatures_you_control():
             owner_id="p1", zone=Zone.LIBRARY,
         ))
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     eng.state.fire_event(GameEvent(
         EventType.ENTERS_BATTLEFIELD, controller_id="p1", instance_id=source.instance_id,
         object=source.name, object_types=sorted(source.type_words),

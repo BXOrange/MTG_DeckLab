@@ -24,8 +24,8 @@ from __future__ import annotations
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import segment_line
 from mtg_analyzer.parser.oracle.spec import ParserProvenance
@@ -133,7 +133,7 @@ def _chance_met_elves_obj(p1):
 
 
 def test_scrying_twice_in_one_turn_only_adds_one_counter():
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng = _engine()
     p1 = eng.state.players[0]
@@ -148,7 +148,7 @@ def test_scrying_twice_in_one_turn_only_adds_one_counter():
 
 
 def test_the_limiter_resets_next_turn():
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng = _engine()
     p1 = eng.state.players[0]

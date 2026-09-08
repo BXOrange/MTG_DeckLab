@@ -30,8 +30,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ..models.card import Card
-from ..models.game_object import GameObject
+from ..models.cards.card import Card
+from ..models.game.game_object import GameObject
 
 #: The catalogue-derived fields a copy (or a face switch) replaces wholesale
 #: — RULE 706.2's "loses its own, gains the copied object's" — captured by

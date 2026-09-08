@@ -12,9 +12,9 @@ Rath, Torbran, Thane of Red Fell — order genuinely changes the total).
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import ReplacementEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def make_engine():
@@ -172,7 +172,7 @@ def test_damage_doubler_and_adder_order_changes_the_total():
     eng.rules.deal_damage(p2, 5, source=torbran)
     choice = state.pending_choice
     assert choice["kind"] == "replacement_order"
-    double_idx = next(i for i, o in enumerate(choice["options"]) if "doppelt" in o["label"])
+    double_idx = next(i for i, o in enumerate(choice["options"]) if o["label"] == "Furnace of Rath")
 
     eng.rules.resolve_replacement_order_choice(double_idx)
     assert state.pending_choice is None
@@ -191,7 +191,7 @@ def test_damage_adder_then_doubler_gives_a_different_total():
 
     eng.rules.deal_damage(p2, 5, source=torbran)
     choice = state.pending_choice
-    add_idx = next(i for i, o in enumerate(choice["options"]) if "doppelt" not in o["label"])
+    add_idx = next(i for i, o in enumerate(choice["options"]) if o["label"] == "Torbran, Thane of Red Fell")
 
     eng.rules.resolve_replacement_order_choice(add_idx)
     assert state.pending_choice is None

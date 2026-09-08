@@ -17,8 +17,8 @@ import random
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.services.game_session import GameActionError, GameSessionManager
 from mtg_analyzer.services.lobby import MAX_SEATS, MIN_SEATS, Lobby, LobbyError
 

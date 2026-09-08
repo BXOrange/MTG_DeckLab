@@ -12,11 +12,11 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-40" entry.
 from __future__ import annotations
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
-from tests.test_game_engine import creature, make_engine
+from tests.support.game import creature, make_engine
 
 
 def _etb_event(obj):
@@ -254,7 +254,7 @@ def test_eladamri_reveal_ability_puts_revealed_creature_onto_battlefield():
 
 
 def test_elesh_norn_doubles_own_etb_trigger():
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng = make_engine([_named("Elesh Norn, Mother of Machines")], hand=1)
     p1 = eng.state.player_by_id("p1")
@@ -268,7 +268,7 @@ def test_elesh_norn_doubles_own_etb_trigger():
 
 
 def test_elesh_norn_suppresses_only_opponents_etb_triggers():
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng = make_engine([_named("Elesh Norn, Mother of Machines")], [creature("Opp Bear")], hand=0)
     _put(eng.state, _named("Elesh Norn, Mother of Machines"), controller="p1")
@@ -352,7 +352,7 @@ def test_gandalf_flash_permission_is_scoped_to_legendary_and_artifact():
 
 
 def test_gandalf_doubles_trigger_for_legendary_or_artifact_entering_or_leaving():
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng = make_engine([_named("Gandalf the White")], hand=0)
     _put(eng.state, _named("Gandalf the White"), controller="p1")
@@ -477,7 +477,7 @@ def test_kutzil_opponents_cant_cast_during_your_turn():
 
 
 def test_kutzil_draws_when_boosted_creature_deals_combat_damage():
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng = make_engine([_named("Kutzil, Malamet Exemplar")], hand=1)
     p1 = eng.state.player_by_id("p1")

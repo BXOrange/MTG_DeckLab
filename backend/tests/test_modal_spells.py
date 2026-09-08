@@ -14,8 +14,8 @@ per-mode cast offer/commit for a spell (`game/game_engine.py`) or the
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
 from mtg_analyzer.game.effects.core import TriggeredAbility
 from mtg_analyzer.game.game_engine import GameEngine

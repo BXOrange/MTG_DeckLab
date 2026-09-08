@@ -83,9 +83,9 @@ from .effects.core import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..models.game_object import GameObject
-    from ..models.game_state import GameState
-    from ..models.player import Player
+    from ..models.game.game_object import GameObject
+    from ..models.game.game_state import GameState
+    from ..models.game.player import Player
 
 
 def _signed(n: int) -> str:
@@ -1326,7 +1326,7 @@ def count_selector(
         # devotion_selector`, distinct from the single full colour word
         # every existing single-colour selector already uses, so there's no
         # collision between the two suffix shapes.
-        from ..models.mana_cost import ManaCost  # function-scoped: see module header
+        from ..models.mana.mana_cost import ManaCost  # function-scoped: see module header
 
         suffix = selector[len("devotion_to_"):]
         if suffix == "hybrid":
@@ -1336,7 +1336,7 @@ def count_selector(
             # toward *both* named colours. A mono-hybrid pip ({2/W}) isn't a
             # mix of colours at all (it's generic-or-colour), so it doesn't
             # count here even though it's colour-flexible the same way.
-            from ..models.mana_cost import HYBRID, ManaCost  # function-scoped: see module header
+            from ..models.mana.mana_cost import HYBRID, ManaCost  # function-scoped: see module header
 
             return sum(
                 sum(
@@ -1512,7 +1512,7 @@ def _protection_qualities(ability: StaticAbility, state: "GameState") -> set[str
     the two ``chosen_*`` branches above.
     """
     from . import combat  # function-scoped: combat imports this module
-    from ..models.card import VALID_COLORS
+    from ..models.cards.card import VALID_COLORS
 
     words = ability.params.get("protections") or []
     quals: set[str] = set()
@@ -2663,7 +2663,7 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
             top_card = player.library[-1].card if player and player.library else None
             if top_card is not None:
                 from .binding.core import bind_from_catalogue  # local: avoid an import cycle
-                from ..models.game_object import GameObject as _GameObject
+                from ..models.game.game_object import GameObject as _GameObject
 
                 scratch = _GameObject(top_card, owner_id=controller_id, controller_id=controller_id)
                 bind_from_catalogue(scratch)
@@ -4369,7 +4369,7 @@ def granted_evoke_cost_for(state: "GameState", obj: Any) -> Optional["ManaCost"]
     of its own for RULE 613's layer engine to have stamped anything onto.
     Returns the granted cost as a `ManaCost`, or ``None``.
     """
-    from ..models.mana_cost import ManaCost  # local: avoid a continuous<->models import cycle
+    from ..models.mana.mana_cost import ManaCost  # local: avoid a continuous<->models import cycle
 
     card = getattr(obj, "card", None)
     if card is None:

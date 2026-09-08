@@ -15,8 +15,8 @@ from __future__ import annotations
 from mtg_analyzer.game import continuous  # noqa: F401  (kept for parity with sibling tests)
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 
@@ -253,7 +253,7 @@ def test_guild_artisan_lowest_life_gate_end_to_end():
     st.add_to_battlefield(cmd)
     eng.recompute_continuous_effects()
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     def _attack(defender_id):
         before = sum(1 for o in st.battlefield
@@ -329,7 +329,7 @@ def test_passionate_archaeologist_regrant_fires_on_cast_from_exile():
     granted = cmd._granted_triggered_abilities
     assert len(granted) == 1 and granted[0].trigger_event == "SPELL_CAST"
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     # from a hand cast → the "from exile" gate rejects it
     st.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1", instance_id=1,
                             spell="X", mana_value=2, from_exile=False, from_hand=True))
@@ -479,7 +479,7 @@ def test_folk_hero_shares_type_predicate_end_to_end():
     granted = cmd._granted_triggered_abilities
     assert len(granted) == 1
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     # a Wizard spell (shares "Wizard" with Cmdr) → fires
     wiz = GameObject(Card(id="w", name="W", type_line="Creature — Wizard",
                           is_creature=True), owner_id="p1", zone=Zone.STACK)

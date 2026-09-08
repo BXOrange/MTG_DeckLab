@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 12.
 
 Wave 12: the three remaining modal Charm/Command deck spells, hand-authored
-wholesale in `ability_catalogue/entries_018.py` (the fail-closed parser
+wholesale in `ability_catalogue/strixhaven_commander.py` (the fail-closed parser
 claims most modes but each has one mode on a family the grammar can't reach,
 so the whole "choose N —" block fail-closes):
 
@@ -20,8 +20,8 @@ from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import TargetSpec, legal_targets
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
 

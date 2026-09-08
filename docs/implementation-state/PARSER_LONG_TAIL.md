@@ -184,7 +184,7 @@ of `_SELF_MULTI_EVENT_RE`, a list-valued `event` on a
 the Aura-Curse cycles). Engine-side, `LoseLifeEffect.selector=
 "attached_permanent_controller"` ("its controller" on an Aura). Silverquill's
 Impetus cycle — Parasitic / Martial / Ghoulish Impetus — is hand-`AUTHORED`
-in `entries_018.py` (attack-trigger drain, group pump of other attackers,
+in `strixhaven_commander.py` (attack-trigger drain, group pump of other attackers,
 delayed self-return on the enchanted creature's death). Open follow-ups:
 bare "its controller loses N life" as a body (needs a previous-subject vs.
 attached-subject split so it doesn't mis-model Vapor Snag / Countersquall),
@@ -199,7 +199,7 @@ and `you scry N` as a generic effect body — filed under PAR-60.)
 (Archmage Emeritus, the Pledgemage/Apprentice spellslinger tail). Engine-side,
 `SearchLibraryEffect.untap_if_lands_at_least` was added for Fabled Passage's
 trailing "if you control four or more lands, untap that land"
-(hand-`AUTHORED`, `entries_018.py`).)
+(hand-`AUTHORED`, `strixhaven_commander.py`).)
 (v276–277, Blight Curse deck completion: v276 = Abrade second-mode
 `_DESTROY_COLOR_NOUN_KINDS` fix; v277 = Persist / Aberrant Return
 (`_RETURN_FROM_GRAVEYARD_RE` nonlegendary + enters-with-`-1/-1`-counter,

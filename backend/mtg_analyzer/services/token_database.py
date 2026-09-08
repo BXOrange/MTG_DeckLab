@@ -35,7 +35,7 @@ import json
 from pathlib import Path
 from typing import Optional, Union
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 
 #: The committed token catalogue that ships with the package.
 DEFAULT_TOKENS_PATH = Path(__file__).resolve().parent.parent / "data" / "tokens.json"

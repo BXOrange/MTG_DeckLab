@@ -9,7 +9,7 @@ by mechanic or card type -- see `__init__.py` for the full picture.
 
 from __future__ import annotations
 
-from ...models.events import EventType
+from ...models.game.events import EventType
 from ...parser.oracle.spec import AbilitySpec, EffectSpec
 
 from .core import register
@@ -503,7 +503,7 @@ def _imperial_recruiter() -> list[AbilitySpec]:
     power 2 or less, reveal it, put it into your hand, then shuffle.
 
     MEC-12 fourth pass — the generalized tutor grammar (`SearchLibraryEffect`/
-    `models.card_query`) doesn't parse a power/toughness qualifier after the
+    `models.cards.card_query`) doesn't parse a power/toughness qualifier after the
     search noun phrase (a documented gap on the parser side, same family as
     the already-unclaimed "with mana value X or less"); hand-authored
     directly onto the new `card_query.max_power` criteria key instead.
@@ -864,7 +864,7 @@ def _eye_of_ugin() -> list[AbilitySpec]:
 
     — MEC-12 (sixth pass). The search half is left to the oracle-text
     parser (`_SEARCH_COLOR_WORD`'s new "colorless" entry, matched onto
-    `models.card_query`'s own colour-emptiness check) rather than
+    `models.cards.card_query`'s own colour-emptiness check) rather than
     duplicated here — only the static half is hand-authored, since a
     combined colour-emptiness-**and**-creature-subtype cost filter
     ("Colorless Eldrazi spells", as opposed to a bare colour or a bare

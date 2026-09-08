@@ -9,7 +9,7 @@ by mechanic or card type -- see `__init__.py` for the full picture.
 
 from __future__ import annotations
 
-from ...models.events import EventType
+from ...models.game.events import EventType
 from ...parser.oracle.spec import AbilitySpec, EffectSpec
 
 from .core import register
@@ -189,7 +189,7 @@ def _neoform() -> list[AbilitySpec]:
     — Neoform. Eldritch Evolution's sibling (see that entry for the
     ``mana_value_from`` channel), with two differences: the bound is
     *exact* rather than "or less" (``"cmp": "eq"``, emitted as a two-sided
-    min/max since `models.card_query` has no single "exactly N" key), and
+    min/max since `models.cards.card_query` has no single "exactly N" key), and
     the found card arrives with a counter already on it
     (``extra_counters``, applied by `RulesEngine._finish_search` the moment
     it reaches the battlefield — RULE 614.1c-adjacent, but applied here
@@ -1023,7 +1023,7 @@ def _tibalts_trickery() -> list[AbilitySpec]:
     composition of separate counter/mill/dig effects couldn't work — every
     clause is about the same spell and the same (not-the-caster) player, and
     the dig's predicate is derived from that spell's own name via the new
-    ``not_name`` criteria key (`models.card_query`), the negated form of an
+    ``not_name`` criteria key (`models.cards.card_query`), the negated form of an
     exact name match, kept as its own key rather than a magic value inside
     ``name`` so a criteria dict stays literal data.
 

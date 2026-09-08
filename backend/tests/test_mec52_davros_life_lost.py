@@ -16,8 +16,8 @@ from __future__ import annotations
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.effects.core import GameContext, _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 

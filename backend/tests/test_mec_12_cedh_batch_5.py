@@ -18,7 +18,7 @@ New general primitives, each reusable past this pool:
   plural "destroy all Xs".
 * The tutor grammar's colour word ("a **green** creature card") now
   actually reaches `SearchLibraryEffect.criteria["color"]`
-  (`models.card_query` already had a `color` key nothing was populating --
+  (`models.cards.card_query` already had a `color` key nothing was populating --
   a "grep before building" miss from an earlier pass, not a new primitive)
   and gains a "with mana value X or less/greater" trailing qualifier,
   shared by both the plain and "library and/or graveyard" search families.
@@ -59,10 +59,10 @@ from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.ability_catalogue import is_registered
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
 
@@ -166,7 +166,7 @@ def test_chord_of_calling_search_criteria_caps_mana_value_at_announced_x():
     assert choice is not None and choice["kind"] == "search"
     assert choice["criteria"]["max_mana_value"] == 2
 
-    from mtg_analyzer.models import card_query
+    from mtg_analyzer.models.cards import card_query
     matches = {o.card.name for o in p1.library if card_query.matches(o.card, choice["criteria"])}
     assert matches == {"Small Beast"}
 

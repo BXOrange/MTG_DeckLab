@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 32 (PAR-60).
 
 Modal "choose one [or more]" spells hand-authored in
-`game/ability_catalogue/entries_019.py` as `modes` blocks. Engine:
+`game/ability_catalogue/commander_cards.py` as `modes` blocks. Engine:
 `_mass_wipe_objects` ``token`` filter (Perplexing Test).
 """
 
@@ -13,8 +13,8 @@ from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability, build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 WAVE32 = ["Casualties of War", "Final Act", "Perplexing Test"]

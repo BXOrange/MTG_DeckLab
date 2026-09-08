@@ -39,7 +39,7 @@ from mtg_analyzer.api.dependencies import (
 )
 from mtg_analyzer.api.game import resolve_seat_deck
 from mtg_analyzer.api.schemas import GameActionRequest, SoloStartRequest
-from mtg_analyzer.models.game_format import FORMATS
+from mtg_analyzer.models.decks.formats import FORMATS
 from mtg_analyzer.services.bots import BOT_ID_PREFIX, BOT_TYPES, create_bot, run_bots
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager

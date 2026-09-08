@@ -34,7 +34,7 @@ from mtg_analyzer.game.costs import parse_activation_cost
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import ActivatedAbility, DrawCardEffect
 
-from tests.test_game_engine import creature, make_engine, obj_on_battlefield
+from tests.support.game import creature, make_engine, obj_on_battlefield
 
 
 def _named(name):

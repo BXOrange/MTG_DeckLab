@@ -7,10 +7,10 @@ and the "Turbulent" land cycle's opponents'-lands-count variant
 unless_types/unless_count) are already covered by `test_ability_catalogue.py`.
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.services.game_session import build_goldfish_engine
 

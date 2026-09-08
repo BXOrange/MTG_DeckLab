@@ -6,7 +6,7 @@ contributes unclaimed clauses to the processing-list backlog and never binds
 any behaviour (same fail-closed posture as an ordinary UNMODELED card).
 """
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.oracle import NEVER_SUPPORTED, UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.processing_list import coverage_report
 from mtg_analyzer.services import coverage_db as cov

@@ -28,10 +28,10 @@ from mtg_analyzer.game.effects.core import GameContext, LookTopKeepOneOnTopEffec
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.game.targeting import TargetSpec, legal_targets
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 
 def _rules():

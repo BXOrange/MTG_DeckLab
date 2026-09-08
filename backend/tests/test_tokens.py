@@ -7,9 +7,9 @@ as a state-based action (RULE 704.5d), never to return (RULE 111.7-8). Exile
 and destruction both funnel through that SBA.
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.services.token_database import synthesize_token_card

@@ -38,10 +38,10 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.card import Card
+from ..models.cards.card import Card
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..models.game_object import GameObject
+    from ..models.game.game_object import GameObject
 
 #: The name a face-down object is shown under. RULE 708.2a says it has *no*
 #: name; `Card` requires a non-empty one, so this stands in — deliberately a
@@ -141,7 +141,7 @@ def turn_face_up_options(obj: "GameObject") -> list[dict[str, Any]]:
     * A manifested/cloaked card pays its **mana cost**, and only if it is a
       creature card (RULE 701.40b/701.58b).
     """
-    from ..models.mana_cost import ManaCost  # function-scoped: models import cost
+    from ..models.mana.mana_cost import ManaCost  # function-scoped: models import cost
 
     card = face_up_card(obj)
     if card is None:

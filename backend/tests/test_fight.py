@@ -14,10 +14,10 @@ from __future__ import annotations
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import FightEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle import parse_oracle
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 
@@ -392,7 +392,7 @@ def test_a_chosen_group_is_returned_to_hand():
     from mtg_analyzer.game.effects.core import (
         ChooseTargetsEffect, GameContext, ReturnToHandEffect, _apply_effects_partitioned,
     )
-    from mtg_analyzer.models.game_object import Zone
+    from mtg_analyzer.models.game.game_object import Zone
 
     engine, state, _, _ = _engine()
     mine = _creature(state, "Mine", 3, 3)

@@ -23,8 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Optional
 
-from ..models.game_object import GameObject, Zone
-from ..models.game_state import GameState
+from ..models.game.game_object import GameObject, Zone
+from ..models.game.game_state import GameState
 from . import combat
 
 #: A graveyard-card target's *scope* — whose graveyard(s) are searched — by

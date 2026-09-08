@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Optional
 
 from mtg_analyzer.config import DB_PATH
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.card_database import CardDatabase
 
 _db: Optional[CardDatabase] = None

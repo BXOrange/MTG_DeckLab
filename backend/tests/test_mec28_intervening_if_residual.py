@@ -44,8 +44,8 @@ from __future__ import annotations
 from mtg_analyzer.game.ability_catalogue import is_registered
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
@@ -264,7 +264,7 @@ def test_for_mirrodin_creates_and_attaches_a_boosted_rebel():
     eng = make_engine("p1", "p2")
     equipment = put(eng.state, for_mirrodin_card())
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     eng.state.fire_event(GameEvent(
         EventType.ENTERS_BATTLEFIELD, controller_id="p1", instance_id=equipment.instance_id,
         object=equipment.name, object_types=sorted(equipment.type_words),

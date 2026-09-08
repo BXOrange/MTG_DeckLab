@@ -41,12 +41,12 @@ import uuid
 from typing import Any, Callable, Optional
 
 from mtg_analyzer import config
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_format import get_format
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.mana_cost import ManaCost
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.decks.formats import get_format
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.mana.mana_cost import ManaCost
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game import ability_catalogue, continuous, mana_potential
 from mtg_analyzer.game.binding.core import bind_from_catalogue

@@ -24,12 +24,12 @@ from __future__ import annotations
 import random
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.game_object import GameObject, Zone
+from ..models.game.game_object import GameObject, Zone
 from ..services.variant_card_database import card_for, default_variant_card_database
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..models.game_state import GameState
-    from ..models.player import Player
+    from ..models.game.game_state import GameState
+    from ..models.game.player import Player
 
 #: RULE 901.6: the planar die's six faces — one chaos, one planeswalk, four
 #: blank. Rolled as a list so `RulesEngine.random_choice` can pick from it

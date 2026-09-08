@@ -53,8 +53,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:  # models must not be imported at runtime (module boundary)
-    from ..models.game_object import GameObject
-    from ..models.game_state import GameState
+    from ..models.game.game_object import GameObject
+    from ..models.game.game_state import GameState
 
 
 #: Every recognized ``kind``. A condition naming anything else is false.

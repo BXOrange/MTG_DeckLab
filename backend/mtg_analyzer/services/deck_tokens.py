@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 
 
 def producible_tokens(cards: list[Card]) -> list[Card]:

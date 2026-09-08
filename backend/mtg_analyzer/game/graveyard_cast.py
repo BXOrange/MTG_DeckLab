@@ -21,9 +21,9 @@ from typing import TYPE_CHECKING, Optional
 from .effects.core import GraveyardCastPermissionEffect
 
 if TYPE_CHECKING:
-    from ..models.card import Card
-    from ..models.game_state import GameState
-    from ..models.player import Player
+    from ..models.cards.card import Card
+    from ..models.game.game_state import GameState
+    from ..models.game.player import Player
 
 
 def _is_permanent_card(card: "Card") -> bool:

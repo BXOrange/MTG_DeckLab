@@ -24,10 +24,10 @@ from __future__ import annotations
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import StaticAbility
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.rules_engine import RulesEngine
 
 
@@ -150,7 +150,7 @@ def test_blink_keeps_instance_id_stable_and_self_trigger_still_fires():
     engine.blink(obj)
 
     assert obj.instance_id == before_id
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     state.fire_event(
         GameEvent(

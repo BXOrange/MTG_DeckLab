@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 24 (PAR-60).
 
 Quandrix "Unlimited" singletons (+ Emeria, a Lorehold land), hand-authored in
-`game/ability_catalogue/entries_019.py` on existing primitives. Engine change:
+`game/ability_catalogue/commander_cards.py` on existing primitives. Engine change:
 ``times`` added to `RulesEngine._substitute_x`'s attr list so
 ``EffectSpec("proliferate", {"times": "x"})`` resolves an announced {X}.
 """
@@ -14,8 +14,8 @@ from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability, build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 

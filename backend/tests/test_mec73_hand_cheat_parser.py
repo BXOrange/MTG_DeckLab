@@ -1,6 +1,6 @@
 """MEC-73's parser contract for the selected subtype hand-cheat package."""
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import match_clause
 

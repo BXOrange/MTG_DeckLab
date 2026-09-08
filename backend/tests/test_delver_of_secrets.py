@@ -3,7 +3,7 @@
 peek ("look at the top card of your library. If it's an instant or sorcery
 card, transform ~"), distinct from RULE 731's day/night spells-cast-count
 flip. `RevealTopThenTransformEffect` (`game/effects/core.py`) is the new
-general-purpose primitive, parameterized on a `models.card_query` criteria
+general-purpose primitive, parameterized on a `models.cards.card_query` criteria
 dict rather than hardcoded to instant/sorcery, so any future card sharing
 this exact template reuses it.
 
@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def _delver_card():

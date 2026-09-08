@@ -44,11 +44,11 @@ from __future__ import annotations
 from mtg_analyzer.game import ability_catalogue, combat, continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.events import GameEvent
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.events import GameEvent
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.normalize import normalize
 from mtg_analyzer.parser.oracle.segmenter import _DAMAGE_RECIPIENT_TRIGGER_RE, segment_line, ParserProvenance
@@ -284,7 +284,7 @@ def test_add_mana_amount_from_trigger_event():
     engine, state = _engine("p1")
     source = _bf(state, _creature("Manadin", 2, 2))
     from mtg_analyzer.game.effects.core import AddManaEffect, GameContext
-    from mtg_analyzer.models.events import GameEvent
+    from mtg_analyzer.models.game.events import GameEvent
 
     context = GameContext(state, engine.rules)
     context.trigger_event = GameEvent("DAMAGE", amount=4, target_id=source.instance_id)

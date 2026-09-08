@@ -18,8 +18,8 @@ from mtg_analyzer.game.ability_catalogue import is_registered, specs_for
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 _TEXT = (
     "Earthbend 3. Then each creature you control with power less than or equal "

@@ -10,8 +10,8 @@ Reference: docs/implementation-state/BACKLOG.md, docs/implementation-state/Done_
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.mana_abilities import (
     hand_mana_abilities,

@@ -84,8 +84,8 @@ from typing import Any, Callable, Optional
 
 from mtg_analyzer import config
 from mtg_analyzer.game import mana_potential
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.services.bots import BOT_TYPES, Bot, create_bot
 from mtg_analyzer.services.game_session import GOLDFISH, GameActionError, GameSession, build_goldfish_engine
 

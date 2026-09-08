@@ -16,9 +16,9 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-36" entry.
 from __future__ import annotations
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 
-from tests.test_game_engine import instant, make_engine, obj_on_battlefield
+from tests.support.game import instant, make_engine, obj_on_battlefield
 
 
 def _named(name):
@@ -43,7 +43,7 @@ def _sphere_engine():
     sphere = p1.hand[0]
     bind_from_catalogue(sphere)
     eng.state.player_by_id("p1").hand.remove(sphere)
-    from mtg_analyzer.models.game_object import Zone
+    from mtg_analyzer.models.game.game_object import Zone
 
     sphere.zone = Zone.BATTLEFIELD
     eng.state.add_to_battlefield(sphere)
@@ -79,7 +79,7 @@ def test_damping_sphere_taxes_each_spell_by_prior_spells_cast_this_turn():
     eng.state.battlefield.remove(shock2)
     p1.hand.extend([shock1, shock2])
     shock1.zone = shock2.zone = __import__(
-        "mtg_analyzer.models.game_object", fromlist=["Zone"]
+        "mtg_analyzer.models.game.game_object", fromlist=["Zone"]
     ).Zone.HAND
 
     cost_before_any_cast = eng.effective_cast_cost(p1, shock1)

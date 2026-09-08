@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 25 (PAR-60).
 
 Witherbloom "Pestilence": Eldrazi Spawn / devour token payoffs, recursion,
-and the sacrifice tail, hand-authored in `game/ability_catalogue/entries_019.py`.
+and the sacrifice tail, hand-authored in `game/ability_catalogue/commander_cards.py`.
 Engine: ``plus_one_counters_on_source`` `continuous.count_selector`;
 ``opponent_life_at_most`` `static_conditions` kind.
 """
@@ -14,8 +14,8 @@ from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability, build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 WAVE25 = [
     "Awakening Zone", "Pawn of Ulamog", "Mycoloth", "Ribtruss Roaster",

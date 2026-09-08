@@ -64,10 +64,10 @@ from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.ability_catalogue import is_registered
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
 
@@ -206,7 +206,7 @@ def test_merchant_scroll_is_modeled_and_offers_a_search_for_instants():
     # by this pass's own `_SEARCH_COLOR_WORD` widening (documented on
     # `_SEARCH_CRITERIA` in handlers.py at the time) -- a real gap since
     # closed by MEC-12's fifth pass, which wires the captured colour word
-    # into `SearchLibraryEffect.criteria["color"]` (`models.card_query`
+    # into `SearchLibraryEffect.criteria["color"]` (`models.cards.card_query`
     # already had the matcher; nothing was populating it). This now proves
     # *both* the type and colour filters reach the search: a red instant no
     # longer matches "a blue instant card", only a genuinely blue one does.
@@ -239,7 +239,7 @@ def test_merchant_scroll_is_modeled_and_offers_a_search_for_instants():
     choice = state.pending_choice
     assert choice is not None and choice["kind"] == "search"
 
-    from mtg_analyzer.models import card_query
+    from mtg_analyzer.models.cards import card_query
     matches = [
         o for o in p1.library if card_query.matches(o.card, choice["criteria"])
     ]
@@ -257,7 +257,7 @@ def test_steelshapers_gift_is_modeled():
 
 
 def test_imperial_recruiter_search_criteria_filters_by_power():
-    from mtg_analyzer.models import card_query
+    from mtg_analyzer.models.cards import card_query
 
     small = Card(id="Small", name="Small", type_line="Creature — Goblin",
                  is_creature=True, power=2, toughness=2)
@@ -269,7 +269,7 @@ def test_imperial_recruiter_search_criteria_filters_by_power():
 
 
 def test_recruiter_of_the_guard_search_criteria_filters_by_toughness():
-    from mtg_analyzer.models import card_query
+    from mtg_analyzer.models.cards import card_query
 
     tough_enough = Card(id="T1", name="T1", type_line="Creature — Wall",
                          is_creature=True, power=0, toughness=2)

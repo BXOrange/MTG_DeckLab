@@ -90,9 +90,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ..models.mana_cost import ManaCost
-from ..models.mana_pool import MANA_TYPES, ManaPool
-from ..models.player import Player
+from ..models.mana.mana_cost import ManaCost
+from ..models.mana.mana_pool import MANA_TYPES, ManaPool
+from ..models.game.player import Player
 from . import continuous
 from .costs import DISCARD_HAND, PAY_LIFE_X, REMOVE_COUNTERS_ANY, REMOVE_COUNTERS_X
 from .mana_abilities import ManaAbility, hand_mana_abilities_for, mana_abilities_for, mana_source_kind_for

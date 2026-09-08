@@ -1,8 +1,8 @@
 """Summoning-sickness state exposed to the board (RULE 302.6 / 702.10)."""
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.player import Player
 
 
 def _creature(*, keywords=None) -> Card:

@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from ..spec import AbilitySpec, ParserProvenance
 
 if TYPE_CHECKING:  # pragma: no cover - typing only; keeps the front-end pure
-    from ....models.card import Card
+    from ....models.cards.card import Card
 
 
 class KeywordShape(Enum):

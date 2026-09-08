@@ -9,11 +9,11 @@ import pytest
 
 from mtg_analyzer.game import variants
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models import game_format
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_format import get_format
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.decks import formats as game_format
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.decks.formats import get_format
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.variant_card_database import (
     card_for,
@@ -182,7 +182,7 @@ def test_a_planes_ability_functions_from_the_command_zone():
     eng.state.planar_deck.append(plane)  # top of the deck = face up
     player = eng.state.player_by_id("p1")
     eng.state.fire_event(
-        __import__("mtg_analyzer.models.events", fromlist=["GameEvent"]).GameEvent(
+        __import__("mtg_analyzer.models.game.events", fromlist=["GameEvent"]).GameEvent(
             EventType.CHAOS_ENSUED, player_id="p1", controller_id="p1"
         )
     )

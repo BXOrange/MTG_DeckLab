@@ -4,8 +4,8 @@ counters" clause (`parser/oracle/catalogue/counters.py`,
 Clause-shape recognition itself is covered by `test_oracle_counters.py`.
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.game.game_engine import GameEngine
 
 

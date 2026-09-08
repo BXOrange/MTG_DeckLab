@@ -67,10 +67,10 @@ from __future__ import annotations
 
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 
@@ -376,7 +376,7 @@ def test_quoted_attack_trigger_grant_fires_when_the_host_attacks():
 
     assert len(host._granted_triggered_abilities) == 1
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     state.fire_event(
         GameEvent(
@@ -410,7 +410,7 @@ def test_quoted_trigger_grant_does_not_fire_for_a_different_permanent():
     p1.library.append(GameObject(_creature("Library Bear"), owner_id="p1", zone=Zone.LIBRARY))
     continuous.recompute(state)
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     state.fire_event(
         GameEvent(
@@ -516,7 +516,7 @@ def test_granted_any_color_mana_ability_fans_out_to_one_option_per_colour():
 
 
 def _upkeep(state, engine):
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     state.fire_event(GameEvent(EventType.STEP_BEGIN, step="upkeep", phase="beginning"))
     return engine.put_triggers_on_stack()

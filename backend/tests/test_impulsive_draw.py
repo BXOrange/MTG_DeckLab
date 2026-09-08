@@ -9,8 +9,8 @@ Engine side: `game/effects/core.py`'s `ImpulsiveDrawEffect` +
 `GameEngine.can_cast`/`can_play_land`/`_step_cleanup` (`game/game_engine.py`).
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game.effects.core import ImpulsiveDrawEffect
 from mtg_analyzer.game.game_engine import GameEngine
 

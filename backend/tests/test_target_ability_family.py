@@ -24,10 +24,10 @@ from mtg_analyzer.game.effects.core import (
     DealDamageEffect,
 )
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 
 
 def instant(name, cost="{0}"):

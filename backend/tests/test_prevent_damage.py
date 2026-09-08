@@ -26,10 +26,10 @@ from mtg_analyzer.game.effects.core import (
     PreventDamageEffect,
 )
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.rules_engine import RulesEngine
 
 
@@ -156,7 +156,7 @@ def test_unused_capped_shield_expires_at_cleanup_even_with_remaining_balance():
 
 def test_cleanup_does_not_sweep_other_player_effects():
     from mtg_analyzer.game.effects.core import ReplacementEffect
-    from mtg_analyzer.models.events import EventType
+    from mtg_analyzer.models.game.events import EventType
 
     eng = GameEngine.new_game(
         [("p1", "Alice", []), ("p2", "Bob", [])], starting_life=20, starting_hand=0

@@ -46,11 +46,11 @@ from __future__ import annotations
 from mtg_analyzer.game import condition_query
 from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.mana_cost import ManaCost
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.mana.mana_cost import ManaCost
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import segment_line, ParserProvenance
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, SpecValidationError
@@ -427,7 +427,7 @@ def test_taking_initiative_via_succession_fires_took_initiative_event():
     """RULE 726.4 says the active player *takes* the initiative — this must
     go through `RulesEngine.take_initiative` (which fires `TOOK_INITIATIVE`,
     RULE 726.2's third inherent trigger), not a bare field assignment."""
-    from mtg_analyzer.models.events import EventType
+    from mtg_analyzer.models.game.events import EventType
 
     engine, state = _engine("p1", "p2", "p3")
     engine.begin_turn()

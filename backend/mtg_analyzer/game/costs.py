@@ -23,7 +23,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 
-from ..models.mana_cost import ManaCost
+from ..models.mana.mana_cost import ManaCost
 
 #: Every ``{...}`` token in a cost string.
 _BRACE_RE = re.compile(r"\{([^}]+)\}")

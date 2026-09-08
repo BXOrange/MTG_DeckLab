@@ -4224,7 +4224,7 @@ is in the rules-engine categories below them.
     `_search_choice` → `resolve_search_choice` → `_finish_search` (untap the
     land put onto the battlefield tapped once the controller's land count
     clears the threshold). Fabled Passage (all 5 decks) hand-`AUTHORED` in
-    the new `game/ability_catalogue/entries_018.py`.
+    the new `game/ability_catalogue/strixhaven_commander.py`.
   - **wave 5** — RULE 508.1g **attack tax** base form (Propaganda / Ghostly
     Prison / Windborn Muse): `EffectRegistry` `attack_tax` `StaticAbility`
     layer (in `continuous._NON_RULE_613_LAYERS`), `continuous.attack_tax_
@@ -4240,7 +4240,7 @@ is in the rules-engine categories below them.
     PARSER_VERSION 284, +1 cache (Curiosity Crafter).
   - **wave 12** — the three remaining modal Charm/Command deck spells
     (**Quandrix Command**, **Lorehold Charm**, **Witherbloom Command**)
-    hand-`AUTHORED` wholesale in `entries_018.py` as `spell_effect` modal
+    hand-`AUTHORED` wholesale in `strixhaven_commander.py` as `spell_effect` modal
     `AbilitySpec`s (the fail-closed parser claims most modes but each spell
     has one mode on a family the grammar can't reach, so the whole "choose
     N —" block fail-closes). No PARSER_VERSION change. New engine pieces:
@@ -4259,7 +4259,7 @@ is in the rules-engine categories below them.
     own graveyard.
   - **wave 22** (2026-09-08) — **Silverquill "Influence": the Aura /
     enchantments-matter cluster**, hand-`AUTHORED` wholesale in the new
-    `game/ability_catalogue/entries_019.py` (no PARSER_VERSION change). New
+    `game/ability_catalogue/commander_cards.py` (no PARSER_VERSION change). New
     engine selectors: `auras_you_control` (`continuous.count_selector`) and
     `auras_attached_to_self` (`continuous._pt_mod_count`) — the latter via a
     generalized `_attached_subtype_count(state, obj, subtype)` refactored
@@ -4279,7 +4279,7 @@ is in the rules-engine categories below them.
     to token" rider.
   - **wave 23** (2026-09-08) — **Witherbloom "Pestilence": "life you gained
     this turn" + the sacrifice-matters cluster**, hand-`AUTHORED` in
-    `entries_019.py` (no PARSER_VERSION change). New engine primitives:
+    `commander_cards.py` (no PARSER_VERSION change). New engine primitives:
     `static_conditions` kind `gained_life_this_turn` (optional `amount`,
     default 1) and `continuous.count_selector` `life_gained_this_turn` —
     both plain reads of the pre-existing `GameState.life_gained_this_turn`
@@ -4293,7 +4293,7 @@ is in the rules-engine categories below them.
     Death Priest, Smothering Abomination, Dina Soul Steeper, Dina Essence
     Brewer (Witherbloom deck 55 → 65).
   - **waves 24–106** (2026-09-08) — the tail, all hand-`AUTHORED` in
-    `entries_019.py` (no PARSER_VERSION change), 265 → 433/433 covered
+    `commander_cards.py` (no PARSER_VERSION change), 265 → 433/433 covered
     (~168 cards). Reusable engine primitives added along the way (each
     small, all regression-clean against the full ~6.4k-test suite — the
     final round-3 gate was 6373 passed / 0 fail bar the 2 known

@@ -11,12 +11,12 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-42" entry.
 from __future__ import annotations
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
 
-from tests.test_game_engine import make_engine
+from tests.support.game import make_engine
 
 
 def _named(name):
@@ -246,7 +246,7 @@ def test_march_of_swirling_mist_exile_discount_reduces_generic_cost():
     discounted_cost = eng.effective_cast_cost(p1, march, x=2, exile_discount=2)
 
     def _x_amount(cost):
-        from mtg_analyzer.models.mana_cost import VARIABLE
+        from mtg_analyzer.models.mana.mana_cost import VARIABLE
 
         return sum(s.amount for s in cost.symbols if s.kind == VARIABLE)
 
@@ -497,7 +497,7 @@ def test_tymna_postcombat_main_offers_pay_life_draw_x():
     eng.begin_turn()
     state.combat_damage_to_players_this_turn[attacker.instance_id] = {p2.id}
     state.current_step = "main2"
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     state.fire_event(GameEvent(EventType.STEP_BEGIN, step="main2", player_id="p1"))
     eng.resolve_until_stable()
 

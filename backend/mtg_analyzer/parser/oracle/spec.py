@@ -496,7 +496,7 @@ class AbilitySpec:
     #: portion by *color*) — no real card needs both. Bound the same
     #: "dynamic, getattr-read" way (`GameObject.x_spend_color_restriction`),
     #: consulted by `GameEngine.effective_cast_cost`'s ``{X}``-resolution
-    #: branch (`models.mana_cost.ManaCost.with_x_colored`).
+    #: branch (`models.mana.mana_cost.ManaCost.with_x_colored`).
     cast_x_color_restriction: Optional[str] = None
     #: "Strive — This spell costs `<cost>` more to cast for each target
     #: beyond the first." (MEC-4) — not a RULE 702 keyword at all (no CR

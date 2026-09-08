@@ -5,7 +5,7 @@ more than one mana of each color may be spent this way." (Emblazoned Golem)
 isn't resolved through the generic effect-handler table because it doesn't
 describe a `GameEffect` at all — it constrains *how Kicker's own {X} may be
 paid*, a fact the engine needs at cast time (`GameEngine.can_cast`/
-`cast_spell`, via `models.mana_pool.ManaPool.can_pay_distinct_colors`/
+`cast_spell`, via `models.mana.mana_pool.ManaPool.can_pay_distinct_colors`/
 `pay_distinct_colors`), not something the binder attaches to the object.
 The engine resolves it directly through
 `game/ability_catalogue.kicker_x_mana_restriction`, the same

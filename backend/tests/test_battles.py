@@ -7,8 +7,8 @@ Reference: CR 310.1-310.11b. The engine-side narrative lives in
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 

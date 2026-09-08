@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional, Union
 
-from ...models.events import EventType
-from ...models.mana_cost import ManaCost
+from ...models.game.events import EventType
+from ...models.mana.mana_cost import ManaCost
 from ...parser.oracle.catalogue.handlers import (
     ACTIVATE_ONLY_ONCE_MARKER,
     ACTIVATION_CONDITION_MARKER,
@@ -2052,8 +2052,7 @@ def bind_ability(
     # Parser specs carry an exact oracle-text clause as provenance. Hand-authored
     # catalogue specs deliberately leave it blank: their display text must come
     # from the bound card, never from an unofficial translation in source code.
-    card = getattr(source, "card", source)
-    description = spec.raw_text or str(getattr(card, "oracle_text", "") or "")
+    description = _ability_description(source, spec)
 
     if spec.ability_kind == "replacement":
         # A different whitelist (ReplacementRegistry, not EffectRegistry) —
@@ -2302,9 +2301,6 @@ def attach_keyword(obj: Any, spec: AbilitySpec) -> bool:
         return False
     if not hasattr(obj, "intrinsic_keywords"):
         obj.intrinsic_keywords = set()
-    card = getattr(obj, "card", obj)
-    description = spec.raw_text or str(getattr(card, "oracle_text", "") or "")
-
     is_parametric = bool(_PARAMETRIC_KEYWORD_KEYS & keyword.keys())
     if not is_parametric:
         obj.intrinsic_keywords.add(str(name))
@@ -2320,6 +2316,12 @@ def attach_keyword(obj: Any, spec: AbilitySpec) -> bool:
         variant = str(keyword["quality"]).strip().lower().split()[0]
         obj.intrinsic_keywords.add(f"{variant}walk")
     return True
+
+
+def _ability_description(source: Any, spec: AbilitySpec) -> str:
+    """Use canonical card text; parser provenance is a fallback."""
+    card = getattr(source, "card", source)
+    return str(getattr(card, "oracle_text", "") or spec.raw_text or "")
 
 
 def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[ActivatedAbility]:
@@ -2359,7 +2361,7 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         effects=[AttachEffect(target_kind=target_kind)],
         cost=cost,
         source=obj,
-        description=description or f"{name}",
+        description=_ability_description(obj, spec) or f"{name}",
         attach_kind=name,
     )
 
@@ -2405,7 +2407,7 @@ def _attach_affinity_static(obj: Any, spec: AbilitySpec) -> None:
             affects="self",
             params={"generic": 1, "per": selector},
             source=obj,
-            description=description or f"Affinity for {keyword.get('quality')}",
+            description=_ability_description(obj, spec) or f"Affinity for {keyword.get('quality')}",
         )
     )
 
@@ -2440,7 +2442,7 @@ def _graveyard_keyword_activated_ability(
         effects=effects,
         cost=cost,
         source=obj,
-        description=description or name.capitalize(),
+        description=_ability_description(obj, spec) or name.capitalize(),
     )
 
 
@@ -2469,7 +2471,7 @@ def _specialize_activated_ability(
         effects=[SpecializeEffect(source=obj)],
         cost=cost,
         source=obj,
-        description=description or "Specialize",
+        description=_ability_description(obj, spec) or "Specialize",
     )
 
 
@@ -2515,7 +2517,7 @@ def _cycling_activated_ability(
         effects=build_effects([EffectSpec("draw", {"count": 1})], source=obj),
         cost=cost,
         source=obj,
-        description=description or "Cycling",
+        description=_ability_description(obj, spec) or "Cycling",
     )
 
 
@@ -2577,7 +2579,7 @@ def _crew_activated_ability(
         effects=effects,
         cost=cost,
         source=obj,
-        description=description or f"Crew {n}",
+        description=_ability_description(obj, spec) or f"Crew {n}",
     )
 
 
@@ -2607,7 +2609,7 @@ def _saddle_activated_ability(
         effects=[BecomeSaddledEffect(source=obj)],
         cost=cost,
         source=obj,
-        description=description or f"Saddle {n}",
+        description=_ability_description(obj, spec) or f"Saddle {n}",
     )
 
 
@@ -2653,7 +2655,7 @@ def _station_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         effects=[charge_effect],
         cost=cost,
         source=obj,
-        description=description or "Station",
+        description=_ability_description(obj, spec) or "Station",
     )
 
 
@@ -2703,7 +2705,7 @@ def _kw_soulbond(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             optional=True,
             controller_id=getattr(obj, "controller_id", None),
             source=obj,
-            description=description or "Soulbond",
+            description=_ability_description(obj, spec) or "Soulbond",
         ),
         TriggeredAbility(
             trigger_event=EventType.ENTERS_BATTLEFIELD,
@@ -2712,7 +2714,7 @@ def _kw_soulbond(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             optional=True,
             controller_id=getattr(obj, "controller_id", None),
             source=obj,
-            description=description or "Soulbond",
+            description=_ability_description(obj, spec) or "Soulbond",
         ),
     ]
 
@@ -2724,7 +2726,7 @@ def _kw_living_weapon(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbil
             effects=[LivingWeaponEffect(source=obj)],
             condition=_self_only_condition(getattr(obj, "instance_id", None)),
             source=obj,
-            description=description or "Living weapon",
+            description=_ability_description(obj, spec) or "Living weapon",
         )
     ]
 
@@ -2753,7 +2755,7 @@ def _kw_fading(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             condition=_your_upkeep,
             controller_id=controller_id,
             source=obj,
-            description=description or f"Fading {n}",
+            description=_ability_description(obj, spec) or f"Fading {n}",
         )
     ]
 
@@ -2787,7 +2789,7 @@ def _kw_vanishing(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]
             condition=_your_upkeep,
             controller_id=controller_id,
             source=obj,
-            description=description or f"Vanishing {n}",
+            description=_ability_description(obj, spec) or f"Vanishing {n}",
         )
     ]
 
@@ -2819,7 +2821,7 @@ def _kw_cumulative_upkeep(obj: Any, spec: AbilitySpec, n: Any) -> list[Triggered
             condition=_your_upkeep,
             controller_id=controller_id,
             source=obj,
-            description=description or f"Cumulative upkeep {cost}",
+            description=_ability_description(obj, spec) or f"Cumulative upkeep {cost}",
         )
     ]
 
@@ -2842,7 +2844,7 @@ def _kw_renown(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[RenownEffect(amount=int(n), source=obj)],
             condition=_renown_ok,
             source=obj,
-            description=description or f"Renown {n}",
+            description=_ability_description(obj, spec) or f"Renown {n}",
         )
     ]
 
@@ -2858,7 +2860,7 @@ def _kw_annihilator(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbilit
             effects=[SacrificeEffect(count=n, selector="defending_player")],
             condition=condition,
             source=obj,
-            description=description or f"Annihilator {n}",
+            description=_ability_description(obj, spec) or f"Annihilator {n}",
         )
     ]
 
@@ -2872,7 +2874,7 @@ def _kw_haunt(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[HauntEffect(source=obj)],
             condition=_self_only_condition(getattr(obj, "instance_id", None)),
             source=obj,
-            description=description or "Haunt",
+            description=_ability_description(obj, spec) or "Haunt",
         )
     ]
 
@@ -2888,7 +2890,7 @@ def _kw_afflict(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[LoseLifeEffect(amount=n, selector="defending_player")],
             condition=condition,
             source=obj,
-            description=description or f"Afflict {n}",
+            description=_ability_description(obj, spec) or f"Afflict {n}",
         )
     ]
 
@@ -2908,14 +2910,14 @@ def _kw_bushido(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[PumpEffect(power=n, toughness=n)],
             condition=condition,
             source=obj,
-            description=description or f"Bushido {n}",
+            description=_ability_description(obj, spec) or f"Bushido {n}",
         ),
         TriggeredAbility(
             trigger_event=EventType.BECOMES_BLOCKED,
             effects=[PumpEffect(power=n, toughness=n)],
             condition=condition,
             source=obj,
-            description=description or f"Bushido {n}",
+            description=_ability_description(obj, spec) or f"Bushido {n}",
         ),
     ]
 
@@ -2943,7 +2945,7 @@ def _kw_prowess(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[PumpEffect(power=1, toughness=1)],
             condition=_cast_noncreature_you,
             source=obj,
-            description=description or "Prowess",
+            description=_ability_description(obj, spec) or "Prowess",
         )
     ]
 
@@ -2969,7 +2971,7 @@ def _kw_exalted(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[PumpEffect(power=1, toughness=1, trigger_subject=True)],
             condition=_ally_attacks_alone,
             source=obj,
-            description=description or "Exalted",
+            description=_ability_description(obj, spec) or "Exalted",
         )
     ]
 
@@ -2989,7 +2991,7 @@ def _kw_battle_cry(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility
             effects=[PumpEffect(power=1, toughness=0, selector="other_attacking_creatures")],
             condition=condition,
             source=obj,
-            description=description or "Battle cry",
+            description=_ability_description(obj, spec) or "Battle cry",
         )
     ]
 
@@ -3018,7 +3020,7 @@ def _kw_mentor(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             ],
             condition=condition,
             source=obj,
-            description=description or "Mentor",
+            description=_ability_description(obj, spec) or "Mentor",
         )
     ]
 
@@ -3051,7 +3053,7 @@ def _kw_backup(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             )],
             condition=_self_only_condition(getattr(obj, "instance_id", None)),
             source=obj,
-            description=description or f"Backup {n}",
+            description=_ability_description(obj, spec) or f"Backup {n}",
         )
     ]
 
@@ -3090,7 +3092,7 @@ def _kw_firebending(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbilit
             condition=self_only,
             source=obj,
             mana_ability=True,
-            description=description or f"Firebending {n}",
+            description=_ability_description(obj, spec) or f"Firebending {n}",
         ),
         TriggeredAbility(
             trigger_event=EventType.ATTACKS,

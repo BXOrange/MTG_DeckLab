@@ -74,7 +74,7 @@ from mtg_analyzer.api.schemas import (
     MultiplayerPlayerRequest,
     MultiplayerReadyRequest,
 )
-from mtg_analyzer.models.game_format import FORMATS
+from mtg_analyzer.models.decks.formats import FORMATS
 from mtg_analyzer.services.bots import BOT_TYPES, bot_catalogue, bots_for_game, run_bots
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager

@@ -4,7 +4,7 @@ most popular real "search your library" cards (tutors / ramp / fetch).
 This is the "überprüfe ob diese Funktionen umgesetzt werden können" check for
 the search feature. Each entry below is a real, high-play-rate card (EDHREC
 staples + Legacy/Modern tutors) reduced to the two axes the feature exposes:
-``criteria`` (what to look for — `models.card_query`) and ``destination``
+``criteria`` (what to look for — `models.cards.card_query`) and ``destination``
 (where the found card goes). The test drives each spec through the real
 engine and asserts the card lands in the right zone — so if the feature
 regresses, the affected cards are named.
@@ -15,8 +15,8 @@ boundary is documented rather than implied.
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.effects.core import EffectRegistry
 

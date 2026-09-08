@@ -19,13 +19,13 @@ Primitives added this batch:
 
 from __future__ import annotations
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.ability_catalogue import specs_for
 
-from tests.test_game_engine import creature, make_engine, obj_on_battlefield
+from tests.support.game import creature, make_engine, obj_on_battlefield
 
 
 def _spell(name, tl="Sorcery", mc="{1}{U}{U}", **kw):

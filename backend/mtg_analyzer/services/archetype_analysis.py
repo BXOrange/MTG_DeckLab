@@ -35,7 +35,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.archetype_database import default_archetype_database
 
 #: A named ("core") signal card counts 3x as much as a "support" one — it's

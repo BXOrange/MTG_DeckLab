@@ -29,8 +29,8 @@ from __future__ import annotations
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 
 
@@ -201,7 +201,7 @@ def test_your_upkeep_trigger_fires_only_on_own_upkeep():
     state = eng.state
     obj = _battlefield_obj(state, _permanent("Bit of Faith", "At the beginning of your upkeep, you gain 1 life."))
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     # Not this player's upkeep — must not fire.
     state.active_player_index = 1  # p2's turn
@@ -226,7 +226,7 @@ def test_each_opponents_upkeep_trigger_fires_only_on_opponents_upkeep():
         controller="p1",
     )
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     # p1's own upkeep — must NOT fire (p1 is the controller, not an opponent).
     state.active_player_index = 0

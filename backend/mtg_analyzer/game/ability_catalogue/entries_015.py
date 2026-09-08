@@ -9,7 +9,7 @@ by mechanic or card type -- see `__init__.py` for the full picture.
 
 from __future__ import annotations
 
-from ...models.events import EventType
+from ...models.game.events import EventType
 from ..costs import SACRIFICE_COUNT_X
 from ...parser.oracle.spec import AbilitySpec, EffectSpec
 

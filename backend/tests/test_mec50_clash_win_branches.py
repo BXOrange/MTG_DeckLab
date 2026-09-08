@@ -31,8 +31,8 @@ from __future__ import annotations
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import GameContext, _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
@@ -134,7 +134,7 @@ def test_broken_ambitions_mills_the_countered_spells_owner_on_win():
         p2.library.append(GameObject(Card(id=f"pl{_}", name=f"L{_}", type_line="Plains",
                                           is_land=True), owner_id="p2", zone=Zone.LIBRARY))
     # p2's spell on the stack (bare object — the counter is what's under test)
-    from mtg_analyzer.models.game_state import StackItem
+    from mtg_analyzer.models.game.game_state import StackItem
     spell = GameObject(Card(id="bolt", name="Bolt", type_line="Instant", is_instant=True),
                        owner_id="p2", zone=Zone.STACK)
     spell.controller_id = "p2"
@@ -238,7 +238,7 @@ def test_that_player_discards_reads_the_damage_events_player():
     bind_from_catalogue(spec)
     st.add_to_battlefield(spec)
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     ev = GameEvent(EventType.DAMAGE, target_id="p2", is_player=True,
                    instance_id=spec.instance_id, controller_id="p1")
     eng.rules.context.trigger_event = ev

@@ -29,16 +29,16 @@ import random
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
-from ...models import card_query
-from ...models.events import EventType, GameEvent
-from ...models.game_object import Zone
-from ...models.mana_cost import ManaCost
+from ...models.cards import card_query
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import Zone
+from ...models.mana.mana_cost import ManaCost
 from ..targeting import TargetSpec, all_requirements_satisfiable, requirements_with_targets
 
 if TYPE_CHECKING:  # avoid an import cycle with rules_engine at runtime
-    from ...models.game_object import GameObject
-    from ...models.game_state import GameState, StackItem
-    from ...models.player import Player
+    from ...models.game.game_object import GameObject
+    from ...models.game.game_state import GameState, StackItem
+    from ...models.game.player import Player
     from ..costs import ActivationCost
     from ..rules_engine import RulesEngine
 
@@ -223,7 +223,7 @@ class GameContext:
         self.engine.regenerate(target)
 
     def exile(self, target: "GameObject") -> None:
-        from ...models.game_object import Zone
+        from ...models.game.game_object import Zone
 
         was_elsewhere = getattr(target, "zone", None) != Zone.EXILE
         self.engine.exile(target)
@@ -335,7 +335,7 @@ class GameContext:
     def recompute(self) -> None:
         """Re-derive continuous characteristics now (RULE 613) — used by an
         effect that changes derived P/T mid-resolution (a pump)."""
-        from . import continuous  # function-scoped: avoid an import cycle
+        from .. import continuous  # function-scoped: avoid an import cycle
 
         continuous.recompute(self.state)
 
@@ -1727,7 +1727,7 @@ class GetCityBlessingEffect(GameEffect):
         self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from . import continuous  # avoid the continuous<->effects import cycle
+        from .. import continuous  # avoid the continuous<->effects import cycle
 
         player = self.player or _controller_of(self.source, context)
         if player is None or player.has_city_blessing:
@@ -2334,8 +2334,8 @@ class GrantSelfActivatedAbilityEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        from .binding.core import build_effects  # function-scoped: effects↔binder cycle
-        from ..parser.oracle.spec import EffectSpec
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import EffectSpec
 
         granted = build_effects(
             [EffectSpec("grant_activated_ability", {
@@ -2379,7 +2379,7 @@ class GainActivatedAbilitiesOfTargetEffect(GameEffect):
         target = targets[0]
         if target is None:
             return
-        from . import continuous  # local: avoid the continuous<->effects import cycle
+        from .. import continuous  # local: avoid the continuous<->effects import cycle
 
         for base in list(getattr(target, "activated_abilities", None) or []):
             self.source.temp_granted_activated_abilities.append(
@@ -2675,7 +2675,7 @@ class ConditionalEffect(GameEffect):
             # entry (built for a characteristic-defining P/T, never before
             # wired into a resolve-time `EffectSpec.condition`) instead of
             # re-deriving the same type filter here.
-            from . import continuous  # function-scoped: avoid an import cycle
+            from .. import continuous  # function-scoped: avoid an import cycle
 
             player = _controller_of(self.source, context)
             count = continuous.count_selector(
@@ -2691,7 +2691,7 @@ class ConditionalEffect(GameEffect):
             # Locus of the Roil) and its tribal siblings.  Keep the selector
             # vocabulary in `continuous.count_selector`, rather than adding
             # bespoke condition keys for every counted permanent kind.
-            from . import continuous  # function-scoped: avoid an import cycle
+            from .. import continuous  # function-scoped: avoid an import cycle
 
             selector = str(count_selector_at_least.get("selector", ""))
             threshold = int(count_selector_at_least.get("count", 0))
@@ -2911,7 +2911,7 @@ class ConditionalEffect(GameEffect):
             ):
                 return False
             if prev_subtype is not None:
-                from . import combat  # local: avoid the combat<->effects cycle
+                from .. import combat  # local: avoid the combat<->effects cycle
 
                 if not combat.matches_object_filter(prev, {"subtype": str(prev_subtype)}):
                     return False
@@ -2953,7 +2953,7 @@ class ConditionalEffect(GameEffect):
             # (a layer-4 `type_change` from the first level can add the
             # subtype), via the same `combat.matches_object_filter` check
             # `previous_target_has_subtype` uses.
-            from . import combat  # local: avoid the combat<->effects cycle
+            from .. import combat  # local: avoid the combat<->effects cycle
 
             if self.source is None or not combat.matches_object_filter(
                 self.source, {"subtype": str(source_subtype)}
@@ -3104,8 +3104,8 @@ class CoinFlipEffect(GameEffect):
         self.lose_specs = list(lose_effects or [])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .binding.core import build_effects  # function-scoped: effects↔binder cycle
-        from ..parser.oracle.spec import EffectSpec
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import EffectSpec
 
         specs = self.win_specs if context.engine.coin_flip() else self.lose_specs
         if not specs:
@@ -3187,8 +3187,8 @@ class RepeatProcessEffect(GameEffect):
         self.repeat_while = repeat_while
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .binding.core import build_effects  # function-scoped: effects↔binder cycle
-        from ..parser.oracle.spec import EffectSpec
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import EffectSpec
 
         if not self.inner_specs:
             return
@@ -3430,7 +3430,7 @@ class DealDamageEffect(GameEffect):
         specific ``target`` (see each field's own docstring)."""
 
         def _from_count_selector() -> int:
-            from . import continuous  # avoid the continuous↔effects import cycle
+            from .. import continuous  # avoid the continuous↔effects import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             return self.amount_plus_count_selector + continuous.count_selector(
@@ -3574,7 +3574,7 @@ class DealDamageEffect(GameEffect):
             # "it deals damage to each opponent equal to your devotion to
             # red." (Fanatic of Mogis) — `_amount_for`'s own read, needed
             # here too since the mass-selector path never calls that method.
-            from . import continuous  # avoid the continuous↔effects import cycle
+            from .. import continuous  # avoid the continuous↔effects import cycle
 
             controller_id_for_amount = getattr(self.source, "controller_id", None)
             amount = self.amount_plus_count_selector + continuous.count_selector(
@@ -3593,8 +3593,8 @@ class DealDamageEffect(GameEffect):
                 context.deal_damage(player, amount, self.source)
             return
         if self.selector in ("each_creature", "each_creature_and_player", "each_creature_and_planeswalker"):
-            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
-            from . import combat  # local: combat↔effects cycle
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+            from .. import combat  # local: combat↔effects cycle
 
             for obj in group_selector_objects(context.state, None, "all_creatures"):
                 if self.selector_filter and not combat.matches_object_filter(obj, self.selector_filter):
@@ -3926,7 +3926,7 @@ class DrawCardEffect(GameEffect):
         player = self._resolve_target_or_controller(context, targets, explicit=self.player)
 
         def _from_count_selector() -> int:
-            from . import continuous  # avoid the continuous↔effects import cycle
+            from .. import continuous  # avoid the continuous↔effects import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             return continuous.count_selector(
@@ -4040,7 +4040,7 @@ class ZimoneAllQuestioningEndStepEffect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         cid = getattr(self.source, "controller_id", None)
         if cid is None:
@@ -4086,7 +4086,7 @@ class DrawControlledChosenCreatureTypeEffect(GameEffect):
     """Draw for each creature of this spell's resolve-time chosen type."""
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from . import continuous
+        from .. import continuous
         player = _controller_of(self.source, context)
         chosen = getattr(self.source, "chosen_type", None)
         if player is None or not chosen:
@@ -4755,7 +4755,7 @@ def _mass_selector_objects(
             # subtype check rather than a bare type-line read, since the
             # subtype here is often *granted* (Chainer's own reanimated
             # creatures), not printed.
-            from . import combat  # local: avoid the combat<->effects import cycle
+            from .. import combat  # local: avoid the combat<->effects import cycle
 
             result = [o for o in result if combat.matches_object_filter(o, {"subtype": subtype})]
     return result
@@ -5039,7 +5039,7 @@ class GainLifeEffect(GameEffect):
             )
 
         def _from_count_selector() -> int:
-            from . import continuous  # avoid the continuous↔effects import cycle
+            from .. import continuous  # avoid the continuous↔effects import cycle
 
             return continuous.count_selector(
                 context.state, player.id, self.count_selector, source=self.source
@@ -5476,7 +5476,7 @@ class RequestPreventDamageSourceEffect(GameEffect):
             recipient_obj = player
         if recipient_obj is None and self.recipient != "any":
             return
-        from . import combat  # local: avoid the combat<->effects import cycle
+        from .. import combat  # local: avoid the combat<->effects import cycle
 
         candidates = [
             obj for obj in context.state.battlefield
@@ -5540,7 +5540,7 @@ class RequestRedirectDamageSourceEffect(GameEffect):
         recipient_obj: Any = src if self.recipient == "self" else None
         if recipient_obj is None:
             return
-        from . import combat  # local: avoid the combat<->effects import cycle
+        from .. import combat  # local: avoid the combat<->effects import cycle
 
         candidates = [
             obj for obj in context.state.battlefield
@@ -5764,7 +5764,7 @@ class CurrencyConverterCashOutEffect(GameEffect):
     """
 
     def _cash_out(self, context: GameContext, obj: "GameObject") -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         try:
             owner = context.state.player_by_id(obj.owner_id)
@@ -6301,7 +6301,7 @@ class LoseLifeEffect(GameEffect):
             return context.state.life_gained_this_turn.get(getattr(player, "id", None), 0)
 
         def _from_count_selector() -> int:
-            from . import continuous  # avoid the continuous↔effects import cycle
+            from .. import continuous  # avoid the continuous↔effects import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             return continuous.count_selector(
@@ -6713,7 +6713,7 @@ class BrudicladCombatEffect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         cid = getattr(self.source, "controller_id", None)
         if cid is None:
@@ -6833,7 +6833,7 @@ class OversimplifyEffect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         totals: dict[str, int] = {}
         creatures = [o for o in list(context.state.battlefield) if o.is_creature]
@@ -7304,7 +7304,7 @@ class CopySpellEffect(GameEffect):
             return
         n = self.count
         if self.count_selector is not None:
-            from .continuous import count_selector as _count_selector  # avoid import cycle
+            from ..continuous import count_selector as _count_selector  # avoid import cycle
 
             n = _count_selector(
                 context.state, controller_id, self.count_selector, source=self.source
@@ -7635,7 +7635,7 @@ class CounterCreateTokenEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         target = (targets[0] if targets else None) or self.target
         if target is None:
@@ -8038,7 +8038,7 @@ class MillEffect(GameEffect):
             return
         count = self.count
         if self.count_selector:
-            from . import continuous  # function-scoped: avoid an import cycle
+            from .. import continuous  # function-scoped: avoid an import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             count = continuous.count_selector(
@@ -8321,8 +8321,8 @@ class ExileEffect(GameEffect):
                     self.owner_play_permission_cost
                 )
             if self.owner_play_permission_tax:
-                from .binding.core import build_effects  # function-scoped: effects↔binder cycle
-                from ..parser.oracle.spec import EffectSpec
+                from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+                from ...parser.oracle.spec import EffectSpec
 
                 exiler_id = getattr(self.source, "controller_id", None)
                 tax = build_effects(
@@ -8818,7 +8818,7 @@ class FreeCastFromHandEffect(GameEffect):
             return
         max_mv: Any = None
         if self.max_mana_value_selector:
-            from . import continuous  # function-scoped: avoid the continuous<->effects import cycle
+            from .. import continuous  # function-scoped: avoid the continuous<->effects import cycle
 
             max_mv = continuous.count_selector(
                 context.state, player.id, self.max_mana_value_selector, source=source
@@ -9073,7 +9073,7 @@ class ExileCreateTokenEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         target = (targets[0] if targets else None) or self.target
         if target is None:
@@ -9122,7 +9122,7 @@ class AttackerCreatesAttackingTokenEffect(GameEffect):
         self.token_name = token_name or (subtypes[0] if subtypes else "Token")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         event = context.trigger_event or {}
         attacker_id = event.get("attacking_player_id")
@@ -9185,7 +9185,7 @@ class DestroyCreateTokenEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         target = (targets[0] if targets else None) or self.target
         if target is None:
@@ -9328,7 +9328,7 @@ class ShuffleTargetIntoLibraryRevealTopEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .graveyard_cast import _is_permanent_card  # local: avoid import cycle
+        from ..graveyard_cast import _is_permanent_card  # local: avoid import cycle
 
         target = (targets[0] if targets else None) or self.target
         if target is None:
@@ -9928,7 +9928,7 @@ class CreateTokenForLinkedExileEffect(GameEffect):
         card_obj = context.state.find_object(linked_id)
         if card_obj is None or card_obj.zone != Zone.EXILE:
             return
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         x = int(card_obj.card.converted_mana_cost or 0)
         token_card = synthesize_token_card(
@@ -10371,7 +10371,7 @@ class DamageThenInvestigateIfExcessEffect(GameEffect):
         if amount > max(remaining, 0):
             player = _controller_of(self.source, context)
             if player is not None:
-                from ..services.token_database import default_token_database
+                from ...services.token_database import default_token_database
 
                 clue = default_token_database().get_token("Clue")
                 if clue is not None:
@@ -10780,7 +10780,7 @@ class ReturnTopGraveyardCreatureWithHasteEffect(GameEffect):
         self.delayed_exile_step = delayed_exile_step
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.game_state import DelayedTrigger  # local: models↔effects cycle
+        from ...models.game.game_state import DelayedTrigger  # local: models↔effects cycle
 
         player = _controller_of(self.source, context)
         if player is None:
@@ -11042,7 +11042,7 @@ class CreateTokenMayAttachEquipmentEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         card = synthesize_token_card(
             self.token_name, power=self.power, toughness=self.toughness,
@@ -11499,7 +11499,7 @@ class ReturnFromGraveyardEffect(GameEffect):
             # moves; a prohibited card simply stays put; there's no target
             # to fall back to (RULE 608.2b covers a spell fizzling on an
             # illegal target, but this is a static prevention, not that).
-            from . import continuous  # local: continuous imports this module under TYPE_CHECKING
+            from .. import continuous  # local: continuous imports this module under TYPE_CHECKING
 
             target_zone = getattr(target, "zone", None)
             if continuous.graveyard_library_entry_prohibited(
@@ -11665,7 +11665,7 @@ class KindredSummonsEffect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from . import continuous
+        from .. import continuous
         player = _controller_of(self.source, context)
         if player is None or self.source is None:
             return
@@ -12204,7 +12204,7 @@ class Base0CombatDamageFractalEffect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         cid = getattr(self.source, "controller_id", None)
         if cid is None:
@@ -12342,7 +12342,7 @@ class IntermediateChirographyL3Effect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         cid = getattr(self.source, "controller_id", None)
         if cid is None:
@@ -12717,7 +12717,7 @@ class AddManaEffect(GameEffect):
             if color == "ANY":
                 any_amount = 1
                 if self.amount_from_target_count_selector and targets:
-                    from . import continuous  # function-scoped: avoid an import cycle
+                    from .. import continuous  # function-scoped: avoid an import cycle
 
                     target_player = targets[0]
                     any_amount = continuous.count_selector(
@@ -12734,7 +12734,7 @@ class AddManaEffect(GameEffect):
                     # widened to also size the ``colors=["ANY"]`` amount
                     # (previously only ``amount_from_target_count_selector``/
                     # ``any_amount_from_context`` could).
-                    from . import continuous  # function-scoped: avoid an import cycle
+                    from .. import continuous  # function-scoped: avoid an import cycle
 
                     any_amount = continuous.count_selector(
                         context.state, player.id, self.amount_selector, source=self.source
@@ -12757,7 +12757,7 @@ class AddManaEffect(GameEffect):
             if extra > 0:
                 context.add_mana(player, self.color, extra)
         if self.amount_selector:
-            from . import continuous  # function-scoped: avoid an import cycle
+            from .. import continuous  # function-scoped: avoid an import cycle
 
             extra = continuous.count_selector(
                 context.state, player.id, self.amount_selector, source=self.source
@@ -12837,7 +12837,7 @@ class CreateDelayedTriggerEffect(GameEffect):
         #: (which `build_effects` wraps in `ConditionalEffect`, checked at
         #: resolution) — this one gates the firing itself, which is what an
         #: "…unless <X>" rider on the delayed instruction wants.
-        from ..parser.oracle.spec import _ALLOWED_CONDITION_KEYS
+        from ...parser.oracle.spec import _ALLOWED_CONDITION_KEYS
 
         self.condition = (
             {k: v for k, v in condition.items() if k in _ALLOWED_CONDITION_KEYS}
@@ -12845,9 +12845,9 @@ class CreateDelayedTriggerEffect(GameEffect):
         ) or None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .binding.core import build_effects  # function-scoped: effects↔binder cycle
-        from ..parser.oracle.spec import EffectSpec
-        from ...models.game_state import DelayedTrigger
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import EffectSpec
+        from ...models.game.game_state import DelayedTrigger
 
         inner = build_effects(
             [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in self.inner_specs],
@@ -13004,9 +13004,9 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
         self.event_player_scope = event_player_scope
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .binding.core import build_effects  # function-scoped: effects↔binder cycle
-        from ..parser.oracle.spec import EffectSpec
-        from ...models.game_state import TemporaryPlayerTrigger
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import EffectSpec
+        from ...models.game.game_state import TemporaryPlayerTrigger
 
         host = self.source
         attached_to = getattr(host, "attached_to", None)
@@ -13126,7 +13126,7 @@ class PayCostThenPreviousMvEffect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.mana_cost import ManaCost  # function-scoped: import cycle
+        from ...models.mana.mana_cost import ManaCost  # function-scoped: import cycle
         from ..costs import ActivationCost  # function-scoped: import cycle
 
         prev = [
@@ -13623,7 +13623,7 @@ class ConniveEffect(GameEffect):
             except (TypeError, ValueError):
                 return 0
         if self.times_from_count_selector:
-            from . import continuous
+            from .. import continuous
             controller_id = getattr(self.source, "controller_id", None)
             return max(0, continuous.count_selector(
                 context.state, controller_id, self.times_from_count_selector, source=self.source,
@@ -14275,7 +14275,7 @@ class BolsterEffect(GameEffect):
             return
         amount = self.amount
         if self.amount_from_count_selector:
-            from . import continuous
+            from .. import continuous
             amount = continuous.count_selector(
                 context.state, player.id, self.amount_from_count_selector, source=self.source,
             )
@@ -14363,7 +14363,7 @@ class BlightEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.target_kind:
-            from ...models.player import Player as _Player
+            from ...models.game.player import Player as _Player
 
             player = next(
                 (t for t in (targets or []) if isinstance(t, _Player)), None
@@ -14431,7 +14431,7 @@ class EarthbendEffect(GameEffect):
         if not lands:
             return
         if self.amount_from_trigger_event:
-            from ..parser.oracle.spec import MAX_EFFECT_MAGNITUDE
+            from ...parser.oracle.spec import MAX_EFFECT_MAGNITUDE
 
             event = context.trigger_event or {}
             raw = event.get(self.amount_from_trigger_event) or 0
@@ -14440,8 +14440,8 @@ class EarthbendEffect(GameEffect):
             except (TypeError, ValueError):
                 amount = 0
         elif self.amount_from_count_selector:
-            from . import continuous  # function-scoped: avoid an import cycle
-            from ..parser.oracle.spec import MAX_EFFECT_MAGNITUDE
+            from .. import continuous  # function-scoped: avoid an import cycle
+            from ...parser.oracle.spec import MAX_EFFECT_MAGNITUDE
 
             controller_id = getattr(self.source, "controller_id", None)
             raw = continuous.count_selector(
@@ -14484,7 +14484,7 @@ class SacrificeSpecificEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.delay_step:
-            from ...models.game_state import DelayedTrigger
+            from ...models.game.game_state import DelayedTrigger
 
             controller_id = getattr(self.source, "controller_id", None) or (
                 context.active_player.id if context.active_player else ""
@@ -14697,7 +14697,7 @@ class CastExiledFaceDownEffect(GameEffect):
         self.require_bargained = require_bargained
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.game_state import DelayedTrigger
+        from ...models.game.game_state import DelayedTrigger
 
         source = self.source
         player = None
@@ -14815,7 +14815,7 @@ class MarchesaDelayedReturnEffect(GameEffect):
         self.dying_object = dying_object
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.game_state import DelayedTrigger
+        from ...models.game.game_state import DelayedTrigger
 
         controller_id = getattr(self.source, "controller_id", None) or context.active_player.id
         inner = ReturnFromGraveyardEffect(
@@ -14871,7 +14871,7 @@ class GiftOfImmortalityDiesEffect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.game_state import DelayedTrigger
+        from ...models.game.game_state import DelayedTrigger
 
         iid = (context.trigger_event or {}).get("instance_id")
         creature = context.state.find_object(iid) if iid is not None else None
@@ -15028,12 +15028,12 @@ class CheatCreatureFromHandEffect(GameEffect):
         self.subtypes = tuple(str(subtype) for subtype in (subtypes or []) if subtype)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.game_state import DelayedTrigger
+        from ...models.game.game_state import DelayedTrigger
 
         player = _controller_of(self.source, context)
         if player is None:
             return
-        from . import continuous  # function-scoped: avoid the module cycle
+        from .. import continuous  # function-scoped: avoid the module cycle
 
         candidates = [
             obj for obj in player.hand
@@ -15115,7 +15115,7 @@ class ControlPlayerEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.game_state import TurnControl
+        from ...models.game.game_state import TurnControl
 
         controller = _controller_of(self.source, context)
         target = targets[0] if targets else None
@@ -15264,7 +15264,7 @@ class GrantCantBeTargetOfSpellColorEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if not self.colors:
             return
-        from . import continuous  # avoid the continuous↔effects import cycle
+        from .. import continuous  # avoid the continuous↔effects import cycle
 
         controller_id = getattr(self.source, "controller_id", None)
         for obj in continuous.group_selector_objects(
@@ -15449,7 +15449,7 @@ class TapEffect(GameEffect):
                 context.set_tapped(one, tapped=not self.untap)
             return
         if self.selector is not None:
-            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             group = group_selector_objects(context.state, controller_id, self.selector, src=self.source)
@@ -15653,8 +15653,8 @@ class CantBlockEffect(GameEffect):
                 prev.temp_cant_block = True
             return
         if self.selector:
-            from . import combat
-            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
+            from .. import combat
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             for obj in group_selector_objects(
@@ -16050,7 +16050,7 @@ class RevealTopThenTransformEffect(GameEffect):
     apply_day_night_turn_check`, spells-cast-last-turn-driven), this checks
     the top card of the *controller's* library, so it's its own one-shot
     effect rather than routed through the day/night machinery. ``criteria``
-    is a `models.card_query` predicate (``{"type": ["instant", "sorcery"]}``
+    is a `models.cards.card_query` predicate (``{"type": ["instant", "sorcery"]}``
     for Delver; a plain string/dict works the same as `SearchLibraryEffect`)
     so the same effect covers any future card sharing this template, not
     just an instant/sorcery check. The card is only looked at, never moved.
@@ -16209,7 +16209,7 @@ class UnearthEffect(GameEffect):
         super().__init__(source)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.game_state import DelayedTrigger
+        from ...models.game.game_state import DelayedTrigger
 
         creature = self.source
         if creature is None or creature.zone != Zone.GRAVEYARD:
@@ -16714,7 +16714,7 @@ class AddCountersEffect(GameEffect):
             x_paid = getattr(self.source, "x_paid", 0) or 0
             self.amount = self.x_multiplier * x_paid
         if self.ring_bearer:
-            from .continuous import ring_bearer_of  # avoid the continuous↔effects cycle
+            from ..continuous import ring_bearer_of  # avoid the continuous↔effects cycle
 
             controller = _controller_of(self.source, context)
             bearer = ring_bearer_of(context.state, controller) if controller is not None else None
@@ -16739,8 +16739,8 @@ class AddCountersEffect(GameEffect):
                 context.add_counters(target, amount, self.kind, source=self.source)
             return
         if self.selector in _ADD_COUNTERS_SELECTORS:
-            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
-            from . import combat  # local: combat↔effects cycle
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+            from .. import combat  # local: combat↔effects cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             affects = _ADD_COUNTERS_SELECTOR_AFFECTS.get(self.selector, "creatures_you_control")
@@ -16818,7 +16818,7 @@ class AddCountersEffect(GameEffect):
             target = self.source
 
         def _from_count_selector() -> int:
-            from . import continuous  # avoid the continuous↔effects import cycle
+            from .. import continuous  # avoid the continuous↔effects import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             return continuous.count_selector(
@@ -16891,7 +16891,7 @@ class AmassEffect(GameEffect):
         self.count = max(0, int(count))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card  # avoid a services↔effects cycle
+        from ...services.token_database import synthesize_token_card  # avoid a services↔effects cycle
 
         player = _controller_of(self.source, context)
         if player is None or self.count <= 0:
@@ -16932,7 +16932,7 @@ class PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from . import continuous  # function-scoped: avoid the continuous<->effects import cycle
+        from .. import continuous  # function-scoped: avoid the continuous<->effects import cycle
         from ..costs import ActivationCost  # function-scoped: costs<->effects import cycle
 
         player = _controller_of(self.source, context)
@@ -17009,7 +17009,7 @@ class GrantUntilEffect(GameEffect):
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from . import durations  # local: durations imports effects' siblings
+        from .. import durations  # local: durations imports effects' siblings
 
         payloads = [self.static, *self.extra_statics]
         if not any(
@@ -17721,7 +17721,7 @@ class GoadEffect(GameEffect):
         if goader_id is None:
             return
         if self.selector is not None:
-            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             for obj in group_selector_objects(context.state, goader_id, self.selector):
                 context.goad(obj, goader_id, permanent=self.permanent)
@@ -17923,7 +17923,7 @@ class LivingWeaponEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         card = synthesize_token_card(
             "Phyrexian Germ", power=0, toughness=0, colors=["B"], subtypes=["Phyrexian", "Germ"]
@@ -17959,7 +17959,7 @@ class CreateAttachedAuraTokenEffect(GameEffect):
         self.target_spec = TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         target = targets[0] if targets else None
         if target is None or self.source is None:
@@ -18392,7 +18392,7 @@ class CreateTokensPerCounterAmongTargetPlayerCreaturesEffect(GameEffect):
         self.token_name = token_name
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import synthesize_token_card
+        from ...services.token_database import synthesize_token_card
 
         player = targets[0] if targets else None
         creator_id = getattr(self.source, "controller_id", None)
@@ -18671,7 +18671,7 @@ class PumpEffect(GameEffect):
             if amount <= 0:
                 return
         if self.amount_from_count_selector:
-            from . import continuous  # avoid the continuous↔effects import cycle
+            from .. import continuous  # avoid the continuous↔effects import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             # PAR-32: pass ``source`` so a source-relative selector
@@ -18697,7 +18697,7 @@ class PumpEffect(GameEffect):
             if amount <= 0:
                 return
         if self.selector is not None:
-            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             selector = self.selector
             if selector == "previous_selector":
@@ -18754,7 +18754,7 @@ class PumpEffect(GameEffect):
                 # accepts for its *targeted* branch, applied to a
                 # selector-gathered group too. `combat.matches_object_filter`
                 # is the same predicate `TargetSpec.creature_filter` uses.
-                from .combat import matches_object_filter  # avoid the import cycle
+                from ..combat import matches_object_filter  # avoid the import cycle
 
                 group = [o for o in group if matches_object_filter(o, self.creature_filter)]
             if self.per_recipient_controller_counter:
@@ -18941,7 +18941,7 @@ class CreateNamedCardTokenEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if not self.card_name:
             return
-        from ..services.card_lookup import card_by_name
+        from ...services.card_lookup import card_by_name
 
         card = card_by_name(self.card_name)
         if card is None:
@@ -19189,7 +19189,7 @@ class CreateTokenEffect(GameEffect):
           mana value." — Excise the Imperfect (``previous_subject_mana_
           value``; RULE 608.2h last-known info, the permanent is gone)."""
         ec = self.extra_counters or {}
-        from ..parser.oracle.spec import MAX_EFFECT_MAGNITUDE
+        from ...parser.oracle.spec import MAX_EFFECT_MAGNITUDE
 
         if ec.get("count_from_trigger_event"):
             event = context.trigger_event
@@ -19199,7 +19199,7 @@ class CreateTokenEffect(GameEffect):
         elif ec.get("count_from_subject"):
             raw = _characteristic_of_subject(context, self.source, str(ec["count_from_subject"]))
         elif ec.get("count_from_count_selector"):
-            from . import continuous  # function-scoped: avoid an import cycle
+            from .. import continuous  # function-scoped: avoid an import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             raw = continuous.count_selector(
@@ -19211,7 +19211,7 @@ class CreateTokenEffect(GameEffect):
         return max(0, min(int(raw), MAX_EFFECT_MAGNITUDE))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..services.token_database import default_token_database, synthesize_token_card
+        from ...services.token_database import default_token_database, synthesize_token_card
 
         power, toughness = self.power, self.toughness
         if self.pt_from_trigger_event:
@@ -19219,7 +19219,7 @@ class CreateTokenEffect(GameEffect):
             x = int((event or {}).get(self.pt_from_trigger_event) or 0)
             power, toughness = x, x
         elif self.pt_from_count_selector:
-            from . import continuous  # function-scoped: avoid an import cycle
+            from .. import continuous  # function-scoped: avoid an import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             x = continuous.count_selector(
@@ -19248,7 +19248,7 @@ class CreateTokenEffect(GameEffect):
         )
         count = self.count
         if self.count_selector:
-            from . import continuous  # avoid the continuous↔effects import cycle
+            from .. import continuous  # avoid the continuous↔effects import cycle
 
             count = continuous.count_selector(
                 context.state, controller_id, self.count_selector, source=self.source
@@ -19266,7 +19266,7 @@ class CreateTokenEffect(GameEffect):
         if self.count_from_subject:
             count = _characteristic_of_subject(context, self.source, self.count_from_subject)
         if self.count_from_context in _TOKEN_COUNT_CONTEXT_ACCUMULATORS:
-            from ..parser.oracle.spec import MAX_EFFECT_MAGNITUDE
+            from ...parser.oracle.spec import MAX_EFFECT_MAGNITUDE
 
             count = max(0, min(
                 int(getattr(context, str(self.count_from_context), 0) or 0),
@@ -19336,8 +19336,8 @@ class CreateTokenEffect(GameEffect):
                     for token in made:
                         context.add_counters(token, amount, kind, source=self.source)
             if self.grant_self_anthem:
-                from .binding.core import build_effects  # function-scoped: effects↔binder cycle
-                from ..parser.oracle.spec import EffectSpec
+                from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+                from ...parser.oracle.spec import EffectSpec
 
                 for token in made:
                     anthem = build_effects(
@@ -19350,8 +19350,8 @@ class CreateTokenEffect(GameEffect):
                 # life." — a `dies` (subject self) → `gain_life` trigger,
                 # bound onto each token exactly as a printed ability would
                 # be at bind-on-load.
-                from .binding.core import bind_ability  # effects↔binder cycle
-                from ..parser.oracle.spec import AbilitySpec, EffectSpec
+                from ..binding.core import bind_ability  # effects↔binder cycle
+                from ...parser.oracle.spec import AbilitySpec, EffectSpec
 
                 for token in made:
                     spec = AbilitySpec(
@@ -19370,7 +19370,7 @@ class CreateTokenEffect(GameEffect):
                 # synthesize its RULE 702-text triggered ability, the same
                 # `attach_keyword` + `_keyword_triggered_abilities` pair a
                 # printed keyword line goes through at bind-on-load.
-                from .binding.core import parametric_keyword_triggered_abilities  # effects↔binder cycle
+                from ..binding.core import parametric_keyword_triggered_abilities  # effects↔binder cycle
 
                 for pk in self.parametric_keywords:
                     name, n = str(pk.get("name") or ""), pk.get("n")
@@ -19614,7 +19614,7 @@ class CopyPermanentEffect(GameEffect):
             event = context.trigger_event
             count = int((event or {}).get(self.count_from_trigger_event) or 0)
         if self.count_selector:
-            from . import continuous  # function-scoped: avoid an import cycle
+            from .. import continuous  # function-scoped: avoid an import cycle
 
             count = continuous.count_selector(
                 context.state, controller_id, self.count_selector, source=self.source
@@ -19995,7 +19995,7 @@ class SearchLibraryEffect(GameEffect):
     Tutor, Entomb, …):
 
     * ``criteria`` — *what* to look for, as pure data understood by
-      `models.card_query`: ``""`` for "a card", a type string like
+      `models.cards.card_query`: ``""`` for "a card", a type string like
       ``"Creature"``, or a dict like ``{"type": ["Plains", "Island"]}`` /
       ``{"basic": True}`` / ``{"type": "Creature", "max_mana_value": 3}``.
     * ``destination`` — *where* the found card goes: ``"hand"`` (default),
@@ -20044,7 +20044,7 @@ class SearchLibraryEffect(GameEffect):
     opens, not cached from announcement, since RULE 601.2c legality is
     checked at the *search*'s own resolution. Merged into ``criteria`` at
     resolution time as ``max_mana_value``/``mana_value``, so
-    `models.card_query` needs no dynamic vocabulary of its own.
+    `models.cards.card_query` needs no dynamic vocabulary of its own.
 
     ``type_restriction`` is accepted as a deprecated alias for a string
     ``criteria`` so older fixtures keep working.
@@ -20159,7 +20159,7 @@ class SearchLibraryEffect(GameEffect):
         if not self.mana_value_from:
             return self.criteria
         if self.mana_value_from.get("source") == "count_selector" and context is not None:
-            from . import continuous  # avoid the continuous↔effects import cycle
+            from .. import continuous  # avoid the continuous↔effects import cycle
             base = continuous.count_selector(
                 context.state, getattr(self.source, "controller_id", None),
                 self.mana_value_from["count_selector"], source=self.source,
@@ -20515,7 +20515,7 @@ class GraveyardImpulsiveCastEffect(GameEffect):
         self.mana_wildcard = mana_wildcard
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.game_state import DelayedTrigger  # avoid effects↔game_state cycle
+        from ...models.game.game_state import DelayedTrigger  # avoid effects↔game_state cycle
 
         controller_id = getattr(self.source, "controller_id", None) or context.active_player.id
         controller = context.state.player_by_id(controller_id)
@@ -20774,7 +20774,7 @@ class LookTopKeepOneOnTopEffect(GameEffect):
             return
         amount = self.count
         if self.count_selector:
-            from . import continuous  # function-scoped: avoid an import cycle
+            from .. import continuous  # function-scoped: avoid an import cycle
 
             amount = continuous.count_selector(context.state, player.id, self.count_selector)
         library = player.zones[Zone.LIBRARY]
@@ -20871,7 +20871,7 @@ class TapMatchingLandsEffect(GameEffect):
     @staticmethod
     def _producible(obj: Any, state: Any) -> set[str]:
         """Every mana type ``obj`` could produce right now (RULE 605.1a)."""
-        from .mana_abilities import mana_abilities_for  # function-scoped: import cycle
+        from ..mana_abilities import mana_abilities_for  # function-scoped: import cycle
 
         types: set[str] = set()
         for ability in mana_abilities_for(obj, state=state):
@@ -21674,7 +21674,7 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
             destination = "battlefield"
         criteria = self.criteria
         if self.max_mana_value_selector or self.power_less_than_source:
-            from . import continuous  # function-scoped: avoid an import cycle
+            from .. import continuous  # function-scoped: avoid an import cycle
 
             criteria = dict(criteria) if isinstance(criteria, dict) else {}
             if self.max_mana_value_selector:
@@ -21777,7 +21777,7 @@ class DigUntilEffect(GameEffect):
     generalized form of the cascade/discover dig, which was hard-wired to
     "nonland cheaper than N, may cast it, rest to the bottom".
 
-    Both the predicate (``criteria``, a `models.card_query` dict — including
+    Both the predicate (``criteria``, a `models.cards.card_query` dict — including
     the new ``not_name`` for "a different name than that spell") and both
     destinations are parameters here. ``pre_exile`` is Demonic
     Consultation's "exile the top six cards" prologue, which happens before
@@ -22292,7 +22292,7 @@ def _scale_cumulative_upkeep_cost(cost: "ActivationCost", n: int) -> "Activation
     """
     from dataclasses import replace
 
-    from ...models.mana_cost import ManaCost
+    from ...models.mana.mana_cost import ManaCost
 
     scaled_mana = ManaCost(list(cost.mana.symbols) * n, raw=cost.mana.raw)
     return replace(cost, mana=scaled_mana, pay_life=cost.pay_life * n)
@@ -27884,7 +27884,7 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         target_obj = context.state.find_object(event.get("target_id"))
         if target_obj is None or target_obj.controller_id != src.controller_id:
             return False
-        from . import combat  # local: avoid the combat<->effects import cycle
+        from .. import combat  # local: avoid the combat<->effects import cycle
 
         resolved_filt = dict(filt or {})
         if resolved_filt.pop("exclude_self", False):
@@ -27956,7 +27956,7 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
 
     def _survives(dealt: int, src: Any, context: GameContext) -> int:
         if amount_count_selector:
-            from . import continuous  # local: avoid the continuous<->effects import cycle
+            from .. import continuous  # local: avoid the continuous<->effects import cycle
 
             n = continuous.count_selector(
                 context.state, getattr(src, "controller_id", None), amount_count_selector, source=src
@@ -28570,7 +28570,7 @@ def _create_one_of_each_named_token_replacement(params: dict[str, Any]) -> Repla
         token_name = event.get("token_name")
         effect._busy = True  # type: ignore[attr-defined]
         try:
-            from ..services.token_database import default_token_database
+            from ...services.token_database import default_token_database
 
             db = default_token_database()
             for name in _NAMED_TOKEN_DISPLAY_NAMES:
@@ -28617,7 +28617,7 @@ def _additional_named_token_replacement(params: dict[str, Any]) -> ReplacementEf
         src = effect.source
         effect._busy = True  # type: ignore[attr-defined]
         try:
-            from ..services.token_database import default_token_database
+            from ...services.token_database import default_token_database
 
             card = default_token_database().get_token(extra_name)
             if card is not None:

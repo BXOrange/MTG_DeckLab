@@ -31,11 +31,11 @@ from __future__ import annotations
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 
 def _engine():
@@ -238,7 +238,7 @@ def test_scroll_rack_exiles_hand_draws_and_reorders_onto_library():
 
 
 def test_dance_of_the_dead_reanimates_tapped_with_anthem_and_sacrifices_on_leave():
-    from tests.test_game_engine import creature, make_engine
+    from tests.support.game import creature, make_engine
 
     dance = _named("Dance of the Dead")
     eng = make_engine([dance], [dance], hand=1)
@@ -275,7 +275,7 @@ def test_dance_of_the_dead_reanimates_tapped_with_anthem_and_sacrifices_on_leave
 
 
 def test_dance_of_the_dead_upkeep_pay_untaps_the_enchanted_creatures_controller_only():
-    from tests.test_game_engine import creature, make_engine
+    from tests.support.game import creature, make_engine
 
     dance = _named("Dance of the Dead")
     eng = make_engine([dance], [dance], hand=1)

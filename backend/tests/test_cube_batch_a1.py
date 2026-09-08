@@ -34,7 +34,7 @@ from mtg_analyzer.game.effects.core import (
     TriggeredAbility,
     WinGameEffect,
 )
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 

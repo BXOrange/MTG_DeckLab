@@ -57,10 +57,10 @@ from __future__ import annotations
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
 
@@ -141,7 +141,7 @@ def test_auriok_salvagers_is_modeled():
 
 def test_auriok_salvagers_activated_ability_offers_only_cheap_artifacts():
     from mtg_analyzer.game import targeting
-    from mtg_analyzer.models.game_object import Zone as _Zone
+    from mtg_analyzer.models.game.game_object import Zone as _Zone
 
     engine, state = _engine()
     salvagers = _bf(state, _named("Auriok Salvagers"), controller="p1")

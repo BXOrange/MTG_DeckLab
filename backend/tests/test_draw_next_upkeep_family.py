@@ -27,9 +27,9 @@ import pytest
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.parser.oracle.gate import MODELED, UNMODELED, parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -134,7 +134,7 @@ def test_resolves_and_fires_at_the_next_upkeep():
     )
     spell = GameObject(card, owner_id=p1.id, zone=Zone.STACK)
     bind_from_catalogue(spell)
-    from mtg_analyzer.models.game_state import StackItem
+    from mtg_analyzer.models.game.game_state import StackItem
     eng.state.stack.append(StackItem(
         kind="spell", controller_id=p1.id, obj=spell, description=card.name,
         effects=eng.rules._effects_for_spell(spell),
@@ -183,7 +183,7 @@ def test_any_scope_draws_for_its_controller_not_whoever_is_active():
     )
     spell = GameObject(card, owner_id=p1.id, zone=Zone.STACK)
     bind_from_catalogue(spell)
-    from mtg_analyzer.models.game_state import StackItem
+    from mtg_analyzer.models.game.game_state import StackItem
     eng.state.stack.append(StackItem(
         kind="spell", controller_id=p1.id, obj=spell, description=card.name,
         effects=eng.rules._effects_for_spell(spell),

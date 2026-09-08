@@ -12,8 +12,8 @@ from __future__ import annotations
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import GameContext, PumpEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
@@ -107,7 +107,7 @@ def test_craterhoof_behemoth_end_to_end_pumps_the_whole_board():
     bind_from_catalogue(craterhoof)
     eng.state.add_to_battlefield(craterhoof)
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     eng.state.fire_event(GameEvent(
         EventType.ENTERS_BATTLEFIELD, controller_id="p1", instance_id=craterhoof.instance_id,
         object=craterhoof.name, object_types=sorted(craterhoof.type_words),

@@ -19,16 +19,16 @@ import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
 
-from ...models.card import Card
-from ...models.emblem import Emblem
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards.card import Card
+from ...models.game.emblem import Emblem
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game.game_state import GameState, StackItem
+from ...models.mana.mana_cost import ManaCost
+from ...models.game.player import Player
 from .. import combat, condition_query, continuous, durations, face_down, static_conditions, variants
-from ...models import game_format
-from ...models.game_format import GameFormat, get_format
+from ...models.decks import formats as game_format
+from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
     DISCARD_HAND,
     PAY_LIFE_X,
@@ -187,8 +187,12 @@ class ActivationMixin:
             return False
         if ability.once_per_turn and ability._last_activated_turn == self.state.internal_turn.number:
             return False
+        once_key = id(ability)
+        used_once = getattr(source, "used_once_per_game_abilities", set())
+        same_description = [a for a in source.activated_abilities if a.description == ability.description]
         if getattr(ability, "once_per_game", False) and (
-            ability.description in getattr(source, "used_once_per_game_abilities", set())
+            once_key in used_once
+            or (len(same_description) == 1 and ability.description in used_once)
         ):
             # PAR-28 / RULE 702.177a: Exhaust & Power-up — "Activate only
             # once." A per-ability, per-game cap keyed on the ability's own
@@ -1306,11 +1310,11 @@ class ActivationMixin:
         source.x_paid = x
         if ability.once_per_turn:
             ability._last_activated_turn = self.state.internal_turn.number
-        if getattr(ability, "once_per_game", False) and ability.description:
+        if getattr(ability, "once_per_game", False):
             # PAR-28 / RULE 702.177a: mark this Exhaust/Power-up ability used
             # for the rest of the game (keyed on its printed text so a card
             # with two of them tracks each separately).
-            source.used_once_per_game_abilities.add(ability.description)
+            source.used_once_per_game_abilities.add(id(ability))
 
         # RULE 700.2: a modal ability's `StackItem` carries the chosen
         # mode's own flat effects list directly, not the `ActivatedAbility`

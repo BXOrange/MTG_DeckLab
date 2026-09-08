@@ -24,10 +24,10 @@ from typing import TYPE_CHECKING, Any
 from .effects.core import TopLibraryPermissionEffect
 
 if TYPE_CHECKING:
-    from ..models.card import Card
-    from ..models.game_object import GameObject
-    from ..models.game_state import GameState
-    from ..models.player import Player
+    from ..models.cards.card import Card
+    from ..models.game.game_object import GameObject
+    from ..models.game.game_state import GameState
+    from ..models.game.player import Player
 
 
 def active_top_library_grants(player: "Player", state: "GameState") -> list[TopLibraryPermissionEffect]:

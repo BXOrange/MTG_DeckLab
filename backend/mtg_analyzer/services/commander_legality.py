@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 
 #: RULE 903.3: a card whose own oracle text grants commander eligibility
 #: without being legendary (older planeswalkers printed before the

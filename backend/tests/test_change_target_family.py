@@ -17,10 +17,10 @@ mtg_analyzer/game/rules/misc_mixin.py, mtg_analyzer/game/ability_catalogue.py.
 from mtg_analyzer.game import ability_catalogue, targeting
 from mtg_analyzer.game.effects.core import ChangeTargetEffect, DealDamageEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 
 # ---------------------------------------------------------------------------
 # Card factories + fixtures (mirrors tests/test_counter_family.py's style)

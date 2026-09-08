@@ -30,7 +30,7 @@ from mtg_analyzer.game import condition_query
 from mtg_analyzer.game.costs import ActivationCost
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -73,7 +73,7 @@ def to_hand(eng, name, controller="p1"):
 
 def push_enemy_spell(eng, controller="p2"):
     """A bare spell on the stack, a legal counter target for the family."""
-    from mtg_analyzer.models.game_state import StackItem
+    from mtg_analyzer.models.game.game_state import StackItem
 
     obj = GameObject(_card("Lightning Bolt"), owner_id=controller, zone=Zone.STACK)
     item = StackItem(

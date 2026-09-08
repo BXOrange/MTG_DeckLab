@@ -21,14 +21,14 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, Optional, Union
 
-from ...models import card_query
-from ...models.card import Card
-from ...models.emblem import Emblem
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import DelayedTrigger, GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards import card_query
+from ...models.cards.card import Card
+from ...models.game.emblem import Emblem
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game.game_state import DelayedTrigger, GameState, StackItem
+from ...models.mana.mana_cost import ManaCost
+from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
 from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
@@ -867,7 +867,7 @@ class SearchMixin:
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
-        ``criteria`` says *what* to look for (see `models.card_query`: ``""``
+        ``criteria`` says *what* to look for (see `models.cards.card_query`: ``""``
         = "a card", ``"Creature"``, ``{"basic": True}``, ``{"type": [...],
         "max_mana_value": 3}``, …); ``destination`` says *where* the found
         card goes ("hand"/"battlefield"/"battlefield_tapped"/"library_top"/
@@ -2148,7 +2148,7 @@ class SearchMixin:
         Consultation player is choosing between anyway), while the resolver
         accepts an **arbitrary string** and never validates the answer
         against them. Nothing derived from that string becomes behaviour: it
-        is only ever compared against card names (`models.card_query`'s
+        is only ever compared against card names (`models.cards.card_query`'s
         ``name``/``not_name``), never interpreted.
 
         ``effect_specs`` are the follow-up effects; each gets the chosen
@@ -2761,14 +2761,14 @@ class SearchMixin:
         tapped: bool = False,
     ) -> list[GameObject]:
         """Reveal from the top of ``player``'s library until ``count`` cards
-        matching ``criteria`` (a `models.card_query` dict) are revealed
+        matching ``criteria`` (a `models.cards.card_query` dict) are revealed
         (Open the Way — "reveal cards from the top of your library until you
         reveal X land cards"), PAR-60. The generalized sibling of
         `reveal_until_creature_type` — a `card_query` predicate instead of a
         fixed creature-subtype list, plus a ``tapped`` option for "…onto the
         battlefield tapped".
         """
-        from ...models import card_query  # local: search_mixin already imports lazily
+        from ...models.cards import card_query  # local: search_mixin already imports lazily
 
         if count <= 0 or not player.library:
             return []

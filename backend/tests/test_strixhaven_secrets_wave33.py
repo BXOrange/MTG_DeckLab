@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 33 (PAR-60).
 
 Quandrix "your first spell with {X} in its mana cost each turn" trigger family,
-hand-authored in `game/ability_catalogue/entries_019.py`. Engine:
+hand-authored in `game/ability_catalogue/commander_cards.py`. Engine:
 `GameState.cast_x_spell_this_turn` per-turn set + `SPELL_CAST` ``first_x_spell``
 flag + binder predicate ``first_x_spell``; count_selector
 ``study_counters_on_source``.
@@ -14,9 +14,9 @@ import pytest
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 WAVE33 = ["Zimone, Infinite Analyst", "Owlin Spiralmancer",
           "Nev, the Practical Dean", "Lattice Library"]

@@ -14,7 +14,7 @@ just its constructor signature — the fail-closed "verify, don't assume" rule
   its own bare "N cards" / three-sentence phrasing
   (`_SEARCH_TWO_CARDS_SPLIT_RE`).
 * Search for Glory — its ``"or"`` criteria combinator was already free
-  (`models.card_query`), but "gain 1 life for each {S} spent to cast this
+  (`models.cards.card_query`), but "gain 1 life for each {S} spent to cast this
   spell" needed a wholly new tracking primitive: `ManaPool.snow_pool` (a
   `pool_by_source`-shaped but orthogonal "was this snow-sourced" subset
   count, since a lot can be both ``source_kind="basic_land"`` *and* snow),
@@ -35,10 +35,10 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-43" entry.
 from __future__ import annotations
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
-from tests.test_game_engine import creature, make_engine
+from tests.support.game import creature, make_engine
 
 
 def _named(name):

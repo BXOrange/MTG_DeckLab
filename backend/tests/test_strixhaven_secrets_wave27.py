@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 27 (PAR-60).
 
 The "~ becomes prepared" trigger cluster (STX Learn/Prepared DFCs), hand-authored
-in `game/ability_catalogue/entries_019.py`. New engine primitives: binder
+in `game/ability_catalogue/commander_cards.py`. New engine primitives: binder
 predicates ``spell_mana_value_at_least`` and ``attackers_at_least``;
 `static_conditions` kinds ``graveyard_card_type_count_at_least`` and
 ``any_player_cards_in_hand_at_most``.
@@ -15,8 +15,8 @@ from mtg_analyzer.game import static_conditions
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 WAVE27 = ["Eiganjo Dynastorian", "Dirgur Focusmage", "Lorehold Archivist",
           "Naktamun Lorespinner", "Inspired Skypainter", "Firemane Commando"]
@@ -72,7 +72,7 @@ def test_any_player_cards_in_hand_at_most_condition():
 
 
 def test_attackers_at_least_predicate_fires_become_prepared():
-    from mtg_analyzer.models.events import EventType
+    from mtg_analyzer.models.game.events import EventType
     eng, p1, p2 = _eng()
     src = GameObject(card=Card(id="ed", name="Eiganjo Dynastorian",
                               type_line="Creature — Fox Advisor", is_creature=True),

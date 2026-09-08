@@ -15,11 +15,11 @@ from mtg_analyzer.game.graveyard_cast import (
     graveyard_cast_grant_for,
     may_cast_spell_from_graveyard,
 )
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.mana_cost import ManaCost
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.mana.mana_cost import ManaCost
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 

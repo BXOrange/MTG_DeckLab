@@ -19,17 +19,17 @@ import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
 
-from ...models.card import Card
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards.card import Card
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game.game_state import GameState, StackItem
+from ...models.mana.mana_cost import ManaCost
+from ...models.game.player import Player
 from .. import (
     ability_catalogue, combat, condition_query, continuous, durations, face_down, mana_potential, variants,
 )
-from ...models import game_format
-from ...models.game_format import GameFormat, get_format
+from ...models.decks import formats as game_format
+from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
     DISCARD_HAND,
     PAY_LIFE_X,
@@ -532,8 +532,10 @@ class CastingMixin:
             # Delve/Improvise" offer is illegal for a spell that has none of
             # them — same guard shape as `evoke`/`buyback` without the keyword.
             return False
-        if teamwork and self._teamwork_selection(player, obj, teamwork_choices) is None:
-            return False
+        if teamwork:
+            params = (getattr(obj, "parametric_keywords", None) or {}).get("teamwork")
+            if not params or self._teamwork_selection(player, obj, teamwork_choices) is None:
+                return False
         in_castable_zone = (
             obj in player.hand
             or obj in player.command
@@ -1536,7 +1538,7 @@ class CastingMixin:
 
     @staticmethod
     def _generic_of(cost: "ManaCost") -> int:
-        from ...models.mana_cost import GENERIC
+        from ...models.mana.mana_cost import GENERIC
 
         return sum(s.amount for s in cost.symbols if s.kind == GENERIC)
 
