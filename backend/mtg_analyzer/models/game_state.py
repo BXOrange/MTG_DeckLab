@@ -968,6 +968,27 @@ class GameState:
         #: opponent who lost 3 or more life this turn faces a villainous
         #: choice").
         self.life_lost_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: Owner ids of players who had one or more cards leave their
+        #: graveyard this turn (RULE 603.3f `CARDS_LEFT_GRAVEYARD` — recorded
+        #: at `RulesEngine._note_graveyard_exit`, the single zone-exit choke
+        #: point, and cleared each `GameEngine.begin_turn`). Read by
+        #: `static_conditions.py`'s ``card_left_graveyard_this_turn``
+        #: intervening-if (Primary Research, Relic Retriever, PAR-60).
+        self.cards_left_graveyard_this_turn: set[str] = set()
+        #: Player ids who have already cast a spell with {X} in its mana cost
+        #: this turn (PAR-60 — the Quandrix "your first spell with {X} in its
+        #: mana cost each turn" trigger family: Zimone Infinite Analyst,
+        #: Owlin Spiralmancer, Nev, Lattice Library). Set in
+        #: `RulesEngine.cast_spell` *after* the `SPELL_CAST` event is built
+        #: (whose ``first_x_spell`` flag reads this set), cleared each
+        #: `GameEngine.begin_turn`.
+        self.cast_x_spell_this_turn: set[str] = set()
+        #: How many *nontoken* creatures each player has had enter the
+        #: battlefield under their control this turn (PAR-60 — Gyome, Master
+        #: Chef's "Food tokens equal to the number of nontoken creatures you
+        #: had enter … this turn"). Bumped in `add_to_battlefield`, cleared
+        #: each `GameEngine.begin_turn` for the incoming active player.
+        self.nontoken_creatures_entered_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: Whether each player has cast an instant or sorcery spell *this
         #: turn* (PAR-10 — `game/static_conditions.py`'s
         #: ``cast_instant_or_sorcery_this_turn`` condition: Hall of Oracles/
@@ -1374,6 +1395,14 @@ class GameState:
         # "As long as ~ entered the battlefield this turn" conditions (The
         # Wandering Emperor-shaped, `game/condition_query.py`).
         obj.turn_entered = self.internal_turn.number
+        # PAR-60 (Gyome, Master Chef): count nontoken creatures entering
+        # under each player's control this turn.
+        if obj.is_creature and not obj.is_token:
+            _entrant = obj.controller_id or obj.owner_id
+            if _entrant is not None:
+                self.nontoken_creatures_entered_this_turn[_entrant] = (
+                    self.nontoken_creatures_entered_this_turn.get(_entrant, 0) + 1
+                )
         # RULE 606.5b: a planeswalker enters with its printed starting loyalty.
         if obj.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
             obj.counters["loyalty"] = obj.card.loyalty

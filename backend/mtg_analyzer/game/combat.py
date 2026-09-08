@@ -640,6 +640,8 @@ def matches_object_filter(
     # sacrifice-only check.
     if filt.get("nontoken") and getattr(obj, "is_token", False):
         return False
+    if filt.get("token") and not getattr(obj, "is_token", False):
+        return False
     # "exchange control of two target **nonlegendary** creatures" (RULE
     # 205.4a, PAR-30 — Djinn of Infinite Deceits) — reads `Card.is_legendary`
     # the same boolean-flag way `nontoken` reads `is_token` above.

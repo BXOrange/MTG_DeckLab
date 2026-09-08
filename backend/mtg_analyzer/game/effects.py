@@ -2874,6 +2874,10 @@ class ConditionalEffect(GameEffect):
         # creature." (Awaken the Sleeper).
         prev_subtype = self.condition.get("previous_target_has_subtype")
         prev_power_at_most = self.condition.get("previous_target_power_at_most")
+        # "…then if that creature has power 7 or greater, ~ becomes prepared."
+        # (Yavimaya Bloomsage, PAR-60) — the ``>=`` mirror of
+        # ``previous_target_power_at_most``.
+        prev_power_at_least = self.condition.get("previous_target_power_at_least")
         prev_equipped = self.condition.get("previous_target_is_equipped")
         # "~ deals N damage to any target. **If it's a creature**, it can't
         # block this turn." (Searing Barb) — the damage clause's "any
@@ -2884,6 +2888,7 @@ class ConditionalEffect(GameEffect):
         prev_is_creature = self.condition.get("previous_target_is_creature")
         if (
             prev_subtype is not None or prev_power_at_most is not None
+            or prev_power_at_least is not None
             or prev_equipped is not None or prev_is_creature is not None
         ):
             prev = context.previous_targets[0] if context.previous_targets else None
@@ -2899,6 +2904,8 @@ class ConditionalEffect(GameEffect):
                 if not combat.matches_object_filter(prev, {"subtype": str(prev_subtype)}):
                     return False
             if prev_power_at_most is not None and (prev.power or 0) > int(prev_power_at_most):
+                return False
+            if prev_power_at_least is not None and (prev.power or 0) < int(prev_power_at_least):
                 return False
             if prev_equipped is not None:
                 is_equipped = any(
@@ -2995,6 +3002,10 @@ _DAMAGE_SELECTORS: frozenset[str] = frozenset(
      # (Village Pillagers) — opponents' creatures only, no players (unlike
      # ``each_opponent_and_their_creatures``).
      "each_creature_opponents_control",
+     # "~ deals X damage to each creature **and planeswalker your opponents
+     # control**." (Volcanic Torrent, PAR-60) — the planeswalker-inclusive
+     # sibling of ``each_creature_opponents_control``.
+     "each_creature_and_planeswalker_opponents_control",
      # "~ deals 1 damage to each creature and each planeswalker." (MEC-11's
      # Stalwart Speartail) — the compound-selector sibling of
      # ``each_creature_and_player``, a creature-or-planeswalker union rather
@@ -3644,14 +3655,18 @@ class DealDamageEffect(GameEffect):
                 if owner is not None:
                     context.deal_damage(owner, amount, obj)
             return
-        if self.selector == "each_creature_opponents_control":
-            # "~ deals N damage to each creature your opponents control."
-            # (Village Pillagers) — opponents' creatures only, no players.
-            # Snapshot first (an early death must not skip a still-owed
-            # hit), same reasoning as the branches around it.
+        if self.selector in (
+            "each_creature_opponents_control",
+            "each_creature_and_planeswalker_opponents_control",
+        ):
+            # "~ deals N damage to each creature [and planeswalker] your
+            # opponents control." (Village Pillagers / Volcanic Torrent) —
+            # opponents' permanents only, no players. Snapshot first (an
+            # early death must not skip a still-owed hit).
+            include_pw = self.selector == "each_creature_and_planeswalker_opponents_control"
             for obj in list(context.state.battlefield):
                 if (
-                    obj.is_creature
+                    (obj.is_creature or (include_pw and obj.is_planeswalker))
                     and obj.controller_id is not None
                     and obj.controller_id != controller_id
                 ):
@@ -4258,6 +4273,70 @@ class DiscardUpToThenDrawThatManyEffect(GameEffect):
         )
 
 
+class MayDiscardThenDrawMillEffect(GameEffect):
+    """"You may discard a card. If you do, draw N cards, then mill M."
+    (Quintorius, History Chaser's +1, PAR-60.) A loot with a *fixed* upside
+    — the sibling of `DiscardUpToThenDrawThatManyEffect` (there the payoff
+    equals the number discarded); here the discard is a single optional
+    card and the payoff (``draw``/``mill``) is constant, but only if the
+    player actually discarded. Snapshots `GameState.cards_discarded_this_
+    turn` before opening the chooser so the tail (`DrawMillIfDiscardedEffect`)
+    can tell whether a discard happened.
+    """
+
+    def __init__(
+        self, draw: int = 2, mill: int = 1, source: Optional["GameObject"] = None
+    ) -> None:
+        super().__init__(source)
+        self.draw = int(draw)
+        self.mill = int(mill)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or not player.hand:
+            return
+        before = int((context.state.cards_discarded_this_turn or {}).get(player.id, 0) or 0)
+        context.engine.request_choose_objects(
+            player, list(player.hand), "discard", count=1, optional=True,
+            source=self.source, prompt="Wirf eine Karte ab",
+            then_specs=[{
+                "type": "draw_mill_if_discarded",
+                "params": {"player_id": player.id, "before": before,
+                           "draw": self.draw, "mill": self.mill},
+            }],
+        )
+
+
+class DrawMillIfDiscardedEffect(GameEffect):
+    """The "if you do, draw N then mill M" tail of `MayDiscardThenDrawMill
+    Effect` — fires only when the interactive discard actually removed a
+    card (``cards_discarded_this_turn`` delta > 0). Draw precedes mill, as
+    printed."""
+
+    def __init__(
+        self, player_id: Optional[str] = None, before: int = 0,
+        draw: int = 2, mill: int = 1, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.player_id = player_id
+        self.before = int(before)
+        self.draw = int(draw)
+        self.mill = int(mill)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        try:
+            player = context.state.player_by_id(self.player_id)
+        except (KeyError, ValueError):
+            return
+        after = int((context.state.cards_discarded_this_turn or {}).get(self.player_id, 0) or 0)
+        if after - self.before <= 0:
+            return
+        if self.draw > 0:
+            context.draw(player, self.draw)
+        if self.mill > 0:
+            context.mill(player, self.mill)
+
+
 class RevealHandChooseDiscardEffect(GameEffect):
     """RULE 119/701.8's iconic hand-disruption template — "Target opponent
     reveals their hand. You choose a `<filter>` card from it. That player
@@ -4547,6 +4626,22 @@ def _mass_selector_objects(
         # other mass-wipe qualifier here uses.
         if filt.get("nonbasic"):
             result = [o for o in result if "basic" not in (o.card.type_line or "").lower()]
+        # "Return all creature **tokens** / all **nontoken** creatures to
+        # their owners' hands." (Perplexing Test, PAR-60) — RULE 111.9.
+        if filt.get("token") is not None:
+            want = bool(filt["token"])
+            result = [o for o in result if bool(getattr(o, "is_token", False)) == want]
+        # "Destroy all creatures that aren't enchanted." (Winds of Rath,
+        # PAR-60) — an Aura attached to it makes a creature enchanted;
+        # ``enchanted`` is tri-state (True keeps only enchanted, False only
+        # the rest), read off the live attachment graph.
+        if filt.get("enchanted") is not None:
+            want = bool(filt["enchanted"])
+            aura_hosts = {
+                o.attached_to for o in battlefield
+                if "aura" in (o.card.type_line or "").lower() and o.attached_to is not None
+            }
+            result = [o for o in result if (o.instance_id in aura_hosts) == want]
         subtype = filt.get("subtype")
         if subtype:
             # "exile all Nightmares." (MEC-43 round 2, Chainer, Dementia
@@ -5480,6 +5575,50 @@ class GraveyardRedirectToExileEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is not None:
             player.graveyard_redirect_to_exile_until_turn = context.state.internal_turn.number
+
+
+class ExileTriggeringDiscardMayPlayThisTurnEffect(GameEffect):
+    """"Whenever you discard a card, you may exile that card from your
+    graveyard. If you do, you may play that card this turn." (Containment
+    Construct; Conspiracy Theorist's "…cast it this turn"; Currency
+    Converter's exile-only first half, PAR-60).
+
+    Reads the firing `DISCARD_CARD` event's ``instance_id``, moves that
+    object graveyard -> exile, and — unless ``play_permission`` is False —
+    stamps `GameState.temp_play_permissions[iid]` to the current turn
+    (the same turn-scoped play window `impulsive_draw`/Lukka use, read back
+    by `GameEngine.can_play_land`/`can_cast`). Documented simplification:
+    the printed "you may" is modeled as always doing it — exiling a
+    just-discarded card to enable playing it is essentially always what the
+    controller wants for these cards.
+    """
+
+    def __init__(self, play_permission: bool = True,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.play_permission = bool(play_permission)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event or {}
+        iid = event.get("instance_id")
+        if iid is None:
+            return
+        obj = context.state.find_object(iid)
+        if obj is None or obj.zone != Zone.GRAVEYARD:
+            return
+        owner = None
+        try:
+            owner = context.state.player_by_id(obj.owner_id)
+        except (KeyError, ValueError):
+            return
+        if obj in owner.graveyard:
+            owner.graveyard.remove(obj)
+        obj.zone = Zone.EXILE
+        owner.exile.append(obj)
+        if self.play_permission:
+            context.state.temp_play_permissions[obj.instance_id] = (
+                context.state.internal_turn.number
+            )
 
 
 class ExchangeLifeTotalsEffect(GameEffect):
@@ -9848,6 +9987,25 @@ class TriggerDoublerEffect(GameEffect):
     ``chosen_type``/``cause_filter``: a live board-state gate on the
     doubled permanent's own current power instead of its type or the
     firing event's shape (`continuous.trigger_doubler_bonus`).
+
+    ``subject_subtype_any`` (PAR-60, Harmonic Prodigy — "a triggered
+    ability of a Shaman or another Wizard you control triggers") is the
+    fixed-list sibling of ``chosen_type``: the doubled permanent must have
+    one of these (printed/derived) subtypes. Unlike ``chosen_type`` (a
+    RULE 601.2b choice read off the doubler's own `GameObject.chosen_type`)
+    this is a closed list baked into the card; like ``chosen_type`` it
+    keeps the "another" `doubler is obj` skip (every real printing so far —
+    Harmonic Prodigy is itself a Wizard, hence "another Wizard").
+
+    ``cause_spell_type_any`` (PAR-60, Veyran, Voice of Duality — "if you
+    casting or copying an instant or sorcery spell causes a triggered
+    ability of a permanent you control to trigger…") narrows a
+    ``cause_filter`` match further: the firing event's own ``object_types``
+    (a SPELL_CAST event stamps the cast spell's card types) must intersect
+    this list. Documented simplification: like the parser's own magecraft
+    modeling, "or copy" is treated as just the cast (no distinct
+    spell-copy event), and Veyran does not double its *own* magecraft
+    trigger (the shared ``cause_filter`` `doubler is obj` skip).
     """
 
     def __init__(
@@ -9856,6 +10014,8 @@ class TriggerDoublerEffect(GameEffect):
         cause_type_filter: Optional[list[str]] = None,
         min_power: Optional[int] = None,
         max_power: Optional[int] = None,
+        subject_subtype_any: Optional[list[str]] = None,
+        cause_spell_type_any: Optional[list[str]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -9868,6 +10028,12 @@ class TriggerDoublerEffect(GameEffect):
         )
         self.min_power = min_power
         self.max_power = max_power
+        self.subject_subtype_any = (
+            [str(s) for s in subject_subtype_any] if subject_subtype_any else None
+        )
+        self.cause_spell_type_any = (
+            [str(s).lower() for s in cause_spell_type_any] if cause_spell_type_any else None
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None
@@ -16662,6 +16828,7 @@ class PumpEffect(GameEffect):
         per_recipient_controller_counter: Optional[str] = None,
         amount_from_count_selector: Optional[str] = None,
         amount_from_count_selector_negative: bool = False,
+        amount_from_count_selector_axis: str = "both",
         amount_from_created_object_mana_value: bool = False,
         creature_filter: Optional[dict] = None,
         previous_subject: bool = False,
@@ -16746,6 +16913,15 @@ class PumpEffect(GameEffect):
         #: after reading it, the "-X/-X" sibling of that always-positive
         #: "+X/+X" default rather than a second, duplicated param.
         self.amount_from_count_selector_negative = amount_from_count_selector_negative
+        #: "…gets +X/+0 until end of turn, where X is …" (Dina, Soul Steeper;
+        #: Renegade Bull; Surge to Victory) — a dynamic count that lands on
+        #: only one axis. ``"power"`` / ``"toughness"`` / ``"both"`` (default,
+        #: the pre-existing Giant-Growth-shaped symmetric pump).
+        self.amount_from_count_selector_axis = (
+            amount_from_count_selector_axis
+            if amount_from_count_selector_axis in ("both", "power", "toughness")
+            else "both"
+        )
         #: MEC-58: "This creature gets +X/+0 until end of turn, where X is
         #: that card's mana value." (Tavern Brawler, PAR-32) — "that card"
         #: is whatever the resolution's own preceding clause just exiled
@@ -16857,8 +17033,10 @@ class PumpEffect(GameEffect):
         if self.amount_from_trigger_event:
             event = context.trigger_event
             amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
-            self.power = amount
-            self.toughness = amount
+            if self.amount_from_count_selector_axis in ("both", "power"):
+                self.power = amount
+            if self.amount_from_count_selector_axis in ("both", "toughness"):
+                self.toughness = amount
             if amount <= 0:
                 return
         if self.amount_from_count_selector:
@@ -16875,8 +17053,10 @@ class PumpEffect(GameEffect):
                 return
             if self.amount_from_count_selector_negative:
                 amount = -amount
-            self.power = amount
-            self.toughness = amount
+            if self.amount_from_count_selector_axis in ("both", "power"):
+                self.power = amount
+            if self.amount_from_count_selector_axis in ("both", "toughness"):
+                self.toughness = amount
             if amount == 0:
                 return
         if self.amount_from_created_object_mana_value:
@@ -17156,7 +17336,15 @@ class CreateNamedCardTokenEffect(GameEffect):
 #: can never name an arbitrary `GameContext` attribute (mirrors the intent of
 #: `_resolve_extra_counter_amount`'s own ``count_from_context`` key, which
 #: today also only ever carries this one name).
-_TOKEN_COUNT_CONTEXT_ACCUMULATORS: frozenset[str] = frozenset({"objects_exiled_this_way"})
+_TOKEN_COUNT_CONTEXT_ACCUMULATORS: frozenset[str] = frozenset({
+    "objects_exiled_this_way",
+    # "…create a token for each nontoken creature you controlled that was
+    # destroyed this way." (Ceaseless Conflict, PAR-60) — bumped by
+    # `DestroyEffect` in the same resolution. Documented simplification:
+    # it counts *every* permanent destroyed this way, not just your
+    # nontoken creatures.
+    "permanents_destroyed_this_way",
+})
 
 
 class CreateTokenEffect(GameEffect):
@@ -17212,6 +17400,7 @@ class CreateTokenEffect(GameEffect):
         pt_from_trigger_event: Optional[str] = None,
         pt_from_count_selector: Optional[str] = None,
         count_from_trigger_event: Optional[str] = None,
+        count_from_trigger_event_counter: Optional[str] = None,
         count_from_context: Optional[str] = None,
         count_from_subject: Optional[str] = None,
         extra_counters: Optional[dict[str, Any]] = None,
@@ -17220,8 +17409,14 @@ class CreateTokenEffect(GameEffect):
         parametric_keywords: Optional[list[dict[str, Any]]] = None,
         per_opponent: bool = False,
         token_dies_gain_life: Optional[int] = None,
+        x_multiplier: Optional[int] = None,
     ) -> None:
         super().__init__(source)
+        #: "Create **twice X** … tokens" (Pest Infestation, PAR-60) — the
+        #: token-count sibling of `DealDamageEffect.x_multiplier`: the
+        #: spell's own announced {X} (`GameObject.x_paid`) times this
+        #: factor. Overrides ``count`` when set.
+        self.x_multiplier = int(x_multiplier) if x_multiplier is not None else None
         #: "…creature token with \"when ~ dies, you gain N life.\"" — the
         #: STX Pest token's own printed death trigger (Blight Mound, Feral
         #: Appetite, Pest Rescuer, Hunt for Specimens, …). A `dies` →
@@ -17316,6 +17511,12 @@ class CreateTokenEffect(GameEffect):
         #: sibling of ``pt_from_trigger_event`` (a token's stats, not how
         #: many get made). Overrides ``count``/``count_selector`` when set.
         self.count_from_trigger_event = count_from_trigger_event
+        #: "When ~ dies, create a … token for each +1/+1 counter on it."
+        #: (Hangarback Walker, Pentavus-shaped) — a named counter kind on
+        #: the firing DIES event's snapshotted ``counters`` dict (RULE
+        #: 603.6d — the object is gone), the `DrawCardEffect.
+        #: count_from_trigger_event_counter` sibling. Overrides ``count``.
+        self.count_from_trigger_event_counter = count_from_trigger_event_counter
         #: "When ~ dies, create a number of tapped Treasure tokens equal to
         #: its power." (Goldvein Hydra) — a ``"<who>_<char>"`` reading
         #: (`_characteristic_of_subject`), the DIES-snapshot-aware sibling
@@ -17424,6 +17625,13 @@ class CreateTokenEffect(GameEffect):
         if self.count_from_trigger_event:
             event = context.trigger_event
             count = int((event or {}).get(self.count_from_trigger_event) or 0)
+        if self.count_from_trigger_event_counter:
+            count = int(
+                ((context.trigger_event or {}).get("counters") or {})
+                .get(self.count_from_trigger_event_counter, 0)
+            )
+        if self.x_multiplier is not None:
+            count = self.x_multiplier * int(getattr(self.source, "x_paid", 0) or 0)
         if self.count_from_subject:
             count = _characteristic_of_subject(context, self.source, self.count_from_subject)
         if self.count_from_context in _TOKEN_COUNT_CONTEXT_ACCUMULATORS:
@@ -21528,6 +21736,25 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "You may discard a card. If you do, draw N cards, then mill M."
+    # (Quintorius, History Chaser's +1, PAR-60) — a loot with a fixed
+    # payoff; see `MayDiscardThenDrawMillEffect`.
+    "may_discard_then_draw_mill",
+    lambda p: MayDiscardThenDrawMillEffect(
+        draw=int(p.get("draw", 2) or 0), mill=int(p.get("mill", 1) or 0),
+    ),
+)
+EffectRegistry.register(
+    # The "if you do, draw then mill" tail of the above — queued as
+    # ``then_specs``, gated on the `cards_discarded_this_turn` delta. Not
+    # for direct card use.
+    "draw_mill_if_discarded",
+    lambda p: DrawMillIfDiscardedEffect(
+        player_id=p.get("player_id"), before=int(p.get("before", 0) or 0),
+        draw=int(p.get("draw", 2) or 0), mill=int(p.get("mill", 1) or 0),
+    ),
+)
+EffectRegistry.register(
     "put_hand_cards_on_top",  # "put N cards from your hand on top of your library" (Brainstorm)
     lambda p: PutHandCardsOnTopEffect(count=p.get("count", 1), player=p.get("player")),
 )
@@ -21734,6 +21961,15 @@ EffectRegistry.register(
 EffectRegistry.register(
     "graveyard_redirect_to_exile_this_turn",  # Yawgmoth's Will's own second clause
     lambda p: GraveyardRedirectToExileEffect(),
+)
+EffectRegistry.register(
+    # "Whenever you discard a card, you may exile that card from your
+    # graveyard. If you do, you may play that card this turn." (Containment
+    # Construct / Conspiracy Theorist / Currency Converter, PAR-60)
+    "exile_triggering_discard_may_play_this_turn",
+    lambda p: ExileTriggeringDiscardMayPlayThisTurnEffect(
+        play_permission=bool(p.get("play_permission", True)),
+    ),
 )
 EffectRegistry.register(
     "exchange_life_totals",  # "Two target players exchange life totals." (Soul Conduit)
@@ -22365,6 +22601,8 @@ EffectRegistry.register(
     lambda p: TriggerDoublerEffect(
         cause_filter=p.get("cause_filter"), cause_type_filter=p.get("cause_type_filter"),
         min_power=p.get("min_power"), max_power=p.get("max_power"),
+        subject_subtype_any=p.get("subject_subtype_any"),
+        cause_spell_type_any=p.get("cause_spell_type_any"),
     ),
 )
 EffectRegistry.register(
@@ -23693,6 +23931,7 @@ EffectRegistry.register(
         per_recipient_controller_counter=p.get("per_recipient_controller_counter"),
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_from_count_selector_negative=bool(p.get("amount_from_count_selector_negative", False)),
+        amount_from_count_selector_axis=str(p.get("amount_from_count_selector_axis", "both")),
         amount_from_created_object_mana_value=bool(p.get("amount_from_created_object_mana_value", False)),
         creature_filter=p.get("creature_filter"),
         previous_subject=bool(p.get("previous_subject", False)),
@@ -23778,6 +24017,7 @@ EffectRegistry.register(
         pt_from_trigger_event=p.get("pt_from_trigger_event"),
         pt_from_count_selector=p.get("pt_from_count_selector"),
         count_from_trigger_event=p.get("count_from_trigger_event"),
+        count_from_trigger_event_counter=p.get("count_from_trigger_event_counter"),
         count_from_subject=p.get("count_from_subject"),
         count_from_context=p.get("count_from_context"),
         extra_counters=p.get("extra_counters"),
@@ -23786,6 +24026,7 @@ EffectRegistry.register(
         parametric_keywords=p.get("parametric_keywords"),
         per_opponent=bool(p.get("per_opponent", False)),
         token_dies_gain_life=p.get("token_dies_gain_life"),
+        x_multiplier=p.get("x_multiplier"),
     ),
 )
 EffectRegistry.register(
@@ -24770,6 +25011,25 @@ EffectRegistry.register(
             "amount": int(p.get("amount", 0)),
             "amount_count_selector": p.get("amount_count_selector"),
             "defender_scope": p.get("defender_scope", "player"),
+        }
+    ),
+)
+EffectRegistry.register(
+    # "Each creature that's enchanted by an Aura you control can't attack you
+    # or planeswalkers you control." (Eriette of the Charmed Apple, PAR-60) /
+    # "Inklings can't attack you or planeswalkers you control." (Combat
+    # Calligrapher) — RULE 508.1, an absolute bar on which player a matching
+    # creature may be declared against, scoped to this static's own
+    # controller (``affects="self"``). Consulted live by
+    # `combat_mixin._can_attack` via `continuous.defender_attack_prohibited`;
+    # ``attacker_filter`` (empty = every creature) narrows which attackers it
+    # bites — ``subtype`` / ``has_counter_kind`` / ``has_any_counter`` /
+    # ``enchanted_by_controller_aura``.
+    "cant_attack_defender",
+    lambda p: StaticAbility(
+        "cant_attack_defender", affects="self", params={
+            "defender_scope": p.get("defender_scope", "player_or_planeswalker"),
+            "attacker_filter": dict(p.get("attacker_filter") or {}),
         }
     ),
 )

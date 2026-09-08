@@ -125,7 +125,8 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # can't block this turn." — the "any target" clause can land on a
         # non-creature). All bool except ``*_at_most``/``*_has_subtype``.
         "previous_target_has_subtype", "previous_target_is_equipped",
-        "previous_target_power_at_most", "previous_target_is_creature",
+        "previous_target_power_at_most", "previous_target_power_at_least",
+        "previous_target_is_creature",
         # PAR-30 Suspect one-off shapes / RULE 701.60c: "choose up to one
         # target creature. If it's suspected, exile it. Otherwise, suspect
         # it." (Agrus Kos, Spirit of Justice) — an if/else over the chosen

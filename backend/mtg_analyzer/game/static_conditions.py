@@ -119,8 +119,30 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # -- The controller's own resources.
         "life_at_least",  # + ``amount``
         "life_at_most",
+        # "as long as an opponent has N or less life" (Bloodghast, PAR-60) —
+        # true when any one opponent satisfies it. + ``amount``.
+        "opponent_life_at_most",
         "cards_in_hand_at_least",
         "cards_in_hand_at_most",
+        # "if you gained life this turn" (PAR-60) — reads
+        # `GameState.life_gained_this_turn`; optional ``amount`` (default 1).
+        "gained_life_this_turn",
+        # "if a card left your graveyard this turn" (Primary Research, Relic
+        # Retriever, PAR-60) — reads `GameState.cards_left_graveyard_this_turn`.
+        "card_left_graveyard_this_turn",
+        # "if an opponent controls more lands than you" (Land Tax,
+        # Archaeomancer's Map, Claim Jumper, PAR-60) — true when any one
+        # opponent's land count exceeds the controller's.
+        "opponent_controls_more_lands",
+        # "if there are N or more <type> and/or <type> cards in your
+        # graveyard" (Lorehold Archivist, PAR-60). + ``types`` + ``amount``.
+        "graveyard_card_type_count_at_least",
+        # "if a player has one or fewer cards in hand" (Naktamun Lorespinner,
+        # PAR-60) — any player. + ``amount``.
+        "any_player_cards_in_hand_at_most",
+        # "if you control no creatures with decayed" (Jadar, PAR-60). +
+        # ``keyword``.
+        "control_no_creatures_with_keyword",
         # PAR-30: "as long as there's a `<subtype>` card in your graveyard"
         # (the Avatar: TLA "Lesson" cards — Aang A Lot to Learn, Fire Nation
         # Cadets, First-Time Flyer, Platypus-Bear). + ``subtype`` (a
@@ -458,6 +480,16 @@ def condition_holds(
         return int(getattr(player, "life", 0)) >= int(condition.get("amount", 0))
     if kind == "life_at_most":
         return int(getattr(player, "life", 0)) <= int(condition.get("amount", 0))
+    if kind == "opponent_life_at_most":
+        # "as long as an opponent has 10 or less life" (Bloodghast, PAR-60) —
+        # true when *any one* opponent satisfies it, the same "an opponent"
+        # semantics as ``opponent_count``.
+        threshold = int(condition.get("amount", 0))
+        return any(
+            int(getattr(p, "life", 0)) <= threshold
+            for p in getattr(state, "players", [])
+            if p.id not in (None, controller_id)
+        )
     if kind == "cards_in_hand_at_least":
         return len(getattr(player, "hand", [])) >= int(condition.get("amount", 0))
     if kind == "cards_in_hand_at_most":
@@ -474,6 +506,63 @@ def condition_holds(
     if kind == "cast_instant_or_sorcery_this_turn":
         cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
         return bool(cast.get(controller_id, False))
+    if kind == "gained_life_this_turn":
+        # "if you gained life this turn" (Eccentric Pestfinder / Witch of the
+        # Moors / Mortality Spear, PAR-60) — `GameState.life_gained_this_turn`
+        # is bumped at `RulesEngine.gain_life`'s single choke point and reset
+        # per turn, so this is a read, not a new counter. Optional ``amount``
+        # (default 1) for the rare "gained N or more life this turn" phrasing.
+        gained = getattr(state, "life_gained_this_turn", None) or {}
+        return int(gained.get(controller_id, 0) or 0) >= int(condition.get("amount", 1) or 1)
+    if kind == "card_left_graveyard_this_turn":
+        return controller_id in getattr(state, "cards_left_graveyard_this_turn", set())
+    if kind == "graveyard_card_type_count_at_least":
+        # "if there are 3 or more artifact and/or creature cards in your
+        # graveyard" (Lorehold Archivist, PAR-60). + ``types`` (a list of
+        # lowercase card-type words, ORed per card) and ``amount``.
+        want = {str(t).lower() for t in (condition.get("types") or [])}
+        need = int(condition.get("amount", 1) or 1)
+        hits = sum(
+            1 for o in getattr(player, "graveyard", [])
+            if want & {w for w in getattr(o, "type_words", set()) if w != "permanent"}
+        )
+        return hits >= need
+    if kind == "control_no_creatures_with_keyword":
+        # "if you control no creatures with decayed" (Jadar, Ghoulcaller of
+        # Nephalia, PAR-60) — a keyword-scoped control-count, unlike
+        # ``control_count``'s subtype selectors. + ``keyword`` (a lowercase
+        # keyword slug checked against each creature's granted + intrinsic
+        # keyword union).
+        word = str(condition.get("keyword", "")).lower()
+        try:
+            from .continuous import _obj_keywords
+        except Exception:  # pragma: no cover - defensive
+            _obj_keywords = None
+        for o in getattr(state, "battlefield", []):
+            if not (o.is_creature and o.controller_id == controller_id):
+                continue
+            kws = _obj_keywords(o) if _obj_keywords else (
+                set(getattr(o, "granted_keywords", set()))
+                | set(getattr(o, "intrinsic_keywords", set()))
+            )
+            if word in {str(k).lower() for k in kws}:
+                return False
+        return True
+    if kind == "any_player_cards_in_hand_at_most":
+        # "if a player has one or fewer cards in hand" (Naktamun Lorespinner,
+        # PAR-60) — "a player" = any player, including you. + ``amount``.
+        n = int(condition.get("amount", 0))
+        return any(
+            len(getattr(p, "hand", [])) <= n for p in getattr(state, "players", [])
+        )
+    if kind == "opponent_controls_more_lands":
+        from .continuous import count_selector
+        mine = count_selector(state, controller_id, "lands_you_control")
+        return any(
+            count_selector(state, p.id, "lands_you_control") > mine
+            for p in getattr(state, "players", [])
+            if p.id not in (None, controller_id)
+        )
     if kind == "you_dealt_damage_this_turn_at_least":
         # PAR-32 (Dragon Cultist): "if a source you controlled dealt N or
         # more damage this turn" — `GameState.damage_dealt_by_this_turn`,

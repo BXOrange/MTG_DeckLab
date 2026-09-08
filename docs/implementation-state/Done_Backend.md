@@ -4255,12 +4255,134 @@ is in the rules-engine categories below them.
     (not on `SacrificeEffect.what`); Witherbloom Command mode 1's "you
     return a land card" as a `graveyard_land` target in the controller's
     own graveyard.
-- **Files:** `game/ability_catalogue/entries_018.py`, `game/effects.py`,
-  `game/continuous.py`, `game/engine/combat_mixin.py`,
-  `game/effect_binder.py`, `game/rules/search_mixin.py`,
-  `game/rules/misc_mixin.py`, `game/targeting.py`,
-  `parser/oracle/segmenter.py`, `parser/oracle/gate.py`. Tests:
-  `backend/tests/test_strixhaven_secrets_wave{1,5,8,12}.py`.
+  - **wave 22** (2026-09-08) — **Silverquill "Influence": the Aura /
+    enchantments-matter cluster**, hand-`AUTHORED` wholesale in the new
+    `game/ability_catalogue/entries_019.py` (no PARSER_VERSION change). New
+    engine selectors: `auras_you_control` (`continuous.count_selector`) and
+    `auras_attached_to_self` (`continuous._pt_mod_count`) — the latter via a
+    generalized `_attached_subtype_count(state, obj, subtype)` refactored
+    out of `_equipment_attached_count` (which becomes a one-line wrapper).
+    12 cards registered: Kor Spiritdancer, Sage's Reverie, Eidolon of
+    Countless Battles, Angelic Destiny, Eldrazi Conscription, Shielded by
+    Faith, Sheltered by Ghosts, Chains of Custody, Darksteel Mutation,
+    Fallen Ideal, Raffine's Guidance, Ajani's Chosen (Silverquill deck
+    49 → 61). The Aura buffs use `affects="attached_permanent"` `anthem`/
+    `grant_keyword`/`type_change` (RULE 303.4c); the exile-until-leaves pair
+    (Sheltered by Ghosts, Chains of Custody) reuses `exile` +
+    `return_linked_exile`. Simplifications documented in-code:
+    `auras_you_control` skips the "attached to a creature" narrowing;
+    Darksteel Mutation doesn't strip a prior enchantment card type;
+    Raffine's Guidance's graveyard recast pays the printed cost not the
+    printed `{2}{W}` alternative; Ajani's Chosen drops the "if Aura, attach
+    to token" rider.
+  - **wave 23** (2026-09-08) — **Witherbloom "Pestilence": "life you gained
+    this turn" + the sacrifice-matters cluster**, hand-`AUTHORED` in
+    `entries_019.py` (no PARSER_VERSION change). New engine primitives:
+    `static_conditions` kind `gained_life_this_turn` (optional `amount`,
+    default 1) and `continuous.count_selector` `life_gained_this_turn` —
+    both plain reads of the pre-existing `GameState.life_gained_this_turn`
+    (bumped at `gain_life`, reset per turn), so no new counter; plus
+    `PumpEffect.amount_from_count_selector_axis` ("both"/"power"/
+    "toughness") for the "+X/+0 where X is …" one-axis dynamic pump, and a
+    `times` entry added to the RULE 601.2b `{X}` resolution-substitution
+    list in `rules/casting_mixin.py`. 10 cards registered: Mortality Spear,
+    Defiling Daemogoth, Witch of the Moors, Blossoming Bogbeast, Eccentric
+    Pestfinder (+ `// Turn Stones` alias), Merchant of Venom, Mazirek Kraul
+    Death Priest, Smothering Abomination, Dina Soul Steeper, Dina Essence
+    Brewer (Witherbloom deck 55 → 65).
+  - **waves 24–51** (2026-09-08) — the tail, all hand-`AUTHORED` in
+    `entries_019.py` (no PARSER_VERSION change), 265 → 378/433 covered
+    (~113 cards). Reusable engine primitives added along the way (each
+    small, all regression-clean against the full ~6.3k-test suite —
+    confirmed 6266 passed / 3 fail, the 3 all pre-existing and unrelated:
+    two on this checkout since before the batch, one a behavior-neutral
+    `PARSER_VERSION.lock` re-pin from wave 46's whitelist widening):
+    - **`static_conditions` kinds:** `gained_life_this_turn`,
+      `opponent_life_at_most`, `card_left_graveyard_this_turn`,
+      `opponent_controls_more_lands`, `graveyard_card_type_count_at_least`,
+      `any_player_cards_in_hand_at_most`, `control_no_creatures_with_keyword`
+      (all plain reads; the graveyard-exit / {X}-spell / nontoken-creature
+      ones backed by new per-turn `GameState` sets/dicts
+      `cards_left_graveyard_this_turn` / `cast_x_spell_this_turn` /
+      `nontoken_creatures_entered_this_turn`, recorded at their choke
+      points and cleared each `begin_turn`).
+    - **`continuous.count_selector` names:** `auras_you_control`,
+      `auras_attached_to_self` (via a generalized `_attached_subtype_count`),
+      `life_gained_this_turn`, `plus_one_counters_on_source`,
+      `study_counters_on_source`, `total_power_creatures_you_control`,
+      `nontoken_creatures_you_entered_this_turn`,
+      `commander_casts_this_game` (sum of `Player.commander_casts`).
+    - **`SPELL_CAST` event fields:** `has_x` / `first_x_spell`; binder
+      predicates `spell_has_x`, `first_x_spell`, `spell_mana_value_at_least`,
+      `attackers_at_least`, `entering_mana_value_at_most`, `defender_is_you`.
+    - **effect params:** `PumpEffect.amount_from_count_selector_axis`
+      (governs both the count-selector and trigger-event paths — "+X/+0");
+      `CreateTokenEffect.count_from_trigger_event_counter` (N tokens per
+      named counter on a DIES snapshot) and `.x_multiplier` ("twice X"
+      tokens); `_substitute_x` gained `times` (proliferate X);
+      `_mass_wipe_objects` gained `enchanted` / `token` filters;
+      `DealDamageEffect` selector
+      `each_creature_and_planeswalker_opponents_control`;
+      `cost_reduction_for` gained `reduce_if_targets` (battlefield-static
+      sibling of `self_cost_reduction_for`'s own); `targeting.legal_targets`
+      `max_mana_value` sentinels `source_power` / `trigger_damage_amount`
+      and a new `monocolored_permanent` target kind; `ConditionalEffect`
+      gained `previous_target_power_at_least`; the `double_counters`
+      replacement's `plus` param (Hardened-Scales "that many plus one");
+      `ExileTriggeringDiscardMayPlayThisTurnEffect` (discard → exile →
+      turn-scoped play window); `permanents_destroyed_this_way` added to
+      `_TOKEN_COUNT_CONTEXT_ACCUMULATORS`.
+    - **waves 47–50:** binder predicate `spell_is_historic` (Teshar);
+      `effect_binder._build_group_ok` gained the `enchanted_by_your_aura`
+      group filter (Killian, Decisive Mentor — "1+ creatures enchanted by
+      an Aura you control attack"); new `cant_attack_defender` EffectRegistry
+      static + `continuous.defender_attack_prohibited` scan consulted by
+      `combat_mixin._can_attack` (RULE 508.1 "creatures matching FILTER
+      can't attack you or planeswalkers you control" — Eriette of the
+      Charmed Apple; filter keys `enchanted_by_controller_aura` / `subtype`
+      / `has_counter_kind` / `has_any_counter`); new
+      `MayDiscardThenDrawMillEffect` + `DrawMillIfDiscardedEffect` (loot with
+      a fixed payoff — Quintorius, History Chaser's +1). Quintorius's -4
+      reuses `pump` with a `subtypes` filter over a `selector` group.
+    - **wave 51 — triggered-ability doubling generalized** (user-flagged as a
+      recurring theme, Roaming Throne / Isshin / Elesh Norn family):
+      `TriggerDoublerEffect` gained two independent scoping axes —
+      `subject_subtype_any` (a fixed subtype list on the *doubled* permanent,
+      keeping the "another" self-skip — Harmonic Prodigy's "a Shaman or
+      another Wizard you control") and `cause_spell_type_any` (narrows a
+      `cause_filter` match further to the firing SPELL_CAST event's own
+      `object_types` — Veyran, Voice of Duality's "casting or copying an
+      instant or sorcery spell"). `continuous.trigger_doubler_bonus`
+      extended to match; the parser-claimed magecraft pump folds in for
+      Veyran, prowess for Harmonic Prodigy. Documented simplification: "or
+      copy" treated as just the cast, and Veyran doesn't double its own
+      magecraft (shared `doubler is obj` skip).
+    - **cards registered** (~113): the Silverquill Aura / attack-trigger
+      cluster, the Witherbloom lifegain / sacrifice / Eldrazi-Spawn / devour
+      tail, Quandrix {X} / counter / fractal / charge-counter singletons,
+      the STX "becomes prepared" DFC trigger cluster, Prismari
+      instant/sorcery cast-matters payoffs + manlands, the Lorehold
+      land-catch-up / graveyard-left / spirit-reanimate cluster, the modal
+      "choose one [or more]" spells, and a broad singleton tail. Documented
+      simplifications are noted in-code per card. Per-wave detail lives in
+      `secrets_of_strixhaven_plan.md`.
+    - **still open** (55 cards): the bespoke tail — each was probed and
+      found to need a genuinely new mechanism (a missing condition key,
+      event, effect, or interactive chooser), enumerated by cluster in
+      `BACKLOG.md`'s PAR-60 "Still open" (spell-copy fan-out,
+      spell/ability copy gated on {X}, exile-then-play residue,
+      per-player-graveyard-exile-with-distribution, mass keep-one-of-each,
+      odd/even & prime counting, distribute-any-number-of-counters,
+      become-a-copy-from-a-set, modal-dies / dig-until, and assorted
+      singletons — Chaos Warp, Entrancing Melody, Gift of Immortality, …).
+- **Files:** `game/ability_catalogue/entries_{018,019}.py`,
+  `game/effects.py`, `game/continuous.py`, `game/static_conditions.py`,
+  `game/rules/casting_mixin.py`, `game/engine/{combat,turn_loop}_mixin.py`,
+  `game/effect_binder.py`, `game/rules/{search,misc}_mixin.py`,
+  `game/targeting.py`, `game/combat.py`, `models/game_state.py`,
+  `game/rules/draw_discard_mixin.py`, `parser/oracle/{segmenter,gate,spec}.py`,
+  `parser/oracle/PARSER_VERSION.lock` (behavior-neutral re-pin).
+  Tests: `backend/tests/test_strixhaven_secrets_wave{1,5,8,12,22-45,47_48,49,50,51}.py`.
 
 ### Kinnan/M-K Batch: New General Primitives (MEC-12)
 

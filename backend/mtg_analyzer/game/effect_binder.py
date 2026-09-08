@@ -642,6 +642,9 @@ def _build_group_ok(
     # ``has_counter`` is the kindless "with a counter on it".
     want_has_counter = bool(condition.get("has_counter"))
     want_has_counter_kind = condition.get("has_counter_kind")
+    #: "creatures that are enchanted by an Aura you control" (Killian,
+    #: Decisive Mentor, PAR-60).
+    want_enchanted_by_your_aura = bool(condition.get("enchanted_by_your_aura"))
 
     def _group_ok(
         event: Any,
@@ -669,6 +672,7 @@ def _build_group_ok(
         damaged_by_via_attached=damaged_by_via_attached,
         want_has_counter=want_has_counter,
         want_has_counter_kind=want_has_counter_kind,
+        want_enchanted_by_your_aura=want_enchanted_by_your_aura,
     ) -> bool:
         event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
@@ -822,6 +826,22 @@ def _build_group_ok(
             if want_has_counter_kind and int(ctrs.get(want_has_counter_kind, 0)) <= 0:
                 return False
             if want_has_counter and not any(int(v) > 0 for v in ctrs.values()):
+                return False
+        # "whenever one or more creatures that are enchanted by an Aura you
+        # control attack, …" (Killian, Decisive Mentor, PAR-60) — the acting
+        # object (still on the battlefield for ATTACKS, RULE 508.3) must have
+        # at least one Aura attached whose controller is this ability's
+        # controller.
+        if want_enchanted_by_your_aura:
+            state = getattr(context, "state", None)
+            if state is None or event_instance is None:
+                return False
+            if not any(
+                getattr(o, "attached_to", None) == event_instance
+                and "aura" in (o.card.type_line or "").lower()
+                and o.controller_id == cid
+                for o in state.battlefield
+            ):
                 return False
         return True
 
@@ -1040,6 +1060,100 @@ def _trigger_condition(
             return mv is not None and mv <= n
 
         predicates.append(_spell_mv_ok)
+
+    # "Whenever you cast a spell with {X} in its mana cost, …"
+    # (Elementalist's Palette, the Quandrix {X}-first-spell cluster, PAR-60)
+    # — reads `SPELL_CAST`'s own ``has_x`` bool.
+    if trigger.get("spell_has_x"):
+        def _spell_has_x_ok(event: Any, context: Any) -> bool:
+            return bool(event.get("has_x"))
+
+        predicates.append(_spell_has_x_ok)
+
+    # "Whenever you cast a **historic** spell, …" (Teshar, Ancestor's
+    # Apostle, PAR-60) — RULE 700.13: an artifact, legendary, or Saga
+    # spell. The `SPELL_CAST` event carries ``object_types`` (main types);
+    # legendary/Saga need the live object.
+    if trigger.get("spell_is_historic"):
+        def _spell_is_historic_ok(event: Any, context: Any) -> bool:
+            if "artifact" in (event.get("object_types") or ()):
+                return True
+            state = getattr(context, "state", None)
+            iid = event.get("instance_id")
+            obj = state.find_object(iid) if state is not None and iid is not None else None
+            if obj is None:
+                return False
+            tl = (obj.card.type_line or "").lower()
+            return bool(getattr(obj.card, "is_legendary", False)) or "saga" in tl
+
+        predicates.append(_spell_is_historic_ok)
+
+    # "Whenever you cast your first spell with {X} in its mana cost each
+    # turn, …" (Zimone Infinite Analyst, Owlin Spiralmancer, Nev, Lattice
+    # Library, PAR-60) — `SPELL_CAST`'s ``first_x_spell`` bool, computed in
+    # `cast_spell` against `GameState.cast_x_spell_this_turn`.
+    if trigger.get("first_x_spell"):
+        def _first_x_spell_ok(event: Any, context: Any) -> bool:
+            return bool(event.get("first_x_spell"))
+
+        predicates.append(_first_x_spell_ok)
+
+    # "Whenever you cast an instant or sorcery spell with mana value 5 or
+    # greater …" (Dirgur Focusmage, Leitmotif Composer, PAR-60) — the
+    # ``>=`` mirror of ``spell_mana_value_at_most`` on the same
+    # `SPELL_CAST` ``mana_value`` field.
+    spell_mv_at_least = trigger.get("spell_mana_value_at_least")
+    if spell_mv_at_least is not None:
+        min_mv = int(spell_mv_at_least)
+
+        def _spell_mv_min_ok(event: Any, context: Any, n=min_mv) -> bool:
+            mv = event.get("mana_value")
+            return mv is not None and mv >= n
+
+        predicates.append(_spell_mv_min_ok)
+
+    # "Whenever one or more creatures you control with mana value 3 or less
+    # enter, …" (Tocasia's Welcome, PAR-60) — the ENTERS event carries only
+    # ``instance_id``, so re-look-up the object for its printed mana value.
+    entering_mv_at_most = trigger.get("entering_mana_value_at_most")
+    if entering_mv_at_most is not None:
+        max_mv = int(entering_mv_at_most)
+
+        def _entering_mv_ok(event: Any, context: Any, n=max_mv) -> bool:
+            state = getattr(context, "state", None)
+            iid = event.get("instance_id")
+            obj = state.find_object(iid) if state is not None and iid is not None else None
+            if obj is None:
+                return False
+            return int(getattr(obj.card, "converted_mana_cost", 0) or 0) <= n
+
+        predicates.append(_entering_mv_ok)
+
+    # "Whenever you attack with two or more creatures, …" (Eiganjo
+    # Dynastorian, Firemane Commando, PAR-60) — a threshold on
+    # `EventType.PLAYER_ATTACKED`'s own per-(attacker, defender) ``count``.
+    # Documented simplification: attackers split across multiple defenders
+    # each get their own sub-``count``, so "attack 2 defenders with 1
+    # creature each" doesn't reach the threshold — rare, and only in
+    # multiplayer.
+    attackers_at_least = trigger.get("attackers_at_least")
+    if attackers_at_least is not None:
+        min_attackers = int(attackers_at_least)
+
+        def _attackers_at_least_ok(event: Any, context: Any, n=min_attackers) -> bool:
+            return int(event.get("count", 0) or 0) >= n
+
+        predicates.append(_attackers_at_least_ok)
+
+    # "Whenever an opponent attacks with creatures, if two or more of those
+    # creatures are attacking you …" (Mangara the Diplomat, Tomik Wielder of
+    # Law, PAR-60) — the `PLAYER_ATTACKED` aggregate's ``defending_player_id``
+    # must be this ability's own controller.
+    if trigger.get("defender_is_you"):
+        def _defender_is_you_ok(event: Any, context: Any, src=source) -> bool:
+            return event.get("defending_player_id") == getattr(src, "controller_id", None)
+
+        predicates.append(_defender_is_you_ok)
 
     # "Whenever one or more creatures you control with power 7 or greater
     # deal combat damage to a player, …" (MEC-29, Tifa, Martial Artist) — a

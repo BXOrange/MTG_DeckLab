@@ -726,6 +726,19 @@ class CastingResolutionMixin:
                 # already resolved and left the stack by the time a
                 # triggered ability referencing it does.
                 mana_value=obj.card.converted_mana_cost,
+                # "Whenever you cast a spell with {X} in its mana cost, …"
+                # (Elementalist's Palette, the Quandrix {X}-first-spell
+                # cluster, PAR-60) — read off the printed mana cost string
+                # rather than whether an X was actually announced, so a
+                # {0}-for-X cast still counts (RULE 107.3).
+                has_x="{X}" in (getattr(obj.card, "mana_cost_string", "") or "").upper(),
+                # "your first spell with {X} in its mana cost each turn"
+                # (PAR-60) — true only for this player's first {X} cast this
+                # turn; the tracker is bumped just below, after the event.
+                first_x_spell=(
+                    "{X}" in (getattr(obj.card, "mana_cost_string", "") or "").upper()
+                    and player.id not in self.state.cast_x_spell_this_turn
+                ),
                 # "…with mana value, power, or toughness equal to the chosen
                 # number…" (Talion, the Kindly Lord, MEC-43) — the spell's
                 # own printed characteristics, read live off `GameObject.
@@ -740,6 +753,8 @@ class CastingResolutionMixin:
                 target_instance_ids=_target_instance_ids(targets),
             )
         )
+        if "{X}" in (getattr(obj.card, "mana_cost_string", "") or "").upper():
+            self.state.cast_x_spell_this_turn.add(player.id)
         self.check_ward(item, player)
         return item
     def cast_without_paying(
@@ -816,10 +831,17 @@ class CastingResolutionMixin:
                 # to the chosen number" purposes.
                 power=obj.power,
                 toughness=obj.toughness,
+                has_x="{X}" in (getattr(obj.card, "mana_cost_string", "") or "").upper(),
+                first_x_spell=(
+                    "{X}" in (getattr(obj.card, "mana_cost_string", "") or "").upper()
+                    and player.id not in self.state.cast_x_spell_this_turn
+                ),
                 targets_a_permanent=_targets_a_permanent(targets),
                 target_instance_ids=_target_instance_ids(targets),
             )
         )
+        if "{X}" in (getattr(obj.card, "mana_cost_string", "") or "").upper():
+            self.state.cast_x_spell_this_turn.add(player.id)
         self.check_ward(item, player)
         return item
     @contextmanager
@@ -851,6 +873,9 @@ class CastingResolutionMixin:
             "owner_id": obj.owner_id,
             "graveyard_owner_id": obj.owner_id,
         }
+        # RULE 603.3f per-turn tracker for "if a card left your graveyard
+        # this turn" intervening-ifs (reset each `begin_turn`).
+        self.state.cards_left_graveyard_this_turn.add(obj.owner_id)
         if getattr(self, "_graveyard_exit_batch_depth", 0):
             self._graveyard_exit_batch_cards.append(card)
         else:
@@ -1182,7 +1207,7 @@ class CastingResolutionMixin:
                         updates[mv_key] = -x
                 if updates:
                     effect.target_spec = dataclasses.replace(target_spec, **updates)
-            for attr in ("amount", "count", "power", "toughness"):
+            for attr in ("amount", "count", "power", "toughness", "times"):
                 value = getattr(effect, attr, None)
                 if value == "x":
                     setattr(effect, attr, x)

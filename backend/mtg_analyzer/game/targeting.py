@@ -186,6 +186,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # bare unscoped form's own `legal_targets` branch already existed
         # but was never whitelisted.
         "nonland_permanent",
+        # "Exile target monocolored permanent." (Vanishing Verse, PAR-60) —
+        # RULE 105.3: exactly one colour.
+        "monocolored_permanent",
         # "destroy target noncreature, nonland permanent with mana value 2
         # or less" (Witherbloom Command mode 2) — `nonland_permanent`
         # further excluding creatures (an artifact creature is still a
@@ -796,6 +799,15 @@ def legal_targets(
         _snap = (trigger_event or {}).get("counters") or {}
         _total = sum(v for v in _snap.values() if isinstance(v, int) and v > 0)
         spec = replace(spec, max_mana_value=_total)
+    if spec.max_mana_value == "source_power":
+        # "…with mana value X or less, where X is ~'s power." (Guardian
+        # Scalelord, PAR-60) — the ability's own source, read live.
+        spec = replace(spec, max_mana_value=int(getattr(source, "power", 0) or 0))
+    if spec.max_mana_value == "trigger_damage_amount":
+        # "…with mana value X or less, where X is the amount of damage ~
+        # dealt to that player." (Venerable Warsinger, PAR-60) — the firing
+        # DAMAGE event's own ``amount``.
+        spec = replace(spec, max_mana_value=int((trigger_event or {}).get("amount", 0) or 0))
     if kind == "permanent" and source is not None:
         attachment_kind = None
         if hasattr(source, "parametric_keywords"):
@@ -1081,6 +1093,17 @@ def legal_targets(
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+        ]
+    if kind == "monocolored_permanent":
+        # "Exile target monocolored permanent." (Vanishing Verse, PAR-60) —
+        # RULE 105.3: exactly one colour (a colourless permanent is not
+        # monocolored).
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if len(o.colors or ()) == 1
+            and o is not source
+            and _targetable_by(o, source)
         ]
     if kind == "noncreature_nonland_permanent":
         # RULE 115: "destroy target noncreature, nonland permanent…"

@@ -849,6 +849,22 @@ class CombatMixin:
                 and (player.id, getattr(defending_player, "id", None))
                 in self.state.no_attack_pairs_this_turn
             )
+            # "Each creature that's enchanted by an Aura you control can't
+            # attack you or planeswalkers you control." (Eriette of the
+            # Charmed Apple) / "Inklings can't attack you…" (Combat
+            # Calligrapher) — RULE 508.1 standing bar, checked only once a
+            # defender is assigned (offer-time stays permissive: the creature
+            # may still have another legal opponent to swing at). Passed
+            # `defender_kind="player"` here; every real card with this clause
+            # also protects that player's planeswalkers (the default
+            # ``player_or_planeswalker`` scope), so a `_defending_player`
+            # standing in for a planeswalker defender is covered too.
+            and not (
+                defending_player is not None
+                and continuous.defender_attack_prohibited(
+                    self.state, obj, defending_player.id, "player"
+                )
+            )
         )
     def _attack_conditions_ok(
         self, obj: GameObject, player: Player, defending_player: Optional[Player]
