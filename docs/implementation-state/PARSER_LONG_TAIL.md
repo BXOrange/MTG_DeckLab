@@ -161,45 +161,69 @@ rules, not one:
 
 ## Known-open clusters
 
-Salvaged from the removed changelog: residue each cluster's own batch recorded
-as *still open* when it was last worked. It is kept because most of it was
-filed under `PAR-30` / `PAR-60` / the Clash and Airbend bullets — **all now
-closed** — so deleting it with the changelog would have orphaned the only
-record that these are open at all. None of it is schedulable as written; it is
-sizing material for the next pass, in the same spirit as the worked examples
-below.
+Long-tail residue that no open ticket names — salvaged when the per-version
+changelog was removed, because most of it had been filed under `PAR-30`,
+`PAR-60`, `MEC-77` and the Clash/Airbend bullets, **all since closed**. None of
+it is schedulable as written; it is sizing material for the next pass, in the
+same spirit as the worked examples below.
 
-**Statuses are as-of-last-worked, not as-of-today.** Several entries in the
-removed log were closed by a *later* batch than the one that recorded them —
-the Clash win-branches by MEC-50, the Airbend and Earthbend clusters by their
-own follow-ups, Feed the Cycle and Curious Forager by the reflexive "when you
-do" build — and those have already been dropped here. Run `parser_probe.py
-blocked` before sizing anything below — this document's own rule.
+**Verified against the v298 ledger on 2026-09-09** — every row below is a card
+that is `unmodeled` *today*, and the blocker quoted is its **actual** remaining
+unclaimed clause, not the description its original batch wrote. That check
+mattered: of the 61 cards the changelog listed as open, **25 were already
+`MODELED`** and eight whole clusters had closed underneath their own notes —
+the threaten/gain-control family (Broadcast Takeover, Call for Aid, Furnace
+Reins, Loki's Scepter, Flayer of Loyalties, Goatnap, Awaken the Sleeper), the
+O-Ring two-sentence templating (Oblivion Ring itself, Crack in Time, Driftgloom
+Coyote, Food Coma, Brutal Cathar), dynamic Incubate (Excise the Imperfect,
+Sunfall), colour-filtered targeting (Combust, Snow Hound, Tidebinder Mage,
+Offspring's Revenge), `normalize`'s legendary short names (Kaalia of the Vast,
+Owlbear Cub, The Vast Scrier), "tapped and attacking" (Winota, Kari Zev),
+majority/permanent vote ballots (Council Guardian, Council's Judgment), and the
+RULE 508.1g attack-tax opt-out (built in v288). Two more entries named a
+blocker that had been fixed while the card stayed unmodeled on something
+unrelated. **Re-run this check before sizing anything below** — that is this
+document's own standing rule, and it has now caught itself.
 
 | Cluster | Still open | Cards |
 | --- | --- | --- |
-| Threaten / gain-control-until-EOT | targeted-opponent mass form; the richer "until end of turn, it gains haste **and** `<X>`" clause; after-tails | Broadcast Takeover, Call for Aid · Furnace Reins, Loki's Scepter, Flayer of Loyalties · Goatnap, Awaken the Sleeper, Bloody Betrayal |
-| O-Ring / exile-until-leaves | the **old two-sentence** templating (exile clause + a separate "when ~ leaves…" ability); multi-event trigger forms; per-card after-tails | Oblivion Ring · Brutal Cathar, Crack in Time · Driftgloom Coyote, Food Coma |
-| Becomes-target self-sacrifice | the "…**unless you discard a land card**" variant; the quoted-grant forms | Cursed Monstrosity · Crystalline Nautilus, Dismiss into Dream, Boneshard Slasher, Makeshift Mannequin |
-| Incubate dynamic amount | "…where X is its **mana value**" of a just-exiled permanent read by *its* controller; "X is the number of creatures **exiled this way**" | Excise the Imperfect · Sunfall |
-| Vote outcomes | 3+-option ballots; "vote for a permanent/card"; "planeswalk to `<plane>`" and "you may planeswalk" (fullmatch-only today) | Council Guardian · Council's Judgment · Seek Bolas's Counsel, TARDIS |
-| "`<consequence>` unless you pay `<cost>`" | a "discard N cards **unless you discard a `<type>` card**" body; "if ~ is destroyed this way…" follow-ups | Alpharael · Cosmic Horror |
-| Colour-filtered targeting | a per-instance "damage can't be prevented" flag; compound "return ~ **and** target …"; a "doesn't untap" tail; a 3-colour list | Combust · Snow Hound · Tidebinder Mage · Offspring's Revenge |
-| Mass graveyard return | riders on the returned cards; "…that weren't put there this way" | Pyrrhic Revival, Storm of Souls · Bringer of the Last Gift |
-| "Tapped and attacking" | the *library* "look at the top N … put one onto the battlefield tapped and attacking"; a trailing "that opponent" defender ref; the copy-token variant; a bare-name token subject | Winota, Arthur, Jet · Kaalia · Calamity, Altaïr · Kari Zev |
-| Return-to-battlefield riders | a compound "gets +2/+0 **and** gains '…'" wrapper; "face down"/"flipped"/"transformed" destinations; riders after the return | Demonic Gifts · Ashcloud Phoenix, Homura, Loyal Cathar |
-| Target filters, general | a mana-value cap; a *spell* target; "a creature token"; a subtype; "a legendary creature"; "…with a +1/+1 counter on it" | No One Left Behind, Revoke Demise · Mystical Dispute · Titanic Brawl |
-| `normalize` short names | the legendary short name isn't folded to `~` ("Kaalia" on Kaalia of the Vast); qualified triggers with multi-clause bodies | Kaalia of the Vast · Owlbear Cub, The Vast Scrier |
-| RULE 508.1g attack tax | the RULE 508.1g **opt-out** (MEC-77's last piece) | — |
-| Counter doubling | a union target kind ("artifact, creature, or land"); the "each of those creatures" post-distribute tail | Vorel · Biogenic Upgrade, Court of Garenbrig |
-| Land destruction tails | "…an opponent controls. each player / that land's controller searches …" multi-search tails | Field of Ruin, Demolition Field, Magmatic Hellkite |
-| Base-P/T and pump | the compound "loses all abilities and becomes a `<colour>` `<type>` with base P/T"; the front-loaded "until end of turn, … and gains `<kw>`" form; "gain half X life and draw half X cards" | Turn to Frog, Snakeform, Ovinize · Creeperhulk · Hydroid Krasis |
-| Batch-death triggers | the **un-limited** "1 or more … die" forms (no "only once each turn" limiter to collapse the per-object firing) | Great Fierce Bee, Vengeful Townsfolk |
-| Misc singletons | "another target creature" (`other_creature` kind not engine-wired); "if it was a Gideon planeswalker" conditional tail | Arwen, Mortal Queen · Gideon's Defeat |
+| Becomes-target self-sacrifice | "sacrifice it **unless you discard a land card**"; the quoted-ability grant forms (`… has "when ~ becomes the target of a spell or ability, …"`) | Cursed Monstrosity · Crystalline Nautilus, Dismiss into Dream, Boneshard Slasher, Makeshift Mannequin |
+| Quoted-ability grant until EOT | the compound "gets +2/+0 **and** gains '…'" wrapper | Demonic Gifts |
+| Return-to-battlefield destination | "return it to the battlefield **face down**", and its flipped/transformed siblings | Ashcloud Phoenix, Homura Human Ascendant, Loyal Cathar |
+| Mass graveyard return, riders | riders on the returned cards (an extra counter, "each of them is a 1/1 Spirit"); "…that weren't put there this way" | Pyrrhic Revival · Storm of Souls · Bringer of the Last Gift |
+| Distribute counters + tail | "distribute N +1/+1 counters among 1, 2, or 3 target creatures, **then** …" and the post-distribute "each of those creatures" tail | Biogenic Upgrade, Court of Garenbrig |
+| Counter doubling, union target | "double the number of **each kind of** counter on target **artifact, creature, or land**" | Vorel of the Hull Clade |
+| Land destruction, search tails | the "…each player searches…" / "…that land's controller searches…" follow-up after the destroy | Field of Ruin, Demolition Field, Magmatic Hellkite |
+| Loses-all-abilities + base P/T | "loses all abilities and becomes a `<colour>` `<type>` with base power and toughness N/N"; the front-loaded "until end of turn, … has base P/T … and gains `<kw>`" form | Turn to Frog, Snakeform, Ovinize · Creeperhulk |
+| Cost reduction gated on the target | "this spell costs {N} less to cast **if it targets** a creature (card) with mana value N or less / with a +1/+1 counter on it" | No One Left Behind, Revoke Demise, Titanic Brawl |
+| Un-limited batch-death triggers | "whenever **1 or more** other creatures [you control] die, …" with no "only once each turn" limiter to collapse the per-object firing into the right net | Great Fierce Bee, Vengeful Townsfolk |
+| Halved, rounded X | "you gain **half X** life and draw **half X** cards. round down each time" | Hydroid Krasis |
+| "destroy ~ unless you pay" follow-up | "**if ~ is destroyed this way**, …" | Cosmic Horror |
+| Random modal + emblem body | "choose 1 **at random** —", plus an emblem whose own body is unclaimed; "you may planeswalk" (only the bare "planeswalk" fullmatch exists) | Seek Bolas's Counsel · Start the TARDIS |
+| Threaten after-tail | "…**create a Blood token**" after the gain-control / untap / haste sequence | Bloody Betrayal |
+| Saddle referent | "whenever ~ attacks **while saddled**, choose a nonlegendary creature that saddled it this turn" | Calamity, Galloping Inferno |
+| Compound attack-trigger conditions | "whenever ~ attacks, **if** a nonland permanent left the battlefield this turn **or** a spell was warped this turn, …" | Alpharael, Stonechosen |
+| Misc singletons | "another target creature" (the `other_creature` kind is not engine-wired); "**if it was a Gideon planeswalker**" conditional tail | Arwen, Mortal Queen · Gideon's Defeat |
+
 
 ## Lessons that keep recurring
 
 Each was paid for once; re-reading them is cheaper than re-learning them.
+
+- **"Still open" notes written inside a shipped batch's narrative go stale
+  silently, and nothing points at them once the batch's ticket closes.** The
+  removed per-version changelog ended most entries with a residue list ("still
+  open in this cluster: …"). Those lists were the only record that those gaps
+  existed — but they were filed *under the version that closed something else*,
+  so when `PAR-30`, `PAR-60` and `MEC-77` closed, the residue kept no home and
+  nobody re-checked it. Auditing the 61 cards named that way on 2026-09-09
+  found **25 already `MODELED`**, eight clusters wholly closed, and two entries
+  whose named blocker had been fixed while the card stayed unmodeled on
+  something unrelated. This is `CLAUDE.md`'s no-half-implementations rule seen
+  from a third angle: not a deferred item rolling over, but a *recorded gap
+  losing its owner*. Residue belongs in a place someone re-reads (`BACKLOG.md`,
+  or this file's *Known-open clusters*), never as a trailing sentence on a
+  worklog entry.
 
 - **A ranked template that is a block *wrapper* (modal, Saga, Class level) is
   usually a red herring.** `gate.py` fail-closes the whole block when any one
