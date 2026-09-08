@@ -5,7 +5,7 @@ previous-subject, and RULE 701.50d's dynamic "connives X" — see
 `test_connive_target_and_dynamic_amount.py` for the fuller family and
 execute-level coverage of the widened `ConniveEffect`).
 
-* RULE 701.50 **Connive** → `game/effects.py` `ConniveEffect` (proven only
+* RULE 701.50 **Connive** → `game/effects/core.py` `ConniveEffect` (proven only
   via the hand-authored Ledger Shredder entry until now). The two subjects
   where the conniving permanent is the ability's own source — "~ connives"
   (explicit self) and the "it/he/she" pronoun of a self-subject trigger — a
@@ -14,7 +14,7 @@ execute-level coverage of the widened `ConniveEffect`).
   is `<count-selector-or-trigger-event-field>`" are all claimed. A bare
   literal "connives N"/"connives x" with no "where X is" explanation still
   stays UNMODELED — no real printed card uses that shape.
-* RULE 701.57 **Discover** → `game/effects.py` `DiscoverEffect` (Cascade's
+* RULE 701.57 **Discover** → `game/effects/core.py` `DiscoverEffect` (Cascade's
   sibling). Literal `discover <n>` only; "discover X, where X is
   <selector>" stays UNMODELED.
 
@@ -23,7 +23,7 @@ Reference: mtg_analyzer/parser/oracle/catalogue/handlers.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent

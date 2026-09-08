@@ -2,7 +2,7 @@
 
 The keyword was already recognized by the oracle-text parser (`parser/
 oracle/catalogue/keywords.py`'s catalogue table, `KeywordShape.COST`) but
-never bound to any real behaviour — `game/effect_binder.py`'s keyword
+never bound to any real behaviour — `game/binding/core.py`'s keyword
 dispatch table had no entry for it at all, so every card printing it was
 inert. This batch adds `CumulativeUpkeepEffect`/`_kw_cumulative_upkeep`:
 "At the beginning of your upkeep, put an age counter on this permanent,
@@ -21,15 +21,15 @@ minimal synthetic Cumulative-Upkeep-only creature instead, so the
 mechanic under test is isolated from that unrelated interaction; a
 separate real-card test confirms Old Fogey's own clause still binds.
 
-Reference: mtg_analyzer/game/effects.py (`CumulativeUpkeepEffect`,
-`_scale_cumulative_upkeep_cost`), game/effect_binder.py
+Reference: mtg_analyzer/game/effects/core.py (`CumulativeUpkeepEffect`,
+`_scale_cumulative_upkeep_cost`), game/binding/core.py
 (`_kw_cumulative_upkeep`), game/rules/misc_mixin.py
 (`request_sacrifice_unless_pay`).
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
@@ -136,7 +136,7 @@ def test_pay_life_cost_scales_too():
     # `parser_probe.py`'s "also blocked" bucket flags for Decomposition).
     # Built directly against `CumulativeUpkeepEffect` instead, to isolate
     # the *scaling* logic under test from that unrelated parser gap.
-    from mtg_analyzer.game.effects import CumulativeUpkeepEffect, TriggeredAbility
+    from mtg_analyzer.game.effects.core import CumulativeUpkeepEffect, TriggeredAbility
 
     eng, p1, p2 = two_player_engine()
     blank_creature = Card(

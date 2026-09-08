@@ -279,7 +279,7 @@ _RESTRICTION_TYPE_RE = re.compile(
 #: Territory) — unlike `_RESTRICTION_TYPE_RE` above, the type isn't printed
 #: at all; it's whatever the land's own RULE 601.2b "as ~ enters, choose a
 #: creature type" ETB choice picked (`GameObject.chosen_type`, already
-#: modeled for the `enter_replacement` family — see `game/effect_binder.py`).
+#: modeled for the `enter_replacement` family — see `game/binding/core.py`).
 #: The restriction dict parsed here carries no ``types`` of its own; it's
 #: resolved into an ordinary ``type_spell`` restriction dynamically, at tap
 #: time, off the tapped land's *own* `chosen_type` (`GameEngine.

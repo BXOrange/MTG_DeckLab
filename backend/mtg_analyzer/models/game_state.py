@@ -503,7 +503,7 @@ class GameState:
         #: rest back up once the player answers, rather than letting the
         #: second effect overwrite the first one's prompt. Each entry is the
         #: remaining effects plus the targets/`target_groups` slice they had
-        #: yet to consume — pushed by `game/effects.py`'s
+        #: yet to consume — pushed by `game/effects/core.py`'s
         #: `_apply_effects_partitioned`, drained by `RulesEngine.
         #: resume_deferred_effects` from `GameEngine.resolve_until_stable`.
         self.deferred_effects: list[dict[str, Any]] = []
@@ -621,7 +621,7 @@ class GameState:
         #: marker to `temp_play_permissions` rather than a cost override
         #: threaded through `ManaCost` itself, so every other `cast_spell`/
         #: `can_cast` caller is unaffected. Set by `ReboundFreeCastWindowEffect`
-        #: (`game/effects.py`) when a Rebound delayed trigger fires; consumed
+        #: (`game/effects/core.py`) when a Rebound delayed trigger fires; consumed
         #: (discarded) the instant the card is actually cast, and pruned in
         #: lockstep with `temp_play_permissions` at cleanup otherwise
         #: (`GameEngine._step_cleanup`).
@@ -704,7 +704,7 @@ class GameState:
         #: rather than by a permanent's printed static ability — "Until your
         #: next turn, creatures you control get +1/+1", "Target creature
         #: gains flying until end of combat". Each is an ordinary
-        #: `game/effects.py` `StaticAbility` carrying a ``duration``, folded
+        #: `game/effects/core.py` `StaticAbility` carrying a ``duration``, folded
         #: into every `continuous.recompute` exactly like a permanent's own
         #: (so it goes through the same RULE 613 layers, timestamps and
         #: dependency pass) and swept by `GameEngine` at the window its

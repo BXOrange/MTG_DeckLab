@@ -9,8 +9,8 @@ requires the choice) and damage doubling vs. additive damage (Furnace of
 Rath, Torbran, Thane of Red Fell — order genuinely changes the total).
 """
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import ReplacementEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import ReplacementEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent

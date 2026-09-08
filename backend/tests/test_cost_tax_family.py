@@ -31,8 +31,8 @@ from __future__ import annotations
 
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.costs import parse_activation_cost
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import ActivatedAbility, DrawCardEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import ActivatedAbility, DrawCardEffect
 
 from tests.test_game_engine import creature, make_engine, obj_on_battlefield
 

@@ -22,7 +22,7 @@ Two primitives, both real, both reusable beyond this one card:
     other permanent's, with each nested effect's `.source` redirected to
     the grantee (RULE 113.7c).
 
-Reference: mtg_analyzer/game/effects.py (`ExileEffect.track_exiled_with`,
+Reference: mtg_analyzer/game/effects/core.py (`ExileEffect.track_exiled_with`,
 `grant_any_color_for_activation`, `grant_borrowed_activated_ability`),
 mtg_analyzer/game/continuous.py (`any_color_for_activation`,
 `_apply_borrowed_activated_abilities`), mtg_analyzer/game/ability_catalogue.py
@@ -31,7 +31,7 @@ mtg_analyzer/game/continuous.py (`any_color_for_activation`,
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

@@ -35,7 +35,7 @@ from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, 
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
-from ..effects import (
+from ..effects.core import (
     _apply_effects_partitioned,
     AddCountersEffect,
     CompleteDungeonEffect,
@@ -542,7 +542,7 @@ class TriggerCollectionMixin:
         effect>`" scaffold: the damaged player (and, per-marker, the amount)
         varies per firing, which a bind-on-load `TriggeredAbility`'s one
         fixed ``effects`` list can't carry (see that class's docstring,
-        `game/effects.py`) — so this is built fresh right here, the same
+        `game/effects/core.py`) — so this is built fresh right here, the same
         "per-firing data baked in right when the event fires" shape
         `_collect_inherent_triggers` above uses for the Monarch/Initiative
         combat-damage swap, queued through the ordinary ``pending_triggers``
@@ -1843,7 +1843,7 @@ class TriggerCollectionMixin:
         to put on the stack next (RULE 603.3b). Picked first → placed first →
         resolves last (the stack is LIFO). ``label`` is the ability's own
         oracle text (`description` is `spec.raw_text` wherever the binder set
-        it — see `effect_binder.py`), and ``source_name`` the permanent/card
+        it — see `binding/core.py`), and ``source_name`` the permanent/card
         it's on, kept as a separate field (rather than folded into the
         label) so the frontend can tell two identically-worded triggers from
         different sources apart without string-parsing a combined label."""

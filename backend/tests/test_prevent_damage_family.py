@@ -1,7 +1,7 @@
 """MEC-30: carding the standing `prevent_damage` replacement family (RULE
 615/616.1) and its new "a source of your choice" one-shot sibling.
 
-`game/effects.py`'s `_prevent_damage_replacement` (`ReplacementRegistry`'s
+`game/effects/core.py`'s `_prevent_damage_replacement` (`ReplacementRegistry`'s
 ``"prevent_damage"``) existed but was never bound to any real card — see
 `docs/implementation-state/Done_Backend.md`'s "MEC-30" entry. This batch:
 
@@ -26,8 +26,8 @@ the resulting life/marked-damage/hand-size checked — not just spec parsing.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue, build_replacements
-from mtg_analyzer.game.effects import ReplacementRegistry
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue, build_replacements
+from mtg_analyzer.game.effects.core import ReplacementRegistry
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -393,7 +393,7 @@ def _resolve_any_replacement_order_choice(engine):
     replacements *really* simultaneously applicable to the same event) —
     kept as a no-op safety net for tests that don't care about ordering.
     Before the fourth MEC-30 pass this was load-bearing: every `ReplacementEffect`
-    factory in `game/effects.py` only ever checked the event *type* in
+    factory in `game/effects/core.py` only ever checked the event *type* in
     `can_replace`, leaving the real recipient/source scoping inside
     `replacement_fn` itself — so e.g. Gisela's two unrelated replacements
     (one opponent-scoped, one self-scoped) both reported "applicable" for
@@ -463,7 +463,7 @@ def test_circle_of_protection_red_catalogue_entry():
 
     (ability,) = circle.activated_abilities
     (effect,) = ability.effects
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     effect.source = circle
     effect.apply(GameContext(state, engine))
@@ -488,7 +488,7 @@ def test_color_any_filter_matches_any_listed_color():
 
     (ability,) = realm.activated_abilities
     (effect,) = ability.effects
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     effect.source = realm
     effect.apply(GameContext(state, engine))  # only the black attacker qualifies — auto-picked
@@ -510,7 +510,7 @@ def test_color_from_source_filter_reads_the_shielding_objects_own_choice():
 
     (ability,) = circle.activated_abilities
     (effect,) = ability.effects
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     effect.source = circle
     effect.apply(GameContext(state, engine))  # only one legal (blue) candidate — auto-picked
@@ -533,7 +533,7 @@ def test_subtype_from_source_filter_reads_the_shielding_objects_chosen_type():
 
     (ability,) = circle.activated_abilities
     (effect,) = ability.effects
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     effect.source = circle
     effect.apply(GameContext(state, engine))  # only the Goblin is a legal candidate
@@ -606,7 +606,7 @@ def test_haazda_shield_mate_catalogue_entry_binds_both_abilities():
     assert len(mate.triggered_abilities) == 1  # the upkeep sacrifice-unless-pay clause
     (ability,) = mate.activated_abilities
     (effect,) = ability.effects
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     effect.source = mate
     effect.apply(GameContext(state, engine))
@@ -634,7 +634,7 @@ def test_circle_of_protection_artifacts_catalogue_entry_filters_by_card_type():
 
     (ability,) = circle.activated_abilities
     (effect,) = ability.effects
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     effect.source = circle
     effect.apply(GameContext(state, engine))  # only the artifact creature is a legal candidate
@@ -661,7 +661,7 @@ def test_deflecting_palm_catalogue_entry():
     engine = RulesEngine(state)
 
     (effect,) = palm.spell_effects
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     effect.source = palm
     effect.apply(GameContext(state, engine))
@@ -898,7 +898,7 @@ def test_insult_injury_catalogue_entry_disables_prevention_and_doubles():
     engine = RulesEngine(state)
     engine.prevent_damage_to_player(p2, "all")  # p2 has a pre-existing shield
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     context = GameContext(state, engine)
     for effect in insult.spell_effects:
@@ -918,7 +918,7 @@ def test_isengard_unleashed_catalogue_entry_only_triples_damage_to_opponents():
     my_creature = _bf(state, _creature("My Creature"), controller="p1")
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     context = GameContext(state, engine)
     for effect in isengard.spell_effects:
@@ -975,7 +975,7 @@ def test_ajani_steadfast_plus_one_pumps_up_to_one_target_creature():
     bear = _bf(state, _creature("Bear"))
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (plus_one, _minus_two, _minus_seven) = ajani.activated_abilities
     (effect,) = plus_one.effects
@@ -998,7 +998,7 @@ def test_ajani_steadfast_minus_two_counters_creatures_and_other_planeswalkers():
                                 type_line="Planeswalker — Other", loyalty=3))
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (_plus_one, minus_two, _minus_seven) = ajani.activated_abilities
     context = GameContext(state, engine)
@@ -1020,7 +1020,7 @@ def test_ajani_steadfast_minus_seven_emblem_shields_you_and_your_planeswalkers()
     attacker = _bf(state, _creature("Attacker"), controller="p2")
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (_plus_one, _minus_two, minus_seven) = ajani.activated_abilities
     (effect,) = minus_seven.effects
@@ -1051,7 +1051,7 @@ def test_kithkin_armor_catalogue_entry_shields_the_enchanted_creature():
     attacker = _bf(state, _creature("Attacker"), controller="p2")
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (ability,) = armor.activated_abilities
     (effect,) = ability.effects
@@ -1078,7 +1078,7 @@ def test_shadowbane_catalogue_entry_shields_you_and_your_creatures():
     for _ in range(5):
         p1.library.append(GameObject(Card(id="Filler", name="Filler", type_line="Land"), owner_id="p1"))
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (effect,) = shadowbane.spell_effects
     effect.source = shadowbane
@@ -1106,7 +1106,7 @@ def test_honorable_passage_catalogue_entry_reflects_red_source_damage():
     red_attacker = _bf(state, _creature("Red Attacker", colors=["R"]), controller="p2")
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (effect,) = passage.spell_effects
     effect.source = passage
@@ -1130,7 +1130,7 @@ def test_dazzling_reflection_catalogue_entry_gains_life_and_shields_same_target(
     attacker = _bf(state, _creature("Attacker"), controller="p2")
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     context = GameContext(state, engine)
     for effect in reflection.spell_effects:
@@ -1160,7 +1160,7 @@ def test_samite_blessing_catalogue_entry_grants_a_chooser_ability_to_the_host():
     assert len(granted) == 1
     (ability,) = granted
     (effect,) = ability.effects
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     effect.source = host
     effect.apply(GameContext(state, engine), targets=[victim])
@@ -1249,7 +1249,7 @@ def test_opal_eye_catalogue_entry_redirects_the_chosen_source():
     attacker = _bf(state, _creature("Attacker"), controller="p2")
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (redirect_ability, _prevent_ability) = opal_eye.activated_abilities
     (effect,) = redirect_ability.effects
@@ -1273,7 +1273,7 @@ def test_opal_eye_catalogue_entry_second_ability_shields_only_itself():
     attacker = _bf(state, _creature("Attacker"), controller="p2")
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (_redirect_ability, prevent_ability) = opal_eye.activated_abilities
     (effect,) = prevent_ability.effects
@@ -1301,7 +1301,7 @@ def test_penance_catalogue_entry_prevents_regardless_of_recipient():
     attacker = _bf(state, _creature("Attacker", colors=["R"]), controller="p2")
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (ability,) = penance.activated_abilities
     (effect,) = ability.effects
@@ -1386,7 +1386,7 @@ def test_seasoned_tactician_catalogue_entry_shields_the_controller():
     attacker = _bf(state, _creature("Attacker"), controller="p2")
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (ability,) = tactician.activated_abilities
     (effect,) = ability.effects
@@ -1478,7 +1478,7 @@ def test_bone_mask_catalogue_entry_exiles_top_of_library_equal_to_prevented():
     )
     library_size = len(p1.library)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (ability,) = mask.activated_abilities
     (effect,) = ability.effects
@@ -1693,7 +1693,7 @@ def test_desperate_gambit_win_doubles_the_chosen_sources_damage():
     state.rng_seed = 2  # a "win" (heads) on the first flip at this seed
     state.rng_counter = 0
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (effect,) = gambit.spell_effects
     effect.source = gambit
@@ -1717,7 +1717,7 @@ def test_desperate_gambit_lose_prevents_the_chosen_sources_damage():
     state.rng_seed = 0  # a "loss" (tails) on the first flip at this seed
     state.rng_counter = 0
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (effect,) = gambit.spell_effects
     effect.source = gambit
@@ -1738,7 +1738,7 @@ def test_desperate_gambit_only_offers_sources_the_caster_controls():
     opponents_creature = _bf(state, _creature("Opponent's Creature"), controller="p2")
     engine = RulesEngine(state)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     (effect,) = gambit.spell_effects
     effect.source = gambit

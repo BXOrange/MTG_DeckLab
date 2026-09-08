@@ -143,7 +143,7 @@ is in the rules-engine categories below them.
 ### "Add 1 mana of any color" resolve-time color choice
 
 - **What:** A spell/ability's bare "Add 1 mana of any color." now opens a genuine `add_mana_any_color` `pending_choice` (W/U/B/R/G) at resolution instead of guessing a color, distinct from a permanent's own pre-declared mana-ability options. Defaults to White on a missing/invalid answer.
-- **Files:** `game/effects.py`, `game/rules_engine.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`, `parser/oracle/catalogue/handlers.py`
 - **Why:** Built as shared infrastructure for Deathrite Shaman rather than a coverage play — zero real cards were unlocked by this alone at ship time.
 
 ### Leveler-gated mana abilities (RULE 711.4c)
@@ -171,7 +171,7 @@ is in the rules-engine categories below them.
 ### "Tapped for mana" event primitive (RULE 605.1)
 
 - **What:** `tap_for_mana` fires a new `EventType.TAPPED_FOR_MANA` after mana lands in the pool, off a genuine mana-ability tap only — carrying `instance_id`, `object_types`, `controller_id`, and the produced mana. Unlocks Price of Glory by composing this with a new `not_controllers_turn` trigger predicate and the reflexive "destroy that land" primitive.
-- **Files:** `models/events.py`, `game/game_engine.py`, `game/effect_binder.py`
+- **Files:** `models/events.py`, `game/game_engine.py`, `game/binding/core.py`
 
 ### Two RULE 605.3a Mana-Spend-Restriction Kinds
 
@@ -197,12 +197,12 @@ is in the rules-engine categories below them.
 ### Triggered mana ability (RULE 605.1b/605.4)
 
 - **What:** `TriggeredAbility.mana_ability` resolves off-stack the instant it fires, so mana from an ability triggered off another mana ability is spendable within the same payment window that triggered it — the reason Wild Growth and Kinnan, Bonder's Pupil are playable.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Mirrored/matching mana effects (Kinnan, Mana Web)
 
 - **What:** `MirrorProducedManaEffect` adds only the mana a triggering permanent actually produced (narrower than a plain "any colour" add); `TapMatchingLandsEffect` locks down every land that could produce a colour a tapped land actually made.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Open mana-potential display aggregate
 
@@ -245,7 +245,7 @@ is in the rules-engine categories below them.
 ### Bloom Tender / Carpet of Flowers mana primitives (ENG-27)
 
 - **What:** New `ManaAbility.color_selector` kind `"colors_among_permanents_you_control"` — Bloom Tender's real cached text is a deterministic aggregate ("one mana of every color among permanents you control"), not a menu. Separately, `AddManaEffect.amount_from_target_count_selector`/new `amount` param on `add_mana_any_color` plus `GameObject.added_mana_with_ability_this_turn` model Carpet of Flowers as a genuine once-per-turn *targeted, triggered* mana ability (RULE 605.5a disqualifies a targeting ability from ever being a true mana ability, so it goes on the stack).
-- **Files:** `game/mana_abilities.py`, `game/effects.py`, `models/game_object.py`, `game/ability_catalogue.py`
+- **Files:** `game/mana_abilities.py`, `game/effects/core.py`, `models/game_object.py`, `game/ability_catalogue.py`
 - **Why:** Sizing first found the ticket's own framing wrong for both cards — Bloom Tender has no player choice, and Carpet of Flowers can't be a mana ability at all per RULE 605.5a.
 
 ### User-reported bug: qualified "any color" mana clauses ignored board state (Mana System)
@@ -291,12 +291,12 @@ is in the rules-engine categories below them.
 ### Effect system foundation
 
 - **What:** Core effect hierarchy — `GameEffect`, `StaticEffect`, `TriggeredAbility`, `ReplacementEffect`, `ActivatedAbility`, `WinConditionEffect` — plus a `GameContext` facade that effects act through so their consequences route back through the engine's own primitives.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### EffectRegistry and core one-shot effects
 
 - **What:** A name-keyed `EffectRegistry` (hybrid class+registry design) with the first core one-shot effects: `DealDamageEffect`, `DrawCardEffect`, `DiscardEffect`, `DestroyEffect`.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Turn phases and steps as sequences (RULE 500)
 
@@ -316,36 +316,36 @@ is in the rules-engine categories below them.
 ### Library search and the general pending-choice mechanism (RULE 701.19)
 
 - **What:** `SearchLibraryEffect` (type-restricted) plus `RulesEngine.request_search`/`resolve_search_choice` established the general `state.pending_choice` pattern: a JSON-able choice that travels with rewind snapshots, pauses resolution, and is answered by a `choose`/`decline` session action — reused by nearly every later interactive feature.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### GainLifeEffect and CounterSpellEffect
 
 - **What:** `GainLifeEffect` and `CounterSpellEffect` (removes a spell from the stack to its owner's graveyard, RULE 701.5) registered alongside damage/draw/discard/destroy/search.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 - **Follow-up (PAR-36, v231) — "you gain that much life":** `GainLifeEffect` gained an `amount_from_trigger_event` param (the gain sibling of `LoseLifeEffect`/`DealDamageEffect`'s identically-named field, threaded first into `_resolve_amount_override`'s chain), reading the firing event's own `amount` off `GameContext.trigger_event`. New parser handler `gain_life_from_trigger_amount` (`you gain that much life` → `EffectSpec("gain_life", {"amount_from_trigger_event": "amount"})`), registered before the plain `gain_life` row so "that much" wins over its literal `NUMBER`. Closes the pre-lifelink "Whenever ~ deals damage, you gain that much life." template — `_DAMAGE_TRIGGER_RE` already parsed the (combat-or-not, any-instance) condition; only the body was blocked. **+17** — El-Hajjâj / Exalted Angel / Horned Cheetah / Warrior Angel / Wall of Hope (creatures), Spirit Link / Vampiric Link / Spirit Loop / Noble Purpose (the Aura/enchantment grant forms). `tests/test_par36_gain_that_much_life.py`.
 
 ### Maximum life total — MEC-54
 
 - **What:** "For the rest of the game, your maximum life total is N." (You Compleat Me — the only printed card with this wording, no CR rule number). A permanent, player-scoped continuous cap: a duck-typed marker (`_MaxLifeTotalMarker`, just a `max_life_total` attr) on `Player.player_effects`, the `player_life_locked` idiom. `RulesEngine._max_life_total(player)` returns the tightest cap in force; `set_max_life_total(player, cap)` installs it and immediately loses a currently-higher total down to it. Honoured at the single choke point `RulesEngine.gain_life` — `_finish` clamps `final` to `max(cap - player.life, 0)` before applying, so a gain can raise the total only up to the cap and never past it. `SetLifeEffect` gained an `only_reduce` flag for the card's own "if your life total is greater than N, it becomes N" rider (a half-set that never raises a lower total). New effect type `set_max_life_total` → `SetMaxLifeTotalEffect` (untargeted "your").
-- **Files:** `game/rules/damage_death_mixin.py` (`_MaxLifeTotalMarker`, `_max_life_total`, `set_max_life_total`, `gain_life` clamp), `game/effects.py` (`SetLifeEffect.only_reduce`, `SetMaxLifeTotalEffect`), `tests/test_mec54_max_life_and_you_compleat_me.py`
+- **Files:** `game/rules/damage_death_mixin.py` (`_MaxLifeTotalMarker`, `_max_life_total`, `set_max_life_total`, `gain_life` clamp), `game/effects/core.py` (`SetLifeEffect.only_reduce`, `SetMaxLifeTotalEffect`), `tests/test_mec54_max_life_and_you_compleat_me.py`
 - **Why:** A single choke point (`gain_life`) already routes every effect-driven life gain, so the cap needed no new event/replacement — just one `min()` there plus the immediate clamp on install.
 
 ### "X loses N life" effect family and gain/lose-life controller fallback
 
 - **What:** Added `lose_life`/`lose_life_selector` handlers and registered `LoseLifeEffect` (previously only reachable internally by Afflict) with the same mass-selector shape `DealDamageEffect` has.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 - **Bug fixed:** `GainLifeEffect`/`LoseLifeEffect`'s "no explicit player" fallback read `targets[0]` from the ability's shared target list, crashing when combined with an unrelated targeted effect in the same clause (Deathrite Shaman's "Exile target creature card... You gain 2 life."). Fixed to use the effect's own controller instead.
 - **Follow-up (PAR-45, v232) — "target opponent loses N life":** the `lose_life` handler's `who` alternation gained `target opponent` → `EffectSpec("lose_life", {"target_kind": "opponent"})` (the RULE 115 opponent-restricted player target — already a valid `ALLOWED_TARGET_KINDS` entry, `legal_targets` already narrows it). This unlocks the Blood Artist / Zulaport Cutthroat **drain** family without any "drain" effect type: `target opponent loses N life and you gain N life` splits on the connector into the widened `lose_life` row + the existing `gain_life` row. **+34** — A-Blood Artist / A-Queza / Zulaport Chainmage / Bump in the Night / Geralf's Messenger / Vein Ripper / Skymarch Bloodletter / Diregraf Captain / …. `tests/test_par45_drain_target_opponent.py`.
 
 ### Surveil (RULE 701.31)
 
 - **What:** Mirrors the existing Scry implementation exactly: new `EventType.SURVEIL`, `RulesEngine.surveil` (always resolves the "keep everything on top" outcome non-interactively, firing the event for observers), `SurveilEffect`, and a parser handler for "surveil {NUMBER}".
-- **Files:** `game/effects.py`, `game/rules_engine.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`, `parser/oracle/catalogue/handlers.py`
 
 ### Explore (RULE 701.44) (PAR-29, PARSER_VERSION 106)
 
 - **What:** A new engine primitive for the Ixalan keyword action, the biggest single item in the PAR-29 RULE 701 residue. `RulesEngine.explore(permanent, player=None)` (in `search_mixin.py`, beside scry/surveil): reveal the top card of the exploring permanent's controller's library; a **land** goes to that player's hand (no counter); a **nonland** puts a +1/+1 counter on the permanent (through `add_counters`, so Doubling Season &c. still apply) and opens `explore_bin` — a genuine yes/no "may put the revealed card into your graveyard" (`resolve_explore_bin_choice`; declining leaves it on top). New `EventType.EXPLORED` fires once the whole process is complete (RULE 701.44b — inline for the land/empty-library paths, from the choice resolver otherwise), carrying `instance_id` / `controller_id` / `found_land` for a future "whenever ~/a creature you control explores" trigger. `effects.ExploreEffect` resolves *which* permanent(s) explore — the same three subject shapes as `GoadEffect`: bare self (`target_kind=None` — "when ~ enters, it explores", the 15-card bulk), `previous_subject` ("that creature explores", the creature an earlier clause chose), and a `TargetSpec` ("target creature you control explores").
-- **Files:** `game/rules/search_mixin.py`, `game/effects.py` (+ `EffectRegistry`), `models/events.py`, `game/engine/turn_loop_mixin.py` (`resolve_pending_choice` dispatch), `parser/oracle/catalogue/handlers.py` (`explore_self_named` / `explore_self_pronoun` / `explore_previous` / `explore_target`), `frontend/src/js/gameBoardView.js` (`explore_bin` icon).
+- **Files:** `game/rules/search_mixin.py`, `game/effects/core.py` (+ `EffectRegistry`), `models/events.py`, `game/engine/turn_loop_mixin.py` (`resolve_pending_choice` dispatch), `parser/oracle/catalogue/handlers.py` (`explore_self_named` / `explore_self_pronoun` / `explore_previous` / `explore_target`), `frontend/src/js/gameBoardView.js` (`explore_bin` icon).
 - **Deliberately unclaimed:** "explores, then it explores again" (Defossilize — a repeat wrapper); mass "each Merfolk creature you control explores" (an untargeted selector, `ExploreEffect` has no `selector` param); "whenever a creature you control explores, `<effect>`" (the `EXPLORED` event fires, but no trigger-condition parser row reads it yet). RULE 701.44d's APNAP ordering for simultaneous multi-permanent explores is not modeled (no single card creates that situation).
 - **Yield:** +22 real cache cards (`parser_probe.py` diff, full cache, 0 regressed) — Merfolk Branchwalker, Seekers' Squire, Siren Lookout, Cenote Scout, Emperor's Vanguard, Tishana's Wayfinder, and more.
 - **Tests:** `tests/test_par29_explore.py`
@@ -353,7 +353,7 @@ is in the rules-engine categories below them.
 ### Populate (RULE 701.36) (PAR-29, PARSER_VERSION 107)
 
 - **What:** The next item off the PAR-29 RULE 701 residue, a small primitive on top of existing machinery. `RulesEngine.populate(player)` (in `copies_mixin.py`, beside `copy_permanent`): put a token onto the battlefield that's a copy of a creature token `player` controls (701.36a), nothing if they control none (701.36b). Degenerate cases resolve without asking (the `request_manifest_dread` idiom) — zero creature tokens → no-op; exactly one → copy it straight through `copy_permanent`; two or more → a new `populate` `pending_choice` (`resolve_populate_choice`, mandatory, a missing answer defaults to the first offered token). `effects.PopulateEffect` is the whole binding: "populate" never takes a target or a pronoun subject, so unlike `ExploreEffect`/`GoadEffect` there is only the one shape — `_controller_of(self.source, context)` and call the primitive.
-- **Files:** `game/rules/copies_mixin.py` (`populate` / `resolve_populate_choice`), `game/effects.py` (`PopulateEffect` + `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice` dispatch), `parser/oracle/catalogue/handlers.py` (`populate` handler — a bare-word fullmatch), `frontend/src/js/gameBoardView.js` (`populate` icon).
+- **Files:** `game/rules/copies_mixin.py` (`populate` / `resolve_populate_choice`), `game/effects/core.py` (`PopulateEffect` + `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice` dispatch), `parser/oracle/catalogue/handlers.py` (`populate` handler — a bare-word fullmatch), `frontend/src/js/gameBoardView.js` (`populate` icon).
 - **Deliberately unclaimed:** ~9 cards whose "populate" clause is now real but that carry a *second* still-unmodeled clause (Determined Iteration's "the token created this way gains haste. sacrifice it …", Ghired, Conclave Exile's "the token enters tapped and attacking", Ghired's Belligerence's divided-damage trigger) stay UNMODELED.
 - **Yield:** +14 real cache cards net (`parser_probe.py`, full cache, 0 regressed — a bare-word fullmatch handler cannot over-match) — Wake the Reflections, Rootborn Defenses, Trostani's Judgment, Sundering Growth, Growing Ranks, Song of the Worldsoul, Wayfaring Temple, Vitu-Ghazi Guildmage, and more.
 - **Tests:** `tests/test_par29_populate.py`
@@ -362,7 +362,7 @@ is in the rules-engine categories below them.
 ### Bolster (RULE 701.39) + Support (RULE 701.41) (PAR-29, PARSER_VERSION 108)
 
 - **What:** The +1/+1 keyword-action pair, off the PAR-29 RULE 701 residue. **Bolster N** is a new primitive: `RulesEngine.bolster(player, amount, source=None)` (in `mana_counters_mixin.py`, beside `add_counters`) finds the least toughness among creatures `player` controls and puts N +1/+1 counters on the one creature at that toughness — through `add_counters`, so RULE 616.1 doublers (Doubling Season) and RULE 122.5 "whenever a +1/+1 counter is put on ~" triggers apply. RULE 701.39a's tie clause is a `bolster` `pending_choice` (`resolve_bolster_choice`), opened only on a genuine tie; a single least-toughness creature or none resolves without asking (the `RulesEngine.populate` idiom). `effects.BolsterEffect` is a bare "you"-subject effect like `PopulateEffect` (no target, no pronoun). **Support N** needs no effect of its own — "support N" is a parser alias emitting the exact `add_counters` spec `_add_counters_multi_target` already produces for "put a +1/+1 counter on each of up to N target creatures" (`target_kind="creature"`, `target_count=N`, `optional=True`). RULE 701.41c's "a creature's support can't put a counter on itself" falls out for free: `targeting`'s plain `"creature"` kind already excludes the ability's own source (line ~923, `o is not source`).
-- **Files:** `game/rules/mana_counters_mixin.py` (`bolster` / `resolve_bolster_choice`), `game/effects.py` (`BolsterEffect` + `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice` dispatch), `parser/oracle/catalogue/handlers.py` (`bolster` / `support` handlers), `frontend/src/js/gameBoardView.js` (`bolster` icon). The `when ~ enters, <kw> N` and `<cost>: <kw> N` wrappers come free from the existing trigger/activated-ability grammar.
+- **Files:** `game/rules/mana_counters_mixin.py` (`bolster` / `resolve_bolster_choice`), `game/effects/core.py` (`BolsterEffect` + `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice` dispatch), `parser/oracle/catalogue/handlers.py` (`bolster` / `support` handlers), `frontend/src/js/gameBoardView.js` (`bolster` icon). The `when ~ enters, <kw> N` and `<cost>: <kw> N` wrappers come free from the existing trigger/activated-ability grammar.
 - **Deliberately unclaimed:** "bolster 1, then put a +1/+1 counter on each creature you control with a +1/+1 counter on it" (Scale Blessing — a second clause); "you may pay `{3}{W}`. If you do, support 2" (Jubilant Mascot — a `pay_cost_then` wrapper, a different card from the one PARSER_VERSION 114 closed below).
 - **Yield:** +25 real cache cards combined (`parser_probe.py`, full cache, 0 regressed — both handlers `fullmatch` a bare "`<kw>` `<digits>`" clause that was UNMODELED, nothing to over-match) — Aven Tactician, Elite Scaleguard, Sandsteppe Mastodon, Cached Defenses, Aerie Auxiliary, Relief Captain, Gladehart Cavalry, Lead by Example, Shoulder to Shoulder, and more.
 - **Tests:** `tests/test_par29_bolster_support.py`
@@ -371,7 +371,7 @@ is in the rules-engine categories below them.
 ### Suspect (RULE 701.60) (PAR-29, PARSER_VERSION 109) + one-off shapes residue closed (PAR-30, PARSER_VERSION 210)
 
 - **What:** The Murders at Karlov Manor designation, off the PAR-29 residue. A new `GameObject.is_suspected` flag in the `is_monstrous`/`goaded_by` family — `RulesEngine.suspect(obj)` sets it (no-op on a non-creature; fires `EventType.SUSPECTED` either way, like `goad`), `RulesEngine.remove_suspected(objs)` clears it, `reset_as_new_object` clears it (RULE 400.7 — a new object isn't suspected). RULE 701.60b's two consequences are read off the flag **at combat time**, never via the layer engine: `combat.is_suspected` is the new predicate, `combat.has_menace` returns True for a suspected creature (so `min_blockers` requires 2+), and `combat_mixin.can_block` refuses a suspected blocker. `effects.SuspectEffect` resolves *which* creature — the same subject shapes as `GoadEffect` plus an `attached` one: bare self ("when ~ enters, suspect it"), `previous_subject` ("return target creature card … suspect it"), `attached` ("suspect enchanted creature" — this Aura's host), and a `TargetSpec` ("suspect [up to N] target creature[ an opponent controls]"). `effects.RemoveSuspectedEffect` is Absolving Lammasu's "all suspected creatures are no longer suspected".
-- **Files:** `models/game_object.py` (`is_suspected` + `reset_as_new_object` + `to_dict`), `models/events.py` (`SUSPECTED`), `game/rules/misc_mixin.py` (`suspect` / `remove_suspected`), `game/combat.py` (`is_suspected` / `has_menace`), `game/engine/combat_mixin.py` (`can_block`), `game/effects.py` (`SuspectEffect` / `RemoveSuspectedEffect` + `EffectRegistry`), `parser/oracle/catalogue/handlers.py` (`suspect_self` / `suspect_previous` / `suspect_attached` / `suspect_target` / `remove_suspected_all`).
+- **Files:** `models/game_object.py` (`is_suspected` + `reset_as_new_object` + `to_dict`), `models/events.py` (`SUSPECTED`), `game/rules/misc_mixin.py` (`suspect` / `remove_suspected`), `game/combat.py` (`is_suspected` / `has_menace`), `game/engine/combat_mixin.py` (`can_block`), `game/effects/core.py` (`SuspectEffect` / `RemoveSuspectedEffect` + `EffectRegistry`), `parser/oracle/catalogue/handlers.py` (`suspect_self` / `suspect_previous` / `suspect_attached` / `suspect_target` / `remove_suspected_all`).
 - **Deliberately unclaimed (at v109; most closed at v210 below):** conditional "if it's suspected, `<effect>`" clauses; two-colour token bodies alongside a suspect clause (Person of Interest — a `create_token` colour gap, unrelated). The "can't become suspected" static, the "if it's suspected, it's no longer suspected" tail and the "suspected creatures you control" group trigger filter all shipped in the PAR-30 one-off-shapes batch. The mechanic itself is complete — a future card with none of those extra clauses lands MODELED with no new work.
 - **Yield:** +8 real cache cards (`parser_probe.py` diff vs v108, full cache, 0 regressed) — Barbed Servitor, Convenient Target, Incriminating Impetus, Caught Red-Handed, Absolving Lammasu, Reasonable Doubt, Rune-Brand Juggler, It Doesn't Add Up.
 - **Tests:** `tests/test_par29_suspect.py`
@@ -387,7 +387,7 @@ is in the rules-engine categories below them.
 ### Detain (RULE 701.35) (PAR-29, PARSER_VERSION 110)
 
 - **What:** The Return to Ravnica designation, off the PAR-29 residue — the same shape as Suspect/goad. `GameObject.detained_by` is a per-detainer set (in practice one entry), swept "until your next turn" by the *same* `GameEngine.begin_turn` loop that expires `goaded_by` (RULE 701.35b — "until the next turn of the controller of the spell or ability"). `RulesEngine.detain(obj, detainer_id)` adds the entry and fires `EventType.DETAINED`; `reset_as_new_object` clears it (RULE 400.7). RULE 701.35b's three consequences are enforced at the point of use via `combat.is_detained`: `_can_attack` and `can_block` refuse a detained permanent, and `can_activate` refuses to activate its abilities (mana abilities go through `tap_for_mana` not `can_activate`, so a detained permanent's mana ability staying usable is a documented minor deviation — no cached detain target has one). `effects.DetainEffect` is targeted-only (no self/pronoun on any real card); `count`/`optional` cover the "up to two/three target …" cycle. Needed one shared-grammar addition: a `target nonland permanent an opponent controls` / `… you don't control` row in `subgrammars._TARGET_ROWS` (onto the existing `nonland_permanent_you_dont_control` targeting kind), for Lyev Skyknight / New Prahv Guildmage.
-- **Files:** `models/game_object.py` (`detained_by` + `reset_as_new_object` + `to_dict`), `models/events.py` (`DETAINED`), `game/rules/misc_mixin.py` (`detain`), `game/engine/turn_loop_mixin.py` (`begin_turn` sweep), `game/combat.py` (`is_detained`), `game/engine/combat_mixin.py` (`_can_attack` / `can_block`), `game/engine/activation_mixin.py` (`can_activate`), `game/effects.py` (`DetainEffect` + `EffectRegistry`), `parser/oracle/catalogue/subgrammars.py` (TARGET row), `parser/oracle/catalogue/handlers.py` (`detain` / `detain_multi`).
+- **Files:** `models/game_object.py` (`detained_by` + `reset_as_new_object` + `to_dict`), `models/events.py` (`DETAINED`), `game/rules/misc_mixin.py` (`detain`), `game/engine/turn_loop_mixin.py` (`begin_turn` sweep), `game/combat.py` (`is_detained`), `game/engine/combat_mixin.py` (`_can_attack` / `can_block`), `game/engine/activation_mixin.py` (`can_activate`), `game/effects/core.py` (`DetainEffect` + `EffectRegistry`), `parser/oracle/catalogue/subgrammars.py` (TARGET row), `parser/oracle/catalogue/handlers.py` (`detain` / `detain_multi`).
 - **Deliberately unclaimed:** "detain each nonland permanent your opponents control with mana value N or less" (Lavinia of the Tenth — a mass selector with a mana-value filter); "detain target creature with backup or vehicle an opponent controls" (Azorius Traffic Enforcement — a keyword filter).
 - **Yield:** +10 real cache cards (`parser_probe.py` diff vs v109, full cache, 0 regressed) — Azorius Arrester, Azorius Justiciar, Inaction Injunction, Isperia's Skywatch, Lyev Decree, Lyev Skyknight, Martial Law, New Prahv Guildmage, Soulsworn Spirit, Archon of the Triumvirate.
 - **Tests:** `tests/test_par29_detain.py`
@@ -396,7 +396,7 @@ is in the rules-engine categories below them.
 ### Blight N — standalone form (PAR-29, PARSER_VERSION 111)
 
 - **What:** "Blight N" (Bloomburrow — reminder text "put N -1/-1 counters on a creature you control"), the negative sibling of Bolster. `RulesEngine.blight(player, amount)` (in `mana_counters_mixin.py`, beside `bolster`) puts the counters on a creature `player` picks — any creature they control, not least-toughness — so it opens a `blight` `pending_choice` (`resolve_blight_choice`) whenever they control 2+; zero → nothing (an unpayable cost), one → straight on. Counters go on through `add_counters(kind="-1/-1")`, so RULE 122.5 triggers and the RULE 704.5q annihilation SBA apply. `effects.BlightEffect` is a bare "you"-subject effect like `PopulateEffect`/`BolsterEffect`. Handler `blight (?P<n>\d+)`.
-- **Files:** `game/rules/mana_counters_mixin.py`, `game/effects.py` (+ `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice`), `parser/oracle/catalogue/handlers.py`.
+- **Files:** `game/rules/mana_counters_mixin.py`, `game/effects/core.py` (+ `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice`), `parser/oracle/catalogue/handlers.py`.
 - **Deliberately unclaimed (a separate, bigger build):** the **cost forms** — "{cost}, Blight N: `<effect>`" (Sting-Slinger, Gristle Glutton) and "as an additional cost to cast this spell, blight N" (Pyrrhic Strike) — and the "you may blight N. If you do, `<effect>`" pay-cost-then wrapper (Warren Torchmaster, Sourbread Auntie). These need an `ActivationCost`/cast-cost field + payment path, not an effect. **Known pre-existing bug found here, not introduced:** the segmenter/cost-parser currently accepts `{1}{R}, {T}, Blight 1` as a cost and *silently drops the "Blight 1"* (`costs.parse_activation_cost` ignores the unrecognized token), so Sting-Slinger et al. are **wrongly MODELED** — activatable without the drawback. Filed under PAR (BACKLOG) as part of the Blight-cost build; the honest fix (fail-closed on "blight" in a cost) will *reduce* the count by ~5 until the real payment path lands. "blight X" (Soul Immolation, a dynamic amount) also stays UNMODELED, fail-closed.
 - **Yield:** +1 real cache card net (`parser_probe.py` diff vs v110, full cache, 0 regressed) — Sinister Gnarlbark. Most Blight cards are cost-form or carry a second unmodeled clause (Shadow Urchin's counter-death trigger).
 - **Tests:** `tests/test_par29_blight.py`
@@ -404,7 +404,7 @@ is in the rules-engine categories below them.
 ### Endure N (RULE 701.63) (PAR-29, PARSER_VERSION 112)
 
 - **What:** The Bloomburrow keyword action — the permanent's controller **either** puts N +1/+1 counters on it **or** creates an N/N white Spirit creature token. A genuine modal choice: `RulesEngine.endure(permanent, amount)` (in `misc_mixin.py`, beside `monstrosity`/`adapt`) opens an `endure` `pending_choice` (`resolve_endure_choice`, `to_token` yes/no; a missing answer defaults to the counters branch) — but *only* when the counters branch is possible (the permanent is still a creature on the battlefield). If "it" has left, RULE 608.2b leaves only the token, so it resolves without asking. `_endure_make_token` builds the token via `synthesize_token_card(name="Spirit", power=N, toughness=N, colors=["W"])` → `create_token`; counters go through `add_counters` so RULE 122.5 triggers and doublers apply. `effects.EndureEffect` resolves *which* permanent endures — the same subject shapes as `ExploreEffect`: bare self ("when ~ enters, it endures 3", the bulk), `previous_subject`, and a `TargetSpec`.
-- **Files:** `game/rules/misc_mixin.py` (`endure` / `_endure_make_token` / `resolve_endure_choice`), `game/effects.py` (`EndureEffect` + `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice`), `parser/oracle/catalogue/handlers.py` (`endure_self_named` / `endure_self_pronoun` / `endure_previous` / `endure_target`), `frontend/src/js/gameBoardView.js` (`endure` + the previously-missing `blight` icon).
+- **Files:** `game/rules/misc_mixin.py` (`endure` / `_endure_make_token` / `resolve_endure_choice`), `game/effects/core.py` (`EndureEffect` + `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice`), `parser/oracle/catalogue/handlers.py` (`endure_self_named` / `endure_self_pronoun` / `endure_previous` / `endure_target`), `frontend/src/js/gameBoardView.js` (`endure` + the previously-missing `blight` icon).
 - **Yield:** +7 real cache cards (`parser_probe.py` diff vs v111, full cache, 0 regressed) — Anafenza, Unyielding Lineage, Dusyut Earthcarver, Fortress Kin-Guard, Inspirited Vanguard, Kin-Tree Nurturer, Sandskitter Outrider, Sinkhole Surveyor.
 - **Tests:** `tests/test_par29_endure.py`
 - **Follow-up (PARSER_VERSION 114):** both remaining gaps closed. "Endures X" (Krumar Initiate) — `EndureEffect.amount` now takes the plain `"x"` sentinel `RulesEngine._substitute_x` already resolves generically (int conversion deferred to `apply()` rather than attempted at construction, since `int("x")` would raise). "You may pay `<cost>`. If you do, it endures N." (Descendant of Storms) rides the existing `pay_cost_then_general` wrapper (MEC-18) — its recursive follow-up parse (`parse_effect_body`) is now called with `self_subject=True`, unlocking `self_subject_only` rows like "it endures N" for the follow-up text; safe because a *targeted* follow-up is already rejected by the same handler (the only pronoun shape left is the ability's own source), and RULE 603.5's "if you do" always continues the same triggered ability's subject. See "PAR-29: Parser-shaped only residue" below.
@@ -412,7 +412,7 @@ is in the rules-engine categories below them.
 ### Recruit (RULE 701.70) (PAR-29, PARSER_VERSION 113)
 
 - **What:** The Tales of Middle-earth keyword action — "draw a card, then discard a card. If you discarded a nonland card, create a 1/1 white Human Soldier creature token." **Connive's sibling** (`ConniveEffect` — the same draw-then-conditional-discard shape) but its own primitive, `RulesEngine.recruit(player)` (in `misc_mixin.py`): the payoff is a token, not a +1/+1 counter on a source, and threading a second flag through `request_choose_objects`'s 8 `connive` touch-points would have been more surface than the mechanic needs. `recruit` draws, then opens a `recruit` "which card to discard" `pending_choice` (`resolve_recruit_choice`, mandatory — a missing answer defaults to the first card) when the hand has 2+; `_recruit_discard` reads `is_land` *before* the move (same order as the connive branch) and calls `synthesize_token_card(name="Soldier", …, colors=["W"], subtypes=["Human","Soldier"])` → `create_token`. `effects.RecruitEffect` is a bare "you"-subject effect. Handler `recruit` (bare word — every card prints it as an ETB/attack trigger's whole body).
-- **Files:** `game/rules/misc_mixin.py` (`recruit` / `_recruit_discard` / `resolve_recruit_choice`), `game/effects.py` (`RecruitEffect` + `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice`), `parser/oracle/catalogue/handlers.py`, `frontend/src/js/gameBoardView.js` (`recruit` icon).
+- **Files:** `game/rules/misc_mixin.py` (`recruit` / `_recruit_discard` / `resolve_recruit_choice`), `game/effects/core.py` (`RecruitEffect` + `EffectRegistry`), `game/engine/turn_loop_mixin.py` (`resolve_pending_choice`), `parser/oracle/catalogue/handlers.py`, `frontend/src/js/gameBoardView.js` (`recruit` icon).
 - **Yield:** +5 real cache cards (`parser_probe.py` diff vs v112, full cache, 0 regressed) — Great Gilded Boat, Lake-town Lookout, Long Lake Nuisance, Patient Instructor, The Mountain-king's Return.
 - **Tests:** `tests/test_par29_recruit.py`
 
@@ -426,7 +426,7 @@ is in the rules-engine categories below them.
 
   **RULE 701.10's "exchange control of `<X>` and `<Y>`" / "exchange life totals"** generalized from three hand-authored singletons (Gilded Drake's self+"up to one" form, Oko's two-explicit-different-kinds form, Soul Conduit's two-target life form) to the general oracle-text templates: `ExchangeControlEffect` gained a real `optional` param (defaulting `False` — Gilded Drake's own call site now passes `optional=True` explicitly rather than relying on a hardcoded default) for the mandatory self+target form (Avarice Totem/Eyes Everywhere/Phyrexian Infiltrator), and a `count=2` same-kind mode (`TargetSpec(count=2, distinct_controllers=…)`, reusing the identical `apply()` code path the two-explicit-kind mode already had — `targets[0]`/`targets[1]` read the same regardless of whether they came from one spec or two) for "exchange control of 2 target `<kind>`[ controlled by different players]" (Shifting Borders/Switcheroo/Modify Memory); `ExchangeLifeTotalsEffect` gained the same self+target mode (Magus of the Mirror/Mirror Universe/Axis of Mortality). A new `land_you_dont_control` target kind (mirroring `nonland_permanent_you_dont_control`) closed Political Trickery/Vedalken Plotter's own "target land an opponent controls" — and, as a free side effect of widening the shared `land_you_control` TARGET row, also closed Trade Routes' unrelated `return_to_hand` clause. +11 cards. "Controlled by different players" is enforced by `ExchangeControlEffect.apply`'s own runtime `mine.controller_id != theirs.controller_id` check (a same-controller pick just no-ops) rather than at targeting time — RULE 115's `distinct_controllers` field only works *within* one spec's own multi-round gathering, not across two independently-typed specs, and building that cross-spec constraint for this batch's own 2-card yield wasn't attempted. A large residue stays open, mostly one shared shape — a cross-target "shares a card/permanent type with it" legality predicate RULE 115 has no mechanism for at all (Confusion in the Ranks, Daring Thief, Gauntlets of Chaos, Legerdemain, Role Reversal, Shifting Loyalties, The Trickster-God's Heist), plus several one-off gaps (a numeric cross-target comparison, a "you neither own nor control" kind, a "nonlegendary" filter, "the creature with the greatest mana value" dynamic selection, exchanging a spell instead of a permanent, teams, a delayed triple exchange) — filed in full under PAR-29 in `BACKLOG.md` rather than repeated here. **(Update — PAR-30, PARSER_VERSION 211–212: the whole residue is now closed** — the cross-target predicate and numeric comparison as resolve-time checks (v211: Daring Thief / Legerdemain / Role Reversal / Shifting Loyalties / Puca's Mischief / Spawnbroker), the remaining twelve as bespoke hand-authored primitives (v212). See the "Two-way control exchange" entry.)
 
-- **Files:** `game/effects.py` (`ConniveEffect`, `PumpEffect._pump_one`/`self_multiplier`, `ExchangeControlEffect`, `ExchangeLifeTotalsEffect`, `AddCountersEffect.apply`'s bug fix, `PopulateEffect`/`EndureEffect`'s `"x"`-sentinel widening, `BolsterEffect.amount_from_count_selector`), `game/targeting.py` (`land_you_dont_control`), `game/continuous.py` (`creatures_died_this_turn` DEVOTION branch, `distinct_named_artifact_tokens_you_control`), `game/combat.py` (`matches_object_filter`'s `is_suspected` key), `game/ability_catalogue/entries_005.py` (Gilded Drake's explicit `optional=True`), `parser/oracle/catalogue/handlers.py` (every new row named above), `parser/oracle/catalogue/subgrammars.py` (`land_you_control`/`land_you_dont_control` TARGET rows, `DEVOTION`'s `creatures_died_this_turn` branch), `parser/oracle/catalogue/handlers.py`'s `_pay_cost_then_general` (`self_subject=True` on its recursive follow-up parse).
+- **Files:** `game/effects/core.py` (`ConniveEffect`, `PumpEffect._pump_one`/`self_multiplier`, `ExchangeControlEffect`, `ExchangeLifeTotalsEffect`, `AddCountersEffect.apply`'s bug fix, `PopulateEffect`/`EndureEffect`'s `"x"`-sentinel widening, `BolsterEffect.amount_from_count_selector`), `game/targeting.py` (`land_you_dont_control`), `game/continuous.py` (`creatures_died_this_turn` DEVOTION branch, `distinct_named_artifact_tokens_you_control`), `game/combat.py` (`matches_object_filter`'s `is_suspected` key), `game/ability_catalogue/entries_005.py` (Gilded Drake's explicit `optional=True`), `parser/oracle/catalogue/handlers.py` (every new row named above), `parser/oracle/catalogue/subgrammars.py` (`land_you_control`/`land_you_dont_control` TARGET rows, `DEVOTION`'s `creatures_died_this_turn` branch), `parser/oracle/catalogue/handlers.py`'s `_pay_cost_then_general` (`self_subject=True` on its recursive follow-up parse).
 - **Yield:** +28 real cache cards combined (`parser_probe.py`/`scripts/coverage_report.py`, full cache, 0 regressed at every step) — see each family's own count above.
 - **Tests:** `tests/test_connive_target_and_dynamic_amount.py`, `tests/test_exchange_control_and_life_totals_family.py`, extended `tests/test_par21_keyword_actions.py`, `tests/test_par29_populate.py`, `tests/test_par29_bolster_support.py`, `tests/test_par29_suspect.py`, `tests/test_par29_endure.py`, `tests/test_effect_families.py` (the new `PumpEffect.self_multiplier` cases).
 
@@ -436,7 +436,7 @@ is in the rules-engine categories below them.
 - **The "if you win …/otherwise …" branch** is *not* params on the clash spec — it's sibling `ConditionalEffect`s in printed order, gated on a new `EffectSpec.condition` key `"clash_won"` (bool). `ConditionalEffect._condition_holds` reads `GameContext.clash_won`, falling back to the firing `CLASHED` event's own `won` for the "whenever you clash, … if you won, …" shape (Entangling Trap — the clash there is the *trigger*, not a body clause). `None` from both fails *both* branches, so a stray "otherwise" with no clash in scope resolves to nothing. `_apply_effects_partitioned` resets/restores `clash_won` per resolution, the same idiom as `previous_targets`.
 - **Events:** `EventType.CLASHED` (always, `player_id`/`won`) and `EventType.WON_CLASH` (only on a win) — the `CLASHED`/`WON_CLASH` split mirrors `LIFE_GAIN`/`LIFE_GAINED` so "whenever you win a clash" (Marvo, Deep Operative) needs no event `filter`. Both added to `effect_binder._GROUP_CONTROLLER_EVENT_KEYS` (`player_id`) and `segmenter._PLAYER_TRIGGER_CONDITIONS` ("you clash" → `CLASHED`, "you win a clash" → `WON_CLASH`).
 - **Parser:** handler `clash` (`clash with (an opponent|defending player)`); `segmenter._IF_YOU_WIN_CLASH_RE` / `_OTHERWISE_CLASH_RE` are condition-wrappers in `parse_effect_body` (the `_KICKED_CONDITION_RE` idiom) that recursively parse the branch body and attach `condition={"clash_won": …}`. The `_CONNECTORS` period-split hands "clash with an opponent" / "if you win, …" / "otherwise, …" to `parse_effect_body` separately, so no combined multi-sentence handler is needed and the compound cards ("... . clash with an opponent. if you win, ...") are covered by the same three pieces.
-- **Files:** `models/events.py`, `game/rules/misc_mixin.py` (`clash`), `game/effects.py` (`ClashEffect` + `EffectRegistry`, `GameContext.clash_won`, `_apply_effects_partitioned` save/restore, `ConditionalEffect._condition_holds`'s `clash_won` key), `game/effect_binder.py` (`_GROUP_CONTROLLER_EVENT_KEYS`), `parser/oracle/spec.py` (`_ALLOWED_CONDITION_KEYS` + bool check), `parser/oracle/segmenter.py` (`_IF_YOU_WIN_CLASH_RE` / `_OTHERWISE_CLASH_RE` + `_PLAYER_TRIGGER_CONDITIONS`), `parser/oracle/catalogue/handlers.py` (`_clash`), `parser/oracle/gate.py` (PARSER_VERSION 115).
+- **Files:** `models/events.py`, `game/rules/misc_mixin.py` (`clash`), `game/effects/core.py` (`ClashEffect` + `EffectRegistry`, `GameContext.clash_won`, `_apply_effects_partitioned` save/restore, `ConditionalEffect._condition_holds`'s `clash_won` key), `game/binding/core.py` (`_GROUP_CONTROLLER_EVENT_KEYS`), `parser/oracle/spec.py` (`_ALLOWED_CONDITION_KEYS` + bool check), `parser/oracle/segmenter.py` (`_IF_YOU_WIN_CLASH_RE` / `_OTHERWISE_CLASH_RE` + `_PLAYER_TRIGGER_CONDITIONS`), `parser/oracle/catalogue/handlers.py` (`_clash`), `parser/oracle/gate.py` (PARSER_VERSION 115).
 - **Yield:** +9 real cache cards (`parser_probe.py` diff vs v114 / `scripts/coverage_report.py --no-db`, full cache, 0 regressed) — Adder-Staff Boggart, Bog Hoodlums, Nath's Elite, Oaken Brawler, Paperfin Rascal, Springjack Knight, Release the Ants, Research the Deep, Revive the Fallen. ~24 more cache clash cards stay UNMODELED on ordinary effect-grammar residue in their win branch ("return ~ to its owner's hand", "those creatures gain `<keyword>`", "that player `<verb>s`", "repeat this process", a "protection from the color of your choice" first clause) — none of it clash-specific; tracked in `BACKLOG.md`.
 - **Win-branch residue batch 1 (PAR-30, v147):** five small parser widenings, no engine change. (1) "Whenever you **clash and win**, …" joins "you win a clash" as a `WON_CLASH` trigger phrasing (`segmenter._PLAYER_TRIGGER_CONDITIONS`) — Sylvan Echoes. (2) `_FREE_CAST_FROM_HAND_RE` accepts "…spell **from your hand** with mana value N or less…" word order (an `n_after` group read alongside `n` by `_free_cast_from_hand`) — Marvo, Deep Operative's own second ability. (3) `return_self_to_hand`'s regex accepts "return **this card** to its owner's hand" (Ringskipper — a "when ~ dies" clash-win body, so the source is in the graveyard; `RulesEngine.return_to_hand` moves it from whatever zone it's in), scoped to that handler rather than widening the shared `_SELF_SUBJECT` macro. (4) the connector-split loop treats a sub-part that is purely a bare `clash` spec as a **referent-transparent interstitial** — it neither targets nor creates, so a card like Gilt-Leaf Ambush ("Create two tokens. Clash with an opponent. If you win, **those creatures** gain deathtouch …") carries its `previous_targets`/`created_objects` pronoun chain across the clash sentence instead of having it cleared. (5) `_PUMP_PREV_SINGULAR_PT_RE` accepts "gets **an additional** +N/+N" (Fistful of Force). **+5** (Sylvan Echoes, Marvo, Ringskipper, Gilt-Leaf Ambush, Fistful of Force), 0 regressed. `tests/test_par30_clash_win_branch.py`.
 - **Win-branch residue batch 2 (PAR-30, v148):** two parser widenings. (1) A **"{X}-scaled damage" handler** — `_damage_x` (`"~ deals x damage to <target>"`, digit-free so no overlap with the `NUMBER`-based `damage` row) emits `EffectSpec("damage", {"amount": "x"})`, the `"x"` sentinel `RulesEngine._substitute_x` already rewrites off the spell/ability's announced {X}. This is squarely general effect-grammar — no handler for X-damage existed at all — so it closes **+20 classic X-burn spells/abilities** (Blaze, Devil's Play, Fanning the Flames, Volcanic Geyser, Cinder Elemental, Heat Ray, Pain Kami, Goblin Dynamo, Knollspine Invocation, Latulla, Flameblast Dragon, …) alongside **Titan's Revenge** (the clash card, blocked on its pre-clash "~ deals X damage to any target" clause). Verified end-to-end: `_substitute_x` sets `amount=4`, a 3/3 dies; a player target loses 5 at X=5. (2) `_DESTROY_ALL_RE` gained an optional " your opponents control" scope → new `opponents_enchantments`/`opponents_artifacts` selectors in `_mass_selector_objects` (`_MASS_DESTROY_SELECTORS`; a scope on any other noun fails closed) — **Spring Cleaning**'s clash win-branch. **+21 total**, 0 regressed. `tests/test_par30_damage_x.py`, `tests/test_par30_clash_win_branch.py`.
@@ -453,13 +453,13 @@ is in the rules-engine categories below them.
   - **Captivating Glance** — new `GainControlAttachedEffect(recipient)`: an indefinite control change of this Aura's host to the ability's controller (`"controller"`, win branch) or `GameContext.clashed_opponent` (`"clashed_opponent"`, otherwise) — a direct `controller_id` mutation + recompute, the same MVP simplification `GainControlBySourceEffect` makes. Handler `gain_control_attached` (recognises "gain control of enchanted creature" / "that player gains control of enchanted creature").
   - **Pulling Teeth** — `DiscardEffect.previous_subject`: "that player" in the otherwise branch is the `Player` the win branch RULE 115-targeted (`context.previous_targets[0]`, set even when the win-branch `ConditionalEffect` gate fails, since targets are chosen at cast time). Handler `that_player_discards`. **Bonus:** `previous_subject` falls back — when no target was chosen this resolution — to the firing trigger's own event player (a DAMAGE event's recipient, a SPELL_CAST's caster, a per-player phase step), which unlocks **+28 "whenever ~ deals damage to a player, that player discards a card" cards** (Abyssal Specter, Blazing Specter, Headhunter, Oppression, Necrogen Mists, Larceny, Okiba-Gang Shinobi, Helm of the Ghastlord's granted trigger, …) the parser could never claim before.
   - **Pollen Lullaby** — `SkipNextUntapEffect.subject="clashed_opponent"`: flags `skip_next_untap` on every creature that player currently controls, no RULE 115 target. Handler `clashed_opp_creatures_no_untap`. (The "prevent all combat damage this turn" first clause already parsed.)
-  - **Yield:** +34, 0 regressed. **Files:** `game/rules_engine.py` (`_last_clash_opponent_id`), `game/rules/misc_mixin.py` (`clash`), `game/effects.py` (`GameContext.clashed_opponent`, `_apply_effects_partitioned` save/restore, `ClashEffect`, `RepeatProcessEffect` + `_MAX_CLASH_REPEAT_ITERATIONS`, `MillEffect.selector`, `ReturnToHandEffect.to_library_top_if_clash_won`, `GainControlAttachedEffect`, `DiscardEffect.previous_subject`, `SkipNextUntapEffect.subject`), `parser/oracle/segmenter.py` (`_CLASH_REPEAT_PROCESS_RE`, `_CLASH_BOUNCE_OR_LIBRARY_RE`), `parser/oracle/catalogue/handlers.py` (`mill_prev_spell_controller`, `that_player_discards`, `gain_control_attached`, `clashed_opp_creatures_no_untap`), `parser/oracle/gate.py` (PARSER_VERSION 209). **Tests:** `tests/test_mec50_clash_win_branches.py` (all six end-to-end — the repeat loop counts and caps, the countered spell's owner is milled, the bounce goes to hand on a loss and library-top on a win, control follows the winner, the otherwise-discard hits the right player, the clashed opponent's creatures don't untap; + the "that player discards" trigger-event fallback).
+  - **Yield:** +34, 0 regressed. **Files:** `game/rules_engine.py` (`_last_clash_opponent_id`), `game/rules/misc_mixin.py` (`clash`), `game/effects/core.py` (`GameContext.clashed_opponent`, `_apply_effects_partitioned` save/restore, `ClashEffect`, `RepeatProcessEffect` + `_MAX_CLASH_REPEAT_ITERATIONS`, `MillEffect.selector`, `ReturnToHandEffect.to_library_top_if_clash_won`, `GainControlAttachedEffect`, `DiscardEffect.previous_subject`, `SkipNextUntapEffect.subject`), `parser/oracle/segmenter.py` (`_CLASH_REPEAT_PROCESS_RE`, `_CLASH_BOUNCE_OR_LIBRARY_RE`), `parser/oracle/catalogue/handlers.py` (`mill_prev_spell_controller`, `that_player_discards`, `gain_control_attached`, `clashed_opp_creatures_no_untap`), `parser/oracle/gate.py` (PARSER_VERSION 209). **Tests:** `tests/test_mec50_clash_win_branches.py` (all six end-to-end — the repeat loop counts and caps, the countered spell's owner is milled, the bounce goes to hand on a loss and library-top on a win, control follows the winner, the otherwise-discard hits the right player, the clashed opponent's creatures don't untap; + the "that player discards" trigger-event fallback).
 - **Tests:** `tests/test_par29_clash.py` (parse + branch-condition attachment + `RulesEngine.clash` win/loss/no-opponent/empty-library + no-bottoming + end-to-end ETB trigger granting a counter on win / not on loss).
 
 ### Firebending — printed-keyword behaviour (RULE ~702.189) (PAR-29)
 
 - **What:** "Firebending N" (Doctor Who) was parser-*recognized* (`keywords.py` `_N` shape) but inert. `effect_binder._kw_firebending` now synthesizes its RULE 702-text ability — "Whenever this creature attacks, add {R}×N. This mana lasts until end of combat." — as a self-only `ATTACKS` `TriggeredAbility` with `mana_ability=True` (RULE 605.4, resolves off-stack so the {R} is spendable that combat) wrapping `AddManaEffect(colors=["R"]*n)`. Same `_KEYWORD_TRIGGERED_BUILDERS` dispatch (keyed on `spec.keyword["name"]`/`["n"]`) as Annihilator/Afflict/Bushido. **Documented simplification:** the "lasts until end of combat" note isn't modeled — the mana empties at the ordinary step boundary rather than carrying a combat-scoped lifetime.
-- **Files:** `game/effect_binder.py` (`_kw_firebending`, `_KEYWORD_TRIGGERED_BUILDERS`, `AddManaEffect` import).
+- **Files:** `game/binding/core.py` (`_kw_firebending`, `_KEYWORD_TRIGGERED_BUILDERS`, `AddManaEffect` import).
 - **Tests:** covered by the existing keyword-binder suite plus an inline check that a printed-Firebending creature binds an `ATTACKS` `AddManaEffect` mana ability.
 
 #### The grant path — parametric keyword *grants* (ENG-31, PARSER_VERSION 128)
@@ -468,7 +468,7 @@ is in the rules-engine categories below them.
 - **Stamping (`continuous._apply_layer_6_ability`):** a `grant_keyword` static's `parametric_keywords` entries stamp `GameObject._granted_parametric_keywords[name] = n` (re-derived every recompute, cleared by `reset_derived` — the parametric sibling of `_granted_keywords`); `PumpEffect` writes an until-EOT grant into the new `GameObject.temp_parametric_keywords` dict (cleared at cleanup RULE 514.2 next to `temp_keywords`), folded in the same pass. `GameObject.parametric_keyword_value(name)` reads a granted value ahead of the printed `parametric_keywords[name]["n"]`.
 - **Behaviour (`effect_binder.parametric_keyword_triggered_abilities`):** the printed-keyword path runs `_KEYWORD_TRIGGERED_BUILDERS` at bind-on-load; a grant has no bind step, so `_apply_layer_6_ability` calls this helper every recompute to re-synthesize the keyword's RULE 702-text triggered ability (firebending's self-only `ATTACKS` add-{R}×N mana ability) off the *granted* N, onto `_granted_triggered_abilities`, cached in `GameState._granted_ability_cache` keyed on `(id(ability), instance_id, "parametric", name, n)` (the `n` in the key so a changed amount mints a fresh ability and prunes the stale one). Only the four keywords whose RULE 702 text *is* a triggered ability — firebending / annihilator / afflict / bushido (`_GRANTABLE_PARAMETRIC_KEYWORDS`) — are grantable; every other NUMBER-shape keyword (renown, toxic) stays fail-closed for a grant. A token created "with firebending N" docks the keyword onto its own `parametric_keywords` + synthesizes its `triggered_abilities` right after it enters (a printed part of its definition, not a layer-6 grant).
 - **Parser:** `_split_keywords_with_parametric` (a `_token_keywords` sibling) splits a "flying, firebending 2" list into `(flag_slugs, [{name, n}])` and fail-closes on anything that's neither a FLAG keyword nor a grantable parametric one. Reached from `_pump_keywords` and `_inline_create_token_params`; the `pump_keyword` and `create_token` handler regexes gained `0-9` in their keyword capture. `spec._clamp_params` also clamps each nested `n` (a synthesized `["R"] * n` mustn't be handed an unbounded amount).
-- **Files:** `models/game_object.py` (`_granted_parametric_keywords`, `temp_parametric_keywords`, `parametric_keyword_value`, resets), `game/continuous.py` (`_apply_layer_6_ability`), `game/effect_binder.py` (`parametric_keyword_triggered_abilities`), `game/effects.py` (`PumpEffect`/`CreateTokenEffect`/`grant_keyword` registry), `game/engine/turn_loop_mixin.py` (cleanup), `game/combat.py` (`toxic_value` via the helper), `parser/oracle/catalogue/handlers.py`, `parser/oracle/spec.py`, `parser/oracle/gate.py` (v128).
+- **Files:** `models/game_object.py` (`_granted_parametric_keywords`, `temp_parametric_keywords`, `parametric_keyword_value`, resets), `game/continuous.py` (`_apply_layer_6_ability`), `game/binding/core.py` (`parametric_keyword_triggered_abilities`), `game/effects/core.py` (`PumpEffect`/`CreateTokenEffect`/`grant_keyword` registry), `game/engine/turn_loop_mixin.py` (cleanup), `game/combat.py` (`toxic_value` via the helper), `parser/oracle/catalogue/handlers.py`, `parser/oracle/spec.py`, `parser/oracle/gate.py` (v128).
 - **Yield:** 3 real cache cards newly MODELED (0 regressed) — Fire Nation Palace, Fire Nation Attacks, Sozin's Comet.
 - **Tests:** `tests/test_eng31_parametric_keyword_grants.py` (clause parse incl. the non-grantable fail-closed case; real-card `parse_oracle`; execute: static grant synthesizes the `{R}{R}` ATTACKS mana ability live and drops when the source leaves; until-EOT grant clears at cleanup; a token created with firebending N; Fire Nation Palace end-to-end through `bind_from_catalogue`).
 - **Residue closed (PAR-30, PARSER_VERSION 135):**
@@ -486,7 +486,7 @@ is in the rules-engine categories below them.
   - **airbend** — `ExileEffect` gained a `bend_kind` param; `handlers._airbend`/`_airbend_trigger_subject` now emit `"bend_kind": "airbend"`, and `ExileEffect._record_bend_if_set` fires `BENT` once per resolution that exiled ≥1 object (the *only* parser-visible change this batch).
   - **firebend** — `effect_binder._kw_firebending` now returns a *second*, ordinary `ATTACKS` trigger carrying `effects.RecordBendEffect(kind="firebend")` alongside the existing mana ability; kept separate so the latter stays a pure RULE 605.4 mana effect and the marker still fires when N is 0 (Firebending X). Attacking with a Firebending creature is how the Avatar set "firebends".
 - **The reflexive clause:** `EffectSpec.condition` gained `did_all_bends_this_turn` (`ConditionalEffect._condition_holds`) — the ability controller's `bends_this_turn` set must cover every entry of `BEND_KINDS`. Avatar Aang is `_avatar_aang` in `ability_catalogue/entries_008.py`: one `triggered` spec on `BENT`/`{"subject":"you"}` → `[draw 1, transform (condition: did_all_bends_this_turn)]`. `transform` with no target flips the source DFC (RULE 712.8); the back face "Aang, Master of Elements" rebinds through the ordinary parser fallback (unregistered name), so nothing here authors it.
-- **Files:** `models/events.py` (`BENT`), `models/game_state.py` (`bends_this_turn`), `game/rules/misc_mixin.py` (`record_bend`, `BEND_KINDS`), `game/rules/mana_counters_mixin.py` (`earthbend` fire point), `game/engine/casting_mixin.py` (waterbend fire point), `game/engine/turn_loop_mixin.py` (`begin_turn` clear), `game/effects.py` (`ExileEffect.bend_kind`/`_record_bend_if_set`, `RecordBendEffect` + registry, `ConditionalEffect` `did_all_bends_this_turn`), `game/effect_binder.py` (`_kw_firebending` second trigger, `_GROUP_CONTROLLER_EVENT_KEYS["BENT"]`, `RecordBendEffect` import), `game/ability_catalogue/entries_008.py` (`_avatar_aang`), `parser/oracle/catalogue/handlers.py` (`_airbend`/`_airbend_trigger_subject` `bend_kind`), `parser/oracle/spec.py` (`did_all_bends_this_turn` in `_ALLOWED_CONDITION_KEYS`), `parser/oracle/gate.py` (v214).
+- **Files:** `models/events.py` (`BENT`), `models/game_state.py` (`bends_this_turn`), `game/rules/misc_mixin.py` (`record_bend`, `BEND_KINDS`), `game/rules/mana_counters_mixin.py` (`earthbend` fire point), `game/engine/casting_mixin.py` (waterbend fire point), `game/engine/turn_loop_mixin.py` (`begin_turn` clear), `game/effects/core.py` (`ExileEffect.bend_kind`/`_record_bend_if_set`, `RecordBendEffect` + registry, `ConditionalEffect` `did_all_bends_this_turn`), `game/binding/core.py` (`_kw_firebending` second trigger, `_GROUP_CONTROLLER_EVENT_KEYS["BENT"]`, `RecordBendEffect` import), `game/ability_catalogue/entries_008.py` (`_avatar_aang`), `parser/oracle/catalogue/handlers.py` (`_airbend`/`_airbend_trigger_subject` `bend_kind`), `parser/oracle/spec.py` (`did_all_bends_this_turn` in `_ALLOWED_CONDITION_KEYS`), `parser/oracle/gate.py` (v214).
 - **Yield:** +1 (Avatar Aang, via hand-authoring — no card's parser verdict changes). 0 regressed.
 - **Tests:** `tests/test_par30_firebending_bending_trail.py` (`record_bend` fires + stamps + rejects unknown kind; `bends_this_turn` cleared on `begin_turn`; each of earthbend / airbend-via-`ExileEffect` / firebending-attack fires `BENT`; a plain exile does *not*; Avatar Aang draws on any one bend, transforms only after all four distinct bends this turn, no transform when one bend is repeated ×4, an opponent's bend doesn't trigger it; hand-authored specs carry the `BENT` trigger). `tests/test_par29_airbend.py` updated for the `bend_kind` param.
 
@@ -499,7 +499,7 @@ is in the rules-engine categories below them.
 
 - **What:** The Doctor Who keyword action. `RulesEngine.time_travel(player, times=1)` (in `misc_mixin.py`, beside `behold`): "For each suspended card you own and each permanent you control with a time counter on it, you may add or remove a time counter." **Documented simplification** (no per-object interactive add/remove pick): a **suspended card** the player owns loses one time counter — the acceleration reason to time travel your own suspended spells; if that empties it, `RulesEngine.grant_free_cast_window_from_exile` opens the RULE 702.62a window (and arms `granted_suspend_haste` for a creature) exactly as `SuspendUpkeepEffect` would — and a **Vanishing/Fading**-style permanent (a time counter on a battlefield permanent) the player controls gains one, prolonging it. Both are the beneficial-to-you direction; a time counter on anything else is left alone. `times` repeats the whole pass ("time travel, then time travel" — The Parting of the Ways, from `parse_effect_body`'s `, then` split into two `time_travel` specs).
 - **`effects.TimeTravelEffect`** is a bare "you"-subject effect; handler is `_c(r"(?:you )?time travel")` → `EffectSpec("time_travel", {})`.
-- **Files:** `game/rules/misc_mixin.py` (`time_travel`), `game/effects.py` (`TimeTravelEffect` + `EffectRegistry`), `parser/oracle/catalogue/handlers.py` (inline `EffectHandler`), `parser/oracle/gate.py` (PARSER_VERSION 127).
+- **Files:** `game/rules/misc_mixin.py` (`time_travel`), `game/effects/core.py` (`TimeTravelEffect` + `EffectRegistry`), `parser/oracle/catalogue/handlers.py` (inline `EffectHandler`), `parser/oracle/gate.py` (PARSER_VERSION 127).
 - **Yield:** 3 real cache cards newly MODELED (0 regressed) — All of History All at Once, Time Beetle, Wibbly-wobbly Timey-wimey. The 6 ALSO-BLOCKED cards (Coward // Killer, Rotating Fireplace, The Girl in the Fireplace, The Parting of the Ways, …) stay UNMODELED on *other* clauses (an activated-cost restriction, a "becomes a `<subtype>` in addition" body, a modal-chapter block), not on time travel — tracked in PAR-30.
 - **Tests:** `tests/test_par29_time_travel.py` (clause parse; real-card `parse_oracle`; execute: accelerates a suspended card and opens the free-cast window at zero; prolongs a Vanishing permanent).
 
@@ -510,7 +510,7 @@ is in the rules-engine categories below them.
 - **Parser (`_face_villainous_choice`, `_VILLAINOUS_HEADER_RE`):** splits "`<subj>` faces a villainous choice — `<A>`, or `<B>`." on `, or ` (tries each occurrence, accepts the partition where *both* halves are modelable). `_villainous_option_specs` mini-parses each option: a "they/that player `<verb>`" clause is retried as "target player `<verb>`s" (3rd-person-singular) so it binds to `targets=[facing]` rather than a stale `selector="event_player"`; a bare edict ("they sacrifice a creature of their choice") maps straight to a player-less `sacrifice` spec (no `SacrificeEffect` change — its `apply` already reads `targets[0]` when no selector is set). **Documented simplification:** RULE 701.55b's "if one option is impossible, they must choose the other" is not enforced — both options are always offered.
 - **Bug fixed on the way:** "**you** create a … token **with `<kw>`**" was mis-tagged `creators="each_player"` in `_inline_create_token_params` — the `who` regex group captured "you" and the branch only excluded nothing. Now gated on `"each" in who`. (Any "you create … with keyword" card was making *every* player create the token.)
 - **Not done (some closed by ENG-33 below):** cards whose option body still isn't modelable — "you create a token that's a copy of that card" (The Master, Gallifrey's End), "exile cards … until you exile a nonland card, then cast it" (Ensnared by the Mara), "that creature becomes a 1/1 and loses all abilities" (Hunted by The Family), plus the conditional/previous subjects (Davros' "each opponent who lost 3+ life this turn", The Master's "choose an opponent with the most life"). Each blocks on a distinct engine primitive — filed in **MEC-52** (was PAR-30, whose parser trail closed at PARSER_VERSION 216).
-- **Files:** `game/rules_engine.py` (`_pending_villainous`), `game/rules/misc_mixin.py` (`request_villainous_choice`/`_advance_villainous_choice`/`resolve_villainous_choice`), `game/engine/turn_loop_mixin.py` (dispatch), `game/effects.py` (`FaceVillainousChoiceEffect` + `EffectRegistry`), `parser/oracle/catalogue/handlers.py` (`_VILLAINOUS_HEADER_RE`/`_villainous_option_specs`/`_face_villainous_choice` + `EffectHandler`; `_inline_create_token_params` `who` fix), `parser/oracle/gate.py` (PARSER_VERSION 126).
+- **Files:** `game/rules_engine.py` (`_pending_villainous`), `game/rules/misc_mixin.py` (`request_villainous_choice`/`_advance_villainous_choice`/`resolve_villainous_choice`), `game/engine/turn_loop_mixin.py` (dispatch), `game/effects/core.py` (`FaceVillainousChoiceEffect` + `EffectRegistry`), `parser/oracle/catalogue/handlers.py` (`_VILLAINOUS_HEADER_RE`/`_villainous_option_specs`/`_face_villainous_choice` + `EffectHandler`; `_inline_create_token_params` `who` fix), `parser/oracle/gate.py` (PARSER_VERSION 126).
 - **Yield:** 2 real cache cards newly MODELED (0 regressed) — Damocles Base, Sword of Kang; The Dalek Emperor.
 - **Tests:** `tests/test_par29_villainous_choice.py` (edict-vs-lose-life parse; unmodelable-option fail-closed; real-card `parse_oracle`; execute: 3-player `each_opponent` sweep where each opponent applies their own pick via `resolve_pending_choice`, a "you gain life" option landing on the controller not the facing player).
 
@@ -523,7 +523,7 @@ is in the rules-engine categories below them.
 - **The 4th named primitive**, "create a token that's a copy of that card", is PAR-18's existing `CopyPermanentEffect(referent="previous")` — nothing new to build in the effect itself. Two parser pieces feed it:
   - **the copy-modifier tail** (PARSER_VERSION 130): "except it's [a] `<P/T>` `<colour>` `<subtype>` [creature] [in addition to its other types]" — `_copy_except_modifier`'s new `_COPY_EXCEPT_PT_RE` branch. `set_power`/`set_toughness`/`add_subtypes` already existed on `CopyPermanentEffect`; colour needed adding — `Card.as_copy(set_colors=...)` (replace the copied card's colour identity outright), threaded through `RulesEngine.copy_permanent` / `GameContext.copy_permanent` / `CopyPermanentEffect.set_colors` / its `EffectRegistry` entry. **Documented simplification:** without "in addition to its other types" the printed clause replaces the copied creature's subtypes rather than adding to them — this always appends (RULE-inexact for tribal synergies only). +1 (Ember Island Production's modal shape).
   - **the two-sentence connector** (PARSER_VERSION 132): "Exile [up to N] target `<X>` card from [a/your] graveyard. [If you do / If you exiled a card this way,] create a token that's a copy of **that card**[, except …]." — the reanimator-token cycle (Ardyn, Anikthea, Séance, God-Pharaoh's Gift, Sauron the Necromancer, Sin, Soul Separator). `segmenter._EXILE_THEN_COPY_SENTENCE_RE` matches the whole span at `parse_effect_body` level (before the connector-split loop shatters it into a bare "if you do, create …" half no handler claims), parsing the exile and the copy independently and requiring the exile to genuinely pick a graveyard card (`_announces_creature_target`, which already recognises the `graveyard_*` target-kind prefix) — the RULE 608.2 pronoun `_apply_effects_partitioned` writes into `GameContext.previous_targets`. The reflexive connector needs **no `pending_choice`**: `CopyPermanentEffect(referent="previous")` already no-ops on an empty `previous_targets`, which is exactly the state the connector gates on; the branch fails closed unless `after` is a copy-of-that-card. "You may exile …" optionality is peeled and re-folded as `optional=True`; `handlers._EXILE_FROM_GRAVEYARD_RE` was widened to accept the untargeted "exile **a** creature card from your graveyard" determiner, not just "target". +1 (Ardyn, the Usurper). The "non-aura enchantment card" filter + "exile X target … for each card exiled this way, …" cluster shipped later at PARSER_VERSION 216 (see "Reanimator-token residue" just below); "create a tapped [and attacking] token", "…and pay its mana cost:" activation cost, and "you create a token that's a copy of that card" as a *villainous option body* (The Master, Gallifrey's End — needs `previous_targets` threaded through `_apply_effect_specs` in the APNAP sweep) remain, as **MEC-52**.
-- **Files:** `game/effects.py` (`SacrificeEffect.target_kind`, `FreeCastFromHandEffect.noncreature_only` + optional cap, both `EffectRegistry` entries; `CopyPermanentEffect.set_colors`), `models/card.py` / `game/rules/copies_mixin.py` (`as_copy(set_colors=…)` / `copy_permanent(set_colors=…)`), `parser/oracle/catalogue/handlers.py` (`_TARGET_PLAYER_EDICT_RE`, `_FREE_CAST_FROM_HAND_RE`, `_PUT_FROM_HAND_RE` + `_PUT_FROM_HAND_TYPE_WORDS`, `_copy_except_modifier`/`_COPY_EXCEPT_PT_RE`, `_EXILE_FROM_GRAVEYARD_RE` widened), `parser/oracle/segmenter.py` (`_EXILE_THEN_COPY_SENTENCE_RE` + its `parse_effect_body` branch), `parser/oracle/gate.py` (v129 / v130 / v132).
+- **Files:** `game/effects/core.py` (`SacrificeEffect.target_kind`, `FreeCastFromHandEffect.noncreature_only` + optional cap, both `EffectRegistry` entries; `CopyPermanentEffect.set_colors`), `models/card.py` / `game/rules/copies_mixin.py` (`as_copy(set_colors=…)` / `copy_permanent(set_colors=…)`), `parser/oracle/catalogue/handlers.py` (`_TARGET_PLAYER_EDICT_RE`, `_FREE_CAST_FROM_HAND_RE`, `_PUT_FROM_HAND_RE` + `_PUT_FROM_HAND_TYPE_WORDS`, `_copy_except_modifier`/`_COPY_EXCEPT_PT_RE`, `_EXILE_FROM_GRAVEYARD_RE` widened), `parser/oracle/segmenter.py` (`_EXILE_THEN_COPY_SENTENCE_RE` + its `parse_effect_body` branch), `parser/oracle/gate.py` (v129 / v130 / v132).
 - **Yield:** +45 (v129, put-`<type>`-from-hand + edict families dominate) / +1 (v130, Ember Island Production) / +1 (v132, Ardyn) cache cards — `parser_probe.py` diff, full cache, 0 regressed each pass.
 - **Tests:** `tests/test_eng33_villainous_vote_bodies.py` (v129 bodies + fail-closed cases), `tests/test_copy_except_family.py` (the modifier tail), `tests/test_eng33_exile_then_copy.py` (v132 — the connector: parse of the "if you exiled a card this way" and "you may exile … if you do" forms + the two fail-closed cases (no graveyard antecedent; a non-copy follow-up), real-card `parse_oracle(Ardyn)`, and an end-to-end `_apply_effects_partitioned` execute making a 5/5 black Demon token copy of an exiled graveyard creature).
 
@@ -533,7 +533,7 @@ is in the rules-engine categories below them.
   - **Anikthea, Hand of Erebos** — "exile up to one target **non-Aura enchantment** card from your graveyard. Create a token that's a copy of that card, except it's a 3/3 black Zombie **creature** in addition to its other types." Two pieces: (1) a `non_aura_enchantment` entry in `targeting._GRAVEYARD_TYPE_FILTERS` (`is_enchantment` and no "Aura" subtype on the printed type line) + its `_GRAVEYARD_TYPE_WORD` / `_graveyard_target_kind` wiring in `catalogue/handlers.py` + the German label in `_GRAVEYARD_TYPE_LABELS`; (2) `_COPY_EXCEPT_PT_RE` now captures the "… creature" word and emits `add_types=["Creature"]` when present — without it `Card.as_copy` set `power`/`toughness` on a non-creature original (an enchantment card) and tripped `Card.__init__`'s RULE 208.1 invariant (`as_copy` already flips `is_creature` for a `"creature"` in `add_types`; harmless/idempotent when the original is already a creature, e.g. God-Pharaoh's Gift). The exile→copy segmenter connector + `copy_permanent_previous` handler did the rest. The "enters or attacks" trigger already parsed.
   - **Hour of Eternity** — "Exile X target creature cards from your graveyard. For each card exiled this way, create a token that's a copy of that card, except it's a 4/4 black Zombie." — new `segmenter._EXILE_X_GY_FOR_EACH_CREATE_RE` span (the X-count sibling of `_EXILE_THEN_COPY_SENTENCE_RE`): the exile is `count_selector="source_x_paid"` (the Foggy Swamp Visions idiom), the follow-up `copy_permanent` with `referent="previous_each"` — one copy of *each* exiled card (already an engine primitive).
   - **Midnight Ritual** — same exile, "…create a 2/2 black Zombie creature token." per exiled card. `CreateTokenEffect` gained `count_from_context` — a **closed whitelist** (`_TOKEN_COUNT_CONTEXT_ACCUMULATORS = {"objects_exiled_this_way"}`) so parser-derived text can never name an arbitrary `GameContext` attribute — mirroring the intent of `_resolve_extra_counter_amount`'s own `count_from_context` key (Sunfall's Incubate). The new segmenter span routes an inline-token follow-up onto it.
-- **Files:** `game/targeting.py` (`_GRAVEYARD_TYPE_FILTERS["non_aura_enchantment"]`, `_GRAVEYARD_TYPE_LABELS`), `game/effects.py` (`CreateTokenEffect.count_from_context` + `_TOKEN_COUNT_CONTEXT_ACCUMULATORS` + its `EffectRegistry` entry), `parser/oracle/catalogue/handlers.py` (`_GRAVEYARD_TYPE_WORD`, `_graveyard_target_kind`, `_COPY_EXCEPT_PT_RE` + `_copy_except_modifier`), `parser/oracle/segmenter.py` (`_EXILE_X_GY_FOR_EACH_CREATE_RE` + its `parse_effect_body` branch), `parser/oracle/gate.py` (PARSER_VERSION 216).
+- **Files:** `game/targeting.py` (`_GRAVEYARD_TYPE_FILTERS["non_aura_enchantment"]`, `_GRAVEYARD_TYPE_LABELS`), `game/effects/core.py` (`CreateTokenEffect.count_from_context` + `_TOKEN_COUNT_CONTEXT_ACCUMULATORS` + its `EffectRegistry` entry), `parser/oracle/catalogue/handlers.py` (`_GRAVEYARD_TYPE_WORD`, `_graveyard_target_kind`, `_COPY_EXCEPT_PT_RE` + `_copy_except_modifier`), `parser/oracle/segmenter.py` (`_EXILE_X_GY_FOR_EACH_CREATE_RE` + its `parse_effect_body` branch), `parser/oracle/gate.py` (PARSER_VERSION 216).
 - **Yield:** +3 (Anikthea, Hand of Erebos; Hour of Eternity; Midnight Ritual) — `parser_probe.py` diff, full cache, 0 regressed. Overall coverage 13,558 / 34,811 (38.9%); Commander-legal 12,976 / 31,830 (40.8%).
 - **Tests:** `tests/test_par30_reanimator_token_residue.py` — parse (all three, spec-shape assertions), fail-closed ("non-Aura permanent" stays UNMODELED; a "for each … exiled this way" follow-up the two known shapes don't cover stays UNMODELED), and execute (`_apply_effects_partitioned`: Anikthea makes a 3/3 Zombie *creature* copy of an exiled enchantment card; Hour scales copies with `x_paid`; Midnight makes one 2/2 Zombie per exiled card).
 
@@ -542,7 +542,7 @@ is in the rules-engine categories below them.
   - **`_delayed_sac_exile_when_first`** — a when-first sibling of `_DELAYED_SAC_EXILE_TAIL_RE` ("At the beginning of `<the/your>` next end step, sacrifice/exile `<it>`[ unless ~ is your Ring-bearer]"). The verb-first tail form is unchanged; the when-first phrasing was previously intercepted as a triggered-ability line and never reached an effect handler, so it works via the `parse_effect_body` connector-split loop (fine for a `<cost>: <clause>. at the beginning…` body / the exile→copy connector's `after` span). An optional "unless ~ is your Ring-bearer" rider → `create_delayed_trigger`'s new `condition={"is_ring_bearer": False}`. **`capture` choice by subject:** "that token"/"those tokens"/"the token(s)" → `capture="created_objects"` (an earlier clause's *created* thing, never a RULE 115 target it also chose — Sauron exiles a graveyard *card* as its target, so `previous_or_self` would have baked that already-exiled card); "it"/"that creature"/"that permanent" keep `previous_or_self`.
   - **`_COPY_PERMANENT_PREVIOUS_RE` + `segmenter._EXILE_THEN_COPY_SENTENCE_RE`'s `after` anchor** accept a `tapped and attacking |tapped |attacking ` prefix — `CopyPermanentEffect` already took `tapped`/`attacking` (RULE 508.4), only the pronoun-copy recognisers hadn't.
   - **`_COPY_EXCEPT_PT_RE`** accepts a trailing "with `<keyword>`" ("a 3/3 black Wraith **with menace**") → `extra_temp_keywords` (validated through `_token_keywords`, fail-closed on an unknown word), instead of mis-splitting "with menace" into subtypes.
-- **Files:** `game/effects.py` (`CreateDelayedTriggerEffect.condition` + registry), `models/game_state.py` (`DelayedTrigger.condition`), `game/engine/turn_loop_mixin.py` (`_delayed_trigger_condition_holds`, `_fire_delayed_triggers` filter), `parser/oracle/catalogue/handlers.py` (`_COPY_PERMANENT_PREVIOUS_RE`, `_COPY_EXCEPT_PT_RE`, `_DELAYED_SAC_EXILE_WHEN_FIRST_RE`/`_delayed_sac_exile_when_first` + `EffectHandler`), `parser/oracle/segmenter.py` (`_EXILE_THEN_COPY_SENTENCE_RE`), `parser/oracle/gate.py` (v217).
+- **Files:** `game/effects/core.py` (`CreateDelayedTriggerEffect.condition` + registry), `models/game_state.py` (`DelayedTrigger.condition`), `game/engine/turn_loop_mixin.py` (`_delayed_trigger_condition_holds`, `_fire_delayed_triggers` filter), `parser/oracle/catalogue/handlers.py` (`_COPY_PERMANENT_PREVIOUS_RE`, `_COPY_EXCEPT_PT_RE`, `_DELAYED_SAC_EXILE_WHEN_FIRST_RE`/`_delayed_sac_exile_when_first` + `EffectHandler`), `parser/oracle/segmenter.py` (`_EXILE_THEN_COPY_SENTENCE_RE`), `parser/oracle/gate.py` (v217).
 - **Yield:** +1 (Sauron, the Necromancer). The when-first delayed handler is a genuine reusable addition but currently solo-unblocks no other card — the rest of that phrasing's cache cluster (Apprentice Necromancer, Momo's Heist, Skirk Alarmist, The Beamtown Bullies, …) is also-blocked on unrelated clauses (turn-face-up-on-target, gain-control chains, reanimate-under-their-control). Overall coverage 13,559 / 34,811 (39.0%); Commander-legal 12,977 / 31,830 (40.8%).
 - **Tests:** `tests/test_mec52_delayed_trigger_condition.py` — parser (Sauron spec shape; the when-first handler in a connector chain; the "unless" rider; fail-closed on an unrelated end-step clause), engine (`condition=None` fires; `{"is_ring_bearer": False}` does *not* fire while the source is the Ring-bearer but the trigger is still consumed; fires when it isn't), and execute (Sauron's whole trigger — tapped/attacking 3/3 Wraith copy with menace, delayed exile armed with the condition, token exiled at the end step).
 
@@ -550,7 +550,7 @@ is in the rules-engine categories below them.
   - **`GameState.life_lost_this_turn`** — the exact mirror of `life_gained_this_turn`: a `{player_id: int}` map bumped in `RulesEngine.lose_life` (which its own docstring already calls "the single choke point for life loss, whatever causes it — damage, a life-paid cost, a direct 'loses N life' effect"), so this one site covers every path. Reset for *every* player each `GameEngine.begin_turn` (not just the incoming active one, unlike `life_gained_this_turn` whose consumers are all own-turn attack triggers) — Davros's end-step trigger reads each *opponent's* value.
   - **`ConditionalEffect._condition_holds` key `opponent_lost_life_this_turn_at_least`** (`_ALLOWED_CONDITION_KEYS`) — true if *any* opponent of the ability's controller is at/past the threshold. Reached via a new segmenter **suffix** rule `_OPPONENT_LOST_LIFE_SUFFIX_RE` ("`<effect>` if an opponent lost N or more life this turn"), checked at the *top* of `parse_effect_body` — before `match_clause` / the connector split — so the base `create_token` handler can't claim the clause *without* the gate (a wrong-but-modeled unconditional token). Fail-closed: a bare later ". then `<Y>`" clause split off by the period connector does not inherit the condition.
   - **`FaceVillainousChoiceEffect.subject_min_life_lost`** — narrows an `"each_opponent"` sweep to opponents at/past the threshold. `_VILLAINOUS_HEADER_RE`'s `subj` group grew an optional "each opponent **who lost N or more life this turn**" branch (`mll`), mapped to `subject="each_opponent"` + `subject_min_life_lost=N`. The option bodies ("you draw a card" / "that player discards a card") already parsed.
-- **Files:** `models/game_state.py` (`life_lost_this_turn`), `game/rules/damage_death_mixin.py` (`lose_life` bump), `game/engine/turn_loop_mixin.py` (`begin_turn` reset), `game/effects.py` (`ConditionalEffect` key; `FaceVillainousChoiceEffect.subject_min_life_lost` + registry), `parser/oracle/spec.py` (`_ALLOWED_CONDITION_KEYS`), `parser/oracle/segmenter.py` (`_OPPONENT_LOST_LIFE_SUFFIX_RE`), `parser/oracle/catalogue/handlers.py` (`_VILLAINOUS_HEADER_RE` / `_face_villainous_choice`), `parser/oracle/gate.py` (v218).
+- **Files:** `models/game_state.py` (`life_lost_this_turn`), `game/rules/damage_death_mixin.py` (`lose_life` bump), `game/engine/turn_loop_mixin.py` (`begin_turn` reset), `game/effects/core.py` (`ConditionalEffect` key; `FaceVillainousChoiceEffect.subject_min_life_lost` + registry), `parser/oracle/spec.py` (`_ALLOWED_CONDITION_KEYS`), `parser/oracle/segmenter.py` (`_OPPONENT_LOST_LIFE_SUFFIX_RE`), `parser/oracle/catalogue/handlers.py` (`_VILLAINOUS_HEADER_RE` / `_face_villainous_choice`), `parser/oracle/gate.py` (v218).
 - **Yield:** +1 (Davros, Dalek Creator). Overall coverage 13,560 / 34,811 (39.0%); Commander-legal 12,978 / 31,830 (40.8%). `GameState.life_lost_this_turn` is broadly reusable (many "an opponent/a player lost life this turn" cards) — grep for it before adding another life-loss tracker.
 - **Tests:** `tests/test_mec52_davros_life_lost.py` — the counter (bumps on `lose_life` and damage, resets every player at `begin_turn`), parser (Davros spec shape; the suffix condition doesn't leak onto a later ". then" clause), and execute (conditional token only when an opponent is past the threshold; the villainous sweep skips opponents who didn't lose enough and is empty when nobody qualifies; Davros's whole end-step trigger end-to-end).
 
@@ -558,7 +558,7 @@ is in the rules-engine categories below them.
   - **`ExileEffect`'s trigger-subject branch now seeds `context.previous_targets`** with the exiled object — RULE 608.2's "it"/"that card" referent for a following clause, the same thing the RULE 115 targeted branch leaves behind via `_apply_effects_partitioned`.
   - **`FaceVillainousChoiceEffect.subject == "opponent_with_most_life"`** — RULE 701.55's pre-selection (ties → first in APNAP order, a documented simplification of the printed "your choice").
   - **`FaceVillainousChoiceEffect.capture_previous`** — the villainous choice resolves *after* it's answered (a fresh `_apply_effect_specs`, this resolution's context long gone), so option B's `copy_permanent` `referent="previous"` would have nothing to read. With the flag, `apply` snapshots `context.previous_targets` (the just-exiled card) into `request_villainous_choice(captured_previous=…)`; `resolve_villainous_choice` re-seeds `self.context.previous_targets` around that option's `_apply_effect_specs` call. Also fixed on the way: `CopyPermanentEffect` in a referent/self mode (`target_spec is None`) was grabbing a stray `targets[0]` — here the *facing player* the villainous option is applied against — instead of its referent; it now ignores `targets` in that mode (the same gotcha `ExileEffect`'s self mode already documents, Mizzix's Mastery).
-- **Files:** `game/effects.py` (`ExileEffect` trigger-subject `previous_targets`; `FaceVillainousChoiceEffect.subject`/`capture_previous` + registry; `CopyPermanentEffect` stray-`targets` fix), `game/rules/misc_mixin.py` (`request_villainous_choice`/`resolve_villainous_choice` thread `captured_previous`), `game/ability_catalogue/entries_016.py` (the entry).
+- **Files:** `game/effects/core.py` (`ExileEffect` trigger-subject `previous_targets`; `FaceVillainousChoiceEffect.subject`/`capture_previous` + registry; `CopyPermanentEffect` stray-`targets` fix), `game/rules/misc_mixin.py` (`request_villainous_choice`/`resolve_villainous_choice` thread `captured_previous`), `game/ability_catalogue/entries_016.py` (the entry).
 - **Yield:** +1 (The Master, Gallifrey's End). Overall coverage 13,561 / 34,811 (39.0%); Commander-legal 12,979 / 31,830 (40.8%). `subject="opponent_with_most_life"` and `capture_previous` are reusable for the rest of the villainous residue.
 - **Tests:** `tests/test_mec52_the_master_gallifreys_end.py` — registration/bind, the DIES trigger picks the highest-life opponent and option A drains 4, option B makes a copy of the exiled artifact creature under the controller, and a *token* artifact creature dying does not trigger (the nontoken filter).
 
@@ -566,7 +566,7 @@ is in the rules-engine categories below them.
   - **Hunted by The Family** — "Choose up to four target creatures you don't control. For each of them, that creature's controller faces a villainous choice — That creature becomes a 1/1 white Human creature and loses all abilities, or you create a token that's a copy of it." New `FaceVillainousChoiceEffect` `subject="previous_target_controller"`: the effect's *own* `target_spec` is the "up to four" creatures (`kind="creature_you_dont_control"`, `optional=True`, `count=4`), and `_face_per_target` queues one `villainous_choice` per chosen creature, faced by **that creature's** controller, with the creature baked in as the round's `captured` (RULE 608.2 referent). `request_villainous_choice` gained a **`rounds` queue** — an explicit `[{facing_id, option_a, option_b, labels, captured}]` list — generalizing the flat `facing_ids` sweep (which now builds a one-round-per-id queue sharing the option bodies); `_pending_villainous` carries `rounds` + the `current` round, `resolve_villainous_choice` reads per-round option specs / `captured`. Option A is a single indefinite RULE 611 `grant_until` (`previous_subject`, `duration="rest_of_game"`) bundling a layer-4 `type_change` (1/1 + `set_subtypes=["Human"]` + `add_types=["creature"]`), a layer-5 `color_change` and a layer-6 `remove_all_abilities` as `extra_statics` — the same three statics Kenrith's Transformation stacks, aimed at the villainous creature. Option B is PAR-18's `copy_permanent` `referent="previous"`, under *your* control.
   - **Ensnared by the Mara** — "Each opponent faces a villainous choice — They exile cards from the top of their library until they exile a nonland card, then **you** may cast that card without paying its mana cost, or that player exiles the top four cards of their library and ~ **deals damage equal to the total mana value of those exiled cards** to that player." Option A: `dig_until` (+ `DigUntilEffect`/`RulesEngine.dig_until`/`_place_dig_hit`/`grant_free_cast_window_from_exile`) gained a **`digger`/`caster` split** — `digger="facing"` reads the villainous facing player's library (`targets[0]`) not the effect's controller, `caster="controller"` routes the `cast_free_window` free cast to the effect's controller (RULE 601.3e — they become the card's controller, so it's cast off an opponent's library and the "return it if uncast" delayed half still fires). Option B: new `exile_top_then_damage_by_mv` effect — the **summed-mana-value damage source** the RULE 701 trail's damage clauses had no primitive for (exile top N of `targets[0]`'s library, `deal_damage` = Σ `converted_mana_cost`, from the source).
   - **Back from the Brink** — "Exile a creature card from your graveyard **and pay its mana cost**: Create a token that's a copy of that card. Activate only as a sorcery." The cost is *pick-then-price* — a variable mana cost unknowable until the graveyard pick — which `game/costs.py` and the activation flow have no primitive for. Modeled as the **resolution** of an otherwise-free, `cost={"sorcery_speed_only": True}` activated ability: `BackFromTheBrinkEffect` opens a `request_choose_objects` `action="exile"` over the creature cards in the graveyard (that action now also **seeds `context.previous_targets`** with the exiled card), whose `then_specs` is `PayCostThenPreviousMvEffect` — it prices `ActivationCost(mana=ManaCost.from_card(that card))` and calls `request_pay_cost_then` with a new **`captured_previous`** param (re-seeds `context.previous_targets` around the paid branch, the `resolve_villainous_choice` idiom) so the paid `copy_permanent` `referent="previous"` makes the token. **Documented simplification:** exile + payment happen at resolution rather than as an activation cost (the ability can be activated with an empty graveyard → resolves to nothing; the choice/payment can't be responded to) — no printed interaction depends on either in a practice game.
-- **Files:** `game/effects.py` (`FaceVillainousChoiceEffect` `previous_target_controller` + `_face_per_target`; `DigUntilEffect` `digger`/`caster`; new `ExileTopThenDamageByMvEffect` / `BackFromTheBrinkEffect` / `PayCostThenPreviousMvEffect` + registry), `game/rules/misc_mixin.py` (`request_villainous_choice` `rounds` queue; `request_pay_cost_then`/`resolve_pay_cost_then_choice` `captured_previous`; `_apply_chosen_object` `"exile"` seeds `previous_targets`), `game/rules/search_mixin.py` (`dig_until`/`_place_dig_hit`/`grant_free_cast_window_from_exile` `caster`), `game/rules_engine.py` (`_pending_villainous` doc), `game/ability_catalogue/entries_016.py` (the three entries).
+- **Files:** `game/effects/core.py` (`FaceVillainousChoiceEffect` `previous_target_controller` + `_face_per_target`; `DigUntilEffect` `digger`/`caster`; new `ExileTopThenDamageByMvEffect` / `BackFromTheBrinkEffect` / `PayCostThenPreviousMvEffect` + registry), `game/rules/misc_mixin.py` (`request_villainous_choice` `rounds` queue; `request_pay_cost_then`/`resolve_pay_cost_then_choice` `captured_previous`; `_apply_chosen_object` `"exile"` seeds `previous_targets`), `game/rules/search_mixin.py` (`dig_until`/`_place_dig_hit`/`grant_free_cast_window_from_exile` `caster`), `game/rules_engine.py` (`_pending_villainous` doc), `game/ability_catalogue/entries_016.py` (the three entries).
 - **Yield:** +3 hand-authored (Hunted by The Family, Ensnared by the Mara, Back from the Brink); 0 regressed (full `pytest` green apart from a pre-existing `test_parser_version_lock` failure owned by a concurrent MEC-51 parser-handler change). The `rounds` queue, `digger`/`caster`, the summed-MV damage source and `pay_cost_then` `captured_previous` are all reusable.
 - **Tests:** `tests/test_mec52_villainous_residue.py` — the `rounds` queue (two independent facing players), Hunted (fresh specs; option A vanilla-1/1-white-Human + lose-abilities on each targeted creature; option B per-target token copies under your control; no-targets no-op), Ensnared (registered shape; option B summed-MV damage + 4 exiled; option A the controller gets the free-cast window on the opponent's exiled nonland), Back from the Brink (binds a sorcery-speed activated ability; pay → token copy; decline → nothing; empty graveyard → no-op).
 
@@ -589,7 +589,7 @@ is in the rules-engine categories below them.
 - **Frontend:** `gameBoardView.js` — `vote` / `vote_object` / `villainous_choice` `CHOICE_ICONS` entries (🗳️ / 😈); `vote_object` routed to the scry/surveil face-thumbnail renderer (`lookTopChoiceHtml`) since its options carry `card_id`. The `vote` modal already rendered generically.
 - **Yield:** +6 real cache cards MODELED (Council Guardian, Council's Judgment, Custodi Squire, Illusion of Choice, Expropriate, Galadriel, Elven-Queen); 0 regressed.
 - **Tests:** `tests/test_mec46_vote_outcomes_family.py` — parse (all 6 real cards MODELED; `winner_specs` / `vote_object` / Expropriate `per_vote_specs` spec shapes; Galadriel `active_if` + dominion branch); execute (winner-specs grants indefinite protection from every leader and survives cleanup; object-vote exiles / returns the most-voted; forced voter answers every ballot then clears at cleanup; Expropriate queues N extra turns / opens a per-money-ballot gain-control; `another_subtype_entered_this_turn` condition; ring-bearer counter; bot random-vote spread + reproducibility; winner-specs no-op with `None` entries).
-- **Files:** `models/game_state.py` (`_pending_vote`/`_pending_object_vote` — actually on `RulesEngine.__init__`, `game/rules_engine.py`; `forced_vote_controller_id`), `game/rules/misc_mixin.py` (`request_vote`/`_advance_vote`/`_vote_decider`/`resolve_vote_choice`/`_tally_and_apply_vote`/`_advance_expropriate_gain_control`/`request_object_vote`/`_advance_object_vote`/`resolve_object_vote_choice`/`_tally_and_apply_object_vote`; `CHOOSE_OBJECT_ACTIONS` + `_apply_chosen_object` `gain_control`), `game/engine/turn_loop_mixin.py` (`vote`/`vote_object` dispatch; `_step_cleanup` clears `forced_vote_controller_id`), `game/effects.py` (`VoteEffect.winner_specs`, `ObjectVoteEffect`, `SetForcedVoterEffect`, `ExpropriateGainControlEffect`, `TakeExtraTurnEffect.count`, `GrantUntilEffect.self_subject`, `AddCountersEffect.ring_bearer` + `EffectRegistry`), `game/static_conditions.py` (`another_subtype_entered_this_turn`), `parser/oracle/catalogue/handlers.py` (`_vote_winner_protection`/`_vote_object`/`_vote_expropriate`/`_forced_vote`/`_add_counters_ring_bearer` + `EffectHandler`s), `parser/oracle/segmenter.py` (`_ANOTHER_SUBTYPE_ENTERED_IF_RE` in the phase-trigger branch), `parser/oracle/gate.py` (PARSER_VERSION 124 → 173), `services/bots.py` (`Bot.answer_choice` random vote), `frontend/src/js/gameBoardView.js` (`CHOICE_ICONS`, `vote_object` thumbnails).
+- **Files:** `models/game_state.py` (`_pending_vote`/`_pending_object_vote` — actually on `RulesEngine.__init__`, `game/rules_engine.py`; `forced_vote_controller_id`), `game/rules/misc_mixin.py` (`request_vote`/`_advance_vote`/`_vote_decider`/`resolve_vote_choice`/`_tally_and_apply_vote`/`_advance_expropriate_gain_control`/`request_object_vote`/`_advance_object_vote`/`resolve_object_vote_choice`/`_tally_and_apply_object_vote`; `CHOOSE_OBJECT_ACTIONS` + `_apply_chosen_object` `gain_control`), `game/engine/turn_loop_mixin.py` (`vote`/`vote_object` dispatch; `_step_cleanup` clears `forced_vote_controller_id`), `game/effects/core.py` (`VoteEffect.winner_specs`, `ObjectVoteEffect`, `SetForcedVoterEffect`, `ExpropriateGainControlEffect`, `TakeExtraTurnEffect.count`, `GrantUntilEffect.self_subject`, `AddCountersEffect.ring_bearer` + `EffectRegistry`), `game/static_conditions.py` (`another_subtype_entered_this_turn`), `parser/oracle/catalogue/handlers.py` (`_vote_winner_protection`/`_vote_object`/`_vote_expropriate`/`_forced_vote`/`_add_counters_ring_bearer` + `EffectHandler`s), `parser/oracle/segmenter.py` (`_ANOTHER_SUBTYPE_ENTERED_IF_RE` in the phase-trigger branch), `parser/oracle/gate.py` (PARSER_VERSION 124 → 173), `services/bots.py` (`Bot.answer_choice` random vote), `frontend/src/js/gameBoardView.js` (`CHOICE_ICONS`, `vote_object` thumbnails).
 - **Yield:** 5 real cache cards newly MODELED (`parser_probe.py` diff / `coverage_report.py --no-db`, full cache, 0 regressed) — Bite of the Black Rose, Coercive Portal, Tyrant's Choice (majority), Lieutenants of the Guard, Orchard Elemental (per-vote).
 - **Tests:** `tests/test_par29_vote.py` (majority + per-vote parse; adversarial 3-option / permanent-vote / carried-subject rejects; real-card `parse_oracle`; execute: 2-player APNAP sweep via `resolve_pending_choice`, majority leader branch, tie → `tie_index`, per-vote count/amount scaled by tally).
 
@@ -600,7 +600,7 @@ is in the rules-engine categories below them.
 - **Qualifier widening & trigger-subject form (PAR-30, v144):** `_AIRBEND_RE` widened to "[up to N / exactly N / any number of] [other / another] target `<X>` [you control]" → the right source-scoping/-excluding `ExileEffect` `target_kind` (`creature_you_control` / `other_creature_you_control` / `nonland_permanent_you_control`; "any number of" → `count=10, optional=True`). New `_AIRBEND_TRIGGER_SUBJECT_RE` ("airbend that creature / that permanent / it") → `EffectSpec("exile", {target_kind:"trigger_subject", …})` (MEC-38 — reads the firing event's own `instance_id`), for **Monk Gyatso**'s "you may airbend that creature" on a group `BECOMES_TARGET` trigger (the "you may" is peeled by the BECOMES_TARGET dispatch's own `_peel_optional`). **Engine gap fixed:** `ExileEffect`'s `trigger_subject` branch did the exile but skipped every post-exile rider — the owner-play-permission stamp, the free-cast window, the import tax — so an airbend-that-creature would have exiled with no recast permission. Extracted the rider block into a shared `_post_exile(context, target)` helper both the RULE 115 targeted branch and the trigger-subject branch call.
 - **Airbend a spell (PAR-30, v145) — cluster closed:** "airbend up to one other target creature **or spell**" (Aang, Swift Savior). `_AIRBEND_RE` gained an `or spell` tail → `target_kind="spell_or_creature"` (the MEC-43 Unsubstantiate targeting union; a `nonland permanent … or spell` shape fails closed, no real card prints it) + a new `ExileEffect.spell_or_permanent` flag: a chosen target that is a live spell on the stack is pulled off it via `RulesEngine.move_spell_off_stack(item, "exile")` (RULE 400.1 — it never resolves) instead of `context.exile`, then the same `_post_exile` recast-permission riders apply. Mirrors `ReturnToHandEffect`'s own `spell_or_permanent` (Unsubstantiate). **The PAR-30 Airbend residue cluster is now closed.**
 - **Bending-verb trigger (Avatar Aang) — closed PARSER_VERSION 214:** `EventType.BENT` now fires from every bending primitive (airbend included, via `ExileEffect.bend_kind`). See the Firebending section's "whenever you … bend trigger" entry.
-- **Files:** `models/game_state.py` (`exile_cast_cost_override`), `game/effects.py` (`ExileEffect.owner_play_permission_cost` + registry passthrough; v144 `_post_exile` helper shared by the trigger-subject branch; v145 `ExileEffect.spell_or_permanent` + stack-spell branch + registry passthrough), `game/engine/casting_mixin.py` (`effective_cast_cost`), `parser/oracle/catalogue/handlers.py` (`_AIRBEND_RE`/`_airbend`, v144 widening + v145 `or spell` tail; `_AIRBEND_TRIGGER_SUBJECT_RE`/`_airbend_trigger_subject` + `EffectHandler`s), `parser/oracle/gate.py` (PARSER_VERSION 123 / 144 / 145).
+- **Files:** `models/game_state.py` (`exile_cast_cost_override`), `game/effects/core.py` (`ExileEffect.owner_play_permission_cost` + registry passthrough; v144 `_post_exile` helper shared by the trigger-subject branch; v145 `ExileEffect.spell_or_permanent` + stack-spell branch + registry passthrough), `game/engine/casting_mixin.py` (`effective_cast_cost`), `parser/oracle/catalogue/handlers.py` (`_AIRBEND_RE`/`_airbend`, v144 widening + v145 `or spell` tail; `_AIRBEND_TRIGGER_SUBJECT_RE`/`_airbend_trigger_subject` + `EffectHandler`s), `parser/oracle/gate.py` (PARSER_VERSION 123 / 144 / 145).
 - **Yield:** v123 — 3 real cache cards (Airbending Lesson, Glider Staff, Whirlwind Technique). v144 — +2 SOLO (Monk Gyatso, Airbender's Reversal); the airbend clause also stops blocking Aang Airbending Master / Aang the Last Airbender / Appa Loyal Sky Bison / Appa Steadfast Guardian (each still UNMODELED on its own other clauses). v145 — +1 (Aang, Swift Savior). 0 regressed each pass.
 - **Tests:** `tests/test_par29_airbend.py` (v123 — clause forms incl. the "creature or spell" adversarial reject + real-card `parse_oracle` + execute: exile → owner-only cast-from-exile permission at a fixed {2}, not the printed {4}{G}{G}; v144 — every qualifier form parses to the right `target_kind`, "airbend that creature"/"airbend it" → `trigger_subject`, Monk Gyatso + Airbender's Reversal MODELED, and execute: a `BECOMES_TARGET` trigger firing with the ally's `instance_id` exiles the ally and stamps its `{2}` recast override; v145 — the "creature or spell" form parses to `spell_or_creature`/`spell_or_permanent`, and execute end-to-end: a Lightning Bolt on the stack is pulled off it into exile with a `{2}` recast override, and the same effect still exiles a battlefield creature).
 
@@ -635,10 +635,10 @@ is in the rules-engine categories below them.
   - **`look_top_select` gained `select_optional` + `select_filter`** (a `combat.matches_object_filter` dict — "you **may** reveal a **creature card with power 3 or less**"). The "select" phase offers only eligible cards + a decline option; a filter with no eligible card skips the pick. **Water Tribe Rallier**: `waterbend {5}` (= a plain `{5}` activated cost) → `look_top_select {count: 4, select_optional, select_filter: {card_type: creature, max_power: 3}, rest_order: "random"}`.
   - **Invasion Submersible** — the ETB parses on its own (v215); the Exhaust body is hand-authored: `grant_until` rest-of-game `type_change` (+artifact +creature, 0/0 base) + `add_counters` ×3 + `activate_only_once_marker` (→ `once_per_game`). A stand-in for the 165-SOLO "becomes a creature" animation cluster (still its own PAR ticket).
   - **Waterbending Lesson** — `draw 3` + `pay_cost_then {cost: "{2}", else_effects: [discard 1]}` (RULE 118.3 "discard unless you pay").
-  - **Files:** `models/game_state.py` (`TemporaryPlayerTrigger` duration/scope, `no_max_hand_size_player_ids`), `game/rules/triggers_mixin.py` (`_collect_temporary_player_triggers` scope), `game/rules/search_mixin.py` (`look_top_select` filter/optional), `game/continuous.py` (`has_no_maximum_hand_size`), `game/effects.py` (`InstallTemporaryPlayerTriggerEffect`, `NoMaxHandSizeRestOfGameEffect`, `CopyPermanentEffect.previous_each`, `ExileEffect`/`TapEffect` `count_selector`, `AddCountersEffect` `previous_subject`+`divided` & `creature_filter` registry, `GameContext.look_top_select`, `tap` registry no longer `int()`s `count`), `game/ability_catalogue/entries_016.py` (8 factories).
+  - **Files:** `models/game_state.py` (`TemporaryPlayerTrigger` duration/scope, `no_max_hand_size_player_ids`), `game/rules/triggers_mixin.py` (`_collect_temporary_player_triggers` scope), `game/rules/search_mixin.py` (`look_top_select` filter/optional), `game/continuous.py` (`has_no_maximum_hand_size`), `game/effects/core.py` (`InstallTemporaryPlayerTriggerEffect`, `NoMaxHandSizeRestOfGameEffect`, `CopyPermanentEffect.previous_each`, `ExileEffect`/`TapEffect` `count_selector`, `AddCountersEffect` `previous_subject`+`divided` & `creature_filter` registry, `GameContext.look_top_select`, `tap` registry no longer `int()`s `count`), `game/ability_catalogue/entries_016.py` (8 factories).
   - **Yield:** +7 cache cards (all hand-authored), 0 regressed. Full suite green. `tests/test_par30_waterbend_residue_bodies.py`.
 - **The Waterbend (RULE 701.67) residue bullet is now closed.** The one card it couldn't reach — **Secret of Bloodbending** ("you control target opponent during their next combat phase / turn") — is deferred to **MEC-51 · Control another player's turn (or a part of it)**, the general Mindslaver / Sorin Markov `−7` / Emrakul-family primitive (a `GameState` control map + state machine + priority/action/choice/turn-based-action routing hooks). Not a loose parser end — a real standalone engine feature. See `BACKLOG.md`.
-- **Files:** `game/costs.py` (`ActivationCost.help_pay_kind`, `parse_activation_cost` waterbend branch), `game/effects.py` (`GrantUntilEffect` X-substitution, `UnblockableEffect`/`ShuffleSelfIntoLibraryEffect` new modes + registries; v155: `ConditionalEffect._condition_holds` `additional_cost_paid` branch), `game/engine/casting_mixin.py` (`effective_cast_cost` additional-cost mana fold; v155: `pay_additional` threaded through `can_cast`/`effective_cast_cost`/`cast_spell`/`_cast_current_face`/`_auto_tap_for_cast_if_needed`/`_pay_additional_cast_cost`, `GameObject.additional_cost_paid` recording), `game/engine/legal_actions_mixin.py` (v155: `_offer_cast` optional-additional-cost variant, `_cast_action` `pay_additional`), `game/effect_binder.py` (v155: `attach_to_object` copies `additional_cost_optional`), `models/game_object.py` (v155: `additional_cost_paid` field + reset), `services/game_session.py` (v155: `_dispatch_cast_spell` round-trip), `parser/oracle/catalogue/handlers.py` (`_BASE_PT_UNTIL_EOT_RE`, `_CANT_BE_BLOCKED_TURN_RE`, `_SHUFFLE_ENCHANTED_INTO_LIBRARY_RE`), `parser/oracle/segmenter.py` (`_ADDITIONAL_COST_WATERBEND_RE`; v155: `_ADDITIONAL_COST_OPTIONAL_PREFIX_RE`, `_ADDITIONAL_COST_PAID_CONDITION_RE`), `parser/oracle/spec.py` (`additional_cost` `waterbend` key; v155: `AbilitySpec.additional_cost_optional`, `"additional_cost_paid"` condition key), `parser/oracle/gate.py` (v131, v155).
+- **Files:** `game/costs.py` (`ActivationCost.help_pay_kind`, `parse_activation_cost` waterbend branch), `game/effects/core.py` (`GrantUntilEffect` X-substitution, `UnblockableEffect`/`ShuffleSelfIntoLibraryEffect` new modes + registries; v155: `ConditionalEffect._condition_holds` `additional_cost_paid` branch), `game/engine/casting_mixin.py` (`effective_cast_cost` additional-cost mana fold; v155: `pay_additional` threaded through `can_cast`/`effective_cast_cost`/`cast_spell`/`_cast_current_face`/`_auto_tap_for_cast_if_needed`/`_pay_additional_cast_cost`, `GameObject.additional_cost_paid` recording), `game/engine/legal_actions_mixin.py` (v155: `_offer_cast` optional-additional-cost variant, `_cast_action` `pay_additional`), `game/binding/core.py` (v155: `attach_to_object` copies `additional_cost_optional`), `models/game_object.py` (v155: `additional_cost_paid` field + reset), `services/game_session.py` (v155: `_dispatch_cast_spell` round-trip), `parser/oracle/catalogue/handlers.py` (`_BASE_PT_UNTIL_EOT_RE`, `_CANT_BE_BLOCKED_TURN_RE`, `_SHUFFLE_ENCHANTED_INTO_LIBRARY_RE`), `parser/oracle/segmenter.py` (`_ADDITIONAL_COST_WATERBEND_RE`; v155: `_ADDITIONAL_COST_OPTIONAL_PREFIX_RE`, `_ADDITIONAL_COST_PAID_CONDITION_RE`), `parser/oracle/spec.py` (`additional_cost` `waterbend` key; v155: `AbilitySpec.additional_cost_optional`, `"additional_cost_paid"` condition key), `parser/oracle/gate.py` (v131, v155).
 - **Yield:** +52 cache cards at v131 (10/28 `waterbend` cards MODELED; the bulk is the can't-be-blocked and base-P/T families); +1 at v155 (Requiting Hex). `parser_probe` diff, full cache, 0 regressed each time.
 - **Tests:** `tests/test_eng32_waterbend.py` (real-card `parse_oracle` incl. the still-UNMODELED `{X}` form; v155: `segment_line` optional-vs-mandatory flag, `parse_effect_body` `additional_cost_paid` condition incl. the "instead" adversarial, Requiting Hex end-to-end, `_offer_cast` two cast variants gated by affordability, declining leaves the flag `False` and pool untouched, paying folds the mana and sets the flag, `ConditionalEffect` gates on the flag; execute: base-P/T set lasting until cleanup, group `{X}` resolving off `x_paid`, self "can't be blocked", Water Whip's `{1}{U}`+`{5}` total gating `can_cast` and draining the pool).
 
@@ -652,7 +652,7 @@ is in the rules-engine categories below them.
 - **"Earthbend N. When you do, `<effect>`." collapse (PAR-30, v142):** `_EARTHBEND_THEN_WHEN_YOU_DO_RE` in `segmenter`, dispatched in `parse_effect_body` right after `_SACRIFICE_THEN_WHEN_YOU_DO_RE`. "earthbend N" is a mandatory keyword action (no "may"), so RULE 603.3's "when you do" sub-trigger is a certainty — the two sentences reduce to one plain `[earthbend N, <effect>]` sequence with no `pending_choice`, the identical certain-antecedent rationale the self-sacrifice collapse uses. Narrow: the before-clause regex is exactly `earthbend \d+`, and the dispatch fails closed (`None`) unless the recursively-parsed before-specs contain an `earthbend` spec — so it can never claim the genuine optional "you may `<action>`. When you do, …" family (which begins "you may " and never matches). The `<effect>` half already parsed via the connector-split loop; only the literal "When you do," was blocking. Closes **Earth Rumble**.
 - **Dying-subject power X (PAR-30, v143):** "Whenever a **nonland** creature you control dies, earthbend X, where X is **that creature's power**." (Beifong's Bounty Hunters). Two additive pieces. (1) `segmenter._GROUP_SUBJECT_RE` gained an optional `nonland` qualifier → `condition["nonland"]` → `effect_binder._build_group_ok`'s new `want_nonland`, a negated main-type check against the DIES event's snapshotted `object_types` (RULE 400.7 — the object has left the battlefield by the time the trigger check runs), the same event-payload shape `nontoken` already uses. (2) `_EARTHBEND_THAT_CREATURES_POWER_RE` → `EarthbendEffect.amount_from_trigger_event="power"`, reading the DIES event's RULE 400.7 last-known-power snapshot — which `damage_death_mixin` now stamps on the DIES `GameEvent` (`power=obj.power`), mirroring the identical stamp `LEAVES_BATTLEFIELD` already carried for `LoseLifeEffect.amount_from_trigger_event`. Deliberately anchored on the literal "that creature's power" so only the dying-subject read is claimed ("its power" / "that creature's toughness" stay UNMODELED). Closes **Beifong's Bounty Hunters**.
 - **Earthshape (hand-authored, no PARSER_VERSION bump) — Earthbend residue cluster closed:** the cluster's last card. "Earthbend 3. Then each creature you control with power less than or equal to **that land's power** gains hexproof and indestructible until end of turn. You gain hexproof until end of turn." — a `spell_effect` `AbilitySpec` in `ability_catalogue/entries_016.py`: `[earthbend 3, pump{selector:"creatures_you_control", creature_filter:{max_power:3}, keywords:["hexproof","indestructible"]}]`. The one small engine change: `PumpEffect`'s `selector`-group branch now also narrows by `creature_filter` (via `combat.matches_object_filter`, the same predicate `TargetSpec.creature_filter` uses) — it previously only applied `creature_filter` to the *targeted* branch, a latent gap. **Two documented simplifications:** (a) "that land's power" is modeled as the literal earthbend amount (3) — RULE 701.66 makes the target land a 0/0 that then gets N +1/+1 counters, i.e. exactly N/N, so "that land's power" is 3 absent any other P/T modifier; the animated land is itself a 3/3 creature you control and so is (correctly) among the protected creatures. (b) "You gain hexproof until end of turn" is dropped — player-level hexproof is deliberately unmodeled in this engine (same call as Veil of Summer's player-level hexproof in the Kinnan/M-K batch). **The PAR-30 Earthbend residue cluster is now fully closed** — its BACKLOG bullet is deleted.
-- **Files:** `game/rules/mana_counters_mixin.py` (`earthbend`), `game/rules/damage_death_mixin.py` (`power=obj.power` on the DIES `GameEvent`, v143), `game/effects.py` (`EarthbendEffect` + `EffectRegistry`; `PumpEffect`'s `selector`-group branch now honours `creature_filter`, Earthshape), `game/effect_binder.py` (`_build_group_ok`'s `want_nonland`, v143), `game/continuous.py` (`creature_cards_in_your_graveyard` was v133), `game/ability_catalogue/entries_016.py` (`_earthshape`), `parser/oracle/segmenter.py` (`_announces_creature_target` earthbend recognition; `_EARTHBEND_THEN_WHEN_YOU_DO_RE` + its `parse_effect_body` dispatch, v142; `_GROUP_SUBJECT_RE`'s `nonland` qualifier, v143), `parser/oracle/catalogue/handlers.py` (`_earthbend`, `_earthbend_x`/`_EARTHBEND_X_RE`, `_EARTHBEND_THAT_CREATURES_POWER_RE`/`_earthbend_that_creatures_power`, `_TAP_PREVIOUS_SUBJECT_RE`/`_tap_previous_subject` + `EffectHandler`s), `parser/oracle/gate.py` (PARSER_VERSION 122 / 134 / 142 / 143).
+- **Files:** `game/rules/mana_counters_mixin.py` (`earthbend`), `game/rules/damage_death_mixin.py` (`power=obj.power` on the DIES `GameEvent`, v143), `game/effects/core.py` (`EarthbendEffect` + `EffectRegistry`; `PumpEffect`'s `selector`-group branch now honours `creature_filter`, Earthshape), `game/binding/core.py` (`_build_group_ok`'s `want_nonland`, v143), `game/continuous.py` (`creature_cards_in_your_graveyard` was v133), `game/ability_catalogue/entries_016.py` (`_earthshape`), `parser/oracle/segmenter.py` (`_announces_creature_target` earthbend recognition; `_EARTHBEND_THEN_WHEN_YOU_DO_RE` + its `parse_effect_body` dispatch, v142; `_GROUP_SUBJECT_RE`'s `nonland` qualifier, v143), `parser/oracle/catalogue/handlers.py` (`_earthbend`, `_earthbend_x`/`_EARTHBEND_X_RE`, `_EARTHBEND_THAT_CREATURES_POWER_RE`/`_earthbend_that_creatures_power`, `_TAP_PREVIOUS_SUBJECT_RE`/`_tap_previous_subject` + `EffectHandler`s), `parser/oracle/gate.py` (PARSER_VERSION 122 / 134 / 142 / 143).
 - **Yield:** v122 — 9 real cache cards (Ba Sing Se, Cracked Earth Technique, Earth Village Ruffians, Earthbending Lesson, Earthbending Student, Haru Hidden Talent, Rebellious Captives, Sandbenders' Storm, Solid Ground). v134 — +12 (Rockalanche, The Boulder, Bumi's Feast Lecture, Avatar Kyoshi + the 8 "Untap that creature" cards). v142 — +1 (Earth Rumble). v143 — +1 (Beifong's Bounty Hunters). Earthshape hand-authored — +1, no bump. 0 regressed each pass. **The PAR-30 Earthbend residue cluster is now closed.**
 - **Tests:** `tests/test_par29_earthbend.py` (v122 — clause parse + real-card `parse_oracle` + animate-and-count + `rest_of_game` persistence + no-op + bind-and-apply; v143 — "that creature's power" now claimed, a genuinely un-modeled dynamic form still rejected); `tests/test_par30_earthbend_dynamic.py` (v134 — each X phrasing parses to the right selector, real cards MODELED, and execute: a live Forest count and a "twice the number of Foods" count reach the target land's `+1/+1` counters, plus "earthbend 5, then untap that land" end-to-end; v143 — "that creature's power" parses to `amount_from_trigger_event`, "its power"/"toughness" stay UNMODELED, Beifong's MODELED, and execute end-to-end: a 5/5 dying earthbends the land by 5, a plain land dying doesn't fire the trigger); `tests/test_par30_earthbend_when_you_do.py` (v142 — the collapse produces `[earthbend, fight]`, "you may earthbend …"/"scry 2. when you do …" both fail closed, real Earth Rumble MODELED, and execute: the sequence's earthbend half animates the land + adds counters); `tests/test_par30_earthshape.py` (Earthshape registered with the right specs, and execute end-to-end: the animated land + a 2/2 gain hexproof/indestructible, a 6/6 doesn't).
 
@@ -674,7 +674,7 @@ is in the rules-engine categories below them.
 - **Non-blocking additional cost.** `_can_pay_additional_cast_cost` always returns `True` for a `behold` cost, and `_pay_additional_cast_cost` calls `behold` best-effort (a `False` just means nothing was revealed). **Documented simplification:** the "or pay {N}" mana alternative isn't modeled — same precedent and reasoning as `segmenter._ADDITIONAL_COST_PAY_LIFE_OR_MANA_RE` ("pay N life or pay {cost}", where only the life half is kept). The consequence is a rare under-cost: a player holding no matching permanent/card casts the spell without paying the {N} they'd owe at a real table. Beholding itself has no game-state effect in this engine (it's a reveal), and nothing in the pool triggers on it yet — the `EventType.BEHELD` row + the `_PLAYER_TRIGGER_CONDITIONS`/`_GROUP_CONTROLLER_EVENT_KEYS` entries keep the keyword-action family's "fire an event so a future trigger can see it" convention.
 - **Ungated the additional-cost wrapper.** `segmenter`'s "as an additional cost to cast this spell," recognition was previously gated behind `allow_spell_effect` (instants/sorceries only). RULE 601.2b additional costs apply to *any* spell, and real creature spells print them (Demon of Catastrophes, Arbiter of Woe, Lesser Masticore, Mardu Outrider, plus the three Behold creatures Kinsbaile Aspirant / Lys Alana Dignitary / Silvergill Mentor). The wrapper is unambiguous and the spec it emits carries no bare imperative for the gate to guard against, so the `_ADDITIONAL_COST_LINE_RE` branch now runs regardless of card type; the closed cost vocabulary is unchanged, so an out-of-vocab additional cost on a permanent still fails closed. `test_additional_costs.py`'s `test_permanent_never_claims_additional_cost_line` (written on the false premise that no permanent prints this) was replaced by `test_permanent_claims_recognized_additional_cost_line` + `test_permanent_still_fails_closed_on_unrecognized_additional_cost`.
 - **Not done:** Molten Exhale ("cast as though it had flash if you behold a dragon as an additional cost") — a conditional-flash fused with the additional cost; Elven Passage ("you may behold an elf. If you do, untap that land.") — an activated-ability body needing a behold `pay_cost_then` half plus a "that land" pronoun; the Champion cycle ("behold a `<type>` **and exile it**" + a leaves-the-battlefield return); Celestial Reunion ("behold 2 creatures of a chosen type"). Filed under PAR-29 in `BACKLOG.md`.
-- **Files:** `models/events.py` (`BEHELD`), `game/costs.py` (`behold` field + `is_free`/`label`/`to_dict`/`parse_activation_cost`), `game/rules/misc_mixin.py` (`behold`), `game/engine/casting_mixin.py` (`_can/_pay_additional_cast_cost`), `game/effect_binder.py` (`_GROUP_CONTROLLER_EVENT_KEYS`), `parser/oracle/spec.py` (`_validate_additional_cost` `behold` key), `parser/oracle/segmenter.py` (`_ADDITIONAL_COST_BEHOLD_RE`, `_additional_cost_dict`, `_PLAYER_TRIGGER_CONDITIONS`, ungated `_ADDITIONAL_COST_LINE_RE`), `parser/oracle/gate.py` (PARSER_VERSION 120).
+- **Files:** `models/events.py` (`BEHELD`), `game/costs.py` (`behold` field + `is_free`/`label`/`to_dict`/`parse_activation_cost`), `game/rules/misc_mixin.py` (`behold`), `game/engine/casting_mixin.py` (`_can/_pay_additional_cast_cost`), `game/binding/core.py` (`_GROUP_CONTROLLER_EVENT_KEYS`), `parser/oracle/spec.py` (`_validate_additional_cost` `behold` key), `parser/oracle/segmenter.py` (`_ADDITIONAL_COST_BEHOLD_RE`, `_additional_cost_dict`, `_PLAYER_TRIGGER_CONDITIONS`, ungated `_ADDITIONAL_COST_LINE_RE`), `parser/oracle/gate.py` (PARSER_VERSION 120).
 - **Yield:** 9 real cache cards newly MODELED (`parser_probe.py` diff / `coverage_report.py --no-db`, full cache, 0 regressed) — Caustic Exhale, Kinsbaile Aspirant, Lys Alana Dignitary, Silvergill Mentor (Behold), plus Arbiter of Woe, Demon of Catastrophes, Grafted Identity, Lesser Masticore, Mardu Outrider (creature/other-permanent spells whose sacrifice/discard additional cost was the only blocker).
 - **Tests:** `tests/test_par29_behold.py` (dict-form parse + adversarial no-match + creature-spell claim + real-card `parse_oracle` + cost round-trip + `behold` primitive permanent-then-hand + non-blocking additional cost + creature spell binds and stays castable with no match).
 
@@ -684,7 +684,7 @@ is in the rules-engine categories below them.
 - **Wired everywhere a cost is paid**, exactly parallel to Collect Evidence: `costs.py`'s `_FORAGE_RE` in `_parse_text` (+ `is_free`/`describe`/`to_dict`/`from_dict`); `activation_mixin._can/_pay_activation_cost` (for `{cost}, forage: <effect>` — Camellia, the Seedmiser, though it stays UNMODELED on its own body); `misc_mixin._can/_pay_player_cost` (for `pay_cost_then`). `EventType.FORAGED` + `segmenter._PLAYER_TRIGGER_CONDITIONS` ("you forage" → the event) + `effect_binder._GROUP_CONTROLLER_EVENT_KEYS` (`player_id`) back "whenever you forage, …".
 - **Parser handlers:** `forage_bare` (`you may forage` whole clause → `pay_cost_then` with empty effects); `forage` (bare `forage`, the segmenter-peeled triggered-ability body → `effects.ForageEffect`).
 - **Not done:** Curious Forager's *targeted* "when you do, return target permanent card from your graveyard to your hand" payoff (`PayCostThenEffect` branch effects resolve off-stack, no target step) and Feed the Cycle's "forage or pay {B}" as an *alternative additional cast cost*. Filed under PAR-29 in `BACKLOG.md`.
-- **Files:** `models/events.py`, `game/costs.py`, `game/rules/misc_mixin.py` (`forage` / `forage_possible`, `_can/_pay_player_cost`), `game/engine/activation_mixin.py`, `game/effects.py` (`ForageEffect` + `EffectRegistry`), `game/effect_binder.py`, `parser/oracle/segmenter.py`, `parser/oracle/catalogue/handlers.py` (`_MAY_COST_THEN_CLAUSE`, `_forage_bare`, `_forage`), `parser/oracle/gate.py` (PARSER_VERSION 119).
+- **Files:** `models/events.py`, `game/costs.py`, `game/rules/misc_mixin.py` (`forage` / `forage_possible`, `_can/_pay_player_cost`), `game/engine/activation_mixin.py`, `game/effects/core.py` (`ForageEffect` + `EffectRegistry`), `game/binding/core.py`, `parser/oracle/segmenter.py`, `parser/oracle/catalogue/handlers.py` (`_MAY_COST_THEN_CLAUSE`, `_forage_bare`, `_forage`), `parser/oracle/gate.py` (PARSER_VERSION 119).
 - **Yield:** 3 real cache cards newly MODELED (0 regressed) — Bushy Bodyguard, Corpseberry Cultivator, Treetop Sentries.
 - **Tests:** `tests/test_par29_forage.py` (cost parse + round-trip + clause forms + `forage_possible` + graveyard-exile path + Food-sacrifice-preferred path + impossible-still-fires-event + ETB-via-binder with an "if you do" draw rider).
 
@@ -698,19 +698,19 @@ is in the rules-engine categories below them.
 - **What:** The Murders at Karlov Manor cost mechanic. RULE 701.59a "collect evidence N" = "exile any number of cards with total mana value N or greater from your graveyard". New `ActivationCost.collect_evidence: int` field — a **total-mana-value threshold**, the MV-sum sibling of Escape's `exile_from_graveyard` flat card count. `RulesEngine.collect_evidence(player, N)` (in `misc_mixin.py`, beside `learn`) does the exile — auto-picking **highest mana value first** so the fewest cards leave (documented simplification, the same "auto-pick, no chooser in this MVP" idiom `_pay_escape_graveyard_cost`/`discard` use) — then fires `EventType.COLLECTED_EVIDENCE` (RULE 701.59b — process-complete, fired even when the threshold wasn't reached). `collect_evidence_possible(player, N)` is the shared affordability check.
 - **Wired everywhere a cost is paid:** `costs.py`'s `_COLLECT_EVIDENCE_RE` recognizes it in a cost string (`parse_activation_cost` → `to_dict`/`from_dict` round-trip); `activation_mixin._can/_pay_activation_cost` charge it for `{cost}, collect evidence N:` abilities; `misc_mixin._can/_pay_player_cost` charge it for `pay_cost_then` ("you may collect evidence N. if you do, …" — `handlers._MAY_COST_THEN_CLAUSE` gained the alternative). `EventType.COLLECTED_EVIDENCE` + `segmenter._PLAYER_TRIGGER_CONDITIONS` ("you collect evidence" → the event) + `effect_binder._GROUP_CONTROLLER_EVENT_KEYS` (`player_id`) back "whenever you collect evidence, …".
 - **Parser handlers:** `collect_evidence_bare` (`you may collect evidence N` whole clause → `pay_cost_then` with empty effects — an optional cost whose only payoff is the separate trigger); `collect_evidence` (bare `collect evidence N`, what's left after the segmenter peels a triggered ability's outer "you may " → `effects.CollectEvidenceEffect`, a mandatory resolving-effect form, the peeled "you may" carrying the optionality).
-- **Files:** `models/events.py`, `game/costs.py` (`collect_evidence` field, `_COLLECT_EVIDENCE_RE`, `is_free`/`describe`/`to_dict`/`from_dict`), `game/rules/misc_mixin.py` (`collect_evidence` / `collect_evidence_possible`, `_can/_pay_player_cost`), `game/engine/activation_mixin.py` (`_can/_pay_activation_cost`), `game/effects.py` (`CollectEvidenceEffect` + `EffectRegistry`), `game/effect_binder.py` (`_GROUP_CONTROLLER_EVENT_KEYS`), `parser/oracle/segmenter.py` (`_PLAYER_TRIGGER_CONDITIONS`), `parser/oracle/catalogue/handlers.py` (`_MAY_COST_THEN_CLAUSE`, `_collect_evidence_bare`, `_collect_evidence`), `parser/oracle/gate.py` (PARSER_VERSION 118).
+- **Files:** `models/events.py`, `game/costs.py` (`collect_evidence` field, `_COLLECT_EVIDENCE_RE`, `is_free`/`describe`/`to_dict`/`from_dict`), `game/rules/misc_mixin.py` (`collect_evidence` / `collect_evidence_possible`, `_can/_pay_player_cost`), `game/engine/activation_mixin.py` (`_can/_pay_activation_cost`), `game/effects/core.py` (`CollectEvidenceEffect` + `EffectRegistry`), `game/binding/core.py` (`_GROUP_CONTROLLER_EVENT_KEYS`), `parser/oracle/segmenter.py` (`_PLAYER_TRIGGER_CONDITIONS`), `parser/oracle/catalogue/handlers.py` (`_MAY_COST_THEN_CLAUSE`, `_collect_evidence_bare`, `_collect_evidence`), `parser/oracle/gate.py` (PARSER_VERSION 118).
 - **Yield:** 3 real cache cards newly MODELED (`parser_probe.py` diff / `coverage_report.py --no-db`, full cache, 0 regressed) — Evidence Examiner, Izoni Center of the Web, Surveillance Monitor.
 - **Tests:** `tests/test_par29_collect_evidence.py` (cost-text parse + round-trip + clause forms + `collect_evidence_possible` + highest-MV-first exile + short-graveyard still fires the event + a real `{cost}, collect evidence N:` activated ability paying it).
 
 #### Reflexive "When you do, `<targeted payoff>`" residue (PAR-30, PARSER_VERSION 206) + exotic activated bodies (PAR-30, PARSER_VERSION 207)
 
-- **v206 — reflexive trigger primitive.** A *targeted* "you may `<cost>`. **When you do**, `<effect>`." is RULE 603.11's reflexive triggered ability: `_pay_cost_then_general` stops rejecting a targeted follow-up and emits `pay_cost_then` with a new ``then_trigger``; on payment, `RulesEngine._enqueue_pay_cost_then_trigger` builds a fresh `TriggeredAbility` and queues it on `pending_triggers`, so the ordinary placement path gathers its RULE 115 target and stacks it (`effects` resolve off-stack and never could). Carries the outer trigger's `GameEvent` on `StackItem.trigger_event`. Cost whitelist = mana / typed-sacrifice / discard / pay-life / collect-evidence / forage / blight, so it closes the whole "you may pay {cost}. If you do, `<targeted effect>`" family — Surgespanner, Teneb, Bearer of Silence, Sample Collector, Curious Forager, Warren Torchmaster. **+43**, 0 regressed. Files: `game/effects.py` (`PayCostThenEffect.then_trigger_specs`), `game/rules/misc_mixin.py` (`request_pay_cost_then`/`resolve_pay_cost_then_choice`/`_enqueue_pay_cost_then_trigger`), `parser/oracle/catalogue/handlers.py`. Tests: `tests/test_reflexive_when_you_do_trigger.py`.
+- **v206 — reflexive trigger primitive.** A *targeted* "you may `<cost>`. **When you do**, `<effect>`." is RULE 603.11's reflexive triggered ability: `_pay_cost_then_general` stops rejecting a targeted follow-up and emits `pay_cost_then` with a new ``then_trigger``; on payment, `RulesEngine._enqueue_pay_cost_then_trigger` builds a fresh `TriggeredAbility` and queues it on `pending_triggers`, so the ordinary placement path gathers its RULE 115 target and stacks it (`effects` resolve off-stack and never could). Carries the outer trigger's `GameEvent` on `StackItem.trigger_event`. Cost whitelist = mana / typed-sacrifice / discard / pay-life / collect-evidence / forage / blight, so it closes the whole "you may pay {cost}. If you do, `<targeted effect>`" family — Surgespanner, Teneb, Bearer of Silence, Sample Collector, Curious Forager, Warren Torchmaster. **+43**, 0 regressed. Files: `game/effects/core.py` (`PayCostThenEffect.then_trigger_specs`), `game/rules/misc_mixin.py` (`request_pay_cost_then`/`resolve_pay_cost_then_choice`/`_enqueue_pay_cost_then_trigger`), `parser/oracle/catalogue/handlers.py`. Tests: `tests/test_reflexive_when_you_do_trigger.py`.
 - **v207 — the `{cost}, collect evidence N: <body>` activated abilities.** `segmenter._COST_LOOKS_REAL` never listed `collect evidence \d+` / `forage` / `blight \d+`, so those lines failed the cost sniff and never reached the activated handler; adding them unblocked the bodies:
   - **`exile enchanted creature`** — `ExileEffect`'s new ``attached_permanent`` self-mode (reads `GameObject.attached_to`, no RULE 115 target — the sibling of that mode on `TapEffect`/`PumpEffect`) + handler `exile_attached`. Spiral into Solitude, and a whole Aura family the parser could never finish before: Dreadful Apathy, Cooped Up, Choking Restraints, Caught in the Brights, Redemption Arc, …
   - **`discard a card. If you do, <effect>`** — `segmenter._DISCARD_THEN_IF_YOU_DO_RE` collapses a bare mandatory discard + its reflexive tail to a plain `[discard, <effect>]` sequence (same rationale as the sacrifice/earthbend "when you do" collapses; empty-hand failure is a documented simplification). Gristle Glutton's loot.
   - **`each opponent loses N life unless they discard a card or sacrifice a creature`** — `_EACH_PLAYER_LOSE_LIFE_UNLESS_RE` widened to "each opponent" (`each_player_pay_or` `scope="each_opponent"`) and the OR cost form (`EachPlayerPayOrEffect.sacrifice_or_discard`, since the plain cost parser AND-combines its fragments). Polygraph Orb.
   - **+13**, 0 regressed. **Hedge Whisperer hand-authored** (`ability_catalogue/entries_016.py`): the manland body is a targeted `grant_until` on `land_you_control` with a layer-4 `type_change` (Plant Boar 5/5, still a land) *plus* a layer-6 `grant_keyword` haste — one target, two statics, via the new `GrantUntilEffect.extra_statics` list — bounded by `condition={"kind": "source_tapped"}` (RULE 611.2b, ends when Hedge Whisperer untaps); `sorcery_speed_only` carries "Activate only as a sorcery".
-  - Files: `parser/oracle/segmenter.py` (`_COST_LOOKS_REAL`, `_DISCARD_THEN_IF_YOU_DO_RE`), `parser/oracle/catalogue/handlers.py` (`exile_attached`, `_EACH_PLAYER_LOSE_LIFE_UNLESS_RE`), `game/effects.py` (`ExileEffect._attached_mode`, `EachPlayerPayOrEffect.sacrifice_or_discard`, `GrantUntilEffect.extra_statics`/`_park_static` refactor), `game/ability_catalogue/entries_016.py` (`_hedge_whisperer`), `parser/oracle/gate.py` (PARSER_VERSION 206/207). Tests: `tests/test_collect_evidence_blight_bodies.py`.
+  - Files: `parser/oracle/segmenter.py` (`_COST_LOOKS_REAL`, `_DISCARD_THEN_IF_YOU_DO_RE`), `parser/oracle/catalogue/handlers.py` (`exile_attached`, `_EACH_PLAYER_LOSE_LIFE_UNLESS_RE`), `game/effects/core.py` (`ExileEffect._attached_mode`, `EachPlayerPayOrEffect.sacrifice_or_discard`, `GrantUntilEffect.extra_statics`/`_park_static` refactor), `game/ability_catalogue/entries_016.py` (`_hedge_whisperer`), `parser/oracle/gate.py` (PARSER_VERSION 206/207). Tests: `tests/test_collect_evidence_blight_bodies.py`.
 - **v208 — Feed the Cycle's forage additional cost.** "As an additional cost to cast this spell, forage [or pay {M}]." → `_ADDITIONAL_COST_FORAGE_RE` → `additional_cost={"forage": True}` (`ActivationCost.forage`, already charged by `_can`/`_pay_activation_cost`); the "or pay {M}" alternative is the same documented drop `behold`/`blight` additional costs already make. +1, 0 regressed. Files: `parser/oracle/segmenter.py` (`_ADDITIONAL_COST_FORAGE_RE`, `_additional_cost_dict`), `parser/oracle/spec.py` (`_validate_additional_cost` `forage` key), `parser/oracle/gate.py` (PARSER_VERSION 208). Test in `tests/test_collect_evidence_blight_bodies.py`.
 - **v213 — the residue, closed.** Every remaining per-card primitive from the BACKLOG bullet, one batch. Parser (+26 cache cards, 0 regressed):
   - **The Lorwyn "Champion" cycle reflavoured.** `ActivationCost.behold_exile` (`segmenter._ADDITIONAL_COST_BEHOLD_EXILE_RE` → `additional_cost={"behold_exile": "<type>"}`) — a *mandatory* additional cast cost (no "or pay {N}", so it *blocks* casting, unlike PAR-29's `behold`): `GameEngine._pay_additional_cast_cost` beholds a matching permanent/hand card, exiles it and stamps `GameObject.linked_exile_id`; `_can_pay_additional_cast_cost` refuses the cast when nothing matches (`_behold_exile_candidate`). The paired "return the exiled card to its owner's **hand**" LTB is `handlers._RETURN_EXILED_CARD_RE`'s widened "to its owner's hand" branch → `ReturnLinkedExileEffect(destination="hand")`. → **Champion of the Clachan** and **Champions of the Perfect** MODELED (the latter's hand-authored stopgap — which modelled the behold-exile as a plain `sacrifice` and dropped the LTB — is **retired**, `specs_for` now falls through to the parser).
@@ -719,7 +719,7 @@ is in the rules-engine categories below them.
   - **`_CONDITIONAL_FLASH_IF_BEHOLD_RE`** → `conditional_flash={"controller_beholds_subtype": "<type>"}` (`condition_query`, `ALLOWED_CAST_CONDITION_KEYS`) — "you may cast this spell as though it had flash if you behold a Dragon". **Documented simplification:** the reveal / additional-cost payment isn't separately modelled — the flash timing is gated on the caster *being able* to behold (a matching permanent/hand card), the same "or pay {N}" drop PAR-29 set. → **Molten Exhale**.
   - **`additional_cost={"behold_two_shared_type": True}`** (optional) — `GameEngine._behold_two_shared_type` picks a creature type the caster has ≥2 of across battlefield + hand, stamps it on `GameObject.chosen_type`, sets `additional_cost_paid`. → **Celestial Reunion** (see its hand-authored body below).
   - **`type_change` gained a ``legendary`` param** (`continuous.recompute` layer 4 → `GameObject._granted_legendary`, the same flag The Ring's "your Ring-bearer is legendary" sets) and a new **`source_has_subtype`** `EffectSpec.condition` key (RULE 603.4 intervening-if on the ability's own source's *derived* subtypes).
-- **v213 — hand-authored / engine (`ability_catalogue/entries_008.py`, `game/effects.py`):**
+- **v213 — hand-authored / engine (`ability_catalogue/entries_008.py`, `game/effects/core.py`):**
   - **Champion of the Weird** — `BlightEffect(target_kind="opponent")`: "target opponent **blights** N" — the RULE 115 target is the *player*, the -1/-1 counters go on a creature *they* control. `Pay 1 life, Blight 2` is a real compound `ActivationCost` (`pay_life` + `blight`); `sorcery_speed_only` carries "Activate only as a sorcery".
   - **Tenth District Hero** — two `{cost}, collect evidence N:` levelers. L1: a `rest_of_game` `grant_until` — layer-4 `type_change` (`set_subtypes=["Human","Detective"]`, base 4/4) + layer-6 vigilance. L2: gated on `condition={"source_has_subtype": "Detective"}` — `type_change` `legendary=True` base 5/5 + a layer-6 anthem grant (`grant_keyword` `affects="other_creatures_you_control"`, indestructible). **Documented simplification:** the literal rename to "Mileva, the Stalwart" isn't modelled — `GameObject.name` has no override mechanism and no card in the pool references the name.
   - **Elven Passage** — `MayBeholdThenUntapLinkedEffect`: the `search` effect's `remember=True` stamps the fetched basic land's id on the (sacrificed) source's `linked_exile_id`; this reads it back, beholds an Elf if able, and untaps the land. "You may" auto-taken when able (pure upside).
@@ -732,7 +732,7 @@ is in the rules-engine categories below them.
 ### Learn (RULE 701.48) (PAR-29, PARSER_VERSION 117)
 
 - **What:** The Strixhaven keyword action. RULE 701.48a is "choose one — reveal a Lesson card you own from **outside the game** and put it into your hand; **or** discard a card, then if you discarded a card this way, draw a card." **Documented simplification:** the Lesson branch is dropped — this engine has no sideboard / outside-the-game zone with a Commander-legal use (the same call `ability_catalogue/entries_010.py` already makes for Karn, the Great Creator's -2). Learn collapses to its other, fully-modelable half: `RulesEngine.learn(player)` (in `misc_mixin.py`, beside `recruit`) drives an **optional** discard-a-card-then-draw straight through the existing `request_choose_objects` chooser — `optional=True` gives the decline option, `then_specs=[{draw 1}]` fires only on a real discard. An empty hand is a no-op (nothing to discard, Lesson branch gone). No new `pending_choice` kind, no `resolve_*` method — the chooser's own resolver handles it. `effects.LearnEffect` is a bare "you"-subject effect like `RecruitEffect`; handler `learn` matches the bare word (every real card's whole clause).
-- **Files:** `game/rules/misc_mixin.py` (`learn`), `game/effects.py` (`LearnEffect` + `EffectRegistry`), `parser/oracle/catalogue/handlers.py` (`_learn` + `EffectHandler`), `parser/oracle/gate.py` (PARSER_VERSION 117).
+- **Files:** `game/rules/misc_mixin.py` (`learn`), `game/effects/core.py` (`LearnEffect` + `EffectRegistry`), `parser/oracle/catalogue/handlers.py` (`_learn` + `EffectHandler`), `parser/oracle/gate.py` (PARSER_VERSION 117).
 - **Yield:** 15 real cache cards newly MODELED (`parser_probe.py` diff / `coverage_report.py --no-db`, full cache, 0 regressed) — Arcane Subtraction, Cram Session, Enthusiastic Study, Eyetwitch, Field Trip, Gnarled Professor, Guiding Voice, Igneous Inspiration, Overgrown Arch, Poet's Quill, Pop Quiz, Professor of Symbology, Rise of Extus, Sparring Regimen, Study Break. Retriever Phoenix stays UNMODELED — its "if you would learn, you may instead return this card" is a replacement on the learn action (a `WOULD_LEARN` event shape), a separate build.
 - **Tests:** `tests/test_par29_learn.py` (parse + real-card end-to-end + discard→draw + decline is a no-op + empty-hand no-op + ETB-via-binder).
 
@@ -744,7 +744,7 @@ is in the rules-engine categories below them.
 - **"Its controller incubates X, where X is its mana value" + "…exiled this way" (PAR-30, v162):** the two remaining *dynamic-amount* residue shapes.
   - **Excise the Imperfect** — `CreateTokenEffect.creators` gained `"previous_target_controller"` (the token's creator is whoever last controlled the just-exiled `GameContext.previous_targets[0]` — RULE 608.2h, it is already gone), and `extra_counters` gained `count_from_subject` reading a `"<who>_<char>"` string via a new shared module helper `_characteristic_of_subject` (factored out of `GainLifeEffect._from_subject`; `char` now also covers `mana_value`, read off the printed card). The plain `_exile` handler also learned the real `nonland_permanent` target kind it never reached before — bonus coverage for **Anguished Unmaking**, **Utter End**.
   - **Sunfall** — new `GameContext.objects_exiled_this_way` int accumulator, the exact sibling of `permanents_destroyed_this_way`: bumped by `context.exile` for every object that genuinely moved *into* exile this resolution, threaded through `_apply_effects_partitioned`'s save/reset/restore + the RULE 608.2 deferred-resume, read by `extra_counters`' new `count_from_context` key.
-- **Files:** `parser/oracle/catalogue/handlers.py` (`_incubate`, `_incubate_x`/`_INCUBATE_X_RE`, `_exile` kind list, `_counter` reflexive tail, `_IF_PREV_CREATURE_CANT_BLOCK_RE`), `parser/oracle/catalogue/subgrammars.py` (`_SPELL_TYPE_WORD` + `"battle"`), `parser/oracle/segmenter.py` (`_CAST_SPELL_TARGETS_PERMANENT_TRIGGER_RE`), `parser/oracle/spec.py` (`previous_target_is_creature`), `game/effects.py` (`GameContext.objects_exiled_this_way` + `exile`, `_characteristic_of_subject`, `_apply_effects_partitioned`, `CreateTokenEffect._resolve_extra_counter_amount` + `creators`, `CounterSpellEffect.on_pay_effect_specs`, `CantBlockEffect.previous_subject`, `RevealHandChooseDiscardEffect.optional`/`else_specs`, `SearchLibraryEffect.track_exiled_with`, `GameContext.choose_objects`/`request_search` passthroughs), `game/rules/casting_mixin.py` (deferred-resume threading, `_targets_a_permanent`), `game/rules/misc_mixin.py` (`counter_unless_pays` on-pay specs, `request_choose_objects`/`_choose_objects_choice`/`resolve_choose_objects_choice` `else_specs`), `game/rules/search_mixin.py` (`track_exiled_with` through `request_search`/`_search_choice`/`_finish_search`), `game/effect_binder.py` (`requires_spell_targets_permanent` predicate), `game/continuous.py` (`creature_cards_in_your_graveyard`, `source_x_paid` selectors), `game/targeting.py` (`_spell_matches_filter` `"battle"`, `incubator_token_you_control` kind), `game/ability_catalogue/entries_016.py` (`_traumatic_revelation`, `_phyrexian_incubator`, `_progenitor_exarch`), `parser/oracle/gate.py` (PARSER_VERSION 116 / 133 / 160 / 162 / 205).
+- **Files:** `parser/oracle/catalogue/handlers.py` (`_incubate`, `_incubate_x`/`_INCUBATE_X_RE`, `_exile` kind list, `_counter` reflexive tail, `_IF_PREV_CREATURE_CANT_BLOCK_RE`), `parser/oracle/catalogue/subgrammars.py` (`_SPELL_TYPE_WORD` + `"battle"`), `parser/oracle/segmenter.py` (`_CAST_SPELL_TARGETS_PERMANENT_TRIGGER_RE`), `parser/oracle/spec.py` (`previous_target_is_creature`), `game/effects/core.py` (`GameContext.objects_exiled_this_way` + `exile`, `_characteristic_of_subject`, `_apply_effects_partitioned`, `CreateTokenEffect._resolve_extra_counter_amount` + `creators`, `CounterSpellEffect.on_pay_effect_specs`, `CantBlockEffect.previous_subject`, `RevealHandChooseDiscardEffect.optional`/`else_specs`, `SearchLibraryEffect.track_exiled_with`, `GameContext.choose_objects`/`request_search` passthroughs), `game/rules/casting_mixin.py` (deferred-resume threading, `_targets_a_permanent`), `game/rules/misc_mixin.py` (`counter_unless_pays` on-pay specs, `request_choose_objects`/`_choose_objects_choice`/`resolve_choose_objects_choice` `else_specs`), `game/rules/search_mixin.py` (`track_exiled_with` through `request_search`/`_search_choice`/`_finish_search`), `game/binding/core.py` (`requires_spell_targets_permanent` predicate), `game/continuous.py` (`creature_cards_in_your_graveyard`, `source_x_paid` selectors), `game/targeting.py` (`_spell_matches_filter` `"battle"`, `incubator_token_you_control` kind), `game/ability_catalogue/entries_016.py` (`_traumatic_revelation`, `_phyrexian_incubator`, `_progenitor_exarch`), `parser/oracle/gate.py` (PARSER_VERSION 116 / 133 / 160 / 162 / 205).
 - **Yield:** v116 — 13 real cache cards (Compleated Huntmaster, Converter Beast, Essence of Orthodoxy, Eyes of Gitaxias, Gift of Compleation, Ichor Drinker, Infected Defector, Injector Crocodile, Marauding Dreadship, Merciless Repurposing, Phyrexian Awakening, Sculpted Perfection, Tangled Skyline). v133 — +3 (Glistening Dawn, Blight Titan, Chrome Host Seedshark), 0 regressed. v160 — +2 (Bloated Processor, Furnace Gremlin), 0 regressed. v162 — +4 (Excise the Imperfect, Sunfall, Anguished Unmaking, Utter End), 0 regressed. v205 — +4 parser (Assimilate Essence, Don't Make a Sound, Searing Barb, Tiller of Flesh), 0 regressed, + 3 hand-authored (Phyrexian Incubator, Progenitor Exarch, Traumatic Revelation).
 - **Residue closed (PAR-30, v205)** — the last cache singletons, each blocked on grammar *around* the incubate, not on incubate itself. Three general parser rows (+4 cache cards, 0 regressed):
   - **`_counter` reflexive tail** — "…unless its controller pays {N}. **If they do**, `<effect>`." A serialized sub-body parsed recursively (fail-closed) into `CounterSpellEffect.on_pay_effect_specs`, threaded through `RulesEngine.counter_unless_pays` → stashed as `_pending_counter_on_pay_specs` → applied by `resolve_counter_unless_pays_choice` **only** on the `answer == "pay"` branch (inert on every branch that ends in a `counter_spell`). `_SPELL_TYPE_WORD` / `targeting._spell_matches_filter` also gained `"battle"` ("counter target creature or battle spell"). **Assimilate Essence**; bonus **Don't Make a Sound** ("… If they do, surveil 2.").
@@ -770,45 +770,45 @@ is in the rules-engine categories below them.
 ### Targeted "target player gains/loses N life"
 
 - **What:** `GainLifeEffect` gained an opt-in `target_kind`, mirroring `LoseLifeEffect`'s existing one, so a targeted life-total clause isn't misread against a shared multi-effect target list.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 - **Bug fixed:** `_lose_life`'s regex already matched "target player loses N life" but the builder never inspected which alternative matched, so a genuinely targeted life-loss clause was silently bound as an untargeted "you lose N life" for every prior card using that template.
 
 ### Exile Target Player's Graveyard
 
 - **What:** `ExileTargetGraveyardEffect` targets one player and empties their whole graveyard (Bojuka Bog), distinct from single-card graveyard exile and the untargeted "exile all graveyards" effect; the same parser handler also claims Tormod's Crypt's "exile all cards from target player's graveyard" phrasing.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 
 ### Counter-Family Parser Additions (Spells)
 
 - **What:** Spell target filters (noncreature/card-type list/mana-value on `TargetSpec.spell_filter`), "unless its controller pays `{…}`" via a `counter_unless_pays` interactive choice (auto-counters when unpayable), and "this spell can't be countered" as a `CantBeCounteredEffect` marker `RulesEngine.counter_spell` refuses.
-- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects.py`
+- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects/core.py`
 
 ### New One-Shot Effect Families (Bounce/Recursion/Tutor/Mass Damage/Self-Attach)
 
 - **What:** One parser-expansion wave added return-to-hand (bounce), graveyard recursion (new `graveyard_creature`/`creature_you_control`/`land_you_control` target kinds), tutor-to-hand plus basic-land fetch, `add_mana` (Dark Ritual), mass damage ("deals N damage to each creature/player/opponent" via a closed `selector` on `DealDamageEffect`), and ETB self-attach for Equipment.
-- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects.py`
+- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects/core.py`
 
 ### Generalized "Search Your Library for X" Grammar (RULE 701.19)
 
 - **What:** `SearchLibraryEffect`/`RulesEngine.request_search` was already generic (criteria, destination, count); parser recognition was widened to combine criteria phrases, an optional "reveal" clause, five destination phrasings and five pronoun variants — unlocking 13 real popular tutors. A follow-up pass added `zones=["library","graveyard"]` (Doomsday/Finale-shaped combined search), per-found-card `destinations` overrides (Cultivate's split destination), and `exile_rest` (Doomsday's "exile the rest, no shuffle").
-- **Files:** `game/effects.py`, `game/rules/search_mixin.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `game/rules/search_mixin.py`, `parser/oracle/catalogue/handlers.py`
 
 ### Mass "Destroy/Exile All X" Board Wipes
 
 - **What:** `DestroyEffect`/`ExileEffect` gained a `selector` (`all_creatures`/`all_artifacts`/`all_enchantments`/`all_permanents`/`all_planeswalkers`) plus an optional filter (`min_toughness`/`min_mana_value`/`max_mana_value`), and `DestroyEffect.can_be_regenerated=False` for "can't be regenerated" wipes (skips the replacement pass entirely). Wired into Austere Command/Farewell's modal modes and a combined `each_creature_and_player` selector for Volcanic Fallout.
 - **Self-excluding wipe (PAR-30, v163):** `all_other_creatures` (RULE 400's "other" — every creature but this effect's own source, whoever controls it) and `other_creatures_you_control` (that, narrowed to the source's controller — Desolation Giant) selectors. Parser `_DESTROY_ALL_OTHER_RE` claims "destroy all other creatures[ you control]" / "…all creatures other than ~" / "…except [for] ~", with an optional "they/those creatures can't be regenerated" tail matched in the same whole-body pass. +1 (Novablast Wurm); also closes the "destroy all creatures other than ~" gap in Magister of Worth's condemnation vote branch (card still blocked on its grace branch's mass graveyard-reanimation).
-- **Files:** `game/effects.py` (`_MASS_DESTROY_SELECTORS`, `_mass_selector_objects`), `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py` (`_MASS_DESTROY_SELECTORS`, `_mass_selector_objects`), `parser/oracle/catalogue/handlers.py`
 - **Tests:** `tests/test_par30_destroy_all_other.py` (each phrasing → the right selector; the regen tail; plain "destroy all creatures" still includes the source; execute: `all_other_creatures` spares only the source, `other_creatures_you_control` also spares opponents' creatures).
 
 ### New One-Shot Effect Batch (Wyleth Equip)
 
 - **What:** A cluster of one-off effect classes each backing one clause shape: `ExileGainLifeToControllerEffect` (Swords to Plowshares), `TargetPlayerDrawLoseLifeEffect` (Sign in Blood), `CounterAndFirstStrikeEffect` (The Wandering Emperor +1), `ProliferateEffect`, `UnblockableEffect` (a new `temp_unblockable` flag), and several exile/graveyard/token effects — deliberately atomic per verb pair to avoid the "two targeting effects sharing one target" double-prompt bug.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Impulsive-Look Effect
 
 - **What:** "Look at the top N cards, take one matching a filter, put the rest into Y" (Grisly Salvage/Commune with the Gods-shaped) — a new `ImpulsiveLookEffect`/`RulesEngine.request_impulsive_look`, a distinct shape from both cascade (peels exactly N, not "until a match") and search (not the whole library).
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Impulsive Draw (Exile + Temporary Play Permission)
 
@@ -830,7 +830,7 @@ is in the rules-engine categories below them.
 ### ENG-2: Interactive Sacrifice Choice for `SacrificeEffect`
 
 - **What:** RULE 701.17's "player sacrifices N permanents matching `<type>`" (Annihilator) now funnels through `request_choose_objects` instead of auto-picking the first match, reusing the same RULE 601.2c-style chooser Tevesh Szat's own ability already used — reached from the other direction.
-- **Files:** `game/rules_engine.py`, `game/effects.py`
+- **Files:** `game/rules_engine.py`, `game/effects/core.py`
 - **Why:** `greatest_power` (Professor Onyx) deliberately keeps its own recompute-after-each-removal `max()` auto-pick rather than routing through the chooser, since no shipped card sacrifices more than one this way and the chooser's single up-front pool doesn't model a moving "greatest" set.
 
 ### Turn/phase/step loop, event system
@@ -862,7 +862,7 @@ is in the rules-engine categories below them.
 ### Two-way control exchange (RULE 701.10)
 
 - **What:** A genuine one-shot two-way controller swap (Gilded Drake) — distinct from the layer-2 `control_change` static and the duration-bounded `GainControlUntilEndOfTurnEffect`, needed so a swapped creature dying afterward doesn't hand it back.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 - **Bug fixed:** an "up to one target" trigger with no legal target was being dropped instead of resolving with zero targets, which is what makes Gilded Drake sacrifice itself on an empty board.
 - **Cross-target predicates (PAR-30, PARSER_VERSION 211):** the residue the PAR-29 generalization left (see the PAR-29 "Parser-shaped only" entry). RULE 115 verifies at *selection* that the two chosen permanents "share a card type" / the opponent-side one has "equal or lesser mana value" / "power ≤ that creature's power" — this engine has no cross-target legality mechanism (`TargetSpec.distinct_controllers` is enforced client-side per-round, not across two independent specs), so `ExchangeControlEffect` checks these at *resolution* instead in a new `_cross_target_ok`: `shares_type` (`"card"`/`"permanent"`, both folded to a shared-`_PERMANENT_TYPE_WORDS` intersection — RULE 205.2, and `type_words` carries a synthetic "permanent" entry that would make a naïve test vacuous) and `second_not_greater` (`"mana_value"` / `"power"`, the opponent-side pick capped against the controller-side one). A failing pick just doesn't exchange — one more `and` on the existing `exchangeable` gate, exactly the documented simplification the pre-existing `mine.controller_id != theirs.controller_id` no-op already is. **No `legal_targets` / client change.** Parser: an optional `_EXCHANGE_XTARGET_TAIL` appended to the two-explicit and multi handler regexes; a dedicated `_EXCHANGE_CONTROL_SPAWNBROKER_RE` row (its "with power ≤ that creature's power" clause sits *inside* the second target phrase, before "an opponent controls", so `_TARGET_B` can't consume it); new `subgrammars._TARGET_ROWS` entries "target nonland permanent you control" (`nonland_permanent_you_control`) and "another/other target permanent" (→ broad `permanent`); `_EXCHANGE_CONTROL_TARGET_KINDS` widened for the controller-scoped permanent kinds. **+10** — Daring Thief, Legerdemain, Puca's Mischief, Role Reversal, Shifting Loyalties, Spawnbroker, plus four "{T}: untap **another** target permanent" bonus cards (Kiora's Follower, Vizier of Tumbling Sands, Unbender Tine, Nanoform Sentinel) off the new "another target permanent" row. 0 regressed. `tests/test_par30_exchange_control_cross_target.py`.
 - **Residue closed (PAR-30, PARSER_VERSION 212) — twelve bespoke singletons, all hand-authored** (`ability_catalogue/entries_016.py` — no new parser recognition needed, each shape appears on exactly one card):
@@ -881,7 +881,7 @@ is in the rules-engine categories below them.
 ### Mass phasing + life-total lock (Teferi's Protection)
 
 - **What:** Mass phasing (RULE 702.26b) phases host and attachment out together (unlike the single-permanent `PhaseOutEffect`, which unattaches); `PlayerShieldEffect` adds "your life total can't change" (RULE 119.6, checked at the `gain_life`/`lose_life` choke points) and player-side protection from everything (RULE 702.16e).
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Pulling a spell off the stack (RULE 400.1)
 
@@ -891,7 +891,7 @@ is in the rules-engine categories below them.
 ### Cloudstone Curio bounce + hand-to-battlefield tutoring
 
 - **What:** `ReturnSharedTypePermanentEffect` computes its legal-return set dynamically off the entering permanent (Cloudstone Curio); `PutFromHandOntoBattlefieldEffect` reuses `request_search` against a new `"hand"` zone for Tooth and Nail, correctly neither shuffling nor firing `LIBRARY_SEARCHED`.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Naming a card (unenumerable choice)
 
@@ -906,7 +906,7 @@ is in the rules-engine categories below them.
 ### Repeat-until-a-predicate loop (Helm of Obedience)
 
 - **What:** `MillUntilCreatureEffect` — the first "repeat until a predicate is met" loop primitive; bounded on both sides by construction (X caps it, an empty library ends it early).
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Open-ended pay-life loop (Lim-Dûl's Vault)
 
@@ -916,28 +916,28 @@ is in the rules-engine categories below them.
 ### Scramble-the-spell effect (Possibility Storm, Tibalt's Trickery)
 
 - **What:** `ScrambleSpellEffect` — one atomic effect for "exile the spell, then reveal/dig for a replacement and cast it" since every clause concerns the same spell and its controller; also drove the `SPELL_CAST` event's new `from_hand` key.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Bespoke wave-6 effects (Dauntless Dismantler, Tevesh Szat, Jeska, loyalty -X)
 
 - **What:** `DestroyEachWithManaValueEffect` (mass destroy filtered by the announced X); `SacrificeEffect` gained `each_opponent`/`greatest_power` selectors; `GainControlOfAllCommandersEffect` (RULE 903.3); `MultiplyDamageFromTargetEffect` (a scoped, duration-bounded damage-doubling replacement); `ActivationCost.loyalty_is_x` for RULE 606.5c's `[-X]` loyalty cost.
-- **Files:** `game/effects.py`, `game/costs.py`
+- **Files:** `game/effects/core.py`, `game/costs.py`
 
 ### RULE 608.2 suspended resolutions (`deferred_effects`)
 
 - **What:** `GameState.deferred_effects` parks the remainder of a multi-clause resolution's effect list whenever an earlier effect opens an interactive choice, and `RulesEngine.resume_deferred_effects` picks it back up afterward (innermost first) — the prerequisite everything else in Batch 26 built on.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 - **Bug fixed:** previously, `GameState.pending_choice` held exactly one decision, so a resolution with 2+ interactive effects let the second silently overwrite the first player's prompt — a real, reachable correctness bug on any multi-clause ability whose clauses both prompt, not just an enabler for new cards.
 
 ### Conditional search destinations (RULE 701.19c)
 
 - **What:** `SearchLibraryEffect.destination_if` is a list of `{criteria, destination}` rules checked per found card, resolved only once the player names what they found — e.g. Archdruid's Charm's "onto the battlefield tapped if it's a land card, otherwise into your hand."
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Face-down exile round trip (RULE 701.20a)
 
 - **What:** A search destination of `"exile_face_down"` sets `GameObject.face_down_in_exile` (the first real use of the board's sleeve-art fallback); `CastExiledFaceDownEffect` grants Rebound's own exile free-cast window, with an independent `DelayedTrigger` returning the card to hand at the next end step if it wasn't cast, since the two halves have different conditions.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### General interactive object chooser
 
@@ -947,7 +947,7 @@ is in the rules-engine categories below them.
 ### Minor gap-fills found during Batch 26
 
 - **Bug fixed:** `LoseLifeEffect` gained a `player_id` form (a specific named player, the only form a serialized spec can carry); `_matches_permanent_type` learned `creature_or_planeswalker`.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### `request_each_player_pay_or` (PAR-13, RULE 101.4 APNAP "unless")
 
@@ -957,27 +957,27 @@ is in the rules-engine categories below them.
 ### RULE 119/701.8 hand-disruption "reveal, choose, discard"
 
 - **What:** Duress/Thoughtseize-shaped — the caster (not the hand's owner) chooses which revealed card gets discarded, reusing the existing `request_choose_objects` chooser shape sourced from a hand for the first time. Five filter phrasings recognized (bare/nonland/noncreature+nonland/creature-or-planeswalker/artifact-or-creature).
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 
 ### `RevealTopConditionalToHandEffect`
 
 - **What:** RULE 701.28's "defending player reveals the top card… if it's a land, puts it into their hand" (Goblin Guide) — reveal itself has no separate game state, so the effect models only the conditional move. General over any of the four printed card-type words.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Miscellaneous small primitives (Imodane final singles batch)
 
 - **What:** `CopySpellEffect.target_count`/`optional` ("copy any number of target spells", Display of Power); `AddManaEffect.target_kind`/`amount_from_target_hand_size` (Jeska's Will's first genuinely targeted use of that effect); a new `artifact_you_dont_control` target kind (Vandalblast); and `RulesEngine.put_hand_card_on_bottom_then_draw` (Volcanic Spite's "may put a card on bottom, if you do draw a card" — auto-taken as a pure exchange, no chooser).
-- **Files:** `game/effects.py`, `game/rules_engine.py`, `game/targeting.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`, `game/targeting.py`
 
 ### RULE 119 "drain" idiom — life-lost-this-way accumulator (Rules Engine Core Loop)
 
 - **What:** `GameContext.life_lost_this_way`, a per-resolution accumulator (the same save/reset/restore idiom as `previous_targets`/`created_objects`), incremented by `GameContext.lose_life`'s facade off the actual post-replacement life delta, read by `GainLifeEffect(count_selector="life_lost_this_way")` — closes Gray Merchant of Asphodel's "you gain life equal to the life lost this way" and 15+ cache siblings.
-- **Files:** `game/effects.py`, `game/rules/misc_mixin.py`
+- **Files:** `game/effects/core.py`, `game/rules/misc_mixin.py`
 
 ### Grafdigger's Cage / Weathered Runestone Graveyard-Library Prohibition
 
 - **What:** `continuous.graveyard_library_cast_prohibited` is one choke point in `GameEngine.can_cast` covering Flashback/Escape/Lurrus-shaped grants/top-of-library casting alike; `continuous.graveyard_library_entry_prohibited` is checked at the two real graveyard/library-to-battlefield routes (`ReturnFromGraveyardEffect._apply_one`, `RulesEngine._finish_search`'s battlefield destination) rather than a nonexistent universal hook.
-- **Files:** `game/continuous.py`, `game/effects.py`, `game/rules/misc_mixin.py`.
+- **Files:** `game/continuous.py`, `game/effects/core.py`, `game/rules/misc_mixin.py`.
 
 ### Force-End-the-Turn (Day's Undoing)
 
@@ -987,7 +987,7 @@ is in the rules-engine categories below them.
 ### Mass Board-Wipe Damage Selectors (Opponents + Their Permanents)
 
 - **What:** `DealDamageEffect.selector`'s new `each_opponent_and_their_creatures[_and_planeswalkers]` (opponents-only, unlike the existing global `each_creature_and_player`) closes the End the Festivities/Tectonic Hazard/Delayed Blast Fireball board-wipe family.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`.
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`.
 
 ### "~ deals N damage to you" self-damage (PAR-38, v229)
 
@@ -1002,7 +1002,7 @@ is in the rules-engine categories below them.
 ### Search/Extra-Turn Prohibition Grants (Stranglehold)
 
 - **What:** `GrantSearchProhibitedEffect`/`RulesEngine.request_search`'s guard (RULE 701.19a: a prohibited player instructed to search simply doesn't) and `GrantSkipExtraTurnsEffect`/`GameEngine.begin_turn`'s extra-turn queue skipping past a grant-matched queued taker.
-- **Files:** `game/effects.py`, `game/engine/turn_loop_mixin.py`.
+- **Files:** `game/effects/core.py`, `game/engine/turn_loop_mixin.py`.
 
 ## Targeting
 
@@ -1020,7 +1020,7 @@ is in the rules-engine categories below them.
 ### Divided damage (RULE 601.2d)
 
 - **What:** `DealDamageEffect(divided=True)` splits a total {X} pool evenly across the chosen targets, with an optional doubling threshold (`double_at`) — Shatterskull Smashing, Fire Covenant.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### "Target creature with power/toughness/keyword" targeting filter
 
@@ -1034,13 +1034,13 @@ is in the rules-engine categories below them.
 ### N>=2 Multi-Target Generalization (RULE 115.1a)
 
 - **What:** `TargetSpec` gained a `count` field (`optional` becoming the 0-vs-`count` lower bound); `DestroyEffect`/`ExileEffect`/`DealDamageEffect` gained a matching `count` param, applying to `targets[:count]` sliced off the *front* of a shared targets list. New parser grammar recognizes both mandatory and "up to N" phrasing; the board expands a `count>1` requirement into `count` synthetic one-per-round picks reusing the existing multi-pick modal.
-- **Files:** `game/targeting.py`, `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/targeting.py`, `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 - **Why:** Slicing off the front of a *shared* list (not consuming the whole thing) was needed so an unrelated single-target effect on the same stack item isn't over-consumed.
 
 ### Per-Effect Target Partitioning (`StackItem.target_groups`)
 
 - **What:** A stack item's `targets` list used to be shared flat across every effect on it, so two *different* targeting effects on one spell/ability would have the second wrongly consume the first's target. `StackItem.target_groups` (index-aligned per targeting effect encountered in order) fixes this for casting/activating (an explicit param threaded to the session action handlers) and fully automatically for triggered abilities (a new `trigger_target_multi` interactive choice gathering one target per effect per round).
-- **Files:** `models/game_state.py` (StackItem), `game/effects.py`, `game/rules_engine.py`, `game/game_engine.py`
+- **Files:** `models/game_state.py` (StackItem), `game/effects/core.py`, `game/rules_engine.py`, `game/game_engine.py`
 - **Why:** `None` (the default) keeps every pre-existing flat-`targets` consumer byte-for-byte unaffected — this is additive, not a rewrite.
 
 ### New Target Kinds (Wyleth Equip Batch)
@@ -1051,7 +1051,7 @@ is in the rules-engine categories below them.
 ### N>=2 Multi-Target for `return_to_hand`/`tap`/`add_counters`/`return_from_graveyard`
 
 - **What:** The existing `count`-slicing idiom extended to four more effect families. `add_counters` needed a new `target_count` key (since `count`/`amount` already meant the counter amount); `return_from_graveyard` got its own plural-clause regex.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 
 ### Compound Creature-Target Filter
 
@@ -1066,7 +1066,7 @@ is in the rules-engine categories below them.
 ### Pronoun Bound to Previous Clause
 
 - **What:** `GameContext.previous_targets` records what the last *targeting* effect actually chose, so a later clause can name it with `previous_target`/`previous_target_2` pseudo-subjects ("target creature gets +1/+2. It fights target creature…" — Epic Confrontation) instead of needing a bespoke fused effect class per verb pair.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Per-Effect Target Partitioning for Spell/Ability Casting (ENG-5)
 
@@ -1076,7 +1076,7 @@ is in the rules-engine categories below them.
 ### RULE 109.5 Cross-Requirement "Another"
 
 - **What:** `TargetSpec.distinct_from_others` excludes a sibling requirement's own pick ("target creature you control fights **another** target creature") — an offer-time exclusion across rounds with a resolve-time backstop in the effect, the same shape as `distinct_controllers`.
-- **Files:** `game/targeting.py`, `game/effects.py`
+- **Files:** `game/targeting.py`, `game/effects/core.py`
 
 ### Goad Target Count Read Off the Board
 
@@ -1086,7 +1086,7 @@ is in the rules-engine categories below them.
 ### Naming What the Previous Clause Created
 
 - **What:** `GameContext.created_objects` (sibling of `previous_targets`) lets a later clause refer to tokens a previous clause in the same resolution just made, which were never targeted and didn't exist when the ability went on the stack. Also widened the token grammar for "each player/opponent creates" and "creates a tapped …".
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Equip/Fortify/Reconfigure control restriction fix
 
@@ -1103,17 +1103,17 @@ is in the rules-engine categories below them.
 ### Two independently-chosen targets in one clause
 
 - **What:** `GameEffect.extra_target_specs` lets one effect gather 2+ independently-typed targets in a single clause (Brass Squire, Halvar, Archdruid's Charm's second mode) — needed because that mode must be atomic (the damage reads the target's power after the +1/+1 counter lands).
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### RULE 115.1a "any number of target `<X>`" (PAR-15 + residue)
 
 - **What:** `catalogue.handlers._MULTI_TARGET_QUANTIFIER` gained an "any number of" alternative (capped at 10, `optional=True`), widening nine existing multi-target handler families at once. The named biggest cluster, RULE 601.2d's "deals N damage divided as you choose among any number of targets" (`_DIVIDED_DAMAGE_RE`), reached the pre-existing `DealDamageEffect(divided=True)` primitive for the first time from oracle text — unlocking every Strive card (MEC-4) for the first time, since Strive always pairs with this shape. The follow-up "PAR-15 residue" pass closed the remaining named clusters with the same underlying cap/optional idiom: `AddCountersEffect.divided` (distribute counters among any number of targets), `PumpEffect.target_count` + `TapEffect.previous_subject` ("N target creatures get +X/+X… Untap those creatures."), and two new `ReturnFromGraveyardEffect` destinations (library top; shuffle into library).
-- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects.py`, `game/rules_engine.py`
+- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects/core.py`, `game/rules_engine.py`
 
 ### Polarity-aware targeting classification (PLR-7/PLR-8)
 
 - **What:** `GameEffect.target_polarity()` classifies an effect as `"harmful"`/`"beneficial"`/`None` (best-effort, non-rules), including sign-aware classification for `PumpEffect`/`AddCountersEffect`/`TapEffect` and a synthesized polarity for an Aura's own layer-7 P/T grant. Stamped onto `TargetSpec.polarity` and threaded to `GreedyBot.rank_targets`, which reverses its "opponent's stuff first" default for beneficial effects. Deliberately not exhaustive — an unclassifiable effect (e.g. `RemoveCountersEffect`, genuinely ambiguous by class alone) stays `None` rather than guessed.
-- **Files:** `game/effects.py`, `game/targeting.py`, `services/bots.py`
+- **Files:** `game/effects/core.py`, `game/targeting.py`, `services/bots.py`
 
 ### Saved-deck-priority parser batch: mass "destroy/exile all X" board wipes (PAR-12)
 
@@ -1128,18 +1128,18 @@ is in the rules-engine categories below them.
 ### Mass-destroy power filter + negated creature filters (Hobbits batch)
 
 - **What:** `min_power`/`max_power` joined the pre-existing mana-value/toughness mass-destroy filters (Elspeth, Sun's Champion). `combat.matches_object_filter` also gained `without_card_type` ("target nonartifact creature"), hand-authored for Go for the Throat.
-- **Files:** `game/effects.py`, `game/combat.py`
+- **Files:** `game/effects/core.py`, `game/combat.py`
 
 ### Filtered creature-target family widenings + `creature_filter` bug fix
 
 - **What:** `RulesEngine.blink` gained a `controller` param (Restoration Angel's "under your control" vs. plain blink's "under its owner's"); `RulesEngine.regenerate` gained a `creature_filter` param ("regenerate another target Elf"); `combat.matches_object_filter` gained `without_color`/`without_subtype`/`"attacking"` keys (Doom Blade's "nonblack", ~47 SOLO cache-wide); and `DrawCardEffect` gained `target_kind`/`.selector` for "target player draws a card", which had no handler at all before.
-- **Files:** `game/rules_engine.py`, `game/combat.py`, `game/effects.py`, `game/targeting.py`
+- **Files:** `game/rules_engine.py`, `game/combat.py`, `game/effects/core.py`, `game/targeting.py`
 - **Bug fixed:** `targeting.legal_targets`'s `creature_you_control`/`other_creature_you_control`/`land_you_control` branch never consulted `TargetSpec.creature_filter` at all — any card needing a filtered "target creature you control" (not just the one that surfaced it) was silently offering every creature regardless of the filter.
 
 ### RULE 115.4 "change the target of target spell" (cEDH second pass)
 
 - **What:** A live retarget of an already-existing stack item — genuinely distinct from the pre-existing "choose new targets for a freshly-made copy" (RULE 707.10c). `ChangeTargetEffect`/`RulesEngine.change_target`: the changing player is the effect's own controller (RULE 115.4a, not the targeted spell's), legal alternatives are recomputed fresh against the current board and always include the current target, and a single legal option auto-applies with no prompt. New `"change_target"` `pending_choice` kind reuses the existing generic choice-button rendering with zero frontend changes. Deliberately scoped to spells (not abilities — `StackItem.obj` is `None` for an ability item, a bigger primitive logged separately) with exactly one existing target. Hand-authored for Misdirection (mandatory) and Deflecting Swat (optional) at their real printed mana costs.
-- **Files:** `game/effects.py`, `game/rules/misc_mixin.py`, `game/targeting.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/rules/misc_mixin.py`, `game/targeting.py`, `game/ability_catalogue.py`
 
 ### RULE 115/608.2b "target an activated or triggered ability" (ENG-26)
 
@@ -1165,30 +1165,30 @@ is in the rules-engine categories below them.
 ### Auriok Salvagers: mana-value filter on graveyard-recursion targeting (Targeting)
 
 - **What:** `ReturnFromGraveyardEffect` gained a mana-value filter (constructor param, regex capture group, and a `targeting.py` check reusing `destroy_mv`'s `TargetSpec.max_mana_value`) — reaches 102 real cache cards printing "return target `<type>` card with mana value N or less from `<scope>` graveyard" (Sun Titan, Unearth, and others), most already closing outright.
-- **Files:** `game/effects.py`, `game/targeting.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `game/targeting.py`, `parser/oracle/catalogue/handlers.py`
 - **Living Death mass recursion (PAR-30, v164):** `ReturnFromGraveyardEffect.players` (`"you"` / `"each_player"`) — a mass, untargeted return over every matching graveyard card, run through the same `_apply_one` (ETB prohibition/redirect, owner-control, haste/tapped riders) as a single target. Parser `_MASS_RETURN_GRAVEYARD_RE` claims "[each player returns / you return / return] all/each creature card[s] from [their/your/its owner's] graveyard to the battlefield/hand". `_vote_majority`'s "a targeted branch can't resolve off-stack" guard was narrowed to spare a `players`-scoped branch (its `target_kind` is just the card filter, not a RULE 115 choice). +2 (Empty the Catacombs; Magister of Worth, whose two vote branches are now both modeled — combined with v163's `all_other_creatures`). Riders on the returned cards (a -1/-1 counter, "each is a 1/1 Spirit") stay fail-closed. Tests: `tests/test_par30_mass_return_graveyard.py`.
 - **"Return X target creature cards" (PAR-30, v168):** `ReturnFromGraveyardEffect` gained a `count_selector` param, threaded into its `TargetSpec` (so the targeting layer offers X picks at cast via `targeting.resolved_count`'s pre-existing `"source_x_paid"` reading of `GameObject.x_paid` — the March of Swirling Mist / Change of Plans idiom) plus a multi-target `apply` branch that takes *every* pick the targeting layer handed it (the printed `effective_count` stays 1, so the old `!= 1` branch never fired). New `_RETURN_FROM_GRAVEYARD_X_RE`/handler ("return [up to] X target `<type>` cards from [scope] graveyard to your hand / the battlefield"), tried before the numeric-N plural handler (whose `\d+` can't match "x"). +3 (Death Denied, Entreat the Dead, Wildest Dreams; narrows Wake the Dead / Shattered Crypt / Champion of Stray Souls). Tests: `tests/test_par30_return_x_from_graveyard.py`.
 
 ### Assassin's Trophy: unscoped permanent target + controller-redirected search (Targeting)
 
 - **What:** New `permanent_you_dont_control` target kind ("target permanent an opponent controls," no type restriction) plus a widened `destroy` handler whitelist (previously hardcoded to `("creature", "permanent")`, silently dropping any other kind). `SearchLibraryEffect` gained a `payer="previous_target_controller"`-shaped sentinel (`player="previous_target_controller"`) for "its controller may search…" — the destroyed permanent's controller, not the caster.
-- **Files:** `parser/oracle/subgrammars.py`, `game/targeting.py`, `game/rules/misc_mixin.py`, `game/effects.py`
+- **Files:** `parser/oracle/subgrammars.py`, `game/targeting.py`, `game/rules/misc_mixin.py`, `game/effects/core.py`
 - **Bug fixed:** The plain `destroy` handler silently discarded any target kind outside `("creature", "permanent")`, including the pre-existing `creature_you_dont_control` — never exercised through this code path before.
 
 ### Mutiny: independently-targeted damage-equal-to-power (Targeting)
 
 - **What:** `DamageEqualToPowerEffect` (built for Rabid Bite) with `extra_target_specs` giving *both* fighters their own `creature_you_dont_control` target.
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### Bug: `DrawCardEffect` read a shared `targets` list without checking its own target spec (Targeting)
 
 - **What:** Unlike `GainLifeEffect`/`LoseLifeEffect`, `DrawCardEffect` fell back to `targets[0]` whenever `self.player` was unset and *any* `targets` list was non-empty, regardless of whether it had declared its own `target_spec` — surfaced by Arcane Denial's delayed-trigger draw inheriting the arming resolution's target.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### `LookAtCardsEffect` (Targeting)
 
 - **What:** "Look at the top card of target player's library." — a genuine RULE 115 target with no other game-state consequence, kept as its own effect (rather than an empty effects list) specifically so the target requirement survives. Closes Mishra's Bauble/Urza's Bauble.
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### `pump_up_to_two` (Targeting)
 
@@ -1199,29 +1199,29 @@ is in the rules-engine categories below them.
 
 - **What:** RULE 115/601.2c targeting had never reached the event bus — `EventType.BECOMES_TARGET` now fires once per target from the same choke point `check_ward` already used (Ward is unchanged, a parallel consumer). New `effect_binder` group-controller key and a `caster_relation` predicate ("opponent"/"you") power the trigger grammar. `CounterUnlessPayEffect`/`counter_unless_pay` is a thin adapter onto the existing `resolve_ward_effect`, closing an 87-card un-keyworded cycle that prints Ward's outcome as plain text. 14 cards fully MODELED; Goldspan Dragon and Tectonic Giant hand-authored as second specs on the same compound-event idiom used elsewhere.
 - **PAR-30 (PARSER_VERSION 141, +21):** `_BECOMES_TARGET_TRIGGER_RE` had only ever matched "**Whenever** ~ becomes the target …", but the ~19-card Innistrad/Zendikar **Illusion cycle** (Phantasmal Bear, Frost Walker, Skulking Ghost, Gossamer Phantasm, Illusionary Servant, Phantom Beast, Skulking Fugitive/Knight, Tar Pit Warrior, …) prints "**When** ~ becomes the target of a spell or ability, sacrifice it." — semantically interchangeable here (a self-sacrifice fires identically off the first event either way). One-word widen to `when(?:ever)?`; no engine change. Verified end-to-end (Lightning Bolt at a Phantasmal Bear sacrifices it). Still open: the "sacrifice it **unless you discard a land card**" variant (Cursed Monstrosity) and the quoted-grant forms ("has 'when ~ becomes the target …'" — Crystalline Nautilus, Dismiss into Dream, Boneshard Slasher, Makeshift Mannequin). `tests/test_par30_becomes_target_sacrifice.py`.
-- **Files:** `game/rules_engine.py`, `game/effect_binder.py`, `game/effects.py`, `parser/oracle/segmenter.py`
+- **Files:** `game/rules_engine.py`, `game/binding/core.py`, `game/effects/core.py`, `parser/oracle/segmenter.py`
 
 ### RULE 601.2c Target-Count Range (`count_max`) (ENG-30)
 
 - **What:** `TargetSpec.count_max` plus `effective_count` property express "N or M target `<X>`" (at least N, at most M) — a genuine third shape alongside exact `count` and "up to N" `optional`. `count` stays the RULE 601.2c minimum for offer-time castability locking; `effective_count` is what every effect class's target-slicing now reads. Threaded through 8 effect classes/factories and both interactive gathering paths (trigger multi-target rounds, client-driven spell/ability rounds), expanding to `count_max` rounds with the first `count` mandatory and the rest declinable.
-- **Files:** `game/targeting.py`, `game/effects.py`, `game/rules/misc_mixin.py`, `frontend/src/js/gameBoardView.js`.
+- **Files:** `game/targeting.py`, `game/effects/core.py`, `game/rules/misc_mixin.py`, `frontend/src/js/gameBoardView.js`.
 - **Why:** Slicing by the minimum (the pre-existing convention) would silently drop a legally-chosen second target for a range spec.
 - **Bug fixed:** The pre-existing "up to two target creatures…" pump row set a spec key (`"count"`) the `"pump"` factory never read (it only reads `"target_count"`), silently limiting every card on that template to one target regardless of intent.
 
 ### Bounce a Spell Still on the Stack (Sink into Stupor)
 
 - **What:** `RulesEngine.bounce_spell_or_permanent` + `ReturnToHandEffect.spell_or_permanent` pulls a target directly out of `GameState.stack`, since ordinary zone-removal has no idea the stack exists. New target kinds `spell_or_nonland_permanent_you_dont_control`/`spell_you_dont_control`.
-- **Files:** `game/effects.py`, `game/rules_engine.py`, `game/targeting.py`.
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`, `game/targeting.py`.
 
 ### Forced Retarget-to-Source (Spellskite, Hydroelectric Specimen)
 
 - **What:** `ChangeTargetEffect.redirect_to_source` + a `card_types` filter — a *forced* redirect onto the effect's own source, implemented by narrowing `legal_targets` to just the source and falling through to the existing mandatory-auto-apply/optional-decline retarget logic rather than a parallel no-choice path.
-- **Files:** `game/effects.py`, `game/rules/misc_mixin.py`.
+- **Files:** `game/effects/core.py`, `game/rules/misc_mixin.py`.
 
 ### Colour-OR Targeting (`TargetSpec.colors`)
 
 - **What:** `TargetSpec.colors` (OR of 2+ WUBRG letters) + shared `_color_ok` helper replacing inline per-branch colour checks across `legal_targets`; `DealDamageEffect(colors=[...])` for Rending Volley's "target white or blue creature."
-- **Files:** `game/targeting.py`, `game/effects.py`.
+- **Files:** `game/targeting.py`, `game/effects/core.py`.
 - **Pump family (PAR-30, v169):** `PumpEffect` gained a `colors` param threaded into its `TargetSpec` — the field and `_color_ok` were already wired into `legal_targets`, just never reached from a pump. Dedicated parser row `_PUMP_TARGET_TWO_COLOR_RE` / `_pump_target_two_color` ("target `<c1>` or `<c2>` creature gets +N/+M / gains `<kw>` until end of turn", flag keywords only, same-colour-twice rejected) — the `_DAMAGE_TARGET_TWO_COLOR_RE` sibling, a standalone row because the shared `TARGET` macro's fixed rows carry no colour slot. +7 (the Weaver cycle: Hate/Rage/Sky/Might/Spirit Weaver, Sootstoke Kindler, Wilderness Hypnotist). `tests/test_par30_pump_two_color_target.py`.
 - **Removal (PAR-30, v170):** `DestroyEffect` and `ExileEffect` gained the same `colors` param, threaded into their `TargetSpec` (the multi-letter sibling of `DestroyEffect.color`'s existing single-letter Pyroblast form). `_DESTROY_COLOR_ADJ_RE` (which already handled a *single* colour adjective) widened to a "`<c1>` or `<c2>`" pair + an optional "with `<kw>`" `creature_filter` tail (Deathmark, Wallop); new dedicated `_EXILE_TARGET_TWO_COLOR_RE` / `_exile_target_two_color` for "exile target `<c1>` or `<c2>` creature/permanent[ you don't control]" (Celestial Purge). Shared `_two_color_letters` helper (same-colour-twice → `None`). +3. `tests/test_par30_removal_two_color_target.py`.
 - **Bounce / put-on-library / graveyard-recursion (PAR-30, v171):** `ReturnToHandEffect` / `ReturnToLibraryEffect` / `ReturnFromGraveyardEffect` each gained the same `colors` param → `TargetSpec.colors`; three dedicated `_RETURN_*_TWO_COLOR_RE` handlers (Escape Routes, Hunting Drake, Crypt Angel). Also plugged a latent gap discovered here: the `creature_you_control` / `land_you_control` / `other_creature_you_control` branch of `legal_targets` had never applied `_color_ok` (every other creature branch did) — added, a no-op unless `colors`/`color` is set. +3. `tests/test_par30_movement_two_color_target.py`.
@@ -1233,7 +1233,7 @@ is in the rules-engine categories below them.
 ### Linked-Exile Tracking (`remember` on Exile/Search)
 
 - **What:** `ExileEffect`/`SearchLibraryEffect` both gained a `remember` flag stamping `GameObject.linked_exile_id`, backing `Cemetery Gatekeeper`'s `shares_type_with_linked_exile` condition.
-- **Files:** `game/effects.py`.
+- **Files:** `game/effects/core.py`.
 
 ## Replacement Effects
 
@@ -1245,7 +1245,7 @@ is in the rules-engine categories below them.
 ### Interactive replacement ordering (RULE 616.1e/f)
 
 - **What:** When exactly one replacement applies it's used automatically; when 2+ apply simultaneously, `apply_replacements` opens a `replacement_order` `pending_choice` for the affected player, applying picks one at a time until only one candidate remains. New `EventType.COUNTER`/`CREATE_TOKENS` events and `source_id`/`source_controller_id`/`source_colors`/`combat` on `DAMAGE` let replacements filter by source. New `double_damage`/`additional_damage`/`double_counters`/`double_tokens` families, hand-authored onto Furnace of Rath, Gratuitous Violence, Torbran, Doubling Season, Parallel Lives.
-- **Files:** `game/rules_engine.py`, `game/effects.py`, `game/ability_catalogue.py`, `gameBoardView.js`
+- **Files:** `game/rules_engine.py`, `game/effects/core.py`, `game/ability_catalogue.py`, `gameBoardView.js`
 - **Why:** Mirrors RULE 603.3b's trigger-order pause/resume but is always interactive rather than opt-in, since replacement collisions are rare and always rules-meaningful when they occur.
 
 ### Conditional enters-tapped choice (RULE 614.1 replacement)
@@ -1272,48 +1272,48 @@ is in the rules-engine categories below them.
 ### Innkeeper's Talent Causer-Scoped Counter-Doubling
 
 - **What:** "If **you** would put one or more counters on a permanent or player, put twice that many instead" scopes by who's *causing* the placement, distinct from Doubling Season's recipient-scoping. `add_counters`/`add_player_counters` gained an optional `source` param carried onto the COUNTER event as `source_controller_id`; `_double_counters_replacement` gained a `your_effects_only` flag.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Mechanized Warfare Compound Damage-Doubling Filter
 
 - **What:** `additional_damage`'s single `color` param generalized to OR-combined `colors`/`types` lists, so a source qualifies if it matches *any* listed colour or type word (e.g. "a red or artifact source").
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/replacements.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/replacements.py`
 
 ### `prevent_damage` One-Shot Shield
 
 - **What:** `PreventDamageEffect`/`RulesEngine.prevent_damage_to_player` — a resolve-time-built `ReplacementEffect` living on `Player.player_effects` rather than a permanent's own, since nothing is being regenerated. `amount="all"` (Riot Control) never self-removes; an int (Thought Lash) opens a cumulative bank spent across however many DAMAGE events it takes. Swept at cleanup by a new marker-based sweep in `_step_cleanup`.
-- **Files:** `game/effects.py`, `game/rules_engine.py`, `game/game_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`, `game/game_engine.py`
 
 ### Damage-Multiplying Replacement Family Recognition
 
 - **What:** `_double_damage_replacement` gained a `multiplier` param (Fiery Emancipation's "triple") and a `creature_only` param for Gratuitous Violence's "a creature you control" scoping, reading a new `source_is_creature` DAMAGE-event field.
-- **Files:** `parser/oracle/catalogue/replacements.py`, `game/effects.py`
+- **Files:** `parser/oracle/catalogue/replacements.py`, `game/effects/core.py`
 - **Bug fixed:** The pre-existing hand-authored Gratuitous Violence entry wrongly required `combat_only`, a restriction its real printed text never had.
 
 ### Lurrus Trailing "Exile Instead of Graveyard" Clause
 
 - **What:** `GraveyardCastPermissionEffect.exile_if_would_be_put_into_graveyard` redirects a graveyard-cast-permission spell to exile instead, via `RulesEngine._move_to_graveyard` — the one choke point every graveyard-bound move (destroy/sacrifice/SBA dies) funnels through.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Life-Gain Rewrite Replacement
 
 - **What:** `gain_life_replacement` (`plus`/`multiplier` params) covers Angel of Vitality's additive "plus N instead" and Boon Reflection/Alhammarret's Archive's multiplicative "twice that much instead", needing a new `EventType.LIFE_GAIN` pre-event that `RulesEngine.gain_life` now routes through `apply_replacements` first.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Recipient-Scoped +1/+1 Counter Replacement
 
 - **What:** `_double_counters_replacement` gained `plus`/`multiplier`/`recipient` params for Hardened Scales/Conclave Mentor's additive "that many plus one" (creature you control) and Branching Evolution/Corpsejack Menace's "twice that many" — distinct from Doubling Season's unscoped clause.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### "If ~ Would Die, Exile It Instead" Replacement
 
 - **What:** `die_to_exile`, subject-scoped (self/you-control/any/opponent), fired off a new `EventType.WOULD_DIE` that `RulesEngine._move_to_graveyard` raises for any creature actually leaving the battlefield — covers destroy, sacrifice and SBA dies since all three funnel through that method.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Targeted/divided damage prevention (PAR-15 residue, RULE 615)
 
 - **What:** "Prevent the next N damage… to any number of targets, divided as you choose" (Embolden/Angel of Salvation). `PreventDamageEffect` gained `target_kind`/`divided`/`amount_if_kicked` modes and a new `RulesEngine.prevent_damage_to_target` primitive, the any-target sibling of the existing player-only prevention shield, sharing its cumulative-bank/cleanup semantics.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### "Prevent the next N damage… to any target this turn" singular (PAR-12, RULE 615)
 
@@ -1323,12 +1323,12 @@ is in the rules-engine categories below them.
 ### RULE 615 Fog-shaped unscoped prevention
 
 - **What:** "Prevent all combat damage that would be dealt this turn" — no chosen recipient at all, unlike the pre-existing per-recipient prevention shields. New `PreventAllCombatDamageEffect`/`RulesEngine.prevent_all_combat_damage_this_turn`. One of the most repeated templates in the cache: +36 cards.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Turn-scoped exile-instead-of-graveyard grant (Imodane batch)
 
 - **What:** `GrantDieToExileThisTurnEffect` (Lava Coil/Smite the Deathless-shaped "exile instead of graveyard, this turn only") — a turn-scoped `ReplacementEffect` appended directly to a target's `replacement_effects` with the firing turn number baked into a closure condition for self-expiry.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Mox Diamond: RULE 614.12 "would enter, discard a land instead" (Replacement Effects)
 
@@ -1338,67 +1338,67 @@ is in the rules-engine categories below them.
 ### Spark Double: copy-with-extra-counter (Replacement Effects)
 
 - **What:** `EnterAsCopyReplacement` gained `extra_counter_if_creature`/`extra_counter_if_planeswalker` (applied post-copy, once the resulting permanent's real type is known); `targeting.py` gained `creature_or_planeswalker_you_control`.
-- **Files:** `game/effects.py`, `game/targeting.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/targeting.py`, `game/ability_catalogue.py`
 
 ### Prevent Life Gain This Turn (RULE 119.3)
 
 - **What:** `RulesEngine.prevent_life_gain_this_turn`/`PreventLifeGainEffect` — an absolute LIFE_GAIN cancel, the first sibling of `prevent_damage_to_player`'s numeric-shield shape that isn't a bank.
-- **Files:** `game/rules_engine.py`, `game/effects.py`.
+- **Files:** `game/rules_engine.py`, `game/effects/core.py`.
 - **Follow-up (PARSER_VERSION 239) — the *standing* form:** "Players can't gain life." as a permanent static (Forsaken Wastes / Everlasting Torment / Havoc Festival / Leyline of Punishment), "Your opponents can't gain life." (Erebos, God of the Dead — `scope="opponents"`), and Sulfuric Vortex / Rain of Gore's replacement-phrased "If a player would gain life, that player gains no life instead." New `prevent_all_life_gain` marker `StaticAbility` (`life_gain_prohibition` layer, added to `_NON_RULE_613_LAYERS`), consulted live by `RulesEngine.gain_life` via `continuous.life_gain_prohibited_for(state, player)` — the same "battlefield scan, no separate lifecycle" shape as `skip_step`/`mana_type_override_for`, honouring any `active_if` gate. `PreventLifeGainEffect` gained `recipient="all"` for the turn-scoped burn-spell rider ("Players can't gain life this turn." — Skullcrack / Call In a Professional), which `handlers._CANT_GAIN_LIFE_RE` widened its `who` group to catch. **+7, 0 regressed.** `tests/test_par_players_cant_gain_life.py`.
-- **Files:** `game/continuous.py` (`life_gain_prohibited_for`, `_NON_RULE_613_LAYERS`), `game/rules/damage_death_mixin.py` (`gain_life` gate), `game/effects.py` (`prevent_all_life_gain` factory, `PreventLifeGainEffect.recipient="all"`), `parser/oracle/catalogue/static_handlers.py` (`_PLAYERS_CANT_GAIN_LIFE_RE`), `parser/oracle/catalogue/handlers.py` (`_CANT_GAIN_LIFE_RE` widened), `parser/oracle/gate.py` (PARSER_VERSION 239).
+- **Files:** `game/continuous.py` (`life_gain_prohibited_for`, `_NON_RULE_613_LAYERS`), `game/rules/damage_death_mixin.py` (`gain_life` gate), `game/effects/core.py` (`prevent_all_life_gain` factory, `PreventLifeGainEffect.recipient="all"`), `parser/oracle/catalogue/static_handlers.py` (`_PLAYERS_CANT_GAIN_LIFE_RE`), `parser/oracle/catalogue/handlers.py` (`_CANT_GAIN_LIFE_RE` widened), `parser/oracle/gate.py` (PARSER_VERSION 239).
 
 ### Power-Floor Damage Replacement (Ojer Axonil)
 
 - **What:** `_damage_floor_from_source_power_replacement` — sibling of `_additional_damage_replacement`, where the threshold and the replacement amount are the same live value (the source's current power), re-read every firing.
-- **Files:** `game/effects.py`.
+- **Files:** `game/effects/core.py`.
 
 ### MEC-30: standing `prevent_damage` replacement family, carded end to end (RULE 615/616.1)
 
 - **MEC-30 Pass 1: Standing `prevent_damage` Replacement Carded:**
   - **What:** The long-dormant, fully-built standing `_prevent_damage_replacement` (`"prevent_damage"` in `ReplacementRegistry`) got its first real card bindings. Widened with five axes: recipient (`to="attached_permanent"`/`"any_player"`/`"opponent_player"`/`"controlled_permanent"`, plus `recipient_filter`/`recipient_union`), `source_filter` (colour/artifact/creature/spell/opponent-controlled), `amount={"all_but": N}`/`{"half": ...}`/`amount_count_selector`, a generic `rider` follow-up (`RulesEngine.apply_prevent_rider`: gain_life/draw_cards/mill/deal_damage_to_source_controller/create_tokens_scaled/add_self_counter), and RULE 613.6 `active_if` wired generically into `effect_binder.build_replacements` for every replacement, not just this one. Closed 15 cards via new parser regex (Sphere cycle, Urza's Armor, etc.) plus 5 hand-authored (Swans of Bryn Argoll, Hostility, Gisela, Circle of Protection: Red, Deflecting Palm).
-  - **Files:** `game/effects.py`, `game/effect_binder.py`, `parser/oracle/catalogue/replacements.py`, `game/ability_catalogue.py`.
+  - **Files:** `game/effects/core.py`, `game/binding/core.py`, `parser/oracle/catalogue/replacements.py`, `game/ability_catalogue.py`.
   - **Bug fixed:** `_double_damage_replacement` had no `to_opponent_only` param — Gisela's paired opponent-scoped-double/controller-scoped-prevent clauses needed one; passing it previously silently did nothing. `apply_prevent_rider`'s `deal_damage_to_source_controller` kind resolved recipient through the generic "you"/"source_controller" switch (defaulting to "you"), sending Deflecting Palm's reflected damage back onto the shielded player from the same watched source, which the shield then re-intercepted, recursing to a real `RecursionError`; fixed by resolving this rider kind's recipient unconditionally as the source's controller.
 - **MEC-30 Pass 2: Circle/Rune of Protection Cycles + Filter Extensions:**
   - **What:** 32 more Family B cards hand-authored (full Circle of Protection and Rune of Protection cycles, Story Circle, Prismatic Circle, Circle of Solace, and others). New `matches_object_filter` keys reused by `RequestPreventDamageSourceEffect`'s candidate gathering: `color_any` (OR of colours), `color_from_source`/`subtype_from_source` (reading a RULE 601.2b live chosen colour/type dynamically at match time instead of a literal baked in at parse time). `apply_prevent_rider`'s `rider` param widened to also accept a list (applied in sequence) for New Way Forward's two independent riders off one prevented amount.
-  - **Files:** `game/effects.py`, `game/combat.py`, `game/ability_catalogue.py`.
+  - **Files:** `game/effects/core.py`, `game/combat.py`, `game/ability_catalogue.py`.
   - **Why:** Registering Haazda Shield Mate for its shield clause alone would have silently dropped its already-parser-`MODELED` upkeep sacrifice-unless-pay clause (`specs_for` trusts a registered card's specs wholesale) — that clause was hand-authored alongside the shield instead, reusing the existing RULE 701.17 `sacrifice_unless_pay` choice.
 - **MEC-30 Pass 3: Remaining Family A Cards (Rem Karolus, Hedron-Field Purists, Battletide Alchemist, Nine Lives, Insult // Injury/Isengard Unleashed, Ajani Steadfast):**
   - **What:** Closed the last 7 Family A cards. Rem Karolus needed `_additional_damage_replacement`'s new `is_spell` filter (mirroring its `_prevent_damage_replacement` sibling). Hedron-Field Purists/Battletide Alchemist were purely mechanical (existing `active_if`/`amount_count_selector` params). Nine Lives got a new `source_counters_at_least` trigger key (an ordinary COUNTER self-subject trigger, rules-equivalent to a real RULE 603.8 state trigger for this card since counters only ever arrive one at a time). Ajani Steadfast needed all three loyalty abilities hand-authored (+1 an "up to one target" pump; -2 two `add_counters` specs, needing a new `other_planeswalkers_you_control` group selector).
-  - **Files:** `game/effects.py`, `game/effect_binder.py`, `game/continuous.py`, `game/ability_catalogue.py`.
+  - **Files:** `game/effects/core.py`, `game/binding/core.py`, `game/continuous.py`, `game/ability_catalogue.py`.
   - **Why:** Re-verifying each card's real `parse_oracle unclaimed` output before writing anything, rather than trusting the ticket's prior scoping, avoided building an unneeded RULE 603.8 subsystem for Nine Lives and caught that Ajani needed all three abilities hand-authored, not just the emblem.
 - **Follow-up (PARSER_VERSION 243) — the Phantom cycle:** "If damage would be dealt to ~, prevent that damage. Remove a +1/+1 counter from ~." (Phantom Centaur / Phantom Flock / Phantom Nantuko / Phantom Nishoba / Phantom Nomad / Phantom Tiger / Phantom Wurm). New `replacements._PHANTOM_PREVENT_RE` → `EffectSpec("prevent_damage", {"to": "self", "amount": "all", "rider": {"kind": "remove_self_counter", "counter": "+1/+1", "count": 1}})`; `RulesEngine.apply_prevent_rider` gained the `remove_self_counter` kind — a **fixed** count (1 on every real card), unscaled by the prevented amount (the counter loss is the shield's price, not proportional to the hit — the mirror of Nine Lives's `add_self_counter`). Implemented as `add_counters(source, -count, kind)` (a negative amount bypasses replacements). These creatures are printed 0/0, so once the last counter goes the RULE 704.5g "0 toughness" SBA finishes them — no extra code. **+7, 0 regressed.** `tests/test_phantom_prevent_remove_counter.py`.
 - **MEC-30 Phase 5: Family B Chooser Extensions (Kithkin Armor, Shadowbane, Honorable Passage, Dazzling Reflection, Samite Blessing):**
   - **What:** Five small, individually-scoped extensions to `RequestPreventDamageSourceEffect`: `recipient="attached_permanent"` (Kithkin Armor); `RulesEngine.prevent_damage_to_player_and_their_creatures` for a dynamic "you and/or creatures you control" recipient set, re-evaluated live (Shadowbane); `rider["if_source_color"]`, the first rider that only sometimes fires, gating on the watched source's own colour (Honorable Passage); `GainLifeEffect.amount_from_target_power` (Dazzling Reflection); confirmed the existing layer-6 `grant_activated_ability` static needs no new primitive to grant a chooser ability onto a host (Samite Blessing).
-  - **Files:** `game/effects.py`, `game/rules/damage_death_mixin.py`, `game/rules_engine.py`.
+  - **Files:** `game/effects/core.py`, `game/rules/damage_death_mixin.py`, `game/rules_engine.py`.
   - **Why:** Kithkin Armor's Enchant keyword and combat restriction were already independently `MODELED` — registering it for the shield alone would have silently dropped them, so the exact `EffectSpec` was hand-copied from an isolated `parse_oracle` run rather than reconstructed.
 - **MEC-30 Phase 6: RULE 616.1c Redirection (Opal-Eye, Konda's Yojimbo):**
   - **What:** `RequestRedirectDamageSourceEffect`/`RulesEngine.redirect_damage_from_source` — the first genuine damage redirection this engine modeled, distinct from prevention/doubling: reuses the chooser plumbing but rewrites the watched DAMAGE event's own `target_id`/`is_player` instead of reducing its amount. Deliberately not marked `prevents_damage` (a redirect isn't cancelled by "damage can't be prevented this turn"). New `PreventDamageEffect.self_only` for "prevent the next N damage to `<this permanent>`."
-  - **Files:** `game/effects.py`, `game/rules_engine.py`.
+  - **Files:** `game/effects/core.py`, `game/rules_engine.py`.
   - **Bug fixed:** `RulesEngine.deal_damage`'s `_finish` closure resolved every branch (life loss, counters, damage-marking, loyalty, battle defense, commander damage) against the *original* captured target/is_player, never re-reading the replaced event's own rewritten recipient — so a redirect's `copy_with` override was silently discarded no matter what it said. Fixed by re-deriving the actual recipient once at the top of `_finish` and switching every branch to read it. Verified with an unusually wide regression sweep (~600 cases across combat/planeswalker/battle/poison/infect/wither test files) given how central `deal_damage` is.
 - **MEC-30 Pass 6: Activator/Controller Distinction (Mercenaries) and Multi-Player Aggregate Tax (Rhystic Circle):**
   - **What:** `ActivationCost.any_player_may_activate` (RULE 602.2b eligibility widening) + `GameContext.resolving_controller_id`, the activator set/restored by `RulesEngine.resolve_top_of_stack` around a stack item's resolution, mirroring how `trigger_event` already saves/restores — `PreventDamageEffect` gained `recipient_is_activator`/`watched_source_is_self` reading it (Mercenaries). `RequestAllPlayersDeclineOrEffect`/`RulesEngine.request_all_players_decline_or` — every player gets an independent pay/decline chance, the payoff fires once only if *everyone* declines, and the first payer cancels the whole sweep (Rhystic Circle) — genuinely distinct from both `TaxedDrawEffect`/`pay_cost_then` (single specific payer) and `request_each_player_pay_or` (applies its penalty per-decliner independently).
-  - **Files:** `game/costs.py`, `game/engine/activation_mixin.py`, `game/effects.py`, `game/rules_engine.py`, `game/rules/casting_mixin.py`.
+  - **Files:** `game/costs.py`, `game/engine/activation_mixin.py`, `game/effects/core.py`, `game/rules_engine.py`, `game/rules/casting_mixin.py`.
   - **Why:** Deliberately kept `_controller_of`'s global resolution order unchanged (97 call sites, several plausibly relying on live `source.controller_id`) — the new field is opt-in per effect rather than a global behaviour change.
 - **MEC-30 Pass 7: Chosen-Source Coin-Flip Branch (Desperate Gambit) — MEC-30 closed:**
   - **What:** `ChooseSourceCoinFlipEffect` — the chosen-source chooser family's third member (candidates scoped to "a source you control," not "of your choice"); the coin (`RulesEngine.coin_flip`) isn't flipped until the pick resolves. Heads calls the new `RulesEngine.grant_damage_multiplier_from_source` (the single-source-scoped doubling mirror of `prevent_damage_from_source`, distinct from the controller-wide `grant_damage_multiplier_this_turn` since it can't be narrowed to one specific permanent); tails calls the already-shipped `prevent_damage_from_source`.
-  - **Files:** `game/effects.py`, `game/rules/misc_mixin.py`, `game/rules/damage_death_mixin.py`.
+  - **Files:** `game/effects/core.py`, `game/rules/misc_mixin.py`, `game/rules/damage_death_mixin.py`.
   - **Why:** Closes the whole standing `prevent_damage` replacement family (MEC-30) — every card from the original 80-row cache search is now MODELED or hand-authored, and every primitive built along the way (RULE 613.6 `active_if` on any replacement, RULE 616.1c redirection, RULE 616.1e's real `can_replace` condition, the RULE 602.2b activator/controller distinction, the multi-player aggregate-outcome tax) is general enough for future reuse.
 
 ### "A Source of Your Choice" One-Shot Prevention Family (RULE 615/616.1d)
 
 - **What:** A genuinely new primitive (choosing a source is not RULE 115 targeting — no `"source"` target kind exists): `prevent_damage_to_player`/`_to_target` gained optional `watched_source_id`; new `prevent_damage_from_source` covers the unscoped-recipient shape; `request_choose_objects` gained a `"remember_source"` action plus a `prevent_shield` payload round-tripped through the pending-choice cycle; two new effect classes, `RequestPreventDamageSourceEffect` (chooser path, Circle/Rune of Protection) and `PreventDamageFromTargetEffect` (already-targeted path, Awe Strike/Dazzling Reflection). Deliberately scoped to battlefield permanents only, not a spell still on the stack.
-- **Files:** `game/effects.py`, `game/rules_engine.py`, `game/rules/misc_mixin.py`.
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`, `game/rules/misc_mixin.py`.
 
 ### Damage-Can't-Be-Prevented / Damage-Multiplier-This-Turn (Insult // Injury, Isengard Unleashed)
 
 - **What:** New `ReplacementEffect.prevents_damage` marker stamped on every prevention-shaped effect construction site, plus a turn-scoped `GameState.damage_prevention_disabled` flag consulted by `RulesEngine._run_replacement_loop`, implementing "damage can't be prevented this turn." Paired with `RulesEngine.grant_damage_multiplier_this_turn`, the spell-cast sibling of the standing `double_damage` replacement — files a `your_sources_only`-scoped doubling effect on the caster's `player_effects` since a one-shot sorcery has no permanent to hold a standing shield.
-- **Files:** `game/rules_engine.py`, `game/effects.py`, `models/game_state.py`, `game/rules/damage_death_mixin.py`.
+- **Files:** `game/rules_engine.py`, `game/effects/core.py`, `models/game_state.py`, `game/rules/damage_death_mixin.py`.
 - **Why:** Deliberately not reusing the existing `damage_prevention_shield` cleanup-sweep flag despite the similar name — that flag means "sweep me at cleanup, I'm one-turn-only," which would have wrongly deleted Family A's *standing* shields (Circle of Protection etc.) at the very next cleanup step.
 
 ### RULE 616.1e `can_replace` Condition Fix
 
 - **What:** Extracted each of the 12 `ReplacementRegistry` factories' inline applicability guard into a named `_applies(event, context)` closure wired as `effect.condition`, so `can_replace` (which drives RULE 616.1e simultaneity ordering) reflects the real printed condition instead of just the event type.
-- **Files:** `game/effects.py`.
+- **Files:** `game/effects/core.py`.
 - **Bug fixed:** None of the 12 factories ever passed a `condition` to `ReplacementEffect`, so `can_replace` only ever checked event type — Gisela's two unrelated replacements (opponent-scoped doubling, self-scoped prevention) both reported "applicable" to every DAMAGE event regardless of direction, opening a pointless ordering choice on every single hit even though only one could ever actually change anything.
 
 ## Triggered Abilities & Trigger Ordering
@@ -1427,13 +1427,13 @@ is in the rules-engine categories below them.
 ### "When you control no `<basic land type>`, sacrifice ~." (RULE 603.8 state trigger — PARSER_VERSION 180)
 
 - **What:** the original colour-gated creature cycle (Bog Serpent, Sea Serpent, Dandân, Island Fish Jasconius, Barbarian Outcast, Gorilla Pack, …; 11 SOLO). `segmenter._CONTROL_NONE_SACRIFICE_RE` emits an `AbilitySpec("triggered", trigger={"event": "LEAVES_BATTLEFIELD", "controls_none_of_type": "<subtype>"})`; `effect_binder._trigger_condition` grew a `controls_none_of_type` predicate — a live scan of the ability's controller's battlefield for a permanent whose printed subtype line names that basic land type, **excluding the permanent named by the firing event's `instance_id`** (RULE 603.6a: `LEAVES_BATTLEFIELD` fires while the leaving object is still on the battlefield, so the check is "will you control none once this leave completes").
-- **Files:** `parser/oracle/segmenter.py`, `game/effect_binder.py`. `tests/test_par30_control_none_sacrifice_trigger.py`.
+- **Files:** `parser/oracle/segmenter.py`, `game/binding/core.py`. `tests/test_par30_control_none_sacrifice_trigger.py`.
 - **Why this shape:** no general RULE 603.8 state-trigger subsystem exists; this reuses the same "gate an ordinary event on a live state read" pattern `source_counters_at_least` (Nine Lives) documented, since the only way the count reaches zero is a land leaving. The ETB edge (casting the creature while already controlling none) is a documented simplification.
 
 ### Modal triggered abilities (RULE 700.2 wrapped in RULE 603)
 
 - **What:** "When ~ enters, choose one —" on a permanent now parses and binds (previously only a modal spell's header worked). Mode selection is resolved as a new interactive `trigger_mode` `pending_choice` opened as the ability is placed on the stack, before the existing target/"you may" checks run against the chosen mode's own effects.
-- **Files:** `parser/oracle/gate.py`, `parser/oracle/catalogue/modal.py`, `game/effect_binder.py`, `game/rules_engine.py`
+- **Files:** `parser/oracle/gate.py`, `parser/oracle/catalogue/modal.py`, `game/binding/core.py`, `game/rules_engine.py`
 - **Why:** Real-cache yield was much smaller than a template-based estimate suggested (6 cards, all still blocked by an unrelated missing effect family) — logged as a correctness/architecture prerequisite rather than a coverage win.
 
 ### EventType.SACRIFICE (RULE 701.17)
@@ -1444,12 +1444,12 @@ is in the rules-engine categories below them.
 ### Reflexive per-firing "that object" trigger (RULE 603.3d)
 
 - **What:** `TriggeredAbility.reflexive` lets a triggered ability's targeting effect act on the exact object that fired the event (resolved from the event's `instance_id` at placement time, no `trigger_target` choice needed) — the generic form of the per-firing "that spell/land" reference that Ward/Rampage each hand-built separately.
-- **Files:** `game/effects.py`, `game/effect_binder.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/binding/core.py`, `game/rules_engine.py`
 
 ### Delayed triggered abilities (RULE 603.7)
 
 - **What:** `GameState.delayed_triggers` + `DelayedTrigger` + a `create_delayed_trigger` effect let a resolving spell arm a trigger for a future step, fired at `STEP_BEGIN`, with scope/step/capture/min_turn parameters. Upgraded Mana Drain to fully modeled.
-- **Files:** `models/game_state.py`, `game/game_engine.py`, `game/effects.py`
+- **Files:** `models/game_state.py`, `game/game_engine.py`, `game/effects/core.py`
 
 ### Reflexive "When you do, `<targeted payoff>`." after an optional cost (RULE 603.11, PARSER_VERSION 206)
 
@@ -1457,7 +1457,7 @@ is in the rules-engine categories below them.
 - **New param:** `pay_cost_then.then_trigger` (a list of `{"type","params"}` specs, whitelisted through `build_effects` like every other effect list). Emitted by `_pay_cost_then_general` when the "When you do" body has a `target_kind`; the untargeted case keeps using the off-stack `effects`. Threaded through `GameContext`-less `RulesEngine.request_pay_cost_then` (`then_trigger_specs` + `then_trigger_event`) and stashed on `_pending_pay_cost_then` so it survives the choice round-trip.
 - **Reach:** the `_MAY_COST_THEN_CLAUSE` cost whitelist is mana / typed-sacrifice / discard / pay-life / collect-evidence / forage / blight, so this is not Evidence-specific — it closes the whole "you may pay {cost}. If you do, `<targeted effect>`" family (bounce, edict, reanimation, +1/+1 counter, keyword grant). +43 cache cards, 0 regressed.
 - **Not yet:** Memory Vampire (also needs a dynamic multi-target mill + a "cast target nonland card from a graveyard without paying its mana cost" one-shot) and Incinerator of the Guilty (dynamic "collect evidence X" + event-scoped group damage) — tracked in `BACKLOG.md`. Narrows the Red Hulk documented simplification (`DamageEqualToCountersEffect` docstring) to "not yet wired for that card", not "no primitive exists".
-- **Files:** `game/effects.py` (`PayCostThenEffect.then_trigger_specs`, `pay_cost_then` factory), `game/rules/misc_mixin.py` (`request_pay_cost_then`/`resolve_pay_cost_then_choice`/`_enqueue_pay_cost_then_trigger`), `parser/oracle/catalogue/handlers.py` (`_pay_cost_then_general`), `parser/oracle/gate.py` (PARSER_VERSION 206).
+- **Files:** `game/effects/core.py` (`PayCostThenEffect.then_trigger_specs`, `pay_cost_then` factory), `game/rules/misc_mixin.py` (`request_pay_cost_then`/`resolve_pay_cost_then_choice`/`_enqueue_pay_cost_then_trigger`), `parser/oracle/catalogue/handlers.py` (`_pay_cost_then_general`), `parser/oracle/gate.py` (PARSER_VERSION 206).
 - **Tests:** `tests/test_reflexive_when_you_do_trigger.py` — parse (targeted → `then_trigger`, untargeted → `effects`), and execute: Sample Collector's reflexive +1/+1-counter ability goes on the stack, offers a `trigger_target` choice, and resolves onto the picked creature; declining the cost queues nothing; the mana-cost variant (Surgespanner bounce) and the blight-cost variant (Warren Torchmaster haste) both resolve end-to-end.
 - **MEC-69 · Modal reflexive continuations:** The same per-payment trigger path
   accepts `pay_cost_then.then_trigger_modes`: `enqueue_reflexive_trigger`
@@ -1485,7 +1485,7 @@ is in the rules-engine categories below them.
   whether to cast it and supplies every target through the standard casting
   flow; its one-spell exile rider survives that deferred choice.
 - **Files:** `game/ability_catalogue/entries_016.py`, `game/continuous.py`,
-  `game/effects.py`, `game/rules/misc_mixin.py`,
+  `game/effects/core.py`, `game/rules/misc_mixin.py`,
   `game/engine/turn_loop_mixin.py`.
 - **Tests:** `tests/test_mec76_dance_packages.py` executes each named card's
   contract, including the Impulsivity exile replacement.
@@ -1502,8 +1502,8 @@ is in the rules-engine categories below them.
 - **Scope:** PAR-59 remains responsible for recognizing the printed
   enter-or-haunted-death and standalone haunted-death card bodies; this
   ticket supplies the mechanic and its event lifecycle.
-- **Files:** `models/game_object.py`, `game/effects.py`,
-  `game/effect_binder.py`, `game/rules/triggers_mixin.py`,
+- **Files:** `models/game_object.py`, `game/effects/core.py`,
+  `game/binding/core.py`, `game/rules/triggers_mixin.py`,
   `game/rules_engine.py`.
 - **Tests:** `tests/test_mec70_haunt.py` verifies a real keyword-bound dies
   link, its exile-zone linked-death trigger, and the activated form.
@@ -1511,12 +1511,12 @@ is in the rules-engine categories below them.
 ### Self-referential-trigger family: ability words, controller-scoped phases, self-damage
 
 - **What:** Three related gaps closed together: RULE 207.2c ability-word stripping ("Landfall —"/"Constellation —" have no rules meaning and were blocking the trigger match beneath them); controller-scoped phase triggers ("at the beginning of **your** `<step>`"/"each opponent's") via a new `phase_relation` condition; and self-subject "`~` deals (combat) damage to a player/creature" (RULE 120.3) via a dedicated `EventType.DAMAGE` + filter bypass. Also extended granted-trigger scoping to DAMAGE events, closing a prior deferral (Combat Research).
-- **Files:** `parser/oracle/normalize.py`, `parser/oracle/segmenter.py`, `game/effect_binder.py`, `game/continuous.py`
+- **Files:** `parser/oracle/normalize.py`, `parser/oracle/segmenter.py`, `game/binding/core.py`, `game/continuous.py`
 
 ### Trigger-Condition Scoping (RULE 603.1)
 
 - **What:** The segmenter emits a `trigger.condition` ({subject: self} or {subject: group, type/controller/other}); ENTERS_BATTLEFIELD/DIES/ATTACKS/BLOCKS events carry `instance_id`+`object_types`; the binder builds the matching predicates.
-- **Files:** `parser/oracle/segmenter.py`, `game/effect_binder.py`
+- **Files:** `parser/oracle/segmenter.py`, `game/binding/core.py`
 - **Bug fixed:** A parsed "when ~ enters" trigger fired for *any* entering permanent, not just its own source — a live over-firing bug closed by the new scoping.
 
 ### "Draw a Card at the Beginning of the Next Turn's Upkeep" (RULE 603.7 Recognition)
@@ -1528,32 +1528,32 @@ is in the rules-engine categories below them.
 ### Attached-Permanent & "Deals Combat Damage to a Player" Trigger Families
 
 - **What:** A new `{"subject": "attached_permanent"/"self_or_attached_permanent"}` trigger subject ("whenever equipped/enchanted creature `<verb>`", live-checked off the source's own `attached_to`), plus a `trigger["filter"]` dict for exact-match event-payload conditions (`{"combat": True, "is_player": True}` covers the whole Sword-cycle/Bloodforged Battle-Axe family). Also a `requires_equipped` gate for "an equipped creature you control attacks" (Akiri, Fearless Voyager).
-- **Files:** `game/effect_binder.py`
+- **Files:** `game/binding/core.py`
 - **Bug fixed:** `RulesEngine.deal_damage`'s post-replacement broadcast event was rebuilt from scratch, silently dropping `combat`/`source_id`/`source_controller_id`/`source_colors` — fixed by copying the resolved event forward instead.
 
 ### `spell_subtype_any` Cast-Trigger Gate
 
 - **What:** "Whenever you cast an Aura/Equipment/Vehicle spell" (Sram, Senior Edificer) needs a card-subtype check a `"group"` condition's main-type filter can't express — reads the live spell's own `type_line` instead. Also added `SPELL_CAST → player_id` to the group-controller event-key table.
-- **Files:** `game/effect_binder.py`
+- **Files:** `game/binding/core.py`
 
 ### Delayed-Trigger Showcase Primitives
 
 - **What:** Ephemerate's Rebound (RULE 702.88b, a standing free-cast window via `GameState.free_cast_instance_ids`), Marchesa the Black Rose's per-firing "counter-death return" delayed trigger, and Sneak Attack/Meek Attack's "cheat a creature into play with haste, sacrifice it at next end step" (`CheatCreatureFromHandEffect`).
-- **Files:** `game/effects.py`, `game/rules/misc_mixin.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/rules/misc_mixin.py`, `game/ability_catalogue.py`
 - **Bug fixed:** `RulesEngine.blink` left a phantom duplicate reference in the owner's exile zone after returning the object to the battlefield; and `legal_actions`' exile loop never offered a temp-play-permission-exiled card as castable at all, despite `can_cast`/`cast_spell` fully supporting it.
 - **MEC-73:** Generalized `CheatCreatureFromHandEffect` with an optional creature-subtype OR filter and replaced its automatic first-card pick with the clone-safe `request_choose_objects` path. The selected hand card enters as a fresh object (RULE 400.7), gains haste, and gets its own RULE 603.7 next-end-step sacrifice trigger; the action consequently supports Sneak Attack/Meek Attack and **Incandescent Soulstoke** without permitting an off-tribe card. The oracle handler recognizes the full haste/sacrifice sequence, so Soulstoke is parser-modeled rather than a catalogue-only exception (PARSER_VERSION 273).
-- **Files/tests:** `game/effects.py`, `game/rules/misc_mixin.py`, `parser/oracle/catalogue/handlers.py`; `tests/test_delayed_trigger_examples.py`, `tests/test_mec73_hand_cheat_parser.py`.
+- **Files/tests:** `game/effects/core.py`, `game/rules/misc_mixin.py`, `parser/oracle/catalogue/handlers.py`; `tests/test_delayed_trigger_examples.py`, `tests/test_mec73_hand_cheat_parser.py`.
 
 ### Group-Subject Damage Triggers
 
 - **What:** RULE 120.3 + 603.1's "a/an/another `<type>` [you control] deals combat damage to a player" subject, needing DAMAGE's own `source_controller_id` threaded through the group-condition builder (`_GROUP_CONTROLLER_EVENT_KEYS`, `_subject_event_key`).
-- **Files:** `game/effect_binder.py`
+- **Files:** `game/binding/core.py`
 - **Bug fixed:** The group-subject article alternation was `a|another`, so every vowel-initial group subject ("an enchantment you control dies") had been silently failing closed.
 
 ### "Sacrifice ~ Unless You Pay `<cost>`." (RULE 701.17)
 
 - **What:** A real interactive pay-or-lose-it choice for the biggest remaining upkeep-trigger template (45 cards), built by renaming and sharing ward's existing "can this player pay an arbitrary cost" helpers (`_can_pay_player_cost`/`_pay_player_cost`) rather than duplicating them. Parser claims a closed cost vocabulary only (mana/life/discard/sacrifice-a-type) rather than free text.
-- **Files:** `game/effects.py`, `game/rules_engine.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`, `parser/oracle/catalogue/handlers.py`
 - **Why:** Handing free text to the generic cost parser would return a "free" cost for anything unrecognized — silently reading as "pay nothing to keep it."
 - **PAR-30 (PARSER_VERSION 159) — the tap/exile consequence siblings + "discard N cards".** `_UNLESS_COST` (the shared closed cost vocabulary) gained "discard N cards" — a plain count, which `parse_activation_cost` reads and `_pay_player_cost` honours; the typed ("discard a creature card" → silently free) and "at random" shapes stay excluded, same fail-closed rule as before. New `_TAP_UNLESS_PAY_RE` / `_EXILE_UNLESS_PAY_RE` for "tap/exile ~ unless you pay `<cost>`" (Carnophage, Sangrophage, Heavyweight Demolisher, Electrozoa, Apocalypse Demon, Demonlord of Ashmouth, Morgul-Knife Wound's granted quoted form) — modeled with **no new effect**: `pay_cost_then` with an empty pay-branch (`effects=[]`) and the `tap`/`exile` spec in `else_effects`, so paying costs the resource and declining/being-unable taps or exiles the source. Registered *before* the plain `tap_self`/`exile_self` handlers so the "unless" half isn't dropped. +8, 0 regressed. `tests/test_par30_tap_exile_unless_pay.py`. Still open in the family: "discard N cards **unless you discard a `<type>` card**" (Alpharael, Arm-Mounted Anchor — a `discard N` consequence + a typed-discard cost) and follow-up "if ~ is destroyed this way, `<effect>`" clauses (Cosmic Horror, Argentum Masticore).
 
@@ -1565,13 +1565,13 @@ is in the rules-engine categories below them.
 ### Aura Lifecycle Triggers
 
 - **What:** RULE 700.4's long "is put into a graveyard from the battlefield" phrasing folds to "dies" (`normalize._fold_dies_long_form`), and `ReturnToHandEffect` gained a self form (Rancor/Flickering Ward) resolving against the source wherever it currently sits.
-- **Files:** `parser/oracle/normalize.py`, `game/effects.py`, `game/rules_engine.py`
+- **Files:** `parser/oracle/normalize.py`, `game/effects/core.py`, `game/rules_engine.py`
 - **Bug fixed:** `_move_to_graveyard` only fired `EventType.DIES` for creatures, so a dying Aura/enchantment/land was invisible to any dies-trigger — RULE 700.4 isn't creature-scoped at all.
 
 ### Trigger Subject Filtered on a Designation ("Goaded")
 
 - **What:** "Whenever a goaded creature attacks/dies" is neither a type, subtype nor controller, so `goaded`/`in_combat` are snapshotted onto the firing event at fire time (needed for DIES since the object is already gone by then, and because RULE 506.4 removes a permanent from combat as it leaves the battlefield anyway).
-- **Files:** `game/effect_binder.py`, `game/rules_engine.py`
+- **Files:** `game/binding/core.py`, `game/rules_engine.py`
 
 ### ENG-11: Granted Trigger Fails Closed Without Identity Key
 
@@ -1581,12 +1581,12 @@ is in the rules-engine categories below them.
 ### ENG-13: Per-Firing Dynamic Reference for Granted Abilities
 
 - **What:** `GameContext.trigger_event` (already used by an ordinary printed trigger's per-firing pronoun) is demonstrated on a *granted* ability's own resolution via two bespoke effect classes: `ExileTriggerDamagedCreatureEffect` (Kaldra Compleat's "exile that creature", reading the DAMAGE event's `target_id`) and `AttachTriggeringPermanentEffect` (Sigarda's Aid's "attach it to target creature", reading a group-subject trigger's own matched member).
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### Mill-trigger family (`EventType.MILL_CARD`)
 
 - **What:** A new per-nonland-card `MILL_CARD` event (alongside the existing aggregate `MILL`) lets "whenever a player/an opponent mills a nonland card" bind via the existing group-subject controller-scoping machinery — used for Glowing One, Infesting Radroach (a graveyard-zone trigger, RULE 112.6a), and The Wise Mothman.
-- **Files:** `models/events.py`, `game/rules_engine.py`, `game/effect_binder.py`
+- **Files:** `models/events.py`, `game/rules_engine.py`, `game/binding/core.py`
 - **Why:** Infesting Radroach's ability must keep functioning from the graveyard rather than the battlefield, so it's read fresh off every player's graveyard by a dedicated collector instead of the ordinary per-permanent battlefield scan.
 
 ### Trigger-condition vocabulary widened (RULE 603.1/500.7)
@@ -1598,28 +1598,28 @@ is in the rules-engine categories below them.
 ### Interactive surveil + "whenever you scry/surveil" trigger family
 
 - **What:** Scry and surveil unified onto one internal implementation differing only in destination (bottom of library vs. graveyard) while keeping separate `pending_choice` kinds/prompts; a new player-subject trigger-condition table (`_PLAYER_TRIGGER_CONDITIONS`, `{"subject": "you"}`) recognizes "whenever you scry/surveil/scry or surveil" for the first time, since these events carry a `player_id` rather than an `instance_id`.
-- **Files:** `game/rules_engine.py`, `parser/oracle/segmenter.py`, `game/effect_binder.py`
+- **Files:** `game/rules_engine.py`, `parser/oracle/segmenter.py`, `game/binding/core.py`
 - **Why:** Deliberately not routed through `mill` — surveil and mill are distinct RULE 701.31b/701.13 keyword actions. The "for the first time each turn" limiter is deliberately left unmatched (fails closed) since the engine can't express a once-per-turn cap yet — filed as PAR-14, gating 182 cache-wide cards.
 
 ### `GameContext.trigger_event` — per-firing event exposure
 
 - **What:** Exposes the event that fired a trigger for exactly one resolution window (threaded through `StackItem.trigger_event` across every pause/resume path), letting an effect depend on which firing without every `apply()` growing a parameter. Reused by six cards across waves 2-4.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Recipient-side damage trigger ("is dealt damage") — Enrage family
 
 - **What:** The mirror image of the existing "deals damage" trigger family — `segmenter._DAMAGE_RECIPIENT_TRIGGER_RE` recognizes "whenever ~/a `<type>`/enchanted-or-equipped `<type>` is dealt [combat] damage," switching the binder from the `DAMAGE` event's source fields to its (newly added) `target_id`/`target_controller_id` fields. General RULE 603.1 recognition, not gated to the "Enrage —" ability-word label, so it benefits far more cards than the ~25 that print Enrage.
-- **Files:** `parser/oracle/segmenter.py`, `game/effect_binder.py`, `game/rules_engine.py`
+- **Files:** `parser/oracle/segmenter.py`, `game/binding/core.py`, `game/rules_engine.py`
 
 ### "It" pronoun disambiguation in recipient-subject effects
 
 - **Bug fixed:** the existing "put a +1/+1 counter on it" handler always meant the ability's own source, which broke for the first time on a group-subject recipient trigger (Rite of Passage: "it" means the damaged creature, not the Enchantment itself). Fixed by adding `AddCountersEffect.trigger_subject_key` (resolves "it" from `GameContext.trigger_event`) and having the segmenter fail closed for any other effect shape lacking an unambiguous real `target_kind`/`selector`.
-- **Files:** `game/effects.py`, `parser/oracle/segmenter.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/segmenter.py`
 
 ### "Return this card from your graveyard to your hand" + graveyard-sourced triggers (PAR-16)
 
 - **What:** The hand-destination sibling of PAR-10's battlefield-return effect (`ReturnSelfFromGraveyardToHandEffect`), plus a genuinely new engine primitive for the triggered variant (Aurora Eidolon/Chandra's Phoenix-shaped "whenever `<event>`, return this card from your graveyard to your hand"): `TriggeredAbility.functions_from_graveyard`, inferred straight from the effect list the same way `ActivationCost.graveyard_zone` is, plus a new `_collect_graveyard_function_triggers` scan (`_collect_triggers` is battlefield-only). 70 SOLO cache blockers, not the ticket's estimated 20.
-- **Files:** `game/effects.py`, `game/effect_binder.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/binding/core.py`, `game/rules_engine.py`
 
 ### Triggered ability's own "if it was kicked" gate (PAR-17)
 
@@ -1630,7 +1630,7 @@ is in the rules-engine categories below them.
 ### RULE 603.2 once-per-turn trigger limiter, oracle wiring (PAR-14)
 
 - **What:** `TriggeredAbility.once_per_turn` already existed (built for a granted ability) but no printed-card oracle-text path ever set it. Added a trailing-sentence marker ("This ability triggers only once each turn.") and an inline "…for the first time each turn" suffix, both folding into `AbilitySpec.trigger["limit"]` at one shared choke point so every trigger-subject family gets it for free.
-- **Files:** `parser/oracle/segmenter.py`, `game/effect_binder.py`
+- **Files:** `parser/oracle/segmenter.py`, `game/binding/core.py`
 
 ### "Whenever you cast a/an `<type>` spell" trigger (PAR-12)
 
@@ -1640,7 +1640,7 @@ is in the rules-engine categories below them.
 ### Heroic — "Whenever you cast a spell that targets ~" (PARSER_VERSION 242)
 
 - **What:** RULE 702.34a's un-keyworded **Heroic** template — the whole Theros + Guilds of Ravnica + LOTR Heroic cycle (Akroan Skyguard / Battlewise Hoplite / Hero of Iroas / Wingsteed Rider / Fabled Hero / Phalanx Leader / Satyr Hoplite / Tenth District Legionnaire / Tormented Hero / …). The "Heroic —" ability-word label is already stripped by `normalize`'s Scryfall-keyword-driven label strip; the body — a `SPELL_CAST` trigger gated on the spell targeting *this* creature — was the gap. `segmenter._CAST_SPELL_TARGETS_SOURCE_TRIGGER_RE` → a triggered `AbilitySpec` with `trigger={"event": "SPELL_CAST", "condition": <you-cast>, "requires_spell_targets_source": True}`, body parsed `self_subject`. `casting_mixin` now also stamps `target_instance_ids` (a frozenset of the spell's chosen object targets) onto the SPELL_CAST event, alongside the pre-existing `targets_a_permanent` bool; `effect_binder._trigger_condition` adds a `requires_spell_targets_source` predicate checking the bound ability's own object id is in it. **+37, 0 regressed** — overall coverage crossed **40.0%**. `tests/test_heroic_cast_targets_source.py`.
-- **Files:** `parser/oracle/segmenter.py` (`_CAST_SPELL_TARGETS_SOURCE_TRIGGER_RE` + dispatch), `game/rules/casting_mixin.py` (`_target_instance_ids`, both SPELL_CAST event sites), `game/effect_binder.py` (`requires_spell_targets_source` predicate), `parser/oracle/gate.py` (PARSER_VERSION 242).
+- **Files:** `parser/oracle/segmenter.py` (`_CAST_SPELL_TARGETS_SOURCE_TRIGGER_RE` + dispatch), `game/rules/casting_mixin.py` (`_target_instance_ids`, both SPELL_CAST event sites), `game/binding/core.py` (`requires_spell_targets_source` predicate), `parser/oracle/gate.py` (PARSER_VERSION 242).
 
 ### "Whenever ~ or another creature dies" self_or_group trigger (PAR-12)
 
@@ -1650,7 +1650,7 @@ is in the rules-engine categories below them.
 ### "Whenever you gain life, `<effect>`" trigger wiring (PAR-12, RULE 119.3)
 
 - **What:** Ajani's Pridemate/Archangel of Thune-shaped. `EventType.LIFE_GAINED` (the post-replacement trigger source, distinct from the earlier replaceable `LIFE_GAIN` pre-event) already existed — only the oracle-text row and its group-controller event key were missing.
-- **Files:** `parser/oracle/segmenter.py`, `game/effect_binder.py`
+- **Files:** `parser/oracle/segmenter.py`, `game/binding/core.py`
 
 ### "Whenever ~ attacks, it gets +N/+N…" self-subject trigger (PAR-12)
 
@@ -1660,7 +1660,7 @@ is in the rules-engine categories below them.
 ### "Whenever you gain life, `<effect>`" dynamic-amount family (Hobbits batch)
 
 - **What:** "that much"/"that many" reading `LIFE_GAINED`'s own amount off the firing trigger event: `LoseLifeEffect`/`AddCountersEffect`/`PumpEffect.amount_from_trigger_event`, the same idiom already used elsewhere for a mana-producing card.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 - **Bug fixed:** A first cut's bare-pronoun branch would have silently misread "it" as the trigger's own source under a group-subject trigger (where "it" means whichever creature dealt the damage) — gated with a new `EffectHandler.self_subject_only` flag.
 
 ### `LIFE_GAINED` as a granted player-subject trigger event (Hobbits batch)
@@ -1671,17 +1671,17 @@ is in the rules-engine categories below them.
 ### "Whenever you sacrifice a Food/Clue/Treasure" (Hobbits batch)
 
 - **What:** `EventType.SACRIFICE` gained a `subtypes` payload (mirroring `DIES`'s existing split from main types), plus a new `sacrifice_type` trigger-condition predicate. Also new: `ConditionalEffect`'s `controls_none_of_type` key for "If you don't control a Food/Clue/Treasure, `<effect>`" (Butterbur, Bree Innkeeper).
-- **Files:** `models/game_state.py`, `game/effect_binder.py`, `game/effects.py`
+- **Files:** `models/game_state.py`, `game/binding/core.py`, `game/effects/core.py`
 
 ### Conditional granted-trigger effects + `ring_tempted_at_most` (Frodo Sauron's Bane)
 
 - **What:** A granted triggered ability's own effect list had no way to condition an entry ("…loses the game if tempted 4+ times. Otherwise, the Ring tempts you."). `continuous._build_grant_effect` now wraps a `grant_effects` entry in `ConditionalEffect` when it carries an optional `condition` key; new `ring_tempted_at_most` (the upper-bound mirror of `ring_tempted_at_least`) lets two complementary-bound conditionals stand in for an if/else with no dedicated "otherwise" field.
-- **Files:** `game/continuous.py`, `game/effects.py`
+- **Files:** `game/continuous.py`, `game/effects/core.py`
 
 ### Card-type-excluding and creature-subtype spell-cast triggers
 
 - **What:** "Whenever you cast a **non**creature spell" (new `spell_exclude_card_types` predicate, tried before the positive row) and "Whenever you cast an **Elf** spell" (the pre-existing `spell_subtype_any` engine predicate, reached from a curated ~30-word creature-type whitelist rather than any bare word, to avoid both false positives and silent misses).
-- **Files:** `parser/oracle/segmenter.py`, `game/effect_binder.py`
+- **Files:** `parser/oracle/segmenter.py`, `game/binding/core.py`
 - **Bug fixed:** Neither the positive nor negative cast-spell-trigger row ever called `_peel_optional` on its body, so "…you may `<effect>`" continuations had silently failed to parse since those rows were first built.
 
 ### COUNTER/CREATE_TOKENS events never fired (Eliferate finish)
@@ -1702,27 +1702,27 @@ is in the rules-engine categories below them.
 ### Imodane, the Pyrohammer's own trigger
 
 - **What:** "Whenever an instant/sorcery you control that targets only a single creature deals damage to that creature, Imodane deals that much damage to each opponent." New `DealDamageEffect.amount_from_trigger_event` (reading the firing DAMAGE event's own amount, unlike every prior damage-mirroring effect which reads a count selector or flat override) plus two new DAMAGE-event flags computed where both the source's card type and the resolving effect's own target-spec shape are known (`single_target_hint` on `deal_damage`).
-- **Files:** `game/rules_engine.py`, `game/effects.py`, `game/effect_binder.py`
+- **Files:** `game/rules_engine.py`, `game/effects/core.py`, `game/binding/core.py`
 
 ### `TaxedDrawEffect` — RULE 118.3 "unless" applied to a draw
 
 - **What:** Rhystic Study/Mystic Remora/Esper Sentinel's "whenever an opponent casts a spell, you may draw a card unless that player pays `<cost>`." The one real difference from sibling "unless" effects: the payer is the *triggering spell's own caster*, read off the firing event, not this ability's controller. `amount_from_source_power` (Esper Sentinel) reads the cost off the source's live power at resolution.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Smothering Tithe: DRAW group-subject trigger + pay-or-create-Treasure (Triggered Abilities & Trigger Ordering)
 
 - **What:** `effect_binder._GROUP_CONTROLLER_EVENT_KEYS` gained a `"DRAW": "player_id"` row so "whenever an opponent draws a card" group-subject scoping works; `PayCostThenEffect`'s `payer="event_player"` reads the *drawing* player off the firing DRAW event, with `else_effects` creating a Treasure under Smothering Tithe's own controller.
-- **Files:** `game/effect_binder.py`, `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/binding/core.py`, `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### Untyped player-subject cast trigger + mana-value filter (Triggered Abilities & Trigger Ordering)
 
 - **What:** New `_CAST_SPELL_TRIGGER_PLAIN_RE` recognizes "whenever you/an opponent/a player casts a spell" (the previous regex required a typed variant); `_CAST_SPELL_TRIGGER_MV_RE` adds a "with mana value N or less" filter via a new `spell_mana_value_at_most` predicate reading `SPELL_CAST`'s already-stamped `mana_value` field.
-- **Files:** `parser/oracle/segmenter.py`, `game/effect_binder.py`
+- **Files:** `parser/oracle/segmenter.py`, `game/binding/core.py`
 
 ### `DealDamageEffect` "event_player" selector (Triggered Abilities & Trigger Ordering)
 
 - **What:** New `"event_player"` selector — "~ deals N damage to **that player**", the player named by the firing trigger's own event — reused by a new `"that player"` entry in `_DAMAGE_SELECTOR_WORDS`.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 
 ### "Sacrifice it. When you do, `<effect>`." collapsed to a plain sequence (Triggered Abilities & Trigger Ordering)
 
@@ -1732,17 +1732,17 @@ is in the rules-engine categories below them.
 ### Mass edicts + "Whenever you/an opponent draws a card" trigger family (Triggered Abilities & Trigger Ordering)
 
 - **What:** "Each player/opponent sacrifices `<n>` `<type>` of their choice" (`_sacrifice_edict`, new `"nontoken_creature"` word on `_matches_permanent_type`); a new `_DRAW_TRIGGER_PLAIN_RE` closes the Sheoldred/Underworld Dreams/Consecrated Sphinx family (the `effect_binder` group scoping over `DRAW` was already proven), paired with a new `"event_player"` `lose_life` selector for "they lose 2 life." +34 cards on the trigger family alone.
-- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects.py`
+- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects/core.py`
 
 ### Kiki-Jiki / Puppeteer Clique: haste-copy-with-end-step-cleanup primitive (Triggered Abilities & Trigger Ordering)
 
 - **What:** "Create/reanimate a permanent with haste, [sacrifice/exile] it at the beginning of the next end step." `CopyPermanentEffect`/`ReturnFromGraveyardEffect` gained a `haste` param and now populate `GameContext.created_objects`; `create_delayed_trigger` gained `capture="created_objects"`, mutating a freshly-registered delayed effect's target directly (RULE 603.7).
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### Mikaeus, the Unhallowed: negated-subtype anthem + damage-sourced destroy trigger (Triggered Abilities & Trigger Ordering)
 
 - **What:** New `group_selector_objects` branch `"other_nonhuman_creatures_you_control"` for the anthem; a new `effect_binder` condition `recipient_is_you` (RULE recipient-scoping had only ever matched a *permanent* recipient, never "to you" — `deal_damage` stamps `target_controller_id=None` for a player target) plus `DestroyEffect.target_from_trigger_event="source_id"` destroys the Human that actually fired a group-subject trigger.
-- **Files:** `game/effect_binder.py`, `game/effects.py`, `game/continuous.py`, `game/ability_catalogue.py`
+- **Files:** `game/binding/core.py`, `game/effects/core.py`, `game/continuous.py`, `game/ability_catalogue.py`
 
 ### Danny Pink: per-creature "first time each turn" COUNTER-event watch (Triggered Abilities & Trigger Ordering)
 
@@ -1753,7 +1753,7 @@ is in the rules-engine categories below them.
 ### Arcane Denial: controller-redirected delayed draw (Triggered Abilities & Trigger Ordering)
 
 - **What:** `create_delayed_trigger`'s new `capture="target_controller"` reads the *countered spell's* controller off the resolving target and mutates the constructed inner `draw` effect's `.player` directly — the delayed draw belongs to them, not this ability's caster.
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### Black Market Connections: standing "choose one or more" main-phase trigger (Triggered Abilities & Trigger Ordering)
 
@@ -1763,32 +1763,32 @@ is in the rules-engine categories below them.
 ### Bug: `SacrificeEffect`'s multi-player selector overwrote pending choices (Triggered Abilities & Trigger Ordering)
 
 - **What:** `each_player`/`each_opponent` looped every matching player synchronously in one `apply()`, so a second player's real interactive pick silently overwrote the first's unanswered `pending_choice` — one player's sacrifice was skipped forever. Fixed by sequencing through `GameState.deferred_effects` (RULE 608.2), one level down from the sibling-effect sequencing that idiom already covered.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Bug: `COUNTER` missing from "which event field names the firing object" tables (Triggered Abilities & Trigger Ordering)
 
 - **What:** Both `effect_binder._SUBJECT_EVENT_KEYS` and `continuous._GRANTED_EVENT_KEYS` defaulted to `instance_id` for `COUNTER`, but `RulesEngine.add_counters`'s own event names its subject `target_id` — no prior card had a self-subject or granted `COUNTER` trigger, so it was silently unreachable until Danny Pink's grant fired for no creature at all.
-- **Files:** `game/effect_binder.py`, `game/continuous.py`
+- **Files:** `game/binding/core.py`, `game/continuous.py`
 
 ### Cast-spell trigger subject widened to you/opponent/player + `trigger_copy_spell` (Triggered Abilities & Trigger Ordering)
 
 - **What:** `_CAST_SPELL_TRIGGER_RE`/`_CAST_SPELL_TRIGGER_NEG_RE` widened from "you"-only to all three subjects via a shared `_cast_spell_trigger_condition` helper (+51 cards). Bonus Round's own trigger body ("that player copies it…") is a new `trigger_copy_spell` handler; `CopySpellEffect` gained `spell_from_trigger_event`/`controller_from_trigger_event` params resolving off the firing `SPELL_CAST` event rather than a RULE 115 target.
-- **Files:** `parser/oracle/segmenter.py`, `game/effects.py`
+- **Files:** `parser/oracle/segmenter.py`, `game/effects/core.py`
 
 ### Mistrise Village: spell-watcher payload for "can't be countered" (Triggered Abilities & Trigger Ordering)
 
 - **What:** Reuses `arm_spell_watcher` (built for Dual Strike's "copy it") with a new payload, `MarkCantBeCounteredEffect`, appending a `CantBeCounteredEffect` marker onto the next-cast spell's own `spell_effects` at the moment the watcher fires.
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### Vexing Bauble: counter-if-free-cast trigger (Triggered Abilities & Trigger Ordering)
 
 - **What:** New `effect_binder` predicate `spell_no_mana_spent` (reads `SPELL_CAST`'s `mana_spent` field, already zero for a free/alt-cost cast); `CounterSpellEffect` gained `target_from_trigger_event`.
-- **Files:** `game/effect_binder.py`, `game/effects.py`
+- **Files:** `game/binding/core.py`, `game/effects/core.py`
 
 ### Chain of Vapor: controller-redirected pay-or-not (Triggered Abilities & Trigger Ordering)
 
 - **What:** `PayCostThenEffect` gained a `payer="previous_target_controller"` mode reading `GameContext.previous_targets` — the bounced permanent's controller, not the caster, is asked whether to sacrifice a land. `CopySpellEffect.copy_self` was built for the card's own "copy this spell" tail but confirmed not to work for it (the original spell has already left the stack by the time the pending choice resolves) and was deliberately left unused for this card rather than shipped as a wrong approximation.
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### MEC-18: RULE 118.3 optional-antecedent family generalized (Triggered Abilities & Trigger Ordering)
 
@@ -1799,26 +1799,26 @@ is in the rules-engine categories below them.
 ### Intervening-If: First Combat Phase of the Turn (RULE 603.4)
 
 - **What:** New `GameState.combats_this_turn` counter (incremented per `begin_combat`, reset each turn) backs a new `ConditionalEffect` key `is_first_combat_phase`, closing the extra-combat-granting trigger family (Karlach, Fury of Avernus/Finest Hour/Genji Glove/Raiyuu) that must not re-trigger itself in the extra phase it just created.
-- **Files:** `models/game_state.py`, `game/effects.py`, `parser/oracle/segmenter.py`.
+- **Files:** `models/game_state.py`, `game/effects/core.py`, `parser/oracle/segmenter.py`.
 
 ### Attached-Permanent "It" Retargeting for Self-Acting Effects (ENG-29)
 
 - **What:** For a `{"subject": "attached_permanent"}` trigger ("whenever equipped/enchanted creature `<verb>`, it `<effect>`"), `effect_binder._retarget_attached_permanent_effects` rewrites a bare "it" effect's `target_kind` from `None` (self) to `"attached_permanent"` at bind time, for the five effect types that already understand that sentinel (`TapEffect`/`PumpEffect`/`CopyPermanentEffect`/`FightEffect`/`DamageEqualToPowerEffect`).
-- **Files:** `game/effect_binder.py`.
+- **Files:** `game/binding/core.py`.
 - **Why:** The clause always parsed correctly; only its bound meaning was wrong — `target_kind=None` always means "the ability's own source," so "untap it" was untapping the Equipment itself instead of the creature it was attached to.
 - **Bug fixed:** Genji Glove and equivalent cards untapped the wrong permanent (the Equipment/Aura itself, not the host creature).
 
 ### Group-Subject Retarget (`trigger_subject`) (MEC-28)
 
 - **What:** `TapEffect` gained a `"trigger_subject"` `target_kind` mode reading `GameContext.trigger_event` live at resolution; `effect_binder._retarget_implicit_subject_effects` grew a second branch so a `{"subject": "group"}` trigger ("whenever a creature you control attacks alone, untap it.") retargets a self-acting effect onto the actual firing object instead of the ability's source.
-- **Files:** `game/effects.py`, `game/effect_binder.py`.
+- **Files:** `game/effects/core.py`, `game/binding/core.py`.
 
 ### MEC-49: Per-turn damage-source attribution (PARSER_VERSION 219)
 
 - **What:** "Whenever a creature **dealt damage by ~ this turn** dies, `<effect>`." (Baron Sengir, Abattoir Ghoul, Blood Cultist, Sengir Vampire / Sengir Bats / Vampiric Dragon / Garza Zol / Rot Wolf / Axelrod Gunnarson / Predator Ooze). A *history* question — the creature is gone from every zone by the time the DIES trigger checks — so it needs a recorded fact, not a live scan:
   - **`GameState.creatures_damaged_by_source_this_turn`** — `{damaged_obj_id: {source_id, …}}`, the per-source hit-*set* sibling of `combat_damage_to_players_this_turn` (which tracks the same shape for *players*, Hope of Ghirapur). Recorded by `RulesEngine.deal_damage` for **any** damage to a creature — combat or not, infect/wither included (RULE 702.90b/702.91a still *deal* damage, they only recolor its result) — so it sits after the whole damage-branch chain rather than in a type-specific one. Reset game-wide each `GameEngine.begin_turn`, like the other per-turn damage trackers.
   - **`effect_binder._build_group_ok`'s `damaged_by_source_this_turn` key** — a pure lookup keyed on this ability's own source `instance_id` (the same "read history keyed on my source" idiom `crewed_by_self` uses), checked against the DIES event's own subject id. `segmenter._DAMAGED_BY_SOURCE_SUBJECT_RE` (anchored on the exact "a creature dealt damage by ~ this turn dies" — tried before `_GROUP_SUBJECT_RE`, which would stop at "creature") → `{"subject": "group", "type": "creature", "controller": "any", "damaged_by_source_this_turn": True}`.
-- **Files:** `models/game_state.py` (the map), `game/rules/damage_death_mixin.py` (`deal_damage` records it), `game/engine/turn_loop_mixin.py` (`begin_turn` clears it), `game/effect_binder.py` (`_build_group_ok`), `parser/oracle/segmenter.py` (`_DAMAGED_BY_SOURCE_SUBJECT_RE` + its dispatch), `parser/oracle/gate.py` (v219).
+- **Files:** `models/game_state.py` (the map), `game/rules/damage_death_mixin.py` (`deal_damage` records it), `game/engine/turn_loop_mixin.py` (`begin_turn` clears it), `game/binding/core.py` (`_build_group_ok`), `parser/oracle/segmenter.py` (`_DAMAGED_BY_SOURCE_SUBJECT_RE` + its dispatch), `parser/oracle/gate.py` (v219).
 - **Yield:** +8, 0 regressed. Coverage 13,569 / 34,811 (39.0%); Commander-legal 12,987 / 31,830 (40.8%).
 - **Tests:** `tests/test_mec49_damaged_by_source.py` — the tracker (records a creature-damage source; ignores player damage; `begin_turn` clears it), parser (the condition-dict shape; real-card Blood Cultist), and execute (the trigger fires exactly once — for the creature *this* source damaged, not one damaged by something else).
 - **The replacement form (v220, +4).** "If a creature/permanent **dealt damage by ~ this turn** would die[ this turn], exile it/that `<x>` instead." (Kumano, Master Yamabushi / Kumano's Pupils / Frostwielder / Incendiary Oracle) — the RULE 616 static sibling of the trigger above, off the same map. `catalogue/replacements._DIE_TO_EXILE_RE`'s `subject` alternation grew "a (creature|permanent) dealt damage by ~ this turn" (and its tail loosened to "exile (it|that creature|that permanent) instead" + an optional "would die **this turn**") → `die_to_exile` `subject="damaged_by_source_this_turn"`; `_die_to_exile_replacement._applies` gained the matching branch (the dying object's id must be in `creatures_damaged_by_source_this_turn` keyed under this ability's source). New subject tested in `tests/test_replacement_clause_recognition.py` (recognition of both phrasings + an execute case: Kumano exiles the creature it burned, a creature it didn't touch dies normally).
@@ -1830,44 +1830,44 @@ is in the rules-engine categories below them.
 ### MEC-28: Group-Subject / Previous-Selector Trigger Flags
 
 - **What:** New `group_subject` flag threaded through `segmenter.parse_effect_body`/`handlers.match_clause` (closing "untap that creature" — Finest Hour) and new `GameContext.previous_selector` field maintained by `_apply_effects_partitioned` plus a `previous_selector` flag (closing "They gain first strike" — Karlach's untargeted mass-selector pronoun, since RULE 601.2c untargeted selectors never populate `previous_targets`).
-- **Files:** `parser/oracle/segmenter.py`, `parser/oracle/catalogue/handlers.py`, `game/effects.py`, `game/effect_binder.py`.
+- **Files:** `parser/oracle/segmenter.py`, `parser/oracle/catalogue/handlers.py`, `game/effects/core.py`, `game/binding/core.py`.
 
 ### Bare "Whenever You Attack" Trigger Condition
 
 - **What:** RULE 506.4's bare "whenever you attack" recognized via `_PLAYER_TRIGGER_CONDITIONS`'s new `"you attack"` row, reusing the already-firing `EventType.PLAYER_ATTACKED` event; needed `effect_binder._GROUP_CONTROLLER_EVENT_KEYS`'s `"attacking_player_id"` mapping (this event's subject key differs from other player-subject events' `player_id`). Deliberately left the qualified "with N creatures" forms (97+ cards) out of scope.
-- **Files:** `parser/oracle/segmenter.py`, `game/effect_binder.py`.
+- **Files:** `parser/oracle/segmenter.py`, `game/binding/core.py`.
 
 ### Aggregate "One or More Creatures Deal Combat Damage to a Player" Event (MEC-29)
 
 - **What:** New `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`, fired once per (contributing creatures' controller, player hit) pair per damage step — not once per qualifying creature — carrying `max_power`; a new `contributor_power_at_least` top-level trigger-condition key reads it (the aggregate event names no single acting object for a `"group"` condition's per-object filter to check).
-- **Files:** `game/engine/combat_mixin.py`, `game/effect_binder.py`.
+- **Files:** `game/engine/combat_mixin.py`, `game/binding/core.py`.
 - **Why:** Mirrors the existing `EventType.PLAYER_ATTACKED` shape (built for "a player attacks you with one or more creatures"), the same "one or more X `<verb>`" template applied to a different verb — plain per-creature DAMAGE firing would have double-counted a simultaneous two-attacker hit.
 
 ### Aggregate Combat-Damage Event Widened: Subtypes/Amount/Commander (MEC-12)
 
 - **What:** `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` gained `subtypes` (union of contributing creatures' real subtypes, re-derived honouring layer-4 overwrites), `contributor_is_commander`, and a real `amount` field distinct from the pre-existing `max_power` threshold. New trigger keys `contributor_subtype` (Malcolm) and `contributor_is_commander` (Kediss).
-- **Files:** `game/engine/combat_mixin.py`, `game/effect_binder.py`.
+- **Files:** `game/engine/combat_mixin.py`, `game/binding/core.py`.
 - **Bug fixed:** Kediss's damage amount was first wired to `max_power` (a threshold, not actual damage dealt) — wrong whenever more than one attacker contributed; fixed by adding the real `amount` field. Malcolm's tribal filter first read `GameObject.type_words` (main types only, never matches a real subtype like "pirate") instead of re-derived subtypes. Kediss's "commander you control" filter was first built as a `_build_group_ok` condition reading a per-object key this eventless-object aggregate event never carries (always failed closed); replaced with a top-level trigger key.
 
 ### Non-Mana-Ability Activation Trigger Event
 
 - **What:** `EventType.ACTIVATED_ABILITY` (RULE 602.2) fired by `GameEngine.activate_ability` — mana abilities never reach the stack (RULE 605.1a) so no filter is needed to exclude them. Closes the "whenever an opponent activates a non-mana ability" family (Harsh Mentor, Immolation Shaman, +8 more).
-- **Files:** `game/engine/activation_mixin.py`, `game/effect_binder.py`.
+- **Files:** `game/engine/activation_mixin.py`, `game/binding/core.py`.
 
 ### Land-Tap-for-Mana Punisher Family
 
 - **What:** New `"nonbasic"` supertype filter key on `_build_group_ok` plus `DealDamageEffect.selector`'s `event_player`/`event_controller`/`active_player` close the Manabarbs/Burning Earth/Price of Glory "taps a land for mana" family (9 cards) and Zo-Zu the Punisher's "that land's controller" shape.
-- **Files:** `game/effect_binder.py`, `game/effects.py`.
+- **Files:** `game/binding/core.py`, `game/effects/core.py`.
 
 ### "No Mana Spent" Counterspell Trigger Generalization
 
 - **What:** The "whenever a player casts a spell, if no mana was spent to cast it, `<effect>`." trigger generalized from Vexing Bauble's hardcoded row to a reusable general form, closing Roiling Vortex's second clause and any future card on the template.
-- **Files:** `game/effect_binder.py`, `parser/oracle/catalogue/handlers.py`.
+- **Files:** `game/binding/core.py`, `parser/oracle/catalogue/handlers.py`.
 
 ### Nth-Spell/Noncreature-Spell-Count Tracking
 
 - **What:** Fixed `RulesEngine.__init__`'s subscription order (`_track_spell_cast` now runs before `_collect_triggers`) so `spells_cast_this_turn` is current by the time a SPELL_CAST trigger checks it. Added `is_nth_spell_cast_this_turn`, `LoseLifeEffect.amount_from_spells_cast_this_turn`, `DealDamageEffect.amount_from_noncreature_spells_cast_this_turn`, and per-player `GameState.noncreature_spells_cast_this_turn` (resets for every player each turn, unlike the narrower `spells_cast_this_turn`).
-- **Files:** `game/rules_engine.py`, `models/game_state.py`, `game/effect_binder.py`, `game/effects.py`.
+- **Files:** `game/rules_engine.py`, `models/game_state.py`, `game/binding/core.py`, `game/effects/core.py`.
 - **Bug fixed:** Trigger-order bug meant `spells_cast_this_turn` was one cast stale when a SPELL_CAST trigger checked it.
 
 ## Continuous Effects & Layer System
@@ -1875,7 +1875,7 @@ is in the rules-engine categories below them.
 ### Layer-6 grant of a non-keyword ability (RULE 613.7f)
 
 - **What:** New `grant_mana_ability`/`grant_triggered_ability` `EffectSpec` types let a static grant something richer than a bare keyword slug (Tyvar Kell's "{T}: Add {B}.", Dionus's granted triggered ability). Each grantee gets its own stable, cache-rebuilt instance (`GameState._granted_ability_cache`) so per-instance state like `once_per_turn` tracking survives across recompute passes, scoped per-object so tapping one Elf doesn't fire every other Elf's copy.
-- **Files:** `game/effect_binder.py`, `game/continuous.py`, `models/game_state.py`, `game/ability_catalogue.py`
+- **Files:** `game/binding/core.py`, `game/continuous.py`, `models/game_state.py`, `game/ability_catalogue.py`
 - **Why:** Needed a genuine `TAPPED` event (RULE 701.21b, only on a real untapped→tapped transition) as a new primitive to scope the granted trigger correctly.
 
 ### Become a copy of target permanent/creature (RULE 706/707)
@@ -1886,14 +1886,14 @@ is in the rules-engine categories below them.
 ### Board-wide ability strip (layer 6, RULE 613.7f)
 
 - **What:** A `remove_all_abilities` static sets `GameObject.loses_all_abilities`, stripping every keyword and gating both triggered and activated abilities — Humility (paired with a layer-7b base P/T set).
-- **Files:** `game/continuous.py`, `game/effects.py`
+- **Files:** `game/continuous.py`, `game/effects/core.py`
 
 ### MEC-47: Licid — a creature that turns itself into an Aura (first pass, hand-authored)
 
 - **What:** the Tempest Licid cycle's shared ability — "{cost}, {T}: This creature loses this ability and becomes an Aura enchantment with enchant creature. Attach it to target creature. You may pay {cost} to end this effect." — plus each Licid's own "Enchanted creature has `<keyword>`." clause. Shipped for **Gliding / Enraging / Quickening / Corrupting Licid** (flying / haste / first strike / fear); the rest are one `_licid(...)` catalogue entry each (`entries_016.py`), remaining as **MEC-47**.
 - **How:** no full RULE 613 layer-4 machinery of its own — it composes existing pieces. `LicidBecomeAuraEffect` (`licid_become_aura`, a `TargetSpec(kind="creature")` effect): sets `GameObject.attached_to` to the chosen creature, sets the new `GameObject.is_licid_aura` flag, writes `parametric_keywords["enchant"] = {"quality": "creature"}` (the field every `_attachment_kind`/`_attachment_legal` reader — and the RULE 704.5n SBA that would otherwise detach a restriction-less "Aura" — reads live, same as `BecomeAuraEffect`), and parks **one** `for_as_long_as` floating `type_change` static (`add_types=["enchantment"]`, `add_subtypes=["aura"]`, `remove_types=["creature"]`, `affects="objects"` on its own id) whose `duration_data.condition` is `{"kind": "is_licid_aura"}` — so `game/durations.is_expired` sweeps it the instant the flag clears, no bespoke un-park. `LicidRevertEffect` (`licid_revert`) just clears the flag + `attached_to` + the `enchant` key. Both activated abilities carry an `activation_condition_marker` (`ACTIVATION_CONDITION_MARKER`, folded into `ActivationCost.activation_condition` by `effect_binder`): the transform is gated `not_licid_aura`, the "pay to end" `is_licid_aura`, so exactly one is ever offered — the RULE 604.3 "loses this ability" is modeled as "the ability is un-activatable while transformed" rather than literally removed. The "Enchanted creature has flying" clause is an ordinary `grant_keyword` `affects="attached_permanent"` static bound off the card text — inert while `attached_to` is `None`, live the moment it's set (`continuous._selector_objects`'s `attached_permanent` branch never checked Aura-ness).
 - **New:** `GameObject.is_licid_aura` (+ its `reset_as_new_object` clear, RULE 400.7 — a Licid that leaves comes back a plain creature); `static_conditions` `is_licid_aura` / `not_licid_aura`; `LicidBecomeAuraEffect` / `LicidRevertEffect` + registry.
-- **Files:** `models/game_object.py`, `game/static_conditions.py`, `game/effects.py`, `game/ability_catalogue/entries_016.py`.
+- **Files:** `models/game_object.py`, `game/static_conditions.py`, `game/effects/core.py`, `game/ability_catalogue/entries_016.py`.
 - **Yield:** +4 (AUTHORED), no `PARSER_VERSION` bump. Coverage 13,586 / 34,811 (39.0%); Commander-legal 13,003 / 31,830 (40.9%).
 - **Tests:** `tests/test_mec47_licid.py` — registration (2 activated + 1 static per Licid, fresh objects); transform (becomes non-creature Enchantment, attaches, host gains flying); the ability gating flips (transform gone / revert present while an Aura); "pay to end" reverts fully and the parked static self-sweeps; `reset_as_new_object` clears the flag.
 - **Second pass (+5, same commit family).** Calming (`grant_keyword cant_attack`), Convulsing (`cant_block`), Tempting (`all_must_block`), Dominating (`control_change` — defaults `affects="attached_permanent"`), Transmogrifying (a two-static entry: `anthem` +1/+1 and `type_change` add `artifact`, both `affects="attached_permanent"`). All five reuse the exact `EffectSpec`s the parser already emits for the same clause on a real Aura card. **Gotcha fixed:** `_licid()` now builds every `activation_condition_marker` (and copies every granted spec) fresh per call — a shared module-constant `EffectSpec` is mutated by the binder and would corrupt the next Licid / every later `specs_for`. **9 of 13** Licids now AUTHORED (13,591 / 34,811, 39.0%; Commander-legal 13,008 / 31,830, 40.9%).
@@ -1905,13 +1905,13 @@ is in the rules-engine categories below them.
 ### Aura/Equipment attached-permanent grants: control magic and quoted abilities
 
 - **What:** "You control enchanted creature/permanent." (Control Magic-shaped) needed zero new code, just a parser row onto the existing `control_change` static. Quoted full-ability grants (`<subject> has "<ability text>"`, Sword-cycle-shaped) recursively parse the quoted body as an ordinary ability line and wrap it as `grant_triggered_ability` when it resolves to a plain self-subject trigger on ENTERS_BATTLEFIELD/DIES/ATTACKS/BLOCKS.
-- **Files:** `parser/oracle/catalogue/static_handlers.py`, `game/effects.py`
+- **Files:** `parser/oracle/catalogue/static_handlers.py`, `game/effects/core.py`
 - **Why:** Deliberately fails closed on a quoted activated-ability grant (needs a "grant an activated ability" primitive not yet built) and a quoted DAMAGE/phase-scoped grant (blocked by a separate pre-existing segmenter gap).
 
 ### RULE 613 Layer System — Full Layer Coverage & Ordering
 
 - **What:** `game/continuous.py` re-derives every battlefield permanent's characteristics across layers 2, 4, 5, 6, 7a-e each recompute, stamping derived P/T, added types, granted keywords and a per-object trace. `StaticAbility` bridges every layer via `anthem`/`pt_set`/`grant_keyword`/`type_change`/`cost_reduction`/`color_change`/`control_change`/`pt_cda`/`pt_switch`, plus `affects="attached_permanent"` for Aura/Equipment. Adds timestamp ordering within a layer, layer 1 (copy) and layer 3 (text-change, scoped to word substitution), and bounded RULE 613.8 dependency ordering for layer 2's controller-scoped effects.
-- **Files:** `game/continuous.py`, `game/effects.py`
+- **Files:** `game/continuous.py`, `game/effects/core.py`
 - **Why:** Layer 3's text substitution deliberately isn't a full oracle re-parse — bound abilities/keywords stay fixed at bind time — since no real card needed more than protection-quality word substitution at ship time.
 
 ### Attached-Permanent Static Parsing
@@ -1922,21 +1922,21 @@ is in the rules-engine categories below them.
 ### Layer-6 Grant of an Activated Ability
 
 - **What:** "`<host>` has '`{cost}`: `<effect>`.'" (Umbral Mantle/Squirrel Nest-shaped) — the activated sibling of the existing triggered/mana/keyword layer-6 grants. `GameObject.granted_activated_abilities` is built and cached per relationship each recompute; `can_activate`/`activate_ability`/`legal_actions` read it alongside printed activated abilities. Twice-deferred before shipping.
-- **Files:** `game/continuous.py`, `game/effects.py`, `game/game_engine.py`
+- **Files:** `game/continuous.py`, `game/effects/core.py`, `game/game_engine.py`
 - **Bug fixed:** `_ACTIVATED_RE` was quote-blind, so a quoted grant whose inner ability itself contained a cost-colon was misparsed; fixing it also revealed ~950 cards whose quoted grant is actually a mana ability had been silently swallowed as "claimed, no spec" by the old buggy regex — closed by a separate non-attached mana-ability grant handler.
 
 ### Layer-6 Grant of a Static Ability — MEC-55
 
 - **What:** "X have '`<static ability>`'" where the quoted body is itself a *static* — an anthem / lord (Inspiring Leader: "Commander creatures you own have 'Creature tokens you control get +2/+2.'"). The triggered/activated/mana/keyword layer-6 grants all existed; a `static` inner body was fail-closed because a nested static, re-derived per affected object, had no way into the layer system. New `GameObject._granted_static_abilities` (reset in `reset_derived`), populated in `_apply_layer_6_ability` from a `grant_static_ability` param — one `StaticAbility` built per affected object via `EffectRegistry.create`, **sourced on that object** so its own "you control" selector resolves against the granted-to permanent's controller, cached on `_granted_ability_cache` with an `(id(ability), instance_id, "static", i)` key. `_battlefield_static_abilities` yields these alongside printed/emblem/floating statics. `recompute` re-gathers `abilities` after the layer-6 pass (guarded on any object actually having a granted static, so the common case pays nothing) so a granted **anthem** settles in the *same* pass; a granted ability-layer static (a lord-of-lords) settles on the next recompute — always ≤1 SBA-loop lag, since recompute runs on every SBA pass and before every view. Parser: `static_handlers._quoted_ability_grant_effects_list` claims a `static` inner body, fail-closing a `self`/`attached_permanent` inner scope (meaningless once regranted).
-- **Files:** `models/game_object.py`, `game/continuous.py` (`_apply_layer_6_ability`, `_battlefield_static_abilities`, `recompute` re-gather), `game/effects.py` (`grant_static_ability` registry), `parser/oracle/catalogue/static_handlers.py`, `tests/test_mec55_granted_static_ability.py`
+- **Files:** `models/game_object.py`, `game/continuous.py` (`_apply_layer_6_ability`, `_battlefield_static_abilities`, `recompute` re-gather), `game/effects/core.py` (`grant_static_ability` registry), `parser/oracle/catalogue/static_handlers.py`, `tests/test_mec55_granted_static_ability.py`
 - **Yield:** +1 (Inspiring Leader) — the static-inner-body shape is rare, but the primitive unblocks PAR-32's static bodies and any future lord-of-lords. Two granted anthems from two commander creatures correctly stack (+2/+2 each).
 
 ### Granted Extra Entry Counter — MEC-56
 
-- **What:** "X have '`<static ability>`'" where the quoted body is itself a RULE 614.1-style entry-counter *replacement*, not a trigger — Master Chef: `Commander creatures you own have "This creature enters with an additional +1/+1 counter on it" and "Other creatures you control enter with an additional +1/+1 counter on them."`. New `"extra_etb_counter"` `StaticAbility` (`game/effects.py`), the `grant_escape`/`grant_retrace` out-of-band idiom — never routed through the layer 1-7 pass (nothing about the *granting* object's own characteristics changes) — consulted by a new `continuous.extra_etb_counters_for(state, obj)` from a new `RulesEngine._apply_granted_entry_counters(obj)`, called right alongside `_apply_entry_counters` at both its call sites (`_resolve_permanent_spell`, token creation's `_finish_entry`) so a granted extra counter lands at the exact same "already present before ENTERS_BATTLEFIELD fires" moment a printed one does. `self_only` (unset vs. set) distinguishes the two clauses: unset scopes to any other creature the granting source's controller controls, set scopes to the granting source itself.
+- **What:** "X have '`<static ability>`'" where the quoted body is itself a RULE 614.1-style entry-counter *replacement*, not a trigger — Master Chef: `Commander creatures you own have "This creature enters with an additional +1/+1 counter on it" and "Other creatures you control enter with an additional +1/+1 counter on them."`. New `"extra_etb_counter"` `StaticAbility` (`game/effects/core.py`), the `grant_escape`/`grant_retrace` out-of-band idiom — never routed through the layer 1-7 pass (nothing about the *granting* object's own characteristics changes) — consulted by a new `continuous.extra_etb_counters_for(state, obj)` from a new `RulesEngine._apply_granted_entry_counters(obj)`, called right alongside `_apply_entry_counters` at both its call sites (`_resolve_permanent_spell`, token creation's `_finish_entry`) so a granted extra counter lands at the exact same "already present before ENTERS_BATTLEFIELD fires" moment a printed one does. `self_only` (unset vs. set) distinguishes the two clauses: unset scopes to any other creature the granting source's controller controls, set scopes to the granting source itself.
   - The twin-quoted `"A" and "B"` grant body doesn't fit `static_handlers._quoted_ability_grant_effects_list`'s single-inner-body recursion (built for one quoted clause, not two joined by "and"), so Master Chef is hand-authored (`game/ability_catalogue/entries_016.py`) rather than widening that grammar for a shape no other card in the pool uses — two `grant_static_ability` `EffectSpec`s, one per clause.
   - The `self_only` clause inherits the same pre-existing granted-ETB-timing gap PAR-32's Candlekeep Sage entry already documents: a layer-6 grant onto an object is only computed *after* that object is already on the battlefield (`_apply_layer_6_ability` runs during a recompute pass, which only ever sees objects already in `state.battlefield`), so it structurally can't affect that same object's own entry within one atomic "enter" call. Modeled correctly anyway (matching the printed text, and correct for e.g. a *different* commander creature entering while this one is already on the battlefield) rather than left off, same call as Candlekeep Sage's ETB half. The "other creatures" clause has no such gap — the granting commander creature is already on the battlefield with its grant settled by the time anything else enters — and is the half that matters in practice.
-- **Files:** `game/effects.py` (`extra_etb_counter` registry), `game/continuous.py` (`extra_etb_counters_for`), `game/rules/casting_mixin.py` (`_apply_granted_entry_counters` + its call site), `game/rules/misc_mixin.py` (token-creation call site), `game/ability_catalogue/entries_016.py` (`_master_chef`), `tests/test_par32_master_chef.py`
+- **Files:** `game/effects/core.py` (`extra_etb_counter` registry), `game/continuous.py` (`extra_etb_counters_for`), `game/rules/casting_mixin.py` (`_apply_granted_entry_counters` + its call site), `game/rules/misc_mixin.py` (token-creation call site), `game/ability_catalogue/entries_016.py` (`_master_chef`), `tests/test_par32_master_chef.py`
 - **Yield:** +1 (Master Chef). Part of PAR-32.
 
 ### Granted Replacement Effect — MEC-57
@@ -1944,7 +1944,7 @@ is in the rules-engine categories below them.
 - **What:** "X have '`<static ability>`'" where the quoted body is itself a *replacement* effect (RULE 616), not a trigger/static/mana/activated ability — Scion of Halaster: `Commander creatures you own have "The first time you would draw a card each turn, instead look at the top two cards of your library. Put one of them into your graveyard and the other back on top of your library. Then draw a card."`. MEC-55/56's `grant_static_ability` `static_specs` plumbing generalizes: `continuous._apply_layer_6_ability` now tries `EffectRegistry` first (every existing nested-grant shape — anthem, grant_keyword, extra_etb_counter, …) and falls back to `ReplacementRegistry` when the spec's `type` only resolves there, then dispatches the built object by `isinstance(…, ReplacementEffect)` onto a new `GameObject._granted_replacement_effects` (the `_granted_static_abilities` sibling — same per-relationship `_granted_ability_cache` identity, same "re-derived every recompute" lifecycle) instead of `_granted_static_abilities`. `RulesEngine._all_replacement_effects` now also scans it on every permanent, alongside a permanent's own printed `replacement_effects`. This is a general mechanism — any future "X have '`<replacement clause>`'" card reuses it without new plumbing, not something specific to Scion of Halaster.
   - The new replacement itself, `first_draw_look_two` (`effects._first_draw_look_two_replacement`): gates on a new `GameState.first_draw_replaced_this_turn` tracker (a `set[player_id]`, cleared in `begin_turn` — deliberately distinct from the existing per-*draw-step* `Player`-level `first_in_draw_step` flag `_steal_non_first_draw_replacement`/Notion Thief already reads, since the printed text says "each turn", not "each draw step"). On its first qualifying `DRAW` event this turn: marks the tracker (before doing anything else, so its own compensating draw below is correctly *not* re-replaced), looks at the top two library cards, puts the second one into the graveyard (`Player.library`'s bottom-first ordering — `library[-1]` is top, `library[-2]` second), leaves the top card in place, then draws. *Which* of the two is binned is a real choice on the printed card; modeled non-interactively (always the second, keeping the top card) — the same "auto-chosen, no chooser in MVP" simplification `_discard_instead_of_non_first_draw_replacement` (Chains of Mephistopheles) already documents for an untargeted decision.
   - Hand-authored (`game/ability_catalogue/entries_016.py`) rather than a new parser grammar: the quoted body is a replacement, and `static_handlers._quoted_ability_grant_effects_list`'s recursion only ever emits triggered/activated/mana/keyword/static grant kinds, never a bare replacement clause — this is the only card in the pool that needs one.
-- **Files:** `game/effects.py` (`first_draw_look_two` factory + `ReplacementRegistry` entry), `game/continuous.py` (`_apply_layer_6_ability`'s registry fallback + dispatch), `models/game_object.py` (`_granted_replacement_effects`), `models/game_state.py` (`first_draw_replaced_this_turn`), `game/engine/turn_loop_mixin.py` (`begin_turn` clear), `game/rules_engine.py` (`_all_replacement_effects`), `game/ability_catalogue/entries_016.py` (`_scion_of_halaster`), `tests/test_par32_scion_of_halaster.py`
+- **Files:** `game/effects/core.py` (`first_draw_look_two` factory + `ReplacementRegistry` entry), `game/continuous.py` (`_apply_layer_6_ability`'s registry fallback + dispatch), `models/game_object.py` (`_granted_replacement_effects`), `models/game_state.py` (`first_draw_replaced_this_turn`), `game/engine/turn_loop_mixin.py` (`begin_turn` clear), `game/rules_engine.py` (`_all_replacement_effects`), `game/ability_catalogue/entries_016.py` (`_scion_of_halaster`), `tests/test_par32_scion_of_halaster.py`
 - **Yield:** +1 (Scion of Halaster). Part of PAR-32.
 
 ### Impulse-Draw Pump-From-Exiled-Mana-Value — MEC-58
@@ -1953,7 +1953,7 @@ is in the rules-engine categories below them.
   - `ImpulsiveDrawEffect.apply` now appends the card(s) it exiled to `GameContext.created_objects` — the same "read what a previous clause made available" idiom `LandOrFreeCastEffect`/`PumpEffect.previous_subject` already use for "the tokens"/"it" referents, just not one this effect had reached for before. Required `GameContext.exile_with_play_permission`'s return type to change (was `-> None`, silently discarding `RulesEngine.exile_with_play_permission`'s own return value) to actually hand the exiled objects back. Purely additive — no existing card reads `created_objects` after an impulsive draw, so this changes nothing for any of them.
   - `PumpEffect` gained `amount_from_created_object_mana_value` (reads `created_objects[-1].card.converted_mana_cost`), deliberately distinct from the existing `amount_from_trigger_event`/`amount_from_count_selector` (which set **both** `power` and `toughness` to the same magnitude): every printed instance of "gets +X/+0" is power-only, so this flag only ever sets `power`, leaving `toughness` at whatever was passed (0 by default).
   - Hand-authored (`game/ability_catalogue/entries_016.py`) rather than a new parser grammar: the cross-clause "that card" referent between a granted trigger's own effects is outside `static_handlers._quoted_ability_grant_effects_list`'s single-effect-per-clause recursion.
-- **Files:** `game/effects.py` (`ImpulsiveDrawEffect.apply`, `GameContext.exile_with_play_permission`, `PumpEffect.amount_from_created_object_mana_value`), `game/ability_catalogue/entries_016.py` (`_tavern_brawler`), `tests/test_par32_tavern_brawler.py`
+- **Files:** `game/effects/core.py` (`ImpulsiveDrawEffect.apply`, `GameContext.exile_with_play_permission`, `PumpEffect.amount_from_created_object_mana_value`), `game/ability_catalogue/entries_016.py` (`_tavern_brawler`), `tests/test_par32_tavern_brawler.py`
 - **Yield:** +1 (Tavern Brawler). Part of PAR-32.
 
 ### Becomes-Tapped Tribal Pump — MEC-59
@@ -1961,7 +1961,7 @@ is in the rules-engine categories below them.
 - **What:** "X have '`<static ability>`'" where the quoted body is a granted `TAPPED` trigger pumping a *dynamic* tribal group — Haunted One: `Commander creatures you own have "Whenever this creature becomes tapped, it and other creatures you control that share a creature type with it each get +2/+0 and gain undying until end of turn."`. RULE 603.2's "becomes tapped" (`EventType.TAPPED`) was already grantable-shaped — `continuous._granted_trigger_condition`'s default `instance_id` key (`_GRANTED_EVENT_KEYS`) already scopes it correctly per affected object, the same self-subject convention every other RULE 603.1 object-subject grant uses (no engine change needed for the trigger side at all). What was missing was the *group*: "it and other creatures you control that share a creature type with it" reads the granting object's own live subtypes, not a fixed list — `PumpEffect`'s existing `subtypes` filter (and every `selector` this file already had) only ever checks against subtypes baked in at parse time.
   - New `PumpEffect` selector `self_and_shared_creature_type_you_control`: self plus every other creature the same controller controls whose printed subtypes (`Card.type_line`, the same "after the em dash" reading `PumpEffect.subtypes`/`AddCountersEffect.subtypes` already use) overlap the source's own, computed fresh at resolve time — so a single grant re-scopes correctly per affected commander creature (a Zombie commander pumps Zombies, an Elf commander pumps Elves) without any card-specific code.
   - Hand-authored (`game/ability_catalogue/entries_016.py`): the "it **and** other creatures … that share a creature type with it" compound subject is outside `static_handlers._quoted_ability_grant_effects_list`'s recursion (built for a single RULE 603.1 subject, not a self-plus-dynamic-group one).
-- **Files:** `game/effects.py` (`PumpEffect.apply`'s new selector branch), `game/ability_catalogue/entries_016.py` (`_haunted_one`), `tests/test_par32_haunted_one.py`
+- **Files:** `game/effects/core.py` (`PumpEffect.apply`'s new selector branch), `game/ability_catalogue/entries_016.py` (`_haunted_one`), `tests/test_par32_haunted_one.py`
 - **Yield:** +1 (Haunted One). Part of PAR-32.
 
 ### Per-Turn-First Subtype Cost Reduction — MEC-60
@@ -1979,7 +1979,7 @@ is in the rules-engine categories below them.
   - New `continuous.dungeon_room_trigger_doubler_bonus(state, player_id)`: the same additive-stacking convention (`+1` per active doubler, two Dungeon Delvers make a room trigger three times not four), but reads a bare `dungeon_room_trigger_doubler` marker `StaticAbility` — the `grant_escape`/`grant_retrace`/`extra_etb_counter` out-of-band idiom (consulted directly by name, never routed through the layer 1-7 pass) — instead of scanning `static_effects` for a `TriggerDoublerEffect` instance.
   - `_collect_dungeon_room_triggers` applies it with the exact same "extra, independent copies" append `triggers_mixin`'s own general-doubler call site already uses (`for _ in range(copies): self.pending_triggers.append((ability, event))` — RULE 603.3b: each copy is separately orderable once 2+ end up pending together). The bottommost room's own ability has `CompleteDungeonEffect` folded into its effects list (an existing modeling choice, not new); doubling that ability doubles its call too, but the *second* call is a correct no-op (`RulesEngine.complete_dungeon` already returns immediately once `player.dungeon` is `None`, which the first call already set) — so RULE 309.6 completion (and its `DUNGEON_COMPLETED` event) still fires exactly once even though the room's actual reward doubles.
   - Hand-authored (`game/ability_catalogue/entries_016.py`): a doubler scoped to one specific *trigger family* rather than "any triggered ability of a permanent" is outside `static_handlers._quoted_ability_grant_effects_list`'s recursion, and this is the only printed card that needs the narrower phrasing.
-- **Files:** `game/effects.py` (`dungeon_room_trigger_doubler` registry entry), `game/continuous.py` (`dungeon_room_trigger_doubler_bonus`), `game/rules/misc_mixin.py` (`_collect_dungeon_room_triggers`'s doubling append), `game/ability_catalogue/entries_016.py` (`_dungeon_delver`), `tests/test_par32_dungeon_delver.py`
+- **Files:** `game/effects/core.py` (`dungeon_room_trigger_doubler` registry entry), `game/continuous.py` (`dungeon_room_trigger_doubler_bonus`), `game/rules/misc_mixin.py` (`_collect_dungeon_room_triggers`'s doubling append), `game/ability_catalogue/entries_016.py` (`_dungeon_delver`), `tests/test_par32_dungeon_delver.py`
 - **Yield:** +1 (Dungeon Delver). Part of PAR-32.
 
 ### Per-Player "May" Counters + Protection-From-a-Player — MEC-62
@@ -1988,7 +1988,7 @@ is in the rules-engine categories below them.
   - **The compound trigger.** "When ~ enters **and** at the beginning of your upkeep" is two *different* trigger families (RULE 603.1 object-subject vs. RULE 500.7 phase trigger) sharing one effect body — `static_handlers._quoted_ability_grant_effects_list`'s own compound-event handling (PAR-32 slice 1) only ever fans a *single* event kind out to several ("enters or leaves"), never two structurally different kinds. Hand-authored as two separate `grant_triggered_ability` `EffectSpec`s (one `ENTERS_BATTLEFIELD`, one `STEP_BEGIN`/upkeep/`phase_relation: "you"`) sharing the same `grant_effects` list — no engine change needed for this half, both trigger shapes already existed individually.
   - **The body.** New `EachPlayerMayCounterThenProtectionEffect`: this engine has no genuine per-player-**in-sequence** "may" chooser (offer player A a real optional decision, then B, then read back who accepted before the next clause acts on the results) — an MVP simplification assumes every living player who controls at least one creature accepts (pure upside for whoever's offered it, the same "auto-chosen, no chooser in MVP" call this codebase already makes for Chains of Mephistopheles' discard), landing the 2 counters on that player's own commander if they control one, else the first creature in board order. "For each opponent who does" then reads back who actually received counters and grants this effect's own controller one shield per such opponent.
   - **The shield itself.** `PlayerShieldEffect` (Teferi's Protection's existing player-scoped marker) gained `protected_from_player_id` — the single-player-scoped sibling of its existing `protection_from_everything`, read by a new `RulesEngine._player_protected_from_source_controller` alongside the pre-existing `_player_protected_from_everything` check in `deal_damage`'s player branch. Same damage-only scope Teferi's Protection's own marker already has (no "can't be targeted"/"can't be enchanted by that player's stuff" consultation site exists anywhere in this engine for *either* marker) — not a new gap, the same pre-existing one.
-- **Files:** `game/effects.py` (`EachPlayerMayCounterThenProtectionEffect`, `PlayerShieldEffect.protected_from_player_id`), `game/rules/damage_death_mixin.py` (`_player_protected_from_source_controller` + `deal_damage`'s check), `game/ability_catalogue/entries_016.py` (`_noble_heritage`), `tests/test_par32_noble_heritage.py`
+- **Files:** `game/effects/core.py` (`EachPlayerMayCounterThenProtectionEffect`, `PlayerShieldEffect.protected_from_player_id`), `game/rules/damage_death_mixin.py` (`_player_protected_from_source_controller` + `deal_damage`'s check), `game/ability_catalogue/entries_016.py` (`_noble_heritage`), `tests/test_par32_noble_heritage.py`
 - **Yield:** +1 (Noble Heritage). **Closes PAR-32** — the last of its 7 hand-authored mini-projects (MEC-55 through MEC-62), on top of the earlier oracle-parsed slices; the whole "commander creatures you own have '`<ability>`'" cluster is now fully closed.
 
 ### Per-Count Static Anthem Multiplier
@@ -2014,14 +2014,14 @@ is in the rules-engine categories below them.
 ### RULE 613.6 Static Condition Vocabulary
 
 - **What:** `game/static_conditions.py` is a single whitelisted `active_if` vocabulary (state, characteristics, whose turn it is, board counts, life/hand/cards-drawn) carried by any static and evaluated live every recompute, replacing four previously-separate ad hoc gate parameters (`active_player_only`/`min_level`/`min_count_selector`/`requires_monstrous`), which are now translated into it rather than kept as a parallel mechanism.
-- **Files:** `game/static_conditions.py`, `game/effects.py`
+- **Files:** `game/static_conditions.py`, `game/effects/core.py`
 - **Why:** "As long as" leads ~250 cache clauses across five+ unrelated families; the old one-parameter-per-card pattern would have meant a new whitelist entry for every future card.
 - **PAR-30 (PARSER_VERSION 156) — `subtype_in_graveyard`.** "As long as there's a `<subtype>` card in your graveyard" — the Avatar: TLA "Lesson" cards (Aang A Lot to Learn, First-Time Flyer, Platypus-Bear), and, since the subtype word is unrestricted, "land card" (Murasa Behemoth) and any other. A live type-line scan of the controller's graveyard (`+ subtype`, `+ min` default 1), the same convention `effects.ConditionalEffect`'s `graveyard_has_type` branch uses — added as a `STATIC_CONDITION_KINDS` row + a `_STATIC_CONDITION_RES` parser row (`"there(?:'s| is| are) an? <sub> card in your graveyard"`) + a German `_describe` string. Its **trigger intervening-if sibling** ("when ~ dies, **if there's a `<subtype>` card in your graveyard**, `<effect>`" — Walltop Sentries) reuses `ConditionalEffect`'s already-built `graveyard_has_type` `EffectSpec.condition` key, which until now had *no* parser recognizer (only the hand-authored Trystan used it); `segmenter._GRAVEYARD_HAS_SUBTYPE_CONDITION_RE` wires it, in the same "wrap the rest, tag the condition" family as `_CONTROLS_NONE_OF_TYPE_CONDITION_RE`. +6 (also Dawnhand Eulogist — "if there is an Elf card in your graveyard"), 0 regressed. Tests in `test_static_conditions_and_durations.py`. **Fire Nation Cadets** — "~ has firebending N as long as there's a lesson card in your graveyard" — its condition half landed here; its self parametric-keyword-grant half landed at v157 (see the Firebending grant-path entry), so the card is now fully MODELED.
 
 ### RULE 611 Duration System
 
 - **What:** `game/durations.py` plus `GameState.floating_statics` model any RULE 611 continuous effect duration the `temp_*` fields can't express ("until your next turn", "until end of combat", "for as long as `<condition>`") as an ordinary `StaticAbility` living on the state, swept at its named window. A `for_as_long_as` duration must *remove* the effect on condition failure, not merely skip it, or it's indistinguishable from an `active_if` gate. Unknown durations fail closed as `rest_of_game` (never swept) rather than silently deleting a legitimate effect. Also closed PAR-11's "doesn't untap for as long as it remains tapped" lock-down family purely by composing this with existing pronoun/no-untap primitives, and the board's "Statische Effekte" panel now shows each static's duration/condition bounds, dimming a currently-false gate rather than hiding it.
-- **Files:** `game/durations.py`, `models/game_state.py`, `game/effects.py`
+- **Files:** `game/durations.py`, `models/game_state.py`, `game/effects/core.py`
 
 ### Condition Subject (`of`: source/attached/affected)
 
@@ -2035,8 +2035,8 @@ is in the rules-engine categories below them.
 
 ### Counter-presence group scope + Odyssey Threshold phrasing (PAR-34, PARSER_VERSION 237)
 
-- **What:** Two static shapes. **(1)** "Each creature you control with a +1/+1 counter on it has `<keyword>`." — the Abzan "outlast" cycle (Abzan Falconer / Abzan Battle Priest / Ainok Bond-Kin / Duskshell Crawler / Tuskguard Captain / Longshot Squad). `static_handlers._GROUP_COUNTER_GRANT_RE` → `EffectSpec("grant_keyword", {"affects": "creatures_you_control", "keywords": […], "has_counter_kind": "+1/+1"})`. `continuous.affected_objects` already filtered a group scope by `has_counter_kind` (MEC-21, Agatha's Soul Cauldron), but it wasn't in `game/effects.py`'s `_SELECTOR_KEYS`, so `_selectors(p)` silently dropped it for every factory except `grant_borrowed_activated_ability` (which threaded it by hand). Added to `_SELECTOR_KEYS` — now uniform across `grant_keyword` / `anthem` / etc. **(2)** The Odyssey-block **Threshold** phrasing: `normalize._ABILITY_WORD_RE` gained `threshold` (strips the "Threshold —" label, RULE 207.2c), and `_STATIC_CONDITION_RES` gained a subject-verb "`N or more cards are in` your graveyard" variant of the existing existential "there are N or more cards in your graveyard" → `{"kind": "control_count", "selector": "cards_in_your_graveyard", "min": N}`. **+19** (18 counter-lords + Nimble Mongoose; the rest of the Threshold cluster is blocked on **quoted-ability** conditional bodies, filed under PAR-34). `tests/test_par34_counter_lord_and_threshold.py`.
-- **Files:** `parser/oracle/normalize.py` (`_ABILITY_WORD_RE`), `parser/oracle/catalogue/static_handlers.py` (`_GROUP_COUNTER_GRANT_RE`, `_STATIC_CONDITION_RES`), `game/effects.py` (`_SELECTOR_KEYS` += `has_counter_kind`), `parser/oracle/gate.py` (PARSER_VERSION 237).
+- **What:** Two static shapes. **(1)** "Each creature you control with a +1/+1 counter on it has `<keyword>`." — the Abzan "outlast" cycle (Abzan Falconer / Abzan Battle Priest / Ainok Bond-Kin / Duskshell Crawler / Tuskguard Captain / Longshot Squad). `static_handlers._GROUP_COUNTER_GRANT_RE` → `EffectSpec("grant_keyword", {"affects": "creatures_you_control", "keywords": […], "has_counter_kind": "+1/+1"})`. `continuous.affected_objects` already filtered a group scope by `has_counter_kind` (MEC-21, Agatha's Soul Cauldron), but it wasn't in `game/effects/core.py`'s `_SELECTOR_KEYS`, so `_selectors(p)` silently dropped it for every factory except `grant_borrowed_activated_ability` (which threaded it by hand). Added to `_SELECTOR_KEYS` — now uniform across `grant_keyword` / `anthem` / etc. **(2)** The Odyssey-block **Threshold** phrasing: `normalize._ABILITY_WORD_RE` gained `threshold` (strips the "Threshold —" label, RULE 207.2c), and `_STATIC_CONDITION_RES` gained a subject-verb "`N or more cards are in` your graveyard" variant of the existing existential "there are N or more cards in your graveyard" → `{"kind": "control_count", "selector": "cards_in_your_graveyard", "min": N}`. **+19** (18 counter-lords + Nimble Mongoose; the rest of the Threshold cluster is blocked on **quoted-ability** conditional bodies, filed under PAR-34). `tests/test_par34_counter_lord_and_threshold.py`.
+- **Files:** `parser/oracle/normalize.py` (`_ABILITY_WORD_RE`), `parser/oracle/catalogue/static_handlers.py` (`_GROUP_COUNTER_GRANT_RE`, `_STATIC_CONDITION_RES`), `game/effects/core.py` (`_SELECTOR_KEYS` += `has_counter_kind`), `parser/oracle/gate.py` (PARSER_VERSION 237).
 
 ### ENG-22: `continuous.py` `recompute()` Split into Per-Layer Functions
 
@@ -2074,7 +2074,7 @@ is in the rules-engine categories below them.
 ### "As ~ enters, choose a basic land type" (PAR-4, RULE 305.6)
 
 - **What:** A third `enter_choice_effects` sibling alongside creature-type/colour choice (`ChooseBasicLandTypeReplacement`), stamping the same `GameObject.chosen_type` field the creature-type family uses, so no continuous-effects change was needed — only a new `choose_basic_land_type` `pending_choice` kind wired through the existing enter-choice dispatch. Realmwright fully modeled on this alone.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/static_handlers.py`, `game/engine/casting_mixin.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/static_handlers.py`, `game/engine/casting_mixin.py`
 
 ### Non-creature group scopes for grant families (PAR-3)
 
@@ -2091,7 +2091,7 @@ is in the rules-engine categories below them.
 ### grant_until P/T-delta and combat-restriction durations (PAR-13)
 
 - **What:** `grant_until`'s new P/T-delta route (`_pump_until`, riding the general layer-7c anthem static) and its "can't attack/block until `<duration>`" sibling — resolve-time grants of a temporary pump or combat restriction (Fungi Cavern, Twisted Caverns dungeon rooms). Also widened group selectors with "creatures your opponents control"/"creatures you don't control".
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/static_handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/static_handlers.py`
 
 ### "Commander creatures you own have `<ability>`" grant (PAR-12)
 
@@ -2102,12 +2102,12 @@ is in the rules-engine categories below them.
 ### Dynamic-magnitude pump effects
 
 - **What:** `PumpEffect.amount_from_count_selector` ("+X/+X where X is the number of creatures you control", Craterhoof Behemoth) and `PumpEffect.per_recipient_controller_counter` ("-1/-1 for each poison counter its controller has", Phyresis Outbreak — the one shape where each recipient in a group scales independently by its own controller's count).
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Selector/filter reach widenings (Keywords Showcase batch)
 
 - **What:** `creatures_you_control_of_type_<X>` and `permanents_you_control` reached `group_selector_objects` for the first time so a one-shot `PumpEffect.selector` can target a filtered group, not just count it; `other_creatures_you_control` reached `TapEffect.selector`.
-- **Files:** `game/continuous.py`, `game/effects.py`
+- **Files:** `game/continuous.py`, `game/effects/core.py`
 - **Bug fixed:** The `TapEffect` selector branch never passed `src=self.source` to `group_selector_objects`, so "other" had been silently inert for any selector needing it.
 
 ### RULE 601.2b resolve-time interactive choices (choose type / choose player)
@@ -2118,7 +2118,7 @@ is in the rules-engine categories below them.
 ### `cast_prohibition`/`activation_prohibition` gated on "During your turn" (ENG-28)
 
 - **What:** `cast_prohibited` now consults `active_if` (RULE 613.6) like every other static; a general "During your turn, `<static clause>`." parser wrapper reuses the existing "as long as" recursive-rewrite plumbing, plus a new opponent-scoped "activated abilities of `<type>` can't be activated" row and a combined cast+activation-prohibition parser for compound sentences (Grand Abolisher, Myrel, Linvala, Keeper of Silence).
-- **Files:** `game/continuous.py`, `game/effects.py`, `parser/oracle/catalogue/static_handlers.py`
+- **Files:** `game/continuous.py`, `game/effects/core.py`, `parser/oracle/catalogue/static_handlers.py`
 - **Why:** Sizing first showed the ticket's own premise was half wrong — Linvala/Karn's lock clauses carry no turn gate at all; only Grand Abolisher/Myrel print the gated shape.
 - **Bug fixed:** `cast_prohibited` never read `active_if` at all, and the `cast_prohibition` `EffectRegistry` factory didn't even thread the param onto the `StaticAbility` — any `cast_prohibition` spec carrying `active_if` was silently dropped at bind time.
 
@@ -2157,17 +2157,17 @@ is in the rules-engine categories below them.
 ### Urza's Saga: lasting self-granted activated ability + self-scaling token anthem (Continuous Effects & Layer System)
 
 - **What:** `GrantSelfActivatedAbilityEffect` (RULE 714.2c) appends a real `grant_activated_ability`-shaped, permanent `StaticAbility` onto the Saga's own `static_effects` — outlives the one-shot chapter trigger that creates it, unlike the turn-scoped graveyard-cast-permission shape it otherwise mirrors. `CreateTokenEffect.grant_self_anthem` bakes a self-scaling "+1/+1 for each artifact you control" `StaticAbility` onto a freshly created token.
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### MEC-21: `grant_borrowed_activated_ability` (RULE 113.7c) (Continuous Effects & Layer System)
 
 - **What:** A new layer-6 static reading a live, board-derived set of granted abilities (rather than one fixed printed ability) — for each matching grantee and each still-exiled creature card in the source's `exiled_with_ids`, builds a fresh `ActivatedAbility` with every nested effect's `.source` redirected to the grantee via a new `_retarget_effect_source`. Cached separately from the ordinary layer-6 cache to avoid a pruning-loop collision. Closes Agatha's Soul Cauldron's ability-borrowing clause.
-- **Files:** `game/continuous.py`, `game/effects.py`, `models/game_state.py`
+- **Files:** `game/continuous.py`, `game/effects/core.py`, `models/game_state.py`
 
 ### MEC-26: group/chosen-permanent-scoped ability borrowing (Continuous Effects & Layer System)
 
 - **What:** `grant_borrowed_activated_ability` gained `source_mode="group"` (Drana and Linvala — reads a live `affects` selector off the battlefield every recompute, no exiling involved) and `source_mode="chosen_permanent"` (Scheming Fence — a single donor named once via a new `ChoosePermanentEffect`/`"choose_permanent"` ETB action stamping `GameObject.chosen_permanent_id`). Both also needed no new code for their "activated abilities of `<donor scope>` can't be activated" clause or their any-color wildcard, since existing selector vocabularies already covered both once a real card used them.
-- **Files:** `game/continuous.py`, `game/effects.py`, `game/rules_engine.py`, `models/game_object.py`
+- **Files:** `game/continuous.py`, `game/effects/core.py`, `game/rules_engine.py`, `models/game_object.py`
 - **Bug fixed:** `grant_borrowed_activated_ability` defaulted `has_counter_kind` to `"+1/+1"` for every caller, silently filtering Drana and Linvala's own no-counters grantee to an empty set; now `None` unless a caller explicitly opts in.
 
 ### Stasis Untap-Step Skip
@@ -2213,7 +2213,7 @@ is in the rules-engine categories below them.
   can equivalently submit `pay_attack_tax=False`, which preserves mana and
   rejects the attempted declaration. Accepted costs retain the existing
   floating-mana-then-auto-tap payment path.
-- **Files:** `parser/oracle/catalogue/static_handlers.py`, `game/effects.py`,
+- **Files:** `parser/oracle/catalogue/static_handlers.py`, `game/effects/core.py`,
   `game/continuous.py`, `game/engine/combat_mixin.py`,
   `game/engine/legal_actions_mixin.py`, `services/game_session.py`,
   `frontend/src/js/gameBoardView.js`, `tests/test_strixhaven_secrets_wave5.py`.
@@ -2223,7 +2223,7 @@ is in the rules-engine categories below them.
 ### Put onto the battlefield attacking (RULE 508.4) — PAR-30, v177
 
 - **What:** `RulesEngine.put_onto_battlefield_attacking(obj, defender=None)` — an already-on-the-battlefield creature is placed into the current combat *attacking* without being declared: no tap for the attack (RULE 508.4), summoning sickness is irrelevant (it never "attacked"), an `ATTACKS` event fires so "whenever ~ attacks" / battalion triggers still see it. RULE 508.4a's defender choice is auto-made — the defender the rest of the combat is attacking if that's unambiguous, else the controller's sole/first opponent. The shared primitive behind "create a … token that's tapped **and attacking**" (`CreateTokenEffect.attacking`, v177 — Captain's Claws, Hanweir Garrison, Hero of Bladehold, +10) and, when wired, "put a card … onto the battlefield tapped and attacking".
-- **Files:** `game/rules/misc_mixin.py`, `game/effects.py` (`CreateTokenEffect`), `parser/oracle/catalogue/handlers.py` (`_TOKEN_TAPPED_ATTACKING` suffix). `tests/test_par30_token_tapped_and_attacking.py`.
+- **Files:** `game/rules/misc_mixin.py`, `game/effects/core.py` (`CreateTokenEffect`), `parser/oracle/catalogue/handlers.py` (`_TOKEN_TAPPED_ATTACKING` suffix). `tests/test_par30_token_tapped_and_attacking.py`.
 - **v178 extended it to `PutFromHandOntoBattlefieldEffect`:** an `attacking` param routes through a new `"battlefield_attacking"` search destination in `_put_searched_card` (enters tapped, then `put_onto_battlefield_attacking`). Parser: `_put_from_hand` gained a creature-subtype filter, a colour filter ("blue or red creature card" → `{"color": […]}`) and the "…tapped and attacking" tail; derived qualities ("historic", "multicolored") fail closed. +7 — Preeminent Captain, Goblin Lackey, Warren Instigator, Mindwrack Liege, Didgeridoo, Dramatic Entrance, Firebrand Ranger. `tests/test_par30_put_from_hand_attacking_and_filters.py`.
 - **v179 finished the common shapes + a bycatch:** `CopyPermanentEffect` gained `tapped`/`attacking` (→ `put_onto_battlefield_attacking` per made token). Parser: `_CREATED_ENTERS_ATTACKING_RE` — "Create a token. The token[s] enter[s] tapped and attacking." stamps the preceding `create_token`/`copy_permanent`; `_LOOK_TOP_PUT_ATTACKING_RE` — "look at the top N … put a creature card … onto the battlefield tapped and attacking. Put the rest on the bottom …" → `impulsive_look` with `hit_destination="battlefield_attacking"`. Separately, `_DELAYED_SAC_EXILE_TAIL_RE` grew an **"at end of combat"** timing (→ `create_delayed_trigger` step `"end_combat"`) + "the token[s]" subject — a tail that rides far beyond this cluster (Crumbling Colossus, the Basilisk morph cycle, Ohran Viper). +18 — Geist of Saint Traft, Crumbling Colossus, Serpentine/Stone-Tongue/Lowland Basilisk, Ohran Viper, Fog Elemental, Geist/Invocation of Saint Traft, &c. `tests/test_par30_enters_attacking_and_delayed_combat_tail.py`.
 - **v185 — the trailing defender ref:** all four routes (`_PUT_FROM_HAND_RE`, `_LOOK_TOP_PUT_ATTACKING_RE`, `_TOKEN_TAPPED_ATTACKING`, `_CREATED_ENTERS_ATTACKING_RE`) now accept an optional "…tapped and attacking **that player / that opponent**". The named defender is the one the source is already attacking, which `put_onto_battlefield_attacking`'s RULE 508.4a auto-choice already derives from the other attackers, so the phrase is *consumed*, not re-modeled. Alongside it `segmenter._SELF_SUBJECT_RE` and the `PLAYER_ATTACKED` row accept "~ attacks a player / an opponent" and "you attack a player" — the defender kind refines nothing the bare event carries (RULE 508.1). +1 (Soaring Lightbringer — "whenever you attack a player, create a … token that's tapped and attacking that player"), 0 regressed. `tests/test_par30_attacking_that_player_defender_ref.py`.
@@ -2242,7 +2242,7 @@ is in the rules-engine categories below them.
 ### M2 combat-math keywords and hexproof
 
 - **What:** Annihilator (702.86), Afflict (702.130), and Bushido (702.45) synthesized as real `TriggeredAbility` objects at bind time so they go through the normal stack/priority pipeline; needed a new `EventType.BECOMES_BLOCKED` fired once per attacker. Hexproof (702.11b) now actually gates targeting via `targeting._targetable_by`, excluding a hexproof permanent from an opponent's target options only.
-- **Files:** `game/effect_binder.py`, `game/combat.py`, `game/targeting.py`, `models/events.py`
+- **Files:** `game/binding/core.py`, `game/combat.py`, `game/targeting.py`, `models/events.py`
 - **Why:** Rampage was deliberately deferred here because its pump amount needs a per-firing dynamic amount a bind-once `TriggeredAbility` can't carry (built later, see M2 Rampage).
 
 ### M2 Rampage (RULE 702.23)
@@ -2270,7 +2270,7 @@ is in the rules-engine categories below them.
 ### Combat Statics — Qualified/Conditional Restriction Family
 
 - **What:** A new `combat_restriction` static (a non-RULE-613 bucket, evaluated at combat time since who's defending/attacking doesn't exist yet at layer-engine time) covers blocking filters (power/type/keyword qualifiers, min/max blocker counts, the relative "greater power" filter), conditional "unless `<board condition>`" restrictions, "…alone" (both the restriction and a new aggregate `EventType.ATTACKS_ALONE` trigger), the mana-ability activation exception, and "target creature can't block this turn" as an ordinary one-shot (`CantBlockEffect`).
-- **Files:** `game/effects.py`, `game/combat.py`, `game/game_engine.py`
+- **Files:** `game/effects/core.py`, `game/combat.py`, `game/game_engine.py`
 - **Bug fixed:** `tap_for_mana` never consulted `activation_prohibited` at all, so an unqualified activation prohibition wasn't stopping mana abilities either (Null Rod).
 
 ### Combat Statics — Requirements + Multi-Block Permissions
@@ -2287,17 +2287,17 @@ is in the rules-engine categories below them.
 ### Fight (RULE 701.14, MEC-1)
 
 - **What:** `FightEffect` is one atomic effect, not two `DealDamageEffect`s, because 701.14b's cancellation is mutual (either fighter gone/non-creature at resolution → neither deals damage) and both damage events are simultaneous. `fighter_kind` picks the subject (a real target, `None` for the source, `"attached_permanent"` for an Aura host). A shared `subgrammars.target_macro(suffix)` finally lets one regex carry two RULE 115 requirements in one clause.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/catalogue/subgrammars.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/catalogue/subgrammars.py`
 
 ### One-Sided Fight / Damage Equal to Power
 
 - **What:** `DamageEqualToPowerEffect` — "target creature deals damage equal to its power to target creature" (Rabid Bite) and the "when ~ dies, it deals damage equal to its power" family. Unlike a fight, the damage is one-way and the dealer needn't still be on the battlefield (RULE 608.2h last-known-information for a dies trigger).
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### ENG-14: "Defending Player" Resolution Sees Through Reconfigure
 
 - **What:** `effects._defending_player_of` (shared by annihilator/afflict) now falls back to the object its source is `attached_to` before giving up, so Simian Sling's payoff correctly resolves "defending player" even after Reconfigure moves it onto a different attacking creature.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 - **Bug fixed:** The resolver only ever checked Simian Sling's own (never-attacking, once-reconfigured) `combat_defender` stamp, finding nobody.
 
 ### Interactive blocker declaration (RULE 509.1a)
@@ -2313,24 +2313,24 @@ is in the rules-engine categories below them.
 ### Exert (RULE 702.19)
 
 - **What:** A declare-attackers-time choice (`GameEngine.declare_attackers`'s `exert` flag per attacker) rather than a resolve-time prompt; `GameObject.skip_next_untap` is a genuinely new one-shot flag consumed by the very next untap step, distinct from the sticky `skip_untap` toggle. Fires `EventType.EXERTED` for self- and player-scoped "whenever you exert" triggers. 21/36 exert cards MODELED (was 5).
-- **Files:** `game/engine/combat_mixin.py`, `game/engine/turn_loop_mixin.py`, `game/combat.py`, `models/game_object.py`, `game/effect_binder.py`, `game/ability_catalogue.py`.
+- **Files:** `game/engine/combat_mixin.py`, `game/engine/turn_loop_mixin.py`, `game/combat.py`, `models/game_object.py`, `game/binding/core.py`, `game/ability_catalogue.py`.
 - **Why:** Combat Celebrant needs a `not_already_exerted` guard reading the firing event's own pre-set snapshot (not the object's live flag, already true by trigger time) to stop its own granted extra-combat from letting it exert forever.
 
 ### Mass "Attacking Creatures" Untap Selector
 
 - **What:** `TapEffect._TAP_SELECTORS` gained `"attacking_creatures"`, reusing the existing `continuous.group_selector_objects` branch (built for an anthem) for "untap all attacking creatures." Closed Hellkite Charger.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`.
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`.
 
 ### RULE 702.122 Crew — Real Behaviour (MEC-29)
 
 - **What:** "Crew N" went from parser-recognized-but-inert to real behaviour for every ~238 cached "Crew N" cards at once: `ActivationCost.crew_power` (an "any number from a pool with total power >= N" cost, distinct from `tap_others`' exact count), `GameEngine._crew_pool`/`_resolve_crew_cost` (player's chosen subset validated, never trimmed; auto-pick falls back to fewest-creatures-first), `effect_binder._crew_activated_ability` building the ability as a `GrantUntilEffect`-wrapped `type_change` static so RULE 702.122a's "becomes an artifact creature" rides the ordinary layer engine, and `GameObject.crewed_by_ids` (RULE 702.122b/c, accumulating across repeat activations in a turn, reset at untap).
-- **Files:** `game/costs.py`, `game/engine/activation_mixin.py`, `game/effect_binder.py`, `models/game_object.py`.
+- **Files:** `game/costs.py`, `game/engine/activation_mixin.py`, `game/binding/core.py`, `models/game_object.py`.
 - **Bug fixed:** Vehicles had no way to carry their own printed P/T — `Card.__init__` refuses power/toughness on a noncreature and `scryfall_client` discarded a Vehicle's printed P/T entirely, so every freshly crewed Vehicle came in 0/0 and died to the SBA immediately. Fixed with dedicated `Card.vehicle_power`/`vehicle_toughness` fields (not a relaxation of the creature-only P/T invariant); required a full cache reseed.
 
 ### `"crewed_by_self"` Trigger Condition (Balthier and Fran, MEC-29)
 
 - **What:** New RULE 603.1 group-subject trigger-condition key checking whether the acting object's live `crewed_by_ids` contains the ability's source, closing "whenever a Vehicle crewed by ~ this turn attacks."
-- **Files:** `game/effect_binder.py`.
+- **Files:** `game/binding/core.py`.
 
 ### Blocker-Side Characteristic Restriction (Void Winnower)
 
@@ -2352,7 +2352,7 @@ is in the rules-engine categories below them.
 ### "If this spell was kicked, effect" conditional (RULE 702.33b, additional-effect shape)
 
 - **What:** New `EffectSpec.condition` field (whitelisted to `{"kicked": bool}`) and a `ConditionalEffect` wrapper let a second sentence gate on the spell having been kicked, checked against `self.source.kicker_count`. Deliberately only the "additional effect" shape, not the "instead"-override shape (a different, unmodeled grammar).
-- **Files:** `parser/oracle/spec.py`, `game/effects.py`, `parser/oracle/segmenter.py`
+- **Files:** `parser/oracle/spec.py`, `game/effects/core.py`, `parser/oracle/segmenter.py`
 
 ### {X} cost value threading through resolution
 
@@ -2372,7 +2372,7 @@ is in the rules-engine categories below them.
 ### Impulsive look and impulsive draw
 
 - **What:** `ImpulsiveLookEffect`/`ImpulsiveDrawEffect` plus `GameState.temp_play_permissions` model "exile the top card, you may play it this turn"-shaped effects.
-- **Files:** `game/effects.py`, `models/game_state.py`
+- **Files:** `game/effects/core.py`, `models/game_state.py`
 
 ### Board-count cost reduction for a card in hand
 
@@ -2382,23 +2382,23 @@ is in the rules-engine categories below them.
 ### Spell-copy on the stack (RULE 707.10)
 
 - **What:** `RulesEngine.copy_spell` builds a fresh token `GameObject` of the spell's copiable card, controlled by the copier, keeping the original's targets/{X}, pushed above the original so it resolves first (Dualcaster Mage, Flare of Duplication). Choosing new targets for the copy is a documented MVP simplification (keeps the original's targets).
-- **Files:** `game/rules_engine.py`, `game/effects.py`
+- **Files:** `game/rules_engine.py`, `game/effects/core.py`
 
 ### Sorcery-speed-only activation marker (RULE 602.5d)
 
 - **What:** "Activate only as a sorcery."/"…any time you could cast a sorcery." is claimed and folded into `ActivationCost.sorcery_speed_only`, already enforced by `GameEngine.can_activate`. The subtly different "only during your turn"/"before attackers" windows are deliberately left unclaimed rather than conflated.
-- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effect_binder.py`
+- **Files:** `parser/oracle/catalogue/handlers.py`, `game/binding/core.py`
 
 ### Standing Graveyard-Cast Permission
 
 - **What:** `GraveyardCastPermissionEffect` lets a permanent grant "you may cast spells from your graveyard" at the card's own normal mana cost — a genuine permission, not an alt-cost keyword like Flashback/Escape. Supports `max_mana_value`/`permanent_only` gates and a per-granting-object `once_per_turn` tracker. Hand-authored for Lurrus of the Dream-Den.
-- **Files:** `game/effects.py`, `game/graveyard_cast.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/graveyard_cast.py`, `game/ability_catalogue.py`
 - **Why:** Paid at the card's own printed cost rather than a keyword cost, so `effective_cast_cost` needed no change at all.
 
 ### Retrace (RULE 702.81) — MEC-53
 
 - **What:** A third graveyard-cast keyword next to Flashback/Escape, but shaped unlike either: the spell pays its **normal** mana cost (`effective_cast_cost`'s default `alt_cost=None` branch — no change), plus a fixed "discard a land card" additional cost (`_pay_retrace_discard`, auto-picks the first land in hand), and it returns to the graveyard on resolution like a normal instant/sorcery (not exiled — `cast_via_flashback` stays false). `_graveyard_cast_keyword` gained a `retrace` branch reading the plain `Card.keywords` "Retrace" entry (parameterless, so not in `parametric_keywords`) *or* the granted form; `can_cast` refuses it with no land in hand; legal_actions surfaces `cast_from_graveyard: "retrace"` for free. The **granted** form is `grant_retrace`, a layer-6 static mirroring `grant_escape` exactly — `continuous.granted_retrace_for(state, obj)` scans every battlefield/emblem static, scoped to the granting controller's own graveyard, with optional `card_types` (main-type words, ORed — instant/sorcery), `subtypes` (Merfolk/Druid), and `nonland_only` filters. Parser side: `static_handlers._GRAVEYARD_RETRACE_GRANT_RE` → `_graveyard_retrace_grant_specs` claims "[<filter>] cards in your graveyard have retrace" (Wrenn and Six's −7 emblem, Deeproot Historian). Printed-keyword recognition covers the 18 cached Retrace cards.
-- **Files:** `game/engine/lands_mixin.py` (`_graveyard_cast_keyword`), `game/engine/casting_mixin.py` (`can_cast` gate, `_pay_retrace_discard`), `game/continuous.py` (`granted_retrace_for`, `_NON_RULE_613_LAYERS`), `game/effects.py` (`grant_retrace` registry), `parser/oracle/catalogue/static_handlers.py`, `tests/test_mec53_retrace.py`
+- **Files:** `game/engine/lands_mixin.py` (`_graveyard_cast_keyword`), `game/engine/casting_mixin.py` (`can_cast` gate, `_pay_retrace_discard`), `game/continuous.py` (`granted_retrace_for`, `_NON_RULE_613_LAYERS`), `game/effects/core.py` (`grant_retrace` registry), `parser/oracle/catalogue/static_handlers.py`, `tests/test_mec53_retrace.py`
 - **Why:** Mirrored `grant_escape`/`granted_escape_for` rather than inventing a new grant shape — the "layer-6 ability grant onto graveyard cards, kept out of `recompute` proper" pattern was already proven by Underworld Breach.
 
 ### Modal Spells "Choose One / Choose One or Both" (RULE 700.2)
@@ -2439,7 +2439,7 @@ is in the rules-engine categories below them.
 ### Interactive Sacrifice-as-Cost & Discard Choices
 
 - **What:** An activated ability's own "Sacrifice a `<type>`" cost and looting/forced-discard both became real player choices instead of auto-picking the first candidate. `sacrifice_choice` threads through activation/mana-ability payment (`_sacrifice_cost_choice` offers the pool); `"discard"` joined the choose-object action family with `discard_choice` opening a chooser, respecting that RULE 701.8's *discarding* player (not the effect's controller) picks.
-- **Files:** `game/game_engine.py`, `game/effects.py`, `services/game_session.py`
+- **Files:** `game/game_engine.py`, `game/effects/core.py`, `services/game_session.py`
 - **Follow-up (PAR-36, v233) — "…discards a card at random" (RULE 701.8d):** a *third* discard path alongside `discard` (cost payment, auto-picks the last card) and `discard_choice` (interactive). New `RulesEngine.discard_random(player, count)` picks uniformly at random from the hand — for a random discard the difference is real (a random pick can hit a bomb the player would never pitch) — firing the same per-card `DISCARD_CARD` + aggregate `DISCARD` events and honouring Madness (RULE 702.35a) exactly as `discard` does. `DiscardEffect` gained a `random` param; a new `_discard_from(context, player)` helper it factors out routes *every* player-resolution branch (`scope` mass form, `previous_subject`/`player_from_trigger_event` "that player", RULE 115 target) to `discard_random` when set. Parser: the `discard` and `that_player_discards` handlers gain an optional `(?P<at_random> at random)` tail → `{"random": True}`. **+23** — Hymn to Tourach / Hypnotic Specter / Black Cat / Stupor / Mind Knives (targeted), Burning Inquiry / Goblin Lore (each player), Bottomless Pit (each player's upkeep → that player). `tests/test_par36_discard_at_random.py`.
 
 ### ENG-3: Interactive Cost-Payment Sacrifice/Discard Choices
@@ -2456,39 +2456,39 @@ is in the rules-engine categories below them.
 ### History-scoped cast restriction (Hope of Ghirapur)
 
 - **What:** `GameState.combat_damage_to_players_this_turn` and the `player_dealt_combat_damage_by_source` target kind answer a "history" question no live board state can answer; `PlayerCastRestrictionEffect` locks casting with no permanent behind it (self-sacrificing source). Introduced the reusable `until_next_turn_of` duration key, swept by `begin_turn`.
-- **Files:** `models/game_state.py`, `game/effects.py`, `game/game_engine.py`
+- **Files:** `models/game_state.py`, `game/effects/core.py`, `game/game_engine.py`
 
 ### Sacrificed-cost mana value tracking (Eldritch Evolution/Neoform)
 
 - **What:** `GameObject.sacrificed_cost_mana_value` plus new `SearchLibraryEffect` params (`mana_value_from`, `extra_counters`) — `StackItem.x` only ever threads an announced `{X}`, so an additional cost's sacrificed permanent needed its own channel.
-- **Files:** `models/game_object.py`, `game/effects.py`
+- **Files:** `models/game_object.py`, `game/effects/core.py`
 
 ### `pay_cost_then` — general optional-payment primitive (RULE 118.3)
 
 - **What:** Generalized the previously energy-only optional payment into a general "pay a cost, with an 'if you don't' branch and an event-named payer" primitive, built on the shared `_can_pay_player_cost`/`_pay_player_cost` machinery ward already used. Powers Mana Vault's upkeep untap, Wandering Archaic, and both Pacts.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Bargain
 
 - **What:** A genuinely payable optional additional cost plus an "if bargained" `EffectSpec.condition`, reusing exactly the shape Kicker's "kicked" gate already had.
-- **Files:** `game/costs.py`, `game/effects.py`
+- **Files:** `game/costs.py`, `game/effects/core.py`
 
 ### Entwine (RULE 702.42a)
 
 - **What:** A real, separately-priced "choose all modes" upgrade offered alongside an ordinary single-mode modal cast, replacing the free `or_both` flag Tooth and Nail had been wrongly borrowing. Also fixed `buyback`/`mutate`/`bargained`/`entwine` never being forwarded through `services/game_session.py` at all.
-- **Files:** `game/effect_binder.py`, `game/game_engine.py`, `services/game_session.py`
+- **Files:** `game/binding/core.py`, `game/game_engine.py`, `services/game_session.py`
 - **Bug fixed:** Tooth and Nail was getting the both-modes line for free before this (strictly better than printed); the Buyback toggle `legal_actions` already advertised was unusable since the session layer dropped the flag.
 
 ### Optional free cast offered, not forced (Tibalt's Trickery, Possibility Storm)
 
 - **What:** `dig_until`'s new `"cast_free_window"` destination grants the same exile-cast window Rebound/Beseech use, and `ReturnUncastExiledEffect` bottoms the card at the next end step if the optional cast is declined.
-- **Files:** `game/rules_engine.py`, `game/effects.py`
+- **Files:** `game/rules_engine.py`, `game/effects/core.py`
 - **Bug fixed:** cards printed "they **may** cast that card" had been force-cast before this.
 
 ### MEC-6 — self-scoped attacking-creature cost reduction
 
 - **What:** Added the missing `attacking_creatures_you_control` (and unscoped `attacking_creatures`) `count_selector` entry to the pre-existing but never-exercised `self_cost_reduction_for` primitive, closing Embercleave's real cost reduction, plus a matching oracle-text handler that models Ancient Stone Idol's bare "for each attacking creature" variant for free.
-- **Files:** `game/continuous.py`, `game/effects.py`, `parser/oracle/catalogue/static_handlers.py`
+- **Files:** `game/continuous.py`, `game/effects/core.py`, `parser/oracle/catalogue/static_handlers.py`
 
 ### MEC-7 — targets-a-commander conditional flash
 
@@ -2498,7 +2498,7 @@ is in the rules-engine categories below them.
 ### MEC-4 — Strive cost escalation
 
 - **What:** `AbilitySpec.strive_cost` rides as its own field (Strive isn't a numbered RULE 702 keyword); `effective_cast_cost` adds one full copy of the cost per target beyond the first.
-- **Files:** `game/effect_binder.py`, `game/game_engine.py`, `parser/oracle/segmenter.py`
+- **Files:** `game/binding/core.py`, `game/game_engine.py`, `parser/oracle/segmenter.py`
 - **Why:** Lands with zero cards reaching full MODELED — every real Strive card also needs a still-unmodeled "any number of target creatures" targeting family (PAR-15), so the cost math is proven but no whole card clears the gate yet.
 - **PARSER_VERSION 183 — the last mile:** `normalize._strip_unregistered_keyword_labels` (the 400+-label strip) removes "Strive —" before the segmenter sees the line, so `_STRIVE_LINE_RE`'s mandatory "Strive —" prefix never matched the normalized "This spell costs {cost} more to cast for each target beyond the first." — made optional (one line). +9: Aerial Formation, Ajani's Presence, Blinding Flare, Colossal Heroics, Consign to Dust, Cruel Feeding, Desperate Stand, Kiora's Dismissal, Rouse the Mob. `tests/test_par30_strive_prefix_optional.py`.
 
@@ -2510,7 +2510,7 @@ is in the rules-engine categories below them.
 ### "Return this card from your graveyard to the battlefield[, tapped]" (PAR-10 discovery)
 
 - **What:** A full-cache scan (motivated by Dread Wanderer) found 69+ cards using this shape (Reassembling Skeleton, Bloodsoaked Champion, …). `ReturnSelfFromGraveyardToBattlefieldEffect` mirrors the existing transform-return effect minus the forced flip, reusing the pre-existing `"battlefield_tapped"` destination.
-- **Files:** `game/effects.py`, `game/costs.py` (`ActivationCost.graveyard_zone`)
+- **Files:** `game/effects/core.py`, `game/costs.py` (`ActivationCost.graveyard_zone`)
 - **Bug fixed:** `can_activate`/`legal_actions` had no branch at all for an ability sourced from the graveyard zone (only battlefield/emblem/hand were handled) — a real "MODELED but unplayable" gap, the same shape PAR-8 found for granted hand-zone abilities.
 
 ### Kicker's own announced {X} (PAR-7, RULE 702.33b)
@@ -2521,7 +2521,7 @@ is in the rules-engine categories below them.
 ### ImpulsiveDrawEffect's first oracle-text route + free-cast draw-reveal (PAR-13)
 
 - **What:** `_exile_top_play` (Runestone Caverns' "Exile the top two cards. You may play them.") is the first parser handler reaching the pre-existing, hand-authored-only `ImpulsiveDrawEffect`. Also new: `DrawRevealCastOneFreeEffect` plus a `RulesEngine.request_choose_objects` `"cast_free"` action (Mad Wizard's Lair's "draw three, reveal, cast one free") — the first hand-zone free-cast chooser action.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### "`<Type>` spells you cast cost `<N>` less/more" (PAR-12)
 
@@ -2532,7 +2532,7 @@ is in the rules-engine categories below them.
 ### RULE 702.33b override kicked-conditional
 
 - **What:** "Deals N damage… if kicked, deals M damage **instead**" — a different shape from the additive "if kicked, `<effect>`" already supported. `DealDamageEffect.amount_if_kicked`/`CopyPermanentEffect.count_if_kicked`, implemented as properties (not construction-time fields) so `_substitute_x`'s generic X-sentinel substitution keeps composing with the override for an X-kicker spell.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### RULE 118.3 `pay_cost_then`, first oracle-text recognizer
 
@@ -2561,7 +2561,7 @@ is in the rules-engine categories below them.
 - **What:** New `_SPELL_COST_TAX_COLOR_RE` parser row reaches `cost_reduction_for`'s already-built `spell_color` param (Medallion cycle); a genuinely new `affects="opponents_spells"` branch on `cost_reduction_for` plus `_SPELL_COST_TAX_OPPONENTS_RE` covers "Spells your opponents cast cost `{N}` more" (Grand Arbiter Augustin IV's third line).
 - **Files:** `parser/oracle/catalogue/static_handlers.py`, `game/continuous.py`
 - **Follow-up (PARSER_VERSION 241) — "…that target ~":** "Spells your opponents cast **that target ~** cost `{N}` more to cast." (Icefall Regent / Boreal Elemental / Sphinx of New Prahv / Syr Elenora — a battlefield permanent taxing spells aimed at *itself*). New `_SPELL_COST_TAX_OPPONENTS_TARGET_RE` → `cost_reduction` with a `targets_source` param; `continuous.cost_reduction_for` gained a `targets` arg (the caster's already-chosen targets — RULE 601.2c precedes 601.2f) and skips the tax unless those targets include the static's own source. `casting_mixin._adjust_cost` threads `targets` through (it already had it for `self_cost_reduction_for`'s `reduce_if_targets`). **+4, 0 regressed.** `tests/test_spell_tax_if_targets_source.py`.
-- **Files:** `parser/oracle/catalogue/static_handlers.py`, `game/continuous.py` (`cost_reduction_for` `targets` + `targets_source` check), `game/effects.py` (`cost_reduction` factory `targets_source` key), `game/engine/casting_mixin.py` (`_adjust_cost` threads `targets`), `parser/oracle/gate.py` (PARSER_VERSION 241).
+- **Files:** `parser/oracle/catalogue/static_handlers.py`, `game/continuous.py` (`cost_reduction_for` `targets` + `targets_source` check), `game/effects/core.py` (`cost_reduction` factory `targets_source` key), `game/engine/casting_mixin.py` (`_adjust_cost` threads `targets`), `parser/oracle/gate.py` (PARSER_VERSION 241).
 
 ### Activation-cost group scope by main card type (Casting & Costs)
 
@@ -2586,7 +2586,7 @@ is in the rules-engine categories below them.
 ### `ActivationCost.only_during_your_turn` + `GainControlBySourceEffect` (Wishclaw Talisman) (Casting & Costs)
 
 - **What:** `only_during_your_turn` (RULE 602.5d's wider sibling of `sorcery_speed_only` — legal at instant speed on your own turn only) plus `GainControlBySourceEffect` ("An opponent gains control of ~." — indefinite, source-targeted, not a RULE 115 target at all) close Wishclaw Talisman outright.
-- **Files:** `game/costs.py`, `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/costs.py`, `game/effects/core.py`, `game/ability_catalogue.py`
 - **Why:** With no real "choose an opponent" chooser for a player (only `request_choose_objects` for `GameObject` candidates exists), the *next* opponent in seating order is auto-picked — unambiguous in 1v1, a documented MVP simplification for 3+ players.
 
 ### Ghostfire Slice: self-cost-reduction `active_if` + multicolour-count selector (Casting & Costs)
@@ -2597,7 +2597,7 @@ is in the rules-engine categories below them.
 ### "Costs {N} less to cast if it targets a `<criteria>`" (RULE 601.2f, PARSER_VERSION 181)
 
 - **What:** the Ajani's Response / Knockout Blow / Depower cycle (28 SOLO). Unlike Ghostfire Slice's board-state `active_if`, this discount is gated on the spell's own *chosen target*. `cost_reduction` gained a `reduce_if_targets` param (a criteria dict); `continuous.self_cost_reduction_for` gained a `targets` parameter and applies the discount only when one resolved target matches (`_obj_matches_target_criteria` → `combat.matches_object_filter`, which grew a `tapped` boolean key). `game/engine/casting_mixin.py`'s `_adjust_cost` / `effective_cast_cost` thread `targets` through (RULE 601.2c precedes 601.2f, so the real cast knows them); `targets is None` at every offer-time caller treats the discount as available (best case, so affordability isn't understated — same as `help_pay`/kicker). Parser: `static_handlers._targets_reduction_criteria` recognises "it targets a `<card type>`" plus an optional tapped / attacking / blocking / colour qualifier, tried before the board-condition path.
-- **Files:** `game/continuous.py`, `game/effects.py` (`cost_reduction` factory), `game/engine/casting_mixin.py`, `game/combat.py`, `parser/oracle/catalogue/static_handlers.py`. `tests/test_par30_cost_less_if_it_targets.py`.
+- **Files:** `game/continuous.py`, `game/effects/core.py` (`cost_reduction` factory), `game/engine/casting_mixin.py`, `game/combat.py`, `parser/oracle/catalogue/static_handlers.py`. `tests/test_par30_cost_less_if_it_targets.py`.
 - **v182 widened the criteria vocabulary:** `_targets_reduction_criteria` parses the phrase word by word — a bare subtype / "X or Y" pair, "you control" / "you don't control", "…token", "…with `<keyword>`", "legendary", and "a `<x>` spell" (stack target). `_obj_matches_target_criteria` grew `legendary` / `is_token` / `controller` handling via a threaded `caster_id`. +10 — Grow Extra Arms, Mystical Dispute, Out of Air, Price of Fame, Run Over, Savage Stomp, Swampsnare Trap, This Town Ain't Big Enough, Hunter's Mark, Mascot Interception.
 - **Still open:** a mana-value cap (reanimation-spell targets — No One Left Behind, Revoke Demise) and a "…with a +1/+1 counter on it" clause (Titanic Brawl).
 
@@ -2645,18 +2645,18 @@ is in the rules-engine categories below them.
 ### Talon Gates of Madara: hand-zone "put onto the battlefield" activated ability (Casting & Costs)
 
 - **What:** `PutSelfOntoBattlefieldFromHandEffect` + `ActivationCost.hand_zone` — `graveyard_zone`'s hand-zone sibling, auto-stamped onto a matching ability's cost by `effect_binder.bind_ability`, threaded through `can_activate`'s zone-legality branch and the existing hand-zone-ability scan loop.
-- **Files:** `game/effects.py`, `game/costs.py`, `game/effect_binder.py`
+- **Files:** `game/effects/core.py`, `game/costs.py`, `game/binding/core.py`
 
 ### MEC-20: RULE 601.2f "Expertise" free-cast-from-hand cycle (Casting & Costs)
 
 - **What:** `FreeCastFromHandEffect` opens a `request_choose_objects` `"grant_free_cast"` action that only *arms* the picked hand card's `free_cast_instance_ids` entry rather than casting it immediately, letting the caster cast it through the ordinary `legal_actions` cast option afterward (full targeting/modal choices intact). Covers a literal cap, the `"x"` sentinel (Electrodominance), and a board-read cap via `count_selector` (Epistolary Librarian). Closed Sram's/Yahenni's Expertise and Epistolary Librarian outright.
-- **Files:** `game/effects.py`, `game/rules_engine.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`, `parser/oracle/catalogue/handlers.py`
 - **Why:** RULE 601.2f/718 technically require the free cast to happen as the Expertise spell resolves, but the engine has no "pause mid-resolution for a nested cast+targeting cycle" primitive — a same-turn window is offered instead, strictly more permissive than print.
 
 ### MEC-24: targeted flashback grant (Casting & Costs)
 
 - **What:** `GameState.temp_flashback_grants` (`instance_id -> cost`), a per-graveyard-card marker (mirroring `temp_play_permissions`' shape); `GrantFlashbackToTargetEffect` stamps it at resolution, defaulting cost to the target's own mana cost. Consulted by the existing Flashback cost/cast-zone/exile-after-cast machinery with no new casting code — closes Recoup/Snapcaster Mage/Slickshot Lockpicker and others.
-- **Files:** `game/effects.py`, `models/game_state.py`, `game/engine/lands_mixin.py`, `game/engine/casting_mixin.py`
+- **Files:** `game/effects/core.py`, `models/game_state.py`, `game/engine/lands_mixin.py`, `game/engine/casting_mixin.py`
 
 ### Alt-Cost Family Unconditional Gate (Bringer Cycle)
 
@@ -2671,12 +2671,12 @@ is in the rules-engine categories below them.
 ### Destroy/Exile-Then-Controller-Digs (Polymorph/Transmogrify)
 
 - **What:** `DestroyExileThenControllerRevealCreatureEffect` destroys/exiles a target creature, then that creature's own controller (read before the RULE 400.7 zone change) digs their own library until a creature card, onto the battlefield. `dig_until` gained `rest_destination="library_shuffled"` (an actual reshuffle).
-- **Files:** `game/effects.py`, `game/rules_engine.py`.
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`.
 
 ### Cost Floor (Trinisphere)
 
 - **What:** `continuous.cost_floor_for` + `StaticAbility.min_generic`, kept structurally apart from the existing additive cost-reduction/increase net (two floors take the max, not the sum); applied against the cost's real `converted_mana_cost`, not the generic component alone.
-- **Files:** `game/continuous.py`, `game/effects.py`.
+- **Files:** `game/continuous.py`, `game/effects/core.py`.
 - **Bug fixed:** A first attempt compared the floor against `ManaCost.generic_amount()` (just generic pips), producing `{3}{B}` (value 4) under a floor of 3 instead of the card's own reminder-text example `{2}{B}` (value 3); fixed against `converted_mana_cost`, and the now-unused `generic_amount()` was removed.
 
 ### Standing Exile-Cast Permission (Lukka's +1)
@@ -2687,7 +2687,7 @@ is in the rules-engine categories below them.
 ### Reveal-Then-Free-Cast-If-Match (Powerbalance)
 
 - **What:** `RevealTopThenFreeCastIfMVMatchEffect` reuses `request_choose_objects`'s existing `"cast_free"` action for the interactive "you may cast" half; the "you may reveal" half is a documented simplification to unconditional.
-- **Files:** `game/effects.py`.
+- **Files:** `game/effects/core.py`.
 
 ### MEC-30 Pass 5: Three Cost-Shape Gaps (Penance, Seasoned Tactician, Bone Mask)
 
@@ -2730,12 +2730,12 @@ is in the rules-engine categories below them.
 ### "Remove All Counters" Effect
 
 - **What:** `RemoveCountersEffect` (untargeted board-wide or `target_kind="permanent"`) strips every counter of every kind via `context.add_counters` with a negative amount per kind, so a counter-removed trigger still fires correctly (Vampire Hexmage/Oblivion Stone/Aether Snap-shaped).
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### "Proliferate Twice / N Times"
 
 - **What:** `ProliferateEffect` gained a `times` param and parser recognition of the literal word "twice" or a digit-folded "N times" (normalize doesn't fold "twice" itself).
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 
 ### Kicked-Gated Entry Counters + Granted Keyword
 
@@ -2745,7 +2745,7 @@ is in the rules-engine categories below them.
 ### "Remove Up to N Counters from Target Permanent"
 
 - **What:** `RemoveCountersEffect` gained a `max_count` param that opens an interactive amount-then-kind chooser (`request_remove_counters_choice`/`_continue_remove_counters`) rather than resolving synchronously — modeled on the "pause mid-resolution" idiom, since no existing chooser combined an amount pick with a kind pick (Glissa Sunslayer/Heartless Act-shaped).
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Player-Counter Primitive
 
@@ -2760,18 +2760,18 @@ is in the rules-engine categories below them.
 ### Energy Resolve-Time Optional Payment
 
 - **What:** "You may pay {E}{E}. If you do, `<effect>`." (Aether Chaser-shaped) — `pay_energy_then`/`PayEnergyThenEffect` opens an interactive yes/no choice at resolution (modeled on the shock-land pay-life idiom); only untargeted follow-ups (create-token/gain-life/draw) are modeled. Also added `get_energy` production recognition.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Rad counters (RULE 728)
 
 - **What:** A fourth source-less inherent trigger (alongside Monarch/Initiative) mills cards equal to the active player's live rad-counter count each main phase, loses life for each nonland milled, and removes that many rad counters; reuses `Player.counters` with zero new model field, plus new generic "get N/X rad counters" oracle-text grammar and per-card grants (Feral Ghoul/Glowing One/Infesting Radroach).
-- **Files:** `game/rules_engine.py`, `game/effects.py` (`RadiationMillEffect`, `AddPlayerCountersEffect`), `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/rules_engine.py`, `game/effects/core.py` (`RadiationMillEffect`, `AddPlayerCountersEffect`), `parser/oracle/catalogue/handlers.py`
 - **Why:** RULE 728.1 makes rad counters controlled by the active player regardless of who holds them (RULE 113.8 exception), so no designation/holder indirection was needed.
 
 ### Rad counters — deferred-gap closure batch
 
 - **What:** Closed all 11 previously-deferred rad-counter cards with real behaviour: new trigger-subject grammar (enchanted/equipped-creature verbs, tribal "self-or-group" subjects), a target-based "if that player is(n't) you" intervening-if, compound "~ verb1 or verb2" multi-event triggers, half-X rounding amount sentinels, a counter-scaled activation-cost reduction, a land's optional-bonus-tapped-entry choice, a damage-prevention-plus-counter-conversion replacement, a third `enter_replacement` "named mode" family, the aggregate `EventType.PLAYER_ATTACKED` event, a recurring bounded-duration player-scoped trigger, and a "return dies as a different synthetic permanent type" primitive.
-- **Files:** `parser/oracle/segmenter.py`, `game/effects.py`, `game/rules_engine.py`, `game/continuous.py`
+- **Files:** `parser/oracle/segmenter.py`, `game/effects/core.py`, `game/rules_engine.py`, `game/continuous.py`
 - **Why:** Per the project's "no half-implementations" rule — a second deferral of any of these had to be hand-authored this round rather than rolled forward a third time.
 - **Bug fixed:** `mana_abilities.py`'s "any one color" parsing always silently discarded a printed fixed count > 1 down to 1 mana (also affected the real card Jeweled Lotus, whose own test had asserted the buggy behavior).
 
@@ -2790,7 +2790,7 @@ is in the rules-engine categories below them.
 ### Counter/Token-Creation Count-Amount Resolver Wiring (MEC-27)
 
 - **What:** `AddCountersEffect` gained `amount_from_count_selector` (mirroring `DealDamageEffect`) with a new `add_counters_devotion` parser row for "put X counters on `<target>`, where X is `<DEVOTION>`" (closed Leyline Invocation, Strength Bobblehead); `CreateTokenEffect`'s existing token-count-devotion row was widened from a narrow subtype-only alternation to the full `DEVOTION` fragment.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`.
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`.
 - **Bug fixed:** `devotion_selector`'s `count_subtype` catch-all guessed `creatures_you_control_of_type_<word>` for any bare noun, silently reading 0 for a non-creature subtype like "Bobbleheads"/"Shrines"; fixed with a denylist rather than un-modeling correctly-scoped cards.
 
 ## Card Types & Structures
@@ -2817,7 +2817,7 @@ is in the rules-engine categories below them.
 ### Graveyard-Sourced "Return This Card Transformed"
 
 - **What:** `ReturnFromGraveyardTransformedEffect`/`RulesEngine.return_from_graveyard`'s new `transformed` param flips a card onto its back face right after being placed from the graveyard — the graveyard-sourced sibling of the existing exile-and-return-transformed effect (Fable of the Mirror-Breaker-shaped).
-- **Files:** `game/effects.py`, `game/rules/*_mixin.py`
+- **Files:** `game/effects/core.py`, `game/rules/*_mixin.py`
 
 ### Token Lifecycle (RULE 704.5d)
 
@@ -2856,7 +2856,7 @@ is in the rules-engine categories below them.
 ### Saga chapter abilities (RULE 714.2d)
 
 - **What:** Saga chapter lines ("I, II — effect") now resolve as ordinary triggered abilities (`EventType.SAGA_CHAPTER`) through the existing one-shot effect handler table, via a shared roman-numeral grammar. Also added a group ("creatures you control") one-shot pump for chapter-III anthem-style effects (e.g. History of Benalia).
-- **Files:** `parser/oracle/catalogue/saga.py`, `game/rules_engine.py`, `game/effect_binder.py`
+- **Files:** `parser/oracle/catalogue/saga.py`, `game/rules_engine.py`, `game/binding/core.py`
 - **Why:** Chapters flow through the ordinary triggered-ability pipeline so targeting/"you may"/interactive ordering all work for free, instead of bespoke Saga-specific machinery.
 
 ### Saga timing fixes + Read Ahead (RULE 714.3b/714.3c)
@@ -2869,7 +2869,7 @@ is in the rules-engine categories below them.
 ### Class (RULE 716) and Leveler (RULE 711)
 
 - **What:** Multi-line block structures — Leveler's mutually-exclusive `LEVEL` tiers and Class's cumulative sequential levels — parsed via a new pure grammar module, with a sorcery-speed-only activation gate not tied to planeswalkers.
-- **Files:** `parser/oracle/catalogue/levels.py`, `game/costs.py`, `game/effect_binder.py`
+- **Files:** `parser/oracle/catalogue/levels.py`, `game/costs.py`, `game/binding/core.py`
 - **Why:** Needed the first genuinely general RULE 613.6 "as long as" conditional-static primitive (`min_level`/`max_level`/`level_counter`, gating on the ability's own source's counter), reused later for other conditionals.
 - **Bug fixed:** a Leveler's whole printed text (all tiers) is one `oracle_text`/`keywords` blob in Scryfall data, so a tier-only keyword (e.g. Kargan Dragonlord's Level 7+ flying/haste) was being treated as always-on by both the intrinsic-keyword bind and `combat.keywords_of`; both now cross-check against the pre-`LEVEL` base text.
 
@@ -2895,18 +2895,18 @@ is in the rules-engine categories below them.
 ### Prepared cards (RULE 722)
 
 - **What:** A permanent "becoming prepared" spawns a token copy of just its inset prepare-spell into exile, castable only while the source stays prepared and on the battlefield — distinct from Adventure/Split despite sharing the two-face frame, since the second face can never be cast from hand.
-- **Files:** `game/effects.py` (`BecomePreparedEffect`), `game/rules_engine.py` (`make_prepared`), `services/scryfall_client.py`
+- **Files:** `game/effects/core.py` (`BecomePreparedEffect`), `game/rules_engine.py` (`make_prepared`), `services/scryfall_client.py`
 - **Why:** Reuses the existing RULE 704.5d "token disappears when stranded" SBA (scoped by checking the source is still prepared and on the battlefield) rather than a parallel expiry mechanism.
 
 ### Token copies and "becomes a copy of" (RULE 707)
 
 - **What:** `RulesEngine.copy_permanent` creates a token clone of a target's copiable card; "becomes a copy of target permanent" is a genuine layer-1 continuous effect (Vesuvan Shapeshifter).
-- **Files:** `game/rules_engine.py`, `game/effects.py`
+- **Files:** `game/rules_engine.py`, `game/effects/core.py`
 
 ### Delver-shaped conditional transform + MDFC commander casting
 
 - **What:** `RevealTopThenTransformEffect` implements "look at the top card; if it's a[n] `<type>`, transform ~." as a general, criteria-parameterized primitive (Delver of Secrets hand-authored on it); separately, `legal_actions`' command-zone loop now offers an MDFC commander's back face for casting (RULE 903.6), matching what the hand-cast loop already did.
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`, `game/game_engine.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`, `game/game_engine.py`
 - **Bug fixed:** the command-zone cast loop had no back-face branch at all, silently making an MDFC commander's back face uncastable from the command zone even though `can_cast`/`cast_spell` already supported `face="back"` generically.
 
 ### Face-down permanents — morph, megamorph, disguise, manifest, cloak (RULE 708)
@@ -2940,7 +2940,7 @@ is in the rules-engine categories below them.
 ### Legendary named token creation (PAR-13)
 
 - **What:** `CreateTokenEffect`/`synthesize_token_card` gained a `legendary` param (Cradle of the Death God's "The Atropal"), setting `Card.is_legendary` directly and folding "Legendary" into the synthesized type line so `Card.is_token`'s "starts with Token" contract still holds.
-- **Files:** `game/effects.py`, `services/token_database.py`
+- **Files:** `game/effects/core.py`, `services/token_database.py`
 
 ### Format switch reaches the goldfish/multiplayer API (PLR-13)
 
@@ -2955,7 +2955,7 @@ is in the rules-engine categories below them.
 ### "Create a token and attach ~ to it" (Hobbits batch)
 
 - **What:** `AttachEffect`'s new `target_kind="created"`, reading `GameContext.created_objects` — a Living-Weapon-adjacent shape printed as ordinary text instead of the keyword.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 
 ### Frodo, Sauron's Bane: two-stage transform state machine
 
@@ -2970,7 +2970,7 @@ is in the rules-engine categories below them.
 ### Dynamic-magnitude token creation
 
 - **What:** `CreateTokenEffect.count_from_trigger_event` ("create that many tokens", Lathril, Blade of the Elves) plus two dynamic-*count* oracle recognizers sharing a selector vocabulary with the pump widenings below: "for each `<subtype>` you control" and "X…, where X is the number of `<subtype/attacking>`…".
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 
 ### Bug: `_matches_permanent_type` missing planeswalker/battle branches (Card Types & Structures)
 
@@ -2980,18 +2980,18 @@ is in the rules-engine categories below them.
 ### Bug: token synthesis dropped the Artifact type on "N/N artifact creature token" (Card Types & Structures)
 
 - **What:** `synthesize_token_card` treated "Creature"/"Artifact" as strict either/or, and all three parser word-splitting loops recognized "artifact" as a supertype marker and discarded it — every Construct/Thopter/Servo/Golem token cache-wide silently lost its Artifact type. Fixed with a combined `is_artifact` flag and a single shared `_split_token_mid_words` helper replacing three duplicated loops.
-- **Files:** `services/token_database.py`, `parser/oracle/catalogue/handlers.py`, `game/effects.py`
+- **Files:** `services/token_database.py`, `parser/oracle/catalogue/handlers.py`, `game/effects/core.py`
 - **Bug fixed:** Surfaced by Urza's Saga's own Construct — invisible to its own artifact-counting anthem, it stayed 0/0 and died to RULE 704.5f one SBA pass after `create_token` had genuinely already placed it on the battlefield.
 
 ### Copy-Except `not_legendary` / `add_types` / `add_subtypes`
 
 - **What:** `Card.as_copy` gained `not_legendary` (strips `is_legendary` and the printed word, RULE 205.4a) alongside the pre-existing `add_types`/`add_subtypes`; `CopyPermanentEffect` gained all three (previously only `EnterAsCopyReplacement` had them), threaded through `RulesEngine.copy_permanent`.
-- **Files:** `models/card.py`, `game/effects.py`, `game/rules_engine.py`.
+- **Files:** `models/card.py`, `game/effects/core.py`, `game/rules_engine.py`.
 
 ### `ReturnSelfFromGraveyardEffect.transformed` Wiring
 
 - **What:** Threaded the existing `transformed` flag (RULE 400.7 + 712.8) through `ReturnSelfFromGraveyardEffect` for Ojer Axonil's death trigger.
-- **Files:** `game/effects.py`.
+- **Files:** `game/effects/core.py`.
 - **Bug fixed:** The effect's pre-existing `tapped` param had been accepted since Malakir Rebirth but never actually applied (`return_from_graveyard` reads "tapped" off the destination string, not a separate flag) — Malakir Rebirth's granted return had been silently returning creatures untapped.
 
 ## Keyword Catalogue
@@ -3005,7 +3005,7 @@ is in the rules-engine categories below them.
 ### Regenerate (RULE 701.16)
 
 - **What:** A new pre-emptive `EventType.DESTROY`, fired by `RulesEngine.destroy` and run through the existing replacement machinery, lets a regeneration shield (a `ReplacementEffect` tagged `regeneration_shield`) intercept it: removes the permanent from combat, taps it, clears damage, and cancels the move to graveyard. Multiple shields stack independently; an unused shield expires at cleanup.
-- **Files:** `game/rules_engine.py`, `game/effects.py`, `models/events.py`
+- **Files:** `game/rules_engine.py`, `game/effects/core.py`, `models/events.py`
 - **Bug fixed:** RULE 701.16c — sacrifice previously routed through `destroy` too, so a regeneration shield could illegally save a sacrificed permanent; a new non-destructive `RulesEngine.put_into_graveyard` choke point now handles sacrifice instead.
 - **Follow-up (PAR-33, PARSER_VERSION 236) — "regenerate enchanted creature" from oracle text:** `RegenerateEffect`'s `target_kind="attached_permanent"` mode (built for the Licid batch, resolves `source.attached_to` live) had been reachable only via a hand-authored catalogue entry. New `handlers._REGENERATE_ATTACHED_RE` (`regenerate (?:enchanted|equipped) creature`) → `EffectSpec("regenerate", {"target_kind": "attached_permanent"})`, registered before the plain `regenerate` row. An Aura's own `<cost>: Regenerate enchanted creature.` activated ability (Regeneration / Gaea's Embrace / Blessing of Leeches / Dark Privilege / Serpent Skin / Strands of Undeath) now parses whole — its cost (mana, or `Sacrifice a creature`/`Sacrifice a Forest`) already parsed, only the body was blocked. **+14, 0 regressed.** `tests/test_par33_regenerate_attached.py`.
 
@@ -3017,7 +3017,7 @@ is in the rules-engine categories below them.
 ### Granted protection (RULE 702.16)
 
 - **What:** `GameObject.temp_protections`, read by `combat.is_protected_from`, granted via an interactive `grant_protection` effect and cleared at cleanup — Mother of Runes, Giver of Runes.
-- **Files:** `models/game_object.py`, `game/combat.py`, `game/effects.py`
+- **Files:** `models/game_object.py`, `game/combat.py`, `game/effects/core.py`
 
 ### Cycling suffix generalization and keyword-line recognition bug fixes
 
@@ -3033,7 +3033,7 @@ is in the rules-engine categories below them.
 ### Living Weapon & Renown Real Behavior
 
 - **What:** RULE 702.92/702.112 went from recognized-only to real behavior: a Living Weapon's ETB now creates and self-attaches a germ token (`LivingWeaponEffect`, one atomic effect since attach target is the same effect's own creation), and Renown places counters and fires a new `EventType.RENOWNED` so a card's *separate* "becomes renowned" trigger (Relic Seeker) can key off it independently.
-- **Files:** `game/effect_binder.py`
+- **Files:** `game/binding/core.py`
 
 ### RULE 702.8b Flash Gates Cast Timing
 
@@ -3071,7 +3071,7 @@ is in the rules-engine categories below them.
 ### Fading (RULE 702.32)
 
 - **What:** Entry counters and the upkeep "remove one or sacrifice" behavior are both bound to the keyword itself (not to any specific card), reading counters off the parsed keyword rather than a printed reminder sentence, so every Fading/Vanishing card gets it for free.
-- **Files:** `game/effects.py`, `game/rules_engine.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`
 
 ### Soulbond (RULE 702.94)
 
@@ -3097,7 +3097,7 @@ is in the rules-engine categories below them.
 ### Ascend / the city's blessing (RULE 702.131)
 
 - **What:** Previously a bare recognized keyword with zero bound behaviour. `Player.has_city_blessing` is a plain idempotent per-player flag, never cleared once granted; the permanent form (10+ permanents) is checked at SBA cadence, the instant/sorcery form is a one-shot `GetCityBlessingEffect` appended to `spell_effects`.
-- **Files:** `game/rules_engine.py`, `game/effects.py`, `game/continuous.py`
+- **Files:** `game/rules_engine.py`, `game/effects/core.py`, `game/continuous.py`
 
 ### Hexproof-from-quality keyword shape (PAR-5)
 
@@ -3114,7 +3114,7 @@ is in the rules-engine categories below them.
 ### Generic Cycling execution for unregistered cards (PAR-9)
 
 - **What:** A bare, unregistered "Cycling `<cost>`" keyword line was claimed for the coverage gate but bound to nothing. `effect_binder._cycling_activated_ability` now binds a real `{cost}, Discard this card: Draw a card.` ability, guarded against colliding with a `<type>cycling` variant spelling or a pre-existing hand-authored discard-cost ability on the same card.
-- **Files:** `game/effect_binder.py`
+- **Files:** `game/binding/core.py`
 
 ### "Choose a Background" keyword recognition (PAR-12, RULE 702.124)
 
@@ -3134,28 +3134,28 @@ is in the rules-engine categories below them.
 ### RULE 702.28c Cycling trigger, from nothing
 
 - **What:** "When you cycle this card, `<effect>`." had no event to watch — the generic Cycling activated-ability binder gave no signal that a Cycling discard (vs. a Channel-cost one) had happened. New `EventType.CYCLED` + `ActivationCost.is_cycling`, found via a graveyard-scoped trigger scan mirroring the existing dies-from-graveyard one. Its own `{X}` preservation (`GameObject.cycling_x_paid`) closes Shark Typhoon's X/X cycling bonus specifically.
-- **Files:** `game/effect_binder.py`, `game/rules_engine.py`, `models/game_state.py`
+- **Files:** `game/binding/core.py`, `game/rules_engine.py`, `models/game_state.py`
 
 ### Cumulative Upkeep (RULE 702.24) (MEC-16)
 
-- **What:** `CumulativeUpkeepEffect` adds an age counter then reuses RULE 701.17's "sacrifice unless you pay" machinery, with the parsed cost repeated (scaled) once per age counter. `effect_binder.py`'s keyword-to-behaviour dispatch table gained the missing entry.
-- **Files:** `game/effects.py`, `game/effect_binder.py`
+- **What:** `CumulativeUpkeepEffect` adds an age counter then reuses RULE 701.17's "sacrifice unless you pay" machinery, with the parsed cost repeated (scaled) once per age counter. `binding/core.py`'s keyword-to-behaviour dispatch table gained the missing entry.
+- **Files:** `game/effects/core.py`, `game/binding/core.py`
 - **Bug fixed:** The keyword was already parser-recognized but had no binder dispatch entry at all, so every Cumulative Upkeep card was inert regardless of hand-authoring; fixing the binding retroactively closed Mystic Remora's and Thought Lash's own "not built yet" documented simplifications for free.
 
 ### Imprint (RULE 702.45-adjacent) (MEC-17)
 
 - **What:** `RulesEngine.request_choose_objects` gained a `remember` flag that stamps a chosen exiled object's id onto `GameObject.linked_exile_id`; `ImprintEffect` is the ETB "you may exile a card from your hand" half; `ManaAbility.color_selector`'s new `"imprinted_card_colors"` reads the exiled card's colors fresh every tap. Chrome Mox hand-authored.
-- **Files:** `game/rules/misc_mixin.py`, `game/effects.py`, `game/mana_abilities.py`, `game/ability_catalogue.py`
+- **Files:** `game/rules/misc_mixin.py`, `game/effects/core.py`, `game/mana_abilities.py`, `game/ability_catalogue.py`
 
 ### Slip Out the Back: `PhaseOutEffect` previous-clause pronoun (Keyword Catalogue)
 
 - **What:** `PhaseOutEffect` (RULE 702.26) gained a `previous_subject` flag reading `GameContext.previous_targets`, matching `GrantUntilEffect`/`TapEffect`/`ReturnToHandEffect`'s existing pronoun idiom — "Put a +1/+1 counter on target creature. **It** phases out." Closes 8 cache-wide cards.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 
 ### Phasing out an opponent's permanent as a spell effect (RULE 702.26) (Keyword Catalogue)
 
 - **What:** `PhaseOutEffect` already accepted an arbitrary `target_kind`; the gap was purely parser-side. New `PhaseOutEffect.self_target` plus three parser rows (self/attached/target) close 9 cache-wide cards (Blink Dog, Vaporous Djinn, Crystal Golem, and others).
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 
 ### Delirium (RULE 702.137) (Keyword Catalogue)
 
@@ -3170,7 +3170,7 @@ is in the rules-engine categories below them.
 ### RULE 702.64 Absorb — Real Behaviour
 
 - **What:** Absorb went from a recognized-but-inert numbered keyword to real behaviour: bound structurally in `effect_binder.attach_to_object`'s keyword branch, straight off `parametric_keywords["absorb"]["n"]` onto the `"prevent_damage"` factory (`to="self"`) — no prior keyword-to-`ReplacementEffect` dispatch table existed. Closes every cached Absorb-N creature (e.g. Lymph Sliver).
-- **Files:** `game/effect_binder.py`.
+- **Files:** `game/binding/core.py`.
 
 ### RULE 702.164 Toxic — Real Behaviour
 
@@ -3184,7 +3184,7 @@ is in the rules-engine categories below them.
 - **What:** A third "striated text box" card structure alongside Leveler/Class — a Spacecraft (or Planet land) whose text splits into a fixed Station reminder line (the real activated ability, RULE 702.184a: tap another untapped creature, put charge counters on this permanent equal to its power, sorcery-speed only, no once-per-turn cap) plus one or more `"N+ | <ability>"` bracket lines that are **cumulative** (>= comparison), not Leveler's mutually-exclusive tier ranges. `parser/oracle/catalogue/station.py`'s `split_station_blocks` classifies every line by shape in printed order (RULE 721.4 allows an ordinary line both before *and* after the brackets, unlike Leveler's strict preamble-then-blocks shape); `station_creature_threshold` reads the reminder line's own trailing "It's an artifact creature at N+." sentence from **raw**, pre-`normalize` text, since the per-bracket P/T box a real card prints doesn't survive into Scryfall's `oracle_text` at all (confirmed against all 30 cached Station cards). `gate.py` gained a new `is_station` dispatch branch reusing Leveler/Class's own `min_level`/`level_counter` gate mechanism, pointed at `"charge"` counters, for both the cumulative per-bracket grants and the creature-hood static.
 - **Engine side:** the reminder line's activated ability is bound *structurally* off Scryfall's own `keywords: ["Station"]` entry (`effect_binder._station_activated_ability`, mirroring Crew/Saddle's PAR-9/MEC-40-shaped "recognized but inert keyword" fix), not emitted by the parser module. A new `ActivationCost.station` cost (exact-count-one from `_crew_pool`'s existing "other untapped creatures you control" pool, unlike Crew/Saddle's own power-threshold subset) stamps `GameObject.station_tapped_power` (the `sacrificed_cost_power` idiom's cost-payment sibling), read back by `continuous.count_selector`'s `"station_tapped_power"` entry for the charge-counter amount. The creature-hood static reuses `Card.vehicle_power`/`vehicle_toughness` (RULE 208.1's general noncreature-permanent-P/T slot) — which required widening `services/scryfall_client.py`'s Vehicle-only P/T capture to also recognize "Spacecraft" in the type line (the same latent-bug shape MEC-29 fixed once already for Vehicle/Crew, caught before shipping this time).
 - **Bug found and fixed:** `combat.keywords_of`'s oracle-text regex fallback had no concept of "only active at N+ counters" — confirmed live on Entropic Battlecruiser, whose "8+ | Flying, deathtouch" bracket leaked a permanent, unconditional `deathtouch` (comma-anchored right after the "8+ | " prefix) even at 0 charge counters, on a card where no static had even bound yet. The exact same leak `is_leveler`'s `leveler_base_text` restriction already prevents for "LEVEL N+" blocks, just never extended to Station. Fixed with `station.station_base_text` — filters bracket *lines* out rather than truncating at the first one (RULE 721.4's own before-and-after shape means a real trailing unconditional line must still be found), wired into `keywords_of` alongside the existing `is_leveler` branch.
-- **Files:** `parser/oracle/catalogue/station.py` (new), `parser/oracle/gate.py`, `game/effect_binder.py`, `game/engine/activation_mixin.py`, `game/engine/legal_actions_mixin.py`, `game/costs.py`, `game/continuous.py`, `game/combat.py`, `models/card.py` (`is_station`), `models/game_object.py` (`station_tapped_power`), `services/scryfall_client.py`
+- **Files:** `parser/oracle/catalogue/station.py` (new), `parser/oracle/gate.py`, `game/binding/core.py`, `game/engine/activation_mixin.py`, `game/engine/legal_actions_mixin.py`, `game/costs.py`, `game/continuous.py`, `game/combat.py`, `models/card.py` (`is_station`), `models/game_object.py` (`station_tapped_power`), `services/scryfall_client.py`
 - **Tests:** `tests/test_game_engine.py` (the `keywords_of` leak regression, both directions)
 
 ### MEC-48: Specialize (Alchemy Horizons: Baldur's Gate — digital keyword, PARSER_VERSION 223)
@@ -3193,7 +3193,7 @@ is in the rules-engine categories below them.
 - **Parser:** one `("Specialize", COST)` row in `catalogue/keywords.py` — `_KEYWORD_TOKEN_RE`/`_COST_KEYWORD_ALT`/`is_keyword_line` are all auto-built from that table, so a bare "Specialize {cost}" line is recognized for free. `segmenter._TRIGGER_VERBS` gains `("specializes", "SPECIALIZED")` (also claims "specializes from your graveyard / from any zone" — the from-zone phrase rides along, the engine fires the same event regardless). **Fail-closed rider guard:** a "Specialize {cost}. `<rider>`" line (cost-reduction / "activate only if" / "you may also activate … from your graveyard") would be swallowed whole by `_KEYWORD_TOKEN_RE`'s greedy `.*$` and its rider silently dropped, so `segment_line` matches `_SPECIALIZE_WITH_RIDER_RE` *before* `is_keyword_line` and returns the line UNMODELED — the same pre-`is_keyword_line` intercept pattern PAR-28 used for "Boast — [ability]". Those ~5 rider cards stay MEC-48 (trimmed ticket).
 - **Engine:** `effect_binder._specialize_activated_ability` (mirroring PAR-9 Cycling / MEC-29 Crew / Station's "recognized-but-inert keyword" fixes) builds a real `ActivatedAbility`: `parse_activation_cost(f"{cost}, Discard a card")` → `ActivationCost.discard = 1` (the ordinary auto-pick discard path) + `sorcery_speed_only = True`. Body is `SpecializeEffect` (`"specialize"`) — the `MonstrosityEffect` shape: untargeted, self-scoped, guards on `is_specialized`, sets the persistent `GameObject.is_specialized` (+ `specialized_color` when a single-coloured discard made one determinable) and fires `EventType.SPECIALIZED` with `instance_id`/`controller_id`/`color`. `reset_as_new_object` clears both fields (RULE 400.7).
 - **New:** `EventType.SPECIALIZED`; `GameObject.is_specialized` / `specialized_color`; `SpecializeEffect` + registry; `effect_binder._specialize_activated_ability`; `segmenter._SPECIALIZE_WITH_RIDER_RE`.
-- **Files:** `parser/oracle/catalogue/keywords.py`, `parser/oracle/segmenter.py`, `parser/oracle/gate.py`, `models/events.py`, `models/game_object.py`, `game/effects.py`, `game/effect_binder.py`.
+- **Files:** `parser/oracle/catalogue/keywords.py`, `parser/oracle/segmenter.py`, `parser/oracle/gate.py`, `models/events.py`, `models/game_object.py`, `game/effects/core.py`, `game/binding/core.py`.
 - **Yield:** +12 (PARSER_VERSION 222→223). Coverage 13,607 / 34,811 (39.1%); Commander-legal unchanged at 13,011 / 31,830 (the Baldur's Gate Alchemy cards are `not_legal` in Commander, digital-only). The +12 = 6 bare-cost base faces (Gale/Jaheira/Rasaad/Vhal/Viconia/Wilson) + 6 specialized faces (Jaheira ×4, Klement Death Acolyte, Lae'zel Wrathful Warrior) whose "when ~ specializes, `<already-modeled effect>`" body now parses via the new verb.
 - **Tests:** `tests/test_mec48_specialize.py` — bare line MODELED; rider line stays UNMODELED; "specializes" is a recognized trigger verb; the activated ability is offered at sorcery speed with a `discard=1` cost; activating it sets `is_specialized` + fires `SPECIALIZED`; refused at instant speed; `reset_as_new_object` clears the flag. `test_trigger_condition_vocabulary.py` updated (its "verb with no engine event" example moved from "specializes" to "phases out").
 
@@ -3223,7 +3223,7 @@ is in the rules-engine categories below them.
   - **Max Speed** (RULE 702.178a) & the **Speed subsystem** (RULE 702.179): `Player.speed` (0 = no speed, 4 = max), `Player.speed_increased_this_turn`. **Start Your Engines!** (RULE 702.179a) is a real SBA — `_sba_check_start_your_engines` (mirroring `_sba_check_ascend`, read off `combat.has(obj, "start_your_engines")`) sets a controller with no speed to speed 1. **RULE 702.179d**'s sourceless inherent ability ("whenever one or more opponents lose life during your turn, if your speed < 4, +1, once per turn") is built fresh per `EventType.LIFE_LOST` in `_collect_inherent_triggers`, controlled by the active player like the rad-counter ability — resolving via the new `IncreaseSpeedEffect` (capped at 4). `Max speed — [ability]` gates on a new `your_speed_is_max` `static_conditions` kind (`speed >= 4`), on whichever of static/triggered/activated the body is.
   - `_KEYWORD_TOKEN_RE`'s trailing `\b` → `(?![a-z0-9])` so a keyword-line whose display name ends in punctuation ("Start Your Engines!", "For Mirrodin!") is recognised at all — the last gap in "every registered RULE 702 keyword's bare line is claimed" (verified: 195/195).
 - **Yield:** **+26 cache cards** to `MODELED` (`parser_probe diff`, −0 regressed) — mostly Aetherdrift Start-Your-Engines cards, plus the Boast/Exhaust/Power-up/Max-Speed cards whose bodies fully parse. Structural: more follow as the effect-grammar gaps in individual Case/Boast bodies close. No Case card reaches `MODELED` yet (every cached one has an unmodeled clause somewhere — an unbuilt "N …this turn" solve-condition tracker, or an effect-body gap in its `Solved —`/ETB clause), same standing situation as the battle pool.
-- **Files:** `parser/oracle/segmenter.py`, `parser/oracle/normalize.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/gate.py` (`PARSER_VERSION` 100 → 101 + lock); `game/static_conditions.py`, `game/effect_binder.py`, `game/costs.py`, `game/effects.py`, `game/engine/activation_mixin.py`, `game/engine/combat_mixin.py`, `game/engine/turn_loop_mixin.py`, `game/rules/misc_mixin.py`, `game/rules/sba_mixin.py`, `game/rules/triggers_mixin.py`; `models/game_object.py`, `models/player.py`, `models/events.py`
+- **Files:** `parser/oracle/segmenter.py`, `parser/oracle/normalize.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/gate.py` (`PARSER_VERSION` 100 → 101 + lock); `game/static_conditions.py`, `game/binding/core.py`, `game/costs.py`, `game/effects/core.py`, `game/engine/activation_mixin.py`, `game/engine/combat_mixin.py`, `game/engine/turn_loop_mixin.py`, `game/rules/misc_mixin.py`, `game/rules/sba_mixin.py`, `game/rules/triggers_mixin.py`; `models/game_object.py`, `models/player.py`, `models/events.py`
 - **Tests:** `tests/test_par28_keyword_labeled_abilities.py` (19 — parse + execute per keyword: Boast can't-fire-before-attacking / once-per-turn / flag reset; Exhaust once-per-game and two-abilities-tracked-separately; Power-up cost reduction only the turn it entered; Forecast from-hand + upkeep-only; Start-Your-Engines SBA, once-per-turn speed increase capped at 4, only-your-turn, Max-Speed static gated at speed 4; Case solve trigger at end step + `source_solved` anthem turning on, designation persistence)
 
 ### Combat-evasion & targeting keywords: Shroud, Fear, Intimidate, Skulk, Shadow (PAR-22)
@@ -3290,7 +3290,7 @@ is in the rules-engine categories below them.
     through to `combat.matches_object_filter` (the relative-power keys had
     silently no-opped from the `creature` target branch before — a
     latent gap, not just this ticket).
-- **Files:** `game/effect_binder.py`, `game/effects.py` (`PumpEffect.
+- **Files:** `game/binding/core.py`, `game/effects/core.py` (`PumpEffect.
   trigger_subject`, `AddCountersEffect.creature_filter`),
   `game/continuous.py` (`other_attacking_creatures`),
   `game/targeting.py`, `frontend/src/js/implementationStatusView.js`
@@ -3343,8 +3343,8 @@ is in the rules-engine categories below them.
     decline, falls back to `_single_draw`. `GameEngine.resolve_choice`
     dispatch + `gameBoardView.js` `CHOICE_ICONS` entry added.
 - **Files:** `game/rules/triggers_mixin.py`, `game/rules/draw_discard_mixin.py`,
-  `game/effects.py` (`UndyingPersistReturnEffect`/`UnearthEffect`/
-  `EmbalmEternalizeEffect`), `game/effect_binder.py`,
+  `game/effects/core.py` (`UndyingPersistReturnEffect`/`UnearthEffect`/
+  `EmbalmEternalizeEffect`), `game/binding/core.py`,
   `game/engine/turn_loop_mixin.py`, `frontend/src/js/gameBoardView.js`,
   `frontend/src/js/implementationStatusView.js`
 - **Tests:** `tests/test_par25_death_graveyard_keywords.py` (13 — undying
@@ -3400,7 +3400,7 @@ is in the rules-engine categories below them.
     (a future UI refinement); an {X} convoke spell's offered `max_x`
     ignores the help capacity (server re-validates on cast).
 - **Files:** `parser/oracle/catalogue/keywords.py` (`_resolve`),
-  `game/effect_binder.py` (`_attach_affinity_static`),
+  `game/binding/core.py` (`_attach_affinity_static`),
   `game/engine/casting_mixin.py` (`_help_pay_keyword`/`_cast_help_pool`/
   `_consume_cast_help`/`_cast_help_capacity` + `help_pay` threading),
   `game/engine/legal_actions_mixin.py`, `services/game_session.py`,
@@ -3496,7 +3496,7 @@ is in the rules-engine categories below them.
     engine work: no PARSER_VERSION bump (the keyword line was already
     recognised, and the ~22 still-`UNMODELED` bestow cards are each held
     up by *other*, unrelated effect-body grammar).
-- **Files:** `game/effect_binder.py` (`_kw_backup` + the dash/madness/
+- **Files:** `game/binding/core.py` (`_kw_backup` + the dash/madness/
   miracle/ninjutsu keyword-bind hooks), `game/targeting.py`
   (`creature_including_self`), `game/engine/casting_mixin.py` (`cast_via_
   dash` stamp; `_bestow_cost`, `cast_spell`/`_cast_current_face`/
@@ -3505,7 +3505,7 @@ is in the rules-engine categories below them.
   bestow-aware `_detach_attachments_from`/`_revalidate_attachments`/
   `_resolve_permanent_spell`), `game/rules/sba_mixin.py`
   (`_sba_check_unbestow`), `game/rules/draw_discard_mixin.py`
-  (`_maybe_madness`/`_arm_miracle`), `game/effects.py`
+  (`_maybe_madness`/`_arm_miracle`), `game/effects/core.py`
   (`MadnessToGraveyardEffect`), `game/engine/combat_mixin.py`
   (`ninjutsu`), `game/engine/legal_actions_mixin.py` (ninjutsu offer +
   madness/miracle offer gates; `_cast_action`/`_offer_cast` bestow
@@ -3562,12 +3562,12 @@ is in the rules-engine categories below them.
 ### "The Ring tempts you" + RING_TEMPTED trigger (PAR-12, RULE 701.51/701.52)
 
 - **What:** The resolve-time alias (`the_ring_tempts_you`) already existed for one hand-authored card; general oracle recognition closed 36+ more. "Whenever the Ring tempts you, `<effect>`" needed a genuinely new engine primitive though: `RulesEngine.the_ring_tempts_you` fired no event at all. New `EventType.RING_TEMPTED`, fired once the Ring-bearer choice is *settled* (immediately for 0/1-candidate paths, deferred to `resolve_ring_bearer_choice` for the interactive 2+-candidate path) so a trigger reading "if you chose a creature other than ~" always sees the final bearer.
-- **Files:** `game/rules_engine.py`, `parser/oracle/catalogue/handlers.py`, `game/effect_binder.py`
+- **Files:** `game/rules_engine.py`, `parser/oracle/catalogue/handlers.py`, `game/binding/core.py`
 
 ### Frodo, Adventurous Hobbit's compound Ring conditions (PAR-12)
 
 - **What:** Closed the deck's own commander with three small resolve-time primitives: `GameState.life_gained_this_turn` (a new per-turn tracker, reset only on the incoming active player); `"is_ring_bearer"` and `"ring_tempted_at_least"` `EffectSpec.condition` keys; and `ConditionalEffect._condition_holds` generalized from an if/elif to an AND-fold over every condition key present, since this card is the first needing two conditions to hold together.
-- **Files:** `game/effects.py`, `game/rules_engine.py`, `parser/oracle/spec.py`
+- **Files:** `game/effects/core.py`, `game/rules_engine.py`, `parser/oracle/spec.py`
 - **Bug fixed:** The first cut of the life-gained condition wrapper greedily captured the card's entire remaining text as its "rest", silently overwriting the second sentence's own, unrelated Ring-bearer gate — a card that would have parsed `MODELED` but drawn on the wrong trigger. Caught only by a real execute-level test, not coverage measurement.
 
 ### Emblem Replacement-Effect Plumbing
@@ -3581,19 +3581,19 @@ is in the rules-engine categories below them.
 ### Extra turns (RULE 500.7)
 
 - **What:** `GameState.extra_turns` is a FIFO consumed by `GameEngine.begin_turn`; a `take_extra_turn` effect inserts a turn right after the current one (Final Fortune, paired with a delayed trigger for its own-turn-end loss clause).
-- **Files:** `models/game_state.py`, `game/game_engine.py`, `game/effects.py`
+- **Files:** `models/game_state.py`, `game/game_engine.py`, `game/effects/core.py`
 - **PAR-30 parser wiring (PARSER_VERSION 166, +13):** the `take_extra_turn` effect type existed from cube-batch-18 but nothing in the oracle parser emitted it. `handlers._take_extra_turn` (`_TAKE_EXTRA_TURN_RE`) now claims the plain "take an extra turn after this one" body ("one"→"1"; an optional leading "you "), fullmatch-only so the segmenter still splits riders off. Closes the modelable half of Plea for Power's "Will of the council" vote outcome (`_vote_majority`'s `parse_effect_body` picks it up in the branch) plus a broad temporal spill — Time Walk, Temporal Manipulation/Mastery/Trespass, Capture of Jingzhou, Part the Waterveil, Alrund's Epiphany, Timestream Navigator, Time Sieve, Teferi Timebender. `_vote_per_vote` explicitly fail-closes on a `take_extra_turn` body — `_tally_and_apply_vote`'s per-vote branch scales an int `count`/`amount` by the option's tally and this effect has neither, so Expropriate's "take an extra turn … for each time vote" must not half-model. Riders left as their own tickets: "skip the untap step of that turn" (Savor the Moment — `extra_turns` is a bare id list with no skip-untap slot), "…you lose the game" (Last Chance), "…for each coin that comes up heads" (Ral Zarek). `tests/test_par30_take_extra_turn.py`.
 
 ### "Play/cast from the top of your library" permission
 
 - **What:** A new self-contained `TopLibraryPermissionEffect` marker (look/play_lands/cast_spells/min_mana_value/requires_attached params) is read live off the battlefield by a dedicated `game/top_library.py` reader rather than the layer system, so the permission disappears the instant its source leaves (or is unattached). `can_play_land`/`can_cast`/`legal_actions` each grew one more zone-agnostic disjunct for the library top; multiple simultaneous grants OR together. Oracle of Mul Daya and Glarb, Calamity's Augur hand-authored.
-- **Files:** `game/top_library.py`, `game/effects.py`, `game/game_engine.py`, `game/ability_catalogue.py`
+- **Files:** `game/top_library.py`, `game/effects/core.py`, `game/game_engine.py`, `game/ability_catalogue.py`
 - **Why:** RULE 701 has no native "play from the top" provision — every real card grants it as its own static ability, so this is a genuinely new mechanism rather than an extension of an existing zone-permission family.
 
 ### ENG-16: Shared `_chosen_targets` Helper
 
 - **What:** Consolidated an identical RULE 115.1a "up to N targets off a possibly-shared list" resolution block, independently reimplemented by seven `GameEffect` subclasses, into one module-level `_chosen_targets` helper — pure deduplication, no behavior change.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### ENG-18: Shared Combat-Damage-Marker Trigger Scaffold
 
@@ -3615,7 +3615,7 @@ is in the rules-engine categories below them.
 ### ENG-24: Table-Driven Keyword-Triggered-Ability Dispatch
 
 - **What:** `_keyword_triggered_abilities` (soulbond/living_weapon/fading/renown/annihilator/afflict/bushido) became seven `_kw_<name>` builder functions in a `_KEYWORD_TRIGGERED_BUILDERS` dict, replacing a seven-armed if/elif chain — the same registry-over-if/elif pattern `EffectRegistry` already uses. `_keyword_activated_ability` (Equip/Fortify/Reconfigure) was investigated and left untouched since it has no per-keyword branching to convert.
-- **Files:** `game/effect_binder.py`
+- **Files:** `game/binding/core.py`
 
 ### Legal-actions validation
 
@@ -3668,12 +3668,12 @@ is in the rules-engine categories below them.
 ### `WheelOfFortuneEffect` (Game Engine / Turn Loop & Actions)
 
 - **What:** "Each player discards their hand, then draws seven cards." — the flat-count sibling of the already-shipped `WheelEffect`/`WindfallEffect`. Hand-authored (single-card template).
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### `DestroyEffect` "nonbasic" mass-wipe filter (Game Engine / Turn Loop & Actions)
 
 - **What:** "Destroy all nonbasic lands." (Ruination) — a new `"nonbasic"` filter key paired with the existing `selector="all_lands"`.
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### `_substitute_x` walks `filter`/`criteria` dicts generically (Game Engine / Turn Loop & Actions)
 
@@ -3688,12 +3688,12 @@ is in the rules-engine categories below them.
 ### `ShuffleSelfIntoLibraryEffect` (RULE 701.20) (Game Engine / Turn Loop & Actions)
 
 - **What:** "Shuffle ~ into its owner's library." (Green Sun's Zenith) overrides the default RULE 608.2m graveyard routing via the same `obj.zone != Zone.STACK` self-move override an earlier trailing-exile shape already used.
-- **Files:** `game/effects.py`, `game/game_engine.py`
+- **Files:** `game/effects/core.py`, `game/game_engine.py`
 
 ### Stonehewer Giant / Quest for the Holy Relic: search-then-attach (Game Engine / Turn Loop & Actions)
 
 - **What:** `SearchLibraryEffect.attach_to_creature_you_control` applies right after `extra_counters`, auto-picking the first eligible creature (no RULE 115 target printed). A fully general oracle-text handler closes both cards outright.
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`
 
 ### Tainted Pact: repeated-dig-until-a-choice loop (Game Engine / Turn Loop & Actions)
 
@@ -3708,7 +3708,7 @@ is in the rules-engine categories below them.
 ### RULE 702.26b extra-combat-phase grants (Game Engine / Turn Loop & Actions)
 
 - **What:** `GameEngine.insert_additional_combat_phase` splices a fresh combat (and, for "…an additional main phase," a fresh main) into the mutable per-turn `_turn_steps` list right after the next upcoming `end_combat`. An effect queues onto `GameState.pending_extra_combats` (a FIFO, the same shape `extra_turns` already uses) since it can't reach `_turn_steps`/`_cursor` directly. Closes Godo, Aurelia, Aggravated Assault.
-- **Files:** `game/game_engine.py`, `game/effects.py`, `models/game_state.py`
+- **Files:** `game/game_engine.py`, `game/effects/core.py`, `models/game_state.py`
 
 ### "Destroy target X. It can't be regenerated." (Game Engine / Turn Loop & Actions)
 
@@ -3721,7 +3721,7 @@ is in the rules-engine categories below them.
 - **PAR-30 antecedent widening (PARSER_VERSION 138, +6):** `_gain_control_eot` now also accepts "`(?:another )?target`" (Akroan Conscriptor — the RULE 601.2c self-exclusion is a documented simplification), a bare "target artifact" kind (Metallic Mastery), and an optional "with power N or less/greater" filter threaded to a new `GainControlUntilEndOfTurnEffect.creature_filter` → `TargetSpec` (Enthralling Victor). A new whole-clause `_GAIN_CONTROL_EOT_PER_OPPONENT_RE` ("for each opponent, gain control of up to 1 target creature that player controls until end of turn. untap those creatures. they gain haste until end of turn.") reaches the `count_selector="opponents"` one-requirement-per-opponent shape `_goad_per_opponent` already uses — and `GainControlUntilEndOfTurnEffect.apply` now iterates *every* chosen target rather than `targets[0]`, so the whole list a `count_selector` yields is taken (Mass Mutiny, Molten Primordial). `_GAIN_CONTROL_HASTE_TAIL_RE` also gained "untap that artifact" and the "another " prefix. `tests/test_par30_threaten_antecedents.py`.
 - **PAR-30 residue closed (PARSER_VERSION 199–201, +9):** `_GAIN_CONTROL_HASTE_TAIL_RE`'s `grant` group now captures whatever the restatement sentence says beyond bare haste and recurses it through `parse_effect_body(previous_subject=True)`, so the shipped `pump(previous_subject=True)` claims "untap it. it gains trample and haste until end of turn" (Traitorous Blood) / "…haste and myriad…" (Firbolg Flutist). A new `previous_subject_only` handler `_gain_control_rich_prev_grant` claims the *leading* "until end of turn, it …" forms — "it gains haste and '`<quoted ability>`'" (Furnace Reins — wraps `static_handlers._quoted_ability_grant_effects` in `grant_until(previous_subject=True)`, `affects` stripped), "it becomes a `<subtype>` in addition to its other types and gains haste" (Loki's Scepter — layer-4 `type_change` add-subtype), "it has base power and toughness N/N and gains `<kws>`" (`pt_set` grant + residual `pump`); `_DAMAGE_TRIGGER_RE` also accepts "…to a player or battle" (RULE 310 — documented simplification, the battle case rides the same `is_player` filter). The opponent-scoped *mass* threaten — "gain control of all `<type>` [your opponents / target opponent] control[s] until end of turn. untap them. they gain haste …" — is a new whole-body `_GAIN_CONTROL_MASS_EOT_RE`: `selector="opponents_artifacts"` (Broadcast Takeover — the mass path also now *passes `source`* to `_mass_selector_objects`, it was dropping it) or a new `GainControlUntilEndOfTurnEffect.mass_of_target_player` (one RULE 115 opponent target, then all their creatures/artifacts — also narrows Ashiok Sculptor of Fears / Tezzeret Master of Metal). Card-specific conditional after-tails: "if that creature is a `<subtype>`, it also gets +N/+M until end of turn" (Goatnap) and "if it's equipped, you may destroy all Equipment attached to that creature" (Awaken the Sleeper — the "you may" isn't an interactive choice, documented simplification) ride new `ConditionalEffect` keys (`previous_target_has_subtype` / `_is_equipped` / `_power_at_most`, all reading `GameContext.previous_targets`) plus a new `equipment_attached_to_previous` mass selector. Bycatch: Kaseto Orochi Archmage, Beamtown Beatstick, Archpriest of Shadows.
 - **PAR-30 residue closed out — the trailing items (PARSER_VERSION 203–204, +23):** the bullet's last five, each a distinct primitive. **"When you cast this spell, `<effect>`."** (RULE 601.2i) — `segmenter._CAST_THIS_SPELL_TRIGGER_RE` → `trigger={"event": "SPELL_CAST", "condition": {"subject": "self"}}`, body parsed `self_subject`. The engine side was already MEC-43 (`RulesEngine._collect_self_cast_triggers` scans stack items; `effect_binder.bind_ability` sets `TriggeredAbility.functions_from_stack` off exactly that trigger shape) — only the recognizer was missing. +15 (Flayer of Loyalties — whose threaten body already parsed at v200 — plus the Emerge/Emrakul-brood cycle: Elder Deep-Fiend, Vexing Scuttler, Wretched Gryff, Artisan of Kozilek, Decimator of the Provinces, World Breaker, Desolation Twin …). **"enters or transforms into ~"** (Brutal Cathar) — new `EventType.TRANSFORMED`, fired by `RulesEngine.transform_permanent` *after* the face flip + ability rebind (so the payload names the new face and the freshly-bound trigger is already attached); `_SELF_MULTI_EVENT_RE` accepts "transforms into ~" as a verb slot → the existing event-list shape (one `TriggeredAbility` per event, `_SUBJECT_EVENT_KEYS`' default self scoping matches TRANSFORMED's `instance_id` — the face-name gate is implicit since the ability only exists on the object while it's that face). +5 (Huntmaster of the Fells, Ulrich of the Krallenhorde, Ashling Rekindled, Brigid Clachan's Heart). **"when ~ enters and at the beginning of your first main phase"** (Crack in Time) — `_ENTERS_AND_MAIN_PHASE_RE` → one self `ENTERS_BATTLEFIELD` spec + one controller-scoped `STEP_BEGIN` (`filter={"step":"main1"}`, `phase_relation="you"`) + the O-Ring companion LEAVES_BATTLEFIELD return. **Call for Aid** — the mass gain-control body's two anti-abuse riders: "you can't sacrifice those creatures this turn" (`GainControlUntilEndOfTurnEffect.mark_no_sacrifice` stamps `GameObject.cant_be_sacrificed_this_turn` on each taken creature — no separate "which objects" plumbing; checked at `RulesEngine.sacrifice` / `_sacrifice_candidate` / `_sacrifice_cost_choice`, cleared at cleanup) and "you can't attack that player this turn" (new `PreventAttackingPlayerThisTurnEffect` reads the shared opponent target → `GameState.no_attack_pairs_this_turn`, enforced in `GameEngine._can_attack` against the *assigned* defender only, cleared at cleanup). **Shackles of Treachery** — `_DAMAGE_TRIGGER_RE` now accepts a bare "deals damage" (no "to a …" — the whole recipient clause optional; empty filter = any damage instance), and a new `equipment_attached_to_source` target kind + `_destroy_equipment_attached_to_it` handler cover the granted quoted trigger's "destroy target Equipment attached to it" ("it" = the granted-to creature, i.e. the granted ability's source). **The BACKLOG bullet is deleted — the `gain_control_until_eot` / exile-until-leaves grammar is complete.** `tests/test_par30_cast_this_spell_trigger.py`, `test_par30_transform_trigger.py`, `test_par30_enters_and_phase_trigger.py`, `test_par30_call_for_aid_riders.py`.
-- **Files:** `parser/oracle/catalogue/handlers.py`, `parser/oracle/segmenter.py`, `parser/oracle/gate.py`, `game/effects.py`
+- **Files:** `parser/oracle/catalogue/handlers.py`, `parser/oracle/segmenter.py`, `parser/oracle/gate.py`, `game/effects/core.py`
 
 ### Combined "basic Island, Swamp, or Mountain card" search criteria (Game Engine / Turn Loop & Actions)
 
@@ -3731,7 +3731,7 @@ is in the rules-engine categories below them.
 ### "Each creature deals N damage to its controller" selector (Game Engine / Turn Loop & Actions)
 
 - **What:** New `DealDamageEffect` selector `"each_creature_controller"` (Rakdos Charm's third mode) — recipient varies per creature (N independent hits) rather than one amount fanned to a fixed group.
-- **Files:** `game/effects.py`
+- **Files:** `game/effects/core.py`
 
 ### Liliana, Dreadhorde General's −9: `count="all_but_one"` sacrifice sentinel (Game Engine / Turn Loop & Actions)
 
@@ -3747,7 +3747,7 @@ is in the rules-engine categories below them.
 ### `return_to_library` (RULE 701.3) + mass `ReturnToHandEffect` (Game Engine / Turn Loop & Actions)
 
 - **What:** `RulesEngine.return_to_library`/`ReturnToLibraryEffect` — "put target creature on top/bottom of its owner's library" — closing 10 cards (Time Ebb, Griptide, Roil Spout). `ReturnToHandEffect` also gained `selector`/`filter` mass "return all X" support (`DestroyEffect`'s own shared selectors reused) for Displacement Wave.
-- **Files:** `game/rules_engine.py`, `game/effects.py`
+- **Files:** `game/rules_engine.py`, `game/effects/core.py`
 - **Bug fixed:** RULE 903.9b's commander-zone redirect prompt hardcoded a `zone != Zone.HAND` check for German grammatical gender, silently mis-declining Hand's own feminine article; replaced with an explicit `_COMMANDER_ZONE_FEMININE` set the new Library label joins correctly.
 
 ### Intuition: two-player interactive search (Game Engine / Turn Loop & Actions)
@@ -3758,22 +3758,22 @@ is in the rules-engine categories below them.
 ### Ral, Monsoon Mage: `CoinFlipEffect` (RULE 705.1) (Game Engine / Turn Loop & Actions)
 
 - **What:** `CoinFlipEffect` branches into `win_effects`/`lose_effects` off `RulesEngine.coin_flip` — a reproducible RNG primitive that existed but had no consumer anywhere until this card. Win branch reuses `exile_return_transformed`; lose branch reuses `DealDamageEffect`'s `selector="controller"`.
-- **Files:** `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### MEC-21: "exiled with ~" tracker (Game Engine / Turn Loop & Actions)
 
 - **What:** `GameObject.exiled_with_ids` (an accumulating list, stamped by `ExileEffect(track_exiled_with=True)`) generalizes the single-slot `linked_exile_id` for a repeatable "exile a card from a graveyard" ability — ~185 cache-wide cards print this shape and can reuse the tracking without their own bespoke field. A consumer re-resolves each id and confirms it's still genuinely in exile.
-- **Files:** `game/effects.py`, `models/game_object.py`
+- **Files:** `game/effects/core.py`, `models/game_object.py`
 
 ### MEC-23: resolve-time single-target ability-borrowing snapshot (Game Engine / Turn Loop & Actions)
 
 - **What:** `GainActivatedAbilitiesOfTargetEffect` (Quicksilver Elemental) is the resolve-time, single-target sibling of MEC-21's standing layer-6 grant: at resolution it reads a target's `activated_abilities` once, redirects each via the existing `_retarget_effect_source`, and appends onto a new turn-scoped `GameObject.temp_granted_activated_abilities` field unioned into the same `granted_activated_abilities` property every consumer already reads. A later change to the target's own abilities doesn't retroactively change what was copied.
-- **Files:** `game/effects.py`, `models/game_object.py`
+- **Files:** `game/effects/core.py`, `models/game_object.py`
 
 ### Control of a Spell on the Stack (Commandeer)
 
 - **What:** `GameContext.gain_control_of_spell`/`GainControlOfSpellEffect` — RULE 608.2m/111.5's owner/controller split applied to a still-stacked spell: only `StackItem.controller_id` moves, so it resolves into a permanent under the new controller for free. Optional retarget runs before the control flip so RULE 115.4a's "you"/"your" still reads against the original caster.
-- **Files:** `game/effects.py`.
+- **Files:** `game/effects/core.py`.
 
 ## Multiplayer
 
@@ -3786,7 +3786,7 @@ is in the rules-engine categories below them.
 - **Cards (hand-authored, `entries_016.py`):** Mindslaver (`{4}, {T}, Sac`), Worst Fears (+ self-exile), Sorin Markov (all three loyalty abilities — the −3 drove a new general `set_life` effect, RULE 118.5/119.6, modelled as the resulting gain/loss), Emrakul the Promised End (`SPELL_CAST` self trigger + `grant_extra_turn_after`), Secret of Bloodbending (combat scope; the waterbend-{10}→turn-scope upgrade is a documented card-specific simplification). Parser: `catalogue/handlers.py`'s `_CONTROL_PLAYER_RE` claims the two plain phrasings for any future card.
 - **Frontend:** `gameBoardView.js` `actingSeat()` = `view.acting_as || view.perspective`; `myTurn`/`hasPriority`/auto-pass key off it. A `turnControlBannerHtml` strip shows "Du kontrollierst den Zug/die Kampfphase von X" on the controller's board and the mirror lock notice on the controlled player's.
 - **RULE 720.x carve-outs — documented simplification:** the controlled player still concedes for themselves (720.1); hidden-info is modelled only as the controller-sees-the-hand reveal, not the finer 720.3-720.7 edges; "can't be made to lose" edges unmodeled.
-- **Files:** `models/game_state.py` (`TurnControl`, `turn_controls`, `word_of_command`, `decider_for`/`driving_seat_for`/`active_turn_control_for`), `game/rules/triggers_mixin.py` (`_advance_turn_controls`), `game/effects.py` (`ControlPlayerEffect`, `SetLifeEffect`, `WordOfCommandEffect` + registry), `game/rules/misc_mixin.py` (`request_word_of_command`/`resolve_word_of_command_choice`), `game/engine/turn_loop_mixin.py` (`word_of_command` choice dispatch), `game/ability_catalogue/entries_016.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/gate.py`, `services/game_session.py`, `frontend/src/js/gameBoardView.js`, `frontend/src/styles/main.css`.
+- **Files:** `models/game_state.py` (`TurnControl`, `turn_controls`, `word_of_command`, `decider_for`/`driving_seat_for`/`active_turn_control_for`), `game/rules/triggers_mixin.py` (`_advance_turn_controls`), `game/effects/core.py` (`ControlPlayerEffect`, `SetLifeEffect`, `WordOfCommandEffect` + registry), `game/rules/misc_mixin.py` (`request_word_of_command`/`resolve_word_of_command_choice`), `game/engine/turn_loop_mixin.py` (`word_of_command` choice dispatch), `game/ability_catalogue/entries_016.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/gate.py`, `services/game_session.py`, `frontend/src/js/gameBoardView.js`, `frontend/src/styles/main.css`.
 - **Tests:** `tests/test_mec51_control_player.py` — state machine (wait/activate/expire), combat-scope phase gating, Emrakul extra-turn queueing, all five cards bind, Mindslaver activation installs the control, session `acting_as` + hand reveal + controlled-player-gets-no-actions, controller passes priority as the controlled seat and Bob (controlled) is refused.
 
 **MEC-51b — Word of Command (hand-authored, no `PARSER_VERSION` bump).** "Look at target opponent's hand and choose a card from it. You control that player until ~ finishes resolving. The player plays that card if able. …" — not the whole-turn window MEC-51 models but a *resolution-scoped* one making a single decision for another player. `WordOfCommandEffect` (`word_of_command`, `TargetSpec(kind="opponent")`) opens a `word_of_command` `pending_choice` addressed to the **caster** listing every card in the target's hand; `game_session.view()` reveals that hand to the caster (RULE 720.2). `RulesEngine.resolve_word_of_command_choice` then has the target play the pick — a land goes straight onto the battlefield under their control (`_put_searched_card`; a documented simplification of RULE 305's land-play special action — doesn't consume land-for-turn), anything else is `cast_without_paying` under their control (the effect-driven free-cast primitive cascade/discover use). `GameState.word_of_command` (`{controller_id, target_id, chosen_instance_id}`) is set for the window; `decider_for` routes the target's decisions to the caster while it holds, cleared once the pick is played. **Documented simplifications:** the chosen card is cast *without its mana cost paid* (so RULE 720's "only land mana, only for that card" restriction is moot) and, like every effect-driven free cast here, without target selection (RULE 601.2c). "If able" is enforced for a land; a spell with no legal targets still goes on the stack and does nothing, same as a cascade hit. **Tests:** `tests/test_mec51b_word_of_command.py` — binds a `spell_effect`; the pick is addressed to the caster over the target's hand and routes the target's decider; the caster free-casts the target's creature with the target holding no mana; a chosen land is played; an empty hand fizzles with no choice; a missing answer defaults to the first card.
@@ -3968,7 +3968,7 @@ is in the rules-engine categories below them.
 ### GreedyBot: Equip/Fortify/Reconfigure sort last (PLR-7/PLR-8)
 
 - **What:** `ActivatedAbility` gained an `attach_kind` field (set by the keyword-activated-ability binder, surfaced on the `activate_ability` action) so the bot can push an equip-family offer behind every other ability without guessing from description text.
-- **Files:** `game/effect_binder.py`, `game/engine/legal_actions_mixin.py`, `services/bots.py`
+- **Files:** `game/binding/core.py`, `game/engine/legal_actions_mixin.py`, `services/bots.py`
 
 ### `RulesEngine.predict_land_tapped` + land-untapped preference (PLR-7/PLR-8)
 
@@ -4072,7 +4072,7 @@ is in the rules-engine categories below them.
 ### Qualifier Grammar & Draw/Life Verb Families for Count-Amount Resolver (MEC-27)
 
 - **What:** `DEVOTION` gained "creatures you control with power N or less/greater" and generalized "tapped `<type>` you control"; `DrawCardEffect` gained `amount_from_count_selector` plus six new devotion-scaled parser rows for bare/combined draw+life-gain+life-loss clauses.
-- **Files:** `parser/oracle/catalogue/subgrammars.py`, `game/continuous.py`, `game/effects.py`.
+- **Files:** `parser/oracle/catalogue/subgrammars.py`, `game/continuous.py`, `game/effects/core.py`.
 - **Bug fixed:** A combined "draw and lose life" clause split by the generic " and " connector matched the first half against the plain `_lose_life_selector` row, whose `"x"` is the announced-X sentinel — crashed comparing a string to an int for a triggered ability with no X cost; caught by an execute test before shipping.
 
 ### Extra-Combat-Phase Regex Word-Order Widening
@@ -4084,7 +4084,7 @@ is in the rules-engine categories below them.
 ### Multi-Target Range Grammar & `PumpEffect.previous_subject` (ENG-30)
 
 - **What:** The shared `_MULTI_TARGET_QUANTIFIER` gained a third alternative for "N or M" ranges, widening `tap`/`return_to_hand`/`return_from_graveyard`/`add_counters`/`pump` for free; `divided_damage` and pump's dedicated "up to two" rows got matching dedicated range rows. New `PumpEffect.previous_subject` mode (mirroring `TapEffect`/`ReturnToHandEffect`'s "They…" idiom) for two-clause "…1 or 2 target creatures…. They get/gain `<X>`." shapes.
-- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects.py`.
+- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects/core.py`.
 
 ### RULE 701.47/48 Amass — First Parser Handler
 
@@ -4119,7 +4119,7 @@ is in the rules-engine categories below them.
   - **Graveyard retrace grant** — `static_handlers._GRAVEYARD_RETRACE_GRANT_RE` → `grant_retrace` (see MEC-53). **+2** — Wrenn and Six / Deeproot Historian (PARSER_VERSION 246).
   - **X-from-sacrifice gain+draw** — `handlers._GAIN_LIFE_AND_DRAW_SAC_POWER_RE`: "you gain X life and draw X cards, where X is the sacrificed creature's power" → `gain_life`/`draw` both reading `continuous.count_selector`'s `sacrificed_cost_power` (Altar of Dementia's idiom — stamped on the ability source when a "sacrifice a creature" cost is paid). **+1** — Ob Nixilis of the Black Oath. First real emblem with an activated ability (`models/emblem.py`'s `activated_abilities`, wired at MEC-8, now exercised).
   - **You Compleat Me** — a genuine singleton (three intertwined bespoke clauses, no parser route), hand-authored in `ability_catalogue/entries_016.py`: `set_life` `only_reduce` + `set_max_life_total` (MEC-54) + one `create_emblem` carrying **both** quoted abilities via the new `CreateEmblemEffect.abilities` list / `RulesEngine.create_emblem`'s list branch (an emblem's first `pay_life` mana ability — RULE 605.1a keeps it off the `mana_abilities.py` path, so it can only live as an `ActivatedAbility`).
-- **Files:** `parser/oracle/catalogue/static_handlers.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/segmenter.py`, `game/effects.py` (`CreateEmblemEffect.abilities`), `game/rules/misc_mixin.py` (`create_emblem` list branch), `game/ability_catalogue/entries_016.py`, `tests/test_par31_emblem_multi_type_grant.py`, `tests/test_par31_ob_nixilis_emblem.py`, `tests/test_mec54_max_life_and_you_compleat_me.py`
+- **Files:** `parser/oracle/catalogue/static_handlers.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/segmenter.py`, `game/effects/core.py` (`CreateEmblemEffect.abilities`), `game/rules/misc_mixin.py` (`create_emblem` list branch), `game/ability_catalogue/entries_016.py`, `tests/test_par31_emblem_multi_type_grant.py`, `tests/test_par31_ob_nixilis_emblem.py`, `tests/test_mec54_max_life_and_you_compleat_me.py`
 - **Yield:** +8 parser-MODELED cache cards across v244–246, zero regressions, plus You Compleat Me AUTHORED.
 
 ## Deck/Cube Playability Batches
@@ -4132,10 +4132,10 @@ is in the rules-engine categories below them.
   - **Why:** Cards left unmodeled were each logged individually against a genuine engine gap (control-exchange, coin-flip, Soulbond/Mutate/Bargain) rather than half-modeled.
 - **cEDH staples cube playability continuation (Batch 14):**
   - **What:** Direct-authored continuation raising the cube pool from 271 to 285 playable, centered on a "destroy/counter target X; its controller creates a token" cluster. New reusable pieces: `CounterCreateTokenEffect` (stack-side sibling of `destroy_create_token`), controller-scoped `nonland_permanent_you_control`/`_you_dont_control` target kinds, single-type artifact/enchantment target kinds, a bare "spells cost {N} more/less" parser (no type word), and `ReturnFromGraveyardEffect` library-top/bottom destinations plus a mana-value-scaled life-loss rider.
-  - **Files:** `game/effects.py`, `game/targeting.py`, `parser/oracle/catalogue/static_handlers.py`
+  - **Files:** `game/effects/core.py`, `game/targeting.py`, `parser/oracle/catalogue/static_handlers.py`
 - **cEDH staples cube — Batch 25 + Batch 26 (43 cards):**
   - **What:** Made all 43 cards of the "cEDH staples cube" pool playable (2026-07-22), organized in six waves around shared primitives (state-tracking, mana, control/zones, naming+loop shapes, RULE 702 keywords, bespoke tail), then closed the nine documented residual simplifications in a same-day Batch 26 follow-up.
-  - **Files:** `game/effects.py`, `game/rules_engine.py`, `game/ability_catalogue.py`
+  - **Files:** `game/effects/core.py`, `game/rules_engine.py`, `game/ability_catalogue.py`
 
 ### Deck Batch: Wyleth Equip (Boros Voltron)
 
@@ -4145,7 +4145,7 @@ is in the rules-engine categories below them.
 ### Enrage stragglers — hand-authored batch (11 cards)
 
 - **What:** Closed the entire ~25-card Enrage population by hand-authoring the 11 cards still UNMODELED after the trigger fix, per explicit "do not defer" instruction — adding reusable selectors (`each_other_creature_you_control`, `each_creature_and_planeswalker`), new `opponent`/`opponent_or_planeswalker` target kinds, `DamageEqualToCountersEffect`, and `AddManaEffect.amount_from_trigger_event`, while documenting three deliberate simplifications (Indoraptor's escape clause, Vrondiss's token downside, Stalwart Speartail's perpetual-effect clause) as genuinely unsupported rather than approximated.
-- **Files:** `game/ability_catalogue.py`, `game/effects.py`, `game/targeting.py`
+- **Files:** `game/ability_catalogue.py`, `game/effects/core.py`, `game/targeting.py`
 
 ### "Hobbits"/"Wyleth Equip" saved decks made fully playable
 
@@ -4173,7 +4173,7 @@ is in the rules-engine categories below them.
   - **Files:** `parser/oracle/segmenter.py`, `parser/oracle/catalogue/static_handlers.py`, `game/continuous.py`, `game/ability_catalogue.py`
 - **The seven "cEDH" decks — fourth pass (Deck/Cube Playability Batches):**
   - **What:** Closed 451/764 across the pool by working the unclaimed-clause list end to end rather than by frequency; landed several general primitives reused far past this pool (see below). ~300 cards remained, several needing whole new subsystems (devotion, a "players can't `<verb>`" family, broader pitch costs).
-  - **Files:** `parser/oracle/segmenter.py`, `game/effect_binder.py`, `game/effects.py`, `models/card_query.py`
+  - **Files:** `parser/oracle/segmenter.py`, `game/binding/core.py`, `game/effects/core.py`, `models/card_query.py`
 - **The seven "cEDH" decks — fifth pass (Deck/Cube Playability Batches):**
   - **What:** Closed six cards (Meltdown, Chord of Calling, Green Sun's Zenith, Finale of Devastation, Wishclaw Talisman, Ghostfire Slice), each landing a reusable primitive.
   - **Files:** `game/rules/misc_mixin.py`, `parser/oracle/catalogue/handlers.py`, `game/continuous.py`
@@ -4185,30 +4185,30 @@ is in the rules-engine categories below them.
   - **Files:** `game/continuous.py`, `parser/oracle/catalogue/static_handlers.py`, `parser/oracle/segmenter.py`
 - **The seven "cEDH" decks — eighth pass (Deck/Cube Playability Batches):**
   - **What:** Closed Back to Basics, Auriok Salvagers, and Assassin's Trophy via three tightly-scoped, individually reusable primitives.
-  - **Files:** `game/continuous.py`, `game/effects.py`, `game/targeting.py`, `parser/oracle/subgrammars.py`
+  - **Files:** `game/continuous.py`, `game/effects/core.py`, `game/targeting.py`, `parser/oracle/subgrammars.py`
 - **The seven "cEDH" decks — ninth pass (Deck/Cube Playability Batches):**
   - **What:** Closed Slip Out the Back and Snapback/Pyrokinesis; investigated (but didn't build) Grafdigger's Cage/Weathered Runestone's zone-cast-restriction pair, finding it needs multi-site surgery across every graveyard-bound zone-transition call site, not an extension of the existing `_move_to_graveyard` choke point.
-  - **Files:** `game/effects.py`, `parser/oracle/segmenter.py`
+  - **Files:** `game/effects/core.py`, `parser/oracle/segmenter.py`
 - **The seven "cEDH" decks — tenth pass: devotion, phasing, extra combat, remaining pitch costs (Deck/Cube Playability Batches):**
   - **What:** Closed the fourth pass's own "broader gaps, needs real design" list in one sitting — devotion (RULE 700.6), phasing an opponent's permanent as a spell effect, RULE 702.26b extra-combat grants, and the remaining RULE 118.9 pitch-cost shapes — each turning out to need only a well-contained gap fix, not a ground-up build.
-  - **Files:** `game/continuous.py`, `game/static_conditions.py`, `game/effects.py`, `game/game_engine.py`, `parser/oracle/subgrammars.py`
+  - **Files:** `game/continuous.py`, `game/static_conditions.py`, `game/effects/core.py`, `game/game_engine.py`, `parser/oracle/subgrammars.py`
 
 ### Marchesa V4.2 (saved deck, fully playable) (Deck/Cube Playability Batches)
 
 - **What:** Closed all 21 `UNMODELED` cards of the 96-card Marchesa V4.2 saved deck via seven general parser handlers plus seven hand-authored entries. Coverage 31.83% → 32.22% (+134 cards), 0 regressions.
-- **Files:** `parser/oracle/catalogue/handlers.py`, `game/ability_catalogue.py`, `game/effects.py`
+- **Files:** `parser/oracle/catalogue/handlers.py`, `game/ability_catalogue.py`, `game/effects/core.py`
 
 ### Vivi B4 (saved deck, fully playable) (Deck/Cube Playability Batches)
 
 - **What:** Closed all 18 `UNMODELED` cards of the 99-card Vivi B4 storm-shell Commander deck (11 via general parser handlers, 7 hand-authored), several of the biggest single templates found to date. Coverage 32.23% → 32.6% (+145 cards).
-- **Files:** `game/rules/search_mixin.py`, `parser/oracle/segmenter.py`, `game/effects.py`, `game/ability_catalogue.py`
+- **Files:** `game/rules/search_mixin.py`, `parser/oracle/segmenter.py`, `game/effects/core.py`, `game/ability_catalogue.py`
 
 ### Blight Curse — Lorwyn Eclipsed (saved deck, fully playable) (Deck/Cube Playability Batches)
 
 - **What:** Closed all 33 `UNMODELED` cards of the −1/−1-counters / wither / persist Commander deck (commander Auntie Ool, Cursewretch), 2026-09-07. 13 via general parser handlers/segmenter (PARSER_VERSION 276→277), 20 hand-authored in the new `game/ability_catalogue/entries_017.py`. Coverage 40.4% → 40.8% (+121 net cards incl. a +65 latent unlock from the "another target creature" subgrammar row), 0 regressions.
 - **Parser side (v277):** `_RETURN_FROM_GRAVEYARD_RE` nonlegendary + enters-with-`-1/-1`-counter rider and `reanimate_multi_under_your_control` (Persist, Aberrant Return); `has_counter`/`has_counter_kind` creature-filter alternatives shared by destroy/damage/exile (Liliana Death Wielder); `incremental_counters` 3-target (Incremental Blight/Growth); `(?:another|other) target creature → creature` subgrammar row (The Scorpion God, +fight/2-target-pump family); `PutFromHandOntoBattlefieldEffect.zones`, an `each_creature_opponents_control` damage selector, leading-`tapped` named tokens (Dread Tiller, Village Pillagers); `_destroy` guard `nonland_permanent*` (Binding the Old Gods); `_GROUP_SUBJECT_RE` gained an "an opponent controls" + "with a counter on it" qualifier and `_trigger_condition`/`_build_group_ok` read it off the DIES-event `counters` snapshot.
 - **Engine primitives shipped alongside the hand-authoring:** `MoveCountersEffect` ("move_counters"), `DoubleCountersOnTargetEffect` ("double_counters_on_target", RULE 701.19 — also Vorel/Gilder Bairn), `RemoveCountersFromAmongThenDrawLoseLifeEffect` + `strip_all_counters` choose-object action (Eventide's Shadow), `DiscardUpToThenDrawThatManyEffect` (Cathartic Pyre mode 2 — reusable for Kinetic Augur / Daretti / Jaya Ballard), `ExchangeLifeTotalWithToughnessEffect` (Tree of Perdition) + layer-7b `pt_set` accepting a `None` half, `OwnerDrawOthersLosePerDyingCounterEffect` + `ActivationCost.only_opponents_may_activate` + `GainControlBySourceEffect` `recipient="activator"` (Oft-Nabbed Goat), `CreateTokensPerCounterAmongTargetPlayerCreaturesEffect` (Ferrafor), two marker statics `damage_cant_be_prevented` / `global_wither` (Everlasting Torment), per-turn tracker `GameState.counter_placed_on_creature_this_turn` + `static_conditions` kind `you_placed_counter_on_creature_this_turn` (Lasting Tarfire), `ImpulsiveDrawEffect.count_if_additional_cost_paid` (Burning Curiosity), `continuous.count_selector` `converge`/`charge_counters_on_source`, `affected_objects` `creatures_opponents_control_with_a_counter` (Kulrath Knight), `targeting.legal_targets` `max_mana_value="trigger_dying_counters"` sentinel (Puca's Covenant), `by_you` / `counter_recipient_is_you` trigger/condition keys and `counter_death_return` `opponent`/`immediate`/`optional`/`once_per_turn` flags (Necroskitter, The Reaper, Hapatra, Auntie Ool). `toughness` added to the DIES event snapshot.
-- **Files:** `game/ability_catalogue/entries_017.py` (per-card), `parser/oracle/catalogue/{handlers,subgrammars}.py`, `parser/oracle/segmenter.py`, `parser/oracle/spec.py`, `parser/oracle/gate.py`, `game/effects.py`, `game/continuous.py`, `game/targeting.py`, `game/effect_binder.py`, `game/costs.py`, `game/static_conditions.py`, `game/engine/{activation,legal_actions,turn_loop}_mixin.py`, `game/rules/{triggers,damage_death,mana_counters,misc}_mixin.py`, `game/rules_engine.py`, `models/game_state.py`.
+- **Files:** `game/ability_catalogue/entries_017.py` (per-card), `parser/oracle/catalogue/{handlers,subgrammars}.py`, `parser/oracle/segmenter.py`, `parser/oracle/spec.py`, `parser/oracle/gate.py`, `game/effects/core.py`, `game/continuous.py`, `game/targeting.py`, `game/binding/core.py`, `game/costs.py`, `game/static_conditions.py`, `game/engine/{activation,legal_actions,turn_loop}_mixin.py`, `game/rules/{triggers,damage_death,mana_counters,misc}_mixin.py`, `game/rules_engine.py`, `models/game_state.py`.
 
 ### Secrets of Strixhaven Commander decks (PAR-60, complete — 433/433) (Deck/Cube Playability Batches)
 
@@ -4519,9 +4519,9 @@ is in the rules-engine categories below them.
         ``"LIFE_LOST": "player_id"`` entry for L2's "you lose life" trigger.
     - **still open:** none — PAR-60 is closed.
 - **Files:** `game/ability_catalogue/entries_{018,019}.py`,
-  `game/effects.py`, `game/continuous.py`, `game/static_conditions.py`,
+  `game/effects/core.py`, `game/continuous.py`, `game/static_conditions.py`,
   `game/rules/{casting,search,misc,damage_death,draw_discard}_mixin.py`,
-  `game/engine/{combat,turn_loop}_mixin.py`, `game/effect_binder.py`,
+  `game/engine/{combat,turn_loop}_mixin.py`, `game/binding/core.py`,
   `game/targeting.py`, `game/combat.py`, `models/game_state.py`,
   `parser/oracle/{segmenter,gate,spec}.py`,
   `parser/oracle/PARSER_VERSION.lock` (behavior-neutral re-pin).
@@ -4533,13 +4533,13 @@ is in the rules-engine categories below them.
 - **Files:** `game/ability_catalogue.py` (per-card detail), various `game/` modules per primitive below.
 - **Other Kinnan/M-K Primitives (searches, copies, delayed triggers, misc):**
   - **What:** A cluster of smaller reusable additions from the same batch: `ReturnToLibraryThenDigSharedTypeEffect` (dig for a card sharing a bounced permanent's own printed types); `card_query`'s `has_mana_ability`/`"or"` compound criteria; `EnterAsCopyReplacement.grant_mana_option` (re-granting a copy's overwritten mana ability); `ReturnSelfToBattlefieldEffect` via the existing RULE 603.7 delayed-trigger mechanism; `DiesReturnAsEnchantmentEffect` (RULE 613.4b characteristic-setting on return); `is_nth_draw_this_turn` trigger key; `RevealTopThenLandBattlefieldOrDrawEffect` chained after `scry`; `AbilitySpec.modes.optional` / `TriggeredAbility.modes_optional` (RULE 700.2's "choose up to one"); `source_x_paid` criteria sentinel for a search firing after the casting resolution ends; `PutFromHandOntoBattlefieldEffect.tapped` flag.
-  - **Files:** `game/effects.py`, `game/effect_binder.py`, `game/rules_engine.py`.
+  - **Files:** `game/effects/core.py`, `game/binding/core.py`, `game/rules_engine.py`.
   - **Bug fixed:** `StaticAbility(affects="self")` reads `ability.source`, not the permanent whose `static_effects` list it lives on — constructing one with no explicit `source=` silently affects nothing; hit twice (Enduring Vitality, Machine God's Effigy) before fixed both places. `EnterAsCopyReplacement`'s `ability_kind` must be `"enter_replacement"`, not `"static"`, or the ETB choice is never offered. `GameContext.change_target`'s wrapper was initially missing the new `redirect_to_source` parameter.
 
 ### "Return it to the battlefield under its owner's/your control" — direct oracle-text route (PARSER_VERSION 184)
 
 - **What:** `ReturnSelfToBattlefieldEffect` (built above for the delayed-trigger shape only — Nezahal's own "exile ~, return it tapped … at the beginning of the next end step") gained `under_your_control` and `extra_counters` params, and a new `_RETURN_SELF_TO_BATTLEFIELD_RE` parser handler reaches it directly (no delay) from two real shapes: a *granted* DIES-trigger continuation via `_quoted_ability_grant_effects` — "target creature gains 'When this creature dies, return it to the battlefield tapped under its owner's control with a +1/+1 counter on it.'" (Feign Death, Undying Malice; the outer `_GRANT_QUOTED_ABILITY_UNTIL_EOT_RE` wrapper already existed, only the inner trigger body was unrecognised) — and a plain "exile ~, then return it to the battlefield under its owner's control" blink chain (Flicker of Fate, Aethergeode Miner, Changing Loyalty, Flickering Spirit, Fungal Fortitude, Planar Incision).
-- **Files:** `game/effects.py`, `parser/oracle/catalogue/handlers.py`. `tests/test_par30_return_self_to_battlefield.py`.
+- **Files:** `game/effects/core.py`, `parser/oracle/catalogue/handlers.py`. `tests/test_par30_return_self_to_battlefield.py`.
 - **Still open:** Demonic Gifts' compound "gets +2/+0 **and** gains '…'" wrapper (a different outer shape); "face down"/"flipped"/"transformed" destinations (Ashcloud Phoenix, Homura, Loyal Cathar); riders after the return ("…and you create a treasure token", a following "It deals 1 damage…" sentence).
 
 ### Ojer cEDH Batch: New General Primitives (MEC-12)
@@ -4550,12 +4550,12 @@ is in the rules-engine categories below them.
 ### Rocco Batch: Cast-Intervening-If and Cast-Zone Prohibition (MEC-12)
 
 - **What:** Closed 4 cards in `cEDH Rocco` (74/98 -> 78/98). `GameObject.was_cast` (RULE 601.2, stamped at cast time, cleared on reset) + `EffectSpec.condition`'s `source_was_cast` key + a dedicated "When ~ enters, if you cast it, `<effect>`." parser row — closes **57 cache-wide cards** (the RULE 601.2b intervening-if distinguishing a real cast from a searched/reanimated/token entry). `continuous.cast_prohibited`'s new `hand_only` flag (Drannith Magistrate) forbids flashback/foretell/graveyard-cast attempts while allowing an ordinary hand cast. `continuous.max_noncreature_spells_per_turn` (Deafening Silence).
-- **Files:** `game/rules_engine.py`, `models/game_object.py`, `game/effects.py`, `game/continuous.py`, `game/engine/casting_mixin.py`, `parser/oracle/segmenter.py`.
+- **Files:** `game/rules_engine.py`, `models/game_object.py`, `game/effects/core.py`, `game/continuous.py`, `game/engine/casting_mixin.py`, `parser/oracle/segmenter.py`.
 
 ### Glarb Bloomsday Batch: New General Primitives (MEC-12)
 
 - **What:** Closed 6 cards in `[cEDH] Glarb Bloomsday` (82/100 -> 88/100). Primitives: `AddManaEffect.color_from_source_chosen_color` (a triggered mana ability reading a live chosen-colour, Utopia Sprawl); a resolve-time quoted-ability grant reusing the Aura/Equipment quoted-grant parser wrapped in `GrantUntilEffect` for "gains '`<cost>`: `<effect>`.' until end of turn" (23 cache-wide cards, Retraction Helix); `ReturnToLibraryEffect`'s new self mode plus recognizing "look at the top N, put them back in any order" as the existing `scry` resolution (28 cache-wide cards, Sensei's Divining Top); `lands.py`'s "Sanctuary cycle" named-land-type-count variant plus `source_entered_untapped` condition key (Mystic Sanctuary); `type_change`'s "every basic land type" recognition (Dryad of the Ilysian Grove); `continuous.has_standing_flash_permission` (8 cache-wide cards, High Fae Trickster).
-- **Files:** `game/ability_catalogue.py`, `game/effects.py`, `game/continuous.py`, `game/rules_engine.py` (lands module), `parser/oracle/catalogue/subgrammars.py`.
+- **Files:** `game/ability_catalogue.py`, `game/effects/core.py`, `game/continuous.py`, `game/rules_engine.py` (lands module), `parser/oracle/catalogue/subgrammars.py`.
 - **Bug fixed:** `subgrammars.py`'s "target nonland permanent" TARGET row mapped to the bare `"permanent"` kind (silently allowing lands too), even though a proper `"nonland_permanent"` kind existed at the engine level — it was never added to `targeting.ALLOWED_TARGET_KINDS`.
 
 ### "Enter as a copy, except …" family widened (MEC-12)
@@ -4563,7 +4563,7 @@ is in the rules-engine categories below them.
 - **What:** `EnterAsCopyReplacement`/`Card.as_copy` gained four new "except" clause params, closing four `cEDH staples 2` cards at once: `only_types` (RULE 706.2's copiable types replaced wholesale rather than appended — "…except it loses all other card types", Imposter Mech, which also needed moving a no-longer-creature copy's power/toughness to the `vehicle_power`/`vehicle_toughness` slot, since `Card.__init__` refuses plain P/T on a noncreature); `add_keywords`/`add_keywords_if_target_lacks` (Imposter Mech's granted "Crew 3", Flesh Duplicate's "…except it has vanishing 3 if that creature doesn't have vanishing" — appended to both the bare `keywords` list, for `combat.keywords_of`'s evasion-keyword subset, *and* as a new `oracle_text` line, since a keyword needing its own bound ability, like Vanishing's upkeep trigger or Crew's activation, is only ever reached by `bind_from_catalogue` re-parsing text); `keep_own_abilities` (Sakashima of a Thousand Faces' "…except it has ~'s other abilities" — snapshots the object's own triggered/static/activated/replacement abilities before `become_copy` clears them per RULE 706.2, reattaches them after); and `max_mana_value_from_mana_spent` (Mockingbird's "…of any creature with mana value less than or equal to the amount of mana spent to cast this creature", reading `GameObject.mana_spent_to_cast` live when the choice is offered). Sakashima's own second clause, "the legend rule doesn't apply to permanents you control" (RULE 704.5j), is a new standing `ignore_legend_rule` static — `continuous.player_ignores_legend_rule`, consulted by `RulesEngine._apply_legend_rule` exactly like the existing `no_max_hand_size` permission static.
 - **Bug fixed (generically scoped, not just Mockingbird):** `GameObject.mana_spent_to_cast` read `cost.converted_mana_cost`, which deliberately reports 0 for an unresolved `{X}` per RULE 202.3b's printed-cost model (`ManaSymbol.cmc`) — even *after* `ManaCost.with_x` resolves the symbol's `amount`, `cmc` still ignores it. Every `{X}` spell had therefore been under-tracking its own real spend since the field was added. Fixed at the source with a new `ManaCost.resolved_value` property (`converted_mana_cost` plus the resolved `{X}` amount) rather than patched at the one call site, so any other "how much mana was spent" reader benefits too. Also found: `Card.as_copy`'s first pass put a keyword's full parametric text ("Vanishing 3") into the bare `keywords` list, which `parser/oracle/catalogue/keywords.py`'s `parse_keywords` slug-matches verbatim against Scryfall's real convention (bare "Vanishing", no number) — silently failing every match. Fixed by keeping the list bare-name-only and pushing the parametric line into `oracle_text` instead, where the number is actually read from.
 - **Also shipped in this batch:** RULE 702.61 **Vanishing**, previously parser-recognized but unbound (the same "recognized but inert" gap PAR-9/MEC-29 closed for Cycling/Crew) — `effect_binder._kw_vanishing`, sharing `RemoveCounterOrSacrificeEffect` with Fading via a new `sacrifice_on_last_removed` flag (Vanishing's RULE 702.61b has no Fading-style off-by-one: the removal that empties the last time counter sacrifices the permanent in that same upkeep, not the next one).
-- **Files:** `models/card.py`, `models/mana_cost.py`, `game/effects.py`, `game/copy_mechanics.py`, `game/continuous.py`, `game/effect_binder.py`, `game/rules/casting_mixin.py`, `game/rules/sba_mixin.py`, `game/ability_catalogue.py`.
+- **Files:** `models/card.py`, `models/mana_cost.py`, `game/effects/core.py`, `game/copy_mechanics.py`, `game/continuous.py`, `game/binding/core.py`, `game/rules/casting_mixin.py`, `game/rules/sba_mixin.py`, `game/ability_catalogue.py`.
 - **Tests:** `tests/test_enter_as_copy_family.py` (new), `tests/test_cedh_cube_keyword_mechanics.py` (Vanishing block).
 
 ### Plain "exile, then return" blink template + trigger-level "up to one" fix (MEC-12)
@@ -4572,31 +4572,31 @@ is in the rules-engine categories below them.
 - **Bug fixed (generic, found building Emiel):** `context.trigger_event` is only live for a triggered ability's own *first*, synchronous `apply()` — `pay_cost_then`'s "if you do" branch runs later, after the interactive payment choice is answered, by which point that window has closed, so any effect trying to read "the trigger's subject" off `context.trigger_event` there silently found nothing. New `GameObject.remembered_instance_id` (a generic single-slot cross-resolution-gap memory, same shape as `linked_exile_id`) bridges it: `PayCostThenEffect.remember_trigger_subject=True` stamps the subject there at the live first call; `AddCountersEffect.trigger_subject_key="remembered"` reads it back on the deferred side.
 - **Bug fixed (generic, found building Displacer Kitten):** RULE 115.1a's "up to one target" is a *target-level* optionality (`TargetSpec.optional`) distinct from RULE 603.5's *whole-ability* "you may" (`TriggeredAbility.optional`) — a mandatory trigger can still decline its own "up to one" target. The "no legal targets at all" fallback already read `spec.optional` correctly, but the interactive prompt-building call site (`RulesEngine._offer_trigger_target`'s single-spec branch) only ever consulted `ability.optional`, so a genuine "up to one" trigger with at least one legal target never actually offered a decline button — a latent bug on every such card in the pool, not just this one. Fixed by passing `allow_decline=spec.optional or ability.optional` through to `_trigger_target_choice`.
 - **Ability word gap fixed:** "Avoidance —" (Displacer Kitten's own printed ability word) wasn't in `normalize._ABILITY_WORD_RE`'s hardcoded whitelist (`landfall`/`constellation`/`battalion`/`enrage`/`delirium`/`veil of time` only), so the whole clause stayed unclaimed regardless of the effect body parsing fine on its own. Added.
-- **Files:** `game/effects.py`, `models/game_object.py`, `game/rules/triggers_mixin.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/normalize.py`, `parser/oracle/gate.py` (PARSER_VERSION), `game/ability_catalogue.py`.
+- **Files:** `game/effects/core.py`, `models/game_object.py`, `game/rules/triggers_mixin.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/normalize.py`, `parser/oracle/gate.py` (PARSER_VERSION), `game/ability_catalogue.py`.
 - **Tests:** `tests/test_blink_family.py` (new).
 
 ### Aven Mindcensor's search narrowing + a second "up to one" decline fix (MEC-12)
 
 - **What:** RULE 701.19a-adjacent "If an opponent would search a library, that player searches the top N cards of that library instead." (Aven Mindcensor) — a *narrowing* sibling of the already-shipped `GrantSearchProhibitedEffect` (Stranglehold's outright "your opponents can't search libraries" block). New `GrantSearchLimitedToTopNEffect`/`grant_search_limited_to_top_n`, scanned by `RulesEngine._search_zone_objects` at the exact choke point `request_search` already scans for the prohibition — the library portion of the pool becomes just `library[-n:]` (the list end is the top of the deck, `.pop()`'s own convention) for anyone but the effect's own controller. Closes Aven Mindcensor in all three decks it appears in (`cEDH Rocco`/`cEDH staples`/`cEDH staples 2`) from one hand-authored entry.
-- **Files:** `game/effects.py`, `game/rules/search_mixin.py`, `game/ability_catalogue.py`.
+- **Files:** `game/effects/core.py`, `game/rules/search_mixin.py`, `game/ability_catalogue.py`.
 - **Tests:** `tests/test_search_restriction_family.py` (new).
 
 ### Pithing Needle / Phyrexian Revoker's free-text naming lock (MEC-12)
 
 - **What:** RULE 601.2b's "as ~ enters, choose a card name" — but naming any Magic card rather than picking a creature type/colour/mode from an enumerable list, so it needed its own `enter_choice_effects` family member: `ChooseCardNameReplacement`, a free-text fourth sibling of `ChooseCreatureTypeReplacement`/`ChooseColorReplacement`/`ChooseNamedModeReplacement`. `RulesEngine._offer_enter_choices` offers the battlefield's own card names as suggestions only (`"free_text": True` on the `pending_choice`, the same convention `request_name_card` already uses for Demonic Consultation) and `resolve_enter_choice` accepts any string verbatim for this one kind rather than validating against the offered options, stamping `GameObject.chosen_card_name`. The static half is a new `card_name_from_source` selector param on `continuous.group_selector_objects` — the naming-choice sibling of the existing `subtype_from_source`/`color_from_source` params, consulted by the already-shipped `activation_prohibition` static (previously only ever scoped by a literal `card_type`/`affects`, never a per-instance chosen name). Phyrexian Revoker and Pithing Needle share the exact same two-clause shape (an `enter_replacement` naming choice + an `activation_prohibition` static reading it) and differ only in one rider: Revoker is unconditional (no `except_mana_abilities`, so naming a mana dork silences its mana ability too — matching its printed "Activated abilities … can't be activated" with no carve-out), Needle carries `except_mana_abilities: True` (its own printed "…unless they're mana abilities"). Revoker's printed "nonland card name" restriction on the choice itself isn't enforced — this engine's naming choices are never validated against real card data (`request_name_card` accepts any string the same way); naming a land simply matches nothing, the same as any other name absent from the board.
-- **Files:** `game/effects.py` (`ChooseCardNameReplacement`, `_SELECTOR_KEYS`'s new `card_name_from_source` entry, the `"choose_card_name_on_enter"` factory), `game/continuous.py` (`group_selector_objects`'s new filter), `game/effect_binder.py` (routes the new replacement onto `enter_choice_effects`), `game/rules/casting_mixin.py` (`_offer_enter_choices`/`resolve_enter_choice`'s new `choose_card_name` branch), `game/engine/turn_loop_mixin.py` (dispatch), `models/game_object.py` (`chosen_card_name`, RULE 400.7 reset), `game/ability_catalogue.py`.
+- **Files:** `game/effects/core.py` (`ChooseCardNameReplacement`, `_SELECTOR_KEYS`'s new `card_name_from_source` entry, the `"choose_card_name_on_enter"` factory), `game/continuous.py` (`group_selector_objects`'s new filter), `game/binding/core.py` (routes the new replacement onto `enter_choice_effects`), `game/rules/casting_mixin.py` (`_offer_enter_choices`/`resolve_enter_choice`'s new `choose_card_name` branch), `game/engine/turn_loop_mixin.py` (dispatch), `models/game_object.py` (`chosen_card_name`, RULE 400.7 reset), `game/ability_catalogue.py`.
 - **Tests:** `tests/test_named_lock_family.py` (new) — both cards' lock/carve-out behaviour plus the free-text choice mechanism itself end to end via a real cast (proving an answer outside the suggestion list is accepted, not just defaulted).
 
 ### Defense Grid / Suppression Field / Tithe Taker's "costs {N} more" tax family (MEC-12)
 
 - **What:** RULE 601.2f/602's cost-*increase* side of the existing `cost_reduction` static, on both a spell's cast cost and an activated ability's own activation cost. Two latent gaps surfaced and were fixed at the root rather than worked around: (1) `continuous.cost_reduction_for` had never consulted a static's own `active_if` gate at all — `cost_floor_for`, the very next function in the same file, already did, for the same `"cost"` layer; needed for Tithe Taker's "**during your turn**, spells your opponents cast cost {1} more". (2) `activation_cost_reduction_for` only ever supported a *reduction* across three narrow, named scopes (`attached_permanent`/`subtype`/`card_type`) — any other `scope="activation"` static, including an outright tax, silently matched none of its branches and fell through the trailing `else: continue`. Widened to a genuine signed net (a negative result taxes) across five scopes (adding unscoped `all_permanents` — Suppression Field's unqualified "activated abilities cost {N} more…" — and `opponents_permanents`, the activation-cost mirror of `activation_prohibited`'s own opponents scope), an `is_mana_ability`/`except_mana_abilities` carve-out mirroring `activation_prohibited`'s identically-named rider, and the same `active_if` gate. `GameEngine._reduced_activation_mana` itself had a matching bug: `if reduction <= 0: return mana` silently discarded any tax outright rather than growing the cost — fixed to call `ManaCost.increase_generic` for a negative net, the same "positive reduces, negative increases" convention `CastingMixin._adjust_cost` already used spell-side. `is_mana_ability` had to be threaded through the whole activation-cost call chain (`_can_pay_activation_cost`/`_pay_activation_cost`/`tap_for_mana`, plus the two existence-only "can this mana ability be paid at all" probes in `misc_mixin.py`/`legal_actions_mixin.py`) so the mana-ability carve-out reaches real payment, not just a legality check that would then diverge from what's actually charged. Defense Grid's own "except during **its controller's** turn" needed a *third*, genuinely new rider rather than reusing `active_if`'s `your_turn`/`not_your_turn`: "its controller" means the *taxed spell's own caster*, not the tax's own controller, so `except_caster_own_turn` is checked directly against `cost_reduction_for`'s own `player` argument — the caster passed in by the caller — rather than through the ability-source-relative `static_conditions` vocabulary Tithe Taker's ordinary "during your turn" gate uses correctly.
-- **Files:** `game/effects.py` (`cost_reduction` factory's three new params), `game/continuous.py` (`cost_reduction_for`'s new `active_if`/`except_caster_own_turn` checks, `activation_cost_reduction_for`'s widened scope/tax/carve-out), `game/engine/activation_mixin.py` (`_reduced_activation_mana`'s increase branch, `is_mana_ability` on `_can_pay_activation_cost`/`_pay_activation_cost`), `game/engine/mana_mixin.py` (`tap_for_mana` passing `is_mana_ability=True`), `game/engine/misc_mixin.py`, `game/engine/legal_actions_mixin.py` (both existence-only mana-ability probes), `game/ability_catalogue.py`.
+- **Files:** `game/effects/core.py` (`cost_reduction` factory's three new params), `game/continuous.py` (`cost_reduction_for`'s new `active_if`/`except_caster_own_turn` checks, `activation_cost_reduction_for`'s widened scope/tax/carve-out), `game/engine/activation_mixin.py` (`_reduced_activation_mana`'s increase branch, `is_mana_ability` on `_can_pay_activation_cost`/`_pay_activation_cost`), `game/engine/mana_mixin.py` (`tap_for_mana` passing `is_mana_ability=True`), `game/engine/misc_mixin.py`, `game/engine/legal_actions_mixin.py` (both existence-only mana-ability probes), `game/ability_catalogue.py`.
 - **Tests:** `tests/test_cost_tax_family.py` (new).
 
 ### Solitude / Parallax Wave / Skyclave Apparition — the O-Ring/exile family's remaining shapes (MEC-12)
 
 - **What:** Three more single-target/leaves-battlefield exile shapes, each needing one small, genuinely reusable addition to the existing O-Ring family (`ExileEffect(remember=True)`/`GameObject.linked_exile_id`, MEC-21's accumulating `exiled_with_ids`) rather than a bespoke build per card. **Solitude** ("exile up to one other target creature. That creature's controller gains life equal to its power.") needed `GainLifeEffect.recipient="target_controller"` — the *who receives* sibling of the already-shipped `amount_from_target_power` (Dazzling Reflection, MEC-30): both read the same shared target (RULE 608.2, one target requirement, two effects), but `recipient` decides who gains the life rather than how much. Its exile-a-white-card Evoke payment is implemented by MEC-65; "target creature" already excludes the source itself in this engine's `targeting.py` (`kind in ("creature", "permanent")` always filters `o is not source`), so "up to one **other** target creature" needed no new exclusion. **Parallax Wave** ("Remove a fade counter from this enchantment: Exile target creature. When this enchantment leaves the battlefield, each player returns to the battlefield all cards they own exiled with it.") needed `ReturnAllExiledWithEffect`/`"return_all_exiled_with"` — the mass sibling of `ReturnLinkedExileEffect`, reading `exiled_with_ids` (built for a *different* card, Agatha's Soul Cauldron, MEC-21) instead of the single-slot `linked_exile_id`, since a repeatable ability can exile several different creatures owned by several different players over its lifetime, all returning together under their own respective owners. Fading and the "remove a counter" activation cost (`ActivationCost.remove_counters`, `{"remove_counters": ["fade", 1]}`) were both already-shipped primitives. **Skyclave Apparition** ("exile up to one target nonland, nontoken permanent you don't control with mana value 4 or less. When this creature leaves the battlefield, the exiled card's owner creates an X/X blue Illusion creature token, where X is the mana value of the exiled card.") needed two things: `ExileEffect` gained its own `max_mana_value` param (the same target-offer-time cap `DestroyEffect` already had, just never threaded onto exile), and a new `CreateTokenForLinkedExileEffect`/`"create_token_for_linked_exile"` — `ReturnLinkedExileEffect`'s token-creating sibling, reading the same `linked_exile_id` link one last time for the exiled card's owner and mana value, then handing off to `GameContext.create_token` under *that* owner's control rather than the caster's. `target_kind="nonland_permanent_you_dont_control"` doesn't itself exclude tokens (no `exclude_tokens` selector exists yet) — a narrow, documented simplification, the same shape Leonin Relic-Warder's own `target_kind="permanent"` type-union already uses.
-- **Files:** `game/effects.py` (`GainLifeEffect.recipient`, `ReturnAllExiledWithEffect`, `CreateTokenForLinkedExileEffect`, `ExileEffect.max_mana_value`), `game/ability_catalogue.py`.
+- **Files:** `game/effects/core.py` (`GainLifeEffect.recipient`, `ReturnAllExiledWithEffect`, `CreateTokenForLinkedExileEffect`, `ExileEffect.max_mana_value`), `game/ability_catalogue.py`.
 - **Tests:** `tests/test_solitude_family.py`, `tests/test_parallax_wave_family.py`, `tests/test_skyclave_apparition_family.py` (all new).
 - **PAR-30 — the parser recognizer for the modern one-sentence shape (PARSER_VERSION 140, +42):** every primitive above was already built, but the classic O-Ring / Banisher Priest / Fiend Hunter clause — "exile `<TARGET>` [an opponent controls] until ~ leaves the battlefield." — had never been reachable from oracle text (Oblivion Ring itself parses as UNMODELED to this day). The obstacle: that one clause is *two* abilities (an ETB/attacks exile + a LEAVES_BATTLEFIELD return), and a body handler emits one ability's effects. `handlers._exile_until_leaves` emits the `exile` spec with `remember=True` plus a new signal param `until_source_leaves`; `segmenter.segment_line`, immediately after building the primary triggered `AbilitySpec`, scans its effects for that param and appends a companion `AbilitySpec("triggered", effects=[return_linked_exile], trigger={"event": "LEAVES_BATTLEFIELD", "condition": {"subject": "self"}})` through the existing `Segment.extra_specs` channel. Target-kind resolution maps a trailing "an opponent controls" onto the `_you_dont_control` kinds ("target artifact or creature an opponent controls" → `permanent_you_dont_control`); "defending player controls" (Colossal Whale) stays a bare kind. Covers Banisher Priest, Banishing Light, Cast Out, Conclave Tribunal, Glass Casket, Fairgrounds Warden, Detention Chariot, Chained to the Rocks, and ~35 more; verified end-to-end (ETB exiles the opponent's creature, the Priest dying returns it). `tests/test_par30_exile_until_leaves.py`.
 - **PAR-30 — the old two-sentence templating (PARSER_VERSION 202, +10):** the classic cycle prints the two abilities as separate lines. A new `_return_exiled_card` handler claims a standalone "return the exiled card[s] to the battlefield under its/their owner's control." line (→ `return_linked_exile`); `_exile` gains an "exile **another** target `<X>`" ETB row (RULE 601.2c self-exclusion is the same documented simplification `_gain_control_eot`'s "another" already uses); and `gate.parse_oracle` runs a cross-line pass — seeing any `return_linked_exile` effect on the card, it stamps `remember=True` onto every plain (non-`selector`) `exile` effect so `GameObject.linked_exile_id` is populated for the return to read back (the engine primitives all pre-existed). Covers Oblivion Ring itself, Journey to Nowhere, Faceless Butcher, Fiend Hunter, Petravark, Petradon, Slithery Stalker, The Princess Takes Flight (Saga chapter III), Eldrazi Displacer (the "another" widen alone). Also closes **Driftgloom Coyote**'s own after-tail — "if that creature had power N or less, put a +1/+1 counter on ~." — via `ConditionalEffect`'s new `previous_target_power_at_most` key (a documented simplification: the exiled creature is off the battlefield by resolution, so its last-known power is read). Verified end-to-end (ETB exiles the opponent's creature, the source going to the graveyard returns it). The multi-event trigger forms — "enters **or transforms into** ~" (Brutal Cathar) and the compound "enters **and at the beginning of your first main phase**" (Crack in Time) — closed at PARSER_VERSION 203; see the threaten-family entry above. `tests/test_par30_old_oring_two_sentence.py`.
@@ -4604,19 +4604,19 @@ is in the rules-engine categories below them.
 ### Soul Partition's owner-held, opponent-taxed exile permission (MEC-12)
 
 - **What:** "Exile target nonland permanent. For as long as that card remains exiled, its owner may play it. A spell cast by an opponent this way costs {2} more to cast." Two new `ExileEffect` params: `grant_owner_play_permission` stamps `GameState.exile_cast_condition[target.instance_id] = (target.owner_id, {})` — the standing sibling of Lukka, Coppercoat Outcast's own board-gated grant (an empty condition dict always holds, per `static_conditions.condition_holds`'s own "no condition = always true"), but keyed to the exiled card's *owner* rather than the exiling effect's controller, which is the entire point of this card (only the owner, never the exiler, may ever cast it). `owner_play_permission_tax` builds a genuinely new per-*instance* `cost_reduction` static (`EffectSpec("cost_reduction", {"affects": "self", "except_same_controller_as": exiler_id, ...})`, via `build_effects` — the same "construct a spec-backed static at resolve time, not raw Python" idiom `CreateTokenEffect.grant_self_anthem` already uses) and stamps it directly onto the *exiled card itself*, not onto Soul Partition — since the card can leave its caster's hand, graveyard, wherever, and travel indefinitely; the tax needs to survive on the taxed object, not the no-longer-relevant spell that created it. Reading it required widening `continuous.self_cost_reduction_for` with a new `caster_id` param (previously it only ever answered "what does this card's own printed reduction total to", with no notion of *who* is actually attempting to cast it) and threading `player.id` through from `CastingMixin._adjust_cost`, the one caller. Found and fixed a real latent bug along the way, the same "parse-only masks real bugs" shape this project's testing convention exists to catch: `legal_actions`'s own exile-zone offer-list loop checked `_castable_from_exile`/`_has_temp_play_permission` but never `_has_conditional_exile_permission` at all — Lukka, Coppercoat Outcast's grant worked when driven directly through `can_cast`/`cast_spell` (how its own batch's tests exercised it), but nothing had ever actually offered it as a real, clickable action; both permission kinds are now checked there.
-- **Files:** `game/effects.py` (`ExileEffect.grant_owner_play_permission`/`owner_play_permission_tax`, the `"cost_reduction"` factory's new `except_same_controller_as`), `game/continuous.py` (`self_cost_reduction_for`'s new `caster_id` param), `game/engine/casting_mixin.py` (`_adjust_cost` threading `player.id` through), `game/engine/legal_actions_mixin.py` (the `_has_conditional_exile_permission` fix), `game/ability_catalogue.py`.
+- **Files:** `game/effects/core.py` (`ExileEffect.grant_owner_play_permission`/`owner_play_permission_tax`, the `"cost_reduction"` factory's new `except_same_controller_as`), `game/continuous.py` (`self_cost_reduction_for`'s new `caster_id` param), `game/engine/casting_mixin.py` (`_adjust_cost` threading `player.id` through), `game/engine/legal_actions_mixin.py` (the `_has_conditional_exile_permission` fix), `game/ability_catalogue.py`.
 - **Tests:** `tests/test_soul_partition_family.py` (new).
 
 ### Abdel Adrian, Gorion's Ward's "exile any number you control" selection (MEC-12)
 
 - **What:** "When Abdel Adrian enters, exile any number of other nonland permanents you control until Abdel Adrian leaves the battlefield. Create a 1/1 white Soldier creature token for each permanent exiled this way." — the O-Ring/exile family's last remaining member in this batch, and a genuinely different shape from the rest: not a RULE 115 target at all (the printed line never says "target"), just a *selection* among the controller's own permanents. New `ExileAnyNumberYouControlEffect` opens `RulesEngine.request_choose_objects`'s existing "choose N of these objects" chooser (offering every eligible permanent at once, `optional=True` so the player may stop after any number including zero) rather than `ExileEffect`'s own RULE 115 target-gathering. That chooser's `"exile"` action already just called `RulesEngine.exile` — needed one new capability, `track_exiled_with=True` (threaded through `request_choose_objects`/`_choose_objects_choice`/`resolve_choose_objects_choice`/`_apply_chosen_object`, the same four-call-site plumbing `remember` already has), the multi-pick sibling of `remember`'s single-slot `linked_exile_id`, appending every pick onto `GameObject.exiled_with_ids` instead. The token count needed a new `continuous.count_selector` kind, `"exiled_with_count"` (reads that same list's length), which in turn needed `CreateTokenEffect.apply`'s existing `count_selector` call to actually pass its own `source` through — it never had before, since no prior `count_selector` kind needed the calling permanent's own identity. The leaves-battlefield half needed **no new code at all**: `ReturnAllExiledWithEffect` (built minutes earlier in this same batch for Parallax Wave) reads `exiled_with_ids` and returns each card to its own owner — which for Abdel Adrian is always its own controller, since it only ever exiles its own permanents, but the effect itself has no idea of that and doesn't need to. Confirms this engine's RULE 608.2 "suspended resolution" machinery (`GameState.deferred_effects`, MEC-12's earlier batch) correctly parks the trailing `create_token` effect until the interactive multi-round chooser fully resolves, rather than running it against a still-empty `exiled_with_ids` list. Background deckbuilding (choosing a second commander) is not a board-state mechanic and needs no engine support.
-- **Files:** `game/effects.py` (`ExileAnyNumberYouControlEffect`, `CreateTokenEffect.apply`'s `source` passthrough), `game/continuous.py` (`count_selector`'s new `exiled_with_count` kind), `game/rules/misc_mixin.py` (`request_choose_objects`'s new `track_exiled_with` param, threaded through its three helper methods), `game/ability_catalogue.py`.
+- **Files:** `game/effects/core.py` (`ExileAnyNumberYouControlEffect`, `CreateTokenEffect.apply`'s `source` passthrough), `game/continuous.py` (`count_selector`'s new `exiled_with_count` kind), `game/rules/misc_mixin.py` (`request_choose_objects`'s new `track_exiled_with` param, threaded through its three helper methods), `game/ability_catalogue.py`.
 - **Tests:** `tests/test_abdel_adrian_family.py` (new).
 
 ### Dark Confidant's non-draw "reveal, take, lose life" upkeep trigger (MEC-12)
 
 - **What:** "At the beginning of your upkeep, reveal the top card of your library and put that card into your hand. You lose life equal to its mana value." One new atomic effect, `RevealTopThenTakeAndLoseLifeEffect` — deliberately *not* routed through `DrawCardEffect`/`RulesEngine.draw` at all: RULE 121.4 is explicit that a card entering hand without the printed word "draw" isn't a draw, so it must never trip a draw-replacement effect or a "whenever you draw a card" trigger, and must never be tallied in `GameState.cards_drawn_this_turn`. Fully deterministic (there is only one card and nothing to choose among), so both clauses — the zone move and the life loss — are one atomic effect rather than two sequenced ones needing a resolve-time referent to share, the same reasoning `ExileTopThenGrantConditionalCastEffect` (Lukka) already uses for its own top-of-library move.
-- **Files:** `game/effects.py` (`RevealTopThenTakeAndLoseLifeEffect`), `game/ability_catalogue.py`.
+- **Files:** `game/effects/core.py` (`RevealTopThenTakeAndLoseLifeEffect`), `game/ability_catalogue.py`.
 - **Tests:** `tests/test_dark_confidant_family.py` (new).
 
 ### The land-animate family — Kamahl, Heart of Krosa and Ashaya, Soul of the Wild (MEC-12)
@@ -4628,19 +4628,19 @@ is in the rules-engine categories below them.
 ### Yawgmoth's Will's graveyard-wide play permission and exile-redirect (MEC-12)
 
 - **What:** "Until end of turn, you may play lands and cast spells from your graveyard. If a card would be put into your graveyard from anywhere this turn, exile that card instead." Two new *player*-scoped, turn-limited primitives, neither expressible as a permanent-anchored static the way every prior graveyard-cast permission was — the sorcery granting them is gone from every zone but graveyard/exile long before end of turn, so there's no permanent left on the battlefield for the layer engine or `game/graveyard_cast.py`'s existing permanent-scan to find. `GraveyardPlayPermissionThisTurnEffect` stamps `Player.graveyard_play_permission_until_turn` to the current turn number; a new `has_temporary_graveyard_play_permission` helper reads it back from both `GameEngine.can_play_land` (a new branch in its `in_playable_zone` check) and `_graveyard_cast_permission` (widened alongside the existing Lurrus-shaped `graveyard_cast_grant_for` check) — the first graveyard-cast permission source of any kind to cover lands, since every prior one (`graveyard_cast_grant_for`'s own `if card.is_land: return None`) explicitly excluded them. `legal_actions`'s graveyard-zone loop gained a matching `can_play_land` offer, the same "found while wiring a real UI-reachable action" gap this batch's earlier entries (Soul Partition) already hit once. `GraveyardRedirectToExileEffect` stamps `Player.graveyard_redirect_to_exile_until_turn`, checked directly in `RulesEngine._move_to_graveyard` — the one choke point every graveyard-bound move funnels through regardless of cause — against whichever player *owns* the moving card (a card only ever enters its own owner's graveyard, RULE 404.4/700.4, which is exactly what "your graveyard" means here). It sits right next to the pre-existing per-*object* check for Lurrus's own "exile instead" trailing clause (`GameObject.cast_via_graveyard_cast_permission_until_turn`) — that one only ever catches the one spell cast via its own permission; this one catches every card the player owns, from any zone, for the whole turn.
-- **Files:** `models/player.py` (`graveyard_play_permission_until_turn`, `graveyard_redirect_to_exile_until_turn`), `game/effects.py` (`GraveyardPlayPermissionThisTurnEffect`, `GraveyardRedirectToExileEffect`, their registry entries), `game/graveyard_cast.py` (`has_temporary_graveyard_play_permission`), `game/engine/lands_mixin.py` (`can_play_land`'s new branch, `_graveyard_cast_permission`'s widened check), `game/engine/legal_actions_mixin.py` (graveyard-zone land offer), `game/rules/damage_death_mixin.py` (`_move_to_graveyard`'s new player-scoped redirect check), `game/ability_catalogue.py`.
+- **Files:** `models/player.py` (`graveyard_play_permission_until_turn`, `graveyard_redirect_to_exile_until_turn`), `game/effects/core.py` (`GraveyardPlayPermissionThisTurnEffect`, `GraveyardRedirectToExileEffect`, their registry entries), `game/graveyard_cast.py` (`has_temporary_graveyard_play_permission`), `game/engine/lands_mixin.py` (`can_play_land`'s new branch, `_graveyard_cast_permission`'s widened check), `game/engine/legal_actions_mixin.py` (graveyard-zone land offer), `game/rules/damage_death_mixin.py` (`_move_to_graveyard`'s new player-scoped redirect check), `game/ability_catalogue.py`.
 - **Tests:** `tests/test_yawgmoths_will_family.py` (new).
 
 ### Protean Hulk's total-mana-value-budgeted search (MEC-12)
 
 - **What:** "When this creature dies, search your library for any number of creature cards with total mana value 6 or less, put them onto the battlefield, then shuffle." Needed a genuinely new `SearchLibraryEffect` shape: every existing multi-pick search bounds each round by a fixed per-card `max_mana_value` in `criteria`, but this is a *running total* shared across the whole open-ended pick — a 5-drop and a 1-drop are each individually well under 6, but picking both exhausts the budget for anything else. `SearchLibraryEffect.total_mana_value_budget` threads a `spent_mana_value` running total through the existing recursive multi-round search loop (`RulesEngine.request_search` → `_search_choice` → `resolve_search_choice`, plus `GameContext.request_search`'s thin proxy, all four needing the new parameter): each round's eligible pool is narrowed to whatever still fits `total_mana_value_budget - spent_mana_value`, on top of `criteria`'s ordinary type filter — orthogonal to, and stackable with, a real per-card cap should some future card need both at once. "Any number" reuses the pre-existing `count=99` sentinel other open-ended searches (Craterhoof Behemoth-shaped triggers, etc.) already use, since the real stopping condition is the budget running out, not the count.
-- **Files:** `game/effects.py` (`SearchLibraryEffect.total_mana_value_budget`, its registry factory, `GameContext.request_search`'s widened proxy), `game/rules/search_mixin.py` (`request_search`/`_search_choice`/`resolve_search_choice`'s threaded budget), `game/ability_catalogue.py`.
+- **Files:** `game/effects/core.py` (`SearchLibraryEffect.total_mana_value_budget`, its registry factory, `GameContext.request_search`'s widened proxy), `game/rules/search_mixin.py` (`request_search`/`_search_choice`/`resolve_search_choice`'s threaded budget), `game/ability_catalogue.py`.
 - **Tests:** `tests/test_protean_hulk_family.py` (new).
 
 ### Helm of the Host, Twinflame and Heat Shimmer — the copy-a-creature family (MEC-12)
 
 - **What:** Three "create a token that's a copy of [equipped/target] creature, except …" cards, closing the whole cluster BACKLOG.md had named but not individually diagnosed. **Helm of the Host** ("At the beginning of combat on your turn, create a token that's a copy of equipped creature, except the token isn't legendary. That token gains haste.") needed no new primitive at all — `CopyPermanentEffect` already independently supported `target_kind="attached_permanent"` (Mirrormind Crown), `not_legendary` (Multiversal Recruitment-shaped), and `haste` (Kiki-Jiki-shaped); this is simply the first card combining all three on one effect. **Twinflame** ("Choose any number of target creatures you control. For each of them, create a token that's a copy of that creature, except it has haste. Exile those tokens at the beginning of the next end step.") needed two real additions: `CopyPermanentEffect` gained a genuinely new `target_count`/`target_count_max`/`target_optional` param triple (deliberately distinct from the pre-existing `count`, which still means "N copies of the *one* target" — Rite of Replication-shaped, and could combine with this on some future card) — when the target spec's own `effective_count != 1`, `apply()` now makes one token copy *per* chosen target instead of `count` copies of just the first, mirroring the established `PumpEffect`/`AddCountersEffect` "each of up to N gets the full amount" idiom, and reusing the parser's own `_ANY_NUMBER_TARGET_CAP` (10) sentinel for "any number of". The delayed exile needed `ExileSpecificEffect`, the plural sibling of `SacrificeSpecificEffect` (Kiki-Jiki-shaped): the existing `CreateDelayedTriggerEffect`'s `capture="created_objects"` branch already special-cased any inner effect exposing a plain `.objects` list, but `ExileEffect` only ever carried one `.target`, silently dropping every token past the first for a multi-target source. Strive itself was already a shipped primitive (`AbilitySpec.strive_cost`, per-extra-target cost scaling in `casting_mixin.py`) needing no changes. **Heat Shimmer** ("Create a token that's a copy of target creature, except it has haste and 'At the beginning of the end step, exile this token.'") is simply the single-target sibling of Twinflame's own delayed-exile shape (`target_count` defaults to 1) — deliberately *not* modeled as a literal granted quoted triggered ability on the token (a real but heavier mechanism this engine already avoids for exactly this template, per the Marchesa V4.2 batch's Kiki-Jiki/Puppeteer Clique entry above), since the caster-side delayed trigger reaches the identical board outcome regardless of which player ends up controlling the token.
-- **Files:** `game/effects.py` (`CopyPermanentEffect.target_count`/`target_count_max`/`target_optional`, `ExileSpecificEffect`, its registry factory), `game/ability_catalogue.py`.
+- **Files:** `game/effects/core.py` (`CopyPermanentEffect.target_count`/`target_count_max`/`target_optional`, `ExileSpecificEffect`, its registry factory), `game/ability_catalogue.py`.
 - **Tests:** `tests/test_helm_of_the_host_family.py`, `tests/test_twinflame_family.py`, `tests/test_heat_shimmer_family.py` (all new).
 
 ### Necrotic Ooze's "all graveyards" ability-borrowing source (MEC-12)
@@ -4652,19 +4652,19 @@ is in the rules-engine categories below them.
 ### MEC-32: the draw-replacement family's event granularity
 
 - **What:** Alms Collector ("If an opponent would draw two or more cards, instead you and that player each draw a card."), Notion Thief and Chains of Mephistopheles (both "…except the first one they draw in each of their draw steps…") had all three been diagnosed and deferred more than once, blocked on the same real architectural gap: `RulesEngine.draw(player, count)` called `_single_draw` once per requested card, each firing its own independent, hardcoded `count=1` `EventType.DRAW`, so no replacement effect could ever see "this player is attempting to draw 2+ cards as one instruction" or "this is the first draw in the current draw step" — only ever "one card, right now." Fixed with two additions, kept deliberately separate so neither changes behavior for any of the many existing per-card DRAW replacements (the empty-library win-instead shield, count doublers, the draw→mill conversion): (1) a new `EventType.DRAW_INSTRUCTION`, fired once per `draw()` call with the real requested `count`, *before* the call splits into that many per-card `DRAW` events exactly as before — a genuinely new event type rather than reusing `DRAW` at the instruction level, since firing the same event type twice (once for the instruction, once per card) would have double-applied every ordinary per-card replacement (a doubler would double once at the instruction level and again per split-out card). Only Alms Collector's own replacement registers against it. (2) `GameState.first_draw_done_this_step` (per player, reset to `False` the instant a player's own `"draw"` step begins — `GameEngine._run_step`, right alongside the existing `combats_this_turn` per-step bump), read and flipped by `RulesEngine._single_draw`, which only ever computes `first_in_draw_step=True` while `state.current_step == "draw"` for the drawing player themself — a draw from a spell at any other point in the turn always reads as "not first," correctly, since RULE 120.3 says each card in a multi-card draw is independently replaceable *and* a draw outside the draw step can never be that step's own first card. **Alms Collector** (`effects._split_multi_draw_replacement`, registered as `"split_multi_draw"`) intercepts `DRAW_INSTRUCTION` for an opponent's `count >= 2` attempt, cancels it outright, and issues one fresh, un-doubled `draw()` call for each of the two players — neither resulting draw's own count ever re-triggers the same replacement. **Notion Thief** (`_steal_non_first_draw_replacement`, `"steal_non_first_draw"`) reads `first_in_draw_step` on the ordinary per-card event, scoped to opponents only: a non-first draw is cancelled and redirected into a draw for its own controller instead. **Chains of Mephistopheles** (`_discard_instead_of_non_first_draw_replacement`, `"discard_instead_of_non_first_draw"`) reads the same flag but applies table-wide (including its own controller) with a genuinely bespoke three-branch body: discard a card if the hand isn't empty, then draw a replacement card (itself a fresh `draw()` call — which, since it's still not the step's first draw, is *itself* replaced by this same effect again, RULE 616.1f's "repeat until no more replacements apply" loop) or mill a card once the hand is empty. This recursive self-replacement is the real, famously punishing behavior of the printed card (a non-first draw attempt empties the drawing player's whole hand into the graveyard via repeated discards, then mills exactly one card) — not a bug, confirmed against the card's real reputation — and terminates naturally because each recursive discard strictly shrinks the hand, bounding the recursion depth by the hand's own size. The discard itself is the engine's existing non-interactive `RulesEngine.discard` (auto-chosen, no chooser in MVP), the same documented simplification every other untargeted discard in this engine already uses. `draw()` also gained a deliberate fast path: `count == 1` (the overwhelming majority of real draws — every turn-based draw-step draw, most card-draw spells) skips the `DRAW_INSTRUCTION` pass entirely and calls `_single_draw` directly, since no shipped instruction-level replacement's `min_count` is ever satisfiable at 1 anyway. Without it this restructure doubled `draw()`'s replacement-scan cost (`_all_replacement_effects()` runs once at the instruction level *and* once per card) for the single-card case specifically — caught not by a functional test but by a long-running bot test tripping the per-test timeout, confirmed via a stashed before/after comparison that the same test was already borderline-slow on unrelated, pre-existing grounds (a `GameState.clone()` deep-copy on every action) but this change's added overhead was what pushed it over.
-- **Files:** `models/events.py` (`EventType.DRAW_INSTRUCTION`), `models/game_state.py` (`GameState.first_draw_done_this_step`), `game/engine/turn_loop_mixin.py` (`_run_step`'s per-draw-step reset), `game/rules/draw_discard_mixin.py` (`draw`/`_single_draw` restructure), `game/effects.py` (`_split_multi_draw_replacement`, `_steal_non_first_draw_replacement`, `_discard_instead_of_non_first_draw_replacement`, their `ReplacementRegistry` entries), `game/ability_catalogue.py` (Alms Collector, Notion Thief, Chains of Mephistopheles).
+- **Files:** `models/events.py` (`EventType.DRAW_INSTRUCTION`), `models/game_state.py` (`GameState.first_draw_done_this_step`), `game/engine/turn_loop_mixin.py` (`_run_step`'s per-draw-step reset), `game/rules/draw_discard_mixin.py` (`draw`/`_single_draw` restructure), `game/effects/core.py` (`_split_multi_draw_replacement`, `_steal_non_first_draw_replacement`, `_discard_instead_of_non_first_draw_replacement`, their `ReplacementRegistry` entries), `game/ability_catalogue.py` (Alms Collector, Notion Thief, Chains of Mephistopheles).
 - **Tests:** `tests/test_draw_replacement_family.py` (new, 13 tests).
 
 ### MEC-34: Animate Dead — RULE 303.4f's "Enchant creature card in a graveyard" reanimator Aura
 
 - **What:** Animate Dead's own target isn't a permanent at all (RULE 303.4f's special case for the handful of Auras that enchant a graveyard *card*), so `RulesEngine._resolve_permanent_spell`'s ordinary "attach the freshly-entered Aura to its RULE 115 target, or send it to the graveyard on a failed attach" branch had always misfired on it: `attach_to_target` can only ever fail against a non-battlefield object, so the Aura was unconditionally sent straight back to its own graveyard before its own "when this enters" ability — which is what's actually supposed to fix the attachment — ever got a chance to resolve. Fixed with four small, independently-reusable pieces rather than one Animate-Dead-specific hack: (1) `_resolve_permanent_spell` now recognizes a graveyard-zone attach target and skips the auto-graveyard branch for exactly that case, leaving the Aura on the battlefield unattached and stashing the target's id on a new `GameObject.reanimate_target_id` (the graveyard card can't simply ride along as an ordinary RULE 115 chosen target into the later triggered-ability resolution, since that's a separate `StackItem`/resolution boundary — this is the one genuinely new piece of state the whole fix needed); (2) `targeting.legal_targets` gained a graveyard-wide branch for an "Enchant `<type>` card in a graveyard" quality (parsed off the printed "Enchant …" line the same way every other Aura's restriction already is) — the pre-existing "enchant" branch only ever searched `state.permanents()`, so without this the spell would have had *no* legal targets to offer at cast time at all, a gap the original diagnosis had missed entirely (it only covered the resolution-time failure, not the cast-time targeting one); (3) `ReturnFromGraveyardEffect` gained a fifth referent mode, `target_kind="self_enchant_target"` (alongside its ordinary RULE 115 target/self shapes), reading `self.source.reanimate_target_id` back and resolving it via `GameState.find_object` (which already searches every zone, graveyards included) rather than a passed-in `targets` list; (4) the already-shipped `AttachEffect(target_kind="created")` — no changes needed — attaches the Aura to whatever `ReturnFromGraveyardEffect` just put on the battlefield, since `_apply_one` already appends its return value to `context.created_objects`. The "when this Aura leaves the battlefield, that creature's controller sacrifices it" clause is a new, genuinely reusable `SacrificeAttachedPermanentEffect`: it reads `self.source.attached_to` live at resolution (not a baked-in object the way `SacrificeSpecificEffect` needs, since the acting object is only known once this specific LEAVES_BATTLEFIELD firing happens) — safe because `GameState.remove_from_battlefield` never clears `attached_to`, so the just-departed Aura's own field still names the creature it was attached to the instant it left. Confirmed, rather than assumed, that RULE 704.5n's "Aura attached to nothing → owner's graveyard" SBA sweep (`_revalidate_attachments`) can't interfere in the window between the Aura entering and its own ETB resolving: that sweep only ever processes a permanent whose `attached_to` is *already set* (`if host_id is None: continue`), so a never-yet-attached Aura is invisible to it by construction — no exemption needed, unlike the original diagnosis's "may already be safe — verify" hedge. The self-referential "it loses 'enchant creature card in a graveyard' and gains 'enchant creature put onto the battlefield with this Aura'" text-change clause is RULE 303.4f reminder text describing exactly this behavior with no separate gameplay effect once the above is right, so it isn't modeled as its own clause. Necromancy, this ticket's other named card, turned out to be a structurally different, *non*-Aura reanimator template (no "Enchant X" line at cast time, a real RULE 115 target on its own triggered ability instead, and a "becomes an Aura with `<quoted text>`" clause that would need `GameObject.parametric_keywords` to become genuinely mutable mid-game) — re-diagnosed and re-filed as its own ticket, [MEC-44], rather than forced through the same shape.
-- **Files:** `models/game_object.py` (`GameObject.reanimate_target_id`), `game/rules/casting_mixin.py` (`_resolve_permanent_spell`'s graveyard-target bypass), `game/targeting.py` (`legal_targets`'s graveyard-quality "enchant" branch), `game/effects.py` (`ReturnFromGraveyardEffect`'s `target_kind="self_enchant_target"`, `SacrificeAttachedPermanentEffect`, its `EffectRegistry` entry), `game/ability_catalogue.py` (Animate Dead).
+- **Files:** `models/game_object.py` (`GameObject.reanimate_target_id`), `game/rules/casting_mixin.py` (`_resolve_permanent_spell`'s graveyard-target bypass), `game/targeting.py` (`legal_targets`'s graveyard-quality "enchant" branch), `game/effects/core.py` (`ReturnFromGraveyardEffect`'s `target_kind="self_enchant_target"`, `SacrificeAttachedPermanentEffect`, its `EffectRegistry` entry), `game/ability_catalogue.py` (Animate Dead).
 - **Tests:** `tests/test_animate_dead_family.py` (new, 3 tests).
 
 ### MEC-36: Damping Sphere — mana-type override by amount + per-caster storm tax
 
 - **What:** "If a land is tapped for two or more mana, it produces {C} instead of any other type and amount. Each spell a player casts costs {1} more to cast for each other spell that player has cast this turn." Two independent, unscoped statics. The mana half is a new `StaticAbility` layer, `"mana_type_override"` — not a RULE 613 layer effect at all (nothing here is a characteristic), consulted directly by `GameEngine.tap_for_mana` via the new `continuous.mana_type_override_for`, positioned right after the already-shipped `mana_multiplier` (Nyxbloom Ancient) check and before the produced mana lands in the pool, so the threshold is checked against the *true*, post-multiplier total. It's a boolean override (not additive), unscoped by controller (any land tapped by anyone), and multiple copies don't compound — the same shape `mana_multiplier` already established, just a type override instead of an amount scale. The cost half needed no new `StaticAbility` layer at all: `cost_reduction`'s existing `per` count-selector vocabulary just gained a new key, `"spells_cast_this_turn"`, in `continuous.count_selector` — and it turned out to already be exactly the right shape, because `continuous._cost_static_amount` (which `per` feeds through) evaluates the count against the *casting* player, not this static's own controller, and `RulesEngine._track_spell_cast` increments `GameState.spells_cast_this_turn` strictly *after* the spell being cast has already had its own cost computed — so "for each **other** spell" fell out for free, no off-by-one correction needed. The one real prerequisite fix: `spells_cast_this_turn`'s own reset (`GameEngine.begin_turn`) had always been scoped to just the incoming active player's entry (RULE 731.2's day/night check is the only prior consumer, and it only ever reads the *active* player's own count right before rotation) — widened to reset *every* player's entry every turn, the same `mana_produced_this_turn`/`noncreature_spells_cast_this_turn` game-wide idiom already used nearby, since a non-active player's own running total needed to stay accurate for Damping Sphere's cross-player read too. Confirmed the widening is safe rather than assumed: the sole existing consumer (`_last_turn_spell_count`) already snapshots the outgoing player's count *before* this reset runs each turn, so nothing reads a value the wider reset could clobber.
-- **Files:** `game/continuous.py` (`mana_type_override_for`, `count_selector`'s `"spells_cast_this_turn"` key, `_NON_RULE_613_LAYERS`), `game/effects.py` (the `"mana_type_override"` `EffectRegistry` factory), `game/engine/mana_mixin.py` (`tap_for_mana`'s override consult), `models/game_state.py` (`spells_cast_this_turn`'s widened docstring), `game/engine/turn_loop_mixin.py` (`begin_turn`'s widened reset), `game/ability_catalogue.py` (Damping Sphere).
+- **Files:** `game/continuous.py` (`mana_type_override_for`, `count_selector`'s `"spells_cast_this_turn"` key, `_NON_RULE_613_LAYERS`), `game/effects/core.py` (the `"mana_type_override"` `EffectRegistry` factory), `game/engine/mana_mixin.py` (`tap_for_mana`'s override consult), `models/game_state.py` (`spells_cast_this_turn`'s widened docstring), `game/engine/turn_loop_mixin.py` (`begin_turn`'s widened reset), `game/ability_catalogue.py` (Damping Sphere).
 - **Tests:** `tests/test_damping_sphere_family.py` (new, 3 tests).
 
 ### MEC-37: Doomsday — no new search primitive, but two real engine bugs
@@ -4672,25 +4672,25 @@ is in the rules-engine categories below them.
 - **What:** The original ticket framing ("exile up to five cards in a pile") described a mechanic Doomsday doesn't actually have — its real printed text is "Search your library and graveyard for five cards and exile the rest. Put the chosen cards on top of your library in any order. You lose half your life, rounded up," which needed no new search primitive at all once checked against the real oracle text: `SearchLibraryEffect` already supports `zones=["library", "graveyard"]` (combined-zone search) and `exile_rest` (its own docstring already said "…Doomsday-shaped," built with this exact card in mind but never actually reached by a real card before now), and a multi-card `destination="library_top"` search already offers its picks one at a time, each stacking *above* the last — so the player already has full control over the final order simply by choosing which card to name each round (name the card that should end up on top last), no new ordering mechanism needed. The only genuinely new piece was `LoseLifeEffect`'s new `amount_from_half_own_life` param ("half your life, rounded up," RULE 107.3, via ceiling division), resolved against this ability's own controller. Hand-authoring the card immediately surfaced two real, previously-unreachable engine bugs — no prior card had combined "a search with `zones` including graveyard and a broad `criteria`" with "a multi-effect spell whose search isn't its only effect," or "a search whose `destination` is itself one of its own searched `zones`," respectively:
   1. **RULE 608.2m premature spell routing.** `_apply_effects_partitioned`'s "an effect opens a `pending_choice`, defer the remainder" mechanism (batch 26) only ever stopped the *remaining effects in the same list* from running early — it never told its caller, `RulesEngine._apply_stack_item`, that the whole resolution had paused. So for a plain (non-permanent) spell whose *own* effects list has 2+ effects and the first one opens an interactive choice, `_apply_stack_item` immediately fell through to its "route this spell to the graveyard" tail as if resolution had finished — while the spell's own search was still waiting on an answer. For Doomsday specifically, this meant the still-resolving Doomsday card showed up as an eligible pick in its *own* search (zones include "graveyard," criteria is unrestricted) a full turn before RULE 608.2m says it's actually there. Fixed generally: `_apply_effects_partitioned` now returns whether it deferred, `_apply_stack_item` skips its routing tail when it did (extracted into `_finish_spell_routing`, reused so the fix isn't duplicated), and `resume_deferred_effects` — now threading a `stack_item` reference through the parked `deferred_effects` entry — runs that same tail once the remainder it was waiting on finally drains with nothing left to pause on. Not a Doomsday special case: this fixes the same latent premature-routing window for *any* future multi-effect spell whose first effect is interactive.
   2. **`exile_rest` re-catching its own chosen cards.** `SearchLibraryEffect.exile_rest`'s sweep re-scanned the *same* searched `zones` for anything still criteria-matching and exiled all of it — never excluding the cards the search had *just* chosen and moved, so a destination that puts a pick back into one of the searched zones (`library_top`/`library_bottom` while `"library"` is itself a searched zone — exactly Doomsday's own shape) immediately re-caught and exiled every card the player had just picked, silently gutting the entire "put the chosen cards on top" clause. An existing test (`test_search_effects.py::test_exile_rest_engine_moves_leftover_matches_to_exile_and_skips_shuffle`) had unknowingly encoded this bug as its own expected outcome (asserting the library ended up empty after picking *every* available card to `library_top`) — corrected once the real bug surfaced, rather than left passing against wrong behavior. Fixed by excluding the chosen cards' own instance ids from the exile-rest candidate pool.
-- **Files:** `game/effects.py` (`LoseLifeEffect.amount_from_half_own_life`, `_apply_effects_partitioned`'s `stack_item` param + `bool` return), `game/rules/casting_mixin.py` (`_apply_stack_item`/`_finish_spell_routing` split, `resume_deferred_effects`'s stack-item-aware resumption), `game/rules/search_mixin.py` (`exile_rest`'s chosen-card exclusion), `game/ability_catalogue.py` (Doomsday).
+- **Files:** `game/effects/core.py` (`LoseLifeEffect.amount_from_half_own_life`, `_apply_effects_partitioned`'s `stack_item` param + `bool` return), `game/rules/casting_mixin.py` (`_apply_stack_item`/`_finish_spell_routing` split, `resume_deferred_effects`'s stack-item-aware resumption), `game/rules/search_mixin.py` (`exile_rest`'s chosen-card exclusion), `game/ability_catalogue.py` (Doomsday).
 - **Tests:** `tests/test_doomsday_family.py` (new, 2 tests); `tests/test_search_effects.py` (one existing assertion corrected to match the fixed `exile_rest` behavior).
 
 ### MEC-38: Necropotence's three-clause engine
 
 - **What:** "Skip your draw step. Whenever you discard a card, exile that card from your graveyard. Pay 1 life: Exile the top card of your library face down. Put that card into your hand at the beginning of your next end step." Three real pieces, each closing a gap no prior card had exercised. (1) The draw-step skip is a new `StaticAbility` layer, `"skip_step"`, consulted live off the battlefield by `continuous.skipped_steps_for` — `RulesEngine.should_skip_step` already existed and already checked `Player.player_effects` for a `StaticEffect`, but that whole path turned out to be a designed-but-never-instantiated primitive (`StaticEffect` was never constructed anywhere in the codebase before this). Rather than build the "sync a StaticEffect onto player_effects as this permanent enters/leaves the battlefield" lifecycle the original ticket assumed was needed, this reuses the same "live battlefield read, no separate lifecycle" shape `mana_type_override_for` (MEC-36) already established — `_battlefield_static_abilities` re-derives every permanent's own statics fresh on every recompute regardless. (2) The discard trigger needed a new per-card `EventType.DISCARD_CARD` — the existing `DISCARD` only ever carried an aggregate `count` (the same granularity gap MEC-32 found on the draw side), so nothing could name *which* card was discarded. All three discard sites (`RulesEngine.discard`'s loop, `discard_specific`, and RULE 614.12's "discard a land card instead") now fire it alongside the unchanged aggregate event. `ExileEffect` gained a new `target_kind="trigger_subject"` (mirroring `TapEffect`'s own identically-named mode) to read the discarded card's `instance_id` straight off the firing event rather than a chosen RULE 115 target — by the time this trigger resolves the card is already sitting in the graveyard (discard moves it there before firing), so this is a real, correctly-timed zone change into exile. (3) The activation cost is the already-shipped `ActivationCost.pay_life`; the effect body needed a new `ExileTopOfLibraryEffect` — deterministic, no chooser at all, unlike `SearchLibraryEffect` (which offers the *whole* zone as a real pick even at `count=1`) — feeding the pre-existing `CreateDelayedTriggerEffect`'s `capture="created_objects"` mechanism, widened with a third captured-attribute name (`exiled_object`, alongside the pre-existing `objects`/`target`) so the delayed half could reuse `ReturnUncastExiledEffect` — previously only ever constructed directly in Python inside another effect's own `apply()` (Beseech the Mirror/Rebound's "if it wasn't cast this way" tail), never reachable through the ordinary `EffectSpec` whitelist until this ability needed it as a ordinary delayed effect rather than a bespoke one. One real bug surfaced building `ExileTopOfLibraryEffect`: setting `GameObject.face_down_in_exile` *before* calling `context.exile()` silently lost the flag, because `RulesEngine._remove_from_current_zone` (which `exile()` calls internally to pull the card out of its prior zone) unconditionally clears that flag as its own RULE 400.7 "a card leaving exile turns face up" behavior — correct for that direction, but it also undoes a card *entering* exile face down if set beforehand. Fixed by setting the flag after the move, not before (the pre-existing Beseech the Mirror search path never hit this, since it moves zones via the lower-level `Player.add_to_zone` directly rather than `RulesEngine.exile()`).
-- **Files:** `game/continuous.py` (`skipped_steps_for`, `_NON_RULE_613_LAYERS`), `game/effects.py` (`"skip_step"` `EffectRegistry` factory, `ExileEffect.target_kind="trigger_subject"`, `ExileTopOfLibraryEffect`, `CreateDelayedTriggerEffect`'s `exiled_object` capture, `"return_uncast_exiled"` `EffectRegistry` factory), `game/rules/misc_mixin.py` (`should_skip_step`'s new check), `models/events.py` (`EventType.DISCARD_CARD`), `game/rules/draw_discard_mixin.py` (`discard`/`discard_specific`'s new per-card firing), `game/rules/casting_mixin.py` (RULE 614.12's own discard site), `game/effect_binder.py` (`_GROUP_CONTROLLER_EVENT_KEYS`'s `DISCARD_CARD` entry), `game/ability_catalogue.py` (Necropotence).
+- **Files:** `game/continuous.py` (`skipped_steps_for`, `_NON_RULE_613_LAYERS`), `game/effects/core.py` (`"skip_step"` `EffectRegistry` factory, `ExileEffect.target_kind="trigger_subject"`, `ExileTopOfLibraryEffect`, `CreateDelayedTriggerEffect`'s `exiled_object` capture, `"return_uncast_exiled"` `EffectRegistry` factory), `game/rules/misc_mixin.py` (`should_skip_step`'s new check), `models/events.py` (`EventType.DISCARD_CARD`), `game/rules/draw_discard_mixin.py` (`discard`/`discard_specific`'s new per-card firing), `game/rules/casting_mixin.py` (RULE 614.12's own discard site), `game/binding/core.py` (`_GROUP_CONTROLLER_EVENT_KEYS`'s `DISCARD_CARD` entry), `game/ability_catalogue.py` (Necropotence).
 - **Tests:** `tests/test_necropotence_family.py` (new, 3 tests).
 
 ### MEC-39: Opposition Agent — search-result redirect, not a real control exchange
 
 - **What:** "You control your opponents while they're searching their libraries. While an opponent is searching their library, they exile each card they find. You may play those cards for as long as they remain exiled, and you may spend mana as though it were mana of any color to cast them." The original ticket assumed a genuine RULE 269.4 player-control exchange, conditional and scoped to a choice's duration — a real, unbuilt shape. Rereading the actual printed text found a simpler, already-mostly-buildable one instead: the first sentence's "control" never changes anything this engine's search flow would otherwise decide (the searching player still picks which cards they find — the only thing that changes is where those cards end up), and the second sentence spells out that mechanical outcome completely on its own. Modeled as a new `StaticAbility` layer, `"search_redirect"` (`continuous.search_redirect_controller_for`), consulted by `RulesEngine._finish_search` at the exact point it computes each found card's destination: when the searching player is an opponent of the static's controller, every found card's destination is overridden to exile (regardless of what the search itself asked for — hand, battlefield, library placement, all redirected alike) and the already-shipped `GameState.exile_cast_condition`/`mana_wildcard_permission` pair — the same standing "play this exiled card, spending mana of any color" permission every other exile-and-play card already grants — is stamped for this permanent's controller instead of the found card's own owner. The one genuine generalization needed: every prior grantor of those two maps had only ever pointed them at the exiled card's own owner (`ExileEffect.grant_owner_play_permission` is even named for that assumption); `exile_cast_condition`'s own dict shape (`instance_id -> (player_id, condition)`) was already fully general, so no widening was needed there, only a new caller passing a different `player_id`.
-- **Files:** `game/continuous.py` (`search_redirect_controller_for`, `_NON_RULE_613_LAYERS`), `game/effects.py` (`"search_redirect"` `EffectRegistry` factory), `game/rules/search_mixin.py` (`_finish_search`'s redirect consult + permission grant), `game/ability_catalogue.py` (Opposition Agent).
+- **Files:** `game/continuous.py` (`search_redirect_controller_for`, `_NON_RULE_613_LAYERS`), `game/effects/core.py` (`"search_redirect"` `EffectRegistry` factory), `game/rules/search_mixin.py` (`_finish_search`'s redirect consult + permission grant), `game/ability_catalogue.py` (Opposition Agent).
 - **Tests:** `tests/test_opposition_agent_family.py` (new, 2 tests).
 
 ### MEC-35: Leonin Arbiter — a widened prohibition and a genuine RULE 116.2a special action
 
 - **What:** "Players can't search libraries. Any player may pay {2} for that player to ignore this effect until end of turn." Two parts, both real. (1) The already-shipped `GrantSearchProhibitedEffect` (Stranglehold's own "your opponents can't search libraries") gained a `scope` param — `"opponents"` (the pre-existing, now-default behavior) vs. `"all"` (this card's own unqualified "**Players** can't…," which restricts its own controller too). (2) "Any player may pay {2}… to ignore this effect until end of turn" is a genuine RULE 116.2a special action, built from scratch on the exact template `turn_face_up` already established: no stack, offered only when payable, reclaims priority for its taker on completion. `GameEngine.pay_search_exemption`/`pay_search_exemption_actions` are the new pair; `GameState.search_exempt_until_turn` (`{player_id: turn_number}`) is the same "stops matching once the turn advances, no cleanup step needed" idiom `temp_flash_until_turn` already uses. `RulesEngine.request_search`'s own prohibition guard was refactored into a new public `is_search_prohibited_for(player)` (checking the exemption first, then scanning for an applicable `GrantSearchProhibitedEffect` by the widened `scope` rule) so both the guard itself and the new action's "is this even worth offering" check share one definition instead of two independently-maintained copies of the same logic. Deliberately reads the exemption as "ignore every current search prohibition," not literally only the one named "this effect" in the printed text — no shipped card yet combines Leonin Arbiter with a second, independent prohibition source, so the simpler reading is unobservably different today.
-- **Files:** `game/effects.py` (`GrantSearchProhibitedEffect.scope`), `game/rules/search_mixin.py` (`is_search_prohibited_for`, `_has_search_exemption`, the widened prohibition guard), `game/engine/misc_mixin.py` (`pay_search_exemption`/`pay_search_exemption_actions`), `game/engine/legal_actions_mixin.py` (offering the new action), `models/game_state.py` (`search_exempt_until_turn`), `services/game_session.py` (the new action's dispatch entry), `game/ability_catalogue.py` (Leonin Arbiter).
+- **Files:** `game/effects/core.py` (`GrantSearchProhibitedEffect.scope`), `game/rules/search_mixin.py` (`is_search_prohibited_for`, `_has_search_exemption`, the widened prohibition guard), `game/engine/misc_mixin.py` (`pay_search_exemption`/`pay_search_exemption_actions`), `game/engine/legal_actions_mixin.py` (offering the new action), `models/game_state.py` (`search_exempt_until_turn`), `services/game_session.py` (the new action's dispatch entry), `game/ability_catalogue.py` (Leonin Arbiter).
 - **Tests:** `tests/test_leonin_arbiter_family.py` (new, 3 tests).
 
 ### MEC-31: Spree (RULE 702.172a) and Escalate (RULE 702.120) — two "choose one or more" cost shapes, one selection primitive
@@ -4698,7 +4698,7 @@ is in the rules-engine categories below them.
 - **What:** Neither keyword did anything before this ticket — both are variants of RULE 700.2's "choose one or more" modal shape (already fully built: `AbilitySpec.modes["at_least"]`/`"choose"`, `_effects_for_mode`/`_modal_cast_actions` offering one action per legal combination of 1..N modes), but each prices the combination differently from an ordinary modal spell, where every combination costs the same. **Spree** prices each mode *individually* — the total is the sum of every chosen mode's own cost, on top of the printed mana cost. **Escalate** prices the combination by a single *flat* cost paid once per mode chosen *beyond the first*, regardless of which modes those are. The two never appear on the same card, and neither needed a new mode-*selection* mechanism — RULE 700.2's `at_least`/`choose=1` combination sweep was already exactly "choose one or more." What was missing was purely on the *cost* side: `GameEngine.can_cast`/`effective_cast_cost`/`_auto_tap_for_cast_if_needed` never took a `mode` parameter at all (every existing modal shape prices identically regardless of which mode is chosen, so there was nothing to read it for), and `_cast_action`/`_modal_cast_actions` never priced or locked a combination individually. All four gained a `mode` parameter; a new `GameEngine._modal_extra_cost(obj, mode)` computes the surcharge for a given combination (Spree: sum `obj.spell_modes[i]["cost"]` for each chosen `i`; Escalate: `_escalate_cost(obj)` times `len(mode) - 1`), consulted everywhere cost is computed or checked, and `_cast_action` now locks each combination independently (`"modal_extra_cost"`/`"locked"`/`"Manakosten nicht bezahlbar"`) since, unlike Farewell's flat "choose N or more," two combinations of a Spree/Escalate card can differ in whether they're affordable at all.
 - **Parser:** Spree needed real new grammar (`catalogue/modal.split_spree_block`, PARSER_VERSION 94): a bare "spree" header line (its reminder text already stripped by `normalize` by the time the segmenter sees it) followed by 2+ "+ `<cost>` — `<body>`" mode lines, each carrying its own mana cost — a shape `MODAL_HEADER_RE`'s "choose N —" grammar can't express at all, since Spree's header carries no count (always "choose one or more" by definition) and its mode lines aren't bare "• " bullets. `AbilitySpec.modes["mode_costs"]` (parallel to `options`/`descriptions`, validated in `spec.py` to match 1:1 and require the `at_least`/`choose=1` shape) carries the per-mode costs into `effect_binder._build_mode_entries`, which folds `mode_costs[i]` onto `spell_modes[i]["cost"]`. **Escalate needed no parser handler at all** — "Escalate `<cost>`" is already a plain cost-bearing parametric keyword (`parser/oracle/catalogue/keywords.py`'s `_C` table, same shape as Buyback/Mutate), and "Choose one or more —" is the ordinary already-shipped RULE 700.2 header; `GameEngine._escalate_cost` just reads `parametric_keywords["escalate"]["cost"]`, mirroring `_buyback_cost`/`_mutate_cost` exactly.
 - **Return the Favor** (`Ojer cEDH`'s own named blocker) is hand-authored rather than reached through the new parser grammar: its "change the target of target spell or ability with a single target" mode is the parser's own already-built `change_target` handler output verbatim (`EffectSpec("change_target", {"spell_or_ability": True})`, ENG-26), but its "copy target … spell, activated ability, or triggered ability … choose new targets" mode needs a real ability-copy primitive `CopySpellEffect`/`RulesEngine.copy_spell` don't have (`copy_spell` returns `[]` outright when `item.obj is None`, i.e. for any ability stack item — copying a spell is all it has ever done) — tracked as its own future gap rather than built here. Hand-authored with the same two simplifications every other targeted-copy catalogue entry already carries (Reiterate/Narset's Reversal/Dualcaster Mage, per `CopySpellEffect`'s own docstring): spells only, original targets kept (no interactive "choose new targets" pick, though `copy_spell`'s own `new_targets` param already exists for whenever a caller wires one up).
-- **Files:** `parser/oracle/catalogue/modal.py` (`SPREE_HEADER_RE`/`SPREE_MODE_LINE_RE`/`split_spree_block`), `parser/oracle/gate.py` (`_process_spree_block`, dispatch loop, `PARSER_VERSION` 94), `parser/oracle/spec.py` (`mode_costs` validation + `to_dict`/`from_dict`), `game/effect_binder.py` (`_build_mode_entries`'s `"cost"` key), `game/engine/casting_mixin.py` (`_escalate_cost`, `_modal_extra_cost`, `mode` threaded through `can_cast`/`effective_cast_cost`/`_auto_tap_for_cast_if_needed`/`_cast_current_face`), `game/engine/legal_actions_mixin.py` (`_cast_action`'s per-combination cost/lock, `_modal_cast_actions` docstring), `game/ability_catalogue.py` (Return the Favor).
+- **Files:** `parser/oracle/catalogue/modal.py` (`SPREE_HEADER_RE`/`SPREE_MODE_LINE_RE`/`split_spree_block`), `parser/oracle/gate.py` (`_process_spree_block`, dispatch loop, `PARSER_VERSION` 94), `parser/oracle/spec.py` (`mode_costs` validation + `to_dict`/`from_dict`), `game/binding/core.py` (`_build_mode_entries`'s `"cost"` key), `game/engine/casting_mixin.py` (`_escalate_cost`, `_modal_extra_cost`, `mode` threaded through `can_cast`/`effective_cast_cost`/`_auto_tap_for_cast_if_needed`/`_cast_current_face`), `game/engine/legal_actions_mixin.py` (`_cast_action`'s per-combination cost/lock, `_modal_cast_actions` docstring), `game/ability_catalogue.py` (Return the Favor).
 - **Tests:** `tests/test_spree_family.py` (new, 14 tests — parser grammar, `AbilitySpec` validation, binder, legal-actions cost/lock, casting with 1/2 modes and insufficient mana, Escalate's flat per-additional-mode surcharge, Return the Favor's two modes end to end).
 
 ### MEC-33: Omen Machine — an existing draw cap at zero, plus a genuine "each player's step, that player" tail
@@ -4709,27 +4709,27 @@ is in the rules-engine categories below them.
   `LandOrFreeCastEffect` now opens a per-card free-cast window; the player
   elects whether to cast and supplies targets through the standard cast flow.
 - **General primitive, not a one-off:** the exact same tail — "if it's a land card, the player puts it onto the battlefield. Otherwise, the player casts it without paying its mana cost if able." — also prints on Wild Evocation, off a *revealed random hand card* rather than an exiled library card. `LandOrFreeCastEffect` only consumes `created_objects[-1]`, so a future Wild Evocation catalogue entry only needs its own source half (a random-hand-reveal effect) to reuse this tail unchanged.
-- **Files:** `game/effects.py` (`ExileTopOfLibraryEffect.player_selector`, `LandOrFreeCastEffect`, the `"exile_top_of_library"`/new `"land_or_free_cast"` `EffectRegistry` factories, `targeting` imports widened), `game/ability_catalogue.py` (Omen Machine).
+- **Files:** `game/effects/core.py` (`ExileTopOfLibraryEffect.player_selector`, `LandOrFreeCastEffect`, the `"exile_top_of_library"`/new `"land_or_free_cast"` `EffectRegistry` factories, `targeting` imports widened), `game/ability_catalogue.py` (Omen Machine).
 - **Tests:** `tests/test_omen_machine_family.py` (new, 6 tests — flat draw ban incl. the controller's own draws, the land branch, the free-cast branch with life loss, an uncastable-nonland-card-stays-exiled negative case, and the trigger firing for both players' own draw steps across a turn rotation).
 
 ### MEC-44: Necromancy — RULE 303.4f's non-Aura reanimator, and how much smaller its "real blocker" turned out to be
 
 - **What:** "You may cast this spell as though it had flash. If you cast it any time a sorcery couldn't have been cast, the controller of the permanent it becomes sacrifices it at the beginning of the next cleanup step. When this enchantment enters, if it's on the battlefield, it becomes an Aura with 'enchant creature put onto the battlefield with Necromancy.' Put target creature card from a graveyard onto the battlefield under your control and attach this enchantment to it. When this enchantment leaves the battlefield, that creature's controller sacrifices it." Animate Dead's own sibling ticket (MEC-34) — that card is a real Aura from load time; Necromancy prints as a plain Enchantment and only *becomes* one once its own ETB ability resolves. Three real gaps, each smaller once actually measured than the ticket's own filing had assumed. (1) The unconditional flash grant: `ALLOWED_CAST_CONDITION_KEYS` had only ever carried *conditional* keys (`entered_this_turn`/`targets_a_commander`) — added `"unconditional"` (`condition_query.conditional_flash_holds`'s new trivially-true branch), the whitelist's first member that gates nothing at all. (2) "If cast at a time a sorcery couldn't have been cast, sacrifice at next cleanup": a new `GameObject.cast_outside_sorcery_speed` flag, stamped once at cast time (`GameEngine._cast_current_face`, right where `player is active_player and _in_main_phase() and not stack` is cheap to compute and about to become unanswerable once the board moves on) and read by a new `EffectSpec.condition` key of the same name — no new delayed-trigger primitive needed at all, since `CreateDelayedTriggerEffect`'s existing `step`/`scope` params already reach "at the beginning of the next cleanup step" (RULE 514) and `sacrifice_self` was already registered (Dress Down/Underworld Breach). (3) "It becomes an Aura with `<quoted text>`" — the ticket's own flagged "real blocker," estimated as needing `parametric_keywords` threaded through every reader as a genuinely mutable field. Measured instead of assumed: `_attachment_kind`/`_attachment_legal`/`_detach_attachments_from` all already read `GameObject.parametric_keywords` fresh off the live object on every call — nothing caches or snapshots it anywhere — so the only real gap was that nothing had ever *written* to it after bind time. The new `BecomeAuraEffect` does exactly that (`self.source.parametric_keywords["enchant"] = {"quality": ...}`), and every consumer picks it up for free with zero threading. Scoped deliberately to the `enchant` key specifically, not RULE 305.1c's fully general "becomes a `<type>` with `<quoted ability>`" template (which could grant *any* ability, not just an attachment restriction) — that stays real, separate future work for whichever next card actually needs it.
 - **Reuse:** `ReturnFromGraveyardEffect`/`AttachEffect(target_kind="created")`/`SacrificeAttachedPermanentEffect` (all MEC-34) carry over wholesale, but with a genuine RULE 115 target on the reanimate clause itself (`target_kind="any_graveyard_creature"` — "**a** graveyard", any player's) rather than Animate Dead's cast-time-stashed shape, since Necromancy carries no "Enchant" line at cast time for `_resolve_permanent_spell`'s graveyard-attach recognition to key off — its target is chosen when the *triggered ability* resolves instead, an ordinary interactive `pending_choice`. **Documented simplification**, matching Animate Dead's own: the "it loses/gains" self-referential quality-text-change (RULE 303.4f reminder text describing exactly this behavior, no separate gameplay effect) isn't modeled as its own clause — `BecomeAuraEffect`'s `quality="creature"` default is close enough that `_attachment_legal`'s existing permissive fallback (an unrecognized quality string matches everything) covers it regardless.
-- **Files:** `models/game_object.py` (`cast_outside_sorcery_speed`), `game/engine/casting_mixin.py` (the stamp in `_cast_current_face`), `parser/oracle/spec.py` (`ALLOWED_CAST_CONDITION_KEYS`'s `"unconditional"`, `_ALLOWED_CONDITION_KEYS`'s `"cast_outside_sorcery_speed"`), `game/condition_query.py` (`conditional_flash_holds`'s new branch), `game/effects.py` (`ConditionalEffect._condition_holds`'s new branch, `BecomeAuraEffect`, the `"become_aura"` `EffectRegistry` factory), `game/ability_catalogue.py` (Necromancy).
+- **Files:** `models/game_object.py` (`cast_outside_sorcery_speed`), `game/engine/casting_mixin.py` (the stamp in `_cast_current_face`), `parser/oracle/spec.py` (`ALLOWED_CAST_CONDITION_KEYS`'s `"unconditional"`, `_ALLOWED_CONDITION_KEYS`'s `"cast_outside_sorcery_speed"`), `game/condition_query.py` (`conditional_flash_holds`'s new branch), `game/effects/core.py` (`ConditionalEffect._condition_holds`'s new branch, `BecomeAuraEffect`, the `"become_aura"` `EffectRegistry` factory), `game/ability_catalogue.py` (Necromancy).
 - **Tests:** `tests/test_necromancy_family.py` (new, 6 tests — instant-speed castability, reanimation under the caster's control + becoming an Aura, the leaves-battlefield sacrifice, sorcery-speed cast arming no delayed trigger, instant-speed cast arming one, and that delayed trigger actually firing at cleanup).
 
 ### MEC-40 batch 1: six small cards closed via three general primitives (`cEDH Rocco`/`cEDH staples`/`cEDH staples 2`)
 
 - **What:** The first pass at `cEDH Rocco`'s own residue (MEC-40), sized against the live cache with `author_card.py`/`engine_bench.py` before writing anything — every one of the six closed cards had been diagnosed as needing a whole new mechanism somewhere in a prior batch's notes, and none actually did. **Abrupt Decay** ("This spell can't be countered. Destroy target nonland permanent with mana value 3 or less.") was a pure parser bug, not a gap at all: `_destroy_mv`'s own docstring already named Abrupt Decay by name, but its allowed-kinds tuple was `("creature", "permanent")` — missing `"nonland_permanent"`, even though `targeting.py`'s `nonland_permanent` branch already honours `max_mana_value` and `_cant_be_countered` was already claimed. One line. **Culling Ritual** ("Destroy each nonland permanent with mana value 2 or less. Add {B} or {G} for each permanent destroyed this way.") needed the same one-word gap fixed on the *mass*-destroy side (`_MASS_DESTROY_NOUNS`/`_MASS_DESTROY_NOUNS_SINGULAR` had no "nonland permanent(s)" entry, despite `all_nonland_permanents` already being a real `_mass_selector_objects` selector, built for `_return_all_nonland`'s bounce sibling) plus one new same-resolution accumulator: `GameContext.permanents_destroyed_this_way`, `life_lost_this_way`'s exact sibling (same save/reset/restore in `_apply_effects_partitioned`, same "the *actual* effect, not the nominal ask" before/after check, this time in `GameContext.destroy` instead of `lose_life`), read by two new `AddManaEffect` params (`any_color_choices` — narrows the existing "ANY" colour-choice menu the way `add_mana_any_color`'s own `colors` param already narrows Kinnan's "any type that permanent produced"; `any_amount_from_context` — sizes that "ANY" pick off the new accumulator instead of `amount_from_target_count_selector`). **Documented simplification**: the real card lets the caster split the produced mana between {B} and {G} independently, mana by mana (RULE 106.1); this offers one colour choice for the *whole* batch instead, since no per-unit "how many of each" interactive shape exists yet — still fully usable colored mana, just less flexible than printed. **Cabal Ritual** ("Add {B}{B}{B}. Threshold — Add {B}{B}{B}{B}{B} instead if there are seven or more cards in your graveyard.") sidesteps the still-open general "if `<condition>`, `<effect>` **instead**" override primitive (CLAUDE.md's Notable Gaps — the same shape RULE 702.33b's "if kicked, `<effect>` instead" needs) entirely: 5 = 3 + 2, so it's modeled as a flat 3 B plus a *conditional extra* 2 B, mathematically identical to the real "instead" wording without needing an override at all. The condition itself is new and genuinely reusable: `EffectSpec.condition`'s `cards_in_graveyard_at_least` key, a plain graveyard-size read distinct from `static_conditions.py`'s own `card_types_in_graveyard_at_least` (a *distinct-types* count for a permanent's standing `active_if`, not reachable from a resolve-time `ConditionalEffect` at all). **Ranger-Captain of Eos** ("When this creature enters, you may search your library for a creature card with mana value 1 or less... Sacrifice this creature: Your opponents can't cast noncreature spells this turn.") — the ETB was already fully parser-claimable (`author_card.py reuse` confirmed it); the sacrifice ability just wraps the already-standing `cast_prohibition` static (Gaddock Teeg/Lavinia-shaped) in the already-general `GrantUntilEffect`, `target_kind=None` since the prohibition's own `scope="opponents"` param does the scoping (read off `ability.source.controller_id`, which survives the source being sacrificed — `GameEffect.source` keeps its object reference regardless of the object's current zone). **Vexing Shusher** ("This spell can't be countered. {R/G}: Target spell can't be countered.") — the static was already claimed; the activated ability just widens `MarkCantBeCounteredEffect` (built for Mistrise Village's untargeted "the next spell you cast this turn") with an optional `target_kind` param, opting it into a genuine RULE 115 `TargetSpec(kind="spell")` instead of relying on a caller to hand a spell in via `targets[0]`. **Tinder Wall** ("Defender. Sacrifice this creature: Add {R}{R}. {R}, Sacrifice this creature: It deals 2 damage to target creature it's blocking.") needed exactly one new thing: `targeting.py`'s `"creature_source_is_blocking"` target kind, reading `GameObject.blocking`/`additional_blocking` off the ability's own source instead of the whole battlefield (RULE 115.1a's protection/hexproof checks still apply — this narrows the *candidate pool*, it doesn't bypass legality). Defender and the plain sacrifice-for-mana ability needed no catalogue entry at all: `parse_keywords`/`mana_abilities_for` both scan a `GameObject`'s own oracle text directly, entirely independent of whether the card is registered in `ability_catalogue.py` — a registration only turns off `specs_for`'s `AbilitySpec`-effects fallback, not these two sibling systems.
-- **Files:** `parser/oracle/catalogue/handlers.py` (`_destroy_mv`'s widened kinds tuple, `_MASS_DESTROY_NOUNS`/`_MASS_DESTROY_NOUNS_SINGULAR`'s new "nonland permanent(s)" entries), `game/effects.py` (`GameContext.permanents_destroyed_this_way` + its `_apply_effects_partitioned`/`resume_deferred_effects` threading, `GameContext.destroy`'s bookkeeping, `AddManaEffect.any_color_choices`/`any_amount_from_context`, `ConditionalEffect`'s new `cards_in_graveyard_at_least` branch, `MarkCantBeCounteredEffect.target_kind`), `parser/oracle/spec.py` (`_ALLOWED_CONDITION_KEYS`'s new key), `game/targeting.py` (`"creature_source_is_blocking"` kind + its `ALLOWED_TARGET_KINDS`/label entries), `game/rules/casting_mixin.py` (`resume_deferred_effects`'s threading), `game/ability_catalogue.py` (Culling Ritual, Cabal Ritual, Ranger-Captain of Eos, Vexing Shusher, Tinder Wall — Abrupt Decay needed no catalogue entry, the parser fix alone closes it).
+- **Files:** `parser/oracle/catalogue/handlers.py` (`_destroy_mv`'s widened kinds tuple, `_MASS_DESTROY_NOUNS`/`_MASS_DESTROY_NOUNS_SINGULAR`'s new "nonland permanent(s)" entries), `game/effects/core.py` (`GameContext.permanents_destroyed_this_way` + its `_apply_effects_partitioned`/`resume_deferred_effects` threading, `GameContext.destroy`'s bookkeeping, `AddManaEffect.any_color_choices`/`any_amount_from_context`, `ConditionalEffect`'s new `cards_in_graveyard_at_least` branch, `MarkCantBeCounteredEffect.target_kind`), `parser/oracle/spec.py` (`_ALLOWED_CONDITION_KEYS`'s new key), `game/targeting.py` (`"creature_source_is_blocking"` kind + its `ALLOWED_TARGET_KINDS`/label entries), `game/rules/casting_mixin.py` (`resume_deferred_effects`'s threading), `game/ability_catalogue.py` (Culling Ritual, Cabal Ritual, Ranger-Captain of Eos, Vexing Shusher, Tinder Wall — Abrupt Decay needed no catalogue entry, the parser fix alone closes it).
 - **Tests:** `tests/test_mec40_batch1_family.py` (new, 13 tests covering all six cards — Abrupt Decay's mv-capped destroy and its target-offer-time exclusion of an over-cost permanent, Culling Ritual's mass wipe + mana rider (including the zero-destroyed no-op case), Cabal Ritual below/at threshold, Ranger-Captain's ETB search and its sacrifice ability actually shutting off an opponent's noncreature cast (while leaving the controller's own untouched), Vexing Shusher's static + targeted activated marker, Tinder Wall's target restricted to the actual blocked attacker, the damage-and-sacrifice resolution, and its mana ability).
 
 ### MEC-40: `cEDH Rocco` done to completion — the remaining 18 gaps, no deferrals
 
 - **What:** The second, no-deferral pass at MEC-40 — every one of `cEDH Rocco`'s remaining 18 gap cards (Academy Rector, Ajani Nacatl Pariah/Avenger, Allosaurus Shepherd, Domri Anarch of Bolas, Eladamri Korvecdal, Elesh Norn Mother of Machines, Flamescroll Celebrant, Food Chain, Gandalf the White, Guardian Project, Guardian Sunmare, Kutzil Malamet Exemplar, Moon-Blessed Cleric, Sigarda Font of Blessings, Squee the Immortal, Sylvan Library, The Jolly Balloon Man, Yasharn Implacable Earth) closed in one batch, taking the deck to 98/98. As with batch 1, most of these turned out smaller than the ticket's own filing assumed once measured. **Food Chain** ("Exile a creature you control: Add X mana of any one color, where X is 1 plus the exiled creature's mana value. Spend this mana only to cast creature spells.") needed *zero* catalogue entry: `game/costs.py` gained an `exile_creature` cost field (`_EXILE_CREATURE_RE`, `ActivationCost.exile_creature`) and `game/mana_abilities.py` a dedicated `_EXILED_CREATURE_MV_ADD_RE` dispatch row producing a real `ManaAbility` — a genuine RULE 605.1a mana ability (no target, so RULE 605.1a doesn't disqualify it), reusing `_resolve_crew_cost`-shaped payment machinery via `_can_pay_activation_cost`/`_pay_activation_cost`'s existing `exile_creature` branch; `GameEngine.tap_for_mana` recomputes the produced amount from the newly-added `GameObject.last_cost_exiled_object_mv` stamp right after payment (mana abilities' own `options` are pre-resolved before a cost is ever paid, so the "1 plus whatever gets exiled" amount can't be known any earlier). The parser's own `segmenter._COST_LOOKS_REAL` sniff was also widened (`exile an? [a-z]+ you control`) so "Exile a creature you control:" is recognized as a real cost at all — the battlefield-zone sibling of the existing "exile this card from your hand" sniff (PARSER_VERSION 95). **Squee, the Immortal** ("You may cast this card from your graveyard or from exile.") is a new `SelfGraveyardOrExileCastPermissionEffect` marker, read directly off the object's own `static_effects` by a new `GameEngine._self_graveyard_or_exile_cast_permission` check wired into `can_cast`'s `in_castable_zone` — deliberately *not* `graveyard_cast.py`'s existing `GraveyardCastPermissionEffect` family, which is scoped to a permission granted by some *other* permanent scanned off the battlefield; this is the card's own standing self-permission, which needed no board scan since the source *is* the card being cast. **Guardian Sunmare** ("Whenever ~ attacks while saddled, search... Saddle 4") is RULE 702.171a Saddle's first real behaviour — until now keyword-recognized only. `ActivationCost.saddle_power` reuses Crew's own `_resolve_crew_cost`/`_crew_pool` pool-selection unchanged (702.171a is worded identically to 702.122a's "tap any number of other untapped creatures... total power N or greater"), landing on a plain `GameObject.saddled_until_turn` stamp (`effects.BecomeSaddledEffect`) rather than a RULE 613 layer effect, since being saddled changes no characteristic; `effect_binder._saddle_activated_ability` mirrors `_crew_activated_ability`'s own keyword-dispatch wiring. The "while saddled" trigger gate is a new `requires_saddled` trigger-condition key, the same "checks the source's own live state" idiom `requires_equipped` already uses. **Kutzil, Malamet Exemplar**'s "creatures you control **each with power greater than its base power**" is the aggregate-event qualifier the original MEC-40 filing had flagged by name: a new `contributor_power_gt_base` field on `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` (`GameEngine._apply_combat_damage`, comparing each contributor's live `power` against its own printed `card.power` — "base power" per the card's own Gatherer ruling *does* include counters and static boosts, so the derived-vs-printed comparison is exactly right) plus a matching `effect_binder` trigger-condition predicate, siblings of MEC-29's `contributor_power_at_least`/`contributor_subtype`. Its first static ("opponents can't cast spells during your turn") was already fully parser-claimable via the existing `cast_prohibition`+`active_if: your_turn` combination. **Elesh Norn, Mother of Machines** and **Gandalf the White** share two primitives built together: `TriggerDoublerEffect` gained a `cause_filter` (one or more `EventType`s the firing event must match, mutually exclusive with Roaming Throne's own `chosen_type` gate) and `cause_type_filter` (a closed "legendary"/"artifact" word list checked against the causing object) — Elesh Norn's own doubling is unscoped by type (`cause_filter=[ENTERS_BATTLEFIELD]` only), Gandalf's is scoped to legendary-or-artifact and fires on *either* entering or leaving (`cause_filter=[ENTERS_BATTLEFIELD, LEAVES_BATTLEFIELD]`). Elesh Norn's second clause ("permanents entering don't cause abilities of permanents your opponents control to trigger") needed the standing `trigger_prohibition` static (Tocatli Honor Guard/Torpor Orb-shaped, previously global-only) split into a fast `scope="all"` path (`continuous.trigger_suppressed`, checked once per event) and a new opponent-scoped `continuous.trigger_suppressed_for` sibling checked per candidate object inside `_collect_triggers`'s own per-permanent loop, since "whose ability" can't be answered once for the whole event. Gandalf's flash permission reuses the already-standing `flash_permission` static widened with a `type_filter` param (the same closed-word-list shape). **Allosaurus Shepherd**'s "green spells you control can't be countered" is `GrantCantBeCounteredEffect`'s new `color` param (a `scope="color_spells_you_control"` sibling of the existing `creature_spells_you_control` scope); its activated ability ("each Elf creature you control has base power/toughness 5/5 and becomes a Dinosaur") is `GrantUntilEffect` wrapping `type_change` with the already-general `creatures_you_control_of_type_elf` selector (`continuous.group_selector_objects`'s existing `creatures_you_control_of_type_*` prefix family) — no new selector needed, just a real card finally using it for something other than a static anthem. **Domri, Anarch of Bolas**'s "+1: Add {R} or {G}. Creature spells you cast this turn can't be countered." combines the existing `add_mana`/`colors=["ANY"]` single-choice shape (narrowed to R/G) with `arm_spell_watcher` (RULE 118.3, `card_types=["creature"]`, `repeat=True` — Veil of Summer's own "for the rest of the turn" idiom) feeding `MarkCantBeCounteredEffect` via `then_specs`; its anthem and `-2` fight ability were already parser-claimable. **Eladamri, Korvecdal** and **Sigarda, Font of Blessings** share `TopLibraryPermissionEffect`'s two new filters: `creature_only` (Eladamri's "you may cast **creature** spells from the top of your library" — the direct mirror of the existing `noncreature_only`) and `subtypes` (Sigarda's "**Angel** spells and **Human** spells" — a closed word list, union semantics). Eladamri's reveal-a-card ability is a documented simplification: `SearchLibraryEffect`'s `zones` param has no "just the top card" source (only whole-zone scans), so it's modeled as "reveal a card from your hand" only, dropping the "or the top card of your library" alternative — his own standing "look at the top card any time" permission still lets a player plan around what that card is even though this ability can't reach it directly. **Guardian Project**'s "if it doesn't have the same name as another creature you control or a creature card in your graveyard" is a new `EffectSpec.condition` key, `entering_object_unique_name` — reads the entering object off `GameContext.trigger_event` (the group trigger's own subject, not `self.source`) and scans battlefield + graveyard by name; the printed "**nontoken**" qualifier folded into the same condition rather than the trigger's own `nontoken` flag, since that flag (`effect_binder._build_group_ok`) only ever combines with a `subtypes` filter, never a plain `type` one. **Academy Rector**'s "dies, you may exile it, if you do search for an enchantment onto the battlefield" collapses to the ability's own `optional=True` plus `[exile_self, search]` in sequence — the same "you may X. If you do, Y." idiom Ranger-Captain of Eos's ETB and Necromancy's reanimate already established, since there's no decision point between the exile and the search. **Ajani, Nacatl Pariah**'s transform trigger reuses `ExileReturnTransformedEffect` (RULE 400.7/712.8) completely unchanged; its ETB token was already parser-claimable. **Moon-Blessed Cleric** and **Yasharn, Implacable Earth**'s ETB searches needed no new primitive at all — Yasharn's "a basic Forest card and a basic Plains card" is just two ordinary `SearchLibraryEffect` calls back to back (rules-equivalent to one search for two named criteria, and simpler). Yasharn's second clause ("Players can't pay life or sacrifice nonland permanents to cast spells or activate abilities.") is the new `cost_restriction` static (`continuous.cost_restricted`), checked at both `_can_pay_additional_cast_cost` (a spell's own printed additional cost) and `can_activate`'s own `_can_pay_activation_cost`, ahead of the ordinary payability gates. **The Jolly Balloon Man**'s copy ability reuses `CopyPermanentEffect` widened with `set_power`/`set_toughness` (threaded through `Card.as_copy`/`RulesEngine.copy_permanent`, "except it's a 1/1") and a new `extra_temp_keywords` list (flying, alongside the existing `haste` bool) plus its already-existing `add_subtypes`; the delayed self-sacrifice reuses `create_delayed_trigger`'s `capture="created_objects"` + `sacrifice_specific` exactly as the Marchesa V4.2 batch's Kiki-Jiki primitive already established — no new mechanism there at all. **Documented simplification**: the token doesn't gain the printed extra "red" colour (`Card` has no colour-override field at all — colours are derived from mana cost, which a token has none of to override) — cosmetic only. **Sylvan Library**'s full "may draw two additional, choose two cards drawn this turn, pay 4 life or return each to the library" sequence is one new bespoke `SylvanLibraryEffect`, backed by two new pieces of general state: `GameState.cards_drawn_this_turn_ids` (`life_lost_this_way`'s "which objects", not just "how many", sibling — appended by `RulesEngine._single_draw`) and a new sequential chooser, `RulesEngine.request_pay_life_or_return_to_library`/`resolve_pay_life_or_return_choice` (a new `pay_life_or_return_to_library` pending-choice kind, re-opening for the next card until the queue empties, the same "resolve one, re-open for the rest" shape `request_choose_objects` already uses for a multi-pick). **Documented simplification**: doesn't offer a genuine "choose which two" decision when more than two cards were drawn this turn (a second simultaneous draw effect, rare) — always processes the most recently drawn two, which is always exactly this ability's own pair in the overwhelming common case.
 - **Bug found along the way:** `MarkCantBeCounteredEffect.apply()` (built for Mistrise Village's "next spell you cast this turn") guarded its append with a bare `hasattr(target, "spell_effects")` — but `GameObject.spell_effects` is only ever *set* by `effect_binder.bind_from_catalogue` when a card has a genuine `"spell_effect"`-kind body; the overwhelming majority of creature/artifact/enchantment spells have none (only triggered/static/activated abilities), so the marker was silently dropped for any of them. Domri's own printed wording ("**creature spells** you cast this turn can't be countered") exercises exactly this gap directly, not as an edge case — found while writing its test, not a pre-existing regression. Fixed by initializing the list on first use instead of requiring pre-existence.
-- **Files:** `game/costs.py` (`exile_creature`, `saddle_power`, their `is_free`/`label()` entries, `_EXILE_CREATURE_RE`), `game/mana_abilities.py` (`_EXILED_CREATURE_MV_ADD_RE` dispatch), `parser/oracle/segmenter.py` (`_COST_LOOKS_REAL` widened), `parser/oracle/gate.py` (`PARSER_VERSION` → 95), `game/engine/mana_mixin.py` (`tap_for_mana`'s exile-creature amount override), `game/engine/activation_mixin.py` (`_exile_creature_candidate`, `saddle_power` cost payment, the `cost_restriction` checks in `_can_pay_activation_cost`), `game/engine/casting_mixin.py` (the `cost_restriction` check in `_can_pay_additional_cast_cost`), `game/engine/lands_mixin.py` (`_self_graveyard_or_exile_cast_permission`), `game/effect_binder.py` (`_saddle_activated_ability`, `requires_saddled` trigger condition), `game/effects.py` (`SelfGraveyardOrExileCastPermissionEffect`, `BecomeSaddledEffect`, `SylvanLibraryEffect`, `TriggerDoublerEffect.cause_filter`/`cause_type_filter`, `GrantCantBeCounteredEffect.color`, `TopLibraryPermissionEffect.creature_only`/`subtypes`, `CopyPermanentEffect.set_power`/`set_toughness`/`extra_temp_keywords`, `MarkCantBeCounteredEffect`'s bug fix, the new `entering_object_unique_name`/`cost_exiled_creature_mv_plus_one`-adjacent condition branch, `cost_restriction` static registration), `game/continuous.py` (`cost_restricted`, `trigger_suppressed_for`, `trigger_doubler_bonus`'s `event` param, `has_standing_flash_permission`'s `type_filter`), `game/top_library.py` (`_grant_permits_cast`'s new filters), `game/engine/combat_mixin.py` (`contributor_power_gt_base` event field), `game/rules/draw_discard_mixin.py` (`cards_drawn_this_turn_ids`), `game/engine/turn_loop_mixin.py` (its reset, the new pending-choice dispatch), `game/rules/misc_mixin.py` (`request_pay_life_or_return_to_library`/`resolve_pay_life_or_return_choice`), `models/game_object.py` (`last_cost_exiled_object_mv`, `saddled_until_turn`), `models/game_state.py` (`cards_drawn_this_turn_ids`), `models/card.py` (`as_copy`'s `set_power`/`set_toughness`), `game/rules/copies_mixin.py` (`copy_permanent`'s new params), `parser/oracle/spec.py` (`entering_object_unique_name` in `_ALLOWED_CONDITION_KEYS`), `game/ability_catalogue.py` (all 18 cards).
+- **Files:** `game/costs.py` (`exile_creature`, `saddle_power`, their `is_free`/`label()` entries, `_EXILE_CREATURE_RE`), `game/mana_abilities.py` (`_EXILED_CREATURE_MV_ADD_RE` dispatch), `parser/oracle/segmenter.py` (`_COST_LOOKS_REAL` widened), `parser/oracle/gate.py` (`PARSER_VERSION` → 95), `game/engine/mana_mixin.py` (`tap_for_mana`'s exile-creature amount override), `game/engine/activation_mixin.py` (`_exile_creature_candidate`, `saddle_power` cost payment, the `cost_restriction` checks in `_can_pay_activation_cost`), `game/engine/casting_mixin.py` (the `cost_restriction` check in `_can_pay_additional_cast_cost`), `game/engine/lands_mixin.py` (`_self_graveyard_or_exile_cast_permission`), `game/binding/core.py` (`_saddle_activated_ability`, `requires_saddled` trigger condition), `game/effects/core.py` (`SelfGraveyardOrExileCastPermissionEffect`, `BecomeSaddledEffect`, `SylvanLibraryEffect`, `TriggerDoublerEffect.cause_filter`/`cause_type_filter`, `GrantCantBeCounteredEffect.color`, `TopLibraryPermissionEffect.creature_only`/`subtypes`, `CopyPermanentEffect.set_power`/`set_toughness`/`extra_temp_keywords`, `MarkCantBeCounteredEffect`'s bug fix, the new `entering_object_unique_name`/`cost_exiled_creature_mv_plus_one`-adjacent condition branch, `cost_restriction` static registration), `game/continuous.py` (`cost_restricted`, `trigger_suppressed_for`, `trigger_doubler_bonus`'s `event` param, `has_standing_flash_permission`'s `type_filter`), `game/top_library.py` (`_grant_permits_cast`'s new filters), `game/engine/combat_mixin.py` (`contributor_power_gt_base` event field), `game/rules/draw_discard_mixin.py` (`cards_drawn_this_turn_ids`), `game/engine/turn_loop_mixin.py` (its reset, the new pending-choice dispatch), `game/rules/misc_mixin.py` (`request_pay_life_or_return_to_library`/`resolve_pay_life_or_return_choice`), `models/game_object.py` (`last_cost_exiled_object_mv`, `saddled_until_turn`), `models/game_state.py` (`cards_drawn_this_turn_ids`), `models/card.py` (`as_copy`'s `set_power`/`set_toughness`), `game/rules/copies_mixin.py` (`copy_permanent`'s new params), `parser/oracle/spec.py` (`entering_object_unique_name` in `_ALLOWED_CONDITION_KEYS`), `game/ability_catalogue.py` (all 18 cards).
 - **Tests:** `tests/test_mec40_batch2_family.py` (new, 26 tests — one execute test per primitive/clause across all 18 cards).
 
 ### MEC-41: `[cEDH] Glarb Bloomsday` done to completion — the remaining 8 gaps, no deferrals
@@ -4887,7 +4887,7 @@ is in the rules-engine categories below them.
   loop_mixin.py` (the new `reveal_top_hand_lose_life_loop` pending-choice
   dispatch, `intuition_search`'s dispatch now passing through a real
   decline), `game/targeting.py` (`_targetable_by`'s new colour-restriction
-  check), `game/effects.py` (`GrantCantBeTargetOfSpellColorEffect`,
+  check), `game/effects/core.py` (`GrantCantBeTargetOfSpellColorEffect`,
   `RevealTopThenCounterIfMVMatchEffect`, `RevealTopHandLoseLifeLoopEffect`,
   `RevealTopThenMaybeBattlefieldIfLandOrCheapCreatureEffect`,
   `ExileOwnGraveyardCardManaValueXEffect`, `CreateTokenCopyOfLinkedExile
@@ -5108,7 +5108,7 @@ is in the rules-engine categories below them.
   *granted* mid-game with nothing printed on the card to have pre-
   attached a bound `TriggeredAbility` to — the same "no permanent to hang
   an ability off" shape `_collect_inherent_triggers` already uses for
-  Monarch/Initiative. `SuspendUpkeepEffect` (`game/effects.py`) is the
+  Monarch/Initiative. `SuspendUpkeepEffect` (`game/effects/core.py`) is the
   combined atomic action (remove one counter; at zero, open the free-cast
   window), the same "remove, then branch on empty" shape Vanishing's own
   upkeep pair (`RemoveCounterOrSacrificeEffect`) already established. The
@@ -5150,7 +5150,7 @@ is in the rules-engine categories below them.
   `exile_discount_spec_for`, `forced_sorcery_speed_only`, the new
   `"opponents_dealt_combat_damage_this_turn"`/`"sorcery"` selector
   entries), `game/targeting.py` (`"artifact_or_creature"`, `TargetSpec`'s
-  new `"source_x_paid"` count selector), `game/effects.py` (`AmassEffect`,
+  new `"source_x_paid"` count selector), `game/effects/core.py` (`AmassEffect`,
   `ChooseVoidCounterCardEffect`, `CopySelfIfCastFromGraveyardEffect`,
   `PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect`,
   `PhaseOutEffect`'s multi-target widening, `TapEffect.choose_tap_or_
@@ -5407,7 +5407,7 @@ is in the rules-engine categories below them.
 
 - **Files:** `game/continuous.py` (`cast_prohibited`'s `max_mana_value`/
   `cmp`/`has_x_cost`/`nonartifact`/`min_count_selector`/`even_mana_value`,
-  two new `count_selector` entries), `game/effects.py` (the matching
+  two new `count_selector` entries), `game/effects/core.py` (the matching
   `cast_prohibition` factory params, `ChooseNumberReplacement` +
   `choose_number_on_enter` registration), `game/engine/activation_
   mixin.py` (the sacrifice-cost stamp + its reset), `game/engine/turn_
@@ -5415,7 +5415,7 @@ is in the rules-engine categories below them.
   (`_track_spell_cast`'s new nonartifact tally), `game/rules/damage_
   death_mixin.py` (the noncombat-damage-to-opponents increment),
   `game/rules/casting_mixin.py` (`_offer_enter_choices`/`resolve_enter_
-  choice`'s new `choose_number` kind), `game/effect_binder.py`
+  choice`'s new `choose_number` kind), `game/binding/core.py`
   (`mana_value_equals_source_counters`/`requires_damage_to_opponent`
   predicates, `ChooseNumberReplacement` wired into `enter_choice_effects`),
   `game/targeting.py` (`creature_or_planeswalker_that_player_controls`,
@@ -5551,12 +5551,12 @@ CLAUDE.md's own venv/venv_win convention this project already expects
 `venv_win` on Windows, so `python setup/install.py` was re-run to build
 the correct one rather than fighting the wrong one.
 
-**Files:** `game/effects.py` (all the new/widened effect classes and
+**Files:** `game/effects/core.py` (all the new/widened effect classes and
 registry factories above), `game/continuous.py` (`graveyard_redirect_
 active`, `cast_prohibited`'s three new knobs, `count_selector`'s two new
 entries, `graveyard_library_entry_prohibited`'s `"permanent"` filter,
 `_apply_borrowed_activated_abilities`'s `"top_of_library"` mode),
-`game/effect_binder.py` (`not_completed_dungeon`, `min_opponent_
+`game/binding/core.py` (`not_completed_dungeon`, `min_opponent_
 creatures`), `game/rules/misc_mixin.py` (`request_each_player_pay_or`'s
 `scope`/`effect_targets`, `GrantCantBeCounteredEffect`'s new scope check),
 `game/rules/search_mixin.py` (`dig_until`'s `"graveyard"` destination),
@@ -5748,7 +5748,7 @@ an already-covered card as open. No engine work was needed; the entry was
 simply removed from the open list once `scripts/deck_coverage.py`
 confirmed it.
 
-**Files:** `game/effects.py` (`ExchangeLifeTotalsEffect`,
+**Files:** `game/effects/core.py` (`ExchangeLifeTotalsEffect`,
 `ExileAllGraveyardsEffect.colors`, `RevealHandChooseDiscardEffect.max_
 mana_value`, `ReturnFromGraveyardEffect.tapped`/`trigger_subject_key`,
 `DrawCardEffect`'s `"half_target_library_round_up"`, `LoseLifeEffect.
@@ -5760,7 +5760,7 @@ min_power`/`max_power`, `_mass_selector_objects`'s `subtype` filter,
 `graveyard_redirect_active`'s `colors`, `count_selector`'s
 `"colors_among_permanents_you_control"`, `trigger_doubler_bonus`'s
 power-filter branch), `game/static_conditions.py` (the `"all"`
-combinator, + its `describe()` label), `game/effect_binder.py`
+combinator, + its `describe()` label), `game/binding/core.py`
 (`_group_ok`'s list-`type` support), `game/targeting.py`
 (`"artifact_or_creature"` graveyard filter), `game/engine/casting_mixin.py`
 + `game/rules/search_mixin.py` (the two zone-aware call sites),
@@ -5867,7 +5867,7 @@ own "verify, don't assume" rule for this ticket.
   than an optional group spliced into the shared `_SEARCH_CRITERIA`
   machinery, since only this one shape needs the new param.
 
-**Files:** `game/effects.py` (`SearchLibraryEffect.mana_value_from`'s
+**Files:** `game/effects/core.py` (`SearchLibraryEffect.mana_value_from`'s
 `"count_selector"` source, `SearchLibraryEffect.share_land_type`,
 `GameContext.request_search`'s matching param, `GainLifeEffect`'s
 `source=self.source` fix), `game/continuous.py`
@@ -5945,9 +5945,9 @@ shared, previously-unexercised primitive.
   `GameEngine._can_pay_activation_cost`/`_pay_activation_cost` already
   have for an activated ability's own `pay_energy` component.
 
-**Files:** `game/effects.py` (`DrawCardEffect.count_from_trigger_event`,
+**Files:** `game/effects/core.py` (`DrawCardEffect.count_from_trigger_event`,
 `ExchangeControlThenEnergySacrificeEffect`, its `EffectRegistry`
-registration), `game/effect_binder.py`
+registration), `game/binding/core.py`
 (`_GROUP_CONTROLLER_EVENT_KEYS["LIFE_LOST"]`), `game/rules/misc_mixin.py`
 (`_can_pay_player_cost`/`_pay_player_cost`'s new `pay_energy` branches),
 `parser/oracle/segmenter.py` (`_PLAYER_TRIGGER_CONDITIONS`'s new "you
@@ -6261,13 +6261,13 @@ table, re-measured after each batch.
 
 - **What:** The Confluence header `Choose N. You may choose the same mode more than once.` now parses as a standard modal block with `modes["repeatable"]`. The cast-action offer uses combinations with replacement, and mode resolution permits duplicated indices while retaining printed-order resolution; Fiery Confluence is covered end-to-end at parser level and duplicate-mode casting is regression-tested.
 - **Yield:** +9 Commander-legal cards; full cache 13,986 / 34,811 (40.2%), Commander-legal 13,382 / 31,830 (42.0%).
-- **Files:** `parser/oracle/catalogue/modal.py`, `parser/oracle/gate.py`, `parser/oracle/spec.py`, `game/effect_binder.py`, `game/engine/legal_actions_mixin.py`, `game/engine/casting_mixin.py`, `game/rules/triggers_mixin.py`, `game/effects.py`, `tests/test_modal_choose_n.py`.
+- **Files:** `parser/oracle/catalogue/modal.py`, `parser/oracle/gate.py`, `parser/oracle/spec.py`, `game/binding/core.py`, `game/engine/legal_actions_mixin.py`, `game/engine/casting_mixin.py`, `game/rules/triggers_mixin.py`, `game/effects/core.py`, `tests/test_modal_choose_n.py`.
 
 ### Conditional modal headers (PAR-55 / MEC-66, PARSER_VERSION 266)
 
 - **What:** `Choose N. If <condition>, [you may] choose <more> instead.` now has a closed declarative override IR, shared by spell and triggered-modal headers. It supports kicked/additional-cost, cast-time subtype or commander, delirium, exact-life and Descend conditions; choice counts are replaced (including `choose any number`) rather than added as an effect. Cast-time facts are snapshotted when the spell is cast, while triggered facts are checked as the trigger is placed on the stack. Descend tracks permanent cards entering their owner's graveyard for the turn.
 - **Yield:** +5 cache cards, 0 regressions: Depth Defiler, Flame of Anor, Inscription of Ruin, Let's Play a Game and Prophetic Titan. Full cache 13,991 / 34,811 (40.2%); Commander-legal 13,387 / 31,830 (42.1%).
-- **Files:** `parser/oracle/catalogue/modal.py`, `parser/oracle/gate.py`, `parser/oracle/spec.py`, `game/effect_binder.py`, `game/effects.py`, `game/engine/casting_mixin.py`, `game/engine/legal_actions_mixin.py`, `game/rules/triggers_mixin.py`, `game/rules/misc_mixin.py`, `models/game_state.py`, `tests/test_modal_choose_n.py`.
+- **Files:** `parser/oracle/catalogue/modal.py`, `parser/oracle/gate.py`, `parser/oracle/spec.py`, `game/binding/core.py`, `game/effects/core.py`, `game/engine/casting_mixin.py`, `game/engine/legal_actions_mixin.py`, `game/rules/triggers_mixin.py`, `game/rules/misc_mixin.py`, `models/game_state.py`, `tests/test_modal_choose_n.py`.
 
 ### Compound tapped-entry colour choices (PAR-42, PARSER_VERSION 267)
 
@@ -6397,7 +6397,7 @@ table, re-measured after each batch.
     resolution — routes the chosen card to its destination and calls
     `_handle_rest_inspected` to put the rest to `library_bottom_random` or
     `graveyard` depending on the card's Oracle text.
-- **Effects added** (`game/effects.py`):
+- **Effects added** (`game/effects/core.py`):
   - `KindredSummonsEffect` — counts X (creatures of chosen type you control),
     calls `reveal_until_creature_type` with `count=X` and
     `rest_destination="library_shuffled"`.
@@ -6443,7 +6443,7 @@ table, re-measured after each batch.
   Elemental carrying its own live creature-count anthem, rather than
   snapshotting P/T while it resolves; it consequently includes itself and
   updates whenever the controller's creature count changes.
-- **Files:** `game/ability_catalogue/entries_016.py`, `game/effects.py`, and
+- **Files:** `game/ability_catalogue/entries_016.py`, `game/effects/core.py`, and
   `parser/oracle/spec.py`.
 - **Verification:** `tests/test_mec74_dance_count_triggers.py` covers the
   land/Elemental/creature counts, targeted damage, Plant-only counters,

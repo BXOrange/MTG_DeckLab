@@ -15,7 +15,7 @@ clauses that didn't).
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -113,7 +113,7 @@ def test_each_creature_opponents_control_selector_hits_only_opponents_creatures(
     eff = build_effects([EffectSpec("damage", {
         "amount": 1, "selector": "each_creature_opponents_control",
     })], src)[0]
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
     eff.apply(GameContext(eng.state, eng.rules))
 
     assert theirs.damage_marked == 1

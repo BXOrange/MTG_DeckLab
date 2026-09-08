@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
-from mtg_analyzer.game.effect_binder import bind_ability
+from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 
@@ -32,7 +32,7 @@ def test_registered_and_binds(name):
 
 
 def test_previous_target_power_at_least_condition():
-    from mtg_analyzer.game.effects import ConditionalEffect, GameContext, BecomePreparedEffect
+    from mtg_analyzer.game.effects.core import ConditionalEffect, GameContext, BecomePreparedEffect
     from mtg_analyzer.game.game_engine import GameEngine
     eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
                               starting_hand=0, starting_life=20)

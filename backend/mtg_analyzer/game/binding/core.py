@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional, Union
 
-from ..models.events import EventType
-from ..models.mana_cost import ManaCost
-from ..parser.oracle.catalogue.handlers import (
+from ...models.events import EventType
+from ...models.mana_cost import ManaCost
+from ...parser.oracle.catalogue.handlers import (
     ACTIVATE_ONLY_ONCE_MARKER,
     ACTIVATION_CONDITION_MARKER,
     FROM_HAND_MARKER,
@@ -29,10 +29,10 @@ from ..parser.oracle.catalogue.handlers import (
     POWERUP_COST_REDUCTION_MARKER,
     SORCERY_SPEED_MARKER,
 )
-from ..parser.oracle.spec import AbilitySpec, EffectSpec
-from .costs import ActivationCost, parse_activation_cost
-from .static_conditions import condition_holds
-from .effects import (
+from ...parser.oracle.spec import AbilitySpec, EffectSpec
+from ..costs import ActivationCost, parse_activation_cost
+from ..static_conditions import condition_holds
+from ..effects.core import (
     ActivatedAbility,
     AddCountersEffect,
     AddManaEffect,
@@ -807,7 +807,7 @@ def _build_group_ok(
                 )
                 if obj is None:
                     return False
-                from .combat import is_goaded  # local: combat imports models lazily too
+                from ..combat import is_goaded  # local: combat imports models lazily too
 
                 if snapshot_goaded is None:
                     snapshot_goaded = is_goaded(obj)
@@ -1934,7 +1934,7 @@ def _trigger_condition(
 #: any ``target_kind: None``" — most effect types (`regenerate`/`exile`/
 #: `return_to_hand`/`goad`/…) also default an absent/``None`` ``target_kind``
 #: to their own source, but have no ``"attached_permanent"`` mode at all
-#: (no matching `_attached_mode` branch in `game/effects.py`), so retargeting
+#: (no matching `_attached_mode` branch in `game/effects/core.py`), so retargeting
 #: them here would hand a real `TargetSpec` an unrecognized kind instead of
 #: leaving them alone.
 _ATTACHED_PERMANENT_RETARGET_FIELDS: dict[str, str] = {
@@ -2049,6 +2049,12 @@ def bind_ability(
     if spec.ability_kind not in _SUPPORTED_KINDS:
         raise BindError(f"binder does not support ability_kind {spec.ability_kind!r} yet")
 
+    # Parser specs carry an exact oracle-text clause as provenance. Hand-authored
+    # catalogue specs deliberately leave it blank: their display text must come
+    # from the bound card, never from an unofficial translation in source code.
+    card = getattr(source, "card", source)
+    description = spec.raw_text or str(getattr(card, "oracle_text", "") or "")
+
     if spec.ability_kind == "replacement":
         # A different whitelist (ReplacementRegistry, not EffectRegistry) —
         # each `EffectSpec.type` here names a replacement family (e.g.
@@ -2056,7 +2062,7 @@ def bind_ability(
         replacements = build_replacements(spec.effects, source)
         for effect in replacements:
             if not effect.description:
-                effect.description = spec.raw_text
+                effect.description = description
         return replacements
 
     if spec.ability_kind == "enter_replacement":
@@ -2066,7 +2072,7 @@ def bind_ability(
         effects = build_effects(spec.effects, source)
         for effect in effects:
             if not effect.description:
-                effect.description = spec.raw_text
+                effect.description = description
         return effects
 
     # "Activate only once each turn." (Quirion Ranger/Scryb Ranger-shaped) —
@@ -2157,7 +2163,7 @@ def bind_ability(
                 optional=spec.optional,
                 controller_id=getattr(source, "controller_id", None),
                 source=source,
-                description=spec.raw_text,
+                description=description,
                 reflexive=bool(spec.trigger.get("reflexive", False)),
                 # RULE 605.1b/605.4: a triggered *mana* ability resolves
                 # immediately instead of using the stack (Wild Growth,
@@ -2211,7 +2217,7 @@ def bind_ability(
         # the battlefield. Label any that arrived without their own text.
         for effect in effects:
             if isinstance(effect, StaticAbility) and not effect.description:
-                effect.description = spec.raw_text
+                effect.description = description
         return effects
 
     # activated: recognize the full cost (mana, {T}/{Q}, sacrifice, pay life,
@@ -2266,7 +2272,7 @@ def bind_ability(
         effects=effects,
         cost=cost,
         source=source,
-        description=spec.raw_text,
+        description=description,
         once_per_turn=once_per_turn,
         modes=activated_modes,
         once_per_game=once_per_game,
@@ -2296,6 +2302,8 @@ def attach_keyword(obj: Any, spec: AbilitySpec) -> bool:
         return False
     if not hasattr(obj, "intrinsic_keywords"):
         obj.intrinsic_keywords = set()
+    card = getattr(obj, "card", obj)
+    description = spec.raw_text or str(getattr(card, "oracle_text", "") or "")
 
     is_parametric = bool(_PARAMETRIC_KEYWORD_KEYS & keyword.keys())
     if not is_parametric:
@@ -2351,7 +2359,7 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         effects=[AttachEffect(target_kind=target_kind)],
         cost=cost,
         source=obj,
-        description=spec.raw_text or f"{name}",
+        description=description or f"{name}",
         attach_kind=name,
     )
 
@@ -2397,7 +2405,7 @@ def _attach_affinity_static(obj: Any, spec: AbilitySpec) -> None:
             affects="self",
             params={"generic": 1, "per": selector},
             source=obj,
-            description=spec.raw_text or f"Affinity for {keyword.get('quality')}",
+            description=description or f"Affinity for {keyword.get('quality')}",
         )
     )
 
@@ -2432,7 +2440,7 @@ def _graveyard_keyword_activated_ability(
         effects=effects,
         cost=cost,
         source=obj,
-        description=spec.raw_text or name.capitalize(),
+        description=description or name.capitalize(),
     )
 
 
@@ -2461,7 +2469,7 @@ def _specialize_activated_ability(
         effects=[SpecializeEffect(source=obj)],
         cost=cost,
         source=obj,
-        description=spec.raw_text or "Specialize",
+        description=description or "Specialize",
     )
 
 
@@ -2507,7 +2515,7 @@ def _cycling_activated_ability(
         effects=build_effects([EffectSpec("draw", {"count": 1})], source=obj),
         cost=cost,
         source=obj,
-        description=spec.raw_text or "Cycling",
+        description=description or "Cycling",
     )
 
 
@@ -2569,7 +2577,7 @@ def _crew_activated_ability(
         effects=effects,
         cost=cost,
         source=obj,
-        description=spec.raw_text or f"Crew {n}",
+        description=description or f"Crew {n}",
     )
 
 
@@ -2599,7 +2607,7 @@ def _saddle_activated_ability(
         effects=[BecomeSaddledEffect(source=obj)],
         cost=cost,
         source=obj,
-        description=spec.raw_text or f"Saddle {n}",
+        description=description or f"Saddle {n}",
     )
 
 
@@ -2645,7 +2653,7 @@ def _station_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         effects=[charge_effect],
         cost=cost,
         source=obj,
-        description=spec.raw_text or "Station",
+        description=description or "Station",
     )
 
 
@@ -2695,7 +2703,7 @@ def _kw_soulbond(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             optional=True,
             controller_id=getattr(obj, "controller_id", None),
             source=obj,
-            description=spec.raw_text or "Soulbond",
+            description=description or "Soulbond",
         ),
         TriggeredAbility(
             trigger_event=EventType.ENTERS_BATTLEFIELD,
@@ -2704,7 +2712,7 @@ def _kw_soulbond(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             optional=True,
             controller_id=getattr(obj, "controller_id", None),
             source=obj,
-            description=spec.raw_text or "Soulbond",
+            description=description or "Soulbond",
         ),
     ]
 
@@ -2716,7 +2724,7 @@ def _kw_living_weapon(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbil
             effects=[LivingWeaponEffect(source=obj)],
             condition=_self_only_condition(getattr(obj, "instance_id", None)),
             source=obj,
-            description=spec.raw_text or "Living weapon",
+            description=description or "Living weapon",
         )
     ]
 
@@ -2745,7 +2753,7 @@ def _kw_fading(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             condition=_your_upkeep,
             controller_id=controller_id,
             source=obj,
-            description=spec.raw_text or f"Fading {n}",
+            description=description or f"Fading {n}",
         )
     ]
 
@@ -2779,7 +2787,7 @@ def _kw_vanishing(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]
             condition=_your_upkeep,
             controller_id=controller_id,
             source=obj,
-            description=spec.raw_text or f"Vanishing {n}",
+            description=description or f"Vanishing {n}",
         )
     ]
 
@@ -2811,7 +2819,7 @@ def _kw_cumulative_upkeep(obj: Any, spec: AbilitySpec, n: Any) -> list[Triggered
             condition=_your_upkeep,
             controller_id=controller_id,
             source=obj,
-            description=spec.raw_text or f"Cumulative upkeep {cost}",
+            description=description or f"Cumulative upkeep {cost}",
         )
     ]
 
@@ -2834,7 +2842,7 @@ def _kw_renown(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[RenownEffect(amount=int(n), source=obj)],
             condition=_renown_ok,
             source=obj,
-            description=spec.raw_text or f"Renown {n}",
+            description=description or f"Renown {n}",
         )
     ]
 
@@ -2850,7 +2858,7 @@ def _kw_annihilator(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbilit
             effects=[SacrificeEffect(count=n, selector="defending_player")],
             condition=condition,
             source=obj,
-            description=spec.raw_text or f"Annihilator {n}",
+            description=description or f"Annihilator {n}",
         )
     ]
 
@@ -2864,7 +2872,7 @@ def _kw_haunt(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[HauntEffect(source=obj)],
             condition=_self_only_condition(getattr(obj, "instance_id", None)),
             source=obj,
-            description=spec.raw_text or "Haunt",
+            description=description or "Haunt",
         )
     ]
 
@@ -2880,7 +2888,7 @@ def _kw_afflict(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[LoseLifeEffect(amount=n, selector="defending_player")],
             condition=condition,
             source=obj,
-            description=spec.raw_text or f"Afflict {n}",
+            description=description or f"Afflict {n}",
         )
     ]
 
@@ -2900,14 +2908,14 @@ def _kw_bushido(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[PumpEffect(power=n, toughness=n)],
             condition=condition,
             source=obj,
-            description=spec.raw_text or f"Bushido {n}",
+            description=description or f"Bushido {n}",
         ),
         TriggeredAbility(
             trigger_event=EventType.BECOMES_BLOCKED,
             effects=[PumpEffect(power=n, toughness=n)],
             condition=condition,
             source=obj,
-            description=spec.raw_text or f"Bushido {n}",
+            description=description or f"Bushido {n}",
         ),
     ]
 
@@ -2935,7 +2943,7 @@ def _kw_prowess(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[PumpEffect(power=1, toughness=1)],
             condition=_cast_noncreature_you,
             source=obj,
-            description=spec.raw_text or "Prowess",
+            description=description or "Prowess",
         )
     ]
 
@@ -2961,7 +2969,7 @@ def _kw_exalted(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             effects=[PumpEffect(power=1, toughness=1, trigger_subject=True)],
             condition=_ally_attacks_alone,
             source=obj,
-            description=spec.raw_text or "Exalted",
+            description=description or "Exalted",
         )
     ]
 
@@ -2981,7 +2989,7 @@ def _kw_battle_cry(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility
             effects=[PumpEffect(power=1, toughness=0, selector="other_attacking_creatures")],
             condition=condition,
             source=obj,
-            description=spec.raw_text or "Battle cry",
+            description=description or "Battle cry",
         )
     ]
 
@@ -3010,7 +3018,7 @@ def _kw_mentor(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             ],
             condition=condition,
             source=obj,
-            description=spec.raw_text or "Mentor",
+            description=description or "Mentor",
         )
     ]
 
@@ -3043,7 +3051,7 @@ def _kw_backup(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             )],
             condition=_self_only_condition(getattr(obj, "instance_id", None)),
             source=obj,
-            description=spec.raw_text or f"Backup {n}",
+            description=description or f"Backup {n}",
         )
     ]
 
@@ -3082,7 +3090,7 @@ def _kw_firebending(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbilit
             condition=self_only,
             source=obj,
             mana_ability=True,
-            description=spec.raw_text or f"Firebending {n}",
+            description=description or f"Firebending {n}",
         ),
         TriggeredAbility(
             trigger_event=EventType.ATTACKS,
@@ -3457,7 +3465,7 @@ def bind_from_catalogue(obj: Any) -> None:
     the "binding on load" that connects card text to behaviour. A no-op for a
     card with no known specs. Import is function-local to avoid an import cycle
     (`ability_catalogue` builds specs, this module binds them)."""
-    from .ability_catalogue import specs_for
+    from ..ability_catalogue import specs_for
 
     specs = specs_for(getattr(obj, "card", None))
     if specs:

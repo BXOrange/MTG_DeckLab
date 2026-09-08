@@ -3,14 +3,14 @@ rest into Y" (Grisly Salvage/Commune with the Gods-shaped) — distinct from
 `SearchLibraryEffect` (whole-library search) and `top_library.py`'s standing
 "look at/play from the top" permission (never moves a card).
 
-Engine side: `game/effects.py`'s `ImpulsiveLookEffect` +
+Engine side: `game/effects/core.py`'s `ImpulsiveLookEffect` +
 `RulesEngine.request_impulsive_look`/`resolve_impulsive_look_choice`
 (`game/rules_engine.py`).
 """
 
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effects import ImpulsiveLookEffect
+from mtg_analyzer.game.effects.core import ImpulsiveLookEffect
 from mtg_analyzer.game.game_engine import GameEngine
 
 

@@ -53,7 +53,7 @@ def pluralize_permanent_type(word: str) -> str:
 
 
 def all_permanent_type_selector(word: str) -> str:
-    """A `PERMANENT_TYPE_WORDS` member (singular) → `game/effects.py`'s mass
+    """A `PERMANENT_TYPE_WORDS` member (singular) → `game/effects/core.py`'s mass
     ``all_<type>`` selector name (`DestroyEffect`/`ExileEffect`'s
     ``selector`` param) — "nonland permanent" → ``"all_nonland_permanents"``.
     """

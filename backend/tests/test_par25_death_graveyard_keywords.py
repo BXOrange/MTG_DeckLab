@@ -13,7 +13,7 @@ Covered here so far:
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -100,7 +100,7 @@ def test_granted_undying_works_off_the_layer_engine_union():
     # ticket's headline gap.
     eng = _engine()
     state = eng.state
-    from mtg_analyzer.game.effects import StaticAbility
+    from mtg_analyzer.game.effects.core import StaticAbility
 
     lord = _put(state, _creature("Undying Lord", power=2, toughness=2,
                                  type_line="Creature — Zombie"))

@@ -10,7 +10,7 @@ carries *no behaviour*. It is the contract the whole parser hangs off:
 * it is what gets cached/versioned and, above all, **validated** — it is
   the security boundary, so nothing derived from card text ever becomes
   code; an effect is named by a whitelisted string + a params dict,
-* the **back-end** (`game/effect_binder.py`) turns it into `GameEffect`
+* the **back-end** (`game/binding/core.py`) turns it into `GameEffect`
   objects via the `EffectRegistry`.
 
 This module is intentionally **pure** (no `game/` imports). It validates
@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 #: The kinds of ability an `AbilitySpec` can describe (docs/09 IR).
-#: Mirrors the effect hierarchy in game/effects.py plus "keyword".
+#: Mirrors the effect hierarchy in game/effects/core.py plus "keyword".
 ALLOWED_ABILITY_KINDS: frozenset[str] = frozenset(
     {"spell_effect", "triggered", "activated", "static", "replacement",
      "enter_replacement", "keyword"}
@@ -61,7 +61,7 @@ _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
 #: target* rather than an announced-cost flag — "target player gets two
 #: rad counters. If that player is you, create a Treasure token." The
 #: Ghoul, Gunslinger-shaped) checks the ability's own resolved target
-#: (`game/effects.py`'s `ConditionalEffect._condition_holds`) against this
+#: (`game/effects/core.py`'s `ConditionalEffect._condition_holds`) against this
 #: effect's controller.
 #: ``"bargained"`` (RULE 701.x, Beseech the Mirror's "if this spell was
 #: bargained, …") is Kicker's own ``"kicked"`` gate for a different optional
@@ -235,7 +235,7 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
 #: `ALLOWED_FREE_CAST_CONDITION_KEYS`-shaped — Force of Negation/Vigor's
 #: own "if it's not your turn" gate). At least one payment key is
 #: required; ``game/costs.py``'s `ActivationCost` is the actual charging
-#: engine (`game/effect_binder.py` builds one from this dict, mirroring
+#: engine (`game/binding/core.py` builds one from this dict, mirroring
 #: `additional_cost`'s own `parse_activation_cost` reuse).
 ALLOWED_ALT_COST_KEYS: frozenset[str] = frozenset(
     {
@@ -431,7 +431,7 @@ class AbilitySpec:
     #: X, RULE 601.2b). May ride on a spec that otherwise carries no effects
     #: at all — the additional-cost line is its own oracle-text line,
     #: standalone from the spell's actual effect (see
-    #: `game/effect_binder.py`'s `attach_to_object`, which scans every spec
+    #: `game/binding/core.py`'s `attach_to_object`, which scans every spec
     #: for this field regardless of which one carries the "real" effects).
     additional_cost: Optional[dict[str, Any]] = None
     #: PAR-30 / RULE 601.2b: whether the ``additional_cost`` above is
@@ -457,7 +457,7 @@ class AbilitySpec:
     #: not whether a resolving effect applies. May ride on any spec
     #: regardless of ``ability_kind``, same "scan every spec, attach to the
     #: object regardless of which one carries the real effects" idiom
-    #: `additional_cost` uses (`game/effect_binder.py`'s `attach_to_object`).
+    #: `additional_cost` uses (`game/binding/core.py`'s `attach_to_object`).
     conditional_flash: Optional[dict[str, Any]] = None
     #: RULE 601.2f-adjacent: "If you control a commander, you may cast this
     #: spell without paying its mana cost." — a single-key dict from
@@ -505,7 +505,7 @@ class AbilitySpec:
     #: `keywords.py`'s numbered catalogue, same "own oracle-text line,
     #: standalone from the spell's actual effect" idiom `free_cast_condition`
     #: uses just above. The raw mana-cost string (e.g. ``"{2}{U}"``,
-    #: ``"{1}"``) — `game/effect_binder.py`'s `attach_to_object` parses it
+    #: ``"{1}"``) — `game/binding/core.py`'s `attach_to_object` parses it
     #: into a real `ManaCost` on `obj.strive_cost`; `GameEngine.
     #: effective_cast_cost` adds one copy of it per target *beyond the
     #: first* in the caster's actually-chosen ``targets`` (RULE 601.2c
@@ -517,7 +517,7 @@ class AbilitySpec:
     #: end of turn, you may cast that card." (Ragavan, Nimble Pilferer) —
     #: the damaged player varies per firing, which a bind-on-load
     #: `TriggeredAbility`'s one fixed effects list can't carry (see that
-    #: class's docstring, `game/effects.py`), so this rides as a plain
+    #: class's docstring, `game/effects/core.py`), so this rides as a plain
     #: marker dict (``{"count": N}``, ``N>=1``) stamped onto the
     #: `GameObject` at bind time instead of an ordinary effect —
     #: `RulesEngine._collect_impulsive_draw_triggers` reads it fresh off
@@ -528,7 +528,7 @@ class AbilitySpec:
     #: oracle-text parser front-end never produces this field. May ride on
     #: any spec regardless of ``ability_kind``, same "scan every spec,
     #: attach to the object" idiom `additional_cost`/`conditional_flash` use
-    #: (`game/effect_binder.py`'s `attach_to_object`).
+    #: (`game/binding/core.py`'s `attach_to_object`).
     impulsive_draw_on_combat_damage: Optional[dict[str, Any]] = None
     #: RULE 702.88b Rebound marker: "If you cast this spell from your hand,
     #: exile it as it resolves. At the beginning of your next upkeep, you

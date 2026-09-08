@@ -12,7 +12,7 @@ wave 59: Priest of Forgotten Gods — pure composition (lose_life /
 from __future__ import annotations
 
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
-from mtg_analyzer.game.effect_binder import bind_ability, bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_ability, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent

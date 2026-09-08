@@ -77,7 +77,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
-from .effects import (
+from .effects.core import (
     ActivatedAbility, ConditionalEffect, EffectRegistry, ReplacementEffect,
     ReplacementRegistry, StaticAbility, TriggeredAbility,
 )
@@ -2108,7 +2108,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 live_grant_keys.add(key)
                 built = state._granted_ability_cache.get(key)
                 if built is None:
-                    from .effect_binder import parametric_keyword_triggered_abilities  # local: avoid an import cycle
+                    from .binding.core import parametric_keyword_triggered_abilities  # local: avoid an import cycle
 
                     built = parametric_keyword_triggered_abilities(obj, pname, int(pn))
                     state._granted_ability_cache[key] = built
@@ -2146,7 +2146,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                         # Reuse `effect_binder`'s printed-trigger group
                         # predicate, sourced on the *granted-to* permanent
                         # so "you control"/"other" re-scope to it.
-                        from .effect_binder import _build_group_ok  # local: avoid an import cycle
+                        from .binding.core import _build_group_ok  # local: avoid an import cycle
 
                         cond = _build_group_ok(
                             group_condition, obj, {"event": trigger_event}, obj.instance_id
@@ -2163,7 +2163,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     # Passionate Archaeologist; a phase trigger's RULE 603.4
                     # intervening-if — Cloakwood Hermit), each scoped to the
                     # granted-to permanent's controller.
-                    from .effect_binder import (
+                    from .binding.core import (
                         regrant_active_if_predicate,
                         regrant_trigger_gate_predicate,
                     )
@@ -2285,7 +2285,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
             live_grant_keys.add(key)
             built = state._granted_ability_cache.get(key)
             if built is None:
-                from .effect_binder import parametric_keyword_triggered_abilities  # local: avoid an import cycle
+                from .binding.core import parametric_keyword_triggered_abilities  # local: avoid an import cycle
 
                 built = parametric_keyword_triggered_abilities(obj, pname, int(pn))
                 state._granted_ability_cache[key] = built
@@ -2662,7 +2662,7 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
             player = next((p for p in state.players if p.id == controller_id), None)
             top_card = player.library[-1].card if player and player.library else None
             if top_card is not None:
-                from .effect_binder import bind_from_catalogue  # local: avoid an import cycle
+                from .binding.core import bind_from_catalogue  # local: avoid an import cycle
                 from ..models.game_object import GameObject as _GameObject
 
                 scratch = _GameObject(top_card, owner_id=controller_id, controller_id=controller_id)
@@ -3584,7 +3584,7 @@ def graveyard_library_entry_prohibited(state: "GameState", card: Any, zone: Opti
     Deliberately not a universal `GameState.add_to_battlefield` hook: this
     engine has no single choke point every graveyard/library-to-battlefield
     route already funnels through (reanimation and library-search-to-
-    battlefield are the two `game/effects.py` sites that check it; a rarer
+    battlefield are the two `game/effects/core.py` sites that check it; a rarer
     per-card route missing this check is a documented simplification, the
     same shape this repo already accepts for other narrow gaps rather than
     reworking a foundational model method's contract for it).
@@ -4863,7 +4863,7 @@ def trigger_doubler_bonus(state: "GameState", obj: "GameObject", event: Any = No
     `EventType` (unscoped by ``obj``'s own creature type, matching the
     printed "**a** triggered ability").
     """
-    from .effects import TriggerDoublerEffect  # local: effects imports this module
+    from .effects.core import TriggerDoublerEffect  # local: effects imports this module
 
     if obj.controller_id is None:
         return 0

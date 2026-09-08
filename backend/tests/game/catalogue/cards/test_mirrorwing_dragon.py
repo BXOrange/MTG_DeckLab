@@ -1,17 +1,9 @@
-"""Secrets of Strixhaven — playability batch, wave 103 (PAR-60).
-
-Mirrorwing Dragon — new `mirrorwing_copy` effect: `RulesEngine.copy_spell`
-called once per other creature the caster controls, each with its own
-``new_targets`` (the "each copy targets a different one" clause
-`CopySpellEffect`'s shared-``new_targets`` path can't express). Documented
-simplification: "that the spell could target" is read as every other
-creature that player controls.
-"""
+"""Mirrorwing Dragon copies a spell once for each other creature."""
 
 from __future__ import annotations
 
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered, specs_for
-from mtg_analyzer.game.effect_binder import bind_ability
+from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

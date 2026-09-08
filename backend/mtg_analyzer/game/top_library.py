@@ -3,7 +3,7 @@
 RULE 701 has no native "play from the top of your library" provision — every
 real card (Oracle of Mul Daya, Glarb, Calamity's Augur, Future Sight-shaped)
 grants it as its own static ability (`TopLibraryPermissionEffect`,
-`game/effects.py`), bound onto the granting permanent's own
+`game/effects/core.py`), bound onto the granting permanent's own
 ``obj.static_effects`` like any other ``static`` ability. This module reads
 those grants live off the battlefield — mirroring `game/mana_abilities.py`'s
 "scan on demand" shape rather than a cached/recomputed derived field, since
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .effects import TopLibraryPermissionEffect
+from .effects.core import TopLibraryPermissionEffect
 
 if TYPE_CHECKING:
     from ..models.card import Card

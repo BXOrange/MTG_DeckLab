@@ -18,8 +18,8 @@ then-engine-drive split.
 
 import pytest
 
-from mtg_analyzer.game.effects import DealDamageEffect, DestroyEffect, ExileEffect
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.effects.core import DealDamageEffect, DestroyEffect, ExileEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import all_requirements_satisfiable, requirements_with_targets
 from mtg_analyzer.models.card import Card

@@ -18,7 +18,7 @@ import pytest
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.mana_cost import ManaCost
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game.effects import EffectRegistry
+from mtg_analyzer.game.effects.core import EffectRegistry
 
 
 # --- A representative library covering every criterion the specs use -------

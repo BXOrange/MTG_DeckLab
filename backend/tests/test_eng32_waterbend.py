@@ -21,14 +21,14 @@ also unlock large non-Waterbend families:
 Reference: parser/oracle/catalogue/handlers.py (`_BASE_PT_UNTIL_EOT_RE`,
 `_CANT_BE_BLOCKED_TURN_RE`, `_SHUFFLE_ENCHANTED_INTO_LIBRARY_RE`),
 parser/oracle/segmenter.py (`_ADDITIONAL_COST_WATERBEND_RE`),
-game/costs.py (`ActivationCost.help_pay_kind`), game/effects.py
+game/costs.py (`ActivationCost.help_pay_kind`), game/effects/core.py
 (`GrantUntilEffect` X-substitution, `UnblockableEffect` self mode,
 `ShuffleSelfIntoLibraryEffect.subject`).
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.mana_cost import ManaCost
@@ -315,7 +315,7 @@ def test_paying_optional_cost_folds_the_mana_and_sets_the_flag():
 
 
 def test_conditional_effect_gates_on_additional_cost_paid():
-    from mtg_analyzer.game.effects import ConditionalEffect, GainLifeEffect
+    from mtg_analyzer.game.effects.core import ConditionalEffect, GainLifeEffect
 
     eng = _engine()
     src = GameObject(_card("S", "Sorcery", ""), owner_id="p1", zone=Zone.STACK)

@@ -39,7 +39,7 @@ Setessan Tactics (same cluster) stays UNMODELED on purpose: its trailing
 ability* on a multi-target group, a materially different and harder shape
 than a flag keyword — a real, separate gap, not swept under this ticket.
 
-Reference: mtg_analyzer/game/effects.py (`PreventDamageEffect`,
+Reference: mtg_analyzer/game/effects/core.py (`PreventDamageEffect`,
 `ReturnFromGraveyardEffect`, `AddCountersEffect`, `PumpEffect`, `TapEffect`),
 mtg_analyzer/game/rules/damage_death_mixin.py (`prevent_damage_to_target`),
 mtg_analyzer/parser/oracle/catalogue/handlers.py.
@@ -47,7 +47,7 @@ mtg_analyzer/parser/oracle/catalogue/handlers.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

@@ -86,7 +86,6 @@ def _my_card_effect() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("draw", {"count": 1})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD},
-            raw_text="When ~ enters the battlefield, draw a card.",
         )
     ]
 
@@ -151,22 +150,21 @@ binder — don't spend time filling them in beyond documentation value:
 - **`target`** (e.g. `{"kind": "any"}`) — never read by `bind_ability`.
   Targeting is driven entirely by each *effect's own* `target_kind`
   parameter (§10). Existing hand-authored specs (see
-  `tests/test_effect_binder.py`'s Lightning Bolt example) still set it for
+  `tests/test_binding/core.py`'s Lightning Bolt example) still set it for
   a human reading the spec, purely as documentation.
 - **`optional`** — wired for `"triggered"` (`TriggeredAbility.optional`,
   "you may" triggers) but not consulted anywhere else yet.
 
-`raw_text` isn't cosmetic: it becomes the ability's `description` (shown in
-the UI's action list and static-ability panel) whenever the built effect
-doesn't already have one — always fill it in, in German to match the
-frontend's UI language (see CLAUDE.md "Frontend").
+Do not supply `raw_text` in hand-authored catalogue entries. The binder uses
+the bound card's canonical oracle text for descriptions. `raw_text` is
+reserved for parser provenance and must remain an exact source clause.
 
 ---
 
 ## 5. The `EffectSpec` whitelist
 
 `EffectSpec(type, params)` — `type` must be a name `EffectRegistry` knows
-(`game/effects.py`, bottom half). This is the full list today:
+(`game/effects/core.py`, bottom half). This is the full list today:
 
 | `type` | Key `params` | Notes |
 |---|---|---|
@@ -247,7 +245,6 @@ Example — a Glorious Anthem–style effect:
 AbilitySpec(
     "static",
     [EffectSpec("anthem", {"affects": "creatures_you_control", "power": 1, "toughness": 1})],
-    raw_text="Creatures you control get +1/+1.",
 )
 ```
 
@@ -269,7 +266,6 @@ AbilitySpec(
         EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2}),
         EffectSpec("grant_keyword", {"affects": "attached_permanent", "keywords": ["trample", "lifelink"]}),
     ],
-    raw_text="Enchanted creature gets +2/+2 and has trample and lifelink.",
 )
 ```
 
@@ -306,7 +302,6 @@ Only one factory is registered today:
 AbilitySpec(
     "replacement",
     [EffectSpec("prevent_damage", {"amount": "all", "to": "self"})],
-    raw_text="Prevent all damage that would be dealt to ~.",
 )
 ```
 
@@ -345,7 +340,7 @@ which needs no condition at all — the binder already scopes
 1. Bypass `AbilitySpec` for that one ability and construct the
    `TriggeredAbility` directly in a small helper, attaching it to
    `obj.triggered_abilities` yourself (look at how `bind_ability` builds one,
-   in `effect_binder.py`, and mirror it) — do this in a place that runs at
+   in `binding/core.py`, and mirror it) — do this in a place that runs at
    bind-on-load, e.g. by having your catalogue factory return the ability
    pre-attached is not supported (factories return `AbilitySpec`s only); the
    clean seam is a small dedicated bind hook, analogous to
@@ -404,7 +399,6 @@ AbilitySpec(
     "activated",
     [EffectSpec("draw", {"count": 1})],
     cost={"mana": "{2}", "taps_self": True},
-    raw_text="{2}, {T}: Draw a card.",
 )
 ```
 
@@ -449,7 +443,6 @@ def _elvish_visionary() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("draw", {"count": 1})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD},
-            raw_text="Wenn Elfischer Seher ins Spiel kommt, ziehe eine Karte.",
         )
     ]
 
@@ -473,13 +466,11 @@ def _my_lord() -> list[AbilitySpec]:
             "static",
             [EffectSpec("anthem", {"affects": "creatures_you_control", "power": 1, "toughness": 1,
                                     "subtype": "Goblin", "exclude_self": True})],
-            raw_text="Other Goblin creatures you control get +1/+1.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("draw", {"count": 1})],
             cost={"mana": "{1}", "taps_self": True},
-            raw_text="{1}, {T}: Draw a card.",
         ),
     ]
 ```
@@ -490,7 +481,7 @@ def _my_lord() -> list[AbilitySpec]:
 
 - Nothing you write here executes card text as code. `EffectSpec.type` must
   already be a name in `EffectRegistry`/`ReplacementRegistry` — an unknown
-  type raises `BindError` rather than doing anything (`effect_binder.py`).
+  type raises `BindError` rather than doing anything (`binding/core.py`).
   This holds for hand-authored specs exactly as much as parser-derived ones;
   the catalogue is trusted *content* (you're asserting "this is what the
   card does"), never trusted *code*.
@@ -500,7 +491,7 @@ def _my_lord() -> list[AbilitySpec]:
   test value gets clamped.
 - If you ever need genuinely new behaviour (§6/§7/§15), add it as a new
   named factory in `EffectRegistry`/`ReplacementRegistry` — never special-
-  case a card name inside `game/effects.py` or `game/continuous.py`. The
+  case a card name inside `game/effects/core.py` or `game/continuous.py`. The
   whitelist-by-name discipline is what keeps the security boundary real.
 
 ---
@@ -508,7 +499,7 @@ def _my_lord() -> list[AbilitySpec]:
 ## 13. Testing checklist
 
 Follow the pattern in `backend/tests/test_ability_catalogue.py` and
-`test_effect_binder.py`:
+`test_binding/core.py`:
 
 1. `ability_catalogue.specs_for(card)` returns the specs you expect (right
    `ability_kind`, right count).
@@ -518,7 +509,7 @@ Follow the pattern in `backend/tests/test_ability_catalogue.py` and
 3. `bind_from_catalogue(obj)` populates the right `GameObject` list
    (`obj.triggered_abilities`, `obj.activated_abilities`, …).
 4. An end-to-end test through a real `GameEngine`/`RulesEngine` (see
-   `TestLightningBoltEndToEnd` in `test_effect_binder.py`, or
+   `TestLightningBoltEndToEnd` in `test_binding/core.py`, or
    `test_build_engine_binds_library_and_command` in
    `test_ability_catalogue.py`) that actually plays the ability and asserts
    the resulting game state (card drawn, life changed, token created, …) —
@@ -548,7 +539,7 @@ Follow the pattern in `backend/tests/test_ability_catalogue.py` and
 Everything above assumes the `EffectSpec`/replacement type you need already
 exists. If it doesn't (Fog-style "prevent all combat damage this turn", a
 layer 1 copy effect, a layer 3 text-changing effect), that
-is a `game/effects.py` change (a new `GameEffect` subclass +
+is a `game/effects/core.py` change (a new `GameEffect` subclass +
 `EffectRegistry.register`/`ReplacementRegistry.register` call), not
 something a catalogue entry alone can do — the catalogue can only compose
 *existing* whitelisted types. Add the new effect class next to its siblings

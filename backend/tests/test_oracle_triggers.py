@@ -9,7 +9,7 @@ source. Two layers:
 * `parser/oracle/segmenter.py`'s `_trigger_condition` — the condition phrase
   → `{"subject": "self"}` / `{"subject": "group", ...}` dict (or ``None``,
   fail-closed, for anything not one of those two shapes).
-* `game/effect_binder.py`'s `_subject_condition` — that dict → the
+* `game/binding/core.py`'s `_subject_condition` — that dict → the
   `TriggeredAbility.check_trigger` predicate, reading the identity/type
   facts the engine's event-firing sites now stamp onto `ENTERS_BATTLEFIELD`/
   `DIES`/`ATTACKS`/`BLOCKS` events (`instance_id`, `object_types`, and — for
@@ -19,8 +19,8 @@ source. Two layers:
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import DrawCardEffect, TriggeredAbility
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import DrawCardEffect, TriggeredAbility
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle import MODELED, UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import _trigger_condition

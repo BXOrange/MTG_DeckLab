@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from .effects import GraveyardCastPermissionEffect
+from .effects.core import GraveyardCastPermissionEffect
 
 if TYPE_CHECKING:
     from ..models.card import Card
@@ -30,7 +30,7 @@ def _is_permanent_card(card: "Card") -> bool:
     """Whether ``card`` is a permanent card (creature/artifact/enchantment/
     land/planeswalker) — Lurrus's own "a permanent spell" restriction.
     Mirrors `ExileGraveyardCardCounterIfPermanentEffect`'s identical check
-    (`game/effects.py`)."""
+    (`game/effects/core.py`)."""
     return bool(
         card.is_creature or card.is_artifact or card.is_enchantment
         or card.is_land or getattr(card, "is_planeswalker", False)

@@ -153,7 +153,7 @@ def _optional_param(m: re.Match[str]) -> dict:
 #: "target X"/"up to one target X" shapes, so there's no dispatch ambiguity
 #: registering both. Wired up for `destroy`/`exile`/`damage`/`tap`/
 #: `return_to_hand`/`add_counters`/`return_from_graveyard` — every effect
-#: class `game/effects.py` loops a `count` over. `return_from_graveyard`
+#: class `game/effects/core.py` loops a `count` over. `return_from_graveyard`
 #: doesn't reuse this alternation directly (graveyard clauses have their own
 #: scope/type-word grammar, `_RETURN_FROM_GRAVEYARD_MULTI_RE`) but shares
 #: `_MULTI_TARGET_QUANTIFIER`.
@@ -1082,7 +1082,7 @@ def _draw(m: re.Match[str]) -> list[EffectSpec]:
 #: effect", a different, *outer* optionality than RULE 118.3's "the
 #: trigger always happens; paying the embedded cost is what's optional" —
 #: setting both would double-gate the same choice. `pay_cost_then`
-#: (`game/effects.py`'s `PayCostThenEffect`) already existed as an engine
+#: (`game/effects/core.py`'s `PayCostThenEffect`) already existed as an engine
 #: primitive (Mana Vault/Wandering Archaic, hand-authored); this is its
 #: first oracle-text recognizer.
 _PAY_COST_THEN_DRAW_RE = _c(
@@ -1185,7 +1185,7 @@ def _draw_reveal_cast_free(m: re.Match[str]) -> list[EffectSpec]:
 #: creatures" tail (Epistolary Librarian's own triggered-ability body, which
 #: has no cast {X} of its own to substitute — a board-read count instead,
 #: `continuous.count_selector`'s existing ``"attacking_creatures"`` entry).
-#: `FreeCastFromHandEffect` (`game/effects.py`) is a resolve-time *choice*
+#: `FreeCastFromHandEffect` (`game/effects/core.py`) is a resolve-time *choice*
 #: among the controller's own hand, not a target — none of these print
 #: "target". The leading "you may " is optional here (not required) since
 #: `segmenter._peel_optional` already strips it before `parse_effect_body`
@@ -2444,7 +2444,7 @@ _destroy_multi_target = _multi_target_builder("destroy")
 
 #: RULE 601.2c mass "destroy/exile all X [with a numeric filter]" board wipe
 #: (Wrath of God/Damnation/Citywide Bust-shaped) — untargeted, the same
-#: `selector` vocabulary `game/effects.py`'s `DestroyEffect`/`ExileEffect`
+#: `selector` vocabulary `game/effects/core.py`'s `DestroyEffect`/`ExileEffect`
 #: already support (previously only reachable via hand-authoring individual
 #: cards in `ability_catalogue.py`; this is the general oracle-text form).
 #: Only the two numeric filter kinds `_mass_selector_objects` actually
@@ -2798,7 +2798,7 @@ def _tap_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 def _tap_selector(m: re.Match[str]) -> list[EffectSpec]:
     # "untap all creatures you control" (Village Bell-Ringer's ETB) /
     # "untap each other creature you control" (Copperhorn Scout's own
-    # attack trigger) — an untargeted mass effect, `game/effects.py`'s
+    # attack trigger) — an untargeted mass effect, `game/effects/core.py`'s
     # `TapEffect.selector`, the same shape `_add_counters_selector` uses
     # for a mass counter effect.
     untap = m.group("verb").lower() == "untap"
@@ -3494,7 +3494,7 @@ def _exile_target_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: Scrying-shaped) and its reordered sibling "..., [reveal it,] then shuffle
 #: and put it/that card/the card on top." (Vampiric/Mystical/Enlightened/
 #: Worldly Tutor-shaped). Both map onto the engine's existing `"search"`
-#: `EffectSpec` (`game/effects.py`'s `SearchLibraryEffect`, already
+#: `EffectSpec` (`game/effects/core.py`'s `SearchLibraryEffect`, already
 #: parameterized on criteria/destination/count — `tests/
 #: test_search_popular_tutors.py` proves it against 15 real popular tutors)
 #: — no new effect type needed, just recognition. Three siblings below
@@ -4045,7 +4045,7 @@ def _search_exile_rest(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: "An opponent gains control of ~." (Wishclaw Talisman-shaped — RULE
-#: 701.10-adjacent; `game/effects.py`'s `GainControlBySourceEffect`).
+#: 701.10-adjacent; `game/effects/core.py`'s `GainControlBySourceEffect`).
 _GAIN_CONTROL_BY_OPPONENT_RE = _c(
     rf"an opponent gains control of {_SELF_SUBJECT}"
 )
@@ -4323,7 +4323,7 @@ def _trigger_copy_spell(m: re.Match[str]) -> list[EffectSpec]:
 
 #: "Shuffle ~ into its owner's library." (RULE 701.20 — Green Sun's Zenith's
 #: own trailing sentence, overriding the spell's default RULE 608.2m
-#: "goes to the graveyard as it resolves" routing; `game/effects.py`'s
+#: "goes to the graveyard as it resolves" routing; `game/effects/core.py`'s
 #: `ShuffleSelfIntoLibraryEffect`).
 _SHUFFLE_SELF_INTO_LIBRARY_RE = _c(
     rf"shuffle {_SELF_SUBJECT} into its owner'?s library"
@@ -4357,7 +4357,7 @@ def _attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 # "Target creature you control fights target creature you don't control."
 # (Prey Upon), "it fights up to one target creature you don't control."
 # (Kogla's ETB), "when this Aura enters, enchanted creature fights …" — one
-# `fight` effect (`game/effects.py`'s `FightEffect`) in all three, differing
+# `fight` effect (`game/effects/core.py`'s `FightEffect`) in all three, differing
 # only in who the *fighter* is.
 
 #: The target kinds a fight clause may name. Both fighters must be creatures
@@ -5028,7 +5028,7 @@ _PAY_COST_THEN_GENERAL_RE = _c(
 #: `<effect>`." (Chaos Spewer, Gutsplitter Gang, Scuzzback Scrounger — the
 #: PAR-29 Blight batch's "if you don't" shape). The mirror of
 #: `_PAY_COST_THEN_GENERAL_RE`: the effect goes in `pay_cost_then`'s
-#: ``else_effects`` branch (`game/effects.py`'s `PayCostThenEffect`), which
+#: ``else_effects`` branch (`game/effects/core.py`'s `PayCostThenEffect`), which
 #: fires only when the optional cost is *declined* or unpayable.
 _PAY_COST_THEN_OR_ELSE_RE = _c(
     r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*if you don't,?\s*(?P<effect>.+)"
@@ -9001,7 +9001,7 @@ def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 #: "Target creature can't block this turn" (Falter/Ahn-Crop Crasher/Abandon
 #: the Post) — the *resolve-time* half of the combat-restriction family, and
-#: by far its largest: an ordinary one-shot effect (`game/effects.py`'s
+#: by far its largest: an ordinary one-shot effect (`game/effects/core.py`'s
 #: `CantBlockEffect` → `GameObject.temp_cant_block`, cleared at cleanup),
 #: not the standing `combat_restriction` static that
 #: `catalogue/static_handlers.py` binds. Three shapes, in the order tried
@@ -9157,7 +9157,7 @@ def _attacks_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 #: RULE 701.47/48 Amass "<Type> N" ("amass Orcs 1"/"amass Zombies 2" — this
-#: repo's existing `game/effects.py` `AmassEffect` and its one proven
+#: repo's existing `game/effects/core.py` `AmassEffect` and its one proven
 #: consumer, Orcish Bowmasters (`ability_catalogue/entries_013.py`), both
 #: cite it as 701.48; the current `docs/Reference/rules_wiki` text has it
 #: renumbered to 701.47 since Learn moved to take 701.48 — same mechanic
@@ -11995,7 +11995,7 @@ HANDLERS: list[EffectHandler] = [
     # "You take the initiative." / "Target player takes the initiative."
     # (RULE 726.1) — RULE 726.2's "venture into the dungeon" companion isn't
     # modeled (dungeons/RULE 309 aren't built yet); see
-    # `game/effects.py`'s `TakeInitiativeEffect`.
+    # `game/effects/core.py`'s `TakeInitiativeEffect`.
     EffectHandler(
         "take_initiative",
         _c(r"(?P<who>you |target player )?takes? the initiative"),

@@ -38,7 +38,7 @@ Eight cards, each a genuinely different shape:
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
@@ -170,7 +170,7 @@ def test_heliod_sun_crowned_life_gain_counter_and_lifelink_grant():
 
 
 def test_containment_priest_exiles_a_reanimated_creature_instead():
-    from mtg_analyzer.game.effects import GameContext, ReturnFromGraveyardEffect
+    from mtg_analyzer.game.effects.core import GameContext, ReturnFromGraveyardEffect
 
     eng = make_engine("p1", "p2")
     _bf(eng.state, _named("Containment Priest"))
@@ -187,7 +187,7 @@ def test_containment_priest_exiles_a_reanimated_creature_instead():
 
 
 def test_without_containment_priest_reanimation_still_works():
-    from mtg_analyzer.game.effects import GameContext, ReturnFromGraveyardEffect
+    from mtg_analyzer.game.effects.core import GameContext, ReturnFromGraveyardEffect
 
     eng = make_engine("p1", "p2")
     victim = GameObject(_card("Fodder"), owner_id="p1", zone=Zone.GRAVEYARD)

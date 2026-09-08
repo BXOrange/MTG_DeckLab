@@ -8,7 +8,7 @@ stays the RULE 601.2c *minimum* everywhere it already meant "the" count —
 offer-time locking (`all_requirements_satisfiable`) and trigger-target
 gathering (`expand_counts`) both read it unchanged. ``count_max`` only
 changes two things: `TargetSpec.effective_count` (the real slicing cap
-`game/effects.py` uses instead of ``count`` — a range spec's ``count`` is
+`game/effects/core.py` uses instead of ``count`` — a range spec's ``count`` is
 too small a cap and would silently drop a legally-chosen second target) and
 how many rounds get offered (client-side `expandMultiTargetRequirements` for
 a spell/ability cast, `expand_counts` for a trigger's own target gathering).
@@ -24,8 +24,8 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effects import AddCountersEffect, DealDamageEffect, PumpEffect, TapEffect
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.effects.core import AddCountersEffect, DealDamageEffect, PumpEffect, TapEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import TargetSpec, all_requirements_satisfiable, requirements_with_targets
 from mtg_analyzer.models.card import Card

@@ -49,7 +49,7 @@ from mtg_analyzer.models.mana_cost import ManaCost
 from mtg_analyzer.models.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game import ability_catalogue, continuous, mana_potential
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
 

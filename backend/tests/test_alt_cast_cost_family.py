@@ -7,7 +7,7 @@ real printed mana cost, with the alternative cost itself dropped as a
 documented "confirmed-unbuilt mechanism" — this batch builds it: a
 structured `AbilitySpec.alt_cost` (mirrors `additional_cost`'s "fixed
 template, not open cost text" shape), `GameObject.alt_cast_cost`/
-`alt_cast_condition` (`game/effect_binder.py`), `GameEngine.can_cast`/
+`alt_cast_condition` (`game/binding/core.py`), `GameEngine.can_cast`/
 `cast_spell`'s new `alt_cost=True` branch (parallel to the existing
 `free=True` RULE 601.2f path), and the real UI wiring that free-cast
 casting itself never got: `_offer_cast`/`_cast_action`
@@ -28,7 +28,7 @@ import pytest
 
 from mtg_analyzer.game import condition_query
 from mtg_analyzer.game.costs import ActivationCost
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle

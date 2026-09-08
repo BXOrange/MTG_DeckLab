@@ -28,9 +28,6 @@ def _geistwave() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("return_to_hand_draw_if_controlled", {"target_kind": "nonland_permanent"})],
-            raw_text="Bringe eine nichtländliche Zielkarte eines bleibenden "
-                     "Kartentyps auf die Hand ihres Besitzers zurück. Falls du "
-                     "diese Karte kontrolliert hast, ziehe eine Karte.",
         )
     ]
 
@@ -53,8 +50,6 @@ def _paradigm_shift() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("exile_library", {}), EffectSpec("shuffle_graveyard_into_library", {})],
-            raw_text="Exiliere alle Karten aus deiner Bibliothek. Mische dann "
-                     "deinen Friedhof in deine Bibliothek.",
         )
     ]
 
@@ -81,10 +76,6 @@ def _endurance() -> list[AbilitySpec]:
                 "target_kind": "player", "optional": True,
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Blitzschlag. Reichweite. Wenn diese Kreatur ins Spiel "
-                     "kommt, legt bis zu ein Zielspieler alle Karten aus "
-                     "seinem Friedhof in zufälliger Reihenfolge unter seine "
-                     "Bibliothek.",
         )
     ]
 
@@ -105,8 +96,6 @@ def _borne_upon_a_wind() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("grant_flash_until_eot", {}), EffectSpec("draw", {"count": 1})],
-            raw_text="Du kannst in diesem Zug Zaubersprüche wirken, als "
-                     "hätten sie Blitzschlag. Ziehe eine Karte.",
         )
     ]
 
@@ -135,9 +124,6 @@ def _pongify() -> list[AbilitySpec]:
                 "power": 3, "toughness": 3, "colors": ["G"], "subtypes": ["Ape"],
                 "can_be_regenerated": False,
             })],
-            raw_text="Zerstöre eine Zielkreatur. Sie kann nicht regeneriert "
-                     "werden. Ihr Beherrscher erschafft einen grünen 3/3-Affen-"
-                     "Kreaturenspielstein.",
         )
     ]
 
@@ -160,9 +146,6 @@ def _rapid_hybridization() -> list[AbilitySpec]:
                 "subtypes": ["Frog", "Lizard"], "token_name": "Frog Lizard",
                 "can_be_regenerated": False,
             })],
-            raw_text="Zerstöre eine Zielkreatur. Sie kann nicht regeneriert "
-                     "werden. Der Beherrscher jener Kreatur erschafft einen "
-                     "grünen 3/3-Frosch-Echsen-Kreaturenspielstein.",
         )
     ]
 
@@ -186,9 +169,6 @@ def _swan_song() -> list[AbilitySpec]:
                 "power": 2, "toughness": 2, "colors": ["U"],
                 "subtypes": ["Bird"], "keywords": ["flying"],
             })],
-            raw_text="Neutralisiere eine Zielverzauberung, einen Zielspontan- "
-                     "oder Zielhexereizauber. Ihr Beherrscher erschafft einen "
-                     "blauen 2/2-Vogel-Kreaturenspielstein mit Fliegend.",
         )
     ]
 
@@ -211,9 +191,6 @@ def _strix_serenade() -> list[AbilitySpec]:
                 "power": 2, "toughness": 2, "colors": ["U"],
                 "subtypes": ["Bird"], "keywords": ["flying"],
             })],
-            raw_text="Neutralisiere einen Zielartefakt-, Zielkreatur- oder "
-                     "Zielplaneswalker-Zauber. Sein Beherrscher erschafft einen "
-                     "blauen 2/2-Vogel-Kreaturenspielstein mit Fliegend.",
         )
     ]
 
@@ -238,8 +215,6 @@ def _an_offer_you_cant_refuse() -> list[AbilitySpec]:
                 "noncreature": True, "count": 2,
                 "subtypes": ["Treasure"], "token_name": "Treasure",
             })],
-            raw_text="Neutralisiere einen Ziel-Nichtkreaturenzauber. Sein "
-                     "Beherrscher erschafft zwei Schatz-Spielsteine.",
         )
     ]
 
@@ -261,9 +236,6 @@ def _path_to_exile() -> list[AbilitySpec]:
             [EffectSpec("exile_controller_searches_basic_land", {
                 "target_kind": "creature",
             })],
-            raw_text="Schicke eine Zielkreatur ins Exil. Ihr Beherrscher kann "
-                     "seine Bibliothek nach einer Standardlandkarte durchsuchen, "
-                     "sie getappt ins Spiel bringen und dann mischen.",
         )
     ]
 
@@ -287,8 +259,6 @@ def _cyclonic_rift() -> list[AbilitySpec]:
             [EffectSpec("return_to_hand", {
                 "target_kind": "nonland_permanent_you_dont_control",
             })],
-            raw_text="Bringe eine bleibende Nichtland-Zielkarte, die du nicht "
-                     "kontrollierst, auf die Hand ihres Besitzers zurück.",
         )
     ]
 
@@ -312,8 +282,6 @@ def _alchemists_retrieval() -> list[AbilitySpec]:
             [EffectSpec("return_to_hand", {
                 "target_kind": "nonland_permanent_you_control",
             })],
-            raw_text="Bringe eine bleibende Nichtland-Zielkarte, die du "
-                     "kontrollierst, auf die Hand ihres Besitzers zurück.",
         )
     ]
 
@@ -333,8 +301,6 @@ def _copy_enchantment() -> list[AbilitySpec]:
         AbilitySpec(
             "enter_replacement",
             [EffectSpec("enter_as_copy", {"target_kind": "enchantment"})],
-            raw_text="Du kannst diese Verzauberung als Kopie einer beliebigen "
-                     "Verzauberung im Spiel ins Spiel kommen lassen.",
         )
     ]
 
@@ -354,7 +320,6 @@ def _gitaxian_probe() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("draw", {"count": 1})],
-            raw_text="Sieh dir die Hand eines Zielspielers an. Ziehe eine Karte.",
         )
     ]
 
@@ -380,9 +345,6 @@ def _reanimate() -> list[AbilitySpec]:
                 "under_your_control": True,
                 "lose_life_equal_mv": True,
             })],
-            raw_text="Bringe eine Zielkreaturenkarte aus einem Friedhof unter "
-                     "deiner Kontrolle ins Spiel. Du verlierst so viele "
-                     "Lebenspunkte, wie ihr Manawert beträgt.",
         )
     ]
 
@@ -404,8 +366,6 @@ def _noxious_revival() -> list[AbilitySpec]:
                 "target_kind": "any_graveyard_card",
                 "destination": "library_top",
             })],
-            raw_text="Lege eine Zielkarte aus einem Friedhof oben auf die "
-                     "Bibliothek ihres Besitzers.",
         )
     ]
 
@@ -425,8 +385,6 @@ def _dramatic_reversal() -> list[AbilitySpec]:
             [EffectSpec("tap", {
                 "untap": True, "selector": "nonland_permanents_you_control",
             })],
-            raw_text="Enttappe alle bleibenden Nichtland-Karten, die du "
-                     "kontrollierst.",
         )
     ]
 
@@ -457,8 +415,6 @@ def _mayhem_devil() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("damage", {"amount": 1, "target_kind": "any"})],
             trigger={"event": EventType.SACRIFICE},
-            raw_text="Immer wenn ein Spieler eine bleibende Karte opfert, fügt "
-                     "Mayhem Devil einem beliebigen Ziel 1 Schadenspunkt zu.",
         )
     ]
 
@@ -488,8 +444,6 @@ def _dualcaster_mage() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("copy_spell", {"card_types": ["instant", "sorcery"]})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn Dualcaster Mage ins Spiel kommt, kopiere einen "
-                     "Ziel-Spontanzauber oder eine Ziel-Hexerei.",
         )
     ]
 
@@ -515,7 +469,6 @@ def _flare_of_duplication() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("copy_spell", {"card_types": ["instant", "sorcery"]})],
-            raw_text="Kopiere einen Ziel-Spontanzauber oder eine Ziel-Hexerei.",
         )
     ]
 
@@ -556,8 +509,6 @@ def _price_of_glory() -> list[AbilitySpec]:
                 "not_controllers_turn": True,
                 "reflexive": True,
             },
-            raw_text="Immer wenn ein Spieler ein Land für Mana tappt und es nicht "
-                     "der Zug dieses Spielers ist, zerstöre jenes Land.",
         )
     ]
 
@@ -595,9 +546,6 @@ def _shatterskull_smashing() -> list[AbilitySpec]:
                 "amount": "x", "target_kind": "creature", "count": 2,
                 "optional": True, "divided": True, "double_at": 6,
             })],
-            raw_text="Shatterskull Smashing fügt X Schadenspunkte zu, nach Wahl "
-                     "des Spielers aufgeteilt auf bis zu zwei Ziel-Kreaturen. Ist "
-                     "X gleich 6 oder mehr, fügt es stattdessen zweimal X zu.",
         )
     ]
 
@@ -626,9 +574,6 @@ def _fire_covenant() -> list[AbilitySpec]:
                 "optional": True, "divided": True,
             })],
             additional_cost={"pay_life": "x"},
-            raw_text="Bezahle als zusätzliche Kosten für diesen Zauberspruch X "
-                     "Lebenspunkte. Fire Covenant fügt X Schadenspunkte zu, nach "
-                     "Wahl aufgeteilt auf eine beliebige Anzahl Ziel-Kreaturen.",
         )
     ]
 
@@ -668,8 +613,6 @@ def _final_fortune() -> list[AbilitySpec]:
                     "description": "Final Fortune: du verlierst das Spiel",
                 }),
             ],
-            raw_text="Mache einen zusätzlichen Zug nach diesem. Zu Beginn des "
-                     "Endsegments jenes Zuges verlierst du das Spiel.",
         )
     ]
 
@@ -699,8 +642,6 @@ def _mother_of_runes() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("grant_protection", {"target_kind": "creature_you_control"})],
             cost={"taps_self": True},
-            raw_text="{T}: Eine Zielkreatur, die du kontrollierst, erhält bis zum "
-                     "Ende des Zuges Schutz vor der Farbe deiner Wahl.",
         )
     ]
 
@@ -726,9 +667,6 @@ def _giver_of_runes() -> list[AbilitySpec]:
                 "target_kind": "creature_you_control", "allow_colorless": True,
             })],
             cost={"taps_self": True},
-            raw_text="{T}: Eine andere Zielkreatur, die du kontrollierst, erhält "
-                     "bis zum Ende des Zuges Schutz vor Farblos oder vor der Farbe "
-                     "deiner Wahl.",
         )
     ]
 
@@ -756,12 +694,10 @@ def _humility() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("remove_all_abilities", {"affects": "all_creatures"})],
-            raw_text="Alle Kreaturen verlieren alle Fähigkeiten.",
         ),
         AbilitySpec(
             "static",
             [EffectSpec("pt_set", {"power": 1, "toughness": 1, "affects": "all_creatures"})],
-            raw_text="Alle Kreaturen haben Grundstärke und -widerstandskraft 1/1.",
         ),
     ]
 
@@ -772,7 +708,7 @@ register("Humility", _humility)
 # ---------------------------------------------------------------------------
 # Impulsive draw's dual-player extension — Ragavan, Nimble Pilferer's
 # damaged-player-library exile + Mnemonic Betrayal's whole-graveyard, "any
-# type" mana-wildcard exile. See `game/effects.py`'s `ImpulsiveDrawEffect`/
+# type" mana-wildcard exile. See `game/effects/core.py`'s `ImpulsiveDrawEffect`/
 # `GraveyardImpulsiveCastEffect`/`ReturnRemainingExiledEffect`,
 # `RulesEngine._collect_impulsive_draw_triggers`/`exile_with_play_permission`/
 # `exile_graveyard_with_cast_permission`, and `ManaPool`'s ``wildcard`` param.
@@ -805,16 +741,11 @@ def _ragavan_nimble_pilferer() -> list[AbilitySpec]:
                 "condition": {"subject": "self"},
                 "filter": {"combat": True, "is_player": True},
             },
-            raw_text="Wenn Ragavan einer Spielerin oder einem Spieler Kampfschaden zufügt, "
-                     "erschaffe einen Schatz-Spielstein.",
         ),
         AbilitySpec(
             "static",
             [],
             impulsive_draw_on_combat_damage={"count": 1},
-            raw_text="Wenn Ragavan einer Spielerin oder einem Spieler Kampfschaden zufügt, "
-                     "verbanne die oberste Karte der Bibliothek dieser Spielerin oder dieses "
-                     "Spielers. Bis zum Ende des Zuges darfst du diese Karte wirken.",
         ),
     ]
 
@@ -843,12 +774,6 @@ def _mnemonic_betrayal() -> list[AbilitySpec]:
                 EffectSpec("exile_opponents_graveyards_impulsive_cast", {"mana_wildcard": "type"}),
                 EffectSpec("exile", {"target_kind": None}),
             ],
-            raw_text="Verbanne die Friedhöfe aller deiner Gegner. Du darfst in diesem Zug "
-                     "Zaubersprüche unter diesen Karten wirken, und Mana jeglichen Typs kann "
-                     "verwendet werden, um sie zu wirken. Zu Beginn des nächsten Endsegments "
-                     "gib alle Karten, die auf diese Weise noch immer verbannt sind, in den "
-                     "Friedhof ihres Besitzers zurück.\n"
-                     "Verbanne Mnemonic Betrayal.",
         )
     ]
 
@@ -886,16 +811,11 @@ def _marchesa_the_black_rose() -> list[AbilitySpec]:
             [EffectSpec("grant_keyword", {
                 "affects": "other_creatures_you_control", "keywords": ["dethrone"],
             })],
-            raw_text="Andere Kreaturen, die du kontrollierst, haben Thronraub.",
         ),
         AbilitySpec(
             "static",
             [],
             counter_death_return={"counter_kind": "+1/+1"},
-            raw_text="Wann immer eine Kreatur, die du kontrollierst und die einen "
-                     "+1/+1-Zählmarke auf sich hat, stirbt, bringe diese Karte zu "
-                     "Beginn des nächsten Endsegments unter deiner Kontrolle auf "
-                     "das Schlachtfeld zurück.",
         )
     ]
 
@@ -908,7 +828,7 @@ def _sneak_attack() -> list[AbilitySpec]:
     battlefield. That creature gains haste. Sacrifice the creature at the
     beginning of the next end step.
 
-    — Sneak Attack. `CheatCreatureFromHandEffect` (`game/effects.py`)
+    — Sneak Attack. `CheatCreatureFromHandEffect` (`game/effects/core.py`)
     covers the whole line in one atomic effect: the RULE 701 "cheat into
     play", the haste grant, and arming the RULE 603.7 delayed sacrifice.
     The hand-card pick is auto-chosen — no chooser in this MVP,
@@ -921,9 +841,6 @@ def _sneak_attack() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("cheat_creature_from_hand", {})],
             cost={"text": "{R}"},
-            raw_text="{R}: Du darfst eine Kreaturenkarte aus deiner Hand ins Spiel "
-                     "bringen. Diese Kreatur erhält Eile. Opfere die Kreatur zu "
-                     "Beginn des nächsten Endsegments.",
         )
     ]
 
@@ -945,10 +862,6 @@ def _meek_attack() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("cheat_creature_from_hand", {"max_total_pt": 5})],
             cost={"text": "{1}{R}"},
-            raw_text="{1}{R}: Du darfst eine Kreaturenkarte mit einer Gesamt-Stärke "
-                     "und -Widerstandskraft von 5 oder weniger aus deiner Hand ins "
-                     "Spiel bringen. Diese Kreatur erhält Eile. Opfere diese Kreatur "
-                     "zu Beginn des nächsten Endsegments.",
         )
     ]
 
@@ -961,7 +874,7 @@ register("Meek Attack", _meek_attack)
 # get N rad counters" cards whose *damaged player* varies per firing (the
 # oracle-text parser has no such per-firing grammar; see
 # `AbilitySpec.rad_counters_on_combat_damage`, `RulesEngine._collect_rad_
-# counter_damage_triggers`, `game/effects.py`'s `AddPlayerCountersEffect`).
+# counter_damage_triggers`, `game/effects/core.py`'s `AddPlayerCountersEffect`).
 # Each card's *other*, unrelated ability is a "whenever a player/an opponent
 # mills a nonland card, ..."/"whenever one or more nonland cards are milled,
 # ..." trigger (RULE 701.13) — now modeled too, off `EventType.MILL_CARD`
@@ -994,15 +907,11 @@ def _glowing_one() -> list[AbilitySpec]:
             "static",
             [],
             rad_counters_on_combat_damage={"count": 4},
-            raw_text="Wenn diese Kreatur einer Spielerin oder einem Spieler Kampfschaden "
-                     "zufügt, erhält sie/er vier Rad-Marken.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("gain_life", {"amount": 1})],
             trigger={"event": EventType.MILL_CARD, "condition": {"subject": "group"}},
-            raw_text="Wenn eine Spielerin oder ein Spieler eine Nichtland-Karte mahlt, "
-                     "gewinnst du 1 Leben.",
         ),
     ]
 
@@ -1031,22 +940,16 @@ def _infesting_radroach() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {"keywords": ["cant_block"], "affects": "self"})],
-            raw_text="Diese Kreatur kann nicht blocken.",
         ),
         AbilitySpec(
             "static",
             [],
             rad_counters_on_combat_damage={"count": "damage_amount"},
-            raw_text="Wenn diese Kreatur einer Spielerin oder einem Spieler Kampfschaden "
-                     "zufügt, erhält sie/er so viele Rad-Marken.",
         ),
         AbilitySpec(
             "static",
             [],
             mill_return_from_graveyard=True,
-            raw_text="Wenn ein Gegner eine Nichtland-Karte mahlt, darfst du diese Karte, "
-                     "falls sie sich in deinem Friedhof befindet, auf deine Hand "
-                     "zurücknehmen.",
         ),
     ]
 
@@ -1095,8 +998,6 @@ def _the_wise_mothman() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("add_player_counters", {"amount": 1, "kind": "rad", "selector": "each_player"})],
             trigger={"event": [EventType.ENTERS_BATTLEFIELD, EventType.ATTACKS], "condition": {"subject": "self"}},
-            raw_text="Wenn The Wise Mothman ins Spiel kommt oder angreift, erhält "
-                     "jede Spielerin und jeder Spieler eine Rad-Marke.",
         ),
         AbilitySpec(
             "triggered",
@@ -1110,9 +1011,6 @@ def _the_wise_mothman() -> list[AbilitySpec]:
             # player with a legal creature on board couldn't decline putting
             # the counter at all, contradicting "up to".
             optional=True,
-            raw_text="Wenn eine oder mehrere Nichtland-Karten gemahlen werden, lege "
-                     "einen +1/+1-Marker auf bis zu je eine Zielkreatur, für jede so "
-                     "gemahlene Nichtland-Karte.",
         ),
     ]
 
@@ -1145,11 +1043,6 @@ def _bloatfly_swarm() -> list[AbilitySpec]:
                 "to": "self", "remove_kind": "+1/+1", "grant_kind": "rad",
                 "grant_selector": "each_player",
             })],
-            raw_text="Falls diese Kreatur Schaden zugefügt bekommen würde, während "
-                     "sie sich mindestens eine +1/+1-Marke auf ihr befindet, "
-                     "verhindere diesen Schaden, entferne so viele +1/+1-Marken von "
-                     "ihr, dann erhält jede Spielerin und jeder Spieler für jede so "
-                     "entfernte +1/+1-Marke eine Rad-Marke.",
         ),
     ]
 
@@ -1170,7 +1063,7 @@ def _vexing_radgull() -> list[AbilitySpec]:
     all), extended with its own ``else`` key
     (`RulesEngine._collect_rad_counter_damage_triggers`): the damaged
     player gets 2 rad counters if they currently have none, otherwise a
-    real RULE 701.30 proliferate happens instead (`game/effects.py`'s
+    real RULE 701.30 proliferate happens instead (`game/effects/core.py`'s
     `ProliferateEffect`, which now also proliferates player-level counters
     — a documented gap this card is the first to actually need closed).
     """
@@ -1179,9 +1072,6 @@ def _vexing_radgull() -> list[AbilitySpec]:
             "static",
             [],
             rad_counters_on_combat_damage={"count": 2, "kind": "rad", "else": "proliferate"},
-            raw_text="Wenn diese Kreatur einer Spielerin oder einem Spieler Kampfschaden "
-                     "zufügt, erhält sie/er zwei Rad-Marken, falls sie/er keine "
-                     "Rad-Marken hat. Andernfalls, vermehre dich.",
         ),
     ]
 
@@ -1214,7 +1104,6 @@ def _vault_12_the_necropolis() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("add_player_counters", {"amount": 3, "kind": "rad", "selector": "each_player"})],
             trigger={"event": "SAGA_CHAPTER", "chapter": [1]},
-            raw_text="I — Jede Spielerin und jeder Spieler erhält drei Rad-Marken.",
         ),
         AbilitySpec(
             "triggered",
@@ -1224,9 +1113,6 @@ def _vault_12_the_necropolis() -> list[AbilitySpec]:
                 "subtypes": ["Zombie", "Mutant"], "token_name": "Zombie Mutant",
             })],
             trigger={"event": "SAGA_CHAPTER", "chapter": [2]},
-            raw_text="II — Erzeuge X 2/2 schwarze Zombie-Mutant-Kreaturenspielsteine, wobei "
-                     "X der Gesamtzahl der Rad-Marken unter den Spielerinnen und Spielern "
-                     "entspricht.",
         ),
         AbilitySpec(
             "triggered",
@@ -1235,8 +1121,6 @@ def _vault_12_the_necropolis() -> list[AbilitySpec]:
                 "subtypes": ["Zombie", "Mutant"],
             })],
             trigger={"event": "SAGA_CHAPTER", "chapter": [3]},
-            raw_text="III — Lege zwei +1/+1-Marken auf jede Kreatur, die du kontrollierst "
-                     "und die ein Zombie oder Mutant ist.",
         ),
     ]
 
@@ -1273,8 +1157,6 @@ def _struggle_for_project_purity() -> list[AbilitySpec]:
         AbilitySpec(
             "enter_replacement",
             [EffectSpec("choose_named_mode", {"options": ["Brotherhood", "Enclave"]})],
-            raw_text="Während dieses Verzauberung ins Spiel kommt, wähle Bruderschaft "
-                     "oder Enklave.",
         ),
         AbilitySpec(
             "triggered",
@@ -1286,17 +1168,11 @@ def _struggle_for_project_purity() -> list[AbilitySpec]:
                 "event": "STEP_BEGIN", "filter": {"step": "upkeep"},
                 "phase_relation": "you", "named_mode": "brotherhood",
             },
-            raw_text="Bruderschaft — Zu Beginn deines Versorgungssegments zieht jede "
-                     "Gegnerin und jeder Gegner eine Karte. Du ziehst für jede auf diese "
-                     "Weise gezogene Karte eine Karte.",
         ),
         AbilitySpec(
             "static",
             [],
             rad_counters_on_attacked={"multiplier": 2, "requires_mode": "enclave"},
-            raw_text="Enklave — Wann immer eine Spielerin oder ein Spieler dich mit "
-                     "einer oder mehreren Kreaturen angreift, erhält sie/er doppelt so "
-                     "viele Rad-Marken.",
         ),
     ]
 
@@ -1330,8 +1206,6 @@ def _mariposa_military_base() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("draw", {"count": 1})],
             cost={"text": "{5}, {T}", "dynamic_reduction": {"kind": "rad", "generic_per": 1}},
-            raw_text="{5}, {T}: Ziehe eine Karte. Diese Fähigkeit kostet {1} weniger, "
-                     "um sie zu aktivieren, für jede Rad-Marke, die du hast.",
         ),
     ]
 
@@ -1367,10 +1241,6 @@ def _nuka_nuke_launcher() -> list[AbilitySpec]:
                 "description": "Nuka-Nuke Launcher: Rad-Marken bei Zauberspruch",
             })],
             trigger={"event": "ATTACKS", "condition": {"subject": "attached_permanent"}},
-            raw_text="Wann immer die ausgerüstete Kreatur angreift, erhält die "
-                     "verteidigende Spielerin oder der verteidigende Spieler bis zum "
-                     "Ende ihres/seines nächsten Zuges zwei Rad-Marken, wann immer "
-                     "sie/er einen Zauberspruch wirkt.",
         ),
     ]
 
@@ -1417,11 +1287,6 @@ def _harold_and_bob() -> list[AbilitySpec]:
                 "target_kind": "forest_you_control",
             })],
             trigger={"event": "DIES", "condition": {"subject": "self"}},
-            raw_text="Wenn Harold und Bob stirbt, falls es eine Kreatur war, bringe es "
-                     "ins Spiel zurück. Es ist eine Verzauberung des Typs Aura mit "
-                     "Verzaubert Wald unter deiner Kontrolle und '{T}: Füge drei Mana "
-                     "einer Farbe deiner Wahl hinzu. Du erhältst zwei Rad-Marken.' "
-                     "Harold und Bob verliert alle anderen Fähigkeiten.",
         ),
     ]
 
@@ -1453,9 +1318,6 @@ def _riot_control() -> list[AbilitySpec]:
                 EffectSpec("gain_life", {"count_selector": "creatures_opponents_control"}),
                 EffectSpec("prevent_damage_shield", {"amount": "all"}),
             ],
-            raw_text="Du gewinnst 1 Lebenspunkt für jede Kreatur, die deine Gegner "
-                     "kontrollieren. Verhindere jeglichen Schaden, der dir in diesem "
-                     "Zug zugefügt werden würde.",
         )
     ]
 
@@ -1469,7 +1331,7 @@ def _thought_lash() -> list[AbilitySpec]:
 
     — Thought Lash. Only this repeatable activated ability is hand-authored
     here; the card's own Cumulative Upkeep (RULE 702.24) now binds for free
-    regardless (MEC-16 — `game/effect_binder.py`'s keyword dispatch reads
+    regardless (MEC-16 — `game/binding/core.py`'s keyword dispatch reads
     `Card.keywords`/oracle text independently of whatever a hand-authored
     entry supplies), so it no longer needs claiming here. Its own trailing
     "when a player doesn't pay this enchantment's cumulative upkeep, that
@@ -1491,9 +1353,6 @@ def _thought_lash() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("prevent_damage_shield", {"amount": 1})],
             cost={"text": "Exile the top card of your library"},
-            raw_text="Exiliere die oberste Karte deiner Bibliothek: Verhindere den "
-                     "nächsten 1 Schadenspunkt, der dir in diesem Zug zugefügt werden "
-                     "würde.",
         )
     ]
 
@@ -1546,8 +1405,6 @@ def _lavinia_azorius_renegade() -> list[AbilitySpec]:
                 "noncreature": True,
                 "max_mana_value_selector": "lands_you_control",
             })],
-            raw_text="Jeder Gegner kann keine Nichtkreaturenzauber mit Manawert "
-                     "größer als die Anzahl der Länder wirken, die er kontrolliert.",
         ),
         AbilitySpec(
             "triggered",
@@ -1558,8 +1415,6 @@ def _lavinia_azorius_renegade() -> list[AbilitySpec]:
                 "filter": {"mana_spent": 0},
                 "reflexive": True,
             },
-            raw_text="Immer wenn ein Gegner einen Zauberspruch wirkt und dafür kein "
-                     "Mana ausgegeben wurde, annulliere jenen Zauberspruch.",
         ),
     ]
 

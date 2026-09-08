@@ -10,7 +10,7 @@ this way, that player loses 1 life and removes one rad counter from
 themselves." (RULE 728.1)
 
 Modeled the same way as Monarch/Initiative (`RulesEngine.
-_collect_inherent_triggers`, `game/effects.py`'s `RadiationMillEffect`):
+_collect_inherent_triggers`, `game/effects/core.py`'s `RadiationMillEffect`):
 built fresh off live state each time a matching `STEP_BEGIN`/"main1" event
 fires, rather than attached to any permanent — nothing hosts this ability.
 Reuses the existing generic `Player.counters["rad"]` slot (the same one
@@ -21,7 +21,7 @@ energy/experience already use) and `RulesEngine.add_player_counters`/`mill`/
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
@@ -204,7 +204,7 @@ def test_add_player_counters_effect_selectors_and_defending_player():
     state = eng.state
     p1, p2 = state.player_by_id("p1"), state.player_by_id("p2")
 
-    from mtg_analyzer.game.effects import AddPlayerCountersEffect
+    from mtg_analyzer.game.effects.core import AddPlayerCountersEffect
 
     # Untargeted (self/controller).
     obj = GameObject(_creature("Src"), owner_id="p1", zone=Zone.BATTLEFIELD)
@@ -229,7 +229,7 @@ def test_lose_all_player_counters_effect():
     p1 = state.player_by_id("p1")
     p1.counters["rad"] = 5
 
-    from mtg_analyzer.game.effects import LoseAllPlayerCountersEffect
+    from mtg_analyzer.game.effects.core import LoseAllPlayerCountersEffect
 
     LoseAllPlayerCountersEffect(kind="rad", player=p1).apply(eng.rules.context)
     assert p1.counters.get("rad", 0) == 0

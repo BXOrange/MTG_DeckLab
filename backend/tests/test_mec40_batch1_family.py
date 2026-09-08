@@ -9,7 +9,7 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-40" entry.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.game_object import GameObject, Zone
 
 from tests.test_game_engine import creature, make_engine
@@ -217,7 +217,7 @@ def test_ranger_captain_sacrifice_shuts_off_opponent_noncreature_casting():
 
 
 def test_vexing_shusher_static_makes_itself_uncounterable():
-    from mtg_analyzer.game.effects import CantBeCounteredEffect
+    from mtg_analyzer.game.effects.core import CantBeCounteredEffect
 
     eng = make_engine([_named("Vexing Shusher")], hand=1)
     obj = eng.state.player_by_id("p1").hand[0]
@@ -247,7 +247,7 @@ def test_vexing_shusher_ability_marks_target_spell_uncounterable():
     eng.activate_ability(p1, shusher, ability_index=0, targets=[ritual_obj])
     eng.resolve_until_stable()
 
-    from mtg_analyzer.game.effects import CantBeCounteredEffect
+    from mtg_analyzer.game.effects.core import CantBeCounteredEffect
 
     assert any(isinstance(e, CantBeCounteredEffect) for e in ritual_obj.spell_effects)
 

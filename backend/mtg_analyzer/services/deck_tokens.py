@@ -8,7 +8,7 @@ play, and their art is otherwise lazy-loaded the first time one hits the
 battlefield (a visible "pop-in"). This module walks a deck's cards, finds
 every ``create_token`` effect they carry, and resolves each to the token
 `Card` definition it would create — **using the exact same resolution path as
-`CreateTokenEffect.apply`** (game/effects.py), so the preloaded set matches
+`CreateTokenEffect.apply`** (game/effects/core.py), so the preloaded set matches
 what actually appears in play:
 
 * a bare *named* token (no inline P/T) → the curated `TokenDatabase`, keeping

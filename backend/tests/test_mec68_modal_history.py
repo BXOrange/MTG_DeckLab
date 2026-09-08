@@ -1,6 +1,6 @@
 """MEC-68 — per-ability, per-turn exhausted triggered modes."""
 
-from mtg_analyzer.game.effects import GainLifeEffect, TriggeredAbility
+from mtg_analyzer.game.effects.core import GainLifeEffect, TriggeredAbility
 from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
 

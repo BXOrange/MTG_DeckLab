@@ -28,8 +28,8 @@ by `RulesEngine.clash` (`_last_clash_opponent_id`) and stashed by
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
-from mtg_analyzer.game.effects import GameContext, _apply_effects_partitioned
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.game.effects.core import GameContext, _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -119,7 +119,7 @@ def test_hoarders_greed_is_capped():
         _lib(st, "p2", 1)
     src = _spec_source(eng, "Hoarder's Greed")
     _run(eng, src, [parse_oracle(src.card).specs[0].effects[0]])
-    from mtg_analyzer.game.effects import _MAX_CLASH_REPEAT_ITERATIONS
+    from mtg_analyzer.game.effects.core import _MAX_CLASH_REPEAT_ITERATIONS
     assert p1.life == 500 - 2 * _MAX_CLASH_REPEAT_ITERATIONS
 
 

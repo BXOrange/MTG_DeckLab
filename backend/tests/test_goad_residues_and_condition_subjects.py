@@ -21,8 +21,8 @@ catalogue/handlers,catalogue/static_handlers}.py.
 from __future__ import annotations
 
 from mtg_analyzer.game import combat, continuous, durations, static_conditions
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import EffectRegistry
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import (
     TargetSpec,
@@ -616,7 +616,7 @@ def test_created_referent_is_scoped_to_one_resolution():
     # `created_objects` must never leak between resolutions — a later,
     # unrelated "the tokens are goaded" would otherwise point at whatever the
     # last spell made.
-    from mtg_analyzer.game.effects import _apply_effects_partitioned
+    from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 
     eng = _engine()
     src = _put(eng.state, _creature("Maker"))

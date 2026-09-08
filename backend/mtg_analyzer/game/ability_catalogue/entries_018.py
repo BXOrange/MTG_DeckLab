@@ -44,11 +44,6 @@ def _fabled_passage() -> list[AbilitySpec]:
                 )
             ],
             cost={"text": "{T}, Sacrifice ~"},
-            raw_text=(
-                "{T}, Opfere ~: Suche eine Standardland-Karte, lege sie getappt "
-                "ins Spiel, mische dann. Wenn du dann vier oder mehr Länder "
-                "kontrollierst, enttappe jenes Land."
-            ),
         )
     ]
 
@@ -83,7 +78,6 @@ def _parasitic_impetus() -> list[AbilitySpec]:
                 EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2}),
                 EffectSpec("goaded", {"affects": "attached_permanent"}),
             ],
-            raw_text="Verzauberte Kreatur erhält +2/+2 und ist provoziert.",
         ),
         AbilitySpec(
             "triggered",
@@ -94,10 +88,6 @@ def _parasitic_impetus() -> list[AbilitySpec]:
                 EffectSpec("gain_life", {"amount": IMPETUS_DRAIN}),
             ],
             trigger={"event": "ATTACKS", "condition": {"subject": "attached_permanent"}},
-            raw_text=(
-                "Immer wenn die verzauberte Kreatur angreift, verliert ihr Beherrscher "
-                "2 Lebenspunkte und du erhältst 2 Lebenspunkte."
-            ),
         ),
     ]
 
@@ -124,16 +114,11 @@ def _martial_impetus() -> list[AbilitySpec]:
                 EffectSpec("anthem", {"affects": "attached_permanent", "power": 1, "toughness": 1}),
                 EffectSpec("goaded", {"affects": "attached_permanent"}),
             ],
-            raw_text="Verzauberte Kreatur erhält +1/+1 und ist provoziert.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("pump", {"power": 1, "toughness": 1, "selector": "other_attacking_creatures"})],
             trigger={"event": "ATTACKS", "condition": {"subject": "attached_permanent"}},
-            raw_text=(
-                "Immer wenn die verzauberte Kreatur angreift, erhält jede andere "
-                "angreifende Kreatur +1/+1 bis zum Ende des Zuges."
-            ),
         ),
     ]
 
@@ -159,7 +144,6 @@ def _ghoulish_impetus() -> list[AbilitySpec]:
                 EffectSpec("grant_keyword", {"affects": "attached_permanent", "keywords": ["deathtouch"]}),
                 EffectSpec("goaded", {"affects": "attached_permanent"}),
             ],
-            raw_text="Verzauberte Kreatur erhält +1/+1, hat Todesberührung und ist provoziert.",
         ),
         AbilitySpec(
             "triggered",
@@ -172,10 +156,6 @@ def _ghoulish_impetus() -> list[AbilitySpec]:
                 }),
             ],
             trigger={"event": "DIES", "condition": {"subject": "attached_permanent"}},
-            raw_text=(
-                "Wenn die verzauberte Kreatur stirbt, bringe diese Karte zu Beginn des "
-                "nächsten Endsegments ins Spiel zurück."
-            ),
         ),
     ]
 
@@ -233,7 +213,6 @@ def _quandrix_command() -> list[AbilitySpec]:
                     "Ein Zielspieler mischt bis zu drei Zielkarten aus seinem Friedhof in seine Bibliothek.",
                 ],
             },
-            raw_text="wähle zwei —",
         )
     ]
 
@@ -281,7 +260,6 @@ def _lorehold_charm() -> list[AbilitySpec]:
                     "Kreaturen unter deiner Kontrolle erhalten +1/+1 und Trampelschaden bis zum Ende des Zuges.",
                 ],
             },
-            raw_text="wähle eins —",
         )
     ]
 
@@ -338,7 +316,6 @@ def _witherbloom_command() -> list[AbilitySpec]:
                     "Ein Zielgegner verliert 2 Lebenspunkte und du erhältst 2 Lebenspunkte.",
                 ],
             },
-            raw_text="wähle zwei —",
         )
     ]
 

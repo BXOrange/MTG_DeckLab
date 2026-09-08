@@ -17,7 +17,7 @@ Mirrors `test_multi_target.py`'s fixture pattern and parser-recognition-
 then-engine-drive split.
 """
 
-from mtg_analyzer.game.effects import DestroyEffect, ExileEffect, ReturnToHandEffect
+from mtg_analyzer.game.effects.core import DestroyEffect, ExileEffect, ReturnToHandEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import legal_targets, requirements_with_targets, TargetSpec
 from mtg_analyzer.models.card import Card

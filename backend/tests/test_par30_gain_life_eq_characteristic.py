@@ -10,8 +10,8 @@ last-known info, since the creature is usually gone by then).
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import build_effects
-from mtg_analyzer.game.effects import _apply_effects_partitioned
+from mtg_analyzer.game.binding.core import build_effects
+from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

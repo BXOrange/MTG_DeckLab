@@ -540,7 +540,7 @@ _CAST_THIS_SPELL_TRIGGER_RE = re.compile(
 #: real card printing this exact template). A standalone whole-line
 #: recognizer rather than decomposed into the generic trigger-condition +
 #: body machinery: the "if no mana was spent" clause is folded straight into
-#: the trigger's own ``spell_no_mana_spent`` gate (`effect_binder.py`) and
+#: the trigger's own ``spell_no_mana_spent`` gate (`binding/core.py`) and
 #: "counter that spell" resolves off the firing SPELL_CAST event's own
 #: object (`CounterSpellEffect.target_from_trigger_event`), not a RULE 115
 #: target — no other card needs this exact combination yet, so it isn't
@@ -3470,7 +3470,7 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
 
 #: MEC-28: recognised mass-selector values `handlers.EffectHandler.
 #: previous_selector_only` rows may read back as "they" (`effects.
-#: GameContext.previous_selector`, `game/effect_binder.py`'s narrow
+#: GameContext.previous_selector`, `game/binding/core.py`'s narrow
 #: ``TapEffect``-only tracking whitelist) — deliberately just the one real
 #: card (Karlach, Fury of Avernus) needs today, widened only as another
 #: card actually prints a different mass selector before this same "they"

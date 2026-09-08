@@ -16,8 +16,8 @@ subgrammars}.py, mtg_analyzer/game/{effects,rules_engine,targeting}.py.
 """
 
 from mtg_analyzer.game import targeting
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import CantBeCounteredEffect, CounterSpellEffect, DrawCardEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import CantBeCounteredEffect, CounterSpellEffect, DrawCardEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.models.card import Card

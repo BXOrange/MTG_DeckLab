@@ -38,7 +38,7 @@ from ..costs import (
     ActivationCost,
     parse_activation_cost,
 )
-from ..effects import ActivatedAbility
+from ..effects.core import ActivatedAbility
 from ..mana_abilities import (
     hand_mana_abilities_for,
     mana_abilities_for,
@@ -470,7 +470,7 @@ class CastingMixin:
         of paying the mana cost at all ("If you control a commander, you may
         cast this spell without paying its mana cost." — Deadly Rollick/
         Deflecting Swat/Fierce Guardianship-shaped): legal only when ``obj``
-        carries a `free_cast_condition` (`game/effect_binder.py`) whose
+        carries a `free_cast_condition` (`game/binding/core.py`) whose
         condition currently holds (`condition_query.
         free_cast_condition_holds`); illegal for an object with no such
         condition at all. ``alt_cost=True`` (RULE 118.9, MEC-15 — "You may

@@ -11,7 +11,7 @@ player). `handlers._face_villainous_choice` mini-parses the two options.
 Only cards whose *both* options parse are MODELED (Damocles Base, The
 Dalek Emperor); the rest are tracked in PAR-30.
 
-Reference: game/effects.py (`FaceVillainousChoiceEffect`), game/rules/
+Reference: game/effects/core.py (`FaceVillainousChoiceEffect`), game/rules/
 misc_mixin.py (`request_villainous_choice` / `_advance_villainous_choice`
 / `resolve_villainous_choice`), game/engine/turn_loop_mixin.py dispatch.
 """

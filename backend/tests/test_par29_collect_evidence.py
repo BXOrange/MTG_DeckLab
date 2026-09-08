@@ -12,7 +12,7 @@ a `whenever you collect evidence` trigger condition.
 
 Reference: game/costs.py (`collect_evidence`, `_COLLECT_EVIDENCE_RE`),
 game/rules/misc_mixin.py (`collect_evidence` / `collect_evidence_possible`),
-game/engine/activation_mixin.py, game/effects.py (`CollectEvidenceEffect`).
+game/engine/activation_mixin.py, game/effects/core.py (`CollectEvidenceEffect`).
 """
 
 from __future__ import annotations
@@ -127,7 +127,7 @@ def test_activated_ability_with_collect_evidence_cost_pays_it():
     obj.controller_id = "p1"
     obj.summoning_sick = False
     state.add_to_battlefield(obj)
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
     bind_from_catalogue(obj)
 
     assert obj.activated_abilities, "ability bound"

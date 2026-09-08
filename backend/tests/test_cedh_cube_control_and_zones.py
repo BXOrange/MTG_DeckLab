@@ -22,7 +22,7 @@ Wandering Archaic (`pay_cost_then` with an event-named payer and an
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -386,7 +386,7 @@ def test_a_hand_pick_never_shuffles_the_library():
     fatty = GameObject(_bear("Fatty"), owner_id="p1", zone=Zone.HAND)
     p1.add_to_zone(fatty, Zone.HAND)
 
-    from mtg_analyzer.game.effects import GameContext, PutFromHandOntoBattlefieldEffect
+    from mtg_analyzer.game.effects.core import GameContext, PutFromHandOntoBattlefieldEffect
 
     PutFromHandOntoBattlefieldEffect(criteria={"type": "Creature"}, count=1).apply(
         GameContext(state, engine.rules)

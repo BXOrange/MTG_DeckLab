@@ -15,7 +15,7 @@
     Quicksilver's only lets **blue** mana substitute (`ManaPool._solve`'s
     matching single-color branch), and only for its own abilities.
 
-Reference: mtg_analyzer/game/effects.py (`GainActivatedAbilitiesOfTargetEffect`,
+Reference: mtg_analyzer/game/effects/core.py (`GainActivatedAbilitiesOfTargetEffect`,
 `grant_any_color_for_activation`), mtg_analyzer/game/continuous.py
 (`any_color_for_activation`, `_retarget_effect_source`),
 mtg_analyzer/models/mana_pool.py (`ManaPool._solve`),
@@ -25,7 +25,7 @@ RULE 113.7c/605.1a/613.7f.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

@@ -13,7 +13,7 @@ rode along) surfaced three real, cross-cutting gaps worth generalizing
 (they also fire outside modal blocks, on ordinary non-modal cards):
 
 * **Bare "proliferate."** (RULE 701.30) — `ProliferateEffect` already
-  existed (`game/effects.py`), it just had no oracle-text handler at all.
+  existed (`game/effects/core.py`), it just had no oracle-text handler at all.
   "proliferate twice"/"proliferate X times" stay unclaimed (fail-closed):
   `ProliferateEffect` has no repeat-count parameter yet.
 * **Targeted "target player gains/loses N life."** — `LoseLifeEffect`
@@ -44,7 +44,7 @@ mtg_analyzer/game/{effects,targeting}.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effects import BlinkEffect, DestroyEffect, ExileEffect, GainLifeEffect, GameContext
+from mtg_analyzer.game.effects.core import BlinkEffect, DestroyEffect, ExileEffect, GainLifeEffect, GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -133,7 +133,7 @@ def test_proliferate_effect_adds_a_counter_of_each_existing_kind():
     creature.counters["stun"] = 1
     ctx = GameContext(state, engine)
 
-    from mtg_analyzer.game.effects import EffectRegistry
+    from mtg_analyzer.game.effects.core import EffectRegistry
 
     EffectRegistry.create("proliferate", {}).apply(ctx)
 
@@ -148,7 +148,7 @@ def test_proliferate_twice_effect_adds_two_counters_of_each_existing_kind():
     creature.counters["stun"] = 1
     ctx = GameContext(state, engine)
 
-    from mtg_analyzer.game.effects import EffectRegistry
+    from mtg_analyzer.game.effects.core import EffectRegistry
 
     EffectRegistry.create("proliferate", {"times": 2}).apply(ctx)
 
@@ -195,7 +195,7 @@ def test_lose_life_effect_applies_to_the_declared_target_not_the_controller():
     engine, state, p1, p2 = _rules()
     ctx = GameContext(state, engine)
 
-    from mtg_analyzer.game.effects import LoseLifeEffect
+    from mtg_analyzer.game.effects.core import LoseLifeEffect
 
     LoseLifeEffect(amount=3, target_kind="player").apply(ctx, targets=[p2])
 

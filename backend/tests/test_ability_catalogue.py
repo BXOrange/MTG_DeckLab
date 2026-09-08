@@ -6,7 +6,7 @@ import pytest
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.game import ability_catalogue
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.services.game_session import GameSessionManager, build_goldfish_engine
 
 
@@ -185,7 +185,7 @@ def test_bound_keyword_reaches_combat_recognition():
     obj2 = GameObject(bear(), owner_id="p2", zone=Zone.BATTLEFIELD)
     assert combat.has_flying(obj2) is False
 
-    from mtg_analyzer.game.effect_binder import attach_keyword
+    from mtg_analyzer.game.binding.core import attach_keyword
     from mtg_analyzer.parser.oracle.spec import AbilitySpec
 
     attach_keyword(obj2, AbilitySpec(ability_kind="keyword", keyword={"name": "flying"}))
@@ -197,7 +197,7 @@ def test_parametric_keyword_is_docked_with_its_parameter():
     # Parametric keywords now bind: they don't join the flag set
     # `intrinsic_keywords`, but their parameter is kept on `parametric_keywords`
     # for the cost/combat-math consumers.
-    from mtg_analyzer.game.effect_binder import attach_keyword
+    from mtg_analyzer.game.binding.core import attach_keyword
     from mtg_analyzer.parser.oracle.spec import AbilitySpec
 
     obj = GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)
@@ -210,7 +210,7 @@ def test_parametric_keyword_is_docked_with_its_parameter():
 
 def test_landwalk_keyword_binds_to_combat_recognizable_slug():
     from mtg_analyzer.game import combat
-    from mtg_analyzer.game.effect_binder import attach_keyword
+    from mtg_analyzer.game.binding.core import attach_keyword
     from mtg_analyzer.parser.oracle.spec import AbilitySpec
 
     obj = GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)

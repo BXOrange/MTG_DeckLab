@@ -82,7 +82,7 @@ def test_skip_next_untap_end_to_end():
     src = GameObject(Card(id="FR", name="Frost", type_line="Instant", is_instant=True),
                      owner_id="p2", zone=Zone.STACK)
     src.controller_id = "p2"
-    from mtg_analyzer.game.effect_binder import build_effects
+    from mtg_analyzer.game.binding.core import build_effects
     eff = build_effects([EffectSpec("skip_next_untap", {"target_kind": "creature"})], src)[0]
     eff.apply(eng.rules.context, [bear])
     assert bear.skip_next_untap is True

@@ -21,7 +21,7 @@ from mtg_analyzer.models.events import EventType
 from mtg_analyzer.models.game_object import GameObject
 from mtg_analyzer.models.game_state import GameState, Zone
 from mtg_analyzer.models.player import Player
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.game_session import (

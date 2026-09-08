@@ -16,14 +16,14 @@ ordinary spells:
    `PutFromHandOntoBattlefieldEffect` (Dr. Eggman, plus Elvish Piper /
    Quicksilver Amulet / Growth Spiral / Sakura-Tribe Scout …).
 
-Reference: game/effects.py (`SacrificeEffect.target_kind`,
+Reference: game/effects/core.py (`SacrificeEffect.target_kind`,
 `FreeCastFromHandEffect.noncreature_only`), parser/oracle/catalogue/
 handlers.py (`_target_player_edict`, `_free_cast_from_hand`, `_put_from_hand`).
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -164,7 +164,7 @@ def test_uncapped_free_cast_offers_every_nonland_hand_card():
     src.controller_id = "p1"
     st.add_to_battlefield(src)
     eff = EffectSpec("free_cast_from_hand", {})
-    from mtg_analyzer.game.effect_binder import build_effects
+    from mtg_analyzer.game.binding.core import build_effects
 
     build_effects([eff], src)[0].apply(eng.rules.context, None)
     assert st.pending_choice["kind"] == "choose_objects"
@@ -189,7 +189,7 @@ def test_put_type_from_hand_only_offers_matching_cards():
                      owner_id="p1", zone=Zone.BATTLEFIELD)
     src.controller_id = "p1"
     st.add_to_battlefield(src)
-    from mtg_analyzer.game.effect_binder import build_effects
+    from mtg_analyzer.game.binding.core import build_effects
 
     build_effects(
         [EffectSpec("put_from_hand_onto_battlefield", {"criteria": {"type": "artifact"}, "count": 1})],

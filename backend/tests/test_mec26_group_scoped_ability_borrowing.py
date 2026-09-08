@@ -29,7 +29,7 @@ of any color to activate those abilities", which turned out to need no
 third param either: MEC-23's `self_only` already covers it, since neither
 card prints any *other* activated ability of its own.
 
-Reference: mtg_analyzer/game/effects.py (`ChoosePermanentEffect`,
+Reference: mtg_analyzer/game/effects/core.py (`ChoosePermanentEffect`,
 `grant_borrowed_activated_ability`'s ``source_mode``/``exclude_loyalty``),
 mtg_analyzer/game/continuous.py (`_apply_borrowed_activated_abilities`,
 `group_selector_objects`'s ``"chosen_permanent"``),
@@ -41,7 +41,7 @@ Linvala, Scheming Fence), RULE 113.7c/605.1a/606.5c/613.7f.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

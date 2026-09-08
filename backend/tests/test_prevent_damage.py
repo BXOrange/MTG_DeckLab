@@ -18,8 +18,8 @@ tests for both real cards via `bind_from_catalogue`.
 from __future__ import annotations
 
 from mtg_analyzer.game.costs import parse_activation_cost
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import (
     GameContext,
     GainLifeEffect,
     PreventAllCombatDamageEffect,
@@ -155,7 +155,7 @@ def test_unused_capped_shield_expires_at_cleanup_even_with_remaining_balance():
 
 
 def test_cleanup_does_not_sweep_other_player_effects():
-    from mtg_analyzer.game.effects import ReplacementEffect
+    from mtg_analyzer.game.effects.core import ReplacementEffect
     from mtg_analyzer.models.events import EventType
 
     eng = GameEngine.new_game(

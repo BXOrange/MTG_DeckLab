@@ -14,7 +14,7 @@ alongside it (`mana_abilities.mana_abilities_for`'s replace-matching, via
 `_cost_shape` — cost-dataclass equality with ``raw`` blanked, so "Sacrifice
 this token" and "Sacrifice this artifact" still count as the same shape).
 
-Reference: mtg_analyzer/game/effects.py (`grant_mana_ability`),
+Reference: mtg_analyzer/game/effects/core.py (`grant_mana_ability`),
 mtg_analyzer/game/continuous.py (`_apply_layer_6_ability`),
 mtg_analyzer/game/mana_abilities.py (`mana_abilities_for`, `_cost_shape`),
 mtg_analyzer/game/ability_catalogue.py (Goldspan Dragon), RULE 605.1a/613.7f.
@@ -22,7 +22,7 @@ mtg_analyzer/game/ability_catalogue.py (Goldspan Dragon), RULE 605.1a/613.7f.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.mana_abilities import mana_abilities_for
 from mtg_analyzer.models.card import Card

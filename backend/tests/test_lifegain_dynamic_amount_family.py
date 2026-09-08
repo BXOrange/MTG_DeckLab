@@ -25,14 +25,14 @@ case (a literal fixed amount) doesn't cover:
   Necropolis Regent) "it" means whichever group member fired it, so the
   clause must stay unclaimed rather than silently buff the wrong object.
 
-Reference: mtg_analyzer/game/effects.py, mtg_analyzer/game/continuous.py,
+Reference: mtg_analyzer/game/effects/core.py, mtg_analyzer/game/continuous.py,
 mtg_analyzer/parser/oracle/{segmenter,catalogue/{handlers,static_handlers}}.py.
 """
 
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent

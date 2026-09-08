@@ -86,7 +86,7 @@ def _setup(gy_cards):
     p1.mana_pool.add_many({"U": 3})
     for c in gy_cards:
         p1.graveyard.append(GameObject(c, owner_id="p1", zone=Zone.GRAVEYARD))
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
     lancer = p1.hand[0]
     bind_from_catalogue(lancer)
     return eng, p1, lancer

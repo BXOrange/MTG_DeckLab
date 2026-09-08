@@ -18,7 +18,7 @@ mtg_analyzer/models/game_state.py (`StackItem.stack_id`).
 """
 
 from mtg_analyzer.game import ability_catalogue, targeting
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.effects.core import (
     CantBeCounteredEffect,
     CounterAbilityEffect,
     DealDamageEffect,

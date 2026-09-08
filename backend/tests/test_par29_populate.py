@@ -13,13 +13,13 @@ effect's own ``count`` attribute, repeating the whole procedure that many
 times (sequenced via `GameState.deferred_effects` when 2+ repeats each open
 a real "which token?" choice).
 
-Reference: game/rules/copies_mixin.py (`populate`), game/effects.py
+Reference: game/rules/copies_mixin.py (`populate`), game/effects/core.py
 (`PopulateEffect`), parser/oracle/catalogue/handlers.py.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
@@ -169,7 +169,7 @@ def test_populate_effect_count_x_repeats_the_whole_procedure():
     # identical) — driven here the same "missing answer defaults to the
     # first offered token" way `test_populate_choice_defaults_to_first_
     # token_on_missing_answer` already establishes for a single populate.
-    from mtg_analyzer.game.effects import GameContext, PopulateEffect
+    from mtg_analyzer.game.effects.core import GameContext, PopulateEffect
 
     eng, state, p1 = _engine()
     eng.rules.create_token("p1", _soldier_token_card(), 1)
@@ -192,7 +192,7 @@ def test_populate_effect_count_x_sequences_real_choices_via_deferred_effects():
     # repeats has a real "which token?" decision. Looping both synchronously
     # would silently overwrite the first repeat's still-unanswered prompt
     # with the second's own populate.
-    from mtg_analyzer.game.effects import GameContext, PopulateEffect
+    from mtg_analyzer.game.effects.core import GameContext, PopulateEffect
 
     eng, state, p1 = _engine()
     eng.rules.create_token("p1", _soldier_token_card(), 1)

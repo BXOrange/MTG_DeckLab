@@ -40,8 +40,8 @@ many times**" (Phyrexian Incubator) and "incubate N **X times**"
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
-from mtg_analyzer.game.effects import GameContext
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
@@ -294,7 +294,7 @@ def test_excise_the_imperfect_incubates_for_the_victims_controller_and_mv():
                      owner_id="p1", zone=Zone.STACK)
     src.controller_id = "p1"
 
-    from mtg_analyzer.game.effects import _apply_effects_partitioned
+    from mtg_analyzer.game.effects.core import _apply_effects_partitioned
     effects = build_effects([
         EffectSpec("exile", {"target_kind": "nonland_permanent"}),
         EffectSpec("create_token", {
@@ -327,7 +327,7 @@ def test_sunfall_incubates_for_the_number_of_creatures_it_exiled():
                      owner_id="p1", zone=Zone.STACK)
     src.controller_id = "p1"
 
-    from mtg_analyzer.game.effects import _apply_effects_partitioned
+    from mtg_analyzer.game.effects.core import _apply_effects_partitioned
     effects = build_effects([
         EffectSpec("exile", {"selector": "all_creatures"}),
         EffectSpec("create_token", {
@@ -353,7 +353,7 @@ def test_objects_exiled_this_way_resets_between_resolutions():
                      owner_id="p1", zone=Zone.STACK)
     src.controller_id = "p1"
 
-    from mtg_analyzer.game.effects import _apply_effects_partitioned
+    from mtg_analyzer.game.effects.core import _apply_effects_partitioned
     for _ in range(2):
         c = GameObject(Card(id="ZZ", name="Z", type_line="Creature — Bear",
                             is_creature=True, power=1, toughness=1),

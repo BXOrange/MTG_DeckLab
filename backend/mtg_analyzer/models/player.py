@@ -113,7 +113,7 @@ class Player:
 
         #: Effects that live on the player rather than a permanent —
         #: e.g. "skip your next untap step", "you can't lose the game".
-        #: The rules engine reads these; see game/effects.py.
+        #: The rules engine reads these; see game/effects/core.py.
         self.player_effects: list[Any] = []
 
         #: Emblems this player owns and controls (RULE 114.2), created by

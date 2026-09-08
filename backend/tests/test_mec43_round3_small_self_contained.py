@@ -32,7 +32,7 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-43" entry.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.game_object import GameObject, Zone
 
 from tests.test_game_engine import creature, make_engine
@@ -117,7 +117,7 @@ def _board_stormdrake_and_target(eng):
 
 
 def _fire_stormdrake_etb(eng, stormdrake, target):
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     context = GameContext(eng.state, eng.rules)
     ability = stormdrake.triggered_abilities[0]

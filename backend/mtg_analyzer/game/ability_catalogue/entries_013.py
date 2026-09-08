@@ -36,12 +36,10 @@ def _allosaurus_shepherd() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("cant_be_countered", {})],
-            raw_text="This spell can't be countered.",
         ),
         AbilitySpec(
             "static",
             [EffectSpec("grant_cant_be_countered", {"scope": "color_spells_you_control", "color": "G"})],
-            raw_text="Green spells you control can't be countered.",
         ),
         AbilitySpec(
             "activated",
@@ -62,10 +60,6 @@ def _allosaurus_shepherd() -> list[AbilitySpec]:
                 )
             ],
             cost={"text": "{4}{G}{G}"},
-            raw_text="{4}{G}{G}: Until end of turn, each Elf creature you "
-                     "control has base power and toughness 5/5 and "
-                     "becomes a Dinosaur in addition to its other "
-                     "creature types.",
         ),
     ]
 
@@ -94,7 +88,6 @@ def _domri_anarch_of_bolas() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {"power": 1, "toughness": 0, "affects": "creatures_you_control"})],
-            raw_text="Creatures you control get +1/+0.",
         ),
         AbilitySpec(
             "activated",
@@ -107,15 +100,11 @@ def _domri_anarch_of_bolas() -> list[AbilitySpec]:
                 ),
             ],
             cost={"loyalty": 1},
-            raw_text="+1: Add {R} or {G}. Creature spells you cast this "
-                     "turn can't be countered.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("fight", {"fighter_kind": "creature_you_control", "other_kind": "creature_you_dont_control"})],
             cost={"loyalty": -2},
-            raw_text="−2: Target creature you control fights target "
-                     "creature you don't control.",
         ),
     ]
 
@@ -148,12 +137,10 @@ def _eladamri_korvecdal() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("top_library_permission", {"look": True})],
-            raw_text="You may look at the top card of your library any time.",
         ),
         AbilitySpec(
             "static",
             [EffectSpec("top_library_permission", {"cast_spells": True, "creature_only": True})],
-            raw_text="You may cast creature spells from the top of your library.",
         ),
         AbilitySpec(
             "activated",
@@ -167,11 +154,6 @@ def _eladamri_korvecdal() -> list[AbilitySpec]:
                 )
             ],
             cost={"text": "{G}, {T}, Tap two untapped creatures you control"},
-            raw_text="{G}, {T}, Tap two untapped creatures you control: "
-                     "Reveal a card from your hand or the top card of "
-                     "your library. If you reveal a creature card this "
-                     "way, put it onto the battlefield. Activate only "
-                     "during your turn.",
         ),
     ]
 
@@ -202,15 +184,10 @@ def _elesh_norn_mother_of_machines() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("trigger_doubler", {"cause_filter": [EventType.ENTERS_BATTLEFIELD]})],
-            raw_text="If a permanent entering causes a triggered ability "
-                     "of a permanent you control to trigger, that ability "
-                     "triggers an additional time.",
         ),
         AbilitySpec(
             "static",
             [EffectSpec("trigger_prohibition", {"event": EventType.ENTERS_BATTLEFIELD, "scope": "opponents"})],
-            raw_text="Permanents entering don't cause abilities of "
-                     "permanents your opponents control to trigger.",
         ),
     ]
 
@@ -241,15 +218,11 @@ def _flamescroll_celebrant() -> list[AbilitySpec]:
                 "event": EventType.ACTIVATED_ABILITY,
                 "condition": {"subject": "group", "controller": "not_you"},
             },
-            raw_text="Whenever an opponent activates an ability that "
-                     "isn't a mana ability, ~ deals 1 damage to that "
-                     "player.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("pump", {"power": 2, "toughness": 0})],
             cost={"text": "{1}{R}"},
-            raw_text="{1}{R}: ~ gets +2/+0 until end of turn.",
         ),
     ]
 
@@ -280,8 +253,6 @@ def _gandalf_the_white() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("flash_permission", {"type_filter": ["legendary", "artifact"]})],
-            raw_text="You may cast legendary spells and artifact spells "
-                     "as though they had flash.",
         ),
         AbilitySpec(
             "static",
@@ -294,10 +265,6 @@ def _gandalf_the_white() -> list[AbilitySpec]:
                     },
                 )
             ],
-            raw_text="If a legendary permanent or an artifact entering or "
-                     "leaving the battlefield causes a triggered ability "
-                     "of a permanent you control to trigger, that ability "
-                     "triggers an additional time.",
         ),
     ]
 
@@ -330,10 +297,6 @@ def _guardian_project() -> list[AbilitySpec]:
                 "event": EventType.ENTERS_BATTLEFIELD,
                 "condition": {"subject": "group", "controller": "you", "type": "creature"},
             },
-            raw_text="Whenever a nontoken creature you control enters, if "
-                     "it doesn't have the same name as another creature "
-                     "you control or a creature card in your graveyard, "
-                     "draw a card.",
         ),
     ]
 
@@ -376,10 +339,6 @@ def _guardian_sunmare() -> list[AbilitySpec]:
             trigger={
                 "event": EventType.ATTACKS, "condition": {"subject": "self"}, "requires_saddled": True,
             },
-            raw_text="Whenever ~ attacks while saddled, search your "
-                     "library for a nonland permanent card with mana "
-                     "value 3 or less, put it onto the battlefield, then "
-                     "shuffle.",
         ),
     ]
 
@@ -404,7 +363,6 @@ def _kutzil_malamet_exemplar() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("cast_prohibition", {"scope": "opponents", "active_if": {"kind": "your_turn"}})],
-            raw_text="Your opponents can't cast spells during your turn.",
         ),
         AbilitySpec(
             "triggered",
@@ -414,9 +372,6 @@ def _kutzil_malamet_exemplar() -> list[AbilitySpec]:
                 "condition": {"subject": "you"},
                 "contributor_power_gt_base": True,
             },
-            raw_text="Whenever one or more creatures you control each "
-                     "with power greater than its base power deals combat "
-                     "damage to a player, draw a card.",
         ),
     ]
 
@@ -441,9 +396,6 @@ def _moon_blessed_cleric() -> list[AbilitySpec]:
             [EffectSpec("search", {"criteria": {"type": "enchantment"}, "destination": "library_top"})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
             optional=True,
-            raw_text="Divine Intervention — When ~ enters, you may search "
-                     "your library for an enchantment card, reveal it, "
-                     "then shuffle and put that card on top.",
         ),
     ]
 
@@ -470,13 +422,10 @@ def _sigarda_font_of_blessings() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("top_library_permission", {"look": True})],
-            raw_text="You may look at the top card of your library any time.",
         ),
         AbilitySpec(
             "static",
             [EffectSpec("top_library_permission", {"cast_spells": True, "subtypes": ["Angel", "Human"]})],
-            raw_text="You may cast Angel spells and Human spells from "
-                     "the top of your library.",
         ),
     ]
 
@@ -498,7 +447,6 @@ def _squee_the_immortal() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("self_graveyard_or_exile_cast_permission", {})],
-            raw_text="You may cast this card from your graveyard or from exile.",
         ),
     ]
 
@@ -526,11 +474,6 @@ def _sylvan_library() -> list[AbilitySpec]:
                 "event": EventType.STEP_BEGIN, "filter": {"step": "draw"}, "phase_relation": "you",
             },
             optional=True,
-            raw_text="At the beginning of your draw step, you may draw "
-                     "two additional cards. If you do, choose two cards "
-                     "in your hand drawn this turn. For each of those "
-                     "cards, pay 4 life or put the card on top of your "
-                     "library.",
         ),
     ]
 
@@ -584,12 +527,6 @@ def _the_jolly_balloon_man() -> list[AbilitySpec]:
                 ),
             ],
             cost={"text": "{1}, {T}", "sorcery_speed_only": True},
-            raw_text="{1}, {T}: Create a token that's a copy of another "
-                     "target creature you control, except it's a 1/1 red "
-                     "Balloon creature in addition to its other colors "
-                     "and types and it has flying and haste. Sacrifice it "
-                     "at the beginning of the next end step. Activate "
-                     "only as a sorcery.",
         ),
     ]
 
@@ -622,15 +559,10 @@ def _yasharn_implacable_earth() -> list[AbilitySpec]:
                 EffectSpec("search", {"criteria": {"basic": True, "type": "Plains"}, "destination": "hand"}),
             ],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="When ~ enters, search your library for a basic "
-                     "Forest card and a basic Plains card, reveal those "
-                     "cards, put them into your hand, then shuffle.",
         ),
         AbilitySpec(
             "static",
             [EffectSpec("cost_restriction", {"kinds": ["pay_life", "sacrifice_nonland_permanent"]})],
-            raw_text="Players can't pay life or sacrifice nonland "
-                     "permanents to cast spells or activate abilities.",
         ),
     ]
 
@@ -660,10 +592,6 @@ def _ad_nauseam() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("reveal_top_hand_lose_life_loop", {})],
-            raw_text="Reveal the top card of your library and put that "
-                     "card into your hand. You lose life equal to its "
-                     "mana value. You may repeat this process any number "
-                     "of times.",
         ),
     ]
 
@@ -706,10 +634,6 @@ def _autumns_veil() -> list[AbilitySpec]:
                     "colors": ["U", "B"], "selector": "creatures_you_control",
                 }),
             ],
-            raw_text="Spells you control can't be countered by blue or "
-                     "black spells this turn, and creatures you control "
-                     "can't be the targets of blue or black spells this "
-                     "turn.",
         ),
     ]
 
@@ -746,11 +670,6 @@ def _bring_to_light() -> list[AbilitySpec]:
                 "destination": "exile_free_cast",
                 "zones": ["library"],
             })],
-            raw_text="Converge — Search your library for a creature, "
-                     "instant, or sorcery card with mana value less than "
-                     "or equal to the number of colors of mana spent to "
-                     "cast this spell, exile that card, then shuffle. You "
-                     "may cast that card without paying its mana cost.",
         ),
     ]
 
@@ -776,10 +695,6 @@ def _counterbalance() -> list[AbilitySpec]:
                 "event": "SPELL_CAST",
                 "condition": {"subject": "group", "controller": "not_you"},
             },
-            raw_text="Whenever an opponent casts a spell, you may reveal "
-                     "the top card of your library. If you do, counter "
-                     "that spell if it has the same mana value as the "
-                     "revealed card.",
         ),
     ]
 
@@ -820,11 +735,6 @@ def _lazotep_quarry() -> list[AbilitySpec]:
                 ],
             })],
             cost={"text": "{X}{2}, {T}, Sacrifice a Desert", "sorcery_speed_only": True},
-            raw_text="{X}{2}, {T}, Sacrifice a Desert: Exile target "
-                     "creature card with mana value X from your "
-                     "graveyard. Create a token that's a copy of it, "
-                     "except it's a 4/4 black Zombie. Activate only as a "
-                     "sorcery.",
         ),
     ]
 
@@ -856,17 +766,11 @@ def _nissa_steward_of_elements() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("scry", {"count": 2})],
             cost={"loyalty": 2},
-            raw_text="+2: Scry 2.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("reveal_top_then_maybe_battlefield_if_land_or_cheap_creature", {})],
             cost={"loyalty": 0},
-            raw_text="0: Look at the top card of your library. If it's a "
-                     "land card or a creature card with mana value less "
-                     "than or equal to the number of loyalty counters on "
-                     "Nissa, Steward of Elements, you may put that card "
-                     "onto the battlefield.",
         ),
         AbilitySpec(
             "activated",
@@ -887,9 +791,6 @@ def _nissa_steward_of_elements() -> list[AbilitySpec]:
                 }),
             ],
             cost={"loyalty": -6},
-            raw_text="−6: Untap up to two target lands you control. They "
-                     "become 5/5 Elemental creatures with flying and "
-                     "haste until end of turn. They're still lands.",
         ),
     ]
 
@@ -916,12 +817,10 @@ def _valley_floodcaller() -> list[AbilitySpec]:
     selector *name*, not any subtype narrowing layered on top of it.
     """
     return [
-        AbilitySpec("keyword", [], keyword={"name": "flash"}, raw_text="Flash"),
+        AbilitySpec("keyword", [], keyword={"name": "flash"}),
         AbilitySpec(
             "static",
             [EffectSpec("flash_permission", {"noncreature_only": True})],
-            raw_text="You may cast noncreature spells as though they had "
-                     "flash.",
         ),
         AbilitySpec(
             "triggered",
@@ -939,9 +838,6 @@ def _valley_floodcaller() -> list[AbilitySpec]:
                 "event": "SPELL_CAST", "condition": {"subject": "you"},
                 "spell_exclude_card_types": ["creature"],
             },
-            raw_text="Whenever you cast a noncreature spell, Birds, "
-                     "Frogs, Otters, and Rats you control get +1/+1 until "
-                     "end of turn. Untap them.",
         ),
     ]
 
@@ -973,11 +869,6 @@ def _gifts_ungiven() -> list[AbilitySpec]:
                 "chosen_count": 2, "chosen_destination": "graveyard",
                 "rest_destination": "hand",
             })],
-            raw_text="Search your library for up to four cards with "
-                     "different names and reveal them. Target opponent "
-                     "chooses two of those cards. Put the chosen cards "
-                     "into your graveyard and the rest into your hand. "
-                     "Then shuffle.",
         ),
     ]
 
@@ -1042,10 +933,6 @@ def _ashling_the_limitless() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_evoke", {"cost": "{4}", "subtype": "elemental"})],
-            raw_text="Elemental permanent spells you cast from your hand "
-                     "gain evoke {4} as you cast them. (If you cast a "
-                     "spell for its evoke cost, it's sacrificed when it "
-                     "enters.)",
         ),
         AbilitySpec(
             "triggered",
@@ -1070,11 +957,6 @@ def _ashling_the_limitless() -> list[AbilitySpec]:
                 "sacrifice_type": "elemental",
                 "filter": {"is_token": False},
             },
-            raw_text="Whenever you sacrifice a nontoken Elemental, create "
-                     "a token that's a copy of it. The token gains haste "
-                     "until end of turn. At the beginning of your next "
-                     "end step, sacrifice it unless you pay "
-                     "{W}{U}{B}{R}{G}.",
         ),
     ]
 
@@ -1120,7 +1002,6 @@ def _derevi_empyrial_tactician() -> list[AbilitySpec]:
                 "target_kind": "permanent", "optional": True, "choose_tap_or_untap": True,
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="When ~ enters, you may tap or untap target permanent.",
         ),
         AbilitySpec(
             "triggered",
@@ -1132,8 +1013,6 @@ def _derevi_empyrial_tactician() -> list[AbilitySpec]:
                 "condition": {"subject": "group", "type": "creature", "controller": "you", "other": False},
                 "filter": {"combat": True, "is_player": True},
             },
-            raw_text="Whenever a creature you control deals combat damage "
-                     "to a player, you may tap or untap target permanent.",
         ),
     ]
 
@@ -1170,17 +1049,11 @@ def _dauthi_voidwalker() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("void_counter_redirect", {})],
-            raw_text="If a card would be put into an opponent's graveyard "
-                     "from anywhere, instead exile it with a void counter "
-                     "on it.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("choose_void_counter_card", {})],
             cost={"text": "{T}, Sacrifice this creature"},
-            raw_text="{t}, sacrifice ~: choose an exiled card an opponent "
-                     "owns with a void counter on it. you may play it "
-                     "this turn without paying its mana cost.",
         ),
     ]
 
@@ -1208,8 +1081,6 @@ def _mana_crypt() -> list[AbilitySpec]:
                 "lose_effects": [{"type": "damage", "params": {"selector": "controller", "amount": 3}}],
             })],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
-            raw_text="At the beginning of your upkeep, flip a coin. If "
-                     "you lose the flip, ~ deals 3 damage to you.",
         ),
     ]
 
@@ -1245,17 +1116,12 @@ def _march_of_swirling_mist() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("exile_discount_cost", {"color": "U", "generic_per_card": 2})],
-            raw_text="As an additional cost to cast this spell, you may "
-                     "exile any number of blue cards from your hand. "
-                     "This spell costs {2} less to cast for each card "
-                     "exiled this way.",
         ),
         AbilitySpec(
             "spell_effect",
             [EffectSpec("phase_out", {
                 "target_kind": "creature", "optional": True, "count_selector": "source_x_paid",
             })],
-            raw_text="Up to X target creatures phase out.",
         ),
     ]
 
@@ -1289,8 +1155,6 @@ def _orcish_bowmasters() -> list[AbilitySpec]:
                 EffectSpec("amass", {"subtype": "Orc", "count": 1}),
             ],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="When ~ enters, ~ deals 1 damage to any target. "
-                     "Then amass Orcs 1.",
         ),
         AbilitySpec(
             "triggered",
@@ -1303,9 +1167,6 @@ def _orcish_bowmasters() -> list[AbilitySpec]:
                 "condition": {"subject": "group", "controller": "not_you"},
                 "filter": {"first_in_draw_step": False},
             },
-            raw_text="Whenever an opponent draws a card except the first "
-                     "one they draw in each of their draw steps, ~ deals "
-                     "1 damage to any target. Then amass Orcs 1.",
         ),
     ]
 
@@ -1344,9 +1205,6 @@ def _praetors_grasp() -> list[AbilitySpec]:
                 "criteria": "", "destination": "exile_face_down_standing_cast",
                 "player_from_target": True,
             })],
-            raw_text="Search target opponent's library for a card and "
-                     "exile it face down. Then that player shuffles. You "
-                     "may play that card for as long as it remains exiled.",
         ),
     ]
 
@@ -1394,11 +1252,6 @@ def _sevinnes_reclamation() -> list[AbilitySpec]:
                 }),
                 EffectSpec("copy_self_if_cast_from_graveyard", {}),
             ],
-            raw_text="Return target permanent card with mana value 3 or "
-                     "less from your graveyard to the battlefield. If "
-                     "this spell was cast from a graveyard, you may copy "
-                     "this spell and may choose a new target for the "
-                     "copy.",
         ),
     ]
 
@@ -1432,8 +1285,6 @@ def _teferi_time_raveler() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("sorcery_speed_only", {})],
-            raw_text="Each opponent can cast spells only any time they "
-                     "could cast a sorcery.",
         ),
         AbilitySpec(
             "activated",
@@ -1443,15 +1294,11 @@ def _teferi_time_raveler() -> list[AbilitySpec]:
                 "target_kind": None,
             })],
             cost={"loyalty": 1},
-            raw_text="+1: Until your next turn, you may cast sorcery "
-                     "spells as though they had flash.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("return_to_hand", {"target_kind": "permanent", "optional": True}), EffectSpec("draw", {"count": 1})],
             cost={"loyalty": -3},
-            raw_text="−3: return up to 1 target artifact, creature, or "
-                     "enchantment to its owner's hand. draw a card.",
         ),
     ]
 
@@ -1489,15 +1336,11 @@ def _touch_the_spirit_realm() -> list[AbilitySpec]:
                 "target_kind": "artifact_or_creature", "optional": True, "remember": True,
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="When ~ enters, exile up to one target artifact or "
-                     "creature until ~ leaves the battlefield.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("return_linked_exile", {})],
             trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="When ~ leaves the battlefield, return the exiled "
-                     "card.",
         ),
         AbilitySpec(
             "activated",
@@ -1512,10 +1355,6 @@ def _touch_the_spirit_realm() -> list[AbilitySpec]:
                 }),
             ],
             cost={"text": "{1}{W}, Discard this card"},
-            raw_text="Channel — {1}{w}, discard this card: exile target "
-                     "artifact or creature. return it to the battlefield "
-                     "under its owner's control at the beginning of the "
-                     "next end step.",
         ),
     ]
 
@@ -1549,10 +1388,6 @@ def _tymna_the_weaver() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("pay_life_equal_to_opponents_combat_damaged_draw_that_many", {})],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "main2"}, "phase_relation": "you"},
-            raw_text="At the beginning of each of your postcombat main "
-                     "phases, you may pay X life, where X is the number "
-                     "of opponents that were dealt combat damage this "
-                     "turn. If you do, draw X cards.",
         ),
     ]
 

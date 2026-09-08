@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
-from mtg_analyzer.game.effect_binder import bind_ability
+from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -33,8 +33,8 @@ def test_registered_and_binds(name):
 
 
 def test_tanazir_attack_grant_matches_base_pt_to_source():
-    from mtg_analyzer.game.effect_binder import build_effects
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.binding.core import build_effects
+    from mtg_analyzer.game.effects.core import GameContext
     eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
                               starting_hand=0, starting_life=20)
     p1 = eng.state.active_player

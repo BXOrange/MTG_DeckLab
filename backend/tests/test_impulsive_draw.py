@@ -4,14 +4,14 @@ your next turn" (RULE 601.3b analogue, Light Up the Stage-shaped
 choice-and-route shape) since every card exiled here becomes playable,
 unfiltered, with no routing.
 
-Engine side: `game/effects.py`'s `ImpulsiveDrawEffect` +
+Engine side: `game/effects/core.py`'s `ImpulsiveDrawEffect` +
 `RulesEngine.exile_with_play_permission`, `GameState.temp_play_permissions`,
 `GameEngine.can_cast`/`can_play_land`/`_step_cleanup` (`game/game_engine.py`).
 """
 
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effects import ImpulsiveDrawEffect
+from mtg_analyzer.game.effects.core import ImpulsiveDrawEffect
 from mtg_analyzer.game.game_engine import GameEngine
 
 

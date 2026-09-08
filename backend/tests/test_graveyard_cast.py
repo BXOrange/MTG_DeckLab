@@ -7,8 +7,8 @@ related "cast from the top of your library" permission.
 """
 
 from mtg_analyzer.game import ability_catalogue
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import GraveyardCastPermissionEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import GraveyardCastPermissionEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.graveyard_cast import (
     active_graveyard_cast_grants,

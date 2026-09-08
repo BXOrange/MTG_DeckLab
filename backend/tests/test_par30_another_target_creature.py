@@ -23,7 +23,7 @@ same RULE 115 simplification this file's own N-way rows already accept.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import TargetSpec, legal_targets
 from mtg_analyzer.models.card import Card

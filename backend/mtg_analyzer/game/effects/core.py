@@ -29,18 +29,18 @@ import random
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
-from ..models import card_query
-from ..models.events import EventType, GameEvent
-from ..models.game_object import Zone
-from ..models.mana_cost import ManaCost
-from .targeting import TargetSpec, all_requirements_satisfiable, requirements_with_targets
+from ...models import card_query
+from ...models.events import EventType, GameEvent
+from ...models.game_object import Zone
+from ...models.mana_cost import ManaCost
+from ..targeting import TargetSpec, all_requirements_satisfiable, requirements_with_targets
 
 if TYPE_CHECKING:  # avoid an import cycle with rules_engine at runtime
-    from ..models.game_object import GameObject
-    from ..models.game_state import GameState, StackItem
-    from ..models.player import Player
-    from .costs import ActivationCost
-    from .rules_engine import RulesEngine
+    from ...models.game_object import GameObject
+    from ...models.game_state import GameState, StackItem
+    from ...models.player import Player
+    from ..costs import ActivationCost
+    from ..rules_engine import RulesEngine
 
 
 class GameContext:
@@ -223,7 +223,7 @@ class GameContext:
         self.engine.regenerate(target)
 
     def exile(self, target: "GameObject") -> None:
-        from ..models.game_object import Zone
+        from ...models.game_object import Zone
 
         was_elsewhere = getattr(target, "zone", None) != Zone.EXILE
         self.engine.exile(target)
@@ -1537,7 +1537,7 @@ class ActivatedAbility(GameEffect):
         self.effects = effects
         if cost is None:
             # Back-compat: build a cost from the old mana/tap parameters.
-            from .costs import ActivationCost
+            from ..costs import ActivationCost
 
             cost = ActivationCost(mana=mana_cost or ManaCost(), taps_self=taps_source)
         self.cost = cost
@@ -2067,7 +2067,7 @@ class TopLibraryPermissionEffect(GameEffect):
     Augur/Future Sight-shaped) — RULE 701 has no native "play from the top"
     provision, so each real card grants it as its own static ability.
 
-    Bound like any other ``static`` ability (`game/effect_binder.py`'s
+    Bound like any other ``static`` ability (`game/binding/core.py`'s
     ordinary dispatch), so it lands in ``obj.static_effects`` alongside
     `StaticAbility` — but it carries no layer/characteristic behaviour of its
     own: `continuous.recompute` only ever reads `StaticAbility` instances off
@@ -2334,7 +2334,7 @@ class GrantSelfActivatedAbilityEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from .binding.core import build_effects  # function-scoped: effects↔binder cycle
         from ..parser.oracle.spec import EffectSpec
 
         granted = build_effects(
@@ -2415,7 +2415,7 @@ class ConditionalEffect(GameEffect):
     so this effect transparently sees the target chosen for whichever
     *other* effect in the same ability actually declared it.
 
-    Built only by `game/effect_binder.py`'s `build_effects`, never directly
+    Built only by `game/binding/core.py`'s `build_effects`, never directly
     by `EffectRegistry` (``condition`` lives on the `EffectSpec`, not inside
     ``params``, so there's no ``"conditional"`` registry entry to construct
     one from card-text-derived data — keeps the whitelist's shape/behaviour
@@ -3104,7 +3104,7 @@ class CoinFlipEffect(GameEffect):
         self.lose_specs = list(lose_effects or [])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from .binding.core import build_effects  # function-scoped: effects↔binder cycle
         from ..parser.oracle.spec import EffectSpec
 
         specs = self.win_specs if context.engine.coin_flip() else self.lose_specs
@@ -3187,7 +3187,7 @@ class RepeatProcessEffect(GameEffect):
         self.repeat_while = repeat_while
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from .binding.core import build_effects  # function-scoped: effects↔binder cycle
         from ..parser.oracle.spec import EffectSpec
 
         if not self.inner_specs:
@@ -6927,7 +6927,7 @@ class SacrificeUnlessPayEffect(GameEffect):
         self.target = target
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
+        from ..costs import parse_activation_cost  # function-scoped: costs↔effects cycle
 
         subject = self.target or self.source
         if subject is None:
@@ -6972,7 +6972,7 @@ class DestroyUnlessPayEffect(GameEffect):
         self.target = target
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
+        from ..costs import parse_activation_cost  # function-scoped: costs↔effects cycle
 
         subject = self.target or self.source
         if subject is None:
@@ -7020,7 +7020,7 @@ class TaxedDrawEffect(GameEffect):
         self.count = count
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
+        from ..costs import parse_activation_cost  # function-scoped: costs↔effects cycle
 
         source = self.source
         if source is None:
@@ -7099,7 +7099,7 @@ class EachPlayerPayOrEffect(GameEffect):
         self.effect_targets = effect_targets
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
+        from ..costs import parse_activation_cost  # function-scoped: costs↔effects cycle
 
         cost = parse_activation_cost(self.cost_text)
         if self.sacrifice_or_discard:
@@ -7716,7 +7716,7 @@ class CounterUnlessPayEffect(GameEffect):
         self.cost_text = cost
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .costs import parse_activation_cost  # function-scoped: import cycle
+        from ..costs import parse_activation_cost  # function-scoped: import cycle
 
         event = context.trigger_event
         if event is None:
@@ -7743,7 +7743,7 @@ class CantBeCounteredEffect(GameEffect):
     Bound like any other one-shot effect — via `spell_effect` on an instant/
     sorcery's own body, or `static` on a permanent's standing line — and so
     lands in ``obj.spell_effects``/``obj.static_effects`` respectively
-    (`game/effect_binder.py`'s ordinary dispatch, no special-casing needed).
+    (`game/binding/core.py`'s ordinary dispatch, no special-casing needed).
     It carries no continuous behaviour: `continuous.recompute` only ever
     reads `StaticAbility` instances off `static_effects` (this isn't one), and
     a spell's own resolution just calls `apply()` like every other effect in
@@ -8321,7 +8321,7 @@ class ExileEffect(GameEffect):
                     self.owner_play_permission_cost
                 )
             if self.owner_play_permission_tax:
-                from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+                from .binding.core import build_effects  # function-scoped: effects↔binder cycle
                 from ..parser.oracle.spec import EffectSpec
 
                 exiler_id = getattr(self.source, "controller_id", None)
@@ -10780,7 +10780,7 @@ class ReturnTopGraveyardCreatureWithHasteEffect(GameEffect):
         self.delayed_exile_step = delayed_exile_step
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..models.game_state import DelayedTrigger  # local: models↔effects cycle
+        from ...models.game_state import DelayedTrigger  # local: models↔effects cycle
 
         player = _controller_of(self.source, context)
         if player is None:
@@ -12845,9 +12845,9 @@ class CreateDelayedTriggerEffect(GameEffect):
         ) or None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from .binding.core import build_effects  # function-scoped: effects↔binder cycle
         from ..parser.oracle.spec import EffectSpec
-        from ..models.game_state import DelayedTrigger
+        from ...models.game_state import DelayedTrigger
 
         inner = build_effects(
             [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in self.inner_specs],
@@ -13004,9 +13004,9 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
         self.event_player_scope = event_player_scope
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from .binding.core import build_effects  # function-scoped: effects↔binder cycle
         from ..parser.oracle.spec import EffectSpec
-        from ..models.game_state import TemporaryPlayerTrigger
+        from ...models.game_state import TemporaryPlayerTrigger
 
         host = self.source
         attached_to = getattr(host, "attached_to", None)
@@ -13126,8 +13126,8 @@ class PayCostThenPreviousMvEffect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..models.mana_cost import ManaCost  # function-scoped: import cycle
-        from .costs import ActivationCost  # function-scoped: import cycle
+        from ...models.mana_cost import ManaCost  # function-scoped: import cycle
+        from ..costs import ActivationCost  # function-scoped: import cycle
 
         prev = [
             o for o in context.previous_targets
@@ -13278,7 +13278,7 @@ class PayCostThenEffect(GameEffect):
         self.remember_trigger_stack_id = remember_trigger_stack_id
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .costs import parse_activation_cost  # function-scoped: import cycle
+        from ..costs import parse_activation_cost  # function-scoped: import cycle
 
         if self.remember_trigger_subject and self.source is not None:
             event = context.trigger_event
@@ -13373,7 +13373,7 @@ class RequestAllPlayersDeclineOrEffect(GameEffect):
         self.inner_specs = list(effects or [])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .costs import parse_activation_cost  # function-scoped: import cycle
+        from ..costs import parse_activation_cost  # function-scoped: import cycle
 
         controller = _controller_of(self.source, context)
         if controller is None:
@@ -13505,7 +13505,7 @@ class ChooseObjectsEffect(GameEffect):
         self.player_selector = player_selector
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .rules_engine import _matches_permanent_type
+        from ..rules_engine import _matches_permanent_type
 
         if self.player_selector == "active_player":
             player = context.state.active_player
@@ -14357,13 +14357,13 @@ class BlightEffect(GameEffect):
         self.amount = max(1, int(amount))
         self.target_kind = target_kind
         if target_kind:
-            from .targeting import TargetSpec
+            from ..targeting import TargetSpec
 
             self.target_spec = TargetSpec(target_kind, count=1)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.target_kind:
-            from ..models.player import Player as _Player
+            from ...models.player import Player as _Player
 
             player = next(
                 (t for t in (targets or []) if isinstance(t, _Player)), None
@@ -14484,7 +14484,7 @@ class SacrificeSpecificEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.delay_step:
-            from ..models.game_state import DelayedTrigger
+            from ...models.game_state import DelayedTrigger
 
             controller_id = getattr(self.source, "controller_id", None) or (
                 context.active_player.id if context.active_player else ""
@@ -14697,7 +14697,7 @@ class CastExiledFaceDownEffect(GameEffect):
         self.require_bargained = require_bargained
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..models.game_state import DelayedTrigger
+        from ...models.game_state import DelayedTrigger
 
         source = self.source
         player = None
@@ -14815,7 +14815,7 @@ class MarchesaDelayedReturnEffect(GameEffect):
         self.dying_object = dying_object
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..models.game_state import DelayedTrigger
+        from ...models.game_state import DelayedTrigger
 
         controller_id = getattr(self.source, "controller_id", None) or context.active_player.id
         inner = ReturnFromGraveyardEffect(
@@ -14871,7 +14871,7 @@ class GiftOfImmortalityDiesEffect(GameEffect):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..models.game_state import DelayedTrigger
+        from ...models.game_state import DelayedTrigger
 
         iid = (context.trigger_event or {}).get("instance_id")
         creature = context.state.find_object(iid) if iid is not None else None
@@ -15028,7 +15028,7 @@ class CheatCreatureFromHandEffect(GameEffect):
         self.subtypes = tuple(str(subtype) for subtype in (subtypes or []) if subtype)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..models.game_state import DelayedTrigger
+        from ...models.game_state import DelayedTrigger
 
         player = _controller_of(self.source, context)
         if player is None:
@@ -15115,7 +15115,7 @@ class ControlPlayerEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..models.game_state import TurnControl
+        from ...models.game_state import TurnControl
 
         controller = _controller_of(self.source, context)
         target = targets[0] if targets else None
@@ -15735,7 +15735,7 @@ class BecomeAuraEffect(GameEffect):
     at resolution. Every attachment-family reader (`RulesEngine.
     _attachment_kind`/`_attachment_legal`/`_detach_attachments_from`)
     already reads that dict fresh off the live object each call rather than
-    a cached/load-time snapshot — the same dict `effect_binder.py` writes
+    a cached/load-time snapshot — the same dict `binding/core.py` writes
     exactly once, at bind time, for every ordinary Aura/Equipment/Fortify/
     Reconfigure card — so a plain runtime write here is picked up by every
     consumer for free; no threading needed, despite the field never having
@@ -16209,7 +16209,7 @@ class UnearthEffect(GameEffect):
         super().__init__(source)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..models.game_state import DelayedTrigger
+        from ...models.game_state import DelayedTrigger
 
         creature = self.source
         if creature is None or creature.zone != Zone.GRAVEYARD:
@@ -16933,7 +16933,7 @@ class PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from . import continuous  # function-scoped: avoid the continuous<->effects import cycle
-        from .costs import ActivationCost  # function-scoped: costs<->effects import cycle
+        from ..costs import ActivationCost  # function-scoped: costs<->effects import cycle
 
         player = _controller_of(self.source, context)
         if player is None:
@@ -19336,7 +19336,7 @@ class CreateTokenEffect(GameEffect):
                     for token in made:
                         context.add_counters(token, amount, kind, source=self.source)
             if self.grant_self_anthem:
-                from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+                from .binding.core import build_effects  # function-scoped: effects↔binder cycle
                 from ..parser.oracle.spec import EffectSpec
 
                 for token in made:
@@ -19350,7 +19350,7 @@ class CreateTokenEffect(GameEffect):
                 # life." — a `dies` (subject self) → `gain_life` trigger,
                 # bound onto each token exactly as a printed ability would
                 # be at bind-on-load.
-                from .effect_binder import bind_ability  # effects↔binder cycle
+                from .binding.core import bind_ability  # effects↔binder cycle
                 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 
                 for token in made:
@@ -19370,7 +19370,7 @@ class CreateTokenEffect(GameEffect):
                 # synthesize its RULE 702-text triggered ability, the same
                 # `attach_keyword` + `_keyword_triggered_abilities` pair a
                 # printed keyword line goes through at bind-on-load.
-                from .effect_binder import parametric_keyword_triggered_abilities  # effects↔binder cycle
+                from .binding.core import parametric_keyword_triggered_abilities  # effects↔binder cycle
 
                 for pk in self.parametric_keywords:
                     name, n = str(pk.get("name") or ""), pk.get("n")
@@ -20515,7 +20515,7 @@ class GraveyardImpulsiveCastEffect(GameEffect):
         self.mana_wildcard = mana_wildcard
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ..models.game_state import DelayedTrigger  # avoid effects↔game_state cycle
+        from ...models.game_state import DelayedTrigger  # avoid effects↔game_state cycle
 
         controller_id = getattr(self.source, "controller_id", None) or context.active_player.id
         controller = context.state.player_by_id(controller_id)
@@ -21178,7 +21178,7 @@ class ExchangeControlThenEnergySacrificeEffect(GameEffect):
         theirs.summoning_sick = True
         context.recompute()
         context.add_player_counters(player, 4, "energy", source=mine)
-        from .costs import ActivationCost  # function-scoped: costs↔effects cycle
+        from ..costs import ActivationCost  # function-scoped: costs↔effects cycle
         mv = theirs.card.converted_mana_cost or 0
         context.engine.request_sacrifice_unless_pay(player, ActivationCost(pay_energy=mv), theirs)
 
@@ -22292,7 +22292,7 @@ def _scale_cumulative_upkeep_cost(cost: "ActivationCost", n: int) -> "Activation
     """
     from dataclasses import replace
 
-    from ..models.mana_cost import ManaCost
+    from ...models.mana_cost import ManaCost
 
     scaled_mana = ManaCost(list(cost.mana.symbols) * n, raw=cost.mana.raw)
     return replace(cost, mana=scaled_mana, pay_life=cost.pay_life * n)
@@ -22319,7 +22319,7 @@ class CumulativeUpkeepEffect(GameEffect):
         self.cost_text = str(cost or "")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
+        from ..costs import parse_activation_cost  # function-scoped: costs↔effects cycle
 
         obj = self.source
         if obj is None or obj not in context.state.permanents():
@@ -23043,7 +23043,7 @@ class DiscardOrLoseLifeEffect(GameEffect):
         }
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from .costs import ActivationCost
+        from ..costs import ActivationCost
 
         controller_id = getattr(self.source, "controller_id", None)
         opponents = [

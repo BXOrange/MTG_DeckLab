@@ -28,8 +28,8 @@ mtg_analyzer/game/{effects,rules/casting_mixin}.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
-from mtg_analyzer.game.effects import ConditionalEffect, DealDamageEffect, GameContext
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.effects.core import ConditionalEffect, DealDamageEffect, GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.models.card import Card
@@ -134,7 +134,7 @@ def test_validate_rejects_zero_kicked_at_least():
 
 
 # ---------------------------------------------------------------------------
-# game/effects.py: ConditionalEffect's kicked_at_least gate
+# game/effects/core.py: ConditionalEffect's kicked_at_least gate
 # ---------------------------------------------------------------------------
 
 

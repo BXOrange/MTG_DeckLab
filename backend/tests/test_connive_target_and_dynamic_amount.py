@@ -14,7 +14,7 @@ nonland card among those N discards.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effects import ConniveEffect, GameContext
+from mtg_analyzer.game.effects.core import ConniveEffect, GameContext
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

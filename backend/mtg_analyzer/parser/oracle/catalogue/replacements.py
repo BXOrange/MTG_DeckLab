@@ -1,7 +1,7 @@
 """Replacement-clause recognition (RULE 614/616) — a permanent's standing
 
 "if X would Y, Z instead" sentence, docs/09's Phase 1 "static-shaped"
-family. The binder side (`game/effects.py`'s `ReplacementRegistry`) has
+family. The binder side (`game/effects/core.py`'s `ReplacementRegistry`) has
 long supported `prevent_damage`/`double_damage`/`additional_damage`/
 `double_counters`/`double_tokens`; this module supplies the *recognition*
 half for all five — the ones with a single, fixed real-card

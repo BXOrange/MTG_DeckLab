@@ -1,5 +1,5 @@
 """Execute-level completion tests for the Regrowth/Reanimate/Deathrite-
-adjacent targeted graveyard-recursion family (`game/effects.py`'s
+adjacent targeted graveyard-recursion family (`game/effects/core.py`'s
 `ReturnFromGraveyardEffect`, RULE 701.3) — real cache cards spanning the
 family's main axes, to confirm each one actually *completes* (moves the
 right card to the right zone, with the right side effects), not just that
@@ -46,7 +46,7 @@ verification, not new modeling):
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

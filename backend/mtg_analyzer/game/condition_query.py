@@ -3,7 +3,7 @@ permission — RULE 702.8b's "you may cast this spell as though it had flash
 if <condition>" and RULE 606.3's "you may activate this permanent's loyalty
 abilities any time you could cast an instant if <condition>" (The Wandering
 Emperor-shaped). Bound onto ``obj.conditional_flash`` by
-`game/effect_binder.py`'s `attach_to_object` from `AbilitySpec.
+`game/binding/core.py`'s `attach_to_object` from `AbilitySpec.
 conditional_flash` (`parser/oracle/spec.py`'s ``ALLOWED_CAST_CONDITION_KEYS``
 whitelist — a deliberately separate one from `EffectSpec.condition`'s, which
 gates whether an already-resolving *effect* applies rather than a cast/

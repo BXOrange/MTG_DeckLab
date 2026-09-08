@@ -44,8 +44,6 @@ def _incubator_token() -> list[AbilitySpec]:
                 },
             })],
             cost={"text": "{2}"},
-            raw_text="{2}: Transformiere diesen Spielstein. Er transformiert sich in "
-                     "eine 0/0 farblose phyrexianische Artefaktkreatur.",
         ),
     ]
 
@@ -88,9 +86,6 @@ def _malakir_rebirth() -> list[AbilitySpec]:
                     },
                 }),
             ],
-            raw_text="Wähle eine Zielkreatur. Du verlierst 2 Leben. Bis zum Ende des "
-                     "Zuges erhält jene Kreatur \"Wenn diese Kreatur stirbt, bringe sie "
-                     "getappt unter der Kontrolle ihres Besitzers ins Spiel zurück.\"",
         ),
     ]
 
@@ -132,8 +127,6 @@ def _restless_cottage() -> list[AbilitySpec]:
                 },
             })],
             cost={"text": "{2}{B}{G}"},
-            raw_text="{2}{B}{G}: Dieses Land wird bis zum Ende des Zuges zu einer 4/4 "
-                     "schwarzen und grünen Horror-Kreatur. Es ist weiterhin ein Land.",
         ),
         AbilitySpec(
             "triggered",
@@ -142,8 +135,6 @@ def _restless_cottage() -> list[AbilitySpec]:
                 EffectSpec("exile", {"target_kind": "any_graveyard_card", "optional": True}),
             ],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
-            raw_text="Wenn dieses Land angreift, erzeuge einen Nahrungsspielstein und "
-                     "exiliere bis zu eine Zielkarte aus einem Friedhof.",
         ),
     ]
 
@@ -169,8 +160,6 @@ def _revitalizing_repast() -> list[AbilitySpec]:
                     "static": {"type": "grant_keyword", "params": {"keywords": ["indestructible"]}},
                 }),
             ],
-            raw_text="Lege eine +1/+1-Marke auf eine Zielkreatur. Sie erhält "
-                     "Unzerstörbarkeit bis zum Ende des Zuges.",
         ),
     ]
 
@@ -214,8 +203,6 @@ def _champion_of_the_weird() -> list[AbilitySpec]:
             "spell_effect",
             [],
             additional_cost={"behold_exile": "Goblin"},
-            raw_text="Als zusätzliche Kosten für das Wirken dieses Zauberspruchs: "
-                     "beäuge einen Goblin und schicke ihn ins Exil.",
         ),
         AbilitySpec(
             "activated",
@@ -224,15 +211,11 @@ def _champion_of_the_weird() -> list[AbilitySpec]:
                 "text": "Pay 1 life, Blight 2",
                 "pay_life": 1, "blight": 2, "sorcery_speed_only": True,
             },
-            raw_text="Zahle 1 Lebenspunkt, Verkümmern 2: Ein Zielgegner verkümmert 2. "
-                     "Aktiviere dies nur wie eine Hexerei.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("return_linked_exile", {"destination": "hand"})],
             trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur das Schlachtfeld verlässt, gib die ins Exil "
-                     "geschickte Karte auf die Hand ihres Besitzers zurück.",
         ),
     ]
 
@@ -283,8 +266,6 @@ def _tenth_district_hero() -> list[AbilitySpec]:
             })],
             cost={"text": "{1}{W}, Collect evidence 2",
                   "mana": "{1}{W}", "collect_evidence": 2},
-            raw_text="{1}{W}, Beweise sammeln 2: Diese Kreatur wird eine Mensch-Detektiv "
-                     "mit Grundstärke und Grundwiderstandskraft 4/4 und erhält Wachsamkeit.",
         ),
         AbilitySpec(
             "activated",
@@ -300,10 +281,6 @@ def _tenth_district_hero() -> list[AbilitySpec]:
             }, condition={"source_has_subtype": "Detective"})],
             cost={"text": "{2}{W}, Collect evidence 4",
                   "mana": "{2}{W}", "collect_evidence": 4},
-            raw_text="{2}{W}, Beweise sammeln 4: Falls diese Kreatur ein Detektiv ist, "
-                     "wird sie eine legendäre Kreatur, hat Grundstärke und "
-                     "Grundwiderstandskraft 5/5 und erhält „Andere Kreaturen, die du "
-                     "kontrollierst, sind unzerstörbar.“",
         ),
     ]
 
@@ -337,10 +314,6 @@ def _elven_passage() -> list[AbilitySpec]:
             ],
             cost={"text": "{T}, Pay 1 life, Sacrifice ~",
                   "taps_self": True, "pay_life": 1, "sacrifice": "self"},
-            raw_text="{T}, Zahle 1 Lebenspunkt, Opfere dieses Land: Suche in deiner "
-                     "Bibliothek nach einer Standardlandkarte, bringe sie getappt ins "
-                     "Spiel, mische danach. Du kannst einen Elf beäugen. Falls du dies "
-                     "tust, enttappe jenes Land.",
         ),
     ]
 
@@ -370,10 +343,6 @@ def _incinerator_of_the_guilty() -> list[AbilitySpec]:
                 "event": EventType.DAMAGE, "condition": {"subject": "self"},
                 "filter": {"combat": True, "is_player": True},
             },
-            raw_text="Immer wenn diese Kreatur einem Spieler Kampfschaden zufügt, "
-                     "kannst du Beweise sammeln X. Wenn du dies tust, fügt diese "
-                     "Kreatur jeder Kreatur und jedem Planeswalker, die jener Spieler "
-                     "kontrolliert, X Schadenspunkte zu.",
         ),
     ]
 
@@ -402,12 +371,6 @@ def _memory_vampire() -> list[AbilitySpec]:
                 "event": EventType.DAMAGE, "condition": {"subject": "self"},
                 "filter": {"combat": True, "is_player": True},
             },
-            raw_text="Immer wenn diese Kreatur einem Spieler Kampfschaden zufügt, "
-                     "legt eine beliebige Anzahl von Zielspielern jeweils so viele "
-                     "Karten von ihrer Bibliothek in ihren Friedhof. Dann kannst du "
-                     "Beweise sammeln 9. Wenn du dies tust, kannst du eine "
-                     "Nicht-Land-Zielkarte aus dem Friedhof des verteidigenden "
-                     "Spielers wirken, ohne ihre Manakosten zu bezahlen.",
         ),
     ]
 
@@ -433,8 +396,6 @@ def _conspiracy_unraveler() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("granted_alt_cast_cost", {"collect_evidence": 10})],
-            raw_text="Du kannst Beweise sammeln 10, anstatt die Manakosten für "
-                     "Zaubersprüche zu bezahlen, die du wirkst.",
         ),
     ]
 
@@ -463,18 +424,10 @@ def _celestial_reunion() -> list[AbilitySpec]:
             "spell_effect", [],
             additional_cost={"behold_two_shared_type": True},
             additional_cost_optional=True,
-            raw_text="Du kannst als zusätzliche Kosten für das Wirken dieses "
-                     "Zauberspruchs einen Kreaturentyp wählen und zwei Kreaturen "
-                     "dieses Typs beäugen.",
         ),
         AbilitySpec(
             "spell_effect",
             [EffectSpec("celestial_reunion_search", {})],
-            raw_text="Suche in deiner Bibliothek nach einer Kreaturenkarte mit "
-                     "Manawert X oder weniger, zeige sie offen, nimm sie auf deine "
-                     "Hand und mische danach. Falls die zusätzlichen Kosten dieses "
-                     "Zauberspruchs bezahlt wurden und die gezeigte Karte den "
-                     "gewählten Typ hat, bringe jene Karte stattdessen ins Spiel.",
         ),
     ]
 
@@ -503,8 +456,6 @@ def _flourishing_defenses() -> list[AbilitySpec]:
                 "filter": {"kind": "-1/-1", "recipient_is_creature": True},
             },
             optional=True,
-            raw_text="Immer wenn eine -1/-1-Marke auf eine Kreatur gelegt wird, kannst "
-                     "du einen 1/1 grünen Elfen-Krieger-Kreaturenspielstein erzeugen.",
         ),
     ]
 
@@ -531,17 +482,11 @@ def _formidable_speaker() -> list[AbilitySpec]:
                 "effects": [{"type": "search", "params": {"criteria": "Creature", "destination": "hand"}}],
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur ins Spiel kommt, kannst du eine Karte abwerfen. "
-                     "Falls du dies tust, durchsuche deine Bibliothek nach einer "
-                     "Kreaturenkarte, zeige sie, nimm sie auf deine Hand und mische "
-                     "danach deine Bibliothek.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("tap", {"untap": True, "target_kind": "permanent"})],
             cost={"text": "{1}, {T}"},
-            raw_text="{1}, {T}: Enttappe eine andere Zielkarte, die eine bleibende "
-                     "Karte ist.",
         ),
     ]
 
@@ -571,10 +516,6 @@ def _galadhrim_ambush() -> list[AbilitySpec]:
                 }),
                 EffectSpec("prevent_all_combat_damage", {"exclude_subtype": "elf"}),
             ],
-            raw_text="Erzeuge X 1/1 grüne Elfen-Krieger-Kreaturenspielsteine, wobei X "
-                     "die Anzahl der angreifenden Kreaturen ist. Verhindere jeglichen "
-                     "Kampfschaden, der diesen Zug von Nicht-Elfen-Kreaturen zugefügt "
-                     "werden würde.",
         ),
     ]
 
@@ -613,10 +554,6 @@ def _mirrormind_crown() -> list[AbilitySpec]:
                 "limit": True,
                 "requires_attached": True,
             },
-            raw_text="Solange diese Ausrüstung an eine Kreatur befestigt ist, erzeugst "
-                     "du das erste Mal, wenn du in diesem Zug einen oder mehr "
-                     "Spielsteine erzeugen würdest, zusätzlich ebenso viele Spielsteine, "
-                     "die Kopien der ausgerüsteten Kreatur sind.",
         ),
     ]
 
@@ -642,8 +579,6 @@ def _throne_of_the_god_pharaoh() -> list[AbilitySpec]:
                 "event": EventType.STEP_BEGIN, "filter": {"step": "end"},
                 "phase_relation": "you",
             },
-            raw_text="Zu Beginn deines Endsegments verliert jeder Gegner Leben in Höhe "
-                     "der Anzahl getappter Kreaturen, die du kontrollierst.",
         ),
     ]
 
@@ -676,9 +611,6 @@ def _trystan_callous_cultivator() -> list[AbilitySpec]:
                 EffectSpec("gain_life", {"amount": 2}, condition={"graveyard_has_type": "elf"}),
             ],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur ins Spiel kommt, mille drei Karten. Falls sich "
-                     "danach eine Elfenkarte in deinem Friedhof befindet, gewinnst du 2 "
-                     "Leben.",
         ),
         AbilitySpec(
             "triggered",
@@ -690,8 +622,6 @@ def _trystan_callous_cultivator() -> list[AbilitySpec]:
                 "event": EventType.STEP_BEGIN, "filter": {"step": "main1"},
                 "phase_relation": "you",
             },
-            raw_text="Zu Beginn deines ersten Hauptsegments kannst du {B} bezahlen. "
-                     "Falls du dies tust, transformiere Trystan.",
         ),
     ]
 
@@ -720,17 +650,11 @@ def _high_perfect_morcant() -> list[AbilitySpec]:
                 "event": EventType.ENTERS_BATTLEFIELD,
                 "condition": {"subject": "self_or_group", "subtypes": ["elf"], "controller": "you", "other": True},
             },
-            raw_text="Immer wenn High Perfect Morcant oder ein anderer Elf unter "
-                     "deiner Kontrolle ins Spiel kommt, verseucht jeder Gegner 1. "
-                     "(Sie legen jeweils eine -1/-1-Marke auf eine Kreatur, die sie "
-                     "kontrollieren.)",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("proliferate", {}), EffectSpec("sorcery_speed_marker", {})],
             cost={"text": "Tap three untapped Elves you control"},
-            raw_text="Tappe drei enttappte Elfen, die du kontrollierst: Proliferiere. "
-                     "Aktiviere nur wie einen Hauptzauberspruch.",
         ),
     ]
 
@@ -755,9 +679,6 @@ def _backdraft_hellkite() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("grant_graveyard_cast_permission_this_turn", {})],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur angreift, erhält jede Spontanzauber- und "
-                     "Hexereikarte in deinem Friedhof bis zum Ende des Zuges "
-                     "Wiederkehr. Die Wiederkehrkosten entsprechen ihren Manakosten.",
         ),
     ]
 
@@ -782,13 +703,10 @@ def _blasphemous_act() -> list[AbilitySpec]:
             [EffectSpec("cost_reduction", {
                 "affects": "self", "generic": 1, "per": "creatures_on_battlefield",
             })],
-            raw_text="Dieser Zauberspruch kostet {1} weniger, um ihn zu wirken, für "
-                     "jede Kreatur auf dem Spielfeld.",
         ),
         AbilitySpec(
             "spell_effect",
             [EffectSpec("damage", {"amount": 13, "selector": "each_creature"})],
-            raw_text="Blasphemous Act fügt jeder Kreatur 13 Schaden zu.",
         ),
     ]
 
@@ -813,7 +731,6 @@ def _chain_lightning() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("damage", {"amount": 3, "target_kind": "any"})],
-            raw_text="Chain Lightning fügt einem beliebigen Ziel 3 Schaden zu.",
         ),
     ]
 
@@ -838,7 +755,6 @@ def _fireblast() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("damage", {"amount": 4, "target_kind": "any"})],
-            raw_text="Fireblast fügt einem beliebigen Ziel 4 Schaden zu.",
         ),
     ]
 
@@ -863,9 +779,6 @@ def _frantic_firebolt() -> list[AbilitySpec]:
                 "amount_from_count_selector": "instant_sorcery_or_adventure_cards_in_your_graveyard",
                 "amount_plus_count_selector": 2,
             })],
-            raw_text="Frantic Firebolt fügt einer Zielkreatur X Schaden zu, wobei X 2 "
-                     "plus die Anzahl der Karten in deinem Friedhof ist, die "
-                     "Spontanzauberkarten, Hexereikarten und/oder Abenteuer sind.",
         ),
     ]
 
@@ -887,8 +800,6 @@ def _lava_coil() -> list[AbilitySpec]:
                 EffectSpec("damage", {"amount": 4, "target_kind": "creature"}),
                 EffectSpec("grant_die_to_exile_this_turn", {"target_kind": None}),
             ],
-            raw_text="Lava Coil fügt einer Zielkreatur 4 Schaden zu. Falls jene "
-                     "Kreatur in diesem Zug sterben würde, exiliere sie stattdessen.",
         ),
     ]
 
@@ -909,7 +820,6 @@ def _lithomantic_barrage() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("cant_be_countered", {})],
-            raw_text="Dieser Zauberspruch kann nicht gekontert werden.",
         ),
         AbilitySpec(
             "spell_effect",
@@ -917,9 +827,6 @@ def _lithomantic_barrage() -> list[AbilitySpec]:
                 "amount": 1, "target_kind": "creature_or_planeswalker",
                 "amount_if_target_color": {"amount": 5, "colors": ["W", "U"]},
             })],
-            raw_text="Lithomantic Barrage fügt einer Zielkreatur oder einem "
-                     "Zielplaneswalker 1 Schaden zu. Es fügt stattdessen 5 Schaden "
-                     "zu, falls das Ziel weiß und/oder blau ist.",
         ),
     ]
 
@@ -947,10 +854,6 @@ def _smite_the_deathless() -> list[AbilitySpec]:
                 }),
                 EffectSpec("grant_die_to_exile_this_turn", {}),
             ],
-            raw_text="Smite the Deathless fügt einer Zielkreatur 3 Schaden zu. Jene "
-                     "Kreatur verliert Unzerstörbarkeit bis zum Ende des Zuges. Falls "
-                     "jene Kreatur in diesem Zug sterben würde, exiliere sie "
-                     "stattdessen.",
         ),
     ]
 
@@ -974,10 +877,6 @@ def _stonesplitter_bolt() -> list[AbilitySpec]:
             [EffectSpec("damage", {
                 "amount": "x", "target_kind": "creature_or_planeswalker", "double_if_bargained": True,
             })],
-            raw_text="Stonesplitter Bolt fügt einer Zielkreatur oder einem "
-                     "Zielplaneswalker X Schaden zu. Falls dieser Zauberspruch "
-                     "erhandelt wurde, fügt er jener bleibenden Karte stattdessen "
-                     "zweimal X Schaden zu.",
         ),
     ]
 
@@ -1004,8 +903,6 @@ def _torch_breath() -> list[AbilitySpec]:
                 EffectSpec("cant_be_countered", {}),
                 EffectSpec("damage", {"amount": "x", "target_kind": "creature_or_planeswalker"}),
             ],
-            raw_text="Dieser Zauberspruch kann nicht gekontert werden. Torch Breath "
-                     "fügt einer Zielkreatur oder einem Zielplaneswalker X Schaden zu.",
         ),
     ]
 
@@ -1040,11 +937,6 @@ def _torch_the_tower() -> list[AbilitySpec]:
                 }),
                 EffectSpec("grant_die_to_exile_this_turn", {"target_kind": None}),
             ],
-            raw_text="Torch the Tower fügt einer Zielkreatur oder einem "
-                     "Zielplaneswalker 2 Schaden zu. Falls dieser Zauberspruch "
-                     "erhandelt wurde, fügt er stattdessen 3 Schaden zu. Falls eine "
-                     "bleibende Karte, der von Torch the Tower Schaden zugefügt "
-                     "wurde, in diesem Zug sterben würde, exiliere sie stattdessen.",
         ),
     ]
 
@@ -1065,9 +957,6 @@ def _torch_the_witness() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("damage_then_investigate_if_excess", {"target_kind": "creature"})],
-            raw_text="Torch the Witness fügt einer Zielkreatur zweimal X Schaden zu. "
-                     "Falls jener Kreatur dadurch überschüssiger Schaden zugefügt "
-                     "wurde, untersuche.",
         ),
     ]
 
@@ -1096,8 +985,6 @@ def _voltage_surge() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("damage", {"amount": 2, "target_kind": "creature_or_planeswalker"})],
-            raw_text="Voltage Surge fügt einer Zielkreatur oder einem Zielplaneswalker "
-                     "2 Schaden zu.",
         ),
     ]
 
@@ -1121,8 +1008,6 @@ def _galvanic_relay() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("impulsive_draw", {"count": 1})],
-            raw_text="Exiliere die oberste Karte deiner Bibliothek. Während deines "
-                     "nächsten Zuges kannst du jene Karte spielen.",
         ),
     ]
 
@@ -1140,8 +1025,6 @@ def _wrenns_resolve() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("impulsive_draw", {"count": 2})],
-            raw_text="Exiliere die obersten zwei Karten deiner Bibliothek. Bis zum "
-                     "Ende deines nächsten Zuges kannst du jene Karten spielen.",
         ),
     ]
 
@@ -1182,10 +1065,6 @@ def _virtue_of_courage() -> list[AbilitySpec]:
                 "filter": {"combat": False},
                 "requires_damage_to_opponent": True,
             },
-            raw_text="Immer wenn eine Quelle, die du kontrollierst, einem Gegner "
-                     "Nichtkampfschaden zufügt, kannst du so viele Karten von der "
-                     "Oberseite deiner Bibliothek exilieren. Du kannst diese Karten "
-                     "in diesem Zug spielen.",
         ),
     ]
 
@@ -1231,10 +1110,6 @@ def _sunbirds_invocation() -> list[AbilitySpec]:
                 "condition": {"subject": "group", "controller": "you"},
                 "filter": {"from_hand": True},
             },
-            raw_text="Immer wenn du einen Zauberspruch aus deiner Hand wirkst, decke "
-                     "die oberste Karte deiner Bibliothek auf. Falls ihr Manawert "
-                     "höchstens dem Manawert jenes Zauberspruchs entspricht, kannst du "
-                     "sie wirken, ohne ihre Manakosten zu bezahlen.",
         ),
     ]
 
@@ -1263,10 +1138,6 @@ def _etali_primal_storm() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("exile_top_from_each_player_cast_free", {})],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
-            raw_text="Wenn Etali angreift, exiliere die oberste Karte der Bibliothek "
-                     "jedes Spielers. Danach kannst du eine beliebige Anzahl "
-                     "Zaubersprüche von diesen Karten wirken, ohne ihre Manakosten zu "
-                     "bezahlen.",
         ),
     ]
 
@@ -1305,29 +1176,20 @@ def _etali_primal_conqueror() -> list[AbilitySpec]:
     cost.
     """
     return [
-        AbilitySpec("keyword", [], keyword={"name": "trample"}, raw_text="Trampelschaden"),
+        AbilitySpec("keyword", [], keyword={"name": "trample"}),
         AbilitySpec(
             "static",
             [EffectSpec("remove_keyword", {"affects": "self", "keywords": ["indestructible"]})],
-            raw_text="(Nur die Rückseite, Etali, Primal Sickness, ist unzerstörbar — "
-                     "das kartenweite keywords-Array vereinigt beide Kartenseiten.)",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("exile_top_from_each_player_cast_free", {"until_nonland": True})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn Etali ins Spiel kommt, exiliert jeder Spieler Karten von "
-                     "der Oberseite seiner Bibliothek, bis er eine Nicht-Land-Karte "
-                     "exiliert. Du kannst eine beliebige Anzahl Zaubersprüche von den "
-                     "auf diese Weise exilierten Nicht-Land-Karten wirken, ohne ihre "
-                     "Manakosten zu bezahlen.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("transform", {})],
             cost={"text": "{9}{G/P}", "sorcery_speed_only": True},
-            raw_text="{9}{G/P}: Transformiere Etali. Aktiviere nur wie einen "
-                     "Hauptzauberspruch.",
         ),
     ]
 
@@ -1360,8 +1222,8 @@ def _etali_primal_sickness() -> list[AbilitySpec]:
     already established for a player-scoped pronoun off that event.
     """
     return [
-        AbilitySpec("keyword", [], keyword={"name": "trample"}, raw_text="Trampelschaden"),
-        AbilitySpec("keyword", [], keyword={"name": "indestructible"}, raw_text="Unzerstörbarkeit"),
+        AbilitySpec("keyword", [], keyword={"name": "trample"}),
+        AbilitySpec("keyword", [], keyword={"name": "indestructible"}),
         AbilitySpec(
             "triggered",
             [EffectSpec("add_counters_to_trigger_damaged_player", {"kind": "poison"})],
@@ -1369,8 +1231,6 @@ def _etali_primal_sickness() -> list[AbilitySpec]:
                 "event": EventType.DAMAGE, "condition": {"subject": "self"},
                 "filter": {"combat": True, "is_player": True},
             },
-            raw_text="Immer wenn Etali einem Spieler Kampfschaden zufügt, erhält "
-                     "dieser Spieler ebenso viele Gift-Marken.",
         ),
     ]
 
@@ -1405,9 +1265,6 @@ def _dual_strike() -> list[AbilitySpec]:
                 "max_mana_value": 4, "card_types": ["instant", "sorcery"],
                 "then_specs": [{"type": "copy_spell", "params": {}}],
             })],
-            raw_text="Wenn du das nächste Mal in diesem Zug einen Spontanzauber- oder "
-                     "Hexereispruch mit Manawert 4 oder weniger wirkst, kopiere jenen "
-                     "Zauberspruch. Du kannst neue Ziele für die Kopie wählen.",
         ),
     ]
 
@@ -1428,9 +1285,6 @@ def _city_on_fire() -> list[AbilitySpec]:
         AbilitySpec(
             "replacement",
             [EffectSpec("double_damage", {"multiplier": 3, "your_sources_only": True})],
-            raw_text="Falls eine Quelle, die du kontrollierst, einer bleibenden Karte "
-                     "oder einem Spieler Schaden zufügen würde, fügt sie stattdessen "
-                     "dreifach so viel Schaden zu.",
         ),
     ]
 
@@ -1449,8 +1303,6 @@ def _mana_geyser() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("add_mana", {"color": "R", "amount_selector": "tapped_lands_opponents_control"})],
-            raw_text="Erzeuge {R} für jedes getappte Land, das deine Gegner "
-                     "kontrollieren.",
         ),
     ]
 
@@ -1493,15 +1345,11 @@ def _runaway_steam_kin() -> list[AbilitySpec]:
                 "cast_of_color": "R",
                 "source_counters_below": {"kind": "+1/+1", "count": 3},
             },
-            raw_text="Immer wenn du einen roten Zauberspruch wirkst, legst du, falls "
-                     "diese Kreatur weniger als drei +1/+1-Marken hat, eine "
-                     "+1/+1-Marke auf diese Kreatur.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("add_mana", {"colors": ["R", "R", "R"]})],
             cost={"text": "Remove three +1/+1 counters from this creature"},
-            raw_text="Entferne drei +1/+1-Marken von dieser Kreatur: Erzeuge {R}{R}{R}.",
         ),
     ]
 
@@ -1523,8 +1371,6 @@ def _storm_kiln_artist() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {"affects": "self", "power": 1, "power_count": "artifacts_you_control"})],
-            raw_text="Diese Kreatur erhält +1/+0 für jedes Artefakt, das du "
-                     "kontrollierst.",
         ),
         AbilitySpec(
             "triggered",
@@ -1534,9 +1380,6 @@ def _storm_kiln_artist() -> list[AbilitySpec]:
                 "condition": {"subject": "group", "controller": "you"},
                 "spell_card_types": ["instant", "sorcery"],
             },
-            raw_text="Zauberkunst — Immer wenn du einen Spontanzauber- oder "
-                     "Hexereispruch wirkst oder kopierst, erzeuge einen "
-                     "Schatz-Spielstein.",
         ),
     ]
 
@@ -1569,8 +1412,6 @@ def _koth_fire_of_resistance() -> list[AbilitySpec]:
             "event": EventType.ENTERS_BATTLEFIELD,
             "condition": {"subject": "group", "subtypes": ["mountain"], "controller": "you"},
         },
-        raw_text="Immer wenn ein Gebirge unter deiner Kontrolle ins Spiel kommt, fügt "
-                 "dieser Emblem-Spielstein einem beliebigen Ziel 4 Schaden zu.",
     )
     return [
         AbilitySpec(
@@ -1579,9 +1420,6 @@ def _koth_fire_of_resistance() -> list[AbilitySpec]:
                 "criteria": {"basic": True, "type": "Mountain"}, "destination": "hand",
             })],
             cost={"loyalty": 2},
-            raw_text="+2: Durchsuche deine Bibliothek nach einer Standard-Gebirgskarte, "
-                     "zeige sie, nimm sie auf deine Hand und mische danach deine "
-                     "Bibliothek.",
         ),
         AbilitySpec(
             "activated",
@@ -1589,16 +1427,11 @@ def _koth_fire_of_resistance() -> list[AbilitySpec]:
                 "target_kind": "creature", "amount_from_count_selector": "lands_you_control_of_type_mountain",
             })],
             cost={"loyalty": -3},
-            raw_text="−3: Koth fügt einer Zielkreatur Schaden in Höhe der Anzahl der "
-                     "Gebirge zu, die du kontrollierst.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("create_emblem", {"ability": emblem_ability.to_dict()})],
             cost={"loyalty": -7},
-            raw_text='−7: Du erhältst einen Emblem-Spielstein mit "Immer wenn ein '
-                     'Gebirge unter deiner Kontrolle ins Spiel kommt, fügt dieser '
-                     'Emblem-Spielstein einem beliebigen Ziel 4 Schaden zu."',
         ),
     ]
 
@@ -1626,20 +1459,16 @@ def _stuffy_doll() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("request_choose_player", {})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur ins Spiel kommt, wähle einen Spieler.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("deal_damage_to_chosen_player", {})],
             trigger={"event": EventType.DAMAGE, "condition": {"subject": "self_as_recipient"}},
-            raw_text="Immer wenn dieser Kreatur Schaden zugefügt wird, fügt sie dem "
-                     "gewählten Spieler ebenso viel Schaden zu.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("damage", {"amount": 1, "selector": "self"})],
             cost={"text": "{T}"},
-            raw_text="{T}: Diese Kreatur fügt sich selbst 1 Schaden zu.",
         ),
     ]
 
@@ -1669,7 +1498,6 @@ def _grafted_exoskeleton() -> list[AbilitySpec]:
                 EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2}),
                 EffectSpec("grant_keyword", {"affects": "attached_permanent", "keywords": ["infect"]}),
             ],
-            raw_text="Ausgerüstete Kreatur erhält +2/+2 und hat Infektion.",
         ),
     ]
 
@@ -1707,8 +1535,6 @@ def _sword_of_once_and_future() -> list[AbilitySpec]:
                     "affects": "attached_permanent", "protections": ["blue", "black"],
                 }),
             ],
-            raw_text="Ausgerüstete Kreatur erhält +2/+2 und Schutz vor Blau und vor "
-                     "Schwarz.",
         ),
         AbilitySpec(
             "triggered",
@@ -1718,10 +1544,6 @@ def _sword_of_once_and_future() -> list[AbilitySpec]:
                 "condition": {"subject": "attached_permanent"},
                 "filter": {"combat": True, "is_player": True},
             },
-            raw_text="Wenn die ausgerüstete Kreatur einem Spieler Kampfschaden zufügt, "
-                     "surveile 2. Danach kannst du einen Spontanzauber- oder "
-                     "Hexereispruch mit Manawert 2 oder weniger aus deinem Friedhof "
-                     "wirken, ohne seine Manakosten zu bezahlen.",
         ),
     ]
 
@@ -1748,8 +1570,6 @@ def _invasion_of_kaldheim() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("exile_hand_then_draw_that_many", {})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Belagerung ins Spiel kommt, exiliere alle Karten "
-                     "aus deiner Hand und ziehe danach ebenso viele Karten.",
         ),
     ]
 
@@ -1780,9 +1600,6 @@ def _invasion_of_regatha() -> list[AbilitySpec]:
                 EffectSpec("damage", {"amount": 1, "target_kind": "creature", "optional": True}),
             ],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Belagerung ins Spiel kommt, fügt sie einer anderen "
-                     "Zielschlacht oder einem Ziel-Gegner 4 Schaden zu und einer bis "
-                     "zu einen Zielkreatur 1 Schaden.",
         ),
     ]
 
@@ -1817,9 +1634,6 @@ def _magda_the_hoardmaster() -> list[AbilitySpec]:
                 "token_name": "Scorpion Dragon",
             }), EffectSpec("sorcery_speed_marker", {})],
             cost={"text": "Sacrifice three Treasures"},
-            raw_text="Opfere drei Schätze: Erzeuge einen 4/4 roten Skorpiondrache-"
-                     "Kreaturenspielstein mit Fliegen und Eile. Aktiviere nur wie "
-                     "einen Hauptzauberspruch.",
         ),
     ]
 
@@ -1851,7 +1665,6 @@ def _birgi_god_of_storytelling() -> list[AbilitySpec]:
                 "event": EventType.SPELL_CAST,
                 "condition": {"subject": "group", "controller": "you"},
             },
-            raw_text="Immer wenn du einen Zauberspruch wirkst, erzeuge {R}.",
         ),
     ]
 
@@ -1883,9 +1696,6 @@ def _display_of_power() -> list[AbilitySpec]:
             [EffectSpec("copy_spell", {
                 "card_types": ["instant", "sorcery"], "target_count": 10, "optional": True,
             })],
-            raw_text="Dieser Zauberspruch kann nicht kopiert werden. Kopiere eine "
-                     "beliebige Anzahl Ziel-Hexerei- und/oder Spontanzauber. Du "
-                     "kannst für die Kopien neue Ziele wählen.",
         ),
     ]
 
@@ -1910,9 +1720,6 @@ def _gamble() -> list[AbilitySpec]:
                 EffectSpec("search", {"criteria": "", "destination": "hand"}),
                 EffectSpec("discard", {"count": 1}),
             ],
-            raw_text="Durchsuche deine Bibliothek nach einer Karte, nimm diese "
-                     "Karte auf deine Hand, wirf danach zufällig eine Karte ab "
-                     "und mische danach deine Bibliothek.",
         ),
     ]
 
@@ -1940,8 +1747,6 @@ def _jayas_immolating_inferno() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("damage", {"amount": "x", "target_kind": "any", "count": 3, "optional": True})],
-            raw_text="Jaya's Immolating Inferno fügt bis zu drei Zielen je X "
-                     "Schadenspunkte zu.",
         ),
     ]
 
@@ -1982,9 +1787,6 @@ def _avatar_aang() -> list[AbilitySpec]:
                 EffectSpec("transform", {}, condition={"did_all_bends_this_turn": True}),
             ],
             trigger={"event": EventType.BENT, "condition": {"subject": "you"}},
-            raw_text="Immer wenn du wasserbändigst, erdbändigst, feuerbändigst oder "
-                     "luftbändigst, ziehe eine Karte. Falls du danach in diesem Zug "
-                     "alle vier ausgeführt hast, transformiere Avatar Aang.",
         ),
     ]
 

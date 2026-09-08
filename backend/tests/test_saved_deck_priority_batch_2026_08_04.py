@@ -8,7 +8,7 @@ install's saved decks, not just cache-wide count:
   primitive already existed (hand-authored per card, e.g. Wrath of God in
   `ability_catalogue.py`); only the general oracle-text recognition was
   missing (`catalogue/handlers.py`'s ``destroy_all``/``destroy_all_no_regen``/
-  ``exile_all``). Also widens `game/effects.py`'s `_MASS_DESTROY_SELECTORS`
+  ``exile_all``). Also widens `game/effects/core.py`'s `_MASS_DESTROY_SELECTORS`
   with ``"all_lands"``, the one selector real cards need that didn't exist.
 * **"[<Type> [and <type>]] spells you cast cost {N} less/more to cast."**
   (RULE 601.2f, Baral/Archmage of Runes/Bureau Headmaster-shaped) — the
@@ -42,8 +42,8 @@ effect_binder}.py.
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import DestroyEffect, ExileEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import DestroyEffect, ExileEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent

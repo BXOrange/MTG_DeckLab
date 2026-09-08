@@ -8,7 +8,7 @@ from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import StackItem
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game.effects import DealDamageEffect, DrawCardEffect, TriggeredAbility
+from mtg_analyzer.game.effects.core import DealDamageEffect, DrawCardEffect, TriggeredAbility
 from mtg_analyzer.models.events import EventType
 
 

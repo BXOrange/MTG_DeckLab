@@ -10,7 +10,7 @@ No engine change.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effects import GameContext, RegenerateEffect
+from mtg_analyzer.game.effects.core import GameContext, RegenerateEffect
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

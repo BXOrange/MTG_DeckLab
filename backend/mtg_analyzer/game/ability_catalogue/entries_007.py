@@ -30,8 +30,6 @@ def _motivated_pony() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("pump", {"power": 1, "toughness": 1, "selector": "attacking_creatures"})],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
-            raw_text="Immer wenn diese Kreatur angreift, erhalten angreifende Kreaturen "
-                     "+1/+1 bis zum Ende des Zuges.",
         ),
     ]
 
@@ -60,14 +58,11 @@ def _of_herbs_and_stewed_rabbit() -> list[AbilitySpec]:
                 EffectSpec("create_token", {"count": 1, "token_name": "Food"}),
             ],
             trigger={"event": "SAGA_CHAPTER", "chapter": [1]},
-            raw_text="I — Lege eine +1/+1-Marke auf bis zu eine Zielkreatur. Erzeuge "
-                     "einen Nahrungsspielstein.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("draw", {"count": 1}), EffectSpec("create_token", {"count": 1, "token_name": "Food"})],
             trigger={"event": "SAGA_CHAPTER", "chapter": [2]},
-            raw_text="II — Ziehe eine Karte. Erzeuge einen Nahrungsspielstein.",
         ),
         AbilitySpec(
             "triggered",
@@ -76,8 +71,6 @@ def _of_herbs_and_stewed_rabbit() -> list[AbilitySpec]:
                 "token_name": "Halfling", "count_selector": "foods_you_control",
             })],
             trigger={"event": "SAGA_CHAPTER", "chapter": [3]},
-            raw_text="III — Erzeuge einen 1/1 weißen Halbling-Kreaturenspielstein für "
-                     "jede Nahrung, die du kontrollierst.",
         ),
     ]
 
@@ -94,15 +87,11 @@ def _peregrin_took() -> list[AbilitySpec]:
         AbilitySpec(
             "replacement",
             [EffectSpec("additional_named_token", {"token_name": "Food"})],
-            raw_text="Falls ein oder mehr Spielsteine unter deiner Kontrolle erzeugt "
-                     "würden, werden diese Spielsteine plus ein zusätzlicher "
-                     "Nahrungsspielstein stattdessen erzeugt.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("draw", {"count": 1})],
             cost={"sacrifice_count": (3, "food")},
-            raw_text="Opfere drei Nahrungen: Ziehe eine Karte.",
         ),
     ]
 
@@ -127,8 +116,6 @@ def _prize_pig() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("add_counters", {"kind": "ribbon", "amount_from_trigger_event": "amount"})],
             trigger={"event": EventType.LIFE_GAINED, "condition": {"subject": "you"}},
-            raw_text="Immer wenn du Leben gewinnst, lege so viele Band-Marken auf diese "
-                     "Kreatur.",
         ),
     ]
 
@@ -153,16 +140,11 @@ def _shire_shirriff() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("exile", {"target_kind": "creature_you_dont_control", "remember": True})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur ins Spiel kommt, exiliere eine Zielkreatur, die "
-                     "ein Gegner kontrolliert, bis diese Kreatur das Schlachtfeld "
-                     "verlässt.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("return_linked_exile", {})],
             trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur das Schlachtfeld verlässt, bringe die exilierte "
-                     "Karte zurück.",
         ),
     ]
 
@@ -186,8 +168,6 @@ def _tireless_provisioner() -> list[AbilitySpec]:
                 "event": EventType.ENTERS_BATTLEFIELD,
                 "condition": {"subject": "group", "type": "land", "controller": "you", "other": False},
             },
-            raw_text="Landfall — Immer wenn ein Land unter deiner Kontrolle ins Spiel "
-                     "kommt, erzeuge einen Nahrungsspielstein oder einen Schatzspielstein.",
         ),
     ]
 
@@ -211,7 +191,6 @@ def _treebeard_gracious_host() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("create_token", {"count": 2, "token_name": "Food"})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn Baumbart ins Spiel kommt, erzeuge zwei Nahrungsspielsteine.",
         ),
         AbilitySpec(
             "triggered",
@@ -219,8 +198,6 @@ def _treebeard_gracious_host() -> list[AbilitySpec]:
                 "target_kind": "creature_you_control", "amount_from_trigger_event": "amount",
             })],
             trigger={"event": EventType.LIFE_GAINED, "condition": {"subject": "you"}},
-            raw_text="Immer wenn du Leben gewinnst, lege so viele +1/+1-Marken auf eine "
-                     "Zielkreatur unter deiner Kontrolle.",
         ),
     ]
 
@@ -253,8 +230,6 @@ def _smeagol_helpful_guide() -> list[AbilitySpec]:
                 condition={"creatures_died_this_turn_at_least": 1},
             )],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "end"}, "phase_relation": "you"},
-            raw_text="Zu Beginn deines Endsegments, falls eine Kreatur unter deiner "
-                     "Kontrolle in diesem Zug gestorben ist, verlockt dich der Ring.",
         ),
         AbilitySpec(
             "triggered",
@@ -262,9 +237,6 @@ def _smeagol_helpful_guide() -> list[AbilitySpec]:
                 "criteria": {"type": "Land"}, "hit_destination": "battlefield", "rest_destination": "exile",
             })],
             trigger={"event": EventType.RING_TEMPTED, "condition": {"subject": "you"}},
-            raw_text="Immer wenn dich der Ring verlockt, deckt ein Gegner deiner Wahl "
-                     "Karten vom oberen Rand seiner Bibliothek auf, bis er eine "
-                     "Landkarte aufdeckt.",
         ),
     ]
 
@@ -283,8 +255,6 @@ def _the_battle_of_bywater() -> list[AbilitySpec]:
                 EffectSpec("destroy", {"selector": "all_creatures", "filter": {"min_power": 3}}),
                 EffectSpec("create_token", {"token_name": "Food", "count_selector": "creatures_you_control"}),
             ],
-            raw_text="Zerstöre alle Kreaturen mit Stärke 3 oder größer. Erzeuge danach "
-                     "einen Nahrungsspielstein für jede Kreatur, die du kontrollierst.",
         ),
     ]
 
@@ -312,8 +282,6 @@ def _the_one_ring() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("lose_life", {"amount_from_burden_counters_on_self": True})],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
-            raw_text="Zu Beginn deines Versorgungssegments verlierst du 1 Leben für "
-                     "jede Bürde-Marke auf Der Eine Ring.",
         ),
         AbilitySpec(
             "activated",
@@ -322,8 +290,6 @@ def _the_one_ring() -> list[AbilitySpec]:
                 EffectSpec("draw", {"count_selector": "burden_counters_on_self"}),
             ],
             cost={"taps_self": True},
-            raw_text="{T}: Lege eine Bürde-Marke auf Der Eine Ring, dann ziehe eine "
-                     "Karte für jede Bürde-Marke auf Der Eine Ring.",
         ),
     ]
 
@@ -389,9 +355,6 @@ def _frodo_saurons_bane() -> list[AbilitySpec]:
                 "mana": "{W/B}{W/B}",
                 "activation_condition": {"kind": "source_counters", "counter": "frodo_stage", "max": 0},
             },
-            raw_text='{W/B}{W/B}: Falls Frodo ein Bürger ist, wird er ein '
-                     'Halbling-Kundschafter mit der Basisstärke/-widerstandskraft '
-                     '2/3 und Lebensverknüpfung.',
         ),
         AbilitySpec(
             "activated",
@@ -400,11 +363,6 @@ def _frodo_saurons_bane() -> list[AbilitySpec]:
                 "mana": "{B}{B}{B}",
                 "activation_condition": {"kind": "source_counters", "counter": "frodo_stage", "min": 1, "max": 1},
             },
-            raw_text='{B}{B}{B}: Falls Frodo ein Kundschafter ist, wird er ein '
-                     'Halbling-Schurke mit "Wenn diese Kreatur einem Spieler '
-                     'Kampfschaden zufügt, verliert jener Spieler die Partie, '
-                     'falls der Ring dich in diesem Spiel viermal oder öfter '
-                     'verlockt hat. Andernfalls verlockt dich der Ring."',
         ),
         AbilitySpec(
             "static",
@@ -419,7 +377,6 @@ def _frodo_saurons_bane() -> list[AbilitySpec]:
                     "active_if": {"kind": "source_counters", "counter": "frodo_stage", "min": 1},
                 }),
             ],
-            raw_text="(Halbling-Kundschafter-Stufe)",
         ),
         AbilitySpec(
             "static",
@@ -447,7 +404,6 @@ def _frodo_saurons_bane() -> list[AbilitySpec]:
                     "active_if": {"kind": "source_counters", "counter": "frodo_stage", "min": 2},
                 }),
             ],
-            raw_text="(Halbling-Schurke-Stufe)",
         ),
     ]
 
@@ -483,9 +439,6 @@ def _ardenn_intrepid_archaeologist() -> list[AbilitySpec]:
             # not "combat" — this never matched, so the ability never fired.
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "begin_combat"}, "phase_relation": "you"},
             optional=True,
-            raw_text="Zu Beginn des Kampfes in deinem Zug kannst du eine Verzauberung "
-                     "oder Ausrüstung unter deiner Kontrolle an eine andere Zielkreatur "
-                     "unter deiner Kontrolle anlegen.",
         ),
     ]
 
@@ -515,9 +468,6 @@ def _armored_skyhunter() -> list[AbilitySpec]:
                 "rest_destination": "exile",
             })],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
-            raw_text="Immer wenn diese Kreatur angreift, sieh dir die obersten sechs "
-                     "Karten deiner Bibliothek an. Du kannst eine Verzauberungs- oder "
-                     "Ausrüstungskarte aus ihnen ins Spiel bringen.",
         ),
     ]
 
@@ -542,8 +492,6 @@ def _martial_coup() -> list[AbilitySpec]:
                     condition={"source_x_paid_at_least": 5},
                 ),
             ],
-            raw_text="Erzeuge X 1/1 weiße Soldat-Kreaturenspielsteine. Falls X 5 oder "
-                     "größer ist, zerstöre alle anderen Kreaturen.",
         ),
     ]
 
@@ -564,8 +512,6 @@ def _masterwork_of_ingenuity() -> list[AbilitySpec]:
         AbilitySpec(
             "enter_replacement",
             [EffectSpec("enter_as_copy", {"target_kind": "permanent"})],
-            raw_text="Du kannst dieses Ausrüstungsstück als Kopie eines beliebigen "
-                     "Ausrüstungsstücks ins Spiel kommen lassen.",
         ),
     ]
 
@@ -611,9 +557,6 @@ def _raph_and_leo_sibling_rivals() -> list[AbilitySpec]:
                 EffectSpec("extra_combat_phase", {}, condition={"is_first_combat_phase": True}),
             ],
             trigger={"event": "ATTACKS", "condition": {"subject": "self"}},
-            raw_text="Whenever Raph & Leo attack, if it's the first combat phase of the turn, "
-                     "untap one or two target attacking creatures. After this phase, there is "
-                     "an additional combat phase.",
         ),
     ]
 
@@ -698,7 +641,6 @@ def _balthier_and_fran() -> list[AbilitySpec]:
                     "affects": "artifacts_you_control", "subtype": "Vehicle",
                 }),
             ],
-            raw_text="Vehicles you control get +1/+1 and have vigilance and reach.",
         ),
         AbilitySpec(
             "triggered",
@@ -716,9 +658,6 @@ def _balthier_and_fran() -> list[AbilitySpec]:
                 "event": "ATTACKS",
                 "condition": {"subject": "group", "subtypes": ["vehicle"], "crewed_by_self": True},
             },
-            raw_text="Whenever a Vehicle crewed by ~ this turn attacks, if it's the first "
-                     "combat phase of the turn, you may pay {1}{R}{G}. If you do, after this "
-                     "phase, there is an additional combat phase.",
         ),
     ]
 
@@ -789,10 +728,6 @@ def _tifa_martial_artist() -> list[AbilitySpec]:
                 "condition": {"subject": "you"},
                 "contributor_power_at_least": 7,
             },
-            raw_text="Whenever one or more creatures you control with power 7 or greater deal "
-                     "combat damage to a player, untap all creatures you control. If it's the "
-                     "first combat phase of your turn, there is an additional combat phase "
-                     "after this phase.",
         ),
     ]
 
@@ -822,9 +757,6 @@ def _sokenzan_crucible_of_defiance() -> list[AbilitySpec]:
                 "subtypes": ["Spirit"], "keywords": ["haste"], "token_name": "Spirit",
             })],
             cost={"mana": "{3}{R}", "discard_self": True},
-            raw_text="Kanalisieren — {3}{R}, Wirf diese Karte ab: Erzeuge zwei 1/1 "
-                     "farblose Geist-Kreaturenspielsteine. Sie erhalten Eile bis zum "
-                     "Ende des Zuges.",
         ),
     ]
 
@@ -845,8 +777,6 @@ def _valakut_awakening() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("draw", {"count": 1})],
-            raw_text="Lege eine beliebige Anzahl Karten aus deiner Hand unter deine "
-                     "Bibliothek, ziehe danach so viele Karten plus eine.",
         ),
     ]
 
@@ -889,13 +819,6 @@ def _boseiju_who_endures() -> list[AbilitySpec]:
                     "generic_per": 1,
                 },
             },
-            raw_text="Kanalisieren — {1}{G}, Wirf diese Karte ab: Zerstöre ein "
-                     "Zielartefakt, eine Zielverzauberung oder ein nichtgrundlegendes "
-                     "Zielland, das ein Gegner kontrolliert. Dieser Spieler kann in "
-                     "seiner Bibliothek nach einer Landkarte mit einem grundlegenden "
-                     "Landtyp suchen, sie ins Spiel legen und danach seine Bibliothek "
-                     "mischen. Diese Fähigkeit kostet {1} weniger für jede legendäre "
-                     "Kreatur, die du kontrollierst.",
         ),
     ]
 
@@ -932,11 +855,6 @@ def _otawara_soaring_city() -> list[AbilitySpec]:
                     "generic_per": 1,
                 },
             },
-            raw_text="Kanalisieren — {3}{U}, Wirf diese Karte ab: Gib ein "
-                     "Zielartefakt, eine Zielkreatur, eine Zielverzauberung oder "
-                     "einen Ziel-Planeswalker der Hand seines Besitzers zurück. "
-                     "Diese Fähigkeit kostet {1} weniger für jede legendäre Kreatur, "
-                     "die du kontrollierst.",
         ),
     ]
 
@@ -977,10 +895,6 @@ def _takenuma_abandoned_mire() -> list[AbilitySpec]:
                     "generic_per": 1,
                 },
             },
-            raw_text="Kanalisieren — {3}{B}, Wirf diese Karte ab: Mille drei Karten, "
-                     "kehre danach eine Kreaturenkarte oder Planeswalkerkarte aus "
-                     "deinem Friedhof auf deine Hand zurück. Diese Fähigkeit kostet "
-                     "{1} weniger für jede legendäre Kreatur, die du kontrollierst.",
         ),
     ]
 
@@ -1007,8 +921,6 @@ def _dwynen_gilt_leaf_daen() -> list[AbilitySpec]:
                 "count_selector": "attacking_creatures_you_control_of_type_elf",
             })],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
-            raw_text="Immer wenn Dwynen angreift, gewinnst du 1 Leben für jeden "
-                     "angreifenden Elfen unter deiner Kontrolle.",
         ),
     ]
 
@@ -1044,10 +956,6 @@ def _elvish_warmaster() -> list[AbilitySpec]:
                 },
                 "limit": True,
             },
-            raw_text="Immer wenn ein oder mehr andere Elfen unter deiner Kontrolle ins "
-                     "Spiel kommen, erzeuge einen 1/1 grünen Elfen-Krieger-"
-                     "Kreaturenspielstein. Diese Fähigkeit wird nur einmal pro Zug "
-                     "ausgelöst.",
         ),
         AbilitySpec(
             "activated",
@@ -1056,8 +964,6 @@ def _elvish_warmaster() -> list[AbilitySpec]:
                 "selector": "creatures_you_control_of_type_elf",
             })],
             cost={"text": "{5}{G}{G}"},
-            raw_text="{5}{G}{G}: Elfen unter deiner Kontrolle erhalten +2/+2 und "
-                     "Todesberührung bis zum Ende des Zuges.",
         ),
     ]
 
@@ -1084,8 +990,6 @@ def _morcants_loyalist() -> list[AbilitySpec]:
                 "destination": "hand",
             })],
             trigger={"event": EventType.DIES, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur stirbt, kehre eine andere Zielelfenkarte aus "
-                     "deinem Friedhof auf deine Hand zurück.",
         ),
     ]
 
@@ -1111,9 +1015,6 @@ def _elvish_harbinger() -> list[AbilitySpec]:
                 "criteria": {"type": "Elf"}, "destination": "library_top", "optional": True,
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur ins Spiel kommt, kannst du in deiner Bibliothek "
-                     "nach einer Elfenkarte suchen, sie zeigen, mischen und diese Karte "
-                     "danach oben auf deine Bibliothek legen.",
         ),
     ]
 
@@ -1145,9 +1046,6 @@ def _elvish_guidance() -> list[AbilitySpec]:
                 "condition": {"subject": "attached_permanent"},
                 "mana_ability": True,
             },
-            raw_text="Verzaubere Land\nImmer wenn das verzauberte Land für Mana getappt "
-                     "wird, erzeugt sein Beherrscher zusätzlich {G} für jeden Elfen auf "
-                     "dem Spielfeld.",
         ),
     ]
 
@@ -1176,7 +1074,6 @@ def _vanquishers_banner() -> list[AbilitySpec]:
         AbilitySpec(
             "enter_replacement",
             [EffectSpec("choose_creature_type_on_enter", {})],
-            raw_text="Wähle beim Ins-Spiel-Kommen dieses Artefakts einen Kreaturentyp.",
         ),
         AbilitySpec(
             "static",
@@ -1184,7 +1081,6 @@ def _vanquishers_banner() -> list[AbilitySpec]:
                 "power": 1, "toughness": 1, "affects": "creatures_you_control",
                 "subtype_from_source": True,
             })],
-            raw_text="Kreaturen des gewählten Typs unter deiner Kontrolle erhalten +1/+1.",
         ),
         AbilitySpec(
             "triggered",
@@ -1194,8 +1090,6 @@ def _vanquishers_banner() -> list[AbilitySpec]:
                 "condition": {"subject": "group", "type": "creature", "controller": "you"},
                 "cast_of_chosen_type": True,
             },
-            raw_text="Immer wenn du einen Kreaturenzauberspruch des gewählten Typs "
-                     "wirkst, ziehe eine Karte.",
         ),
     ]
 
@@ -1224,16 +1118,12 @@ def _realmwalker() -> list[AbilitySpec]:
         AbilitySpec(
             "enter_replacement",
             [EffectSpec("choose_creature_type_on_enter", {})],
-            raw_text="Wähle beim Ins-Spiel-Kommen dieser Kreatur einen Kreaturentyp.",
         ),
         AbilitySpec(
             "static",
             [EffectSpec("top_library_permission", {
                 "look": True, "cast_spells": True, "chosen_type_creature_only": True,
             })],
-            raw_text="Du darfst dir jederzeit die oberste Karte deiner Bibliothek "
-                     "ansehen. Du darfst Kreaturenzaubersprüche des gewählten Typs von "
-                     "der Oberseite deiner Bibliothek wirken.",
         ),
     ]
 
@@ -1272,10 +1162,6 @@ def _selfless_safewright() -> list[AbilitySpec]:
                 ],
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur ins Spiel kommt, wähle einen Kreaturentyp. "
-                     "Andere bleibende Karten dieses Typs unter deiner Kontrolle "
-                     "erhalten Unantastbarkeit und Unzerstörbarkeit bis zum Ende des "
-                     "Zuges.",
         ),
     ]
 
@@ -1311,20 +1197,14 @@ def _roaming_throne() -> list[AbilitySpec]:
         AbilitySpec(
             "enter_replacement",
             [EffectSpec("choose_creature_type_on_enter", {})],
-            raw_text="Wähle beim Ins-Spiel-Kommen dieser Kreatur einen Kreaturentyp.",
         ),
         AbilitySpec(
             "static",
             [EffectSpec("type_change", {"affects": "self", "add_subtypes_from_source": True})],
-            raw_text="Diese Kreatur ist zusätzlich zu ihren anderen Typen vom "
-                     "gewählten Typ.",
         ),
         AbilitySpec(
             "static",
             [EffectSpec("trigger_doubler", {})],
-            raw_text="Wenn eine ausgelöste Fähigkeit einer anderen Kreatur des "
-                     "gewählten Typs unter deiner Kontrolle ausgelöst wird, wird sie "
-                     "ein zusätzliches Mal ausgelöst.",
         ),
     ]
 
@@ -1379,7 +1259,6 @@ def _vraska_betrayals_sting() -> list[AbilitySpec]:
                 EffectSpec("proliferate", {}),
             ],
             cost={"loyalty": 0},
-            raw_text="0: Du ziehst eine Karte und verlierst 1 Leben. Proliferiere.",
         ),
         AbilitySpec(
             "activated",
@@ -1404,16 +1283,11 @@ def _vraska_betrayals_sting() -> list[AbilitySpec]:
                 }),
             ],
             cost={"loyalty": -2},
-            raw_text='−2: Die Zielkreatur wird zu einem Schatz-Artefakt mit "{T}: Erzeuge '
-                     'ein Mana einer beliebigen Farbe" und verliert alle anderen '
-                     "Kartentypen und Fähigkeiten.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("top_up_player_counter", {"kind": "poison", "threshold": 9})],
             cost={"loyalty": -9},
-            raw_text="−9: Falls der Zielspieler weniger als neun Gift-Marken hat, "
-                     "erhält er eine Anzahl Gift-Marken gleich der Differenz.",
         ),
     ]
 
@@ -1445,8 +1319,6 @@ def _vraska_golgari_queen() -> list[AbilitySpec]:
             "event": EventType.DAMAGE,
             "condition": {"subject": "group", "type": "creature", "controller": "you", "combat": True},
         },
-        raw_text="Immer wenn eine Kreatur unter deiner Kontrolle einem Spieler "
-                 "Kampfschaden zufügt, verliert dieser Spieler die Partie.",
     )
     return [
         AbilitySpec(
@@ -1459,23 +1331,16 @@ def _vraska_golgari_queen() -> list[AbilitySpec]:
                 ],
             })],
             cost={"loyalty": 2},
-            raw_text="+2: Du kannst eine andere bleibende Karte opfern. Falls du dies "
-                     "tust, gewinnst du 1 Leben und ziehst eine Karte.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("destroy", {"target_kind": "permanent", "max_mana_value": 3})],
             cost={"loyalty": -3},
-            raw_text="−3: Zerstöre eine bleibende Zielkarte, die kein Land ist, mit "
-                     "Manawert 3 oder weniger.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("create_emblem", {"ability": emblem_ability.to_dict()})],
             cost={"loyalty": -9},
-            raw_text='−9: Du erhältst einen Emblem-Spielstein mit "Immer wenn eine '
-                     "Kreatur unter deiner Kontrolle einem Spieler Kampfschaden zufügt, "
-                     'verliert dieser Spieler die Partie."',
         ),
     ]
 
@@ -1507,8 +1372,6 @@ def _vraskas_fall() -> list[AbilitySpec]:
                     "selector": "each_opponent", "kind": "poison", "amount": 1,
                 }),
             ],
-            raw_text="Jeder Gegner opfert eine Kreatur oder einen Planeswalker "
-                     "eigener Wahl und erhält eine Gift-Marke.",
         ),
     ]
 
@@ -1557,8 +1420,6 @@ def _glissa_sunslayer() -> list[AbilitySpec]:
                     "Entferne bis zu drei Marken von einer bleibenden Zielkarte.",
                 ],
             },
-            raw_text="Immer wenn Glissa Sunslayer einem Spieler Kampfschaden zufügt, "
-                     "wähle eins —",
         ),
     ]
 
@@ -1623,7 +1484,6 @@ def _glissa_herald_of_predation() -> list[AbilitySpec]:
                     "Todesberührung bis zum Ende des Zuges.",
                 ],
             },
-            raw_text="Zu Beginn des Kampfes in deinem Zug wähle eins —",
         ),
     ]
 

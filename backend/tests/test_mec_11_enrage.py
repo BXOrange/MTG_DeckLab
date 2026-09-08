@@ -42,7 +42,7 @@ documented at its own definition:
 from __future__ import annotations
 
 from mtg_analyzer.game import ability_catalogue, combat, continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -155,7 +155,7 @@ def test_segment_line_self_recipient_produces_recipient_condition():
 
 
 # ---------------------------------------------------------------------------
-# effect_binder.py: target_id/target_controller_id vs source_id/
+# binding/core.py: target_id/target_controller_id vs source_id/
 # source_controller_id
 # ---------------------------------------------------------------------------
 
@@ -166,8 +166,8 @@ def test_self_recipient_trigger_fires_only_for_the_object_actually_hit():
     bystander = _bf(state, _creature("Bystander", 2, 4))
     fired = []
     victim.triggered_abilities[:] = []  # no catalogue entry on a plain Bear
-    from mtg_analyzer.game.effects import TriggeredAbility, GainLifeEffect
-    from mtg_analyzer.game.effect_binder import _subject_condition
+    from mtg_analyzer.game.effects.core import TriggeredAbility, GainLifeEffect
+    from mtg_analyzer.game.binding.core import _subject_condition
 
     trigger = {"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}}
     ability = TriggeredAbility(
@@ -198,7 +198,7 @@ def test_source_side_damage_trigger_is_unaffected_by_the_recipient_addition():
     victim = _bf(state, _creature("Victim2", 2, 2), controller="p2")
     seg = _segment("Whenever ~ deals damage to a creature, you gain 1 life.")
     assert seg.claimed and seg.spec is not None
-    from mtg_analyzer.game.effect_binder import attach_to_object
+    from mtg_analyzer.game.binding.core import attach_to_object
 
     attach_to_object(dealer, [seg.spec])
     engine.rules.deal_damage(victim, 3, source=dealer)
@@ -249,7 +249,7 @@ def test_add_counters_each_other_creature_you_control_excludes_source():
     engine, state = _engine("p1")
     source = _bf(state, _creature("Source", 3, 3))
     other = _bf(state, _creature("Other", 2, 2))
-    from mtg_analyzer.game.effects import AddCountersEffect, GameContext
+    from mtg_analyzer.game.effects.core import AddCountersEffect, GameContext
 
     effect = AddCountersEffect(selector="each_other_creature_you_control", source=source)
     effect.apply(GameContext(state, engine.rules))
@@ -261,7 +261,7 @@ def test_deal_damage_each_creature_and_planeswalker_hits_both_once_each():
     engine, state = _engine("p1", "p2")
     source = _bf(state, _creature("Bolter", 1, 1))
     victim = _bf(state, _creature("Victim3", 2, 5), controller="p2")
-    from mtg_analyzer.game.effects import DealDamageEffect, GameContext
+    from mtg_analyzer.game.effects.core import DealDamageEffect, GameContext
 
     effect = DealDamageEffect(amount=1, selector="each_creature_and_planeswalker", source=source)
     effect.apply(GameContext(state, engine.rules))
@@ -273,7 +273,7 @@ def test_damage_equal_to_counters_reads_source_plus_one_counters():
     source = _bf(state, _creature("Counters", 2, 6))
     source.plus_one_counters = 3
     victim = _bf(state, _creature("Victim4", 2, 8), controller="p2")
-    from mtg_analyzer.game.effects import DamageEqualToCountersEffect, GameContext
+    from mtg_analyzer.game.effects.core import DamageEqualToCountersEffect, GameContext
 
     effect = DamageEqualToCountersEffect(target=victim, target_kind=None, source=source)
     effect.apply(GameContext(state, engine.rules))
@@ -283,7 +283,7 @@ def test_damage_equal_to_counters_reads_source_plus_one_counters():
 def test_add_mana_amount_from_trigger_event():
     engine, state = _engine("p1")
     source = _bf(state, _creature("Manadin", 2, 2))
-    from mtg_analyzer.game.effects import AddManaEffect, GameContext
+    from mtg_analyzer.game.effects.core import AddManaEffect, GameContext
     from mtg_analyzer.models.events import GameEvent
 
     context = GameContext(state, engine.rules)

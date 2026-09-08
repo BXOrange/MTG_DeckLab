@@ -35,7 +35,7 @@ from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, 
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
-from ..effects import (
+from ..effects.core import (
     _apply_effects_partitioned,
     AddCountersEffect,
     CompleteDungeonEffect,
@@ -642,7 +642,7 @@ class ManaCountersMixin:
         is not modeled (an edge case for solo practice; the land just goes
         to the graveyard/exile like any other permanent).
         """
-        from ..effects import EffectRegistry  # function-scoped: effects↔rules cycle
+        from ..effects.core import EffectRegistry  # function-scoped: effects↔rules cycle
 
         if land is None or land not in self.state.battlefield:
             return

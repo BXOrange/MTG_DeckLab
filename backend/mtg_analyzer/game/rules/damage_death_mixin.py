@@ -35,7 +35,7 @@ from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, 
 from ..combat import has_infect, has_wither, is_protected_from, toxic_value
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
-from ..effects import (
+from ..effects.core import (
     _apply_effects_partitioned,
     AddCountersEffect,
     CompleteDungeonEffect,
@@ -915,7 +915,7 @@ class DamageDeathMixin:
         # to tell a real Aura attachment from an illegal one, and that has
         # to see this permanent's new "enchant" quality, not the old
         # creature's (cleared) keyword set.
-        from ..effect_binder import attach_keyword
+        from ..binding.core import attach_keyword
 
         for kw_spec in parse_keywords(obj.card):
             attach_keyword(obj, kw_spec)
@@ -1465,7 +1465,7 @@ class DamageDeathMixin:
         Palm's "deals that much damage to that source's controller", Nine
         Lives's "…and put an incarnation counter on this enchantment", and
         siblings. Mirrors `_prevent_damage_convert_counters_replacement`'s
-        (`game/effects.py`) established pattern of calling an ordinary
+        (`game/effects/core.py`) established pattern of calling an ordinary
         engine method mid-replacement with the real computed amount, rather
         than a second effect resolving independently later.
 
@@ -1654,7 +1654,7 @@ class DamageDeathMixin:
     ) -> None:
         """RULE 616: "If a source you control would deal damage this turn,
         it deals double/triple that damage instead." — the *spell-cast*
-        sibling of `_double_damage_replacement` (`game/effects.py`): that
+        sibling of `_double_damage_replacement` (`game/effects/core.py`): that
         factory only ever attaches to a *permanent's* own `replacement_
         effects` (Furnace of Rath/Fiery Emancipation-shaped); a one-shot
         sorcery (Insult // Injury/Isengard Unleashed, MEC-30) has no

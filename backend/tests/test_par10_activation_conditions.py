@@ -19,7 +19,7 @@ Two independent primitives shipped alongside the parser recognition itself:
 A third, unrelated discovery made while sizing Dread Wanderer's own SOLO
 closure got its own primitive too: "Return this card from your graveyard to
 the battlefield[, tapped]." was entirely unrecognized — 69+ cache cards
-(`game/effects.py`'s `ReturnSelfFromGraveyardToBattlefieldEffect`,
+(`game/effects/core.py`'s `ReturnSelfFromGraveyardToBattlefieldEffect`,
 `catalogue.handlers._RETURN_SELF_FROM_GRAVEYARD_RE`).
 
 Reference: mtg_analyzer/game/{costs,static_conditions,effects,effect_binder,
@@ -31,8 +31,8 @@ from __future__ import annotations
 
 from mtg_analyzer.game import static_conditions
 from mtg_analyzer.game.costs import parse_activation_cost
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import EffectRegistry
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
@@ -195,7 +195,7 @@ def test_activation_condition_blocks_and_permits_activation():
     ability_cost = parse_activation_cost("{T}")
     ability_cost.sorcery_speed_only = True
     ability_cost.activation_condition = {"kind": "cast_instant_or_sorcery_this_turn"}
-    from mtg_analyzer.game.effects import ActivatedAbility
+    from mtg_analyzer.game.effects.core import ActivatedAbility
     ability = ActivatedAbility(
         effects=[EffectRegistry.create("draw", {"count": 1})],
         cost=ability_cost, source=source,
@@ -335,7 +335,7 @@ def test_return_self_from_graveyard_end_to_end_tapped():
 def test_return_self_from_graveyard_is_a_noop_if_no_longer_in_the_graveyard():
     # RULE 603.3c/608.2b: something else moved it between trigger and
     # resolution (or, here, it's simply already elsewhere) — must not raise.
-    from mtg_analyzer.game.effects import GameContext, ReturnSelfFromGraveyardToBattlefieldEffect
+    from mtg_analyzer.game.effects.core import GameContext, ReturnSelfFromGraveyardToBattlefieldEffect
 
     eng = _engine(hand=0)
     p1 = eng.state.active_player

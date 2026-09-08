@@ -19,7 +19,6 @@ def _cathartic_reunion() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect", [EffectSpec("draw", {"count": 3})],
             additional_cost={"discard": 2},
-            raw_text="as an additional cost to cast this spell, discard 2 cards. draw 3 cards.",
         )
     ]
 
@@ -37,7 +36,6 @@ def _chain_reaction() -> list[AbilitySpec]:
                 "amount": 0, "selector": "each_creature",
                 "amount_from_count_selector": "all_creatures",
             })],
-            raw_text="~ deals x damage to each creature, where x is the number of creatures on the battlefield.",
         )
     ]
 
@@ -63,9 +61,6 @@ def _necroskitter() -> list[AbilitySpec]:
                 "counter_kind": "-1/-1", "opponent": True,
                 "immediate": True, "optional": True,
             },
-            raw_text="wann immer eine kreatur, die ein gegner kontrolliert und die eine "
-                     "-1/-1-marke auf sich hat, stirbt, darfst du diese karte unter deiner "
-                     "kontrolle auf das schlachtfeld zurückbringen.",
         )
     ]
 
@@ -94,8 +89,6 @@ def _the_reaper_king_no_more() -> list[AbilitySpec]:
                 "target_count": 2, "optional": True,
             })],
             trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
-            raw_text="wenn ~ ins spiel kommt, lege eine -1/-1-marke auf jede von bis zu "
-                     "zwei zielkreaturen.",
         ),
         AbilitySpec(
             "static", [],
@@ -103,9 +96,6 @@ def _the_reaper_king_no_more() -> list[AbilitySpec]:
                 "counter_kind": "-1/-1", "opponent": True, "immediate": True,
                 "optional": True, "once_per_turn": True,
             },
-            raw_text="wann immer eine kreatur, die ein gegner kontrolliert und die eine "
-                     "-1/-1-marke auf sich hat, stirbt, darfst du diese karte unter deiner "
-                     "kontrolle auf das schlachtfeld bringen. tue dies nur einmal pro zug.",
         ),
     ]
 
@@ -132,8 +122,6 @@ def _hapatra_vizier_of_poisons() -> list[AbilitySpec]:
             [EffectSpec("add_counters", {"count": 1, "kind": "-1/-1", "target_kind": "creature"})],
             trigger={"event": "DAMAGE", "filter": {"combat": True, "is_player": True}},
             optional=True,
-            raw_text="immer wenn hapatra einem spieler kampfschaden zufügt, darfst du "
-                     "eine -1/-1-marke auf eine zielkreatur legen.",
         ),
         AbilitySpec(
             "triggered",
@@ -145,8 +133,6 @@ def _hapatra_vizier_of_poisons() -> list[AbilitySpec]:
                 "event": "COUNTER",
                 "filter": {"kind": "-1/-1", "recipient_is_creature": True, "by_you": True},
             },
-            raw_text="immer wenn du eine oder mehr -1/-1-marken auf eine kreatur legst, "
-                     "erzeuge einen 1/1 grünen schlange-kreaturenspielstein mit todesberührung.",
         ),
     ]
 
@@ -186,9 +172,6 @@ def _auntie_ool_cursewretch() -> list[AbilitySpec]:
                 "event": "COUNTER",
                 "filter": {"kind": "-1/-1", "recipient_is_creature": True},
             },
-            raw_text="immer wenn eine oder mehr -1/-1-marken auf eine kreatur gelegt "
-                     "werden, ziehe eine karte, falls du diese kreatur kontrollierst. "
-                     "falls du sie nicht kontrollierst, verliert ihr beherrscher 1 leben.",
         ),
     ]
 
@@ -219,8 +202,6 @@ def _wickersmiths_tools() -> list[AbilitySpec]:
                 "event": "COUNTER",
                 "filter": {"kind": "-1/-1", "recipient_is_creature": True},
             },
-            raw_text="immer wenn eine oder mehr -1/-1-marken auf eine kreatur gelegt "
-                     "werden, lege eine ladungsmarke auf ~.",
         ),
         AbilitySpec(
             "activated",
@@ -230,9 +211,6 @@ def _wickersmiths_tools() -> list[AbilitySpec]:
                 "count_selector": "charge_counters_on_source",
             })],
             cost={"text": "{5}, {T}, Sacrifice ~"},
-            raw_text="{5}, {t}, opfere ~: erzeuge x getappte 2/2 farblose scarecrow-"
-                     "artefaktkreaturen-spielsteine, wobei x die anzahl der ladungsmarken "
-                     "auf ~ ist.",
         ),
     ]
 
@@ -259,7 +237,6 @@ def _massacre_girl_known_killer() -> list[AbilitySpec]:
             [EffectSpec("grant_keyword", {
                 "affects": "creatures_you_control", "keywords": ["wither"],
             })],
-            raw_text="kreaturen, die du kontrollierst, haben wither.",
         ),
         AbilitySpec(
             "triggered",
@@ -272,8 +249,6 @@ def _massacre_girl_known_killer() -> list[AbilitySpec]:
                 # last-known toughness (checked at trigger time).
                 "dying_toughness_below": 1,
             },
-            raw_text="immer wenn eine kreatur, die ein gegner kontrolliert, stirbt, "
-                     "ziehe eine karte, falls ihre widerstandskraft kleiner als 1 war.",
         ),
     ]
 
@@ -295,19 +270,16 @@ def _dusk_urchins() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("add_counters", {"count": 1, "kind": "-1/-1"})],
             trigger={"event": "ATTACKS", "condition": {"subject": "self"}},
-            raw_text="immer wenn ~ angreift, lege eine -1/-1-marke auf ~.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("add_counters", {"count": 1, "kind": "-1/-1"})],
             trigger={"event": "BLOCKS", "condition": {"subject": "self"}},
-            raw_text="immer wenn ~ blockt, lege eine -1/-1-marke auf ~.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("draw", {"count": 1, "count_from_trigger_event_counter": "-1/-1"})],
             trigger={"event": "DIES", "condition": {"subject": "self"}},
-            raw_text="wenn ~ stirbt, ziehe eine karte für jede -1/-1-marke auf ~.",
         ),
     ]
 
@@ -334,8 +306,6 @@ def _midnight_banshee() -> list[AbilitySpec]:
                 "creature_filter": {"without_color": "B"},
             })],
             trigger={"event": "STEP_BEGIN", "filter": {"step": "upkeep"}, "phase_relation": "you"},
-            raw_text="zu beginn deines versorgungssegments lege eine -1/-1-marke auf "
-                     "jede nichtschwarze kreatur.",
         ),
     ]
 
@@ -367,8 +337,6 @@ def _blowfly_infestation() -> list[AbilitySpec]:
                 # counter on it.
                 "dying_had_counter": "-1/-1",
             },
-            raw_text="immer wenn eine kreatur stirbt, lege eine -1/-1-marke auf eine "
-                     "zielkreatur, falls sie eine -1/-1-marke auf sich hatte.",
         ),
     ]
 
@@ -392,8 +360,6 @@ def _painful_truths() -> list[AbilitySpec]:
                 EffectSpec("draw", {"count": 0, "amount_from_count_selector": "converge"}),
                 EffectSpec("lose_life", {"amount": 0, "amount_from_count_selector": "converge"}),
             ],
-            raw_text="du ziehst x karten und verlierst x leben, wobei x die anzahl der "
-                     "farben an mana ist, das zum wirken dieses zauberspruchs ausgegeben wurde.",
         ),
     ]
 
@@ -418,7 +384,6 @@ def _grave_venerations() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("become_monarch", {})],
             trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
-            raw_text="wenn ~ ins spiel kommt, wirst du zum monarchen.",
         ),
         AbilitySpec(
             "triggered",
@@ -429,8 +394,6 @@ def _grave_venerations() -> list[AbilitySpec]:
                 "event": "STEP_BEGIN", "filter": {"step": "end"}, "phase_relation": "you",
                 "active_if": {"kind": "is_monarch"},
             },
-            raw_text="zu beginn deines endsegments, falls du der monarch bist, bringe "
-                     "bis zu eine zielkreaturenkarte aus deinem friedhof auf deine hand zurück.",
         ),
         AbilitySpec(
             "triggered",
@@ -443,8 +406,6 @@ def _grave_venerations() -> list[AbilitySpec]:
                 "condition": {"subject": "group", "type": "creature",
                               "controller": "you", "other": False},
             },
-            raw_text="immer wenn eine kreatur, die du kontrollierst, stirbt, verliert "
-                     "jeder gegner 1 leben und du erhältst 1 leben.",
         ),
     ]
 
@@ -471,8 +432,6 @@ def _ifnir_deadlands() -> list[AbilitySpec]:
                 "count": 2, "kind": "-1/-1", "target_kind": "creature_you_dont_control",
             })],
             cost={"text": "{2}{B}{B}, {T}, Sacrifice a Desert", "sorcery_speed_only": True},
-            raw_text="{2}{b}{b}, {t}, opfere eine wüste: lege zwei -1/-1-marken auf eine "
-                     "zielkreatur, die ein gegner kontrolliert. aktiviere nur wie eine hexerei.",
         ),
     ]
 
@@ -500,14 +459,10 @@ def _archfiend_of_ifnir() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered", list(_effect),
             trigger={"event": "CYCLED", "condition": {"subject": "you"}, "other": True},
-            raw_text="immer wenn du eine andere karte umwandelst, lege eine -1/-1-marke "
-                     "auf jede kreatur, die deine gegner kontrollieren.",
         ),
         AbilitySpec(
             "triggered", list(_effect),
             trigger={"event": "DISCARD_CARD", "condition": {"subject": "you"}, "other": True},
-            raw_text="immer wenn du eine andere karte abwirfst, lege eine -1/-1-marke "
-                     "auf jede kreatur, die deine gegner kontrollieren.",
         ),
     ]
 
@@ -530,9 +485,6 @@ def _nesting_grounds() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("move_counters", {})],
             cost={"text": "{1}, {T}", "sorcery_speed_only": True},
-            raw_text="{1}, {t}: bewege eine marke von einer zielkarte eines bleibenden "
-                     "kartentyps, die du kontrollierst, auf eine zweite zielkarte eines "
-                     "bleibenden kartentyps. aktiviere nur wie eine hexerei.",
         ),
     ]
 
@@ -560,8 +512,6 @@ def _kulrath_knight() -> list[AbilitySpec]:
                 "affects": "creatures_opponents_control_with_a_counter",
                 "keywords": ["cant_attack", "cant_block"],
             })],
-            raw_text="kreaturen, die deine gegner kontrollieren und marken auf sich "
-                     "haben, können weder angreifen noch blocken.",
         ),
     ]
 
@@ -586,8 +536,6 @@ def _tree_of_perdition() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("exchange_life_total_with_toughness", {})],
             cost={"text": "{T}"},
-            raw_text="{t}: tausche die lebenspunkte eines zielgegners mit der "
-                     "widerstandskraft dieser kreatur aus.",
         ),
     ]
 
@@ -613,9 +561,6 @@ def _lasting_tarfire() -> list[AbilitySpec]:
                 "event": "STEP_BEGIN", "filter": {"step": "end"},
                 "active_if": {"kind": "you_placed_counter_on_creature_this_turn"},
             },
-            raw_text="zu beginn jedes endsegments, falls du in diesem zug eine marke "
-                     "auf eine kreatur gelegt hast, fügt diese verzauberung jedem "
-                     "gegner 2 schadenspunkte zu.",
         ),
     ]
 
@@ -658,18 +603,12 @@ def _oft_nabbed_goat() -> list[AbilitySpec]:
             ],
             cost={"mana": "{1}", "only_opponents_may_activate": True,
                   "sorcery_speed_only": True},
-            raw_text="{1}: ziehe eine karte. übernimm die kontrolle über diese kreatur "
-                     "und lege eine -1/-1-marke auf sie. nur deine gegner können diese "
-                     "fähigkeit aktivieren und nur wie eine hexerei.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("owner_draw_others_lose_per_dying_counter", {"counter_kind": "-1/-1"})],
             trigger={"event": "DIES", "condition": {"subject": "self"},
                      "dying_had_counter": "-1/-1"},
-            raw_text="wenn ~ stirbt, falls eine oder mehr -1/-1-marken auf ihr lagen, "
-                     "zieht ihr besitzer so viele karten und jeder andere spieler "
-                     "verliert so viele lebenspunkte.",
         ),
     ]
 
@@ -696,16 +635,11 @@ def _ferrafor_young_yew() -> list[AbilitySpec]:
                 "token_name": "Saproling",
             })],
             trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
-            raw_text="wenn ~ ins spiel kommt, erzeuge so viele 1/1 grüne saproling-"
-                     "kreaturenspielsteine wie marken auf kreaturen liegen, die ein "
-                     "zielspieler kontrolliert.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("double_counters_on_target", {"target_kind": "creature"})],
             cost={"text": "{T}"},
-            raw_text="{t}: verdopple die anzahl der marken jeder art auf einer "
-                     "zielkreatur.",
         ),
     ]
 
@@ -725,13 +659,9 @@ def _everlasting_torment() -> list[AbilitySpec]:
     static — RULE 609.4b as-though, consulted by `RulesEngine.deal_damage`).
     """
     return [
-        AbilitySpec("static", [EffectSpec("prevent_all_life_gain", {})],
-                    raw_text="spieler können keine lebenspunkte dazugewinnen."),
-        AbilitySpec("static", [EffectSpec("damage_cant_be_prevented", {})],
-                    raw_text="schaden kann nicht verhindert werden."),
-        AbilitySpec("static", [EffectSpec("global_wither", {})],
-                    raw_text="jeglicher schaden wird so zugefügt, als hätte seine "
-                             "quelle auszehrung."),
+        AbilitySpec("static", [EffectSpec("prevent_all_life_gain", {})]),
+        AbilitySpec("static", [EffectSpec("damage_cant_be_prevented", {})]),
+        AbilitySpec("static", [EffectSpec("global_wither", {})]),
     ]
 
 
@@ -763,7 +693,6 @@ def _cathartic_pyre() -> list[AbilitySpec]:
                     "Wirf bis zu zwei Karten ab, ziehe dann so viele Karten.",
                 ],
             },
-            raw_text="wähle eins —",
         )
     ]
 
@@ -786,9 +715,6 @@ def _eventides_shadow() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("remove_counters_from_among_then_draw_lose_life", {})],
-            raw_text="entferne beliebig viele marken von bleibenden karten. ziehe so "
-                     "viele karten und verliere so viele lebenspunkte, wie marken auf "
-                     "diese weise entfernt wurden.",
         )
     ]
 
@@ -824,11 +750,6 @@ def _pucas_covenant() -> list[AbilitySpec]:
                               "controller": "you", "has_counter": True, "other": False},
                 "limit": True,
             },
-            raw_text="immer wenn eine kreatur mit einer marke, die du kontrollierst, "
-                     "stirbt, darfst du eine andere zielkarte eines bleibenden kartentyps "
-                     "mit manawert kleiner oder gleich der anzahl der marken auf jener "
-                     "kreatur aus deinem friedhof auf deine hand zurückbringen. tue dies "
-                     "nur einmal pro zug.",
         )
     ]
 
@@ -856,11 +777,6 @@ def _burning_curiosity() -> list[AbilitySpec]:
             [EffectSpec("impulsive_draw", {"count": 2, "count_if_additional_cost_paid": 3})],
             additional_cost={"blight": 1},
             additional_cost_optional=True,
-            raw_text="als zusätzliche kosten, um diesen zauberspruch zu wirken, kannst "
-                     "du blight 1 ausführen. schicke die obersten zwei karten deiner "
-                     "bibliothek ins exil. falls die zusätzlichen kosten bezahlt wurden, "
-                     "schicke stattdessen die obersten drei karten ins exil. bis zum ende "
-                     "deines nächsten zuges kannst du jene karten spielen.",
         )
     ]
 

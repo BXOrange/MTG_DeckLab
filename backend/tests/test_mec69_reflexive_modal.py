@@ -1,7 +1,7 @@
 """MEC-69 / PAR-58 — modal reflexive continuations (RULE 603.11)."""
 
 from mtg_analyzer.config import DB_PATH
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.services.card_database import CardDatabase

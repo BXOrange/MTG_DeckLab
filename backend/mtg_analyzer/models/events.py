@@ -111,7 +111,7 @@ class EventType:
     #: pre-emptively by `RulesEngine._move_to_graveyard` (creatures leaving
     #: the battlefield only) so a "if ~ would die, exile it instead"
     #: replacement (RULE 616.1, Gloomshrieker/Corpseweaver Prodigy,
-    #: `game/effects.py`'s `_die_to_exile_replacement`) can redirect it to
+    #: `game/effects/core.py`'s `_die_to_exile_replacement`) can redirect it to
     #: exile before any DIES trigger fires. Distinct from DIES above, which
     #: fires *after* the death has happened (a trigger source), and from
     #: DESTROY (only the "destroy" path, not every graveyard-from-battlefield
@@ -403,21 +403,21 @@ class EventType:
     #: fired for the first, only time) — carries ``instance_id``, so a
     #: card's own separate "when this creature becomes renowned, …" trigger
     #: (Relic Seeker) can key off it distinctly from Renown's own counter-
-    #: placing effect (`game/effects.py`'s `RenownEffect`, which fires this).
+    #: placing effect (`game/effects/core.py`'s `RenownEffect`, which fires this).
     RENOWNED = "RENOWNED"
     #: RULE 701.37a: a permanent just became **monstrous** (its monstrosity
     #: ability resolved for the first, only time) — carries ``instance_id``
     #: and ``controller_id``, so "when ~ becomes monstrous, …" (Arbor
     #: Colossus, the largest trigger family on these cards) rides RULE
     #: 603.1's ordinary self/group subject scoping. Fired by
-    #: `game/effects.py`'s `MonstrosityEffect`, and *only* on the transition:
+    #: `game/effects/core.py`'s `MonstrosityEffect`, and *only* on the transition:
     #: 701.37a's "if this permanent isn't monstrous" means a second
     #: activation does nothing at all, event included.
     BECAME_MONSTROUS = "BECAME_MONSTROUS"
     #: MEC-48: a permanent just **specialized** (its "Specialize {cost}"
     #: activated ability resolved) — carries ``instance_id``/
     #: ``controller_id`` and, when known, ``color`` (a colour of the
-    #: discarded card). Fired by `game/effects.py`'s `SpecializeEffect`.
+    #: discarded card). Fired by `game/effects/core.py`'s `SpecializeEffect`.
     #: Specialize is an Arena-only digital keyword whose five specialized
     #: faces aren't in this repo's Scryfall seed, so the engine fires this
     #: event + marks `GameObject.is_specialized` but does **not** swap the

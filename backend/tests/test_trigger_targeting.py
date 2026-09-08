@@ -8,8 +8,8 @@ silently no-op'd. This is the fix: a target-needing trigger now opens a
 order_triggers) instead of resolving blind.
 """
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import CounterSpellEffect, DestroyEffect, TriggeredAbility
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import CounterSpellEffect, DestroyEffect, TriggeredAbility
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent

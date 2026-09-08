@@ -6,8 +6,8 @@ view's ``top_library_visible`` flag.
 """
 
 from mtg_analyzer.game import ability_catalogue
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import TopLibraryPermissionEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import TopLibraryPermissionEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.top_library import (
     active_top_library_grants,

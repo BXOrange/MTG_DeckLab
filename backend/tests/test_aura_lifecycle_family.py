@@ -34,7 +34,7 @@ mtg_analyzer/game/{rules_engine,effects}.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -196,7 +196,7 @@ def test_rancor_returns_itself_from_the_graveyard_to_hand_when_it_dies():
 
 
 def test_activated_self_bounce_returns_the_aura_from_the_battlefield():
-    from mtg_analyzer.game.effects import GameContext, ReturnToHandEffect
+    from mtg_analyzer.game.effects.core import GameContext, ReturnToHandEffect
 
     eng = _engine()
     state = eng.state

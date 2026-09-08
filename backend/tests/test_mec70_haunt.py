@@ -1,7 +1,7 @@
 """MEC-70 — RULE 702.55 Haunt links and exile-zone death triggers."""
 
-from mtg_analyzer.game.effects import HauntEffect, HauntLinkedDeathEffect, TriggeredAbility
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.effects.core import HauntEffect, HauntLinkedDeathEffect, TriggeredAbility
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType

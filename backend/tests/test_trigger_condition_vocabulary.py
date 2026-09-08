@@ -12,7 +12,7 @@ Reference: CR 603.1, 500.7, 507, 505, 708.8, 509.5, 701.21b, 702.140c.
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent

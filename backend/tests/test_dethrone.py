@@ -10,7 +10,7 @@ dethrone.", a layer-6 static that never runs the bind-on-load machinery on
 the creatures it affects).
 """
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.mana_cost import ManaCost

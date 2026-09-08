@@ -22,7 +22,7 @@ coverage.
 
 import pytest
 
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.effects.core import (
     DealDamageEffect,
     DestroyEffect,
     DrawCardEffect,
@@ -243,7 +243,7 @@ def test_trigger_required_spec_with_no_legal_target_drops_the_whole_ability():
 
 
 def test_trigger_optional_second_spec_with_no_legal_target_is_skipped():
-    from mtg_analyzer.game.effects import DestroyEffect as _DestroyEffect
+    from mtg_analyzer.game.effects.core import DestroyEffect as _DestroyEffect
 
     eng, p1, p2 = two_player_engine()
     source = _put(eng, creature("Source"), controller="p1")

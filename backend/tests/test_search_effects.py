@@ -2,7 +2,7 @@
 grammar (RULE 701.19, `parser/oracle/catalogue/handlers.py`'s
 `_search_put_then_shuffle`/`_search_shuffle_then_put_top`).
 
-The engine side (`game/effects.py`'s `SearchLibraryEffect`, arbitrary
+The engine side (`game/effects/core.py`'s `SearchLibraryEffect`, arbitrary
 criteria/destination/count) was already fully built and proven against 15
 real popular tutors by `test_search_popular_tutors.py` — this file covers the
 **parser recognition** side that was missing: turning real oracle text into
@@ -15,7 +15,7 @@ grammar deliberately doesn't attempt.
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType
 from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body

@@ -94,7 +94,7 @@ def test_a_planechase_game_starts_with_a_face_up_plane():
 
 
 def _plane_object(name, owner_id="p1", text="", type_line="Plane — Dominaria"):
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     obj = GameObject(
         Card(id=name, name=name, type_line=type_line, layout="planar", oracle_text=text),
@@ -175,7 +175,7 @@ def test_a_planes_ability_functions_from_the_command_zone():
         id="tp", name="Testplane", type_line="Plane — Dominaria", layout="planar",
         oracle_text="Whenever chaos ensues, you gain 3 life.",
     )
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     plane = GameObject(plane_card, owner_id="p1", zone=Zone.COMMAND)
     bind_from_catalogue(plane)
@@ -221,7 +221,7 @@ def test_setting_a_scheme_in_motion_fires_its_trigger():
         id="s", name="Testscheme", type_line="Scheme", layout="scheme",
         oracle_text="When you set this scheme in motion, you gain 5 life.",
     )
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     scheme = GameObject(scheme_card, owner_id="p1", zone=Zone.COMMAND)
     bind_from_catalogue(scheme)
@@ -307,7 +307,7 @@ def test_an_avatars_hand_and_life_modifiers_apply(monkeypatch):
 def _named_avatar(name, owner_id):
     entry = default_variant_card_database().get(name)
     obj = GameObject(card_for(entry), owner_id=owner_id, zone=Zone.COMMAND)
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     bind_from_catalogue(obj)
     return obj
@@ -322,7 +322,7 @@ def test_an_avatars_static_ability_applies_from_the_command_zone():
              oracle_text="Creatures you control get +1/+1."),
         owner_id="p1", zone=Zone.COMMAND,
     )
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
     from mtg_analyzer.game import continuous
 
     bind_from_catalogue(avatar)
@@ -381,7 +381,7 @@ def test_real_catalogue_cards_parse_without_crashing():
 def test_a_phenomenon_planeswalks_the_table_straight_on(monkeypatch):
     """RULE 901.17/901.18: a phenomenon is encountered, then left at once."""
     eng = make_engine("planechase")
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     phenomenon = GameObject(
         Card(id="ph", name="Testphenomenon", type_line="Phenomenon", layout="planar",

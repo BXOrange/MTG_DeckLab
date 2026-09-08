@@ -51,8 +51,8 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import ActivatedAbility
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import ActivatedAbility
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.mana_abilities import mana_options_for
 from mtg_analyzer.models.card import Card

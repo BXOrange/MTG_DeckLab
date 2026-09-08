@@ -14,7 +14,7 @@ from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game.effects import CascadeEffect, DiscoverEffect, EffectRegistry
+from mtg_analyzer.game.effects.core import CascadeEffect, DiscoverEffect, EffectRegistry
 
 
 def land(name="Forest"):

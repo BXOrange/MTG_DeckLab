@@ -9,7 +9,7 @@ if 2+ counter kinds are present — which kind, one at a time.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effects import GameContext, RemoveCountersEffect
+from mtg_analyzer.game.effects.core import GameContext, RemoveCountersEffect
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

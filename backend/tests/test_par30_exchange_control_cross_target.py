@@ -13,7 +13,7 @@ simplification the pre-existing different-controllers no-op already is).
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effects import ExchangeControlEffect, GameContext
+from mtg_analyzer.game.effects.core import ExchangeControlEffect, GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

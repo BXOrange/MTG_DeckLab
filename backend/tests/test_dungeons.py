@@ -282,7 +282,7 @@ def test_a_ventured_room_ability_actually_resolves_end_to_end():
     → the chosen dungeon's first room ability resolves."""
     eng = make_engine()
     player = library(eng, count=20)
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     card = Card(
         id="v", name="Venturer", type_line="Creature — Human",

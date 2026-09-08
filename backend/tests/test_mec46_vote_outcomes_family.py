@@ -19,7 +19,7 @@ Ring-bearer" counter selector, "if another Elf entered … this turn"
 intervening-if).
 
 Reference: game/rules/misc_mixin.py (`request_vote`/`request_object_vote`/
-`_advance_expropriate_gain_control`), game/effects.py (`VoteEffect`/
+`_advance_expropriate_gain_control`), game/effects/core.py (`VoteEffect`/
 `ObjectVoteEffect`/`SetForcedVoterEffect`/`AddCountersEffect.ring_bearer`),
 game/static_conditions.py (`another_subtype_entered_this_turn`),
 parser/oracle/catalogue/handlers.py, parser/oracle/segmenter.py.

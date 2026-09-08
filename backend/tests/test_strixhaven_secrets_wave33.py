@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
-from mtg_analyzer.game.effect_binder import bind_ability
+from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType
@@ -63,7 +63,7 @@ def test_first_x_spell_flag_true_only_for_first_x_cast_this_turn():
 
 
 def test_nev_static_grants_trample_to_countered_creatures():
-    from mtg_analyzer.game.effect_binder import build_effects
+    from mtg_analyzer.game.binding.core import build_effects
     eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
                               starting_hand=0, starting_life=20)
     p1 = eng.state.active_player

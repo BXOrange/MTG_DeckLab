@@ -8,13 +8,13 @@ flag at combat time (`combat.is_suspected`, `has_menace`,
 is Absolving Lammasu's "all suspected creatures are no longer suspected".
 
 Reference: game/rules/misc_mixin.py (`suspect`), game/combat.py
-(`is_suspected`), game/effects.py, parser/oracle/catalogue/handlers.py.
+(`is_suspected`), game/effects/core.py, parser/oracle/catalogue/handlers.py.
 """
 
 from __future__ import annotations
 
 from mtg_analyzer.game import combat
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
@@ -255,7 +255,7 @@ def test_add_counters_effect_only_offers_suspected_creatures_as_legal_targets():
 
 
 def test_add_counters_effect_puts_counter_on_the_suspected_target():
-    from mtg_analyzer.game.effects import AddCountersEffect, GameContext
+    from mtg_analyzer.game.effects.core import AddCountersEffect, GameContext
 
     eng, state = _engine()
     suspected = _creature("Suspected", "p1")

@@ -54,7 +54,7 @@ never this ticket's own scope to close — CLAUDE.md already frames it as
 "PAR-12 work with a known card list", re-confirmed rather than newly
 regressed.
 
-Reference: mtg_analyzer/game/dungeons.py, mtg_analyzer/game/effects.py,
+Reference: mtg_analyzer/game/dungeons.py, mtg_analyzer/game/effects/core.py,
 mtg_analyzer/game/rules/misc_mixin.py (`request_each_player_pay_or`),
 mtg_analyzer/game/costs.py, mtg_analyzer/services/token_database.py,
 mtg_analyzer/parser/oracle/catalogue/handlers.py.
@@ -63,7 +63,7 @@ mtg_analyzer/parser/oracle/catalogue/handlers.py.
 from __future__ import annotations
 
 from mtg_analyzer.game.dungeons import all_dungeons, room_effect_specs
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

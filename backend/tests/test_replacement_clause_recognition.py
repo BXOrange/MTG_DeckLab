@@ -1,5 +1,5 @@
 """Tests for oracle-text *recognition* of standing replacement-effect
-clauses (Batch 11's A.5 item) — the binder side (`game/effects.py`'s
+clauses (Batch 11's A.5 item) — the binder side (`game/effects/core.py`'s
 `ReplacementRegistry`) already supported `double_tokens`/`double_counters`/
 `additional_damage`/`prevent_damage`/`double_damage`; this covers the new
 parser front-end (`parser/oracle/catalogue/replacements.py`) for the first
@@ -11,7 +11,7 @@ are a different, unmodeled *one-shot spell effect* shape and aren't covered.
 Mirrors `test_effect_families_wave3.py`'s parser-then-engine split.
 """
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

@@ -13,7 +13,7 @@ server-side `has_legal_targets` enforcement) plus
 split.
 """
 
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.effects.core import (
     AddCountersEffect,
     DealDamageEffect,
     DestroyEffect,

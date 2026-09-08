@@ -6,7 +6,7 @@ Covers the whole pipeline: the `gate.py` block grouper that recognises a
 trigger-wrapped (a permanent's modal triggered ability,
 `parser/oracle/catalogue/modal.py`), the `AbilitySpec.modes` IR
 (`parser/oracle/spec.py`), the binder that turns it into `obj.spell_modes`
-or a `TriggeredAbility.modes` (`game/effect_binder.py`), and the engine's
+or a `TriggeredAbility.modes` (`game/binding/core.py`), and the engine's
 per-mode cast offer/commit for a spell (`game/game_engine.py`) or the
 `trigger_mode` interactive choice for a triggered ability
 (`game/rules_engine.py`).
@@ -16,8 +16,8 @@ import pytest
 
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
-from mtg_analyzer.game.effects import TriggeredAbility
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.effects.core import TriggeredAbility
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec, SpecValidationError
@@ -255,7 +255,7 @@ def test_activated_modal_wider_than_choose_one_fails_at_bind_time():
     # 2" activated modal (it's a structurally valid RULE 700.2 block), but
     # `effect_binder.bind_ability` refuses to bind it -- no activated
     # ability in this cache needs more than plain "choose one" yet.
-    from mtg_analyzer.game.effect_binder import bind_ability
+    from mtg_analyzer.game.binding.core import bind_ability
 
     spec = AbilitySpec(
         "activated", effects=[],
@@ -272,7 +272,7 @@ def test_activated_modal_wider_than_choose_one_fails_at_bind_time():
         bind_ability(spec, source=None)
 
 
-# -- Binder (effect_binder.py) ------------------------------------------------
+# -- Binder (binding/core.py) ------------------------------------------------
 
 
 def test_binder_attaches_spell_modes_per_option():
@@ -297,7 +297,7 @@ def test_binder_attaches_spell_modes_per_option():
     assert obj.spell_modes[0]["description"] == "deal 3 damage to any target."
     assert obj.spell_modes[1]["description"] == "draw 2 cards."
     # Each mode's effects are live GameEffect objects, not specs.
-    from mtg_analyzer.game.effects import GameEffect
+    from mtg_analyzer.game.effects.core import GameEffect
     assert all(isinstance(e, GameEffect) for e in obj.spell_modes[0]["effects"])
     assert all(isinstance(e, GameEffect) for e in obj.spell_modes[1]["effects"])
     # No top-level spell_effects — nothing resolves until a mode is chosen.
@@ -542,7 +542,7 @@ def _modal_etb_trigger(source):
     exercising `game/rules_engine.py`'s `trigger_mode` choice directly
     rather than round-tripping through oracle text.
     """
-    from mtg_analyzer.game.effects import DestroyEffect, GainLifeEffect
+    from mtg_analyzer.game.effects.core import DestroyEffect, GainLifeEffect
 
     return TriggeredAbility(
         trigger_event="ENTERS_BATTLEFIELD",
@@ -565,7 +565,7 @@ def _modal_etb_trigger_or_both(source):
     correctly too via `StackItem.target_groups`
     (`test_multi_effect_targeting.py`) — this fixture just isn't the test for
     that; it isolates the "or both" combining mechanism itself."""
-    from mtg_analyzer.game.effects import DrawCardEffect, GainLifeEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect, GainLifeEffect
 
     return TriggeredAbility(
         trigger_event="ENTERS_BATTLEFIELD",
@@ -694,7 +694,7 @@ def test_choosing_one_mode_of_an_or_both_ability_applies_only_that_one():
 
 
 def test_modal_triggered_ability_end_to_end_from_oracle_text():
-    """The full pipeline: oracle text → gate.py → spec.py → effect_binder.py
+    """The full pipeline: oracle text → gate.py → spec.py → binding/core.py
     → a real firing through the event bus, no low-level construction."""
     eng = make_engine()
     eng.begin_turn()

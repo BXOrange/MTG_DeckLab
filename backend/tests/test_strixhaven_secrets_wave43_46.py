@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
-from mtg_analyzer.game.effect_binder import bind_ability
+from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 
@@ -45,5 +45,5 @@ def test_ceaseless_conflict_token_count_from_destroyed():
     spec = _REGISTRY["ceaseless conflict"]()[0]
     tok = next(e for e in spec.effects if e.type == "create_token")
     assert tok.params["count_from_context"] == "permanents_destroyed_this_way"
-    from mtg_analyzer.game.effects import _TOKEN_COUNT_CONTEXT_ACCUMULATORS
+    from mtg_analyzer.game.effects.core import _TOKEN_COUNT_CONTEXT_ACCUMULATORS
     assert "permanents_destroyed_this_way" in _TOKEN_COUNT_CONTEXT_ACCUMULATORS

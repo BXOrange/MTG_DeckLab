@@ -11,7 +11,7 @@ from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.mana_cost import ManaCost
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.effects.core import (
     CounterSpellEffect,
     DealDamageEffect,
     DestroyEffect,
@@ -209,7 +209,7 @@ def test_casting_is_allowed_once_a_target_exists():
 
 # --- PLR-7: a `TargetSpec`'s best-effort good/bad hint ----------------------
 #
-# `GameEffect.target_polarity()` (game/effects.py) feeds `TargetSpec.
+# `GameEffect.target_polarity()` (game/effects/core.py) feeds `TargetSpec.
 # polarity` here, which `requirements_with_targets` then threads onto the
 # `cast_spell` action's own requirement dict — the wire contract
 # `services/bots.py`'s `GreedyBot` reads to point a removal spell at an
@@ -226,7 +226,7 @@ def test_a_removal_spells_requirement_is_harmful():
 
 
 def test_a_pump_spells_requirement_is_beneficial():
-    from mtg_analyzer.game.effects import PumpEffect
+    from mtg_analyzer.game.effects.core import PumpEffect
 
     eng, p1, p2 = two_player_engine()
     obj = give_spell(
@@ -238,7 +238,7 @@ def test_a_pump_spells_requirement_is_beneficial():
 
 
 def test_a_debuff_pump_spells_requirement_is_harmful():
-    from mtg_analyzer.game.effects import PumpEffect
+    from mtg_analyzer.game.effects.core import PumpEffect
 
     eng, p1, p2 = two_player_engine()
     obj = give_spell(
@@ -252,7 +252,7 @@ def test_a_debuff_pump_spells_requirement_is_harmful():
 def test_an_untargeted_effects_requirement_has_no_polarity_opinion():
     """Not every targeting effect is classified — an unlisted shape stays
     ``None`` rather than guessing (`GameEffect.target_polarity`'s default)."""
-    from mtg_analyzer.game.effects import RemoveCountersEffect
+    from mtg_analyzer.game.effects.core import RemoveCountersEffect
 
     eng, p1, p2 = two_player_engine()
     bear = GameObject(creature("Bear"), owner_id="p2", zone=Zone.BATTLEFIELD)
@@ -268,7 +268,7 @@ def test_an_aura_with_no_pt_static_has_no_polarity_opinion():
     keyword-only curse like Pacifism carries none, so this stays ``None``
     (which leaves `GreedyBot`'s "prefer an opponent's permanent" default in
     place — the right call for exactly this shape)."""
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     eng, p1, _ = two_player_engine()
     aura = GameObject(
@@ -287,7 +287,7 @@ def test_an_aura_that_pumps_its_host_is_beneficial():
     """Rancor-shaped: a real layer-7 P/T static on ``attached_permanent``
     is a legible enough signal to flip the default (`targeting.
     _aura_enchant_polarity`)."""
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     eng, p1, _ = two_player_engine()
     aura = GameObject(

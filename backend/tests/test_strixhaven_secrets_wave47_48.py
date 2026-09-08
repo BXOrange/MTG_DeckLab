@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
-from mtg_analyzer.game.effect_binder import bind_ability
+from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 
@@ -53,7 +53,7 @@ def test_group_ok_enchanted_by_your_aura_filter():
     """``_build_group_ok`` honours ``enchanted_by_your_aura``: an ATTACKS
     event only passes when the acting creature has an Aura the ability's
     controller controls attached to it."""
-    from mtg_analyzer.game.effect_binder import _build_group_ok
+    from mtg_analyzer.game.binding.core import _build_group_ok
     from mtg_analyzer.models.events import EventType
 
     src = GameObject(card=Card(id="k", name="Killian, Decisive Mentor",

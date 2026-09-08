@@ -26,8 +26,8 @@ import pytest
 
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import DrawCardEffect, GainLifeEffect, MillEffect, TriggeredAbility
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import DrawCardEffect, GainLifeEffect, MillEffect, TriggeredAbility
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec, SpecValidationError
@@ -531,7 +531,7 @@ def test_missing_answer_during_accumulation_defaults_to_first_available():
 def test_choose_one_or_both_still_works_after_choose_n_changes():
     # Regression guard: the existing choose-1-of-2 "or both" behaviour
     # (test_modal_spells.py) must be unaffected by generalizing to choose-N.
-    from mtg_analyzer.game.effects import DestroyEffect
+    from mtg_analyzer.game.effects.core import DestroyEffect
 
     ability = TriggeredAbility(
         trigger_event="ENTERS_BATTLEFIELD",

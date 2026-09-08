@@ -1,7 +1,7 @@
 """MEC-12 (cEDH staples/staples 2) — Pithing Needle / Phyrexian Revoker's
 RULE 601.2b "as ~ enters, choose a card name" naming lock.
 
-New primitives: `ChooseCardNameReplacement` (`game/effects.py`) — a
+New primitives: `ChooseCardNameReplacement` (`game/effects/core.py`) — a
 free-text fourth `enter_choice_effects` sibling of `ChooseCreatureType
 Replacement`/`ChooseColorReplacement`/`ChooseNamedModeReplacement`, since
 naming a card isn't an enumerable option list the way a creature type/
@@ -20,8 +20,8 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game.costs import parse_activation_cost
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import ActivatedAbility, DrawCardEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import ActivatedAbility, DrawCardEffect
 
 from tests.test_game_engine import creature, make_engine, obj_on_battlefield
 

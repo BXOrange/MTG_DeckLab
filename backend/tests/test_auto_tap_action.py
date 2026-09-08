@@ -15,7 +15,7 @@ Reference: docs/implementation-state/Done_Backend.md "Mana-Potenzial".
 import pytest
 
 from mtg_analyzer.game.costs import ActivationCost
-from mtg_analyzer.game.effects import ActivatedAbility, DrawCardEffect
+from mtg_analyzer.game.effects.core import ActivatedAbility, DrawCardEffect
 from mtg_analyzer.game import mana_potential
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

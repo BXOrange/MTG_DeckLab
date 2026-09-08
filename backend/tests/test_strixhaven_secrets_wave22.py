@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
-from mtg_analyzer.game.effect_binder import build_effects
+from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -36,7 +36,7 @@ def test_registered_and_specs_validate(name):
     src = GameObject(card=Card(id="x", name=name, type_line="Enchantment"),
                      owner_id="p1", zone=Zone.BATTLEFIELD)
     src.controller_id = "p1"
-    from mtg_analyzer.game.effect_binder import bind_ability
+    from mtg_analyzer.game.binding.core import bind_ability
     for s in specs:
         bind_ability(s, src)
 

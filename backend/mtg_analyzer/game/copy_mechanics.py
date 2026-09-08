@@ -109,7 +109,7 @@ def become_copy(
     ``obj._front_card`` is updated the same way once ``obj`` becomes a copy,
     so a *further* copy of ``obj`` sees this copy rather than ``obj``'s own
     original printed card — the chain composes."""
-    from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+    from .binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
     copiable = getattr(target, "_front_card", target.card)
     obj.card = copiable.as_copy(

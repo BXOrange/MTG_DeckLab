@@ -36,7 +36,7 @@ from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
 from .triggers_mixin import _has_suspend
-from ..effects import (
+from ..effects.core import (
     _apply_effects_partitioned,
     AddCountersEffect,
     CompleteDungeonEffect,
@@ -406,7 +406,7 @@ class MiscSystemsMixin:
         """
         if not effect_specs and not modes:
             return
-        from ..effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
         from ...parser.oracle.spec import EffectSpec
 
         built = build_effects(
@@ -1279,7 +1279,7 @@ class MiscSystemsMixin:
         if not effect_specs:
             return
         from ...parser.oracle.spec import EffectSpec
-        from ..effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
 
         built = build_effects(
             [
@@ -1705,7 +1705,7 @@ class MiscSystemsMixin:
         every real card with that ability in the pool is a cast permanent,
         never a token, so there's nothing to exercise it against yet.
         """
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
         def _finish_entry(token: GameObject) -> None:
             token.summoning_sick = True  # RULE 302.6 applies to tokens too
@@ -2453,10 +2453,10 @@ class MiscSystemsMixin:
         """Serialized `EffectSpec` dicts → live one-shot `GameEffect`s bound
         against ``source`` — the same lazily-imported binder path
         `create_emblem` uses for an emblem's quoted ability, and for the same
-        reason (a module-level import would cycle through `game/effects.py`).
+        reason (a module-level import would cycle through `game/effects/core.py`).
         """
         from ...parser.oracle.spec import EffectSpec
-        from ..effect_binder import BindError, build_effects
+        from ..binding.core import BindError, build_effects
 
         if not specs:
             return []
@@ -3899,7 +3899,7 @@ class MiscSystemsMixin:
         Binding happens here — once, at resolve time — rather than at
         bind-on-load like every other ability, because an emblem has no
         permanent to bind *onto*: `effect_binder.bind_ability` is imported
-        lazily (it imports `game/effects.py`, which this module also feeds
+        lazily (it imports `game/effects/core.py`, which this module also feeds
         into, so a module-level import would cycle) and given a synthetic
         `Emblem` as its ``source`` instead of a `GameObject` (`models/
         emblem.py` — carries just enough, ``controller_id``/``timestamp``,
@@ -3907,7 +3907,7 @@ class MiscSystemsMixin:
         unchanged).
         """
         from ...parser.oracle.spec import AbilitySpec
-        from ..effect_binder import bind_ability
+        from ..binding.core import bind_ability
 
         self.state._timestamp_counter = getattr(self.state, "_timestamp_counter", 0) + 1
         emblem = Emblem(controller_id=player.id, timestamp=self.state._timestamp_counter)
@@ -4111,7 +4111,7 @@ class MiscSystemsMixin:
         of the merged permanent and must not linger on the battlefield or in
         a graveyard as a second permanent.
         """
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
         # Whichever card ends up *under* contributes only its abilities; the
         # one on top supplies the printed face the pile shows.

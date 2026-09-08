@@ -10,7 +10,7 @@ the target.
 from __future__ import annotations
 
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered, specs_for
-from mtg_analyzer.game.effect_binder import bind_ability, bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_ability, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -81,7 +81,7 @@ def test_attack_exiles_each_graveyard_and_scales_counters_by_nonland():
 
     eng.recompute_continuous_effects()
     spec = _REGISTRY["augusta, order returned"]()[0]
-    from mtg_analyzer.game.effect_binder import bind_ability as _ba
+    from mtg_analyzer.game.binding.core import bind_ability as _ba
     trig = _ba(spec, aug)
     # resolve the triggered ability's effect directly against the attacker
     eng.rules._apply_effect_specs(

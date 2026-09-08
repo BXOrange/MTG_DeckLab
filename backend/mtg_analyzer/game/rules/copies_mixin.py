@@ -35,7 +35,7 @@ from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, 
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
-from ..effects import (
+from ..effects.core import (
     _apply_effects_partitioned,
     AddCountersEffect,
     CompleteDungeonEffect,
@@ -283,7 +283,7 @@ class CopiesMixin:
         704.5d stranded-token SBA the moment the resolve path routes it off
         the stack).
         """
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
         item = self._stack_item_for(target)
         if item is None or item.obj is None:
@@ -370,7 +370,7 @@ class CopiesMixin:
         what makes the copy actually reanimate something instead of
         finding no target at all and quietly doing nothing.
         """
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
         copiable = getattr(obj, "_front_card", obj.card)
         copy_obj = GameObject(copiable.as_copy(), owner_id=controller_id, zone=Zone.STACK)
@@ -473,7 +473,7 @@ class CopiesMixin:
         rebound from ``card`` rather than left pointing at the old face's.
         Unlike `become_copy` this doesn't touch counters/zone/control — it's
         a face choice, not a copy effect."""
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
         obj.card = card
         obj.spell_effects = []
@@ -496,7 +496,7 @@ class CopiesMixin:
         RULE 702.145, would never update). Returns whether it flipped — a
         no-op (``False``) for a card with no back face, same as
         `GameObject.transform`."""
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
         if not obj.transform():
             return False

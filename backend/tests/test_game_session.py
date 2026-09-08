@@ -224,7 +224,7 @@ class TestStackAndChoices:
 
     def test_pending_search_gates_actions_and_choose_completes_it(self):
         from mtg_analyzer.models.game_state import StackItem
-        from mtg_analyzer.game.effects import SearchLibraryEffect
+        from mtg_analyzer.game.effects.core import SearchLibraryEffect
 
         session = make_session(library=[bear(), land(), bear()], hand=0)
         state = session.engine.state

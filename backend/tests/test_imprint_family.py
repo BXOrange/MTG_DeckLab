@@ -12,12 +12,12 @@ Two new primitives, both general rather than Chrome-Mox-specific:
   colors," a menu built fresh every tap off whatever `linked_exile_id`
   currently points at.
 
-`ImprintEffect` (`game/effects.py`) is the ETB half — "you may exile a
+`ImprintEffect` (`game/effects/core.py`) is the ETB half — "you may exile a
 `<filter>` card from your hand" — riding `request_choose_objects` exactly
 like Gemstone Caverns' own pregame "exile a card from your hand" tail
 already does, just with `remember=True` added.
 
-Reference: mtg_analyzer/game/effects.py (`ImprintEffect`),
+Reference: mtg_analyzer/game/effects/core.py (`ImprintEffect`),
 game/mana_abilities.py (`_IMPRINTED_COLOR_ADD_RE`, `resolve_options`),
 game/rules/misc_mixin.py (`request_choose_objects`), game/ability_catalogue.py.
 """
@@ -27,7 +27,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import ability_catalogue, mana_abilities
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent

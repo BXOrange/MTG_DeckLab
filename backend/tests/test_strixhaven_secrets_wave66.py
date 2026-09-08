@@ -8,7 +8,7 @@ the copy is made).
 from __future__ import annotations
 
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
-from mtg_analyzer.game.effect_binder import bind_ability
+from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 
@@ -33,7 +33,7 @@ def test_altered_ego_registered_and_binds():
 
 
 def test_enter_as_copy_effect_carries_x_flag():
-    from mtg_analyzer.game.effects import EffectRegistry
+    from mtg_analyzer.game.effects.core import EffectRegistry
 
     eff = EffectRegistry.create("enter_as_copy", {"target_kind": "creature",
                                                   "extra_counters_from_x": True})

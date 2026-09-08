@@ -5,7 +5,7 @@ import pytest
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.game import combat, continuous
-from mtg_analyzer.game.effects import StaticAbility
+from mtg_analyzer.game.effects.core import StaticAbility
 from mtg_analyzer.game.game_engine import GameEngine
 
 
@@ -668,7 +668,7 @@ def test_self_cost_reduction_does_not_apply_to_other_players_spells():
 
 
 def test_bind_and_attach_static_ability():
-    from mtg_analyzer.game.effect_binder import attach_to_object
+    from mtg_analyzer.game.binding.core import attach_to_object
     from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
 
     eng = make_engine()
@@ -689,7 +689,7 @@ def test_bind_and_attach_static_ability():
 
 def _bind(state, card, controller="p1"):
     """Put a permanent on the battlefield with its abilities bound from text."""
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     obj = put(state, card, controller)
     bind_from_catalogue(obj)

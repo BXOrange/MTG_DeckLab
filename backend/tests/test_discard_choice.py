@@ -9,7 +9,7 @@ e.g. a Madness-enabling "Discard a card: …" cost) is unaffected — see
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effects import DiscardEffect, GameContext
+from mtg_analyzer.game.effects.core import DiscardEffect, GameContext
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

@@ -20,7 +20,7 @@ additions, each proven here on the *real* card that motivated it:
    entry (``"LAND_PLAYED": "player_id"``, also ``"UNTAP": "player_id"``) so
    "whenever you play another land" can scope by controller and exclude the
    land's own play — City of Traitors.
-4. `RulesEngine.blink`/`game/effects.py`'s `BlinkEffect` — a new RULE 400.7
+4. `RulesEngine.blink`/`game/effects/core.py`'s `BlinkEffect` — a new RULE 400.7
    "exile then immediately return" primitive (Ephemerate; Rebound stays
    unmodeled, a documented drop).
 5. `RulesEngine.put_hand_cards_on_top`/`PutHandCardsOnTopEffect` — "put N
@@ -45,7 +45,7 @@ import pytest
 
 from mtg_analyzer.game import ability_catalogue as ac
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent

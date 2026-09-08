@@ -14,7 +14,7 @@ none, the action is offered **locked** rather than castable — the offer-time
 half of RULE 601.2c.
 
 Kept dependency-light: it reads models and duck-types an effect's
-``target_spec`` attribute, so `game/effects.py` can import `TargetSpec` from
+``target_spec`` attribute, so `game/effects/core.py` can import `TargetSpec` from
 here without a cycle.
 """
 
@@ -477,7 +477,7 @@ class TargetSpec:
     #: bad" hint — ``"harmful"``/``"beneficial"``/``None`` (no opinion).
     #: Not rules data and never read by the engine itself: stamped by
     #: `spell_target_specs`/`ability_target_specs` from the owning
-    #: `GameEffect.target_polarity()` (see `game/effects.py`) purely so
+    #: `GameEffect.target_polarity()` (see `game/effects/core.py`) purely so
     #: `services/bots.py`'s `GreedyBot` can point a removal spell at an
     #: opponent's permanent and a pump spell at its own — see that method's
     #: docstring for the classification and its documented blind spots.
@@ -490,7 +490,7 @@ class TargetSpec:
     #: means the ordinary fixed/``optional`` shapes above apply unchanged;
     #: only meaningful when it's a genuine value greater than ``count``.
     #: Read by `effective_count` (the resolve-time slicing cap every
-    #: `game/effects.py` consumer uses instead of ``count`` directly),
+    #: `game/effects/core.py` consumer uses instead of ``count`` directly),
     #: `expand_counts` (which rounds are mandatory vs. declinable) and
     #: `requirements_with_targets`/`gameBoardView.js` (how many rounds to
     #: offer, and where the "stop early" boundary sits).
@@ -583,7 +583,7 @@ def spell_target_specs(obj: GameObject) -> list[TargetSpec]:
     for effect in getattr(obj, "spell_effects", []) or []:
         # `target_specs` (not ``target_spec``) so an effect that genuinely
         # needs two differently-typed targets in one clause announces both
-        # — see `game/effects.py`'s `GameEffect.extra_target_specs`.
+        # — see `game/effects/core.py`'s `GameEffect.extra_target_specs`.
         polarity = effect.target_polarity()
         specs.extend(_with_polarity(spec, polarity) for spec in (getattr(effect, "target_specs", None) or []))
     if not specs and "enchant" in (getattr(obj, "parametric_keywords", None) or {}):
@@ -637,7 +637,7 @@ def _aura_enchant_polarity(obj: GameObject) -> Optional[str]:
 def _is_human(obj: "GameObject") -> bool:
     """RULE 205.3m: whether ``obj`` currently has the Human creature type —
     layer-4 aware, via a function-scoped import of `game/continuous.py`
-    (which imports `game/effects.py`, which imports this module, so a
+    (which imports `game/effects/core.py`, which imports this module, so a
     module-level import would cycle)."""
     from . import continuous
 

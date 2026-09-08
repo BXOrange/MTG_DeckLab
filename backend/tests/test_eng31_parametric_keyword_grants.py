@@ -14,15 +14,15 @@ parametric_keyword_triggered_abilities` re-synthesizes the keyword's RULE
 702-text triggered ability (firebending's self-only ``ATTACKS`` add-{R}×N
 mana ability) off the *granted* N every recompute.
 
-Reference: game/effects.py (`PumpEffect`/`CreateTokenEffect`
+Reference: game/effects/core.py (`PumpEffect`/`CreateTokenEffect`
 ``parametric_keywords``), game/continuous.py (`_apply_layer_6_ability`),
-game/effect_binder.py (`parametric_keyword_triggered_abilities`),
+game/binding/core.py (`parametric_keyword_triggered_abilities`),
 parser/oracle/catalogue/handlers.py (`_split_keywords_with_parametric`).
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType

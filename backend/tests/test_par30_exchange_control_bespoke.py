@@ -5,8 +5,8 @@ didn't reach, each hand-authored in `ability_catalogue/entries_016.py`.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.game.effects.core import (
     CulturalExchangeEffect,
     ExchangeControlEffect,
     ExchangeControlSpellEffect,
@@ -233,7 +233,7 @@ def test_modify_memory_no_exchange_and_neither_controlled_draws():
 
 
 def test_psychic_transfer_swaps_within_five_and_not_beyond():
-    from mtg_analyzer.game.effects import ExchangeLifeTotalsEffect
+    from mtg_analyzer.game.effects.core import ExchangeLifeTotalsEffect
     for gap, swaps in ((5, True), (6, False)):
         eng, state = _engine()
         src = _spec_source("Psychic Transfer", controller="p1", zone=Zone.STACK)
@@ -255,7 +255,7 @@ def test_mirror_mirror_arms_a_delayed_trigger_capturing_the_target_player():
     src = _spec_source("Mirror Mirror", controller="p1", zone=Zone.STACK)
     p2 = state.player_by_id("p2")
     ctx = GameContext(state, eng.rules)
-    from mtg_analyzer.game.effects import CreateDelayedTriggerEffect
+    from mtg_analyzer.game.effects.core import CreateDelayedTriggerEffect
     CreateDelayedTriggerEffect(
         step="end", scope="any", capture="target_player",
         effects=[{"type": "triple_exchange", "params": {}}],

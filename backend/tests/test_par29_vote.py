@@ -11,14 +11,14 @@ living player), then `_tally_and_apply_vote` resolves the outcome:
 `effects.VoteEffect` binds it; `handlers._vote_majority` / `_vote_per_vote`
 parse the two "starting with you, each player votes for A or B. …" shapes.
 
-Reference: game/effects.py (`VoteEffect`), game/rules/misc_mixin.py
+Reference: game/effects/core.py (`VoteEffect`), game/rules/misc_mixin.py
 (`request_vote`/`_advance_vote`/`resolve_vote_choice`/`_tally_and_apply_
 vote`), parser/oracle/catalogue/handlers.py.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

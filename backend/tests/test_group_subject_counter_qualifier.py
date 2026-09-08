@@ -1,6 +1,6 @@
 """RULE 603.1 group-subject trigger conditions gained two qualifiers for the
 Blight Curse batch (`parser/oracle/segmenter.py`'s `_GROUP_SUBJECT_RE`,
-`_trigger_condition`; `game/effect_binder.py`'s `_build_group_ok`):
+`_trigger_condition`; `game/binding/core.py`'s `_build_group_ok`):
 
 * **"an opponent controls"** — the mirror of "you control", mapped to the
   existing ``controller="not_you"`` scope (Necroskitter, Malakir Cullblade,
@@ -13,7 +13,7 @@ Blight Curse batch (`parser/oracle/segmenter.py`'s `_GROUP_SUBJECT_RE`,
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

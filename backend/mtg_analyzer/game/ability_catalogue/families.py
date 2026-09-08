@@ -1,4 +1,4 @@
-"""Cycle/family templating for the hand-authored catalogue.
+"""Shared templates for mechanically identical catalogue entries.
 
 Most of `ability_catalogue`'s ~660 entries are genuinely unique cards and
 stay hand-written `def _card_name() -> list[AbilitySpec]: ...` factories.
@@ -40,27 +40,24 @@ def register_family(
     ability_kind: str,
     effect_type: str,
     base_params: dict[str, Any],
-    entries: list[tuple[str, dict[str, Any], str]],
+    entries: list[tuple[str, dict[str, Any]]],
     base_cost: Optional[dict[str, Any]] = None,
 ) -> None:
     """Register a family of cards that share one `AbilitySpec`/`EffectSpec`
     shape, differing only in a few per-card values.
 
-    ``entries`` is a list of ``(card_name, overrides, raw_text)`` triples:
+    ``entries`` is a list of ``(card_name, overrides)`` pairs:
 
     - ``overrides`` is merged over ``base_params`` to build that card's own
       `EffectSpec` params, except for the reserved ``"cost"`` key (see
       `_COST_OVERRIDE_KEY` above), which overrides ``base_cost`` instead of
       being folded into the effect params.
-    - ``raw_text`` is that card's own (German) reminder/rules text, exactly
-      as `register`'s callers have always supplied it.
-
     Registers each card via the ordinary `register(name, factory)` — every
     factory still returns fresh `AbilitySpec`/`EffectSpec` objects on each
     call, matching `core.register`'s "fresh copies each call" contract
     (specs are mutated when bound onto a `GameObject`).
     """
-    for name, overrides, raw_text in entries:
+    for name, overrides in entries:
         params = dict(base_params)
         cost = overrides.get(_COST_OVERRIDE_KEY)
         if cost is None:
@@ -74,14 +71,12 @@ def register_family(
             _effect_type: str = effect_type,
             _params: dict[str, Any] = params,
             _cost: Optional[dict[str, Any]] = cost,
-            _raw_text: str = raw_text,
         ) -> list[AbilitySpec]:
             return [
                 AbilitySpec(
                     _ability_kind,
                     [EffectSpec(_effect_type, dict(_params))],
                     cost=dict(_cost) if _cost else None,
-                    raw_text=_raw_text,
                 )
             ]
 

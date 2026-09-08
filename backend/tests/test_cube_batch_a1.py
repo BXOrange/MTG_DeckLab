@@ -3,7 +3,7 @@
 Reference: CLAUDE.md's oracle-text-parser pipeline; docs/concepts/
 09_ORACLE_EFFECT_PARSER.md. This batch extended the **generic, reusable**
 handler layer (`parser/oracle/catalogue/handlers.py`/`subgrammars.py`,
-`game/effects.py`, `game/effect_binder.py`, `game/costs.py`,
+`game/effects/core.py`, `game/binding/core.py`, `game/costs.py`,
 `game/top_library.py`) to flip real cEDH-cube cards from `UNMODELED` to
 `MODELED`. Some plumbing (`parser/oracle/segmenter.py`'s trigger-wrapper
 vocabulary, `game/targeting.py`'s target-kind vocabulary,
@@ -26,8 +26,8 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import (
     ActivatedAbility,
     PumpEffect,
     TapEffect,

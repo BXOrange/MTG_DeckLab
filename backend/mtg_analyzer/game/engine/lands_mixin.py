@@ -36,7 +36,7 @@ from ..costs import (
     ActivationCost,
     parse_activation_cost,
 )
-from ..effects import ActivatedAbility
+from ..effects.core import ActivatedAbility
 from ..mana_abilities import (
     hand_mana_abilities_for,
     mana_abilities_for,
@@ -306,7 +306,7 @@ class LandsMixin:
         ``obj``'s own `static_effects` regardless of which of the two
         zones it's currently sitting in.
         """
-        from ..effects import SelfGraveyardOrExileCastPermissionEffect
+        from ..effects.core import SelfGraveyardOrExileCastPermissionEffect
 
         return any(
             isinstance(e, SelfGraveyardOrExileCastPermissionEffect)

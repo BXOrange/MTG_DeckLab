@@ -17,7 +17,7 @@ no behaviour, plus a *granted* Escape and the Pacts.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
@@ -549,7 +549,7 @@ def test_being_unable_to_pay_a_pact_loses_without_asking():
 def _arm_pact(engine, state, p1):
     pact = _catalogue_obj("Pact of Negation", zone=Zone.HAND)
     p1.add_to_zone(pact, Zone.HAND)
-    from mtg_analyzer.game.effects import CreateDelayedTriggerEffect, GameContext
+    from mtg_analyzer.game.effects.core import CreateDelayedTriggerEffect, GameContext
 
     CreateDelayedTriggerEffect(
         step="upkeep",

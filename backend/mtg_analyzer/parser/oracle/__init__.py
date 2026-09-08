@@ -6,7 +6,7 @@ data). It deliberately has **no `game/` imports** so it stays pure,
 independently testable, and safe to run anywhere — the data it emits only
 ever references whitelisted effect types by name, never executable
 behaviour. Turning an `AbilitySpec` into live `GameEffect` objects is the
-*back-end*'s job (`mtg_analyzer/game/effect_binder.py`).
+*back-end*'s job (`mtg_analyzer/game/binding/core.py`).
 
 Phase 0 shipped the IR + its validation (`spec.py`) and the keyword catalogue
 (`catalogue/keywords.py`). Phase 1 is in: `normalize` → `segmenter` →

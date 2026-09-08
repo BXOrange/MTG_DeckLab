@@ -11,7 +11,7 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-40" entry.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -197,7 +197,7 @@ def test_domri_plus_one_produces_mana_and_protects_creature_spells_this_turn():
     p1.mana_pool.add_many({"G": 1, "C": 1})
     eng.cast_spell(p1, obj)
 
-    from mtg_analyzer.game.effects import CantBeCounteredEffect
+    from mtg_analyzer.game.effects.core import CantBeCounteredEffect
 
     assert any(isinstance(e, CantBeCounteredEffect) for e in obj.spell_effects)
 

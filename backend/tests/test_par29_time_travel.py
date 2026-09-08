@@ -7,7 +7,7 @@ it); a Vanishing/Fading-style permanent `player` controls gains one.
 `effects.TimeTravelEffect` binds a bare "time travel" clause; "time
 travel, then time travel" is two of them.
 
-Reference: game/rules/misc_mixin.py (`time_travel`), game/effects.py
+Reference: game/rules/misc_mixin.py (`time_travel`), game/effects/core.py
 (`TimeTravelEffect`), parser/oracle/catalogue/handlers.py.
 """
 

@@ -1,7 +1,7 @@
 """Tests for RULE 702.33b's "If this spell was kicked, <effect>." (Batch
 11's A.7 item) — a second, additional effect gated on `obj.kicker_count`,
 via the new `EffectSpec.condition` field (parallel to `AbilitySpec.modes`)
-and `game.effects.ConditionalEffect` (`game/effect_binder.py`'s
+and `game.effects.ConditionalEffect` (`game/binding/core.py`'s
 `build_effects` wraps any effect whose spec carries a `condition`).
 
 The additive "if kicked, <effect>." shape is modeled here (Vastwood
@@ -20,8 +20,8 @@ by its own dedicated handler row (`catalogue/handlers.py`'s
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import attach_to_object
-from mtg_analyzer.game.effects import ConditionalEffect, DrawCardEffect, GainLifeEffect
+from mtg_analyzer.game.binding.core import attach_to_object
+from mtg_analyzer.game.effects.core import ConditionalEffect, DrawCardEffect, GainLifeEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -91,7 +91,7 @@ def test_validate_accepts_well_formed_kicked_condition():
 
 
 # ---------------------------------------------------------------------------
-# game/effects.py: ConditionalEffect
+# game/effects/core.py: ConditionalEffect
 # ---------------------------------------------------------------------------
 
 
@@ -101,7 +101,7 @@ def test_conditional_effect_fires_when_kicked():
     inner = GainLifeEffect(amount=3)
     wrapped = ConditionalEffect({"kicked": True}, inner, source=source)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
     from mtg_analyzer.game.rules_engine import RulesEngine
     from mtg_analyzer.models.game_state import GameState
     from mtg_analyzer.models.player import Player
@@ -121,7 +121,7 @@ def test_conditional_effect_does_not_fire_when_not_kicked():
     inner = GainLifeEffect(amount=3)
     wrapped = ConditionalEffect({"kicked": True}, inner, source=source)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
     from mtg_analyzer.game.rules_engine import RulesEngine
     from mtg_analyzer.models.game_state import GameState
     from mtg_analyzer.models.player import Player
@@ -136,7 +136,7 @@ def test_conditional_effect_does_not_fire_when_not_kicked():
 
 
 def test_conditional_effect_target_spec_passes_through():
-    from mtg_analyzer.game.effects import DestroyEffect
+    from mtg_analyzer.game.effects.core import DestroyEffect
 
     inner = DestroyEffect()
     wrapped = ConditionalEffect({"kicked": True}, inner)

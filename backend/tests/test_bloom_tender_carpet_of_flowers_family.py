@@ -13,7 +13,7 @@ genuinely different primitives, not one:
   from ever being a mana ability at all, so it's an ordinary stack-using
   triggered ability instead). `AddManaEffect.
   amount_from_target_count_selector`/`once_per_turn_ability`
-  (`game/effects.py`) plus `RulesEngine.add_mana_any_color`'s new
+  (`game/effects/core.py`) plus `RulesEngine.add_mana_any_color`'s new
   ``amount`` param (`game/rules/mana_counters_mixin.py`) and
   `GameObject.added_mana_with_ability_this_turn` (reset each untap step).
 
@@ -27,7 +27,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import mana_abilities
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent

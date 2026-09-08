@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import (
     DestroyEffect,
     ExileGainLifeToControllerEffect,
     TargetPlayerDrawLoseLifeEffect,

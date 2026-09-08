@@ -10,7 +10,7 @@ from mtg_analyzer.models.events import EventType
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import GameState
 from mtg_analyzer.models.player import Player
-from mtg_analyzer.game.effect_binder import attach_to_object
+from mtg_analyzer.game.binding.core import attach_to_object
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec

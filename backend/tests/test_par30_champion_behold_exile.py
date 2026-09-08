@@ -23,7 +23,7 @@ from mtg_analyzer.parser.oracle.segmenter import _additional_cost_dict
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 
 from tests.test_game_engine import creature, make_engine, obj_on_battlefield
 

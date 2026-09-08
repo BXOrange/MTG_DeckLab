@@ -33,7 +33,7 @@ reconfigured onto a different attacking creature.
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
@@ -99,7 +99,7 @@ def test_power_threshold_selector_sees_same_pass_anthem():
         owner_id="p2", zone=Zone.BATTLEFIELD,
     )
     state.add_to_battlefield(anthem_source)
-    from mtg_analyzer.game.effects import StaticAbility
+    from mtg_analyzer.game.effects.core import StaticAbility
 
     anthem_source.static_effects.append(
         StaticAbility(

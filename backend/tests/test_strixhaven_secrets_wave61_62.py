@@ -10,7 +10,7 @@ wave 62: Open the Way — new ``RulesEngine.reveal_until_matching`` (the
 from __future__ import annotations
 
 from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
-from mtg_analyzer.game.effects import EffectRegistry
+from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

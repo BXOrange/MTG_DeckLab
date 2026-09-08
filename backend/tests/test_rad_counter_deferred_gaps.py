@@ -41,8 +41,8 @@ end-to-end via `bind_from_catalogue`.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
-from mtg_analyzer.game.effects import AddPlayerCountersEffect, DrawCardEffect
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.effects.core import AddPlayerCountersEffect, DrawCardEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
@@ -272,7 +272,7 @@ def test_contaminated_drink_cast_end_to_end_draws_x_and_grants_half_rad_counters
 
     result = parse_oracle(_contaminated_drink_card())
     (spec,) = result.specs
-    from mtg_analyzer.game.effect_binder import build_effects
+    from mtg_analyzer.game.binding.core import build_effects
     spell = GameObject(_contaminated_drink_card(), owner_id="p1", zone=Zone.HAND)
     spell.spell_effects = build_effects(spec.effects, spell)
     p1.add_to_zone(spell, Zone.HAND)

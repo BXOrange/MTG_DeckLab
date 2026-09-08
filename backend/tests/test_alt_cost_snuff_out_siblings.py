@@ -20,7 +20,7 @@ creature *type*.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -261,7 +261,7 @@ def test_attacking_creatures_pump_debuffs_only_attackers():
     # `_pump_selector`'s own bound-ability callers always satisfy for free.
     caster = put(eng.state, creature("Caster", power=1, toughness=1))
 
-    from mtg_analyzer.game.effects import GameContext, PumpEffect
+    from mtg_analyzer.game.effects.core import GameContext, PumpEffect
 
     effect = PumpEffect(power=-3, toughness=0, selector="attacking_creatures", source=caster)
     context = GameContext(eng.state, eng.rules)

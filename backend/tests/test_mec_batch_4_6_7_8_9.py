@@ -2,7 +2,7 @@
 
 MEC-4 (Strive — not a RULE 702 keyword at all, no CR entry defines it):
 ``AbilitySpec.strive_cost`` rides on a spec the same "own oracle-text line"
-way ``conditional_flash``/``free_cast_condition`` do; `game/effect_binder.py`
+way ``conditional_flash``/``free_cast_condition`` do; `game/binding/core.py`
 parses it into a real `ManaCost` on ``obj.strive_cost``, and
 `GameEngine.effective_cast_cost` adds one copy per target beyond the first
 using the caster's actual chosen ``targets`` (RULE 601.2c precedes 601.2f).
@@ -44,7 +44,7 @@ that happens earlier in the same `begin_turn` call.
 from __future__ import annotations
 
 from mtg_analyzer.game import condition_query
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

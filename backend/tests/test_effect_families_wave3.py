@@ -17,8 +17,8 @@ from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import GameState
 from mtg_analyzer.models.player import Player
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
-from mtg_analyzer.game.effects import EffectRegistry
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.game.targeting import ALLOWED_TARGET_KINDS, requirements_with_targets
@@ -629,7 +629,7 @@ def test_return_from_graveyard_transformed_dies_trigger_end_to_end():
 
 
 def test_lose_life_effect_selectors_hit_the_right_players():
-    from mtg_analyzer.game.effects import GameContext, LoseLifeEffect
+    from mtg_analyzer.game.effects.core import GameContext, LoseLifeEffect
 
     engine, state, p1, p2 = _rules()
     ctx = GameContext(state, engine)

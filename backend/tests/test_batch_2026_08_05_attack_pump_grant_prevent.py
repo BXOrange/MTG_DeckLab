@@ -44,7 +44,7 @@ effect_binder}.py.
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
@@ -163,7 +163,7 @@ def test_destroy_artifact_enchantment_or_land_executes():
         Card(id="Test Acidic", name="Test Acidic", type_line="Sorcery", is_sorcery=True),
         owner_id="p1", zone=Zone.STACK,
     )
-    from mtg_analyzer.game.effects import DestroyEffect
+    from mtg_analyzer.game.effects.core import DestroyEffect
     from mtg_analyzer.models.game_state import StackItem
     effect = DestroyEffect(target_kind="permanent")
     obj.spell_effects = [effect]
@@ -340,7 +340,7 @@ def test_prevent_damage_shield_executes_and_prevents_combat_damage():
     p2 = state.player_by_id("p2")
     attacker = _bf(state, _creature("Attacker"), controller="p2")
 
-    from mtg_analyzer.game.effects import PreventDamageEffect
+    from mtg_analyzer.game.effects.core import PreventDamageEffect
     from mtg_analyzer.models.game_state import StackItem
     obj = GameObject(
         Card(id="Test Shield", name="Test Shield", type_line="Instant", is_instant=True),

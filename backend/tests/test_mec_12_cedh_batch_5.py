@@ -57,7 +57,7 @@ from __future__ import annotations
 
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.ability_catalogue import is_registered
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -230,7 +230,7 @@ def test_finale_of_devastation_is_registered_and_finds_from_graveyard_too():
 
 
 def test_finale_of_devastation_pumps_and_grants_haste_only_at_x_10_or_more():
-    from mtg_analyzer.game.effects import ConditionalEffect
+    from mtg_analyzer.game.effects.core import ConditionalEffect
 
     spell_card = _named("Finale of Devastation")
     bearer = GameObject(spell_card, owner_id="p1", zone=Zone.STACK)

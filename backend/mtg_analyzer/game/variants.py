@@ -49,7 +49,7 @@ def _objects_of_kind(
     kind: str, owner_id: str, count: Optional[int] = None, rng: Optional[random.Random] = None
 ) -> list[GameObject]:
     """``count`` freshly-built command-zone objects of one catalogue kind."""
-    from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+    from .binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
     entries = default_variant_card_database().of_kind(kind)
     if not entries:
@@ -134,7 +134,7 @@ def build_vanguard(owner_id: str, name: Optional[str] = None) -> Optional[GameOb
         if not entries:
             return None
         entry = random.choice(entries)
-    from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+    from .binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
     obj = GameObject(card_for(entry), owner_id=owner_id, zone=Zone.COMMAND)
     bind_from_catalogue(obj)

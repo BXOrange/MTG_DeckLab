@@ -15,7 +15,7 @@ mtg_analyzer/game/rules/misc_mixin.py, mtg_analyzer/game/ability_catalogue.py.
 """
 
 from mtg_analyzer.game import ability_catalogue, targeting
-from mtg_analyzer.game.effects import ChangeTargetEffect, DealDamageEffect
+from mtg_analyzer.game.effects.core import ChangeTargetEffect, DealDamageEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

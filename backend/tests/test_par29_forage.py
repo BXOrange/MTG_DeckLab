@@ -11,13 +11,13 @@ trigger. `effects.ForageEffect` is the segmenter-peeled "you may forage"
 triggered-ability body.
 
 Reference: game/costs.py (`forage`, `_FORAGE_RE`), game/rules/misc_mixin.py
-(`forage` / `forage_possible`), game/effects.py (`ForageEffect`).
+(`forage` / `forage_possible`), game/effects/core.py (`ForageEffect`).
 """
 
 from __future__ import annotations
 
 from mtg_analyzer.game.costs import parse_activation_cost
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent

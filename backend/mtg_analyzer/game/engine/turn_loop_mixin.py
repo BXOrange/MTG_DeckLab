@@ -36,7 +36,7 @@ from ..costs import (
     ActivationCost,
     parse_activation_cost,
 )
-from ..effects import ActivatedAbility, GrantSkipExtraTurnsEffect
+from ..effects.core import ActivatedAbility, GrantSkipExtraTurnsEffect
 from ..mana_abilities import (
     hand_mana_abilities_for,
     mana_abilities_for,
@@ -643,7 +643,7 @@ class TurnLoopMixin:
         condition = getattr(dt, "condition", None)
         if not condition:
             return True
-        from ..effects import ConditionalEffect
+        from ..effects.core import ConditionalEffect
 
         src = getattr(dt.effects[0], "source", None) if dt.effects else None
         probe = ConditionalEffect(condition, dt.effects[0], source=src) if dt.effects else None

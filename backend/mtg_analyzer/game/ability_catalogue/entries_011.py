@@ -37,9 +37,6 @@ def _mystic_sanctuary() -> list[AbilitySpec]:
                 "target_kind": "graveyard_instant_or_sorcery", "position": "top", "optional": True,
             }, condition={"source_entered_untapped": True})],
             trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
-            raw_text="When this land enters untapped, you may put target "
-                     "instant or sorcery card from your graveyard on top "
-                     "of your library.",
         ),
     ]
 
@@ -76,10 +73,6 @@ def _swans_of_bryn_argoll() -> list[AbilitySpec]:
                 "to": "self", "amount": "all",
                 "rider": {"kind": "draw_cards", "recipient": "source_controller"},
             })],
-            raw_text="Falls eine Quelle dieser Kreatur Schaden zufügen würde, "
-                     "verhindere diesen Schaden. Die beherrschende Spielerin "
-                     "oder der beherrschende Spieler dieser Quelle zieht so "
-                     "viele Karten, wie Schaden auf diese Weise verhindert wurde.",
         ),
     ]
 
@@ -128,11 +121,6 @@ def _hostility() -> list[AbilitySpec]:
                     },
                 },
             })],
-            raw_text="Falls ein Zauberspruch, den du kontrollierst, einer "
-                     "gegnerischen Person Schaden zufügen würde, verhindere "
-                     "diesen Schaden. Erzeuge für je 1 auf diese Weise "
-                     "verhinderten Schaden einen 3/1 roten Elementarwesen-"
-                     "Schamane-Kreaturenspielstein mit Hast.",
         ),
     ]
 
@@ -160,19 +148,12 @@ def _gisela_blade_of_goldnight() -> list[AbilitySpec]:
         AbilitySpec(
             "replacement",
             [EffectSpec("double_damage", {"to_opponent_only": True})],
-            raw_text="Falls eine Quelle einer gegnerischen Person oder einem "
-                     "bleibenden Kartenbild, das eine gegnerische Person "
-                     "kontrolliert, Schaden zufügen würde, fügt diese Quelle "
-                     "stattdessen den doppelten Schaden zu.",
         ),
         AbilitySpec(
             "replacement",
             [EffectSpec("prevent_damage", {
                 "recipient_union": ["controller", {}], "amount": {"half": "up"},
             })],
-            raw_text="Falls eine Quelle dir oder einem bleibenden Kartenbild, "
-                     "das du kontrollierst, Schaden zufügen würde, verhindere "
-                     "die Hälfte dieses Schadens, aufgerundet.",
         ),
     ]
 
@@ -190,7 +171,6 @@ register("Gisela, Blade of Goldnight", _gisela_blade_of_goldnight)
 # picked; repeatable — nothing marks the ability itself once-per-turn,
 # matching the real printed text) across all seven members, differing only
 # in `source_filter`, one member's own cost (Artifacts is {2} where the
-# rest of the cycle is {1}), and the (German) `raw_text`. Also see the
 # Rune of Protection cycle below (same `register_family` helper, see
 # `families.py`) and Story Circle/Prismatic Circle/Circle of Solace
 # further down, which reuse this exact shield shape but pick their colour
@@ -204,34 +184,20 @@ register_family(
     base_params={"amount": "all"},
     base_cost={"mana": "{1}"},
     entries=[
-        ("Circle of Protection: Red", {"source_filter": {"color": "R"}},
-         "{1}: Verhindere den nächsten Schaden, den eine rote Quelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
-        ("Circle of Protection: White", {"source_filter": {"color": "W"}},
-         "{1}: Verhindere den nächsten Schaden, den eine weiße Quelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
-        ("Circle of Protection: Black", {"source_filter": {"color": "B"}},
-         "{1}: Verhindere den nächsten Schaden, den eine schwarze Quelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
-        ("Circle of Protection: Blue", {"source_filter": {"color": "U"}},
-         "{1}: Verhindere den nächsten Schaden, den eine blaue Quelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
-        ("Circle of Protection: Green", {"source_filter": {"color": "G"}},
-         "{1}: Verhindere den nächsten Schaden, den eine grüne Quelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
+        ("Circle of Protection: Red", {"source_filter": {"color": "R"}}),
+        ("Circle of Protection: White", {"source_filter": {"color": "W"}}),
+        ("Circle of Protection: Black", {"source_filter": {"color": "B"}}),
+        ("Circle of Protection: Blue", {"source_filter": {"color": "U"}}),
+        ("Circle of Protection: Green", {"source_filter": {"color": "G"}}),
         # `source_filter={"card_type": "artifact"}` — the same generic
         # type-word check `combat.matches_object_filter`'s `card_type` key
         # already uses for "destroy target **artifact** creature"-shaped
         # filters. This member costs {2}, not the cycle's usual {1}.
         ("Circle of Protection: Artifacts",
-         {"source_filter": {"card_type": "artifact"}, "cost": {"mana": "{2}"}},
-         "{2}: Verhindere den nächsten Schaden, den eine Artefaktquelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
+         {"source_filter": {"card_type": "artifact"}, "cost": {"mana": "{2}"}}),
         # `source_filter={"card_type": "creature", "keyword": "shadow"}`.
         ("Circle of Protection: Shadow",
-         {"source_filter": {"card_type": "creature", "keyword": "shadow"}},
-         "{1}: Verhindere den nächsten Schaden, den eine Kreatur deiner "
-         "Wahl mit Schatten dir in diesem Zug zufügen würde."),
+         {"source_filter": {"card_type": "creature", "keyword": "shadow"}}),
     ],
 )
 
@@ -255,11 +221,6 @@ def _deflecting_palm() -> list[AbilitySpec]:
                 "amount": "all",
                 "rider": {"kind": "deal_damage_to_source_controller"},
             })],
-            raw_text="Verhindere den nächsten Schaden, den eine Quelle "
-                     "deiner Wahl dir in diesem Zug zufügen würde. Falls auf "
-                     "diese Weise Schaden verhindert wird, fügt Ablenkende "
-                     "Handfläche diesen Schaden der beherrschenden Person "
-                     "dieser Quelle zu.",
         ),
     ]
 
@@ -286,29 +247,15 @@ register_family(
     base_params={"amount": "all"},
     base_cost={"mana": "{W}"},
     entries=[
-        ("Rune of Protection: White", {"source_filter": {"color": "W"}},
-         "{W}: Verhindere den nächsten Schaden, den eine weiße Quelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
-        ("Rune of Protection: Blue", {"source_filter": {"color": "U"}},
-         "{W}: Verhindere den nächsten Schaden, den eine blaue Quelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
-        ("Rune of Protection: Black", {"source_filter": {"color": "B"}},
-         "{W}: Verhindere den nächsten Schaden, den eine schwarze Quelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
-        ("Rune of Protection: Red", {"source_filter": {"color": "R"}},
-         "{W}: Verhindere den nächsten Schaden, den eine rote Quelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
-        ("Rune of Protection: Green", {"source_filter": {"color": "G"}},
-         "{W}: Verhindere den nächsten Schaden, den eine grüne Quelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
+        ("Rune of Protection: White", {"source_filter": {"color": "W"}}),
+        ("Rune of Protection: Blue", {"source_filter": {"color": "U"}}),
+        ("Rune of Protection: Black", {"source_filter": {"color": "B"}}),
+        ("Rune of Protection: Red", {"source_filter": {"color": "R"}}),
+        ("Rune of Protection: Green", {"source_filter": {"color": "G"}}),
         ("Rune of Protection: Artifacts",
-         {"source_filter": {"card_type": "artifact"}},
-         "{W}: Verhindere den nächsten Schaden, den eine Artefaktquelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
+         {"source_filter": {"card_type": "artifact"}}),
         ("Rune of Protection: Lands",
-         {"source_filter": {"card_type": "land"}},
-         "{W}: Verhindere den nächsten Schaden, den eine Landquelle "
-         "deiner Wahl dir in diesem Zug zufügen würde."),
+         {"source_filter": {"card_type": "land"}}),
     ],
 )
 
@@ -327,9 +274,6 @@ def _greater_realm_of_preservation() -> list[AbilitySpec]:
                 "source_filter": {"color_any": ["B", "R"]}, "amount": "all",
             })],
             cost={"mana": "{1}{W}"},
-            raw_text="{1}{W}: Verhindere den nächsten Schaden, den eine "
-                     "schwarze oder rote Quelle deiner Wahl dir in diesem "
-                     "Zug zufügen würde.",
         ),
     ]
 
@@ -355,8 +299,6 @@ def _story_circle() -> list[AbilitySpec]:
         AbilitySpec(
             "enter_replacement",
             [EffectSpec("choose_color_on_enter", {})],
-            raw_text="Während diese Verzauberung ins Spiel kommt, wähle "
-                     "eine Farbe.",
         ),
         AbilitySpec(
             "activated",
@@ -364,9 +306,6 @@ def _story_circle() -> list[AbilitySpec]:
                 "source_filter": {"color_from_source": True}, "amount": "all",
             })],
             cost={"mana": "{W}"},
-            raw_text="{W}: Verhindere den nächsten Schaden, den eine "
-                     "Quelle deiner Wahl der gewählten Farbe dir in diesem "
-                     "Zug zufügen würde.",
         ),
     ]
 
@@ -388,8 +327,6 @@ def _prismatic_circle() -> list[AbilitySpec]:
         AbilitySpec(
             "enter_replacement",
             [EffectSpec("choose_color_on_enter", {})],
-            raw_text="Während diese Verzauberung ins Spiel kommt, wähle "
-                     "eine Farbe.",
         ),
         AbilitySpec(
             "activated",
@@ -397,9 +334,6 @@ def _prismatic_circle() -> list[AbilitySpec]:
                 "source_filter": {"color_from_source": True}, "amount": "all",
             })],
             cost={"mana": "{1}"},
-            raw_text="{1}: Verhindere den nächsten Schaden, den eine "
-                     "Quelle deiner Wahl der gewählten Farbe dir in diesem "
-                     "Zug zufügen würde.",
         ),
     ]
 
@@ -421,8 +355,6 @@ def _circle_of_solace() -> list[AbilitySpec]:
         AbilitySpec(
             "enter_replacement",
             [EffectSpec("choose_creature_type_on_enter", {})],
-            raw_text="Während diese Verzauberung ins Spiel kommt, wähle "
-                     "einen Kreaturtyp.",
         ),
         AbilitySpec(
             "activated",
@@ -431,9 +363,6 @@ def _circle_of_solace() -> list[AbilitySpec]:
                 "amount": "all",
             })],
             cost={"mana": "{1}{W}"},
-            raw_text="{1}{W}: Verhindere den nächsten Schaden, den eine "
-                     "Kreatur des gewählten Typs dir in diesem Zug zufügen "
-                     "würde.",
         ),
     ]
 
@@ -457,9 +386,6 @@ def _circle_of_despair() -> list[AbilitySpec]:
                 "target_kind": "any", "amount": "all",
             })],
             cost={"text": "{1}, Sacrifice a creature"},
-            raw_text="{1}, Opfere eine Kreatur: Verhindere den nächsten "
-                     "Schaden, den eine Quelle deiner Wahl einem beliebigen "
-                     "Ziel in diesem Zug zufügen würde.",
         ),
     ]
 
@@ -478,9 +404,6 @@ def _martyrs_cause() -> list[AbilitySpec]:
                 "target_kind": "any", "amount": "all",
             })],
             cost={"text": "Sacrifice a creature"},
-            raw_text="Opfere eine Kreatur: Verhindere den nächsten Schaden, "
-                     "den eine Quelle deiner Wahl einem beliebigen Ziel in "
-                     "diesem Zug zufügen würde.",
         ),
     ]
 
@@ -499,9 +422,6 @@ def _sanctum_guardian() -> list[AbilitySpec]:
                 "target_kind": "any", "amount": "all",
             })],
             cost={"text": "Sacrifice ~"},
-            raw_text="Opfere diese Kreatur: Verhindere den nächsten "
-                     "Schaden, den eine Quelle deiner Wahl einem beliebigen "
-                     "Ziel in diesem Zug zufügen würde.",
         ),
     ]
 
@@ -518,9 +438,6 @@ def _righteous_aura() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("request_prevent_damage_source", {"amount": "all"})],
             cost={"text": "{W}, Pay 2 life"},
-            raw_text="{W}, Bezahle 2 Leben: Verhindere den nächsten "
-                     "Schaden, den eine Quelle deiner Wahl dir in diesem "
-                     "Zug zufügen würde.",
         ),
     ]
 
@@ -550,15 +467,11 @@ def _haazda_shield_mate() -> list[AbilitySpec]:
                 "event": "STEP_BEGIN", "filter": {"step": "upkeep"},
                 "phase_relation": "you",
             },
-            raw_text="Zu Beginn deines Versorgungssegments opfere diese "
-                     "Kreatur, außer du bezahlst {W}{W}.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("request_prevent_damage_source", {"amount": "all"})],
             cost={"mana": "{W}"},
-            raw_text="{W}: Verhindere den nächsten Schaden, den eine "
-                     "Quelle deiner Wahl dir in diesem Zug zufügen würde.",
         ),
     ]
 
@@ -577,9 +490,6 @@ def _charm_peddler() -> list[AbilitySpec]:
                 "target_kind": "creature", "amount": "all",
             })],
             cost={"text": "{W}, {T}, Discard a card"},
-            raw_text="{W}, {T}, Wirf eine Karte ab: Verhindere den "
-                     "nächsten Schaden, den eine Quelle deiner Wahl einer "
-                     "Zielkreatur in diesem Zug zufügen würde.",
         ),
     ]
 
@@ -600,11 +510,6 @@ def _cho_arrim_alchemist() -> list[AbilitySpec]:
                 "rider": {"kind": "gain_life", "recipient": "you"},
             })],
             cost={"text": "{1}{W}{W}, {T}, Discard a card"},
-            raw_text="{1}{W}{W}, {T}, Wirf eine Karte ab: Verhindere den "
-                     "nächsten Schaden, den eine Quelle deiner Wahl dir in "
-                     "diesem Zug zufügen würde. Du erhältst so viele "
-                     "Lebenspunkte dazu, wie Schaden auf diese Weise "
-                     "verhindert wurde.",
         ),
     ]
 
@@ -624,10 +529,6 @@ def _reverse_damage() -> list[AbilitySpec]:
                 "amount": "all",
                 "rider": {"kind": "gain_life", "recipient": "you"},
             })],
-            raw_text="Verhindere den nächsten Schaden, den eine Quelle "
-                     "deiner Wahl dir in diesem Zug zufügen würde. Du "
-                     "erhältst so viele Lebenspunkte dazu, wie Schaden auf "
-                     "diese Weise verhindert wurde.",
         ),
     ]
 
@@ -669,12 +570,6 @@ def _intervention_pact() -> list[AbilitySpec]:
                     }],
                 }),
             ],
-            raw_text="Verhindere den nächsten Schaden, den eine Quelle "
-                     "deiner Wahl dir in diesem Zug zufügen würde. Du "
-                     "erhältst so viele Lebenspunkte dazu, wie Schaden auf "
-                     "diese Weise verhindert wurde. Zu Beginn deines "
-                     "nächsten Versorgungssegments bezahle {1}{W}{W}. "
-                     "Falls du dies nicht tust, verlierst du das Spiel.",
         ),
     ]
 
@@ -702,12 +597,6 @@ def _new_way_forward() -> list[AbilitySpec]:
                     {"kind": "draw_cards", "recipient": "you"},
                 ],
             })],
-            raw_text="Verhindere den nächsten Schaden, den eine Quelle "
-                     "deiner Wahl dir in diesem Zug zufügen würde. Falls "
-                     "auf diese Weise Schaden verhindert wird, fügt Neuer "
-                     "Weg nach vorn diesen Schaden der beherrschenden "
-                     "Person dieser Quelle zu und du ziehst so viele "
-                     "Karten.",
         ),
     ]
 
@@ -732,10 +621,6 @@ def _awe_strike() -> list[AbilitySpec]:
                 "amount": "all",
                 "rider": {"kind": "gain_life", "recipient": "you"},
             })],
-            raw_text="Verhindere den nächsten Schaden, den die "
-                     "Zielkreatur in diesem Zug zufügen würde. Du erhältst "
-                     "so viele Lebenspunkte dazu, wie Schaden auf diese "
-                     "Weise verhindert wurde.",
         ),
     ]
 
@@ -752,8 +637,6 @@ def _pentagram_of_the_ages() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("request_prevent_damage_source", {"amount": "all"})],
             cost={"text": "{4}, {T}"},
-            raw_text="{4}, {T}: Verhindere den nächsten Schaden, den eine "
-                     "Quelle deiner Wahl dir in diesem Zug zufügen würde.",
         ),
     ]
 
@@ -779,9 +662,6 @@ def _pilgrim_of_justice() -> list[AbilitySpec]:
                 "source_filter": {"color": "R"}, "amount": "all",
             })],
             cost={"text": "{W}, Sacrifice ~"},
-            raw_text="{W}, Opfere diese Kreatur: Verhindere den nächsten "
-                     "Schaden, den eine rote Quelle deiner Wahl in diesem "
-                     "Zug zufügen würde.",
         ),
     ]
 
@@ -801,9 +681,6 @@ def _pilgrim_of_virtue() -> list[AbilitySpec]:
                 "source_filter": {"color": "B"}, "amount": "all",
             })],
             cost={"text": "{W}, Sacrifice ~"},
-            raw_text="{W}, Opfere diese Kreatur: Verhindere den nächsten "
-                     "Schaden, den eine schwarze Quelle deiner Wahl in "
-                     "diesem Zug zufügen würde.",
         ),
     ]
 
@@ -823,8 +700,6 @@ def _invulnerability() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("request_prevent_damage_source", {"amount": "all"})],
-            raw_text="Verhindere den nächsten Schaden, den eine Quelle "
-                     "deiner Wahl dir in diesem Zug zufügen würde.",
         ),
     ]
 
@@ -855,19 +730,12 @@ def _rem_karolus_stalwart_slayer() -> list[AbilitySpec]:
                 "recipient_union": ["controller", {"exclude_self": True}],
                 "amount": "all", "source_filter": {"is_spell": True},
             })],
-            raw_text="Falls ein Zauberspruch dir oder einem anderen "
-                     "bleibenden Kartenbild, das du kontrollierst, Schaden "
-                     "zufügen würde, verhindere diesen Schaden.",
         ),
         AbilitySpec(
             "replacement",
             [EffectSpec("additional_damage", {
                 "amount": 1, "to_opponent_only": True, "is_spell": True,
             })],
-            raw_text="Falls ein Zauberspruch einer gegnerischen Person "
-                     "oder einem bleibenden Kartenbild, das eine "
-                     "gegnerische Person kontrolliert, Schaden zufügen "
-                     "würde, fügt er stattdessen so viel Schaden plus 1 zu.",
         ),
     ]
 
@@ -900,9 +768,6 @@ def _hedron_field_purists() -> list[AbilitySpec]:
                 "recipient_union": ["controller", {}], "amount": 1,
                 "active_if": {"kind": "source_counters", "counter": "level", "min": 1, "max": 4},
             })],
-            raw_text="LEVEL 1-4: Falls eine Quelle dir oder einer Kreatur, "
-                     "die du kontrollierst, Schaden zufügen würde, "
-                     "verhindere 1 dieses Schadens.",
         ),
         AbilitySpec(
             "replacement",
@@ -910,9 +775,6 @@ def _hedron_field_purists() -> list[AbilitySpec]:
                 "recipient_union": ["controller", {}], "amount": 2,
                 "active_if": {"kind": "source_counters", "counter": "level", "min": 5},
             })],
-            raw_text="LEVEL 5+: Falls eine Quelle dir oder einer Kreatur, "
-                     "die du kontrollierst, Schaden zufügen würde, "
-                     "verhindere 2 dieses Schadens.",
         ),
     ]
 
@@ -939,10 +801,6 @@ def _battletide_alchemist() -> list[AbilitySpec]:
                 "to": "any_player",
                 "amount_count_selector": "creatures_you_control_of_type_cleric",
             })],
-            raw_text="Falls eine Quelle einer spielenden Person Schaden "
-                     "zufügen würde, verhinderst du X dieses Schadens, "
-                     "wobei X die Anzahl der Kleriker ist, die du "
-                     "kontrollierst. (Vereinfachung: nicht optional.)",
         ),
     ]
 
@@ -979,9 +837,6 @@ def _nine_lives() -> list[AbilitySpec]:
                 "to": "controller", "amount": "all",
                 "rider": {"kind": "add_self_counter", "counter": "incarnation"},
             })],
-            raw_text="Falls eine Quelle dir Schaden zufügen würde, "
-                     "verhindere diesen Schaden und lege eine "
-                     "Inkarnationsmarke auf dieses Verzauberung.",
         ),
         AbilitySpec(
             "triggered",
@@ -992,15 +847,11 @@ def _nine_lives() -> list[AbilitySpec]:
                 "condition": {"subject": "self"},
                 "source_counters_at_least": {"count": 9, "kind": "incarnation"},
             },
-            raw_text="Wenn neun oder mehr Inkarnationsmarken auf dieser "
-                     "Verzauberung liegen, exiliere sie.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("lose_game", {})],
             trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Verzauberung das Spielfeld verlässt, "
-                     "verlierst du das Spiel.",
         ),
     ]
 
@@ -1029,10 +880,6 @@ def _insult_injury() -> list[AbilitySpec]:
                 EffectSpec("disable_damage_prevention", {}),
                 EffectSpec("grant_damage_multiplier_this_turn", {"multiplier": 2}),
             ],
-            raw_text="Schaden kann in diesem Zug nicht verhindert werden. "
-                     "Falls eine Quelle, die du kontrollierst, in diesem "
-                     "Zug Schaden zufügen würde, fügt sie stattdessen den "
-                     "doppelten Schaden zu.",
         ),
     ]
 
@@ -1059,12 +906,6 @@ def _isengard_unleashed() -> list[AbilitySpec]:
                     "multiplier": 3, "to_opponent_only": True,
                 }),
             ],
-            raw_text="Schaden kann in diesem Zug nicht verhindert werden. "
-                     "Falls eine Quelle, die du kontrollierst, in diesem "
-                     "Zug einer gegnerischen Person oder einem bleibenden "
-                     "Kartenbild, das eine gegnerische Person kontrolliert, "
-                     "Schaden zufügen würde, fügt sie stattdessen den "
-                     "dreifachen Schaden zu.",
         ),
     ]
 
@@ -1101,9 +942,6 @@ def _ajani_steadfast() -> list[AbilitySpec]:
                 "keywords": ["first strike", "vigilance", "lifelink"],
             })],
             cost={"loyalty": 1},
-            raw_text="+1: Bis zum Ende des Zuges erhält bis zu eine "
-                     "Zielkreatur +1/+1 und Erstschlag, Wachsamkeit und "
-                     "Lebensverknüpfung.",
         ),
         AbilitySpec(
             "activated",
@@ -1114,9 +952,6 @@ def _ajani_steadfast() -> list[AbilitySpec]:
                 }),
             ],
             cost={"loyalty": -2},
-            raw_text="−2: Lege eine +1/+1-Marke auf jede Kreatur, die du "
-                     "kontrollierst, und eine Loyalitätsmarke auf jeden "
-                     "anderen Planeswalker, den du kontrollierst.",
         ),
         AbilitySpec(
             "activated",
@@ -1133,10 +968,6 @@ def _ajani_steadfast() -> list[AbilitySpec]:
                 },
             })],
             cost={"loyalty": -7},
-            raw_text="−7: Du erhältst ein Emblem mit \"Falls eine Quelle "
-                     "dir oder einem Planeswalker, den du kontrollierst, "
-                     "Schaden zufügen würde, verhindere alles bis auf 1 "
-                     "dieses Schadens.\"",
         ),
     ]
 
@@ -1167,16 +998,13 @@ def _kithkin_armor() -> list[AbilitySpec]:
     from_trigger_event`'s own docstring documents for RULE 400.7).
     """
     return [
-        AbilitySpec("keyword", [], keyword={"name": "enchant", "quality": "creature"},
-                     raw_text="Verzaubere Kreatur"),
+        AbilitySpec("keyword", [], keyword={"name": "enchant", "quality": "creature"}),
         AbilitySpec(
             "static",
             [EffectSpec("combat_restriction", {
                 "kind": "cant_be_blocked_by", "filter": {"min_power": 3},
                 "affects": "attached_permanent",
             })],
-            raw_text="Die verzauberte Kreatur kann nicht von Kreaturen mit "
-                     "Stärke 3 oder mehr geblockt werden.",
         ),
         AbilitySpec(
             "activated",
@@ -1184,9 +1012,6 @@ def _kithkin_armor() -> list[AbilitySpec]:
                 "recipient": "attached_permanent", "amount": "all",
             })],
             cost={"text": "Sacrifice ~"},
-            raw_text="Opfere diese Verzauberung: Verhindere den nächsten "
-                     "Schaden, den eine Quelle deiner Wahl der verzauberten "
-                     "Kreatur in diesem Zug zufügen würde.",
         ),
     ]
 
@@ -1213,11 +1038,6 @@ def _shadowbane() -> list[AbilitySpec]:
                 "recipient": "you_and_creatures_you_control", "amount": "all",
                 "rider": {"kind": "gain_life", "recipient": "you", "if_source_color": "B"},
             })],
-            raw_text="Verhindere den nächsten Schaden, den eine Quelle "
-                     "deiner Wahl dir und/oder Kreaturen, die du "
-                     "kontrollierst, in diesem Zug zufügen würde. Falls auf "
-                     "diese Weise Schaden einer schwarzen Quelle verhindert "
-                     "wird, erhältst du so viele Lebenspunkte dazu.",
         ),
     ]
 
@@ -1242,12 +1062,6 @@ def _honorable_passage() -> list[AbilitySpec]:
                 "target_kind": "any", "amount": "all",
                 "rider": {"kind": "deal_damage_to_source_controller", "if_source_color": "R"},
             })],
-            raw_text="Verhindere den nächsten Schaden, den eine Quelle "
-                     "deiner Wahl einem beliebigen Ziel in diesem Zug "
-                     "zufügen würde. Falls auf diese Weise Schaden einer "
-                     "roten Quelle verhindert wird, fügt Ehrenhafter "
-                     "Übergang diesen Schaden der beherrschenden Person "
-                     "dieser Quelle zu.",
         ),
     ]
 
@@ -1273,10 +1087,6 @@ def _dazzling_reflection() -> list[AbilitySpec]:
                 EffectSpec("gain_life", {"amount_from_target_power": True}),
                 EffectSpec("prevent_damage_from_target", {"target_kind": "creature", "amount": "all"}),
             ],
-            raw_text="Du erhältst so viele Lebenspunkte dazu, wie die "
-                     "Stärke der Zielkreatur beträgt. Verhindere den "
-                     "nächsten Schaden, den diese Kreatur in diesem Zug "
-                     "zufügen würde.",
         ),
     ]
 
@@ -1298,8 +1108,7 @@ def _samite_blessing() -> list[AbilitySpec]:
     printed ability of the host's, no new primitive needed.
     """
     return [
-        AbilitySpec("keyword", [], keyword={"name": "enchant", "quality": "creature"},
-                     raw_text="Verzaubere Kreatur"),
+        AbilitySpec("keyword", [], keyword={"name": "enchant", "quality": "creature"}),
         AbilitySpec(
             "static",
             [EffectSpec("grant_activated_ability", {
@@ -1310,9 +1119,6 @@ def _samite_blessing() -> list[AbilitySpec]:
                     "params": {"target_kind": "creature", "amount": "all"},
                 }],
             })],
-            raw_text="Die verzauberte Kreatur hat „{T}: Verhindere den "
-                     "nächsten Schaden, den eine Quelle deiner Wahl einer "
-                     "Zielkreatur in diesem Zug zufügen würde.“",
         ),
     ]
 
@@ -1347,16 +1153,11 @@ def _opal_eye_kondas_yojimbo() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("request_redirect_damage_source", {"amount": "all"})],
             cost={"text": "{T}"},
-            raw_text="{T}: Verhindere den nächsten Schaden, den eine "
-                     "Quelle deiner Wahl in diesem Zug zufügen würde, "
-                     "indem er stattdessen Opal-Eye zugefügt wird.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("prevent_damage_shield", {"amount": 1, "self_only": True})],
             cost={"mana": "{1}{W}"},
-            raw_text="{1}{W}: Verhindere den nächsten 1 Schadenspunkt, der "
-                     "Opal-Eye in diesem Zug zugefügt werden würde.",
         ),
     ]
 

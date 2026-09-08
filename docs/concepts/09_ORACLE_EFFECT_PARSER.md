@@ -412,7 +412,7 @@ parser/oracle/            # FRONT-END — pure, no game/ imports
   processing_list.py      # template-abstract + dedupe unclaimed clauses
   # analyzer.py            # NOT PLANNED — see the 2026-08-27 decision above
 
-game/effect_binder.py     # BACK-END — AbilitySpec[] → GameEffect via EffectRegistry
+game/binding/core.py     # BACK-END — AbilitySpec[] → GameEffect via EffectRegistry
 services/card_effects.py  # (optional) disposable memo cache keyed by catalogue_version
 ```
 
@@ -444,7 +444,7 @@ the real `RulesEngine` before any NLP is written.
 
 # INTEGRATION POINTS (existing code touched)
 
-- `game/effects.py` — `EffectRegistry` is the binder's target; extend with
+- `game/effects/core.py` — `EffectRegistry` is the binder's target; extend with
   new effect types as handlers need them.
 - `game/rules_engine.py` — `_effects_for_spell` / the `spell_effects` hook
   is where a spell's bound effects arrive (already the designed seam).

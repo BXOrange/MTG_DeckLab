@@ -1809,7 +1809,7 @@ _ALL_COLORS = ("W", "U", "B", "R", "G")
 #: directly by `game/mana_abilities.py`'s own text recognition off the printed
 #: card, not by the `EffectRegistry` pipeline, so the recursive parse comes
 #: back with `spec is None` and nothing to re-emit. `grant_mana_ability`
-#: (`game/effects.py`, layer 6/RULE 613.7f) is the existing engine primitive
+#: (`game/effects/core.py`, layer 6/RULE 613.7f) is the existing engine primitive
 #: — only this front end was missing.
 #:
 #: `{T}`-only by design: a mana ability with any *other* cost component

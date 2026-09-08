@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import ability_catalogue as ac
-from mtg_analyzer.game.effects import CreateDelayedTriggerEffect, TakeExtraTurnEffect
+from mtg_analyzer.game.effects.core import CreateDelayedTriggerEffect, TakeExtraTurnEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

@@ -1004,7 +1004,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "exile this card from your hand" cost sniff).
 #: RULE 701.47/48 Amass: a first parser handler for "amass <Type> N"/"amass
 #: N" (`catalogue/handlers.py`'s new `amass`/`amass_untyped` rows), reaching
-#: the already-shipped `game/effects.py` `AmassEffect` (proven only via the
+#: the already-shipped `game/effects/core.py` `AmassEffect` (proven only via the
 #: hand-authored Orcish Bowmasters entry until now) from real oracle text
 #: for the first time. Digit-only counts — `EffectRegistry.register("amass",
 #: ...)` forces `int(...)` at bind time, so a literal "x" sentinel (Assault

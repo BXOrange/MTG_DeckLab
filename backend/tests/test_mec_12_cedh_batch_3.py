@@ -18,7 +18,7 @@ This pass closed the highest deck-frequency remainder:
   word "add" — this phrasing doesn't, so the card scored UNMODELED despite
   playing correctly. A gate-classification fix, not a behavior change.
 * **RULE 118.7/601.2f cost-reduction generalization**
-  (`game/continuous.py`/`game/effects.py`/`parser/oracle/catalogue/
+  (`game/continuous.py`/`game/effects/core.py`/`parser/oracle/catalogue/
   static_handlers.py`): the engine already had `cost_reduction_for`/
   `self_cost_reduction_for`/`activation_cost_reduction_for` (Delve, Affinity,
   the Medallion cycle's own colour param, Power Artifact, Sam Loyal
@@ -61,7 +61,7 @@ from __future__ import annotations
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.ability_catalogue import is_registered
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

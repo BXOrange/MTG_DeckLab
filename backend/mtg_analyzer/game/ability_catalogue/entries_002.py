@@ -23,7 +23,6 @@ def _encroaching_wastes() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("destroy", {"target_kind": "nonbasic_land"})],
             cost={"mana": "{4}", "taps_self": True, "sacrifice": "self"},
-            raw_text="{4}, {T}, Opfere dieses Land: Zerstöre ein nichtgrundlegendes Zielland.",
         )
     ]
 
@@ -41,9 +40,6 @@ def _explorers_scope() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("peek_top_land_battlefield_tapped", {})],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "attached_permanent"}},
-            raw_text="Wenn die ausgerüstete Kreatur angreift, sieh dir die oberste "
-                     "Karte deiner Bibliothek an. Falls es eine Landkarte ist, "
-                     "kannst du sie getappt ins Spiel legen.",
         )
     ]
 
@@ -78,7 +74,6 @@ def _farewell() -> list[AbilitySpec]:
                     "Exiliere alle Friedhöfe.",
                 ],
             },
-            raw_text="Wähle eins oder mehr —",
         )
     ]
 
@@ -106,9 +101,6 @@ def _fighter_class() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("search", {"criteria": {"type": "Equipment"}, "destination": "hand"})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Klasse ins Spiel kommt, suche in deiner Bibliothek "
-                     "nach einer Ausrüstungskarte, zeige sie offen, nimm sie auf "
-                     "deine Hand, dann mische.",
         )
     ]
 
@@ -133,14 +125,11 @@ def _forging_the_tyrite_sword() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("create_token", {"token_name": "Treasure", "count": 1})],
             trigger={"event": "SAGA_CHAPTER", "chapter": [1, 2]},
-            raw_text="I, II — Erzeuge einen Schatz-Spielstein.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("search", {"criteria": {"type": "Equipment"}, "destination": "hand"})],
             trigger={"event": "SAGA_CHAPTER", "chapter": [3]},
-            raw_text="III — Suche in deiner Bibliothek nach einer Ausrüstungskarte, "
-                     "zeige sie offen, nimm sie auf deine Hand, dann mische.",
         ),
     ]
 
@@ -162,8 +151,6 @@ def _indomitable_archangel() -> list[AbilitySpec]:
                 "affects": "artifacts_you_control", "keywords": ["shroud"],
                 "min_count_selector": "artifacts_you_control", "min_count": 3,
             })],
-            raw_text="Metallgespür — Artefakte, die du kontrollierst, haben Schutzhülle, "
-                     "solange du drei oder mehr Artefakte kontrollierst.",
         )
     ]
 
@@ -208,9 +195,6 @@ def _kaldra_compleat() -> list[AbilitySpec]:
                     "grant_effects": [{"type": "exile_trigger_damaged_creature", "params": {}}],
                 }),
             ],
-            raw_text="Ausgerüstete Kreatur erhält +5/+5 und hat Erstschlag, "
-                     "Trampelschaden, Unzerstörbarkeit und Eile. \"Wenn diese Kreatur "
-                     "einer Kreatur Kampfschaden zufügt, exiliere jene Kreatur.\"",
         )
     ]
 
@@ -232,9 +216,6 @@ def _lion_sash() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("exile_graveyard_card_counter_if_permanent", {})],
             cost={"mana": "{W}"},
-            raw_text="{W}: Exiliere eine Zielkarte aus einem Friedhof. Falls es "
-                     "eine Karte eines bleibenden Kartentyps war, lege einen "
-                     "+1/+1-Marker auf diese bleibende Karte.",
         ),
         AbilitySpec(
             "static",
@@ -242,8 +223,6 @@ def _lion_sash() -> list[AbilitySpec]:
                 "affects": "attached_permanent", "power": 1, "toughness": 1,
                 "power_count": "plus_one_counters_on_self", "toughness_count": "plus_one_counters_on_self",
             })],
-            raw_text="Ausgerüstete Kreatur erhält +1/+1 für jeden +1/+1-Marker auf "
-                     "dieser Ausrüstung.",
         ),
     ]
 
@@ -275,8 +254,6 @@ def _nahiri_heir_of_the_ancients() -> list[AbilitySpec]:
                 "colors": ["W"], "subtypes": ["Kor", "Warrior"],
             })],
             cost={"loyalty": 1},
-            raw_text="+1: Erzeuge einen weißen 1/1 Kor-Krieger-Kreaturenspielstein. "
-                     "Du kannst eine Ausrüstung, die du kontrollierst, an ihm befestigen.",
         )
     ]
 
@@ -302,7 +279,6 @@ def _nahiri_storm_of_stone() -> list[AbilitySpec]:
                 "affects": "creatures_you_control", "keywords": ["first_strike"],
                 "active_player_only": True,
             })],
-            raw_text="Während deines Zuges haben Kreaturen, die du kontrollierst, Erstschlag.",
         )
     ]
 
@@ -327,8 +303,6 @@ def _nettlecyst() -> list[AbilitySpec]:
                 "power_count": "artifacts_and_or_enchantments_you_control",
                 "toughness_count": "artifacts_and_or_enchantments_you_control",
             })],
-            raw_text="Ausgerüstete Kreatur erhält +1/+1 für jedes Artefakt und/oder "
-                     "jede Verzauberung, die du kontrollierst.",
         )
     ]
 
@@ -344,8 +318,6 @@ def _open_the_armory() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("search", {"criteria": {"type": ["Aura", "Equipment"]}, "destination": "hand"})],
-            raw_text="Suche in deiner Bibliothek nach einer Aura- oder Ausrüstungskarte, "
-                     "zeige sie offen, nimm sie auf deine Hand, dann mische.",
         )
     ]
 
@@ -369,9 +341,6 @@ def _relic_seeker() -> list[AbilitySpec]:
             [EffectSpec("search", {"criteria": {"type": "Equipment"}, "destination": "hand"})],
             trigger={"event": "RENOWNED", "condition": {"subject": "self"}},
             optional=True,
-            raw_text="Wenn diese Kreatur berühmt wird, kannst du in deiner Bibliothek "
-                     "nach einer Ausrüstungskarte suchen, sie offen zeigen, auf deine "
-                     "Hand nehmen, dann mische.",
         )
     ]
 
@@ -385,20 +354,18 @@ def _robe_of_stars() -> list[AbilitySpec]:
     Equip {1}
 
     — Robe of Stars. Astral Projection is now real (RULE 702.26 phasing,
-    `game/effects.py`'s `PhaseOutEffect`, scoped to the single-permanent
+    `game/effects/core.py`'s `PhaseOutEffect`, scoped to the single-permanent
     case this card needs — no "phase out together" attachment chain).
     """
     return [
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {"affects": "attached_permanent", "power": 0, "toughness": 3})],
-            raw_text="Ausgerüstete Kreatur erhält +0/+3.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("phase_out", {})],
             cost={"mana": "{1}{W}"},
-            raw_text="Astralprojektion — {1}{W}: Ausgerüstete Kreatur phast heraus.",
         ),
     ]
 
@@ -420,8 +387,6 @@ def _rogues_gloves() -> list[AbilitySpec]:
                 "filter": {"combat": True, "is_player": True},
             },
             optional=True,
-            raw_text="Wenn die ausgerüstete Kreatur einem Spieler Kampfschaden "
-                     "zufügt, kannst du eine Karte ziehen.",
         )
     ]
 
@@ -438,7 +403,6 @@ def _rogues_passage() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("unblockable", {"target_kind": "creature"})],
             cost={"mana": "{4}", "taps_self": True},
-            raw_text="{4}, {T}: Eine Zielkreatur kann in diesem Zug nicht geblockt werden.",
         )
     ]
 
@@ -464,14 +428,11 @@ def _simian_sling() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {"affects": "attached_permanent", "power": 1, "toughness": 1})],
-            raw_text="Ausgerüstete Kreatur erhält +1/+1.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("damage", {"amount": 1, "selector": "defending_player"})],
             trigger={"event": EventType.BECOMES_BLOCKED, "condition": {"subject": "self_or_attached_permanent"}},
-            raw_text="Wenn diese Kreatur oder die ausgerüstete Kreatur geblockt "
-                     "wird, fügt sie dem verteidigenden Spieler 1 Schaden zu.",
         ),
     ]
 
@@ -514,8 +475,6 @@ def _sigardas_aid() -> list[AbilitySpec]:
                     "subtypes": ["equipment"], "controller": "you",
                 },
             },
-            raw_text="Wenn eine Ausrüstung, die du kontrollierst, ins Spiel kommt, "
-                     "darfst du sie an eine Zielkreatur, die du kontrollierst, anlegen.",
         )
     ]
 
@@ -535,7 +494,6 @@ def _spirit_mantle() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {"affects": "attached_permanent", "power": 1, "toughness": 1})],
-            raw_text="Verzauberte Kreatur erhält +1/+1.",
         )
     ]
 
@@ -553,7 +511,6 @@ def _sram_senior_edificer() -> list[AbilitySpec]:
                 "event": EventType.SPELL_CAST, "condition": {"subject": "group", "controller": "you"},
                 "spell_subtype_any": ["Aura", "Equipment", "Vehicle"],
             },
-            raw_text="Wenn du einen Aura-, Ausrüstungs- oder Fahrzeugzauber wirkst, ziehe eine Karte.",
         )
     ]
 
@@ -581,17 +538,11 @@ def _sun_titan() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec(effect.type, dict(effect.params))],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur ins Spiel kommt, kannst du eine "
-                     "Zielkarte eines bleibenden Kartentyps aus deinem Friedhof "
-                     "ins Spiel zurückbringen.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec(effect.type, dict(effect.params))],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur angreift, kannst du eine Zielkarte "
-                     "eines bleibenden Kartentyps aus deinem Friedhof ins Spiel "
-                     "zurückbringen.",
         ),
     ]
 
@@ -610,7 +561,6 @@ def _sunforger() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {"affects": "attached_permanent", "power": 4, "toughness": 0})],
-            raw_text="Ausgerüstete Kreatur erhält +4/+0.",
         ),
         AbilitySpec(
             "activated",
@@ -619,10 +569,6 @@ def _sunforger() -> list[AbilitySpec]:
                 "destination": "cast_free",
             })],
             cost={"mana": "{R}{W}", "unattach_self": True},
-            raw_text="{R}{W}, Löse diese Ausrüstung: Suche in deiner Bibliothek nach "
-                     "einer roten oder weißen Spontanzauberkarte mit Manawert 4 oder "
-                     "weniger und wirke diese Karte, ohne ihre Manakosten zu bezahlen. "
-                     "Mische danach.",
         ),
     ]
 
@@ -647,7 +593,6 @@ def _sword_of_forge_and_frontier() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2})],
-            raw_text="Ausgerüstete Kreatur erhält +2/+2.",
         )
     ]
 
@@ -674,7 +619,6 @@ def _sword_of_hearth_and_home() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2})],
-            raw_text="Ausgerüstete Kreatur erhält +2/+2.",
         ),
         AbilitySpec(
             "triggered",
@@ -683,9 +627,6 @@ def _sword_of_hearth_and_home() -> list[AbilitySpec]:
                 "event": EventType.DAMAGE, "condition": {"subject": "attached_permanent"},
                 "filter": {"combat": True, "is_player": True},
             },
-            raw_text="Wenn die ausgerüstete Kreatur einem Spieler Kampfschaden "
-                     "zufügt, suche in deiner Bibliothek nach einer Standardlandkarte "
-                     "und lege sie ins Spiel, dann mische.",
         ),
     ]
 
@@ -704,7 +645,6 @@ def _sword_of_light_and_shadow() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2})],
-            raw_text="Ausgerüstete Kreatur erhält +2/+2.",
         ),
         AbilitySpec(
             "triggered",
@@ -718,10 +658,6 @@ def _sword_of_light_and_shadow() -> list[AbilitySpec]:
                 "event": EventType.DAMAGE, "condition": {"subject": "attached_permanent"},
                 "filter": {"combat": True, "is_player": True},
             },
-            raw_text="Wenn die ausgerüstete Kreatur einem Spieler Kampfschaden "
-                     "zufügt, gewinnst du 3 Lebenspunkte hinzu und kannst eine "
-                     "Zielkreaturenkarte aus deinem Friedhof auf deine Hand "
-                     "zurückbringen.",
         ),
     ]
 
@@ -739,15 +675,11 @@ def _sword_of_the_animist() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {"affects": "attached_permanent", "power": 1, "toughness": 1})],
-            raw_text="Ausgerüstete Kreatur erhält +1/+1.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("search", {"criteria": {"basic": True}, "destination": "battlefield_tapped"})],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "attached_permanent"}},
-            raw_text="Wenn die ausgerüstete Kreatur angreift, kannst du in deiner "
-                     "Bibliothek nach einer Standardlandkarte suchen, sie getappt "
-                     "ins Spiel legen, dann mische.",
         ),
     ]
 
@@ -770,7 +702,6 @@ def _sword_of_truth_and_justice() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2})],
-            raw_text="Ausgerüstete Kreatur erhält +2/+2.",
         ),
         AbilitySpec(
             "triggered",
@@ -782,9 +713,6 @@ def _sword_of_truth_and_justice() -> list[AbilitySpec]:
                 "event": EventType.DAMAGE, "condition": {"subject": "attached_permanent"},
                 "filter": {"combat": True, "is_player": True},
             },
-            raw_text="Wenn die ausgerüstete Kreatur einem Spieler Kampfschaden "
-                     "zufügt, lege einen +1/+1-Marker auf eine Kreatur, die du "
-                     "kontrollierst, und proliferiere dann.",
         ),
     ]
 
@@ -798,8 +726,6 @@ def _swords_to_plowshares() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("exile_gain_life_equal_power", {"target_kind": "creature"})],
-            raw_text="Exiliere eine Zielkreatur. Ihr Beherrscher gewinnt Lebenspunkte "
-                     "in Höhe ihrer Stärke hinzu.",
         )
     ]
 
@@ -828,8 +754,6 @@ def _timely_ward() -> list[AbilitySpec]:
             "static",
             [EffectSpec("grant_keyword", {"affects": "attached_permanent", "keywords": ["indestructible"]})],
             conditional_flash={"targets_a_commander": True},
-            raw_text="Du kannst diesen Zauberspruch wirken, als hätte er Blitzschlag, falls er einen Anführer als Ziel hat.\n"
-                     "Verzauberte Kreatur hat Unzerstörbarkeit.",
         )
     ]
 
@@ -851,7 +775,6 @@ def _unquestioned_authority() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("draw", {"count": 1})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Aura ins Spiel kommt, ziehe eine Karte.",
         )
     ]
 
@@ -870,8 +793,6 @@ def _volcanic_fallout() -> list[AbilitySpec]:
                 EffectSpec("cant_be_countered", {}),
                 EffectSpec("damage", {"amount": 2, "selector": "each_creature_and_player"}),
             ],
-            raw_text="Dieser Zauberspruch kann nicht annulliert werden. Vulkanischer "
-                     "Niederschlag fügt jeder Kreatur und jedem Spieler 2 Schaden zu.",
         )
     ]
 
@@ -885,7 +806,6 @@ def _wrath_of_god() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("destroy", {"selector": "all_creatures", "can_be_regenerated": False})],
-            raw_text="Zerstöre alle Kreaturen. Sie können nicht regenerieren.",
         )
     ]
 
@@ -901,8 +821,6 @@ def _crypt_incursion() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("exile_graveyard_creatures_gain_life", {"target_kind": "player", "life_per_card": 3})],
-            raw_text="Exiliere alle Kreaturenkarten aus dem Friedhof eines Zielspielers. "
-                     "Du gewinnst 3 Lebenspunkte für jede auf diese Weise exilierte Karte.",
         )
     ]
 
@@ -916,7 +834,6 @@ def _sign_in_blood() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("target_player_draw_lose_life", {"draw_count": 2, "life_loss": 2})],
-            raw_text="Zielspieler zieht zwei Karten und verliert 2 Lebenspunkte.",
         )
     ]
 
@@ -943,8 +860,6 @@ def _dismantling_wave() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("destroy", {"target_kind": "permanent", "optional": True})],
-            raw_text="Zerstöre bis zu eine Zielartefakt- oder -verzauberungskarte, "
-                     "die ein Gegner kontrolliert.",
         ),
         AbilitySpec(
             "activated",
@@ -953,8 +868,6 @@ def _dismantling_wave() -> list[AbilitySpec]:
                 EffectSpec("destroy", {"selector": "all_enchantments"}),
             ],
             cost={"text": "{6}{W}{W}, Discard this card"},
-            raw_text="Verausgabung {6}{W}{W}. Wenn du diese Karte verausgabst, "
-                     "zerstöre alle Artefakte und Verzauberungen.",
         ),
     ]
 
@@ -975,13 +888,11 @@ def _renewed_faith() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("gain_life", {"amount": 3})],
-            raw_text="Du erhältst 3 Lebenspunkte hinzu.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("draw", {"count": 1})],
             cost={"text": "{2}{W}, Discard this card"},
-            raw_text="Verausgabung {2}{W}.",
         ),
     ]
 
@@ -1014,8 +925,6 @@ def _the_wandering_emperor() -> list[AbilitySpec]:
             [EffectSpec("add_counter_first_strike", {"target_kind": "creature", "optional": True})],
             cost={"loyalty": 1},
             conditional_flash={"entered_this_turn": True},
-            raw_text="+1: Lege einen +1/+1-Marker auf bis zu eine Zielkreatur. Sie "
-                     "erhält Erstschlag bis zum Ende des Zuges.",
         ),
         AbilitySpec(
             "activated",
@@ -1024,7 +933,6 @@ def _the_wandering_emperor() -> list[AbilitySpec]:
                 "colors": ["W"], "subtypes": ["Samurai"], "keywords": ["vigilance"],
             })],
             cost={"loyalty": -1},
-            raw_text="−1: Erzeuge einen weißen 2/2 Samurai-Kreaturenspielstein mit Wachsamkeit.",
         ),
         AbilitySpec(
             "activated",
@@ -1033,7 +941,6 @@ def _the_wandering_emperor() -> list[AbilitySpec]:
                 EffectSpec("gain_life", {"amount": 2}),
             ],
             cost={"loyalty": -2},
-            raw_text="−2: Exiliere eine Zielkreatur. Du gewinnst 2 Lebenspunkte hinzu.",
         ),
     ]
 
@@ -1069,9 +976,6 @@ def _mana_drain() -> list[AbilitySpec]:
                     "description": "Mana Drain: {C} in Höhe der Manakosten des annullierten Zauberspruchs hinzufügen",
                 }),
             ],
-            raw_text="Annulliere einen Zielzauberspruch. Zu Beginn deiner nächsten "
-                     "Hauptphase erzeuge eine Menge {C} in Höhe der Manakosten "
-                     "jenes Zauberspruchs.",
         )
     ]
 
@@ -1105,9 +1009,6 @@ def _corpse_dance() -> list[AbilitySpec]:
             [EffectSpec("return_top_graveyard_creature_with_haste", {
                 "delayed_exile_step": "end",
             })],
-            raw_text="Bringe die oberste Kreaturenkarte deines Friedhofs ins Spiel "
-                     "zurück. Diese Kreatur erhält Eile bis zum Ende des Zuges. "
-                     "Exiliere sie zu Beginn des nächsten Endsegments.",
         )
     ]
 
@@ -1130,9 +1031,6 @@ def _feed_the_swarm() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("destroy_lose_life_equal_mana_value", {"target_kind": "permanent"})],
-            raw_text="Zerstöre eine Zielkreatur oder eine Zielverzauberung, die ein "
-                     "Gegner kontrolliert. Du verlierst Lebenspunkte in Höhe des "
-                     "Manawerts dieser bleibenden Karte.",
         )
     ]
 
@@ -1155,9 +1053,6 @@ def _resculpt() -> list[AbilitySpec]:
                 "target_kind": "permanent",
                 "power": 4, "toughness": 4, "colors": ["U", "R"], "subtypes": ["Elemental"],
             })],
-            raw_text="Exiliere eine Zielartefakt- oder Zielkreaturenkarte. Ihr "
-                     "Beherrscher erzeugt einen blau-roten 4/4 Elementar-"
-                     "Kreaturenspielstein.",
         )
     ]
 
@@ -1183,9 +1078,6 @@ def _crib_swap() -> list[AbilitySpec]:
                 "subtypes": ["Shapeshifter"], "keywords": ["changeling"],
                 "token_name": "Shapeshifter",
             })],
-            raw_text="Schicke eine Zielkreatur ins Exil. Ihr Beherrscher erzeugt "
-                     "einen farblosen 1/1-Gestaltwandler-Kreaturenspielstein mit "
-                     "Changeling.",
         )
     ]
 
@@ -1210,8 +1102,6 @@ def _lamentation() -> list[AbilitySpec]:
                 EffectSpec("gain_life", {"amount": 3}),
             ],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur ins Spiel kommt, zerstöre eine Zielkreatur, die ein "
-                     "Gegner kontrolliert. Du erhältst 3 Lebenspunkte dazu.",
         )
     ]
 
@@ -1237,8 +1127,6 @@ def _springleaf_parade() -> list[AbilitySpec]:
                 "token_name": "Shapeshifter",
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Verzauberung ins Spiel kommt, erzeuge X farblose "
-                     "1/1-Gestaltwandler-Kreaturenspielsteine mit Changeling.",
         ),
         AbilitySpec(
             "static",
@@ -1246,7 +1134,6 @@ def _springleaf_parade() -> list[AbilitySpec]:
                 "affects": "creatures_you_control", "tokens": True,
                 "mana": [{"W": 1}, {"U": 1}, {"B": 1}, {"R": 1}, {"G": 1}],
             })],
-            raw_text='Kreaturenspielsteine, die du kontrollierst, haben "{T}: Erzeuge ein Mana einer beliebigen Farbe."',
         ),
     ]
 
@@ -1269,9 +1156,6 @@ def _mirage_mirror() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("become_copy_until_eot", {"target_kind": "permanent"})],
             cost={"mana": "{2}"},
-            raw_text="{2}: Dieses Artefakt wird bis zum Ende des Zuges zu einer "
-                     "Kopie einer Zielartefakt-, Zielkreaturen-, "
-                     "Zielverzauberungs- oder Ziellandkarte.",
         )
     ]
 
@@ -1297,9 +1181,6 @@ def _phyrexian_metamorph() -> list[AbilitySpec]:
         AbilitySpec(
             "enter_replacement",
             [EffectSpec("enter_as_copy", {"target_kind": "permanent", "add_types": ["Artifact"]})],
-            raw_text="Du kannst diese Kreatur als Kopie eines beliebigen Artefakts "
-                     "oder einer beliebigen Kreatur ins Spiel kommen lassen, außer "
-                     "dass sie zusätzlich zu ihren anderen Typen ein Artefakt ist.",
         )
     ]
 
@@ -1325,7 +1206,6 @@ def _steal_enchantment() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("control_change", {"affects": "attached_permanent"})],
-            raw_text="Du kontrollierst die verzauberte Verzauberung.",
         )
     ]
 
@@ -1342,16 +1222,12 @@ def _grinding_station() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("mill", {"count": 3, "target_kind": "player"})],
             cost={"text": "{T}, Sacrifice an artifact"},
-            raw_text="{T}, Opfere ein Artefakt: Ein Zielspieler mischt drei Karten "
-                     "seiner Bibliothek in seinen Friedhof.",
         ),
         AbilitySpec(
             "triggered",
             [EffectSpec("tap", {"target_kind": None, "untap": True})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "group", "type": "artifact"}},
             optional=True,
-            raw_text="Wenn ein Artefakt ins Spiel kommt, kannst du dieses Artefakt "
-                     "untappen.",
         ),
     ]
 
@@ -1376,16 +1252,11 @@ def _goblin_engineer() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("search", {"criteria": {"type": "Artifact"}, "destination": "graveyard"})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-            raw_text="Wenn diese Kreatur ins Spiel kommt, kannst du in deiner "
-                     "Bibliothek nach einer Artefaktkarte suchen, sie in deinen "
-                     "Friedhof legen, dann mischen.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("return_from_graveyard", {"target_kind": "graveyard_artifact", "destination": "battlefield"})],
             cost={"text": "{R}, {T}, Sacrifice an artifact"},
-            raw_text="{R}, {T}, Opfere ein Artefakt: Bringe eine Zielartefaktkarte "
-                     "aus deinem Friedhof ins Spiel zurück.",
         ),
     ]
 
@@ -1413,10 +1284,6 @@ def _winds_of_abandon() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("exile_controller_searches_basic_land", {"target_kind": "creature"})],
-            raw_text="Exiliere eine Zielkreatur, die du nicht kontrollierst. Für "
-                     "jede auf diese Weise exilierte Kreatur sucht ihr Beherrscher "
-                     "in seiner Bibliothek nach einer Standardlandkarte. Diese "
-                     "Spieler legen diese Karten getappt ins Spiel, dann mischen sie.",
         )
     ]
 
@@ -1461,10 +1328,6 @@ def _eiganjo_seat_of_the_empire() -> list[AbilitySpec]:
                     "generic_per": 1,
                 },
             },
-            raw_text="Kanalisieren — {2}{W}, Wirf diese Karte ab: Sie fügt einer "
-                     "angreifenden oder blockenden Zielkreatur 4 Schaden zu. Diese "
-                     "Fähigkeit kostet {1} weniger für jede legendäre Kreatur, die "
-                     "du kontrollierst.",
         )
     ]
 
@@ -1492,9 +1355,6 @@ def _winter_orb() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("untap_cap", {"count": 1, "active_if": {"kind": "source_untapped"}})],
-            raw_text="Solange dieses Artefakt ungetappt ist, können Spieler "
-                     "während ihres Enttapp-Schritts nicht mehr als ein Land "
-                     "enttappen.",
         )
     ]
 
@@ -1512,7 +1372,7 @@ def _temur_sabertooth() -> list[AbilitySpec]:
     hand. If you do, this creature gains indestructible until end of turn.
 
     — Temur Sabertooth. A bespoke effect (`return_creature_grant_
-    indestructible`, `game/effects.py`'s `ReturnCreatureGrantIndestructibleEffect`
+    indestructible`, `game/effects/core.py`'s `ReturnCreatureGrantIndestructibleEffect`
     — the same "if you do" shape `UnattachTapIndestructibleEffect` (Akiri,
     Fearless Voyager) already uses) since the indestructible grant is
     conditioned on whether the optional return actually happened — an
@@ -1526,10 +1386,6 @@ def _temur_sabertooth() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("return_creature_grant_indestructible", {})],
             cost={"mana": "{1}{G}"},
-            raw_text="{1}{G}: Du kannst eine andere Kreatur, die du "
-                     "kontrollierst, auf die Hand ihres Besitzers "
-                     "zurückbringen. Falls du dies tust, erhält diese "
-                     "Kreatur Unzerstörbarkeit bis zum Ende des Zuges.",
         )
     ]
 
@@ -1550,7 +1406,6 @@ def _helm_of_awakening() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("cost_reduction", {"affects": "all_spells", "generic": 1})],
-            raw_text="Zaubersprüche kosten {1} weniger, um gewirkt zu werden.",
         )
     ]
 
@@ -1569,9 +1424,6 @@ def _brainstorm() -> list[AbilitySpec]:
                 EffectSpec("draw", {"count": 3}),
                 EffectSpec("put_hand_cards_on_top", {"count": 2}),
             ],
-            raw_text="Ziehe drei Karten, dann lege zwei Karten von deiner "
-                     "Hand in beliebiger Reihenfolge oben auf deine "
-                     "Bibliothek.",
         )
     ]
 
@@ -1583,7 +1435,7 @@ def _timetwister() -> list[AbilitySpec]:
     """Each player shuffles their hand and graveyard into their library,
     then draws seven cards.
 
-    — Timetwister. `wheel` (`game/effects.py`'s `WheelEffect`) is written
+    — Timetwister. `wheel` (`game/effects/core.py`'s `WheelEffect`) is written
     generically (not Timetwister-specific) since Time Reversal/Echo of
     Eons print the identical line.
     """
@@ -1591,8 +1443,6 @@ def _timetwister() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("wheel", {"draw_count": 7})],
-            raw_text="Jeder Spieler mischt seine Hand und seinen Friedhof "
-                     "in seine Bibliothek, dann zieht er sieben Karten.",
         )
     ]
 
@@ -1618,8 +1468,6 @@ def _damn() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("destroy", {"target_kind": "creature", "can_be_regenerated": False})],
-            raw_text="Zerstöre eine Zielkreatur. Eine auf diese Weise "
-                     "zerstörte Kreatur kann nicht regeneriert werden.",
         )
     ]
 
@@ -1647,10 +1495,6 @@ def _power_artifact() -> list[AbilitySpec]:
                 "affects": "attached_permanent", "generic": 2,
                 "scope": "activation", "min_total": 1,
             })],
-            raw_text="Verzaubere ein Artefakt\nAktivierte Fähigkeiten des "
-                     "verzauberten Artefakts kosten {2} weniger, um "
-                     "aktiviert zu werden. Dieser Effekt kann die Kosten "
-                     "nicht auf weniger als ein Mana reduzieren.",
         )
     ]
 
@@ -1677,8 +1521,6 @@ def _fertile_ground() -> list[AbilitySpec]:
                 "condition": {"subject": "attached_permanent"},
                 "mana_ability": True,
             },
-            raw_text="Whenever enchanted land is tapped for mana, its controller adds an "
-                     "additional one mana of any color.",
         )
     ]
 
@@ -1694,7 +1536,6 @@ def _reality_shift() -> list[AbilitySpec]:
             EffectSpec("exile", {"target_kind": "creature"}),
             EffectSpec("manifest", {"player": "previous_target_controller"}),
         ],
-        raw_text="Exile target creature. Its controller manifests the top card of their library.",
     )]
 
 
@@ -1707,7 +1548,7 @@ def _shatter_the_sky() -> list[AbilitySpec]:
     return [AbilitySpec("spell_effect", [
         EffectSpec("draw_each_player_with_creature_power", {"min_power": 4}),
         EffectSpec("destroy", {"selector": "all_creatures"}),
-    ], raw_text="Each player who controls a creature with power 4 or greater draws a card. Then destroy all creatures.")]
+    ])]
 
 
 register("Shatter the Sky", _shatter_the_sky)
@@ -1725,7 +1566,6 @@ def _greenwarden_of_murasa() -> list[AbilitySpec]:
                 "event": EventType.ENTERS_BATTLEFIELD,
                 "condition": {"subject": "self"},
             },
-            raw_text="When this creature enters, you may return target card from your graveyard to your hand.",
             optional=True,
         ),
         AbilitySpec(
@@ -1736,7 +1576,6 @@ def _greenwarden_of_murasa() -> list[AbilitySpec]:
                 }},
             ]})],
             trigger={"event": EventType.DIES},
-            raw_text="When this creature dies, you may exile it. If you do, return target card from your graveyard to your hand.",
         ),
     ]
 
@@ -1750,7 +1589,6 @@ def _risen_reef() -> list[AbilitySpec]:
         trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {
             "subject_subtype": "Elemental", "controller": "you",
         }},
-        raw_text="Whenever this creature or another Elemental enters under your control, look at the top card of your library. If it's a land card, you may put it onto the battlefield tapped. If you don't put the card onto the battlefield, put it into your hand.",
     )]
 
 
@@ -1762,7 +1600,6 @@ def _muldrotha_the_gravetide() -> list[AbilitySpec]:
         "static", [EffectSpec("graveyard_cast_permission", {
             "per_permanent_type": True, "once_per_turn": False,
         })],
-        raw_text="During each of your turns, you may play a land and cast a permanent spell of each permanent type from your graveyard.",
     )]
 
 
@@ -1774,7 +1611,7 @@ def _distant_melody() -> list[AbilitySpec]:
         EffectSpec("request_choose_creature_type_grant", {"then_specs": [
             {"type": "draw_controlled_chosen_creature_type", "params": {}},
         ]}),
-    ], raw_text="Choose a creature type. Draw a card for each permanent you control of that type.")]
+    ])]
 
 
 register("Distant Melody", _distant_melody)
@@ -1782,8 +1619,7 @@ register("Distant Melody", _distant_melody)
 
 def _bane_of_progress() -> list[AbilitySpec]:
     return [AbilitySpec("triggered", [EffectSpec("destroy_artifacts_enchantments_then_counters", {})],
-                        trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
-                        raw_text="When this creature enters, destroy all artifacts and enchantments. Put a +1/+1 counter on this creature for each permanent destroyed this way.")]
+                        trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}})]
 
 
 register("Bane of Progress", _bane_of_progress)
@@ -1792,7 +1628,6 @@ register("Bane of Progress", _bane_of_progress)
 def _yarok_the_desecrated() -> list[AbilitySpec]:
     return [AbilitySpec(
         "static", [EffectSpec("trigger_doubler", {"cause_filter": [EventType.ENTERS_BATTLEFIELD]})],
-        raw_text="If a permanent entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.",
     )]
 
 
@@ -1807,7 +1642,7 @@ def _titan_of_industry() -> list[AbilitySpec]:
             [EffectSpec("gain_life", {"amount": 5, "target_kind": "player"})],
             [EffectSpec("create_token", {"token_name": "Rhino", "power": 4, "toughness": 4, "colors": ["G"], "subtypes": ["Rhino", "Warrior"]})],
             [EffectSpec("add_counters", {"amount": 1, "kind": "shield", "target_kind": "creature_you_control"})],
-        ]}, raw_text="When this creature enters, choose two — Destroy target artifact or enchantment; target player gains 5 life; create a 4/4 green Rhino Warrior creature token; put a shield counter on a creature you control.",
+        ]},
     )]
 
 
@@ -1832,12 +1667,10 @@ def _raging_ravine() -> list[AbilitySpec]:
                 }},
             })],
             cost={"mana": "{2}{R}{G}"},
-            raw_text="{2}{R}{G}: Until end of turn, this land becomes a 3/3 Elemental creature. It's still a land.",
         ),
         AbilitySpec(
             "triggered", [EffectSpec("add_counters", {"amount": 1, "kind": "+1/+1", "target_kind": None})],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
-            raw_text="Whenever this creature attacks, put a +1/+1 counter on it.",
         ),
     ]
 
@@ -1852,9 +1685,8 @@ def _haunting_voyage() -> list[AbilitySpec]:
             [EffectSpec("request_choose_creature_type_grant", {"then_specs": [
                 {"type": "return_chosen_creature_type_from_graveyard", "params": {}},
             ]})],
-            raw_text="Choose a creature type. Return up to two creature cards of that type from your graveyard to the battlefield. If this spell was foretold, return all creature cards of that type from your graveyard to the battlefield instead.",
         ),
-        AbilitySpec("keyword", [], keyword={"name": "foretell", "cost": "{5}{B}{B}"}, raw_text="Foretell {5}{B}{B}"),
+        AbilitySpec("keyword", [], keyword={"name": "foretell", "cost": "{5}{B}{B}"}),
     ]
 
 
@@ -1863,13 +1695,12 @@ register("Haunting Voyage", _haunting_voyage)
 
 def _horde_of_notions() -> list[AbilitySpec]:
     return [
-        AbilitySpec("keyword", [], keyword={"name": "vigilance"}, raw_text="Vigilance"),
-        AbilitySpec("keyword", [], keyword={"name": "trample"}, raw_text="Trample"),
-        AbilitySpec("keyword", [], keyword={"name": "haste"}, raw_text="Haste"),
+        AbilitySpec("keyword", [], keyword={"name": "vigilance"}),
+        AbilitySpec("keyword", [], keyword={"name": "trample"}),
+        AbilitySpec("keyword", [], keyword={"name": "haste"}),
         AbilitySpec(
             "activated", [EffectSpec("cast_target_elemental_from_graveyard_free", {})],
             cost={"mana": "{W}{U}{B}{R}{G}"},
-            raw_text="{W}{U}{B}{R}{G}: You may play target Elemental card from your graveyard without paying its mana cost.",
         ),
     ]
 
@@ -1886,7 +1717,6 @@ def _descendants_fury() -> list[AbilitySpec]:
                 "event": EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
                 "condition": {"subject": "you"},
             },
-            raw_text="Whenever one or more creatures you control deal combat damage to a player, you may sacrifice one of them. If you do, reveal cards from the top of your library until you reveal a creature card that shares a creature type with the sacrificed creature. Put that card onto the battlefield and the rest on the bottom of your library in a random order.",
         ),
     ]
 
@@ -1901,7 +1731,6 @@ def _kindred_summons() -> list[AbilitySpec]:
             [EffectSpec("request_choose_creature_type_grant", {"then_specs": [
                 {"type": "kindred_summons", "params": {}},
             ]})],
-            raw_text="Choose a creature type. Reveal cards from the top of your library until you reveal X creature cards of the chosen type, where X is the number of creatures you control of that type. Put those cards onto the battlefield, then shuffle the rest of the revealed cards into your library.",
         ),
     ]
 
@@ -1922,7 +1751,6 @@ def _eclipsed_flamekin() -> list[AbilitySpec]:
                 "prompt": "Elemental-, Island- oder Mountain-Karte wählen",
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD},
-            raw_text="When this creature enters, look at the top four cards of your library. You may reveal an Elemental, Island, or Mountain card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
         ),
     ]
 
@@ -1946,7 +1774,6 @@ def _cream_of_the_crop() -> list[AbilitySpec]:
                 "event": EventType.ENTERS_BATTLEFIELD,
                 "condition": {"subject": "group", "type": "creature", "controller": "you"},
             },
-            raw_text="Whenever a creature you control enters, you may look at the top X cards of your library, where X is that creature's power. If you do, put one of those cards on top of your library and the rest on the bottom of your library in any order.",
         ),
     ]
 
@@ -1956,7 +1783,7 @@ register("Cream of the Crop", _cream_of_the_crop)
 
 def _cavalier_of_thorns() -> list[AbilitySpec]:
     return [
-        AbilitySpec("keyword", [], keyword={"name": "reach"}, raw_text="Reach"),
+        AbilitySpec("keyword", [], keyword={"name": "reach"}),
         AbilitySpec(
             "triggered",
             [EffectSpec("inspect_top_choose", {
@@ -1968,7 +1795,6 @@ def _cavalier_of_thorns() -> list[AbilitySpec]:
                 "prompt": "Länderkarte auf das Spielfeld bringen (Rest in den Friedhof)",
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD},
-            raw_text="When this creature enters, reveal the top five cards of your library. Put a land card from among them onto the battlefield and the rest into your graveyard.",
         ),
         AbilitySpec(
             "triggered",
@@ -1978,7 +1804,6 @@ def _cavalier_of_thorns() -> list[AbilitySpec]:
                 }},
             ]})],
             trigger={"event": EventType.DIES},
-            raw_text="When this creature dies, you may exile it. If you do, put another target card from your graveyard on top of your library.",
         ),
     ]
 

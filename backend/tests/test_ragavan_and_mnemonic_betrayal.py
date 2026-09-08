@@ -5,7 +5,7 @@ mana-wildcard). Both build on the shared `ImpulsiveDrawEffect`/
 `RulesEngine.exile_with_play_permission` mechanism `test_impulsive_draw.py`
 covers for the Light Up the Stage-shaped single-player case.
 
-Engine side: `game/effects.py`'s `GraveyardImpulsiveCastEffect`/
+Engine side: `game/effects/core.py`'s `GraveyardImpulsiveCastEffect`/
 `ReturnRemainingExiledEffect`, `RulesEngine._collect_impulsive_draw_triggers`/
 `exile_graveyard_with_cast_permission`/`_grant_temp_play_permission`,
 `GameState.temp_play_permission_player`/`mana_wildcard_permission`,
@@ -15,7 +15,7 @@ Engine side: `game/effects.py`'s `GraveyardImpulsiveCastEffect`/
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

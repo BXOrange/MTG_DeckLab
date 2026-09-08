@@ -10,14 +10,14 @@ controller, wrong whenever it resolved off the controller's own turn.
 
 Engine side: `game/ability_catalogue/entries_008.py`'s `_virtue_of_courage`
 (now `requires_damage_to_opponent` + `filter={"combat": False}`, the same
-predicate Chandra's Incinerator already established) and `game/effects.py`'s
+predicate Chandra's Incinerator already established) and `game/effects/core.py`'s
 `ImpulsiveDrawEffect.apply` (now reads `self.source.controller_id` instead
 of defaulting to `context.active_player`).
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone

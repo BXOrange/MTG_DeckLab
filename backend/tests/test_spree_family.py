@@ -6,7 +6,7 @@ recognises a bare "Spree" header followed by "+ <cost> — <body>" mode lines
 (distinct from an ordinary "Choose one/N/or more —" header — every mode
 prices *itself* rather than sharing one spell cost), the `AbilitySpec.modes
 ["mode_costs"]` IR (`parser/oracle/spec.py`), the binder that folds it onto
-each `obj.spell_modes[i]["cost"]` (`game/effect_binder.py`), and the
+each `obj.spell_modes[i]["cost"]` (`game/binding/core.py`), and the
 engine's own per-combination cost (`GameEngine._modal_extra_cost`, consulted
 by `effective_cast_cost`/`can_cast`/`_auto_tap_for_cast_if_needed` and
 surfaced by `_modal_cast_actions`/`_cast_action`). Escalate reuses the same
@@ -29,7 +29,7 @@ import pytest
 
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import SpecValidationError
@@ -152,7 +152,7 @@ def test_ability_spec_mode_costs_requires_choose_one_or_more():
         ).validate()
 
 
-# -- Binder (effect_binder.py) ------------------------------------------------
+# -- Binder (binding/core.py) ------------------------------------------------
 
 
 def test_binder_attaches_per_mode_cost_from_mode_costs():

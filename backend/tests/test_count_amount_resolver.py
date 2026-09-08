@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import re
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -414,8 +414,8 @@ def test_lose_life_and_gain_life_devotion_resolves_without_crashing():
     # to an int. Exercised directly through `GameContext`/`build_effects`
     # rather than a real trigger firing, since this is about the effect
     # *list* resolving correctly, not trigger-condition recognition.
-    from mtg_analyzer.game.effect_binder import build_effects
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.binding.core import build_effects
+    from mtg_analyzer.game.effects.core import GameContext
 
     eng = make_engine("p1", "p2")
     attacker = put(eng.state, creature("Attacker One", power=2, toughness=2))

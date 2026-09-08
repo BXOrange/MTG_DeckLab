@@ -55,7 +55,7 @@ from __future__ import annotations
 
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -134,7 +134,7 @@ def test_tabernacle_destroys_every_creature_unless_its_controller_pays():
 
 def test_rings_of_brighthearth_copies_a_paid_for_activated_ability():
     from mtg_analyzer.game.costs import ActivationCost
-    from mtg_analyzer.game.effects import ActivatedAbility, DealDamageEffect
+    from mtg_analyzer.game.effects.core import ActivatedAbility, DealDamageEffect
 
     eng = make_engine([], [])
     p1 = eng.state.player_by_id("p1")
@@ -163,7 +163,7 @@ def test_rings_of_brighthearth_copies_a_paid_for_activated_ability():
 
 def test_declining_the_copy_leaves_a_single_activation():
     from mtg_analyzer.game.costs import ActivationCost
-    from mtg_analyzer.game.effects import ActivatedAbility, DealDamageEffect
+    from mtg_analyzer.game.effects.core import ActivatedAbility, DealDamageEffect
 
     eng = make_engine([], [])
     p1 = eng.state.player_by_id("p1")

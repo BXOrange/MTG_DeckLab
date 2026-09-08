@@ -12,8 +12,8 @@ from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import GameState
 from mtg_analyzer.models.mana_cost import ManaCost
 from mtg_analyzer.models.player import Player
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import (
     DealDamageEffect,
     DrawCardEffect,
     EffectRegistry,
@@ -339,7 +339,7 @@ def test_become_copy_mutates_the_object_and_rebinds_its_abilities():
     # copiable characteristics (name, P/T, type line, oracle-derived
     # keywords/abilities) become the target's, replacing whatever it had —
     # while its own instance identity, zone and controller are untouched.
-    from mtg_analyzer.game.effects import ActivatedAbility
+    from mtg_analyzer.game.effects.core import ActivatedAbility
 
     eng = make_engine([], hand=0)
     eng.begin_turn()
@@ -1198,7 +1198,7 @@ def test_noncreature_mana_source_ignores_summoning_sickness():
 
 
 def test_summoning_sick_creature_cannot_activate_tap_ability():
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     eng = make_engine([land()], hand=0)
     pinger = _mana_dork(name="Prodigal Pyromancer")
@@ -1219,7 +1219,7 @@ def test_stack_is_lifo():
     state = eng.state
     resolved = []
     # Two abilities whose effects record their order when resolved.
-    from mtg_analyzer.game.effects import GameEffect
+    from mtg_analyzer.game.effects.core import GameEffect
 
     class Record(GameEffect):
         def __init__(self, tag):
@@ -1783,7 +1783,7 @@ def test_search_can_be_declined():
 
 
 def test_resolve_until_stable_stops_on_pending_choice():
-    from mtg_analyzer.game.effects import SearchLibraryEffect
+    from mtg_analyzer.game.effects.core import SearchLibraryEffect
     from mtg_analyzer.models.game_state import StackItem
 
     eng = make_engine([creature("Bear")], hand=0)
@@ -1985,7 +1985,7 @@ def test_counter_spell_removes_it_from_the_stack():
 
 def test_pass_priority_resolves_one_stack_object_at_a_time():
     from mtg_analyzer.models.game_state import StackItem
-    from mtg_analyzer.game.effects import DrawCardEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect
 
     eng = make_engine([land("Forest"), land("Forest")], hand=0)
     p1 = eng.state.active_player
@@ -2772,7 +2772,7 @@ def test_hexproof_creature_cannot_be_targeted_by_an_opponent():
 
 def _shock_spell(p1):
     """A hand `GameObject` for a bare "deal 3 damage to target creature" instant."""
-    from mtg_analyzer.game.effects import DealDamageEffect
+    from mtg_analyzer.game.effects.core import DealDamageEffect
 
     card = Card(
         id="Shock",
@@ -2890,7 +2890,7 @@ def test_ward_does_not_trigger_against_its_own_controller():
 
 def test_ward_triggers_on_a_targeted_activated_ability():
     from mtg_analyzer.game.costs import parse_activation_cost
-    from mtg_analyzer.game.effects import ActivatedAbility, DealDamageEffect
+    from mtg_analyzer.game.effects.core import ActivatedAbility, DealDamageEffect
 
     eng = make_engine([land()], [], hand=0)
     eng.begin_turn()
@@ -3075,7 +3075,7 @@ def test_ward_two_simultaneous_wards_each_ask_in_turn():
     # time as the stack resolves. Built via `RulesEngine.cast_spell` directly
     # with two targets so `check_ward` sees both, independent of whether the
     # spell's own one-shot effect happens to read more than `targets[0]`.
-    from mtg_analyzer.game.effects import DealDamageEffect
+    from mtg_analyzer.game.effects.core import DealDamageEffect
 
     eng = make_engine([], [], hand=0)
     eng.begin_turn()
@@ -3116,7 +3116,7 @@ def test_ward_one_of_two_simultaneous_wards_declined_counters_the_spell():
     # RULE 702.21c/608.2b: once the spell is countered by the first ward,
     # the second ward's own resolution finds nothing left to counter and
     # simply does nothing — it never asks the caster to pay again.
-    from mtg_analyzer.game.effects import DealDamageEffect
+    from mtg_analyzer.game.effects.core import DealDamageEffect
 
     eng = make_engine([], [], hand=0)
     eng.begin_turn()
@@ -3152,7 +3152,7 @@ def test_ward_one_of_two_simultaneous_wards_declined_counters_the_spell():
 # ---------------------------------------------------------------------------
 
 from mtg_analyzer.game.costs import ActivationCost, parse_activation_cost
-from mtg_analyzer.game.effects import ActivatedAbility
+from mtg_analyzer.game.effects.core import ActivatedAbility
 
 
 def _with_ability(eng, card, cost_text, effects, controller="p1"):
@@ -3166,7 +3166,7 @@ def _with_ability(eng, card, cost_text, effects, controller="p1"):
 
 
 def test_activate_pays_mana_and_taps_source_then_stacks():
-    from mtg_analyzer.game.effects import DrawCardEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect
 
     eng = make_engine([land()] * 3, hand=0)
     eng.begin_turn()
@@ -3184,7 +3184,7 @@ def test_activate_pays_mana_and_taps_source_then_stacks():
 
 
 def test_cannot_activate_without_mana():
-    from mtg_analyzer.game.effects import DrawCardEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect
 
     eng = make_engine([land()] * 3, hand=0)
     eng.begin_turn()
@@ -3196,7 +3196,7 @@ def test_cannot_activate_without_mana():
 
 
 def test_tap_ability_blocked_by_summoning_sickness():
-    from mtg_analyzer.game.effects import DrawCardEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect
 
     eng = make_engine([land()], hand=0)
     eng.begin_turn()
@@ -3207,7 +3207,7 @@ def test_tap_ability_blocked_by_summoning_sickness():
 
 
 def test_sacrifice_self_cost_sends_source_to_graveyard():
-    from mtg_analyzer.game.effects import DrawCardEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect
 
     eng = make_engine([land()], hand=0)
     eng.begin_turn()
@@ -3221,7 +3221,7 @@ def test_sacrifice_a_creature_cost_offers_a_choice_when_2plus_candidates():
     """RULE 602.1: "Sacrifice a creature" is a cost *choice*, not an engine
     auto-pick — `legal_actions` must offer every legal victim, and an
     explicit `sacrifice_choice` must be honoured over the first match."""
-    from mtg_analyzer.game.effects import DrawCardEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect
 
     eng = make_engine([land()], hand=0)
     eng.begin_turn()
@@ -3250,7 +3250,7 @@ def test_sacrifice_a_creature_cost_auto_picks_when_no_choice_given():
     """Non-interactive callers (tests, the goldfish auto-player) keep working
     unchanged: omitting `sacrifice_choice` falls back to the first legal
     candidate, exactly as before this became a real choice."""
-    from mtg_analyzer.game.effects import DrawCardEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect
 
     eng = make_engine([land()], hand=0)
     eng.begin_turn()
@@ -3265,7 +3265,7 @@ def test_sacrifice_a_creature_cost_auto_picks_when_no_choice_given():
 
 
 def test_sacrifice_a_creature_cost_rejects_an_invalid_choice():
-    from mtg_analyzer.game.effects import DrawCardEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect
 
     eng = make_engine([land()], hand=0)
     eng.begin_turn()
@@ -3279,7 +3279,7 @@ def test_sacrifice_a_creature_cost_rejects_an_invalid_choice():
 
 
 def test_pay_life_cost_reduces_life():
-    from mtg_analyzer.game.effects import DrawCardEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect
 
     eng = make_engine([land()], hand=0)
     eng.begin_turn()
@@ -3291,7 +3291,7 @@ def test_pay_life_cost_reduces_life():
 
 
 def test_untap_cost_requires_a_tapped_source():
-    from mtg_analyzer.game.effects import DrawCardEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect
 
     eng = make_engine([land()], hand=0)
     eng.begin_turn()
@@ -3305,7 +3305,7 @@ def test_untap_cost_requires_a_tapped_source():
 
 
 def test_remove_counters_cost():
-    from mtg_analyzer.game.effects import DrawCardEffect
+    from mtg_analyzer.game.effects.core import DrawCardEffect
 
     eng = make_engine([land()], hand=0)
     eng.begin_turn()
@@ -3321,7 +3321,7 @@ def test_remove_counters_cost():
 
 
 def test_bound_activated_ability_carries_full_cost():
-    from mtg_analyzer.game.effect_binder import bind_ability
+    from mtg_analyzer.game.binding.core import bind_ability
     from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
 
     spec = AbilitySpec(
@@ -3337,7 +3337,7 @@ def test_bound_activated_ability_carries_full_cost():
 
 
 def test_activated_attach_ability_attaches_to_target_on_resolution():
-    from mtg_analyzer.game.effects import AttachEffect
+    from mtg_analyzer.game.effects.core import AttachEffect
 
     eng = make_engine([land()], hand=0)
     eng.begin_turn()

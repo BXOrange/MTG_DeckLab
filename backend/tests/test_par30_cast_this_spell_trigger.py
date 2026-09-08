@@ -15,7 +15,7 @@ from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import ParserProvenance
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 
 from tests.test_game_engine import make_engine
 

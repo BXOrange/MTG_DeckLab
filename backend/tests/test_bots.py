@@ -512,7 +512,7 @@ class TestSearchChoices:
     """
 
     def test_a_fetch_land_is_not_wasted_declining_its_own_search(self):
-        from mtg_analyzer.game.effect_binder import bind_from_catalogue
+        from mtg_analyzer.game.binding.core import bind_from_catalogue
         from mtg_analyzer.models.game_object import GameObject, Zone
 
         deck = [land("Forest")] * 30

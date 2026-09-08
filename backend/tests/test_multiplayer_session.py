@@ -525,7 +525,7 @@ class TestTriggerVisibility:
     """
 
     def _playing_with_sram(self):
-        from mtg_analyzer.game.effect_binder import bind_from_catalogue
+        from mtg_analyzer.game.binding.core import bind_from_catalogue
         from mtg_analyzer.models.game_object import GameObject, Zone
 
         session = make_game(mulligan_style="none", library=[land()] * 30)

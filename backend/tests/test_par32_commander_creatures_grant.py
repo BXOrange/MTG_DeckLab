@@ -13,7 +13,7 @@ trigger is collected).
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous  # noqa: F401  (kept for parity with sibling tests)
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -523,7 +523,7 @@ def test_become_copy_eot_vs_permanent_by_wording():
 
 
 def test_become_copy_permanent_effect_binds_and_mutates():
-    from mtg_analyzer.game.effects import EffectRegistry
+    from mtg_analyzer.game.effects.core import EffectRegistry
     eng = GameEngine.new_game(
         [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
     )

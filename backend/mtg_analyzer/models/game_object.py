@@ -387,7 +387,7 @@ class GameObject:
         self.cast_via_graveyard_cast_permission_until_turn: Optional[int] = None
         #: RULE 702.88b: whether this card has Rebound — a printed-
         #: characteristic-like marker, bound once from `AbilitySpec.rebound`
-        #: (`game/effect_binder.py`) and never reset, unlike the transient
+        #: (`game/binding/core.py`) and never reset, unlike the transient
         #: flags below. Ephemerate-shaped.
         self.has_rebound: bool = False
         #: RULE 702.88b: set by `RulesEngine.cast_spell` when a `has_rebound`
@@ -601,7 +601,7 @@ class GameObject:
 
         #: RULE 108.4-adjacent "gain control of target permanent until end
         #: of turn" (Zealous Conscripts/Coercive Recruiter-shaped,
-        #: `game/effects.py`'s `GainControlUntilEndOfTurnEffect`) — the
+        #: `game/effects/core.py`'s `GainControlUntilEndOfTurnEffect`) — the
         #: *original* controller, stamped the moment control changes so
         #: `GameEngine._step_cleanup` can hand it back at the next cleanup;
         #: ``None`` means this object isn't under a temporary control change.
@@ -1436,7 +1436,7 @@ class GameObject:
     def type_words(self) -> set[str]:
         """Lowercase current card-type words (RULE 613 layer 4 aware).
 
-        Used by `game/effect_binder.py`'s trigger-condition "group" subject
+        Used by `game/binding/core.py`'s trigger-condition "group" subject
         scoping (RULE 603.1, e.g. "whenever a creature dies") to check *what
         kind* of object an event was about. Starts from the printed type
         line's main (pre-em-dash) words — so a supertype like "legendary"

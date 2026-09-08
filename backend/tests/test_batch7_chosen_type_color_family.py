@@ -41,7 +41,7 @@ mtg_analyzer/game/{effects,effect_binder,rules_engine,game_engine,continuous}.py
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import GameState
@@ -274,7 +274,7 @@ def test_all_creatures_mass_pump_selector_applies_board_wide():
     engine, state, p1, p2 = _rules()
     a = _bf(state, _creature("A"))
     b = _bf(state, _creature("B", type_line="Creature — Bear"), controller="p2")
-    from mtg_analyzer.game.effects import PumpEffect
+    from mtg_analyzer.game.effects.core import PumpEffect
 
     PumpEffect(power=-2, toughness=-2, selector="all_creatures", source=a).apply(engine.context)
     assert (a.temp_power, a.temp_toughness) == (-2, -2)

@@ -13,14 +13,14 @@ outcome on `GameContext.clash_won`; the "if you win, `<effect>`. otherwise,
 **Documented simplification**: RULE 701.30a's optional "put that card on the
 bottom" is always declined — see `RulesEngine.clash`.
 
-Reference: game/rules/misc_mixin.py (`clash`), game/effects.py
+Reference: game/rules/misc_mixin.py (`clash`), game/effects/core.py
 (`ClashEffect`, `ConditionalEffect._condition_holds`),
 parser/oracle/segmenter.py, parser/oracle/catalogue/handlers.py.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
