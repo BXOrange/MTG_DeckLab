@@ -498,9 +498,12 @@ measure it with `scripts/coverage_report.py --commander-legal-only`
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring
 template → `PAR-*` / set-specific → `PAR-*` / missing primitive → `MEC-*` /
 bespoke hand-authoring tail) with the read-only
-`scripts/commander_tail_report.py`. The per-version changelog and the long-tail
-strategy (recurring lessons, worked samples) are in
-`docs/implementation-state/PARSER_LONG_TAIL.md`; open parser tickets are
+`scripts/commander_tail_report.py`. The long-tail strategy (recurring lessons,
+worked samples, known-open clusters) is in
+`docs/implementation-state/PARSER_LONG_TAIL.md` — **not** a per-version
+changelog any more (that was worklog duplicating `Done_Backend.md`, removed
+2026-09-09); a shipped handler's narrative belongs in `Done_Backend.md` under
+the primitive's own subsystem heading. Open parser tickets are
 `PAR-*` in `BACKLOG.md`. **Stickers (RULE 123) are a permanent project
 non-goal** — the gate classifies any "sticker" card as `NEVER_SUPPORTED`, a
 verdict distinct from `UNMODELED` and kept out of both the covered count and
