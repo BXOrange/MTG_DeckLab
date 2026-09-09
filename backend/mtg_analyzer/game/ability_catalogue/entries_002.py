@@ -721,11 +721,39 @@ register("Sword of Truth and Justice", _sword_of_truth_and_justice)
 
 
 def _swords_to_plowshares() -> list[AbilitySpec]:
-    """Exile target creature. Its controller gains life equal to its power."""
+    """Exile target creature. Its controller gains life equal to its power.
+
+    ENG-37: the first fused effect type retired onto the composition axis.
+    This shipped as one welded `exile_gain_life_equal_power` class whose own
+    docstring explained why it had to be — "`GainLifeEffect` deliberately
+    never reads a shared ``targets`` list, so composing two effects here
+    couldn't pass the power along". That was true of the *operand* axis, not
+    of composition: the life is measured off the exiled creature and paid to
+    **its** controller, and neither the amount nor the recipient could name a
+    referent. `effect_amounts` supplies the first and `effect_operands` the
+    second, so the card is now what it reads as — an exile, then a life gain
+    that points back at what the exile chose.
+    """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("exile_gain_life_equal_power", {"target_kind": "creature"})],
+            [
+                EffectSpec("exile", {"target_kind": "creature"}),
+                EffectSpec("bind", {
+                    "name": "power",
+                    "amount": {
+                        "kind": "characteristic", "characteristic": "power",
+                        "of": "previous_target",
+                    },
+                    "effects": [{
+                        "type": "gain_life",
+                        "params": {
+                            "amount": "$power",
+                            "player": {"of": "previous_target", "as": "controller"},
+                        },
+                    }],
+                }),
+            ],
         )
     ]
 
@@ -1026,11 +1054,30 @@ def _feed_the_swarm() -> list[AbilitySpec]:
     tier `parser.oracle.catalogue.subgrammars`'s "target artifact or
     enchantment" → ``"permanent"`` row already uses generically; the life
     loss always hits the caster, matching the printed "you lose life".
+
+    ENG-37: retired from `destroy_lose_life_equal_mana_value`. Unlike Swords
+    to Plowshares and Nature's Claim, the recipient here needed no referent
+    ("**you** lose life"), only the *amount* did — so this one is a plain
+    `destroy` plus a `bind` reading the destroyed permanent's printed mana
+    value (RULE 202.3, stable after it leaves — RULE 608.2h last-known
+    information, which is what the welded version read too).
     """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("destroy_lose_life_equal_mana_value", {"target_kind": "permanent"})],
+            [
+                EffectSpec("destroy", {"target_kind": "permanent"}),
+                EffectSpec("bind", {
+                    "name": "mv",
+                    "amount": {
+                        "kind": "characteristic", "characteristic": "mana_value",
+                        "of": "previous_target",
+                    },
+                    "effects": [
+                        {"type": "lose_life", "params": {"amount": "$mv"}},
+                    ],
+                }),
+            ],
         )
     ]
 

@@ -4098,6 +4098,50 @@ evidence is
   one `if_else` over one threshold, both branches still covered by its own
   tests.
 
+### The operand axis, and the first fusions retired (ENG-37, `14_` axis 4)
+
+- **What:** `game/effect_operands.py` — an effect's operand may name a
+  *referent* (``{"of": "previous_target", "as": "controller"}``) instead of
+  only an already-resolved player. Three fused effect types retired onto it:
+  **84 → 81**.
+- **Files:** `game/effect_operands.py`, `game/effects/core.py`
+  (`GameEffect._operand_player`), `game/effect_amounts.py`, `game/isa.py`,
+  `game/ability_catalogue/entries_002.py`/`entries_003.py`,
+  `tests/test_effect_operands.py` (21 tests)
+- **This was the actual blocker, not composition.** ENG-37 built axis 3
+  first and then measured that the fusions did not fall to it: 80 of the 84
+  already had every part registered as a standalone instruction. What was
+  missing was the ability for a body clause to *point back* at what an
+  earlier clause produced. `ExileGainLifeToControllerEffect` had said so in
+  its own docstring for as long as it existed — "`GainLifeEffect`
+  deliberately never reads a shared ``targets`` list, so composing two
+  effects here couldn't pass the power along".
+- **The axis had been filling in by hand, one flag at a time**, exactly as
+  the condition keys had before ENG-36: `GainLifeEffect.recipient=
+  "target_controller"`, `DrawCardEffect.player_from_trigger_event`,
+  `AddPlayerCountersEffect.player_from_target`, `SacrificeEffect.selector`,
+  `DealDamageEffect.player_selector` — plus 174 effects hard-coding
+  `_controller_of(self.source, context)` for the default. One vocabulary now
+  covers all of it, and ``as`` is a modifier rather than a doubled set of
+  referent names for the same reason ENG-36 gives for ``not``.
+- **Wired at the existing seams, not beside them.** `GameEffect.
+  _operand_player` intercepts a referent-shaped operand inside the two
+  fallback chains the codebase had already factored out
+  (`_resolve_target_or_controller` and `LoseLifeEffect._resolve_pre_selector_
+  player`), so an effect gains the capability without a new parameter.
+- **The three cards, and what each one proves.** *Swords to Plowshares*
+  needs both halves — the amount measured off the exiled creature and the
+  recipient named as its controller. *Nature's Claim* needs only the operand
+  (the 4 is printed). *Feed the Swarm* needs only the amount ("**you** lose
+  life"). Together they cover the cross-product, which is why these three
+  rather than three of a kind.
+- **A bug the fail-safe design hid.** `effect_amounts` read
+  ``card.mana_value``; the field is ``converted_mana_cost``. Because an
+  unreadable measurement is 0 by design, Feed the Swarm lost *no* life
+  instead of raising — the failure mode a fail-safe vocabulary buys, and the
+  reason each migrated card keeps a test asserting the number rather than
+  just that it ran.
+
 ### What ENG-37's exit criterion actually requires (measured)
 
 The ticket's exit is "those 84 fusion types are gone". They are not, and the

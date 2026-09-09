@@ -920,6 +920,9 @@ class GameEffect(ABC):
         player resolution) doesn't fit this helper and isn't migrated onto
         it; see that class's own comments.
         """
+        resolved = self._operand_player(context, targets, explicit)
+        if resolved is not None or isinstance(explicit, (str, dict)):
+            return resolved
         if explicit is not None:
             return explicit
         player = None
@@ -928,6 +931,29 @@ class GameEffect(ABC):
         if player is None:
             player = _controller_of(self.source, context)
         return player
+
+    def _operand_player(
+        self, context: GameContext, targets: Optional[list[Any]], operand: Any
+    ) -> Any:
+        """A player operand naming a *referent*, resolved — else ``None``.
+
+        ENG-37 axis 4. `14_` §1.1's operand axis had been filling in one flag
+        at a time (`GainLifeEffect.recipient="target_controller"`,
+        `DrawCardEffect.player_from_trigger_event`,
+        `AddPlayerCountersEffect.player_from_target`), which is what kept
+        "destroy target permanent, **its controller** gains 4 life" welded
+        into a single effect type: the recipient could not be named. A
+        ``{"of": …, "as": "controller"}`` dict (or a `PLAYER_SCOPES` string)
+        is resolved through the one shared vocabulary in
+        `game/effect_operands.py`; anything else — an already-resolved
+        `Player`, or ``None`` — is not this helper's business and comes back
+        ``None`` so the caller's own fallback chain continues.
+        """
+        if not isinstance(operand, (str, dict)):
+            return None
+        from .. import effect_operands  # function-scoped: effects↔operands cycle
+
+        return effect_operands.player_for(operand, context, self.source, targets)
 
     def _resolve_amount_override(
         self,
@@ -3246,7 +3272,7 @@ class DamageAndDrainCappedEffect(GameEffect):
     characteristic *before* the damage (which the damage itself can zero
     out, or which a battlefield-only permanent loses entirely if it dies),
     the same "read the target's own characteristic first, then act" shape
-    `DestroyLoseLifeEqualManaValueEffect`/`ExileGainLifeToControllerEffect`
+    Swords to Plowshares' / Feed the Swarm's compositions (ENG-37)
     already use elsewhere. Player/planeswalker/creature are told apart by
     duck-typing (``hasattr(target, "life")`` for a `Player`, else
     `GameObject.is_planeswalker`, else the creature/toughness fallback —
@@ -5773,7 +5799,9 @@ class LoseLifeEffect(GameEffect):
         (a plainer 3-step chain neither of this class's own chains matches)
         — this is `LoseLifeEffect`'s own shape.
         """
-        player = self.player
+        player = self._operand_player(context, targets, self.player) or (
+            None if isinstance(self.player, (str, dict)) else self.player
+        )
         if player is None and self.player_id is not None:
             player = context.state.player_by_id(self.player_id)
         if player is None and self.previous_subject and context.previous_targets:
@@ -5851,7 +5879,9 @@ class LoseLifeEffect(GameEffect):
                     continue
                 context.lose_life(p, amount)
             return
-        player = self.player
+        player = self._operand_player(context, targets, self.player) or (
+            None if isinstance(self.player, (str, dict)) else self.player
+        )
         if player is None and self.player_id is not None:
             player = context.state.player_by_id(self.player_id)
         if player is None and self.previous_subject and context.previous_targets:
@@ -5993,7 +6023,7 @@ class DiesGrantsRadCountersEqualPowerEffect(GameEffect):
     counters equal to its power." (Feral Ghoul-shaped) — an atomic effect
     reading the dying creature's own last-known power (RULE 400.7) at
     apply time, the same "read the characteristic directly rather than
-    compose two effects" shape `ExileGainLifeToControllerEffect` uses for
+    compose two effects" shape Swords to Plowshares' composition (`exile` + `bind`, ENG-37) used to need for
     "exile ~; you gain life equal to its power" — a generic
     `AddPlayerCountersEffect` has no way to receive a dynamic amount from
     its own triggering object.
@@ -8333,51 +8363,6 @@ class FreeCastFromHandEffect(GameEffect):
         )
 
 
-class ExileGainLifeToControllerEffect(GameEffect):
-    """Exile a target creature; its controller gains life equal to its power
-    (RULE 701.5a / 701.5.f-adjacent — Swords to Plowshares-shaped).
-
-    A single atomic effect rather than a separate `ExileEffect` +
-    `GainLifeEffect`: the life total depends on the *same* target's power,
-    read before it leaves the battlefield, and — as `GainLifeEffect`'s own
-    docstring explains — that effect deliberately never reads a shared
-    ``targets`` list, so composing two effects here couldn't pass the power
-    along anyway. Also handles the target's *own* controller (not
-    necessarily the caster) gaining the life, unlike every other life-gain
-    effect in this file, which defaults to the effect's controller.
-    """
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "creature",
-        optional: bool = False,
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
-
-    def target_polarity(self) -> Optional[str]:
-        return "harmful"
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        power = target.power or 0
-        controller_id = getattr(target, "controller_id", None)
-        context.exile(target)
-        if controller_id is None:
-            return
-        try:
-            player = context.state.player_by_id(controller_id)
-        except (KeyError, ValueError):
-            return
-        if power > 0:
-            context.gain_life(player, power)
-
-
 class ExileAllGraveyardsEffect(GameEffect):
     """"Exile all graveyards." (RULE 406 mass exile, Farewell-shaped) —
     every card in every player's graveyard, untargeted.
@@ -8486,45 +8471,6 @@ class ExileTargetGraveyardEffect(GameEffect):
             context.exile(obj)
 
 
-class DestroyLoseLifeEqualManaValueEffect(GameEffect):
-    """"Destroy target creature or enchantment an opponent controls. You
-    lose life equal to that permanent's mana value." (Feed the Swarm) — a
-    single atomic effect since the life total depends on the target's own
-    mana value, read before it leaves the battlefield, mirroring
-    `ExileGainLifeToControllerEffect`'s "read the target's own
-    characteristic, then move it" shape. ``target_kind="permanent"``
-    (broader than "creature or enchantment an opponent controls" — no
-    target kind unions two card types *and* restricts to opponents at
-    once) is the same documented simplification `_TARGET_ROWS`'s "target
-    artifact or enchantment" → ``"permanent"`` row already uses elsewhere;
-    the life-loss always hits the *caster*, not the target's controller,
-    unlike `ExileGainLifeToControllerEffect`.
-    """
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "permanent",
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
-
-    def target_polarity(self) -> Optional[str]:
-        return "harmful"
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        mana_value = target.card.converted_mana_cost
-        context.destroy(target)
-        controller = _controller_of(self.source, context)
-        if controller is not None and mana_value:
-            context.lose_life(controller, mana_value)
-
-
 class ExileCreateTokenEffect(GameEffect):
     """"Exile target artifact or creature. Its controller creates a 4/4
     blue and red Elemental creature token." (Resculpt) — a single atomic
@@ -8532,7 +8478,7 @@ class ExileCreateTokenEffect(GameEffect):
     (unlike `CreateTokenEffect`, which always creates under the effect's
     own source's controller), so the target's controller must be read
     before/alongside exiling it, the same "read something off the target,
-    then act" shape `ExileGainLifeToControllerEffect` uses for life gain
+    then act" shape Swords to Plowshares' composition (`exile` + `bind`, ENG-37) uses for life gain
     instead of a token.
     """
 
@@ -8690,49 +8636,6 @@ class DestroyCreateTokenEffect(GameEffect):
         context.create_token(controller_id, card, 1)
 
 
-class DestroyGainLifeToControllerEffect(GameEffect):
-    """"Destroy target artifact or enchantment. Its controller gains 4
-    life." (Nature's Claim-shaped) — a fixed life amount, unlike
-    `ExileGainLifeToControllerEffect`'s "equal to its power"; still a single
-    atomic effect since the life goes to the *target's own controller*
-    (read before it leaves the battlefield), not the caster.
-    ``target_kind="permanent"`` (broader than "artifact or enchantment" — no
-    target kind unions two card types) is the same documented `_TARGET_
-    ROWS` simplification `DestroyLoseLifeEqualManaValueEffect` already uses.
-    """
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "permanent",
-        amount: int = 0,
-        can_be_regenerated: bool = True,
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
-        self.amount = amount
-        self.can_be_regenerated = can_be_regenerated
-
-    def target_polarity(self) -> Optional[str]:
-        return "harmful"
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        controller_id = getattr(target, "controller_id", None)
-        context.destroy(target, can_be_regenerated=self.can_be_regenerated)
-        if controller_id is None or not self.amount:
-            return
-        try:
-            player = context.state.player_by_id(controller_id)
-        except (KeyError, ValueError):
-            return
-        context.gain_life(player, self.amount)
-
-
 class DestroyExileThenControllerRevealCreatureEffect(GameEffect):
     """"Destroy/Exile target creature. It can't be regenerated
     [destroy mode only]. Its controller reveals cards from the top of
@@ -8744,7 +8647,7 @@ class DestroyExileThenControllerRevealCreatureEffect(GameEffect):
     removal — RULE 400.7's zone change would otherwise leave nothing to
     read a controller off of once it's in the graveyard/exile) rather than
     this ability's own controller, the same "read before it leaves the
-    battlefield" idiom `DestroyGainLifeToControllerEffect` already uses.
+    battlefield" idiom Nature's Claim's composition (`destroy` + a referent recipient, ENG-37) uses.
 
     ``mode`` picks destroy (``can_be_regenerated=False``, Polymorph) or
     exile (Transmogrify, which has no regeneration clause to carry since
@@ -9680,7 +9583,7 @@ class ReturnToHandDrawIfControlledEffect(GameEffect):
     controlled that permanent, draw a card." (Geistwave-shaped) — a single
     atomic effect: the draw is conditioned on the target's own controller,
     read *before* it leaves the battlefield, mirroring
-    `ExileGainLifeToControllerEffect`'s "read something off the target,
+    Swords to Plowshares' composition (`exile` + `bind`, ENG-37)'s "read something off the target,
     then act" shape (composing two separate `EffectSpec`s here couldn't
     check the target's controller after `ReturnToHandEffect` already moved
     it, the same reason that effect's docstring gives for not splitting its
@@ -23670,14 +23573,6 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "exile_gain_life_equal_power",  # Swords to Plowshares-shaped
-    lambda p: ExileGainLifeToControllerEffect(
-        target=p.get("target"),
-        target_kind=p.get("target_kind", "creature"),
-        optional=bool(p.get("optional", False)),
-    ),
-)
-EffectRegistry.register(
     "exile_all_graveyards", lambda p: ExileAllGraveyardsEffect(colors=p.get("colors")),
 )
 EffectRegistry.register(
@@ -23697,12 +23592,6 @@ EffectRegistry.register(
     "exile_target_graveyard",  # Bojuka Bog/Tormod's Crypt
     lambda p: ExileTargetGraveyardEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "player"),
-    ),
-)
-EffectRegistry.register(
-    "destroy_lose_life_equal_mana_value",  # Feed the Swarm
-    lambda p: DestroyLoseLifeEqualManaValueEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
     ),
 )
 EffectRegistry.register(
@@ -23749,14 +23638,6 @@ EffectRegistry.register(
         token_name=p.get("token_name"),
         count=int(p.get("count", 1)),
         keywords=list(p.get("keywords", [])),
-    ),
-)
-EffectRegistry.register(
-    "destroy_gain_life_to_controller",  # Nature's Claim
-    lambda p: DestroyGainLifeToControllerEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
-        amount=int(p.get("amount", 0)),
-        can_be_regenerated=bool(p.get("can_be_regenerated", True)),
     ),
 )
 EffectRegistry.register(

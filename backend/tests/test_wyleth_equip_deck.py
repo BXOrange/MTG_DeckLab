@@ -16,7 +16,6 @@ import pytest
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import (
     DestroyEffect,
-    ExileGainLifeToControllerEffect,
     TargetPlayerDrawLoseLifeEffect,
     UnattachTapIndestructibleEffect,
 )
@@ -152,6 +151,19 @@ def test_relic_seeker_renown_fires_the_search_for_equipment():
 
 
 def test_swords_to_plowshares_exiles_and_gains_life_equal_to_power():
+    """ENG-37: now the composition the card reads as, not a welded effect.
+
+    Driven through `bind_from_catalogue`'s own specs rather than by
+    constructing a class, because the point of retiring
+    ``exile_gain_life_equal_power`` is that the two halves compose — the
+    amount is measured off the exiled creature (`effect_amounts`) and the
+    life is paid to *its* controller (`effect_operands`), neither of which
+    the IR could express before.
+    """
+    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.binding.core import build_effects
+    from mtg_analyzer.game.effects.core import _apply_effects_partitioned
+
     eng = _engine()
     state = eng.state
     titan = _bound_battlefield_obj(state, _card("Sun Titan"), controller="p2")
@@ -159,7 +171,10 @@ def test_swords_to_plowshares_exiles_and_gains_life_equal_to_power():
     power = titan.power
     life_before = state.player_by_id("p2").life
 
-    ExileGainLifeToControllerEffect(target=titan).apply(eng.rules.context)
+    spec = specs_for(_card("Swords to Plowshares"))[0]
+    _apply_effects_partitioned(
+        build_effects(spec.effects, None), eng.rules.context, [titan], None,
+    )
 
     assert titan not in state.battlefield
     assert state.player_by_id("p2").life == life_before + power

@@ -649,7 +649,7 @@ def _drain_life() -> list[AbilitySpec]:
     solver for free, no pool changes needed. The damage+drain clause is one
     new atomic `DamageAndDrainCappedEffect` (the life-gain cap needs the
     target's own life/loyalty/toughness read *before* the damage, the same
-    "read first, then act" shape `DestroyLoseLifeEqualManaValueEffect`
+    "read first, then act" shape Feed the Swarm's composition (`destroy` + `bind`, ENG-37)
     already uses). Along the way: `targeting.legal_targets`'s own "any
     target" (RULE 115.4) turned out to only ever offer creatures and
     players — planeswalkers and battles were never added, a stale gap from

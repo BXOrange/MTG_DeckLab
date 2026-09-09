@@ -21,7 +21,7 @@ def _geistwave() -> list[AbilitySpec]:
     — Geistwave. A new atomic `ReturnToHandDrawIfControlledEffect` this
     batch — the target's controller has to be read *before*
     `ReturnToHandEffect` would move it, the same reason
-    `ExileGainLifeToControllerEffect` is one atomic effect rather than two
+    Swords to Plowshares' composition (`exile` + `bind`, ENG-37) composes rather than welding two effects
     composed ones.
     """
     return [

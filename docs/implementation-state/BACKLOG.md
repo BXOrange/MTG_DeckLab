@@ -97,13 +97,18 @@ its block back into the matching section here.
     `reveal_top_conditional_to_hand` ("if it's a land"),
     `create_token_may_attach_equipment` ("attach to the token you just made"),
     `each_player_exile_from_graveyard_then_counters` ("that many").
-  - Half of that already exists: ENG-36's `effect_conditions.subject_of` lets
-    a body *ask* about `previous_target`/`entering`/`chosen`, and
-    `effect_amounts` lets it measure one. **The missing direction is an
-    operand naming a referent** — `gain_life` with
-    `player={"of": "previous_target_controller"}` rather than a fused type.
-    That is the next ticket's shape: one referent vocabulary on the operand
-    side, then the 80 retire in batches.
+  - **The operand axis is now built** (`game/effect_operands.py`): an
+    operand may name a referent, e.g. `gain_life` with
+    `player={"of": "previous_target", "as": "controller"}`. Three fusions
+    retired onto it as proof of the pattern (**84 → 81**) — Swords to
+    Plowshares (referent amount *and* referent recipient), Nature's Claim
+    (recipient only), Feed the Swarm (amount only). What remains is the
+    batch work: each migration is rewrite-the-producer, delete-the-class,
+    drop-the-`isa`-row, with the card's own test asserting the number.
+  - **Only two effects are wired to the operand vocabulary so far**
+    (`gain_life`, `lose_life`, via `GameEffect._operand_player` on the two
+    existing fallback chains). Each further batch needs its effects wired the
+    same way — a one-line intercept per fallback chain, not a new parameter.
   - **Re-derive the 84 before using it as a target.** Inspection found the
     count over-states: `wheel`/`wheel_of_fortune` are `for_each` with a fixed
     draw, not `bind` (nothing is measured), and several `seq` rows (`haunt`,
@@ -111,6 +116,20 @@ its block back into the matching section here.
   - **Exit:** an operand-side referent vocabulary; the re-derived fusion list
     retired in batches, `isa.fusions_retired_by(<op>)` shrinking with it.
 
+
+- **ENG-38 · Six full-cache regressions, invisible until now.** The app card
+  cache was empty on the dev machine, so every `full_cache`-marked test
+  silently skipped; reseeding it (`scripts/import_bulk.py --reseed-only`,
+  offline from the raw store) made them runnable again and six fail at
+  `e10d726`, none related to the ISA work:
+  `test_cube_batch_15.py::test_sacrificed_noncreature_fires_sacrifice_but_not_dies`,
+  `test_cube_batch_a1.py::test_look_at_top_any_time_claimed_but_permission_clause_still_blocks`,
+  `test_cube_batch_a1.py::test_pemmins_aura_stays_unmodeled_inline_or_modal`,
+  `test_cube_batch_a2.py::test_monolith_family_modeled_and_own_other_lines_unaffected`,
+  `test_cube_batch_b1.py::test_grinding_station_may_untap_when_an_artifact_enters`,
+  `test_cube_batch_b3.py::test_ponder_draws_a_card`.
+  Run them with `pytest --full-cache`. **Exit:** each one either fixed or
+  re-scoped with the reason it no longer holds.
 
 ## PAR — Parser
 

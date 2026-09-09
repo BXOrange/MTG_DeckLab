@@ -10,8 +10,10 @@ specific) additions, each proven here on the real card that motivated it:
 
 1. `destroy_create_token` (`DestroyCreateTokenEffect`) — the destroy sibling
    of B1's `ExileCreateTokenEffect` (Beast Within).
-2. `destroy_gain_life_to_controller` — a fixed-amount destroy-and-heal
-   (Nature's Claim).
+2. A fixed-amount destroy-and-heal (Nature's Claim). Originally the welded
+   `destroy_gain_life_to_controller` effect; ENG-37 retired it — the card is
+   now a plain `destroy` plus a `gain_life` whose recipient names a referent
+   (`effect_operands`).
 3. `RulesEngine._substitute_x`'s new `"-x"` sentinel rewriting a `pump`
    effect's `power`/`toughness` for an X-scaled debuff paid as life
    (Toxic Deluge).

@@ -329,8 +329,11 @@ things this section did not anticipate, recorded so S4 doesn't inherit them:
   `exile_gain_life_equal_power`'s own docstring states it — "composing two
   effects here couldn't pass the power along". S2 built half of what is needed
   (a body can *ask* about `previous_target`/`entering`/`chosen`, and
-  `effect_amounts` can measure one); the operand side is missing and is not
-  staged anywhere in this document.
+  `effect_amounts` can measure one); the operand side has since been built as
+  `game/effect_operands.py`, and three fusions retired onto it (84 → 81) —
+  but **axis 4 is still not staged anywhere in this document**, which is the
+  gap worth fixing here: S3 assumed composition alone would retire the fused
+  types, and it does not.
 - **`all` is not a sufficient combinator basis, and neither is a two-valued
   gate.** `if_else` needs "the referent doesn't exist" to be distinct from
   "the answer is no", or RULE 701.30d's "otherwise" fires whenever no clash

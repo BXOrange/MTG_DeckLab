@@ -1396,7 +1396,7 @@ def _polymorph() -> list[AbilitySpec]:
     is the new general primitive: one atomic effect rather than a two-effect
     list, since the dig has to be run by the *destroyed creature's own
     controller* (read before the RULE 400.7 zone change, the same "read it
-    before it leaves the battlefield" idiom `DestroyGainLifeToControllerEffect`
+    before it leaves the battlefield" idiom Nature's Claim's composition (`destroy` + a referent recipient, ENG-37)
     already uses) — not this spell's own caster. Reuses `dig_until`'s new
     ``rest_destination="library_shuffled"`` (a real shuffle, not just "the
     bottom in a random order" — the two read identically to a player, but
