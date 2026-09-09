@@ -1,9 +1,9 @@
 # 14 — The atom/composition design: oracle text as a program
 
-**Status:** design, 2026-09-08. **S0 and S1 are implemented** (ENG-34 and
-ENG-35, both closed — `game/isa.py`, `scripts/isa_report.py`,
-`game/targeting.py`'s `TARGET_FRAMES`, `game/continuations.py`); S2–S5 are
-still proposal. **S0b's cheap-exit checkpoint
+**Status:** design, 2026-09-08. **S0, S1 and S2 are implemented** (ENG-34,
+ENG-35 and ENG-36, all closed — `game/isa.py`, `scripts/isa_report.py`,
+`game/targeting.py`'s `TARGET_FRAMES`, `game/continuations.py`,
+`game/effect_conditions.py`); S3–S5 are still proposal. **S0b's cheap-exit checkpoint
 (§8) passed** — all 50 top corpus operations resolve to one instruction with
 a canonical frame — so the programme continues rather than being abandoned
 here. See `Done_Backend.md` "Instruction-Set Architecture (ISA) &
@@ -273,13 +273,39 @@ proposing a new one.
 > is the whole of what S3 blocked on. Anyone reading §3.1 as a mandate to
 > rewrite the parking mechanism would have rewritten something that works.
 
-### S2 — Structured conditions
+### S2 — Structured conditions — **shipped** (ENG-36)
 
 Replace the 43 flat `_ALLOWED_CONDITION_KEYS` with subject-qualified predicates
 modelled on `static_conditions.py`'s `{kind, of, …}` + `"all"` combinator,
 reusing `condition_holds` — the refactor `effect_binder.py` already performed
-once for replacements. Removes the 26-peeler cascade in `parse_effect_body` and
+once for replacements. Removes the peeler cascade in `parse_effect_body` and
 the four-edits-per-predicate tax.
+
+Shipped as `game/effect_conditions.py`: `ConditionalEffect._condition_holds`
+554 → 16 lines, the peeler cascade → one rule. Three corrections this section
+earned, recorded so the next stage doesn't inherit them:
+
+- **The cascade was 15 blocks, not 26.** 26 counts the distinct condition
+  *outcomes* those 15 regexes produce. The same over-count risk applies to
+  S3's "84 fusions" and S5's row counts — `isa.py` measures those, so they
+  are safe, but this one was written from a reading rather than a query.
+- **"Reusing `condition_holds`" turned out to mean something stronger than
+  intended.** The plan reads as "model the effect vocabulary on the static
+  one". What actually works is *delegating to it*: `static_conditions.py`
+  already was the shared state-predicate vocabulary (statics, trigger
+  intervening-ifs, and `binding/core.py`'s replacement gate all read it), so
+  the effect layer resolves its extra referents and hands that evaluator a
+  condition already pointed at the object. 15 of the 44 keys' predicates moved
+  *into* the state vocabulary; only five genuinely need a `GameContext`. The
+  side effect is the real win: all 65 state predicates are now reachable as
+  effect gates, which is capability the plan never asked for.
+- **The vocabulary needed `not`, and needed to be three-valued.** Roughly half
+  the flat keys were booleans whose `False` spelling meant "the same question,
+  negated" — a combinator, not a predicate. But negation is only correct once
+  the evaluator can say "the referent doesn't exist" separately from "the
+  answer is no", or "otherwise, …" fires when no clash happened. `all` alone
+  (what this section proposed) is not a sufficient combinator basis for this
+  vocabulary.
 
 ### S3 — Composite IR nodes
 
@@ -319,7 +345,7 @@ there. S0 and S1 should move it by **zero** — they are substrate.
 | --- | --- |
 | S0 | every top-50 operation classified + framed; fusion backlog enumerated |
 | S1 | `RulesEngine` method count (254 → target ≤170); suite green |
-| S2 | condition-key count (43 → structured); peeler cascade removed (26 → 1) |
+| S2 | condition-key count (44 flat → 5 context predicates over 65 shared state ones); peeler cascade removed (15 → 1); `_condition_holds` 554 → 16 lines ✓ |
 | S3 | fusion effect types retired, named individually |
 | S4 | Commander-legal coverage; templates-per-blocked-card (**1.12 today**) |
 | S5 | enumerated row count (394 `HANDLERS` + 949 catalogue entries) |

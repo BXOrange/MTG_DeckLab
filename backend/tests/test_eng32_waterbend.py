@@ -130,7 +130,7 @@ def test_additional_cost_paid_conditional_parses():
         "if this spell's additional cost was paid, you gain 3 life"
     )
     assert specs == [
-        EffectSpec("gain_life", {"amount": 3}, condition={"additional_cost_paid": True})
+        EffectSpec("gain_life", {"amount": 3}, condition={"kind": "flag", "flag": "additional_cost_paid"})
     ]
     # the "instead" amount-override shape is NOT this additive one — fails closed
     assert parse_effect_body(
@@ -152,7 +152,7 @@ def test_requiting_hex_end_to_end():
     gain = [
         e for s in res.effect_specs for e in s.effects if e.type == "gain_life"
     ]
-    assert gain and gain[0].condition == {"additional_cost_paid": True}
+    assert gain and gain[0].condition == {"kind": "flag", "flag": "additional_cost_paid"}
 
 
 # --- execute -------------------------------------------------------------------

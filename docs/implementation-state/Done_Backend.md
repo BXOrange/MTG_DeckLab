@@ -4043,6 +4043,82 @@ instruction set actually *is*, measured rather than asserted. Design is
 evidence is
 [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md).
 
+### One structured condition vocabulary (ENG-36, `14_` S2)
+
+- **What:** `game/effect_conditions.py` — `{kind, of, min/max}` predicates
+  with `all`/`not` combinators, layered over `game/static_conditions.py`'s
+  state predicates. **`ConditionalEffect._condition_holds` went 554 → 16
+  lines**, and the parser's **fifteen** hand-written condition peelers became
+  one rule over a fifteen-row table.
+- **Files:** `game/effect_conditions.py`, `game/static_conditions.py`,
+  `game/effects/core.py`, `parser/oracle/segmenter.py`,
+  `parser/oracle/spec.py`, `tests/test_effect_conditions.py` (163 tests)
+- **What the 44 keys actually were.** `EffectSpec.condition` had grown one
+  flat boolean key per printed phrasing, and the evaluator one `if` per key.
+  They were never 44 questions. A handful of predicates had been written out
+  once per **referent** (`source_has_subtype` *and*
+  `previous_target_has_subtype`), once per **threshold**
+  (`ring_tempted_at_least` *and* `ring_tempted_at_most`;
+  `no_spells_cast_last_turn` *and* `two_or_more_spells_cast_last_turn`), and
+  once per **attribute** — eight keys (`bargained`, `source_was_cast`,
+  `cast_via_escape`, …) that each did nothing but read one boolean the engine
+  had already stamped on the object. Those eight are now `{"kind": "flag",
+  "flag": …}` against a whitelist, so a ninth is a whitelist row rather than
+  a branch; the same security posture `continuous.count_selector`'s selector
+  names have always had.
+- **Where the split falls, and why it isn't a second vocabulary.**
+  `static_conditions.py` already *was* the shared state-predicate vocabulary
+  — a RULE 613.6 static's `active_if`, a RULE 603.4 trigger's
+  intervening-if, `binding/core.py`'s generic replacement gate all read it.
+  So almost every predicate went there (it grew by 15 kinds), and
+  `effect_conditions` holds only what that vocabulary structurally cannot
+  express: the **referents a resolving ability has and a standing one
+  doesn't** (its own target, the previous clause's target, the object the
+  firing event names), and the **five predicates that read `GameContext`**
+  rather than the state. It resolves the referent and then hands the state
+  evaluator a condition already pointed at that object — so "is it a
+  Detective" has one implementation, not one per referent. The dependency
+  runs one way only, and the payoff is that an effect condition may now name
+  **any** of the 65 state predicates: a gate written for a static is usable
+  as an intervening-if with no work at all, where before it needed a new key
+  and a new branch.
+- **Three-valued evaluation, which is the part that had to be new.** The
+  evaluator distinguishes "the referent doesn't exist" (`None`) from "it
+  exists and the answer is no" (`False`). Without that, `not` is wrong:
+  "if that creature **isn't** suspected" would fire when no creature was
+  chosen at all, and RULE 701.30d's "**otherwise**, …" would fire when no
+  clash happened. The flat vocabulary had hard-coded this exactly where it
+  hurt — the four `previous_target_*` keys shared one "no previous target →
+  false" guard, and `clash_won` checked `outcome is None` before comparing
+  either branch — and had no way to say it anywhere else, which is why every
+  negative gate needed its own key instead of a combinator.
+- **A fail-open hole the tests found, in the new code.** The first cut
+  returned `False` for an unrecognized `kind`, which reads as fail-closed
+  until you wrap it in `not` — where it inverts into a gate that *always*
+  fires. An unmodelled predicate is unanswerable, not false. Both this module
+  and `static_conditions`' new `not` now say so explicitly.
+- **Producers were not rewritten, deliberately.** Every shipped
+  `AbilitySpec`, every `ability_catalogue` entry and every stored spec still
+  spells its condition flat; `condition_from_legacy` translates at evaluation
+  time so there is one evaluator, not two — the same move
+  `static_conditions.condition_from_legacy_params` already made for the three
+  legacy static gates. A round-trip through `to_dict`/`from_dict` leaves the
+  flat form untouched, and a test pins that.
+- **Verification is a whole-corpus A/B, not a sample.** The parser now emits
+  the structured form, so both checkouts were run over all **38,123**
+  raw-store cards and diffed spec-for-spec: **0 coverage-verdict changes, 0
+  real spec changes**, and 159 cards whose condition is respelled — each one
+  checked equal to what `condition_from_legacy` produces from the old flat
+  dict. PARSER_VERSION moves 299 → **300** anyway, because the emitted spec
+  content genuinely differs and that hash exists to notice exactly that.
+- **Two corrections to the ticket's own text.** The peeler cascade was
+  **15** hand-written blocks, not 26 (26 is the count of distinct condition
+  *outcomes* those 15 produce). And `created_object` was named as a referent
+  to add; it wasn't — no predicate and no printed card needs one, and picking
+  between "the first token made" and "the most recent" with nothing to
+  validate against would bake a guess into a whitelisted vocabulary. The
+  subject axis is a dict, so it is one row away the day something needs it.
+
 ### The general continuation primitive (ENG-35, `14_` S1)
 
 - **What:** `game/continuations.py` — a registry of choice handlers, plus

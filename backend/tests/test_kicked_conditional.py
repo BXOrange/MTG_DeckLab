@@ -57,6 +57,9 @@ def test_condition_dict_round_trips_through_to_dict_from_dict():
     data = spec.to_dict()
     assert data["condition"] == {"kicked": True}
     restored = EffectSpec.from_dict(data)
+    # The flat spelling survives a round trip untouched: ENG-36 translates it
+    # at evaluation time, not on the spec, which is what keeps every shipped
+    # catalogue entry and stored spec working unchanged.
     assert restored.condition == {"kicked": True}
 
 
@@ -150,7 +153,7 @@ def test_conditional_effect_target_spec_passes_through():
 
 def test_kicked_wrapper_tags_the_inner_effect_with_condition():
     (spec,) = parse_effect_body("if this spell was kicked, you gain 3 life")
-    assert spec.type == "gain_life" and spec.condition == {"kicked": True}
+    assert spec.type == "gain_life" and spec.condition == {"kind": "kicked", "min": 1}
 
 
 def test_kicked_wrapper_fails_closed_on_an_unrecognized_inner_clause():
@@ -167,7 +170,7 @@ def test_kicked_wrapper_combines_with_a_base_effect_via_period_connector():
     assert len(specs) == 2
     draw, gain = specs
     assert draw.type == "draw" and draw.condition is None
-    assert gain.type == "gain_life" and gain.condition == {"kicked": True}
+    assert gain.type == "gain_life" and gain.condition == {"kind": "kicked", "min": 1}
 
 
 def test_add_counters_each_creature_you_control_selector_is_recognized():
@@ -202,7 +205,7 @@ def test_vastwood_surge_shaped_card_is_fully_modeled():
     kinds = [(s.type, s.condition) for s in spell_effect.effects]
     assert kinds == [
         ("search", None),
-        ("add_counters", {"kicked": True}),
+        ("add_counters", {"kind": "kicked", "min": 1}),
     ]
 
 

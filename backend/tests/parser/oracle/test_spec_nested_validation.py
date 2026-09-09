@@ -104,28 +104,30 @@ class TestWhitelistMatchesEvaluator:
 
     Recursing into nested specs immediately caught a real drift: Frodo,
     Sauron's Bane shipped `ring_tempted_at_most`, which
-    `ConditionalEffect._condition_holds` evaluates but
+    `ConditionalEffect._condition_holds` evaluated but
     `_ALLOWED_CONDITION_KEYS` did not list. It survived because the card
     nests it — the same key at depth 0 would have been rejected all along.
     A whitelist that disagrees with its evaluator is either a dead key or an
     ungated one, and both are worth failing on.
+
+    ENG-36 made this a set comparison rather than a regex over the
+    evaluator's source: the flat keys are now a translation table
+    (`effect_conditions._FROM_LEGACY`), so the two sides can be compared
+    directly instead of scraped.
     """
 
     @staticmethod
-    def _evaluated_keys() -> set[str]:
-        import re
+    def _evaluated_keys() -> frozenset[str]:
+        from mtg_analyzer.game.effect_conditions import LEGACY_CONDITION_KEYS
 
-        from mtg_analyzer.game.effects import core
-
-        source = inspect_source(core, "_condition_holds")
-        return set(re.findall(r'self\.condition\.get\(\s*"([a-z_]+)"', source))
+        return LEGACY_CONDITION_KEYS
 
     def test_every_evaluated_key_is_whitelisted(self) -> None:
         from mtg_analyzer.parser.oracle.spec import _ALLOWED_CONDITION_KEYS
 
         ungated = sorted(self._evaluated_keys() - _ALLOWED_CONDITION_KEYS)
         assert not ungated, (
-            f"`_condition_holds` evaluates {ungated}, which "
+            f"`effect_conditions` translates {ungated}, which "
             f"`_ALLOWED_CONDITION_KEYS` does not list — a card-text-derived "
             f"value reaching the engine through an ungated key is exactly "
             f"what docs/09's security model forbids."
@@ -139,16 +141,6 @@ class TestWhitelistMatchesEvaluator:
             f"`_ALLOWED_CONDITION_KEYS` lists {dead}, which nothing "
             f"evaluates — a condition that silently never holds."
         )
-
-
-def inspect_source(module, function_name: str) -> str:
-    """The source of one method of `ConditionalEffect`, by name."""
-    import inspect
-
-    source = inspect.getsource(module)
-    start = source.index(f"def {function_name}")
-    end = source.index("\n    def ", start + 1)
-    return source[start:end]
 
 
 class TestDepthCap:

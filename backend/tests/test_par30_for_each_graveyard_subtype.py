@@ -69,12 +69,12 @@ def test_unless_additional_cost_paid_suffix_binds_to_its_own_clause():
     )
     assert specs == [
         EffectSpec("draw", {"count": 1}),  # unconditional
-        EffectSpec("discard", {"count": 1}, condition={"additional_cost_paid": False}),
+        EffectSpec("discard", {"count": 1}, condition={"kind": "not", "condition": {"kind": "flag", "flag": "additional_cost_paid"}}),
     ]
     # bare single clause
     assert parse_effect_body(
         "discard a card unless its additional cost was paid"
-    ) == [EffectSpec("discard", {"count": 1}, condition={"additional_cost_paid": False})]
+    ) == [EffectSpec("discard", {"count": 1}, condition={"kind": "not", "condition": {"kind": "flag", "flag": "additional_cost_paid"}})]
 
 
 def test_katara_seeking_revenge_modeled():

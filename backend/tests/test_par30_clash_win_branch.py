@@ -69,7 +69,7 @@ def test_clash_is_referent_transparent_in_connector_split():
     assert kinds == ["create_token", "clash", "pump"]
     assert specs[2].params.get("previous_subject") is True
     assert specs[2].params.get("keywords") == ["deathtouch"]
-    assert specs[2].condition == {"clash_won": True}
+    assert specs[2].condition == {"kind": "clash_won"}
 
 
 def test_pump_prev_singular_accepts_an_additional():

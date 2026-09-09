@@ -43,7 +43,7 @@ its block back into the matching section here.
 
 ## ENG — Game engine
 
-> Scope and rationale for ENG-36/37 live in
+> Scope and rationale for ENG-37 live in
 > [14_PARSER_GRAMMAR_DESIGN.md](../concepts/14_PARSER_GRAMMAR_DESIGN.md);
 > the evidence is
 > [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md).
@@ -57,45 +57,22 @@ its block back into the matching section here.
 > resolve to one framed instruction — so the design stands rather than being
 > dropped.
 >
+> **ENG-36 is closed** (`game/effect_conditions.py`, the widened
+> `game/static_conditions.py`, `tests/test_effect_conditions.py`).
+> `ConditionalEffect._condition_holds` went 554 → 16 lines and the parser's
+> fifteen condition peelers became one rule. Two corrections to this
+> ticket's own text, for whoever reads it in the history: the cascade was
+> **15** hand-written blocks, not 26 (26 counted distinct *outcomes*), and
+> `created_object` was deliberately not added as a referent — nothing
+> produces or needs one, and the subject axis is a dict row away whenever
+> something does.
+>
 > **ENG-35 is closed** (`game/continuations.py`,
 > `RulesEngine.open_choice`/`resolve_choice`, `tests/test_continuations.py`).
 > `RulesEngine` went 254 → **162** public methods and the dispatcher 367 →
 > 23 lines. ENG-37's blocker is gone: `GameState.deferred_effects` now
 > carries a `DEFERRED_ITERATION` frame (`RulesEngine.defer_iteration`), so a
 > loop body can suspend mid-iteration and resume at the next item.
-
-- **ENG-36 · Structured effect conditions (`14_` S2).** Replace `spec.py`'s
-  **43 flat `_ALLOWED_CONDITION_KEYS`** with subject-qualified predicates
-  modelled on `static_conditions.py`'s `{kind, of, …}` + its `"all"`
-  combinator, reusing `condition_holds` — the generic-gate refactor
-  `effect_binder.py` already performed once for replacements. Collapses
-  duplicates that are one quantity at two thresholds
-  (`no_spells_cast_last_turn` / `two_or_more_spells_cast_last_turn`) and one
-  predicate against two subjects (`source_has_subtype` /
-  `previous_target_has_subtype`). The ~15 resolution-scoped predicates
-  (`kicked`, `clash_won`, `previous_target_*`) need `GameContext`, not just
-  `GameState`; carry them by extending `CONDITION_SUBJECTS` with
-  `previous_target` / `created_object`.
-  Retires `parse_effect_body`'s **26 hand-coded prefix-peelers** in favour of
-  one general `if <predicate>, <effect>` rule (PAR-62 consumes it; this ticket
-  owns the vocabulary).
-
-  **Migrate the way `static_conditions.py` did, not by rewriting producers.**
-  Every shipped `AbilitySpec` and catalogue entry spells these conditions
-  flat (`condition={"kicked": True}`), and there are thousands of them, so a
-  producer-side rewrite is both enormous and needlessly risky. That module
-  already solved this for statics: `condition_from_legacy_params` translates
-  the legacy spellings into the structured vocabulary so there is **one
-  implementation, not two**, and the old spellings keep working untouched.
-  Do the same — `normalize_effect_condition(flat) -> {kind, of, …}` at
-  validation time, one evaluator behind it — and
-  `ConditionalEffect._condition_holds` (**554 lines** of flat if-chains,
-  `game/effects/core.py`) collapses to a delegation.
-
-  Note the evaluator is *already* reachable from every depth: ENG-37's
-  nested-validation fix means a condition parked inside a `then_specs` is
-  whitelisted too, so the structured form does not need its own depth story.
-  **Exit:** condition keys structured; peeler cascade 26 → 1.
 
 - **ENG-37 · Composite IR nodes (`14_` S3).** Add nesting to `EffectSpec` -
   `seq`, `if/else`, `optional`, `for_each`, `bind` — with
@@ -115,7 +92,11 @@ its block back into the matching section here.
   `tests/parser/oracle/test_spec_nested_validation.py`. What remains is the
   composition nodes themselves.
   ENG-35 (closed) supplied the iteration frame `optional`/`for_each` need —
-  `RulesEngine.defer_iteration` / `DEFERRED_ITERATION`. ENG-34 already did
+  `RulesEngine.defer_iteration` / `DEFERRED_ITERATION`. ENG-36 (closed)
+  supplied `if_else`'s predicate half: the complementary-conditional pairs it
+  is meant to retire (`clash_won` ± , `ring_tempted` min/max, suspected/not)
+  are now one predicate under the `not` combinator, so an `if_else` node has
+  a single condition to branch on rather than two hand-paired keys. ENG-34 already did
   the naming: `game/isa.py`'s
   `fusions_retired_by(<operator>)` returns each operator's list (`seq` 46,
   `bind` 18, `if_else` 13, `for_each` 5, `optional` 2), and
@@ -139,9 +120,9 @@ its block back into the matching section here.
   combinatorial, not lexical.
 
   Execution order (dependency chain): ~~ENG-34~~ (atom inventory, **closed**)
-  → ~~ENG-35~~ (continuations, **closed**) → **ENG-36** (structured
-  conditions) → **ENG-37** (composite IR nodes) → **PAR-62** (clause
-  grammar) → **PAR-63** (slot grammars).
+  → ~~ENG-35~~ (continuations, **closed**) → ~~ENG-36~~ (structured
+  conditions, **closed**) → **ENG-37** (composite IR nodes) → **PAR-62**
+  (clause grammar) → **PAR-63** (slot grammars).
 
   This ticket holds only what is not in those six:
 

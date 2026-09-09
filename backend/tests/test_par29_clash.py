@@ -47,7 +47,7 @@ def test_if_you_win_branch_attaches_clash_won_condition():
     )
     assert [s.type for s in specs] == ["clash", "add_counters"]
     assert specs[0].condition is None
-    assert specs[1].condition == {"clash_won": True}
+    assert specs[1].condition == {"kind": "clash_won"}
 
 
 def test_if_you_win_and_otherwise_branches():
@@ -56,14 +56,14 @@ def test_if_you_win_and_otherwise_branches():
     )
     # clash, then the two mutually-exclusive branches in printed order.
     assert [s.type for s in specs] == ["clash", "draw", "lose_life"]
-    assert specs[1].condition == {"clash_won": True}
-    assert specs[2].condition == {"clash_won": False}
+    assert specs[1].condition == {"kind": "clash_won"}
+    assert specs[2].condition == {"kind": "not", "condition": {"kind": "clash_won"}}
 
 
 def test_if_you_won_past_tense_also_recognised():
     specs = parse_effect_body("if you won, draw a card")
     assert [s.type for s in specs] == ["draw"]
-    assert specs[0].condition == {"clash_won": True}
+    assert specs[0].condition == {"kind": "clash_won"}
 
 
 def test_bare_otherwise_with_unmodeled_effect_fails_closed():

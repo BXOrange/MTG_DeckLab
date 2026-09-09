@@ -2660,7 +2660,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: — no shipped spec nests an out-of-range amount or an unwhitelisted
 #: nested condition — but the gate can now reject a spec it used to accept,
 #: which is a verdict-affecting change by definition, so the version moves.
-PARSER_VERSION = "299"
+#: v300 — ENG-36: the fifteen hand-written condition prefix/suffix peelers in
+#: `parse_effect_body` became one rule over `_CONDITION_PREFIXES` /
+#: `_CONDITION_SUFFIXES`, and the conditions they emit are now the
+#: **structured** `game/effect_conditions.py` vocabulary
+#: (``{"kind": "kicked", "min": 1}``) instead of the flat legacy keys
+#: (``{"kicked": True}``). **No verdict change**: an A/B of both checkouts
+#: over all 38,123 raw-store cards found 0 coverage differences and 0 spec
+#: differences beyond the respelling itself (159 cards), each verified equal
+#: to what `condition_from_legacy` produces from the old flat form. The
+#: version still moves because the emitted spec content differs, which is
+#: what this hash exists to notice.
+PARSER_VERSION = "300"
 
 
 def parser_source_hash() -> str:

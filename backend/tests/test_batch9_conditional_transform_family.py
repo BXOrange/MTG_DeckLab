@@ -179,7 +179,7 @@ def test_legacy_werewolf_no_spells_cast_now_modeled():
     spec = result.specs[0]
     assert spec.trigger["event"] == "STEP_BEGIN"
     assert spec.effects[0].type == "transform"
-    assert spec.effects[0].condition == {"no_spells_cast_last_turn": True}
+    assert spec.effects[0].condition == {"kind": "spells_cast_last_turn", "max": 0}
 
 
 # ---------------------------------------------------------------------------

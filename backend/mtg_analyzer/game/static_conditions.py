@@ -191,6 +191,60 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "is_monarch",  # "as long as you're the monarch"
         "has_initiative",  # "as long as you have the initiative"
         "has_city_blessing",  # "as long as you have the city's blessing"
+        # -- Subject-scoped predicates over an arbitrary object (ENG-36).
+        # These carry no subject of their own: whichever object ``of`` names
+        # (or, from `effect_conditions`, an effect-only referent such as the
+        # clause's previous target) is the thing asked about. They exist as
+        # one row each instead of one row per (predicate × referent) pair,
+        # which is what `parser/oracle/spec.py`'s flat vocabulary had been
+        # writing out by hand (``source_has_subtype`` *and*
+        # ``previous_target_has_subtype``, and so on).
+        #
+        # ``flag`` is the degenerate case — "read a boolean the engine
+        # already stamped on this object" — with the attribute name itself a
+        # parameter drawn from `SUBJECT_FLAGS`. Eight flat condition keys
+        # (``bargained``, ``source_was_cast``, ``cast_via_escape``, …) were
+        # that one predicate at eight attributes; a ninth costs a whitelist
+        # row rather than a branch. Same shape, and the same security
+        # posture, as `continuous.count_selector`'s selector names.
+        "flag",  # + ``flag`` (a `SUBJECT_FLAGS` name)
+        "power",  # + ``min``/``max`` — the subject's *derived* power
+        # "if that player is you" / "…if you control that creature" — the
+        # subject (a player, or a player resolved off a firing event) against
+        # the ability's own controller.
+        "is_you",
+        # "~ deals N damage to any target. **If it's a creature**, …" — an
+        # "any target" clause can land on a player, so the rider needs to ask
+        # which kind of thing the referent turned out to be.
+        "is_player",
+        "is_ring_bearer",  # RULE 701.52a — the subject is "your" Ring-bearer
+        # RULE 702.33b/702.34a Kicker and RULE 107.3c's announced {X}, both
+        # read off the subject's own cast-time record. ``min``/``max``, so
+        # "was it kicked at all", "was it kicked twice" and "was it *not*
+        # kicked" are one row rather than three keys.
+        "kicked",  # + ``min``/``max`` (`GameObject.kicker_count`)
+        "x_paid",  # + ``min``/``max`` (`GameObject.x_paid`)
+        # -- Board/turn facts a *resolving* ability asks (ENG-36). They live
+        # here rather than in `effect_conditions` because they need nothing
+        # but the state: that module owns only what needs a `GameContext`.
+        "no_creatures_on_battlefield",  # RULE 603.4 (Pyrohemia)
+        "combats_this_turn",  # + ``min``/``max`` — RULE 603.4, "first combat phase"
+        # The pre-daybound Innistrad werewolf day/night check — "no spells
+        # were cast last turn" (``max`` 0) and "a player cast 2 or more
+        # spells last turn" (``min`` 2) are one quantity at two thresholds.
+        "spells_cast_last_turn",  # + ``min``/``max``
+        "graveyard_count",  # + ``min``/``max`` — raw card count, RULE 702.19
+        "ring_tempted",  # + ``min``/``max`` — RULE 701.51b `Player.ring_level`
+        "creatures_died_this_turn",  # + ``min``/``max``
+        # "if an opponent lost N or more life this turn" — any one opponent,
+        # the same "an opponent" reading as ``opponent_count`` above.
+        "opponent_lost_life_this_turn",  # + ``min``/``max``
+        # "if you don't control a Food" — a controller-scoped count of a
+        # printed *subtype* word, which neither ``control_count`` (selector
+        # vocabulary) nor ``control_named`` (a specific card name) can spell.
+        # The "don't" is the ``not`` combinator below, not a second kind.
+        "controls_subtype",  # + ``subtype``, ``min``/``max`` (``min`` 1)
+        "opponent_cast_color_this_turn",  # + ``colors`` (WUBRG letters)
         # -- Combinator (MEC-43 round 2, Conqueror's Flail's "As long as
         # this Equipment is attached to a creature, your opponents can't
         # cast spells during your turn." — two independent gates ANDed in
@@ -198,6 +252,38 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # own). + ``conditions`` — a list of these same condition dicts,
         # every one of which must hold.
         "all",
+        # Negation (ENG-36). ``{"kind": "not", "condition": {...}}``. Added
+        # for the resolution-time vocabulary, where roughly half of the flat
+        # keys it replaces were booleans whose ``False`` spelling meant
+        # exactly this ("unless its additional cost was paid", "if you chose
+        # a creature *other than* ~"). The paired kinds above
+        # (``source_tapped``/``source_untapped``, ``your_turn``/
+        # ``not_your_turn``, ``is_licid_aura``/``not_licid_aura``) predate it
+        # and stay as they are — every shipped spec spells them that way —
+        # but a new predicate needs only its positive form now.
+        "not",
+    }
+)
+
+#: Attribute names a ``flag`` condition may read off its subject.
+#:
+#: Every one is a boolean the engine itself stamps at a known choke point,
+#: never anything derived from card text; the whitelist is what keeps a
+#: condition from turning into an arbitrary attribute read (docs/09). The
+#: flat `EffectSpec.condition` key each replaces is named alongside.
+SUBJECT_FLAGS: frozenset[str] = frozenset(
+    {
+        "bargained",  # RULE 601.2b, Beseech the Mirror — was ``bargained``
+        # RULE 601.2b's generic optional additional cost, stamped by
+        # `GameEngine.cast_spell` — was ``additional_cost_paid``.
+        "additional_cost_paid",
+        "was_cast",  # RULE 601.2 — was ``source_was_cast``
+        "foretold",  # RULE 702.143d — was ``source_was_foretold``
+        "cast_via_escape",  # RULE 702.139 — was ``cast_via_escape``
+        # RULE 601.3a (Necromancy) — was ``cast_outside_sorcery_speed``.
+        "cast_outside_sorcery_speed",
+        "renowned",  # RULE 702.111b — was ``source_is_renowned``
+        "is_suspected",  # RULE 701.60c — was ``previous_target_is_suspected``
     }
 )
 
@@ -246,6 +332,24 @@ def _counter_count(source: Any, kind: Optional[str]) -> int:
         return int(counters.get(kind, 0) or 0)
     total = sum(int(v or 0) for v in counters.values())
     return total + int(getattr(source, "plus_one_counters", 0) or 0)
+
+
+def _within(n: int, condition: dict[str, Any], default_min: Optional[int] = None) -> bool:
+    """``n`` against the condition's optional ``min``/``max`` bounds.
+
+    The counted rows all share this, which is what lets one quantity at two
+    thresholds be one ``kind`` — "the Ring has tempted you 3 or more times"
+    and "…no more than 3 times" differ only in which bound is set, where the
+    flat vocabulary spelled them as two unrelated keys whose relationship
+    nothing recorded.
+    """
+    minimum = condition.get("min", default_min)
+    maximum = condition.get("max")
+    if minimum is not None and n < int(minimum):
+        return False
+    if maximum is not None and n > int(maximum):
+        return False
+    return True
 
 
 def _subject(
@@ -307,6 +411,17 @@ def condition_holds(
             condition_holds(sub, state, source, controller_id, affected)
             for sub in (condition.get("conditions") or [])
         )
+    if kind == "not":
+        # A missing ``condition`` would make this trivially true, which is
+        # the wrong direction for a fail-closed vocabulary — so an empty
+        # ``not`` is false, like an unrecognized ``kind``.
+        inner = condition.get("condition")
+        if not inner or inner.get("kind") not in STATIC_CONDITION_KINDS:
+            # An unrecognized inner ``kind`` is *unanswerable*, so neither
+            # polarity holds: negating it must not turn "we don't model this"
+            # into a gate that always fires.
+            return False
+        return not condition_holds(inner, state, source, controller_id, affected)
 
     # Which object the subject-scoped rows below read: the source itself by
     # default, or an attached host / a floating static's affected permanent.
@@ -377,6 +492,44 @@ def condition_holds(
             return False
         return True
 
+    if kind == "flag":
+        # See `SUBJECT_FLAGS`. An unlisted name is false rather than an
+        # attribute read, so card text can never name its own field.
+        name = str(condition.get("flag", ""))
+        if subject is None or name not in SUBJECT_FLAGS:
+            return False
+        return bool(getattr(subject, name, False))
+    if kind == "power":
+        # Derived power (the layer engine's output), so a pump/anthem that
+        # already resolved counts — the same read every other characteristic
+        # row here makes.
+        if subject is None or not hasattr(subject, "instance_id"):
+            return False
+        return _within(int(getattr(subject, "power", 0) or 0), condition)
+    if kind == "is_you":
+        if subject is None or controller_id is None:
+            return False
+        return getattr(subject, "id", None) == controller_id
+    if kind == "is_player":
+        # A `Player` has no ``instance_id``; that absence is what the
+        # targeting code already uses to tell the two apart.
+        return subject is not None and not hasattr(subject, "instance_id")
+    if kind == "is_ring_bearer":
+        # RULE 701.52a — the controller's chosen bearer, against this
+        # subject's own identity.
+        player = _controller(state, controller_id)
+        bearer_id = getattr(player, "ring_bearer_id", None)
+        subject_id = getattr(subject, "instance_id", None)
+        return bearer_id is not None and subject_id is not None and bearer_id == subject_id
+    if kind == "kicked":  # RULE 702.33b/702.34a
+        if subject is None:
+            return False
+        return _within(int(getattr(subject, "kicker_count", 0) or 0), condition)
+    if kind == "x_paid":  # RULE 107.3c
+        if subject is None:
+            return False
+        return _within(int(getattr(subject, "x_paid", 0) or 0), condition)
+
     if kind in ("is_card_type", "is_color", "is_subtype"):
         # RULE 109.3 characteristics, read through `continuous`'s own matchers
         # so a *derived* type/colour counts (an animated Vehicle is a creature
@@ -428,7 +581,12 @@ def condition_holds(
         else:
             from .continuous import count_selector  # local: continuous imports this module
 
-            n = count_selector(state, controller_id, str(selector))
+            # ``source`` matters to two selectors (``exiled_with_source``,
+            # ``source_x_paid``) that count something about the ability's own
+            # permanent rather than the board; it was omitted here while no
+            # static named one, and `effect_conditions` routes the shipped
+            # ``count_selector_at_least`` gate through this row (ENG-36).
+            n = count_selector(state, controller_id, str(selector), source=source)
         minimum = condition.get("min")
         maximum = condition.get("max")
         if minimum is not None and n < int(minimum):
@@ -472,6 +630,28 @@ def condition_holds(
             and o.controller_id == controller_id
             for o in state.permanents()
         )
+
+    if kind == "no_creatures_on_battlefield":
+        # "At the beginning of the end step, if no creatures are on the
+        # battlefield, sacrifice ~." (Pyrohemia) — global, unlike
+        # ``controls_subtype``'s controller-scoped count.
+        return not any(o.is_creature for o in state.battlefield)
+    if kind == "combats_this_turn":
+        # RULE 603.4's textbook example — "if it's the first combat phase of
+        # the turn" is ``max`` 1, and the extra-combat self-loop guard every
+        # such grant needs is the same quantity's other bound, rather than a
+        # second key.
+        return _within(int(getattr(state, "combats_this_turn", 0) or 0), condition)
+    if kind == "spells_cast_last_turn":
+        # The pre-daybound werewolf day/night check (RULE 603.4), reading
+        # `GameState._last_turn_spell_count` — the same field
+        # `RulesEngine.apply_day_night_turn_check` (RULE 731.2a/2b) uses.
+        # No previous turn (turn 1) means neither bound is answerable, so
+        # the condition simply doesn't hold, matching that check's own
+        # turn-1 no-op.
+        if getattr(state, "_last_turn_player_id", None) is None:
+            return False
+        return _within(int(getattr(state, "_last_turn_spell_count", 0) or 0), condition)
 
     player = _controller(state, controller_id)
     if player is None:
@@ -638,6 +818,51 @@ def condition_holds(
             types |= obj.type_words
         types.discard("permanent")
         return len(types) >= int(condition.get("amount", 0))
+    if kind == "graveyard_count":
+        # RULE 702.19 Threshold's raw card count, unlike
+        # ``card_types_in_graveyard_at_least`` (distinct types) or
+        # ``graveyard_card_type_count_at_least`` (a type filter).
+        return _within(len(getattr(player, "graveyard", []) or []), condition)
+    if kind == "ring_tempted":
+        # RULE 701.51b — `Player.ring_level`, capped at 4.
+        return _within(int(getattr(player, "ring_level", 0) or 0), condition)
+    if kind == "creatures_died_this_turn":
+        # `GameState.creatures_died_this_turn`, tallied at
+        # `RulesEngine._move_to_graveyard`'s own DIES handling.
+        died = getattr(state, "creatures_died_this_turn", None) or {}
+        return _within(int(died.get(controller_id, 0) or 0), condition)
+    if kind == "opponent_lost_life_this_turn":
+        # True when *any one* opponent is inside the bounds — the same "an
+        # opponent" reading as ``opponent_count``/``opponent_life_at_most``.
+        lost = getattr(state, "life_lost_this_turn", None) or {}
+        return any(
+            _within(int(lost.get(p.id, 0) or 0), condition)
+            for p in state.living_players()
+            if p.id != controller_id
+        )
+    if kind == "controls_subtype":
+        # A live battlefield scan for the controller's own permanents whose
+        # printed *subtype* portion carries the word — the same word-list
+        # convention `segmenter._SACRIFICE_TYPE_TRIGGER_RE`/
+        # `_NAMED_TOKEN_WORDS` already trust. ``min`` defaults to 1, since
+        # "you control a Food" is the only phrasing that reaches here
+        # without an explicit bound.
+        word = str(condition.get("subtype", "")).lower()
+        if not word:
+            return False
+        n = sum(
+            1 for o in state.battlefield
+            if o.controller_id == controller_id
+            and word in o.card.type_line.partition("—")[2].strip().lower().split()
+        )
+        return _within(n, condition, default_min=1)
+    if kind == "opponent_cast_color_this_turn":
+        # "…if an opponent has cast a blue or black spell this turn."
+        # (Veil of Summer) — any opponent's `GameState.
+        # spell_colors_cast_this_turn` intersecting ``colors``.
+        wanted = {str(c).upper() for c in (condition.get("colors") or [])}
+        cast = getattr(state, "spell_colors_cast_this_turn", None) or {}
+        return any(colors & wanted for pid, colors in cast.items() if pid != controller_id)
     return False
 
 
@@ -688,6 +913,9 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
     if kind == "all":
         parts = [describe(sub).removeprefix("solange ") for sub in (condition.get("conditions") or [])]
         return "solange " + " und ".join(p for p in parts if p) if parts else "bedingt"
+    if kind == "not":
+        inner = describe(condition.get("condition")).removeprefix("solange ")
+        return f"solange nicht {inner}" if inner else "bedingt"
     # The subject-scoped rows read "solange <X>"; with ``of`` naming something
     # other than the source, say which permanent is meant.
     of = condition.get("of") or "source"

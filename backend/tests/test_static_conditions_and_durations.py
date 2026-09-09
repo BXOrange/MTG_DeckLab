@@ -221,7 +221,7 @@ def test_graveyard_has_subtype_intervening_if_on_a_trigger():
     specs = parse_effect_body(
         "if there's a lesson card in your graveyard, you gain 2 life"
     )
-    assert specs and specs[0].condition == {"graveyard_has_type": "lesson"}
+    assert specs and specs[0].condition == {"kind": "subtype_in_graveyard", "subtype": "lesson"}
 
     card = _creature(
         "Walltop Sentries",

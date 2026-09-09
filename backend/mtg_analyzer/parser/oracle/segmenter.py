@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from .catalogue.handlers import (
     ACTIVATE_ONLY_ONCE_MARKER,
@@ -2722,6 +2722,209 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     return None
 
 
+#: A RULE 603.4 intervening-if / RULE 601.2b cost gate, as data (ENG-36).
+#:
+#: Fifteen of these were written out as fifteen near-identical ten-line
+#: blocks in `parse_effect_body`: match a regex, recursively parse the
+#: ``rest`` group, fail the whole body if that came back unclaimed, and
+#: otherwise stamp one condition onto every spec it produced. The variable
+#: part was always just *which condition* — so that is all a row carries.
+#:
+#: ``build`` returns a structured `game/effect_conditions.py` condition. The
+#: engine still accepts the flat legacy spellings every shipped catalogue
+#: entry uses, but nothing new needs to add a key to that flat vocabulary:
+#: a new gate is a threshold or a referent on a predicate that already
+#: exists, which is exactly what the structured form can say and the flat
+#: one could not.
+@dataclass(frozen=True)
+class _ConditionPrefix:
+    #: Must expose a ``rest`` group — the effect text the gate applies to.
+    #: An optional ``trailing`` group is a *second*, independently-gated
+    #: sentence the same match swallowed (see
+    #: `_LIFE_GAINED_THIS_TURN_CONDITION_RE`), parsed separately and appended.
+    pattern: "re.Pattern[str]"
+    build: "Callable[[re.Match[str]], dict[str, Any]]"
+    #: Rewrites the parsed params of each gated spec. Only Kicker needs it:
+    #: an "X" inside a "was kicked" wrapper means Kicker's own announced {X}
+    #: (`GameObject.kicker_x_paid`), a different sentinel from the spell's.
+    rewrite_params: "Optional[Callable[[dict[str, Any], re.Match[str]], None]]" = None
+
+
+def _rewrite_kicker_x(params: dict[str, Any], match: "re.Match[str]") -> None:
+    """RULE 702.33b/PAR-17 — see `_ConditionPrefix.rewrite_params`."""
+    if match.group("kind").lower() == "bargained":
+        return  # Bargain announces no {X} of its own
+    for key, value in list(params.items()):
+        if value == "x":
+            params[key] = "kicker_x"
+
+
+def _kicked_condition(match: "re.Match[str]") -> dict[str, Any]:
+    kind = match.group("kind").lower()
+    if kind == "bargained":
+        # RULE 601.2b, Beseech the Mirror — a different optional additional
+        # cost, so a flag rather than Kicker's count.
+        return {"kind": "flag", "flag": "bargained"}
+    # "was kicked" and "was kicked twice" (RULE 702.34a Multikicker) are the
+    # same quantity at two thresholds, which is one row now rather than the
+    # two unrelated keys the flat vocabulary needed.
+    return {"kind": "kicked", "min": 2 if "twice" in kind else 1}
+
+
+#: Gates peeled **before** `match_clause` and the connector split, in the
+#: order they were tried before. Order still matters between rows whose
+#: patterns could both match a body, which is why it is preserved verbatim.
+_CONDITION_PREFIXES: tuple[_ConditionPrefix, ...] = (
+    # "`<effect>` if an opponent lost N or more life this turn." (Davros,
+    # Dalek Creator) — a suffix, but peeled here with the prefixes because it
+    # gates the whole pre-split body.
+    _ConditionPrefix(
+        _OPPONENT_LOST_LIFE_SUFFIX_RE,
+        lambda m: {"kind": "opponent_lost_life_this_turn", "min": int(m.group("n"))},
+    ),
+    _ConditionPrefix(_KICKED_CONDITION_RE, _kicked_condition, _rewrite_kicker_x),
+    _ConditionPrefix(
+        _ADDITIONAL_COST_PAID_CONDITION_RE,
+        lambda m: {"kind": "flag", "flag": "additional_cost_paid"},
+    ),
+    # "If that player is[n't] you, `<effect>`." (The Ghoul, Gunslinger) — the
+    # negative polarity is the ``not`` combinator, not a second predicate.
+    _ConditionPrefix(
+        _TARGET_IS_CONTROLLER_RE,
+        lambda m: (
+            {"kind": "not", "condition": {"kind": "is_you", "of": "target"}}
+            if m.group("neg") else {"kind": "is_you", "of": "target"}
+        ),
+    ),
+    # RULE 701.30d's two complementary clash branches.
+    _ConditionPrefix(_IF_YOU_WIN_CLASH_RE, lambda m: {"kind": "clash_won"}),
+    _ConditionPrefix(
+        _OTHERWISE_CLASH_RE,
+        lambda m: {"kind": "not", "condition": {"kind": "clash_won"}},
+    ),
+    # RULE 119.3, Frodo, Adventurous Hobbit — carries a ``trailing`` group,
+    # because "if A, effect1. Then if B, effect2." is two independently
+    # gated sentences and the naive greedy read would gate both with A.
+    _ConditionPrefix(
+        _LIFE_GAINED_THIS_TURN_CONDITION_RE,
+        lambda m: {"kind": "gained_life_this_turn", "amount": int(m.group("n"))},
+    ),
+    # "If you don't control a Food, …" (Butterbur, Bree Innkeeper).
+    _ConditionPrefix(
+        _CONTROLS_NONE_OF_TYPE_CONDITION_RE,
+        lambda m: {
+            "kind": "not",
+            "condition": {
+                "kind": "controls_subtype",
+                "subtype": m.group("type").lower(),
+                "min": 1,
+            },
+        },
+    ),
+    # "If there's a `<subtype>` card in your graveyard, …" (Walltop Sentries)
+    # — the same predicate a static's ``active_if`` already used for the
+    # standing version of this clause.
+    _ConditionPrefix(
+        _GRAVEYARD_HAS_SUBTYPE_CONDITION_RE,
+        lambda m: {"kind": "subtype_in_graveyard", "subtype": m.group("sub").lower()},
+    ),
+    # The pre-daybound Innistrad werewolf day/night check — one quantity,
+    # two bounds, where the flat vocabulary spelled two unrelated keys.
+    _ConditionPrefix(
+        _WEREWOLF_NO_SPELLS_CONDITION_RE,
+        lambda m: {"kind": "spells_cast_last_turn", "max": 0},
+    ),
+    _ConditionPrefix(
+        _WEREWOLF_TWO_SPELLS_CONDITION_RE,
+        lambda m: {"kind": "spells_cast_last_turn", "min": 2},
+    ),
+    # RULE 603.4's textbook example, and every extra-combat grant's guard
+    # against re-triggering itself in the phase it just made.
+    _ConditionPrefix(
+        _FIRST_COMBAT_PHASE_CONDITION_RE,
+        lambda m: {"kind": "combats_this_turn", "max": 1},
+    ),
+    # RULE 701.52a's two printed Ring-bearer shapes: "a creature **other
+    # than** ~" is the negation, and Frodo's compound "~ **is** your
+    # Ring-bearer **and** the Ring has tempted you N or more times" is the
+    # ``all`` combinator the flat form spelled as a two-key dict.
+    _ConditionPrefix(
+        _RING_BEARER_OTHER_CONDITION_RE,
+        lambda m: {"kind": "not", "condition": {"kind": "is_ring_bearer"}},
+    ),
+    _ConditionPrefix(
+        _RING_BEARER_AND_TEMPTED_CONDITION_RE,
+        lambda m: {
+            "kind": "all",
+            "conditions": [
+                {"kind": "is_ring_bearer"},
+                {"kind": "ring_tempted", "min": int(m.group("n"))},
+            ],
+        },
+    ),
+)
+
+#: Gates peeled **after** the connector split, so each binds to only its own
+#: clause — see the call site for why that has to be a separate pass.
+_CONDITION_SUFFIXES: tuple[_ConditionPrefix, ...] = (
+    # "`<effect>` unless `<its>` additional cost was paid." (Katara, Seeking
+    # Revenge) — the negative of `_ADDITIONAL_COST_PAID_CONDITION_RE`.
+    _ConditionPrefix(
+        _ADDITIONAL_COST_NOT_PAID_SUFFIX_RE,
+        lambda m: {
+            "kind": "not",
+            "condition": {"kind": "flag", "flag": "additional_cost_paid"},
+        },
+    ),
+)
+
+
+def _peel_condition(
+    body: str,
+    table: tuple[_ConditionPrefix, ...],
+    *,
+    self_subject: bool,
+    previous_subject: bool,
+    group_subject: bool,
+) -> tuple[bool, Optional[list[EffectSpec]]]:
+    """The one rule behind every row of ``table``.
+
+    Returns ``(matched, specs)``. ``matched`` says a row claimed the body at
+    all; ``specs`` is ``None`` when it did but the gated effect text came
+    back unclaimed — which fails the whole body, because emitting the effect
+    without its gate would be a *wrong* card rather than an unmodeled one.
+    """
+    for row in table:
+        match = row.pattern.match(body)
+        if match is None:
+            continue
+        inner = parse_effect_body(
+            match.group("rest"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if inner is None:
+            return True, None
+        condition = row.build(match)
+        gated: list[EffectSpec] = []
+        for spec in inner:
+            params = dict(spec.params)
+            if row.rewrite_params is not None:
+                row.rewrite_params(params, match)
+            gated.append(EffectSpec(spec.type, params, condition=condition))
+        trailing = (match.groupdict().get("trailing") or "").strip().lstrip(". ").strip()
+        if not trailing:
+            return True, gated
+        # A second sentence this match swallowed, with a gate of its own —
+        # re-fold it through `parse_effect_body` so it gets that gate rather
+        # than silently inheriting this one.
+        more = parse_effect_body(
+            trailing, self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        return True, (gated + more if more is not None else None)
+    return False, None
+
+
 def _with_after_tail(
     specs: list[EffectSpec], after_group: Optional[str], *,
     previous_subject: bool = False, group_subject: bool = False,
@@ -2791,91 +2994,18 @@ def parse_effect_body(
     if not body:
         return []
 
-    # RULE 603.4 suffix intervening-if — "`<effect>` if an opponent lost N
-    # or more life this turn." (Davros) — checked before `match_clause` /
-    # the connector split so the base `<effect>` handler can't claim the
-    # clause *without* the gate (a wrong-but-modeled unconditional token).
-    opp_lost = _OPPONENT_LOST_LIFE_SUFFIX_RE.match(body)
-    if opp_lost is not None:
-        inner = parse_effect_body(
-            opp_lost.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject, group_subject=group_subject,
-        )
-        if inner:
-            n = int(opp_lost.group("n"))
-            return [
-                EffectSpec(
-                    e.type, dict(e.params),
-                    condition={"opponent_lost_life_this_turn_at_least": n},
-                )
-                for e in inner
-            ]
-        return None
-
-    kicked = _KICKED_CONDITION_RE.match(body)
-    if kicked is not None:
-        inner = parse_effect_body(
-            kicked.group("rest"), self_subject=self_subject, previous_subject=previous_subject,
-            group_subject=group_subject,
-        )
-        if inner is None:
-            return None
-        kind = kicked.group("kind").lower()
-        if kind == "bargained":
-            condition: dict[str, Any] = {"bargained": True}
-            rewrite_kicker_x = False
-        elif "twice" in kind:
-            condition = {"kicked_at_least": 2}
-            rewrite_kicker_x = True
-        else:
-            condition = {"kicked": True}
-            rewrite_kicker_x = True
-        results = []
-        for e in inner:
-            params = dict(e.params)
-            if rewrite_kicker_x:
-                # RULE 702.33b/PAR-17: an "X" mentioned inside a "was
-                # kicked" wrapper's own rest clause can only mean Kicker's
-                # own announced {X} (PAR-7's `GameObject.kicker_x_paid`,
-                # e.g. Kangee, Aerie Keeper's "put X feather counters on
-                # it") — a *different* sentinel than the ordinary "x"
-                # `RulesEngine._substitute_x` resolves against the spell's
-                # own announced X, so it's rewritten here rather than left
-                # ambiguous between the two.
-                for key, value in list(params.items()):
-                    if value == "x":
-                        params[key] = "kicker_x"
-            results.append(EffectSpec(e.type, params, condition=condition))
-        return results
-
-    add_paid = _ADDITIONAL_COST_PAID_CONDITION_RE.match(body)
-    if add_paid is not None:
-        inner = parse_effect_body(
-            add_paid.group("rest"), self_subject=self_subject, previous_subject=previous_subject,
-            group_subject=group_subject,
-        )
-        if inner is None:
-            return None
-        return [
-            EffectSpec(e.type, dict(e.params), condition={"additional_cost_paid": True})
-            for e in inner
-        ]
-
-    target_is_you = _TARGET_IS_CONTROLLER_RE.match(body)
-    if target_is_you is not None:
-        inner = parse_effect_body(
-            target_is_you.group("rest"),
-            self_subject=self_subject,
-            previous_subject=previous_subject,
-            group_subject=group_subject,
-        )
-        if inner is None:
-            return None
-        wants_controller = not target_is_you.group("neg")
-        return [
-            EffectSpec(e.type, dict(e.params), condition={"target_is_controller": wants_controller})
-            for e in inner
-        ]
+    # RULE 603.4 intervening-ifs, and RULE 601.2b's optional-additional-cost
+    # gates: one rule over `_CONDITION_PREFIXES` (ENG-36), where each of these
+    # was its own ten-line block. They run before `match_clause` / the
+    # connector split so a base `<effect>` handler can never claim the clause
+    # *without* its gate — a wrong-but-modeled unconditional card is worse
+    # than an unclaimed one.
+    matched, peeled = _peel_condition(
+        body, _CONDITION_PREFIXES, self_subject=self_subject,
+        previous_subject=previous_subject, group_subject=group_subject,
+    )
+    if matched:
+        return peeled
 
     clash_repeat = _CLASH_REPEAT_PROCESS_RE.match(body)
     if clash_repeat is not None:
@@ -2911,143 +3041,6 @@ def parse_effect_body(
                 "suspect", {"previous_subject": True},
                 condition={"previous_target_is_suspected": False},
             ),
-        ]
-
-    clash_branch = _IF_YOU_WIN_CLASH_RE.match(body) or _OTHERWISE_CLASH_RE.match(body)
-    if clash_branch is not None:
-        inner = parse_effect_body(
-            clash_branch.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject, group_subject=group_subject,
-        )
-        if inner is None:
-            return None
-        won = _IF_YOU_WIN_CLASH_RE.match(body) is not None
-        return [
-            EffectSpec(e.type, dict(e.params), condition={"clash_won": won})
-            for e in inner
-        ]
-
-    life_gained = _LIFE_GAINED_THIS_TURN_CONDITION_RE.match(body)
-    if life_gained is not None:
-        inner = parse_effect_body(
-            life_gained.group("rest"), self_subject=self_subject, previous_subject=previous_subject,
-            group_subject=group_subject,
-        )
-        if inner is None:
-            return None
-        conditioned = [
-            EffectSpec(
-                e.type, dict(e.params),
-                condition={"life_gained_this_turn_at_least": int(life_gained.group("n"))},
-            )
-            for e in inner
-        ]
-        trailing = life_gained.group("trailing")
-        if trailing:
-            # Strip the leading ". Then " (and re-fold "Then" back onto the
-            # start so the inner "if ~ is your Ring-bearer and…" wrapper's
-            # own `(?:then )?` tolerance still matches, same as it does
-            # after an ordinary connector-split).
-            more = parse_effect_body(
-                trailing.strip().lstrip(". ").strip(),
-                self_subject=self_subject, previous_subject=previous_subject,
-                group_subject=group_subject,
-            )
-            if more is None:
-                return None
-            return conditioned + more
-        return conditioned
-
-    controls_none = _CONTROLS_NONE_OF_TYPE_CONDITION_RE.match(body)
-    if controls_none is not None:
-        inner = parse_effect_body(
-            controls_none.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject, group_subject=group_subject,
-        )
-        if inner is None:
-            return None
-        return [
-            EffectSpec(
-                e.type, dict(e.params),
-                condition={"controls_none_of_type": controls_none.group("type").lower()},
-            )
-            for e in inner
-        ]
-
-    gy_subtype = _GRAVEYARD_HAS_SUBTYPE_CONDITION_RE.match(body)
-    if gy_subtype is not None:
-        inner = parse_effect_body(
-            gy_subtype.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject, group_subject=group_subject,
-        )
-        if inner is None:
-            return None
-        return [
-            EffectSpec(e.type, dict(e.params),
-                       condition={"graveyard_has_type": gy_subtype.group("sub").lower()})
-            for e in inner
-        ]
-
-    for _werewolf_re, _werewolf_key in (
-        (_WEREWOLF_NO_SPELLS_CONDITION_RE, "no_spells_cast_last_turn"),
-        (_WEREWOLF_TWO_SPELLS_CONDITION_RE, "two_or_more_spells_cast_last_turn"),
-    ):
-        _werewolf_m = _werewolf_re.match(body)
-        if _werewolf_m is not None:
-            inner = parse_effect_body(
-                _werewolf_m.group("rest"), self_subject=self_subject,
-                previous_subject=previous_subject, group_subject=group_subject,
-            )
-            if inner is None:
-                return None
-            return [
-                EffectSpec(e.type, dict(e.params), condition={_werewolf_key: True})
-                for e in inner
-            ]
-
-    first_combat_phase = _FIRST_COMBAT_PHASE_CONDITION_RE.match(body)
-    if first_combat_phase is not None:
-        inner = parse_effect_body(
-            first_combat_phase.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject, group_subject=group_subject,
-        )
-        if inner is None:
-            return None
-        return [
-            EffectSpec(e.type, dict(e.params), condition={"is_first_combat_phase": True})
-            for e in inner
-        ]
-
-    ring_bearer_other = _RING_BEARER_OTHER_CONDITION_RE.match(body)
-    if ring_bearer_other is not None:
-        inner = parse_effect_body(
-            ring_bearer_other.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject, group_subject=group_subject,
-        )
-        if inner is None:
-            return None
-        return [
-            EffectSpec(e.type, dict(e.params), condition={"is_ring_bearer": False})
-            for e in inner
-        ]
-
-    ring_bearer_and_tempted = _RING_BEARER_AND_TEMPTED_CONDITION_RE.match(body)
-    if ring_bearer_and_tempted is not None:
-        inner = parse_effect_body(
-            ring_bearer_and_tempted.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject, group_subject=group_subject,
-        )
-        if inner is None:
-            return None
-        return [
-            EffectSpec(
-                e.type, dict(e.params),
-                condition={
-                    "is_ring_bearer": True,
-                    "ring_tempted_at_least": int(ring_bearer_and_tempted.group("n")),
-                },
-            )
-            for e in inner
         ]
 
     look_top_select = _LOOK_TOP_SELECT_RE.match(body)
@@ -3385,22 +3378,19 @@ def parse_effect_body(
             if ok:
                 return collected
 
-    # PAR-30: "`<effect>` unless `<its>` additional cost was paid." — checked
-    # *after* the connector split so it binds to only its own clause (in
-    # "draw a card, then discard a card unless her additional cost was
-    # paid", the split hands this just "discard a card unless …"), not to
-    # every clause of a compound body.
-    add_not_paid = _ADDITIONAL_COST_NOT_PAID_SUFFIX_RE.match(body)
-    if add_not_paid is not None:
-        inner = parse_effect_body(
-            add_not_paid.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject, group_subject=group_subject,
-        )
-        if inner is not None:
-            return [
-                EffectSpec(e.type, dict(e.params), condition={"additional_cost_paid": False})
-                for e in inner
-            ]
+    # The same rule again, at the *other* end of the pipeline: these gates
+    # are checked **after** the connector split so each binds to only its own
+    # clause. In "draw a card, then discard a card unless her additional cost
+    # was paid" the split hands this just "discard a card unless …", where a
+    # pre-split peel would have gated the draw too. Two call sites, not two
+    # implementations — where in the pipeline a gate binds is a real property
+    # of the gate, and the only thing that separates the two tables.
+    matched, peeled = _peel_condition(
+        body, _CONDITION_SUFFIXES, self_subject=self_subject,
+        previous_subject=previous_subject, group_subject=group_subject,
+    )
+    if matched and peeled is not None:
+        return peeled
     return None
 
 

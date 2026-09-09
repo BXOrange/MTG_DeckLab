@@ -165,6 +165,20 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
     }
 )
 
+#: Non-``kind`` keys a **structured** effect condition may carry, and the
+#: type each must have (ENG-36). The ``kind`` vocabulary itself lives in
+#: `game/effect_conditions.py` and `game/static_conditions.py`, which this
+#: package must not import (docs/09) — so the shape is checked here and the
+#: name there, exactly as a static's ``active_if`` has always been handled.
+#: ``conditions``/``condition`` are the ``all``/``not`` combinators' operands
+#: and recurse instead of matching a type here.
+_STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
+    "of": str, "flag": str, "subtype": str, "card_type": str, "color": str,
+    "counter": str, "selector": str, "name": str, "keyword": str,
+    "min": int, "max": int, "amount": int, "min_power": int,
+    "colors": list, "types": list,
+}
+
 #: `AbilitySpec.conditional_flash`'s whitelisted keys — see that field's
 #: docstring. A deliberately separate whitelist from `_ALLOWED_CONDITION_KEYS`
 #: above: that one gates whether an already-resolving *effect* applies;
@@ -1132,9 +1146,26 @@ class AbilitySpec:
     @staticmethod
     def _validate_condition(condition: dict[str, Any]) -> None:
         """Structural check for an `EffectSpec.condition` (RULE 702.33b's
-        kicked-gate, and the target-based ``"target_is_controller"`` gate)."""
+        kicked-gate, and the target-based ``"target_is_controller"`` gate).
+
+        Two spellings are legal (ENG-36). The **flat** one below is what
+        every shipped spec uses and is whitelisted key by key, unchanged.
+        The **structured** one — ``{"kind": …, "of": …, "min": …}``, the
+        vocabulary `game/effect_conditions.py` evaluates — is checked
+        structurally here and gated on its ``kind`` at evaluation time, the
+        same division a static's ``active_if`` has always had: the parser
+        can't name the engine's condition vocabulary without importing
+        `game/` across the docs/09 boundary, and an unrecognized ``kind``
+        already fails closed (the gated effect simply never applies).
+        `tests/test_effect_conditions.py` pins the two sides together so a
+        kind this package emits can't drift out of that vocabulary
+        unnoticed.
+        """
         if not isinstance(condition, dict) or not condition:
             raise SpecValidationError(f"malformed effect condition: {condition!r}")
+        if "kind" in condition:
+            AbilitySpec._validate_structured_condition(condition)
+            return
         for key, value in condition.items():
             if key not in _ALLOWED_CONDITION_KEYS:
                 raise SpecValidationError(f"unknown effect condition key {key!r}")
@@ -1173,6 +1204,43 @@ class AbilitySpec:
                     raise SpecValidationError(
                         "'count_selector_at_least' must be {'selector': <non-empty str>, 'count': <non-negative int>}"
                     )
+
+    @staticmethod
+    def _validate_structured_condition(condition: dict[str, Any], _depth: int = 0) -> None:
+        """Shape-check a ``{"kind": …}`` condition — see `_validate_condition`.
+
+        Reuses `MAX_SPEC_DEPTH` for the combinator recursion for the same
+        reason `_clamp_nested` does: a self-referential structure must not be
+        able to make validation itself the denial of service.
+        """
+        if _depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError("effect condition nested too deeply")
+        kind = condition.get("kind")
+        if not isinstance(kind, str) or not kind.strip():
+            raise SpecValidationError(f"structured condition needs a 'kind': {condition!r}")
+        for key, value in condition.items():
+            if key == "kind":
+                continue
+            if key in ("conditions", "condition"):
+                nested = value if key == "conditions" else [value]
+                if not isinstance(nested, list) or not nested:
+                    raise SpecValidationError(f"malformed {key!r} in condition {condition!r}")
+                for sub in nested:
+                    if not isinstance(sub, dict):
+                        raise SpecValidationError(f"malformed {key!r} in condition {condition!r}")
+                    AbilitySpec._validate_structured_condition(sub, _depth + 1)
+                continue
+            expected = _STRUCTURED_CONDITION_FIELDS.get(key)
+            if expected is None:
+                raise SpecValidationError(f"unknown effect condition field {key!r}")
+            # ``bool`` is an ``int`` subclass; a flag where a count belongs is
+            # a spelling mistake, not a zero/one.
+            if expected is int and (isinstance(value, bool) or not isinstance(value, int)):
+                raise SpecValidationError(f"{key!r} in an effect condition must be an int")
+            if expected is not int and not isinstance(value, expected):
+                raise SpecValidationError(
+                    f"{key!r} in an effect condition must be a {expected.__name__}"
+                )
 
     @staticmethod
     def _clamp_params(params: dict[str, Any], _depth: int = 0) -> None:

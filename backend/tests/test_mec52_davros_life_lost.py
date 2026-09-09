@@ -93,7 +93,7 @@ def test_davros_is_modeled_with_condition_and_subject_filter():
     trig = next(s for s in res.specs if s.ability_kind == "triggered")
     ct, villain = trig.effects
     assert ct.type == "create_token"
-    assert ct.condition == {"opponent_lost_life_this_turn_at_least": 3}
+    assert ct.condition == {"kind": "opponent_lost_life_this_turn", "min": 3}
     assert villain.type == "face_villainous_choice"
     assert villain.params["subject"] == "each_opponent"
     assert villain.params["subject_min_life_lost"] == 3
@@ -110,7 +110,7 @@ def test_suffix_condition_does_not_leak_onto_a_later_then_clause():
         "more life this turn. then draw a card."
     )
     by_type = {s.type: s for s in specs}
-    assert by_type["create_token"].condition == {"opponent_lost_life_this_turn_at_least": 3}
+    assert by_type["create_token"].condition == {"kind": "opponent_lost_life_this_turn", "min": 3}
     assert by_type["draw"].condition is None
 
 
