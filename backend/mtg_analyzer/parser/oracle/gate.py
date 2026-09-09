@@ -2681,7 +2681,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: emits no composition node yet, so no card's verdict can move — but the
 #: gate can reject a spec it used to accept, which is the same reasoning that
 #: moved the version at v299.
-PARSER_VERSION = "301"
+PARSER_VERSION = "304"
 
 
 def parser_source_hash() -> str:

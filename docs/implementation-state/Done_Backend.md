@@ -4079,6 +4079,19 @@ evidence is
   four cannot: `if_else` doesn't know which branch will run and `for_each`
   doesn't know how many times. They announce nothing, and a body clause
   inside them reads a target a *sibling* announced.
+- **Corrected by PAR-62: `optional` belongs with `seq`, not with those three.**
+  Their objection is that they don't know *what* will run; an `optional` body
+  is fixed and singular, and the only open question is *whether* it runs —
+  which RULE 601.2b answers at resolution, long after RULE 601.2c fixed the
+  targets on announcement. "When you cycle this card, you may tap target
+  creature." (Choking Tethers) targets when the trigger goes on the stack. Two
+  defects, both silent: the node announced no targets, and the continuation
+  resumed the body with `targets=None`, so the card parsed as `MODELED` and
+  then resolved to **nothing at all**. Fixed by giving `OptionalEffect` the
+  same `target_specs` property and carrying the announced targets across the
+  pause by id (RULE 608.2h, the same last-known-information handling the
+  ``previous_target_ids`` referent already used). Reached from the parser side:
+  routing a real card through the node is what exposed it.
 - **It found a real RULE 608.2 ordering bug, already reachable.**
   `SacrificeEffect`, `ConniveEffect` and `PopulateEffect` each suspend a loop
   of their own by pushing a frame from inside `apply`, while
@@ -4472,6 +4485,157 @@ measurement of why is the useful half of this work.
   ISA, so the report's routing and the diff are one ground truth)
 
 ## Oracle-Text Parser Front-End
+
+### PAR-62: closing out the S4 grammar surface (PARSER_VERSION 304)
+
+- **What:** the depth behind three connectives — the quantity half of
+  "for each", four rows on the shared condition whitelist, and the RULE 614
+  "instead" rider. **+59 cards on top of 303**; PAR-62 totals **+197, 0
+  regressions**, 41.82% → **42.40%**.
+- **Files:** `parser/oracle/segmenter.py`,
+  `parser/oracle/catalogue/static_handlers.py`, `parser/oracle/gate.py`
+  (v304), `tests/test_par62_connectives.py`.
+- **"for each" is two different operators, and the printed text doesn't say
+  which.** An *object group* ("for each creature you control") is iteration —
+  `for_each` over `group_selector_objects`. A *quantity* ("for each card in
+  your hand") is a measurement — ENG-37's `bind`, over `effect_amounts`'
+  ``resource`` reading. Routing a quantity to `for_each` would iterate over
+  objects that aren't on the battlefield at all: nothing happens, while the
+  card counts as MODELED. The `bind` path also refuses a body whose magnitude
+  isn't a single recognised param (`amount`/`count`), because there is then no
+  unambiguous place to put the measured number.
+- **The condition whitelist is the gate's real ceiling.** Four rows added for
+  phrases whose *engine* kind already existed but had no parser-side
+  recognizer — "a creature died this turn" (62 occurrences), "you gained life
+  this turn" (31), "an opponent lost life this turn" (18), "~ is an
+  enchantment" (22). Because `static_condition` is shared, each row widens the
+  RULE 603.4 effect gate and the RULE 613.6 "as long as" statics at once.
+  **2,087 distinct phrases / 5,164 occurrences remain**, and the top ones now
+  want engine kinds that don't exist ("you attacked this turn" has only the
+  per-object Boast flag, not a player-scoped one) rather than parser rows —
+  which is the signal that this stage's own surface is finished.
+- **"instead" is grammar for this stage, not an exclusion.** It is RULE 614
+  *replacement* semantics, so it must never become a composition node — but it
+  does have to be detected here and tied to machinery the engine already has.
+  `GrantDieToExileThisTurnEffect` existed and was parser-reachable;
+  `_DIE_TO_EXILE_SENTENCE_RE` simply didn't accept two of the printed
+  spellings ("that creature **or planeswalker**", "a creature dealt damage
+  this way"). Widening it was safe without a new guard because its use site
+  already refuses a body that announced no target — so "deals 3 damage to
+  **each** creature. If a creature dealt damage this way would die…" fails
+  closed instead of arming a replacement on nobody. That group-scoped arm is
+  the genuine remaining gap, and it is an engine extension.
+- **Why the exit criterion changed shape.** "Templates-per-blocked-card falls"
+  measured 1.119 against a 1.12 baseline — flat, and structurally unable to
+  move (distinct *whole-clause* templates ÷ blocked cards falls together when
+  cards are claimed). A grammar stage is finished when its surface is complete
+  and each connective is built or explicitly accounted for, which is how the
+  ticket now states it; the statistic that did move is the head concentration
+  of decomposed leaves, top-50 going **3.6% → 13.3%**.
+
+### PAR-62: section 5.2's connectives routed to nodes and gates (`14_` S4)
+
+- **What:** the remaining `13_` section 5.2 connectives, at PARSER_VERSION 303:
+  `if`/`unless` as a RULE 603.4 gate over the **shared** condition whitelist,
+  `if …/otherwise` as an ENG-37 `if_else` node, and "for each `<group>`" as its
+  `for_each` node. **+138 cards, 0 regressed**; 41.84% → **42.23%** (14,564 →
+  14,702). With the 302 increment below, PAR-62 is +145 for 0 regressions.
+- **Files:** `parser/oracle/segmenter.py`, `parser/oracle/gate.py` (v303),
+  `tests/test_par62_connectives.py`, `tests/test_cube_batch_a2.py`.
+- **One vocabulary, not two.** The `if` gate hands its condition text to
+  `static_handlers.static_condition` — the same whitelisted recognizer the RULE
+  613.6 "as long as" statics use, returning a `game/static_conditions.py` dict.
+  So an effect-time "if" and a static's "as long as" ask the same question of
+  the same 35-row table, and widening it pays off for both at once. `unless` is
+  that gate under ENG-36's `not` combinator, which existed for exactly this.
+- **Placement is the whole safety argument, and it is not uniform.** The
+  *generic* rows run **last** — after `match_clause` and the connector cascade
+  — so they only ever convert an already-unclaimed body. Putting them where the
+  *specific* `_CONDITION_PREFIXES` rows live (before `match_clause`, so a base
+  handler can never claim a clause without its gate) regressed **7 cards**,
+  measured: a body like Goatnap's "gain control of target creature …. if that
+  creature is a goat, …" got gated as a whole on a condition outside the
+  vocabulary and failed closed, losing the connector split that used to claim
+  it. `if …/otherwise` is the one deliberate exception — see below.
+- **`_peel_condition` had to learn to fail closed.** Its rows previously always
+  produced a condition. A generic row's `build` can return `None` (the phrase
+  is outside the whitelist), and the old code would then have emitted the
+  effect **ungated** — a wrong card, which is strictly worse than an unmodeled
+  one. `build` is now honestly `Optional` and a `None` fails the body.
+- **A pre-existing wrong reading this ticket would have exposed.** A bare
+  leading "otherwise," is read by a standing row as RULE 701.30d's *clash*
+  "otherwise" — the only meaning that word had before. Left to the connector
+  split, "if `<cond>`, A. otherwise, B." would gate B on "you didn't win a
+  clash", unrelated to the card; and this ticket's own `if` gate is what newly
+  makes the A half parse, so the card would have flipped to MODELED **with a
+  wrong else-branch**. Fixed by claiming the shape as one `if_else` *before*
+  the cascade. Anchored on a leading "if", so a real clash body ("clash with an
+  opponent. if you win, …") never reaches it and keeps its grammar.
+- **`for_each` is scoped to object groups on purpose.** Two refusals, both
+  fail-closed: a body that **announces a target** (the node hands each selected
+  object to the body *as its targets*, which would override an announced RULE
+  115 target with the iteration item), and a *count* operand — "for each card
+  in your hand", "for each +1/+1 counter on it" — which is an amount
+  (`effect_amounts`), not a battlefield group, and would iterate over nothing
+  while the card still counted as MODELED. Also: `parser/oracle/` may not
+  import `game/`, so nothing there can check a selector name against the
+  engine's vocabulary; the names are a short hand-verified list and
+  `test_par62_connectives.py` crosses that boundary once, asserting each one
+  actually *finds* something rather than merely not raising.
+- **The ticket's exit metric cannot be met, and that is a fact about the
+  metric.** "templates-per-blocked-card (1.12) falls" measured **1.119**
+  afterwards — flat. It is distinct *whole-clause* templates ÷ blocked cards,
+  so claiming cards removes templates and cards together; decomposition is
+  invisible to it by construction. The measure that does track S4 moved a lot:
+  the head concentration of connective-decomposed leaves, top-50 going from
+  **3.6% → 13.3%** of occurrences. Recorded on the ticket so the next stage
+  measures the right thing.
+- **Mana Vault closed as a side effect**, which is the argument for pinning by
+  clause rather than by count: `test_cube_batch_a2`'s pin has now fired twice
+  (ENG-38's `pay_cost_then`, then this ticket's gate on "if ~ is tapped"), and
+  each time it said *which* clause went instead of "2 != 1".
+
+### PAR-62: the clause grammar's first connective (`14_` S4, PARSER_VERSION 302)
+
+- **What:** RULE 601.2b's "you may `<effect>`" appearing **mid-body** now
+  parses, as an ENG-37 `optional` **node** wrapping a recursively-parsed body
+  (`segmenter._MID_BODY_OPTIONAL_RE`). +7 cards, **0 regressed**, measured
+  across all 34,811. Coverage 41.82% → **41.84%** (14,557 → 14,564).
+- **Files:** `parser/oracle/segmenter.py`, `parser/oracle/gate.py` (v302),
+  `game/effects/composition.py`, `game/rules/casting_mixin.py`,
+  `tests/test_par62_mid_body_optional.py`, `tests/test_composition_nodes.py`.
+- **The gap.** `_peel_optional` strips only a *leading* "you may", at the
+  whole-ability level. Once the connector split hands `parse_effect_body` a
+  "you may …" part on its own — "…, then you may `<effect>`" — nothing claimed
+  it. A standing gap named in `09_`.
+- **S4 lands in increments, contrary to the ticket's own framing.** PAR-62 was
+  written as "no partial rollout — every currently-MODELED card is re-derived
+  through it". It needn't be: `_CONNECTORS` returns on the first separator
+  yielding a *complete* parse, so a rule placed after the cascade can only fire
+  where the pipeline already returned `None`. The probe confirmed 0 regressions
+  on that basis. Every further connective should land the same way.
+- **A connective must become a node, never a separator.** Splitting "if you
+  control a creature, draw a card" and concatenating the parts emits an
+  *unconditional* draw — a wrong reading, which is worse than an unclaimed one.
+  This is the concrete reason S4 depends on S3.
+- **Fails closed on RULE 603.3's reflexive trigger.** "You may A. **When you
+  do**, B." is a choice *plus* a triggered ability that uses the stack, not one
+  optional wrapping both; collapsing it would silently turn a trigger into a
+  sequence. `_REFLEXIVE_TRIGGER_RE` refuses those and leaves them to their own
+  grammar (`tests/test_par30_earthbend_when_you_do.py` caught this, which is
+  what the adversarial half of that file is for).
+- **What the measurement changed about the ticket.** Judged on card yield the
+  stage looks poor — composition alone reaches ~165 cards (+0.47%), and
+  composition plus one new atom per clause tops out near 2,133 (+6.13%). Judged
+  the way `14_` section 6 actually specifies (templates, not coverage) it is the
+  enabler: decomposing on section 5.2's connectives moves the top-50 templates
+  from **3.6% → 13.3%** of occurrences and the top-500 from 10.4% → 26.7%, so
+  each atom row written afterwards pays off across every connective frame it
+  appears in rather than once. Also measured and worth not repeating:
+  `subgrammars.UP_TO_ONE`'s hardcoded N=1 is **not** the gap the ticket assumed
+  — dedicated `*_multi_target` rows already claim "up to N target Xs", and
+  widening the macro would make `{TARGET}` builders emit a *single*-target
+  effect for a multi-target clause.
 
 ### Parse-on-load memoization
 

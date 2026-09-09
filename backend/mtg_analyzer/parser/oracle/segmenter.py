@@ -35,7 +35,11 @@ from .catalogue.handlers import (
 from .catalogue.keywords import ALIAS_DISPLAYS, KEYWORDS, KeywordShape
 from .catalogue.replacements import replacement_clause_specs
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
-from .catalogue.static_handlers import enter_choice_specs, static_effect_specs
+from .catalogue.static_handlers import (
+    enter_choice_specs,
+    static_condition,
+    static_effect_specs,
+)
 from .catalogue.subgrammars import COLOR_WORD_ALT, resolve_color_word
 from .spec import AbilitySpec, EffectSpec, ParserProvenance
 
@@ -1691,7 +1695,14 @@ _NO_REGEN_SENTENCE_RE = re.compile(
 #: (`previous_subject`, off `GameContext.previous_targets`). Fail-closed
 #: unless "before" actually announces a creature/permanent target.
 _DIE_TO_EXILE_SENTENCE_RE = re.compile(
-    r"^(?P<before>.+?)\.\s*if (?:that creature|that permanent|it) would die this turn,"
+    # PAR-62: "a creature dealt damage this way" and "that creature or
+    # planeswalker" are the same rider in two more printed spellings. Safe to
+    # accept because the use site already refuses a body that announced no
+    # target — mass damage ("deals 3 damage to each creature") leaves nothing
+    # for `previous_subject` to arm on and so fails closed there, rather than
+    # arming a replacement on nobody.
+    r"^(?P<before>.+?)\.\s*if (?:that creature(?: or planeswalker)?|that permanent"
+    r"|a creature dealt damage this way|it) would die this turn,"
     r" exile it instead(?:\.\s*(?P<after>.+))?$",
     re.IGNORECASE | re.DOTALL,
 )
@@ -2743,7 +2754,10 @@ class _ConditionPrefix:
     #: sentence the same match swallowed (see
     #: `_LIFE_GAINED_THIS_TURN_CONDITION_RE`), parsed separately and appended.
     pattern: "re.Pattern[str]"
-    build: "Callable[[re.Match[str]], dict[str, Any]]"
+    #: ``None`` means "this row matched but its condition phrase is outside
+    #: the whitelisted vocabulary" — `_peel_condition` then fails the body
+    #: closed rather than emitting an ungated effect.
+    build: "Callable[[re.Match[str]], Optional[dict[str, Any]]]"
     #: Rewrites the parsed params of each gated spec. Only Kicker needs it:
     #: an "X" inside a "was kicked" wrapper means Kicker's own announced {X}
     #: (`GameObject.kicker_x_paid`), a different sentinel from the spell's.
@@ -2774,6 +2788,221 @@ def _kicked_condition(match: "re.Match[str]") -> dict[str, Any]:
 #: Gates peeled **before** `match_clause` and the connector split, in the
 #: order they were tried before. Order still matters between rows whose
 #: patterns could both match a body, which is why it is preserved verbatim.
+
+#: PAR-62: "if `<cond>`, `<A>`. otherwise, `<B>`." — the one connective that
+#: needs the ``if_else`` node rather than a ``condition=`` gate, because it has
+#: a second branch. RULE 701.30d's clash "otherwise" is the motivating shape.
+#:
+#: ENG-37's node is three-valued on purpose: a condition whose referent does
+#: not exist runs **neither** branch. That is why this can emit an else at all
+#: — a two-valued gate would make ``else`` the catch-all for every unmodelled
+#: condition, which is fail-*open*.
+_IF_OTHERWISE_RE = re.compile(
+    r"^if (?P<cond>[^,]{2,80}),\s+(?P<then>.+?)[.]\s+otherwise,?\s+(?P<els>.+)$",
+    re.IGNORECASE)
+
+
+def _if_else_specs(
+    body: str, *, self_subject: bool, previous_subject: bool,
+    group_subject: bool, previous_selector: bool,
+) -> "Optional[list[EffectSpec]]":
+    """"if `<cond>`, `<A>`. otherwise, `<B>`." → an ``if_else`` node.
+
+    Fails closed unless all three parts resolve: the condition through the
+    shared whitelist, and both branches through the ordinary grammar.
+    """
+    match = _IF_OTHERWISE_RE.match(body)
+    if match is None:
+        return None
+    condition = static_condition(match.group("cond"))
+    if condition is None:
+        return None
+    branches = []
+    for group in ("then", "els"):
+        parsed = parse_effect_body(
+            match.group(group).strip(), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+            previous_selector=previous_selector,
+        )
+        if not parsed:
+            return None
+        branches.append([spec.to_dict() for spec in parsed])
+    return [EffectSpec("if_else", {
+        "condition": condition, "then": branches[0], "else": branches[1],
+    })]
+
+
+#: The param keys an `EffectSpec` names a RULE 115 requirement under — the
+#: same "differently-named keys" `_CREATURE_TARGET_KINDS` documents, read here
+#: to answer "does this clause announce a target at all".
+_TARGET_PARAM_KEYS: frozenset[str] = frozenset(
+    {"target_kind", "fighter_kind", "other_kind", "dealer_kind", "kinds"}
+)
+
+
+def _names_a_target(spec: "EffectSpec") -> bool:
+    return any(
+        key in spec.params and spec.params[key] is not None
+        for key in _TARGET_PARAM_KEYS
+    )
+
+
+#: The *quantity*-shaped "for each" operands — a number to multiply by, not a
+#: group to iterate over. "for each card in your hand" is `effect_amounts`'
+#: ``resource`` reading, and belongs on ENG-37's ``bind`` node (measure once,
+#: hand the number to the body) rather than on ``for_each``, which would
+#: iterate over objects that aren't on the battlefield at all.
+_FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
+    "card in your hand": {"kind": "resource", "resource": "hand_size"},
+    "cards in your hand": {"kind": "resource", "resource": "hand_size"},
+    "card in your graveyard": {"kind": "resource", "resource": "graveyard_size"},
+    "cards in your graveyard": {"kind": "resource", "resource": "graveyard_size"},
+}
+
+#: The params an effect states its own magnitude in. A ``bind`` body has to
+#: name exactly one of these for the measured number to land somewhere; a body
+#: with none (or several) is refused rather than guessed at.
+_MAGNITUDE_PARAM_KEYS: tuple[str, ...] = ("amount", "count")
+
+
+def _for_each_amount_specs(
+    match: "re.Match[str]", phrase: str, *, self_subject: bool,
+    previous_subject: bool, group_subject: bool, previous_selector: bool,
+) -> "Optional[list[EffectSpec]]":
+    """"<effect> for each `<quantity>`" → a ``bind`` node, or ``None``.
+
+    Fails closed on an unlisted quantity phrase, a body that doesn't parse, a
+    body that announces a target, or a body whose magnitude isn't a single
+    recognised param — in the last case there is nowhere unambiguous to put
+    the measured number, and putting it in the wrong place would scale
+    something the card never scaled.
+    """
+    amount = _FOR_EACH_AMOUNTS.get(phrase)
+    if amount is None:
+        return None
+    inner = parse_effect_body(
+        match.group("rest").strip(), self_subject=self_subject,
+        previous_subject=previous_subject, group_subject=group_subject,
+        previous_selector=previous_selector,
+    )
+    if not inner or len(inner) != 1 or _names_a_target(inner[0]):
+        return None
+    keys = [k for k in _MAGNITUDE_PARAM_KEYS if k in inner[0].params]
+    if len(keys) != 1:
+        return None
+    params = dict(inner[0].params)
+    params[keys[0]] = "$n"
+    return [EffectSpec("bind", {
+        "name": "n",
+        "amount": amount,
+        "effects": [{"type": inner[0].type, "params": params}],
+    })]
+
+
+#: PAR-62: "<effect> for each <group>" (`13_` 5.2's 5.9% connective) as an
+#: ENG-37 ``for_each`` node over `continuous.group_selector_objects`.
+#:
+#: Deliberately narrow, for two reasons the measurement made concrete.
+#: **(1)** Only *object-group* phrases belong on this node. The other frequent
+#: "for each" operands are counts, not battlefield groups — "for each card in
+#: your hand", "for each +1/+1 counter on it" — and those are an *amount*
+#: (`game/effect_amounts.py`), not an iteration; routing them here would
+#: iterate over nothing and silently do nothing at all.
+#: **(2)** `parser/oracle/` may not import `game/` (docs/09), so nothing here
+#: can check a selector name against the engine's vocabulary. An unknown name
+#: fails closed *inside* the node — which reads as a MODELED card that does
+#: nothing, the exact half-modeling the gate exists to stop. So the names are
+#: a short hand-verified list, and `tests/test_par62_connectives.py` asserts
+#: every one of them is a real `group_selector_objects` selector. Add a row
+#: only with a test that crosses that boundary for you.
+_FOR_EACH_SELECTORS: dict[str, str] = {
+    "creature you control": "creatures_you_control",
+    "creatures you control": "creatures_you_control",
+    "artifact you control": "artifacts_you_control",
+    "artifacts you control": "artifacts_you_control",
+    "land you control": "lands_you_control",
+    "lands you control": "lands_you_control",
+    "permanent you control": "permanents_you_control",
+    "permanents you control": "permanents_you_control",
+    "legendary creature you control": "legendary_creatures_you_control",
+    "attacking creature": "attacking_creatures",
+    "attacking creatures": "attacking_creatures",
+}
+
+_FOR_EACH_SUFFIX_RE = re.compile(
+    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z ]{3,40})$", re.IGNORECASE)
+
+
+def _for_each_specs(
+    body: str, *, self_subject: bool, previous_subject: bool,
+    group_subject: bool, previous_selector: bool,
+) -> "Optional[list[EffectSpec]]":
+    """"<effect> for each <group>" → a ``for_each`` node, or ``None``.
+
+    Fails closed on anything it cannot represent exactly: an unlisted group
+    phrase, a body that doesn't parse, or — the subtle one — a body that
+    **announces a target**. `ForEachEffect` hands each selected object to the
+    body *as its targets*, which is right for "create a token for each …" and
+    flatly wrong for "deal 1 damage to target creature for each …", where it
+    would override the announced RULE 115 target with the iteration item.
+    """
+    match = _FOR_EACH_SUFFIX_RE.match(body)
+    if match is None:
+        return None
+    phrase = match.group("group").strip().lower()
+    selector = _FOR_EACH_SELECTORS.get(phrase)
+    if selector is None:
+        return _for_each_amount_specs(
+            match, phrase, self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+            previous_selector=previous_selector,
+        )
+    inner = parse_effect_body(
+        match.group("rest").strip(), self_subject=self_subject,
+        previous_subject=previous_subject, group_subject=group_subject,
+        previous_selector=previous_selector,
+    )
+    if not inner:
+        return None
+    if any(_names_a_target(spec) for spec in inner):
+        return None
+    return [EffectSpec("for_each", {
+        "over": {"selector": selector},
+        "effects": [spec.to_dict() for spec in inner],
+    })]
+
+
+#: PAR-62 (`14_` S4): the generic RULE 603.4 gate. Every row above names one
+#: printed phrasing; these two name the *shape* and hand the condition text to
+#: `static_handlers.static_condition` — the same whitelisted recognizer the
+#: RULE 613.6 "as long as" statics use, which returns a `game/static_
+#: conditions.py` dict. One vocabulary for "is this true", read at both ends of
+#: the pipeline, instead of a second table of effect-time conditions.
+#:
+#: A phrase outside that whitelist returns ``None`` and fails the body closed
+#: (`_peel_condition`), which is why these can sit last without over-claiming:
+#: they only ever convert an *already-unclaimed* body into a gated one.
+_GENERIC_IF_PREFIX_RE = re.compile(
+    r"^if (?P<cond>[^,]{2,80}),\s+(?P<rest>.+)$", re.IGNORECASE)
+_GENERIC_IF_SUFFIX_RE = re.compile(
+    r"^(?P<rest>.+?),?\s+if (?P<cond>[^,]{2,80})$", re.IGNORECASE)
+#: "…unless `<x>`" is the same gate negated — ENG-36 added the ``not``
+#: combinator to `static_conditions` for exactly this shape.
+_GENERIC_UNLESS_PREFIX_RE = re.compile(
+    r"^unless (?P<cond>[^,]{2,80}),\s+(?P<rest>.+)$", re.IGNORECASE)
+_GENERIC_UNLESS_SUFFIX_RE = re.compile(
+    r"^(?P<rest>.+?),?\s+unless (?P<cond>[^,]{2,80})$", re.IGNORECASE)
+
+
+def _generic_condition(m: "re.Match[str]") -> "Optional[dict[str, Any]]":
+    return static_condition(m.group("cond"))
+
+
+def _generic_negated_condition(m: "re.Match[str]") -> "Optional[dict[str, Any]]":
+    inner = static_condition(m.group("cond"))
+    return None if inner is None else {"kind": "not", "condition": inner}
+
+
 _CONDITION_PREFIXES: tuple[_ConditionPrefix, ...] = (
     # "`<effect>` if an opponent lost N or more life this turn." (Davros,
     # Dalek Creator) — a suffix, but peeled here with the prefixes because it
@@ -2866,6 +3095,26 @@ _CONDITION_PREFIXES: tuple[_ConditionPrefix, ...] = (
 
 #: Gates peeled **after** the connector split, so each binds to only its own
 #: clause — see the call site for why that has to be a separate pass.
+#: PAR-62's generic rows, kept in a table of their own because *where* they
+#: run is the whole point. The specific `_CONDITION_PREFIXES` rows are peeled
+#: **before** `match_clause`, so a base handler can never claim a clause
+#: without its gate. These cannot sit there: they match on shape rather than
+#: on a printed phrase, so a body like "gain control of target creature …. if
+#: that creature is a goat, it also gets +3/+0 …" (Goatnap) would be gated as
+#: a whole on a condition outside the vocabulary and fail closed — losing the
+#: connector split that used to claim it. Measured: 7 such cards regressed.
+#:
+#: Run last instead, after `match_clause` *and* the connector cascade, and
+#: they are purely additive — the same placement rule the mid-body "you may"
+#: node follows.
+_GENERIC_CONDITION_ROWS: tuple[_ConditionPrefix, ...] = (
+    _ConditionPrefix(_GENERIC_IF_PREFIX_RE, _generic_condition),
+    _ConditionPrefix(_GENERIC_UNLESS_PREFIX_RE, _generic_negated_condition),
+    _ConditionPrefix(_GENERIC_IF_SUFFIX_RE, _generic_condition),
+    _ConditionPrefix(_GENERIC_UNLESS_SUFFIX_RE, _generic_negated_condition),
+)
+
+
 _CONDITION_SUFFIXES: tuple[_ConditionPrefix, ...] = (
     # "`<effect>` unless `<its>` additional cost was paid." (Katara, Seeking
     # Revenge) — the negative of `_ADDITIONAL_COST_PAID_CONDITION_RE`.
@@ -2905,6 +3154,13 @@ def _peel_condition(
         if inner is None:
             return True, None
         condition = row.build(match)
+        if condition is None:
+            # A row whose ``build`` couldn't resolve its condition phrase (the
+            # generic rows below hand the phrase to the shared vocabulary, and
+            # it isn't total). Claiming the body here would emit the effect
+            # with no gate at all, which is the one outcome worse than leaving
+            # the card unmodeled.
+            return True, None
         gated: list[EffectSpec] = []
         for spec in inner:
             params = dict(spec.params)
@@ -3299,6 +3555,25 @@ def parse_effect_body(
     if direct is not None:
         return direct
 
+    # PAR-62: "if `<cond>`, `<A>`. otherwise, `<B>`." must be claimed as one
+    # `if_else` *before* the connector split, not after it. The split hands
+    # "otherwise, `<B>`" over as its own part, and a standing
+    # `_CONDITION_PREFIXES` row reads a bare leading "otherwise," as RULE
+    # 701.30d's **clash** "otherwise" — the only place that word had a
+    # modeled meaning before this. That gate is right for a clash card and
+    # unrelated here, so leaving the split to win would attach
+    # "you didn't win the clash" to this card's else branch: a wrong reading,
+    # and one this ticket's own `if` gate would newly expose by making the
+    # *then* half parse. Anchored on a leading "if", so a real clash body
+    # ("clash with an opponent. if you win, …") never reaches this and keeps
+    # its own grammar.
+    if_else = _if_else_specs(
+        body, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+    )
+    if if_else is not None:
+        return if_else
+
     for sep in _CONNECTORS:
         parts = [p for p in re.split(sep, body) if p.strip()]
         if len(parts) > 1:
@@ -3391,6 +3666,61 @@ def parse_effect_body(
     )
     if matched and peeled is not None:
         return peeled
+
+    # PAR-62 (`14_` S4), the first connective routed to an ENG-37 composition
+    # node rather than to a fused effect type or a per-effect ``optional``
+    # boolean: RULE 601.2b's "you may `<effect>`" appearing **mid-body**.
+    #
+    # `_peel_optional` handles only a *leading* "you may", at the whole-ability
+    # level (`segment_line`), which is why "…, then you may `<effect>`" — the
+    # connector split hands this function "you may `<effect>`" as its own
+    # part — had no reading at all. A named standing gap in `09_`.
+    #
+    # Deliberately placed **after** everything above, including the connector
+    # cascade: `_CONNECTORS` returns on the first separator that yields a
+    # *complete* parse, so a body with a reading today keeps it and this can
+    # only fire where the pipeline already returned ``None``. That is what
+    # makes S4 landable in increments instead of as one re-derivation of every
+    # MODELED card.
+    for_each = _for_each_specs(
+        body, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+    )
+    if for_each is not None:
+        return for_each
+
+    matched, peeled = _peel_condition(
+        body, _GENERIC_CONDITION_ROWS, self_subject=self_subject,
+        previous_subject=previous_subject, group_subject=group_subject,
+    )
+    if matched and peeled is not None:
+        return peeled
+
+    optional_body = _MID_BODY_OPTIONAL_RE.match(body)
+    if optional_body is not None and not _PAY_ENERGY_THEN_PEEL_GUARD_RE.match(body):
+        rest = optional_body.group("rest").strip()
+        # One "you may" per node. A second one inside ``rest`` would make the
+        # outer node wrap clauses the card never made optional (the printed
+        # "you may A. you may B" is two independent choices, not one), so it
+        # fails closed here rather than guessing a nesting.
+        #
+        # The same refusal for RULE 603.3's *reflexive* trigger, "you may A.
+        # when you do, B." / "…if you do, B." — B is a separate triggered
+        # ability that fires because A happened and uses the stack, not a
+        # second half of one choice. Wrapping both in this node would collapse
+        # the trigger into a plain sequence, which is a wrong reading rather
+        # than a missing one; those shapes have their own grammar above
+        # (`_EARTHBEND_THEN_WHEN_YOU_DO_RE` and its siblings) and must reach
+        # it. Pinned by `tests/test_par30_earthbend_when_you_do.py`.
+        if not _MID_BODY_OPTIONAL_RE.match(rest) and not _REFLEXIVE_TRIGGER_RE.search(rest):
+            inner = parse_effect_body(
+                rest, self_subject=self_subject, previous_subject=previous_subject,
+                group_subject=group_subject, previous_selector=previous_selector,
+            )
+            if inner:
+                return [EffectSpec("optional", {
+                    "effects": [spec.to_dict() for spec in inner],
+                })]
     return None
 
 
@@ -5309,6 +5639,19 @@ _PAY_ENERGY_THEN_PEEL_GUARD_RE = re.compile(
     r"^you may (?:pay (?:\{e\})+|" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?:if|when) you do",
     re.IGNORECASE,
 )
+
+
+#: RULE 603.3's reflexive trigger tail — "…, when you do, `<effect>`" /
+#: "…, if you do, `<effect>`". A "you may" body containing one is a choice
+#: *plus a trigger*, not a single optional block; see `_MID_BODY_OPTIONAL_RE`'s
+#: use site.
+_REFLEXIVE_TRIGGER_RE = re.compile(r"\b(?:when|if) you do\b", re.IGNORECASE)
+
+
+#: PAR-62: RULE 601.2b's "you may `<effect>`" as a *clause* rather than as an
+#: ability-level prefix — what `_peel_optional` sees only when it leads the
+#: whole body. Same shape, read at the other end of the pipeline.
+_MID_BODY_OPTIONAL_RE = re.compile(r"^you may\s+(?P<rest>.+)$", re.IGNORECASE | re.S)
 
 
 def _peel_optional(body: str) -> tuple[str, bool]:

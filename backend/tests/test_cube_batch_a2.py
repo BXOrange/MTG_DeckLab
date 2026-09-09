@@ -222,26 +222,29 @@ def test_monolith_family_modeled_and_own_other_lines_unaffected():
     """Basalt/Grim Monolith flip to fully `MODELED`: the "doesn't untap"
     line is new coverage, and their own mana ability + "{N}: Untap this
     artifact." activated ability were already independently claimed. Mana
-    Vault stays `UNMODELED` for one unrelated, out-of-scope trigger clause
-    (its "deals 1 damage to you" draw-step trigger) — pinned by its text
-    rather than by a count, so a future fix reads as the clause it closed.
+    Vault is now `MODELED` too, and this asserts each of its three clauses
+    rather than its unclaimed count.
 
-    ENG-38: this pinned *two* clauses until the optional pay-{4}-to-untap
-    upkeep trigger became claimable (`pay_cost_then`). The count assertion
-    could only ever report "2 != 1"; naming the clause says which one
-    went."""
+    The pin has now fired twice, which is the point of writing it by clause
+    instead of by number. ENG-38: the optional pay-{4}-to-untap upkeep trigger
+    became claimable (`pay_cost_then`), taking the count 2 → 1 — an assertion
+    that could only ever report "2 != 1". PAR-62: the generic RULE 603.4 gate
+    closed the last one, "at the beginning of your draw step, **if ~ is
+    tapped**, it deals 1 damage to you", whose condition now resolves through
+    the shared whitelist to `source_tapped`."""
     for name in ("Basalt Monolith", "Grim Monolith"):
         result = parse_oracle(_card(name))
         assert result.modeled, (name, result.unclaimed)
 
     mana_vault = parse_oracle(_card("Mana Vault"))
-    assert not mana_vault.modeled
-    assert not any("doesn't untap" in u for u in mana_vault.unclaimed)
-    assert not any("pay {4}" in u for u in mana_vault.unclaimed)
-    assert mana_vault.unclaimed == [
-        "at the beginning of your draw step, if ~ is tapped, "
-        "it deals 1 damage to you."
-    ]
+    assert mana_vault.modeled, mana_vault.unclaimed
+    effects = {e.type: e for spec in mana_vault.specs for e in spec.effects}
+    assert effects["no_untap"].params == {"affects": "self"}
+    assert effects["pay_cost_then"].params["cost"] == "pay {4}"
+    # The draw-step damage is gated, not unconditional — an ungated one would
+    # burn its controller every turn whether or not the artifact is tapped.
+    assert effects["damage"].params["amount"] == 1
+    assert effects["damage"].condition == {"kind": "source_tapped"}
 
 
 def test_basalt_monolith_stays_tapped_through_its_controllers_untap_step():

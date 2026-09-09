@@ -500,12 +500,10 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 41.8% (14,557 / 34,811) as of 2026-09-08, measured at
-PARSER_VERSION 298** (the parser is at **301**; none of 299–301 — ENG-37's
-nested-spec validation, ENG-36's structured conditions, ENG-37's
-composition-node validation — moves any card's verdict, the middle one
-confirmed by an A/B of both checkouts over all 38,123 raw-store cards;
-re-measure before quoting a 301 number)
+**Coverage: 42.40% (14,761 / 34,811) as of 2026-09-09, measured at
+PARSER_VERSION 304** (ledger-backed, whole cache re-parsed — 299–301 moved no
+card's verdict, so 301 measured identically to 298 at 14,557; 302–304 are
+PAR-62's increments, **+197 total with 0 regressions**)
 (parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)

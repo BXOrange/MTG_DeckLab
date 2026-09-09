@@ -226,6 +226,31 @@ class OptionalEffect(_CompositeEffect):
     #: `game/rules/casting_mixin.py`), because answering is engine work.
     CHOICE_KIND = "composite_optional"
 
+    @property
+    def target_specs(self) -> list[TargetSpec]:
+        """RULE 601.2c: an optional effect still announces its targets.
+
+        The second node that can honestly do this, and for a different reason
+        than `SeqEffect`'s. The other three can't because they don't know
+        *what* will run — which branch (`if_else`), how many times
+        (`for_each`). Here the body is fixed and singular; the only open
+        question is *whether* it happens, and RULE 601.2b answers that at
+        resolution, long after RULE 601.2c has fixed the targets on
+        announcement. "When you cycle this card, you may tap target creature."
+        (Choking Tethers) targets when the trigger goes on the stack; the
+        player is asked on resolution.
+
+        Found by PAR-62: routing a mid-body "you may" through this node made
+        such a card `MODELED` while it silently resolved to nothing, because
+        the tap got no announced target — the half-modeling the coverage gate
+        exists to prevent, reached from the engine side instead of the parser
+        side.
+        """
+        specs: list[TargetSpec] = []
+        for effect in _build(self.inner_specs, self.source):
+            specs.extend(effect.target_specs)
+        return specs
+
     def __init__(
         self,
         effects: Optional[list[Any]] = None,
@@ -266,6 +291,17 @@ class OptionalEffect(_CompositeEffect):
             ],
             "effect_specs": [dict(spec) for spec in self.inner_specs],
             "source_id": getattr(self.source, "instance_id", None),
+            # RULE 601.2c: the targets were fixed when the ability went on the
+            # stack (see `target_specs` above), but the body does not run until
+            # this question is answered — so they have to survive the pause the
+            # same way the ``previous_target_ids`` referent does, or the body
+            # resumes with nothing to act on and the effect silently does
+            # nothing (PAR-62).
+            "target_ids": [
+                getattr(obj, "instance_id", None)
+                for obj in (targets or [])
+                if getattr(obj, "instance_id", None) is not None
+            ],
             # RULE 608.2h: the referent an earlier clause chose has to survive
             # the pause, since the resolution that established it is over by
             # the time this is answered.

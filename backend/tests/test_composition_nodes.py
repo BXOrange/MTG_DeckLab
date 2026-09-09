@@ -91,14 +91,29 @@ class TestSeq:
         ]})], None)[0]
         assert [spec.kind for spec in effect.target_specs] == ["creature"]
 
-    @pytest.mark.parametrize("node", ["if_else", "optional", "for_each", "bind"])
+    @pytest.mark.parametrize("node", ["if_else", "for_each", "bind"])
     def test_the_other_nodes_announce_nothing(self, node: str) -> None:
-        # None of them knows at announce time whether — or how often — its
-        # body runs, so none may claim a RULE 115 requirement of its own.
+        # None of these knows at announce time *what* will run — which branch
+        # (`if_else`), how many times (`for_each`) — so none may claim a RULE
+        # 115 requirement of its own.
         effect = build_effects([EffectSpec(node, {"effects": [
             {"type": "destroy", "params": {"target_kind": "creature"}},
         ], "then": [{"type": "destroy", "params": {"target_kind": "creature"}}]})], None)[0]
         assert effect.target_specs == []
+
+    def test_optional_does_announce_its_bodys_targets(self) -> None:
+        # PAR-62 corrected this: `optional` was grouped with the three above,
+        # but it belongs with `seq`. Its body is fixed and singular — the only
+        # open question is *whether* it runs, and RULE 601.2b answers that at
+        # resolution, long after RULE 601.2c fixed the targets on
+        # announcement. "When you cycle this card, you may tap target
+        # creature." (Choking Tethers) targets when the trigger goes on the
+        # stack. Without this the card parsed as MODELED and then resolved to
+        # nothing at all.
+        effect = build_effects([EffectSpec("optional", {"effects": [
+            {"type": "tap", "params": {"target_kind": "creature"}},
+        ]})], None)[0]
+        assert [spec.kind for spec in effect.target_specs] == ["creature"]
 
 
 class TestIfElse:

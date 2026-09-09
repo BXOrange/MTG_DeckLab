@@ -158,25 +158,82 @@ its block back into the matching section here.
     composition* — the payoff is multiplicative. An earlier draft drew the wrong
     conclusion.
 
-- **PAR-62 · Clause grammar with residue (`14_` S4).** Rewrite
-  `segmenter.parse_effect_body` as recursive descent over the connectives
-  measured in `13_` section 5.2 (`if` 16.5%, `you may` 13.8%, `then` 8.3%,
-  `for each` 5.9%, `instead` 3.4%, …), replacing the all-or-nothing
-  `fullmatch` with a **residue** mechanism: a rule may claim part of a clause
-  and hand the rest on, instead of one unmodelable fragment discarding every
-  sibling that parsed.
-  Fix the two standing positional gaps here — mid-body `you may` (a known gap
-  named in `09_`; `_peel_optional` strips only a *leading* one) and
-  `subgrammars.UP_TO_ONE`, hardcoded to N=1.
-  **Highest-risk ticket in the chain** — every currently-MODELED card is
-  re-derived through it, and there is no partial rollout. Mitigation: the full
-  suite plus a full-cache before/after coverage diff. **The atom layer it
-  needs now exists** — ENG-34/35/36 are closed and ENG-37's composition nodes
-  are shipped, so recursive descent has something to descend into; ENG-37's
-  remaining half (retiring the fused types) shrinks what this has to route
-  around but does not block it.
-  **Exit:** coverage does not regress; templates-per-blocked-card (**1.12
-  today**) falls.
+- **PAR-62 · Clause grammar: the remainder (`14_` S4).** The connectives
+  themselves are **built** (PARSER_VERSION 302–303, +145 cards, 0 regressions,
+  41.82% → 42.23%) — see `Done_Backend.md`. What is left:
+
+  - **"instead" — RULE 614 replacements, detected here and tied to the
+    existing engine machinery.** Not a composition node (that would be a wrong
+    reading), but very much this stage's job: **876 clauses / 799 distinct**,
+    a flat tail with two families.
+    - *Embedded replacement riders* — "…deals N damage to target creature.
+      **If that creature would die this turn, exile it instead.**" The engine
+      primitive already exists and is parser-reachable
+      (`GrantDieToExileThisTurnEffect` / `grant_die_to_exile_this_turn`), and
+      `_DIE_TO_EXILE_SENTENCE_RE` now also accepts "that creature or
+      planeswalker" and "a creature dealt damage this way". Its use site
+      already refuses a body that announced no target, so mass damage
+      ("deals 3 damage to each creature") fails closed rather than arming a
+      replacement on nobody — **that** case is what is still open, and it
+      needs a group-scoped arm ("every creature damaged this way"), i.e. an
+      engine extension, not a regex.
+    - *Magnitude overrides* — "target creature gets -2/-2. **If this spell was
+      kicked, that creature gets -6/-6 instead.**" This is `BACKLOG`'s
+      standing "kicked … instead override" gap; the additive shape ships, the
+      override doesn't. It wants a spec that *replaces* an earlier clause's
+      magnitude rather than adding a second effect.
+    - The rest is genuinely long-tail (799 distinct over 876), so treat it the
+      way `PARSER_LONG_TAIL.md` says: take the recurring shapes, hand-author
+      the singletons.
+  - **"for each `<count phrase>`" — the rest of the quantity vocabulary.**
+    Object groups ship (`for_each`) and the two commonest quantities ship via
+    ENG-37's `bind` node ("for each card in your hand/graveyard" →
+    `effect_amounts`' ``resource`` reading). Still open: quantities with no
+    `AMOUNT_KINDS` entry behind them — "for each +1/+1 counter on it" (a
+    counter count on a permanent), "for each basic land type among lands you
+    control". Those need a new amount *kind* in `game/effect_amounts.py`
+    first; the parser row is trivial once one exists.
+  - **Keep widening `static_handlers.static_condition`.** Four rows added (see
+    `Done_Backend.md`). The gate is only as good as this whitelist, and there
+    are **2,087 distinct unresolved `if` phrases / 5,164 occurrences** left.
+    The top ones now need *engine* kinds that don't exist yet rather than
+    parser rows: "you attacked this turn" (47 — only the per-object Boast
+    `source_attacked_this_turn` exists, not a player-scoped one) and
+    "a permanent left the battlefield under your control this turn" (25).
+    Note "if you do" (847) and "if able" (159) are **not** conditions — the
+    first is RULE 603.3's reflexive trigger, the second a requirement.
+
+  **Exit — completion of the grammar surface, not a metric.** The original
+  criterion was "templates-per-blocked-card (1.12) falls"; it measured
+  **1.119** after this work, flat and structurally so (it is distinct
+  *whole-clause* templates ÷ blocked cards, so claiming cards removes
+  templates and cards together — decomposition cannot move it). A coverage or
+  ratio target is the wrong shape for a grammar stage anyway: it makes the
+  stage "done" at whatever number, and leaves no way to say which of its parts
+  exist. S4 is done when its surface is complete and each item is either built
+  or explicitly ruled out with a reason:
+
+  | `13_` 5.2 connective | share | state |
+  | --- | --- | --- |
+  | `if <cond>` | 16.5% | **built** — RULE 603.4 gate, shared whitelist |
+  | `you may` | 13.8% | **built** — `optional` node, incl. mid-body |
+  | `then` | 8.3% | **built** (pre-existing `_CONNECTORS`) |
+  | `for each` | 5.9% | **built** — groups → `for_each`, quantities → `bind` |
+  | `unless` | 1.7% | **built** — the gate under `not` |
+  | `otherwise` | 0.6% | **built** — `if_else` node |
+  | `instead` | 3.4% | **partly built** — replacement path, not composition |
+
+  Plus the two positional gaps this stage was told to close: mid-body
+  `you may` (**built**), and `subgrammars.UP_TO_ONE`'s hardcoded N=1
+  (**ruled out, measured** — dedicated `*_multi_target` rows already claim
+  "up to N target Xs"; widening the macro would make `{TARGET}` builders emit
+  a single-target effect for a multi-target clause).
+
+  Every connective now has a path. What is left is *depth* behind three of
+  them — the replacement tail, the amount kinds, and the condition whitelist —
+  and each of those is now blocked on an **engine** vocabulary entry rather
+  than on parser grammar, which is the honest signal that S4's own surface is
+  done. Coverage has not regressed on any increment (0 across +197 cards).
 
 - **PAR-63 · Cross-module sub-grammar reuse (`14_` S5).** `static_handlers.py`
   (3,943 lines) imports five names from `subgrammars` and **not** `TARGET`;

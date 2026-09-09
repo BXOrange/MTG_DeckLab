@@ -2530,6 +2530,25 @@ def _vehicle_scope_params(m: "re.Match[str]") -> dict:
 #: whole clause unclaimed (fail-closed), which is why this list is ordered
 #: most-specific-first.
 _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
+    # -- PAR-62: the four highest-frequency `if <cond>` phrases whose engine
+    # kind already existed but had no parser-side row. Measured over every
+    # unclaimed clause in the cache; adding them here widens the RULE 603.4
+    # effect gate and the RULE 613.6 "as long as" statics at once, because
+    # both read this one whitelist.
+    # "if a creature died this turn" (62 occurrences).
+    (re.compile(r"(?:a|another) creature died this turn", re.I),
+     lambda m: {"kind": "creatures_died_this_turn", "min": 1}),
+    # "if you gained life this turn" (31).
+    (re.compile(r"you(?:'ve| have)? gained life this turn", re.I),
+     lambda m: {"kind": "gained_life_this_turn"}),
+    # "if an opponent lost life this turn" (18) — "any one opponent", the
+    # reading the kind itself documents.
+    (re.compile(r"an opponent lost life this turn", re.I),
+     lambda m: {"kind": "opponent_lost_life_this_turn", "min": 1}),
+    # "if ~ is an enchantment" (22) — a live card-type read of the source,
+    # which matters for the Cases/Sagas that change type mid-game.
+    (re.compile(r"(?:~|it)(?:'s| is) an? (?P<ct>artifact|creature|enchantment|land|planeswalker)", re.I),
+     lambda m: {"kind": "is_card_type", "card_type": m.group("ct").lower()}),
     # -- The source's own state. "it"/"~" both appear; after `normalize` the
     # card's own name is already `~`, and a leading "it" in this position can
     # only mean the source (the condition precedes any target).

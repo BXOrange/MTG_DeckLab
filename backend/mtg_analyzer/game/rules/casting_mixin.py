@@ -1354,8 +1354,17 @@ class CastingResolutionMixin:
              for d in specs],
             source,
         )
+        # RULE 601.2c/608.2h: the announced targets, re-found by id across the
+        # pause. One that has left a zone is dropped rather than substituted —
+        # the same last-known-information handling as the referent above.
+        announced = [
+            obj for obj in (
+                self.state.find_object(instance_id)
+                for instance_id in (choice.get("target_ids") or [])
+            ) if obj is not None
+        ]
         _apply_effects_partitioned(
-            built, self.context, None, None, source=source,
+            built, self.context, announced or None, None, source=source,
             previous_targets=previous,
         )
 
