@@ -112,7 +112,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (`static_handlers.enter_choice_specs`, a new `enter_replacement` family
 #: alongside "enter as a copy of target X" — `ChooseCreatureTypeReplacement`/
 #: `ChooseColorReplacement`, `RulesEngine._offer_enter_choices`/
-#: `resolve_enter_choice`, `GameObject.chosen_type`/`chosen_color`); the
+#: `_resume_choose_creature_type`, `GameObject.chosen_type`/`chosen_color`); the
 #: dynamic "… of the chosen type/color …" anthem/grant tail
 #: (`subtype_from_source`/`color_from_source`) and "~ is the chosen type in
 #: addition to its other types" (`add_subtypes_from_source`, layer 4); a
@@ -264,7 +264,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `GameEngine._chosen_color_locked_cost`). Energy: the resolve-time
 #: optional "you may pay {E}{E}. If you do, `<effect>`." (Aether Chaser,
 #: `pay_energy_then`/`PayEnergyThenEffect` + interactive `RulesEngine.
-#: request_pay_energy_then` choice) and the "you get {E}{E}" production
+#: _request_pay_energy_then` choice) and the "you get {E}{E}" production
 #: (`get_energy` → the generic `add_player_counters` energy primitive).
 #: "27": Triggers/grants closeout batch — the whole "Triggers / grants"
 #: ToDo section, seven items. (1) **Group-subject damage triggers**:
@@ -619,10 +619,10 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (`CreateTokenEffect.legendary`, `Card.is_legendary` threaded through
 #: `synthesize_token_card`); `ImpulsiveDrawEffect`'s first oracle-text
 #: route (previously hand-authored-only); a new `DrawRevealCastOneFreeEffect`
-#: + `request_choose_objects`'s new `"cast_free"` action (a hand-zone pick);
+#: + `_request_choose_objects`'s new `"cast_free"` action (a hand-zone pick);
 #: and a new mass-interactive primitive, `RulesEngine.
-#: request_each_player_pay_or` (RULE 101.4 APNAP, chained off the existing
-#: single-player `request_pay_cost_then`) plus a new compound
+#: _request_each_player_pay_or` (RULE 101.4 APNAP, chained off the existing
+#: single-player `_request_pay_cost_then`) plus a new compound
 #: `ActivationCost.sacrifice` value (`creature_artifact_or_land`) for
 #: "each player loses N life unless they `<pay cost>`." Throne of the Dead
 #: Three is the one dungeon room left genuinely unmodeled (a "reveal top
@@ -756,7 +756,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: 707's bare **copy_permanent** oracle recognition (previously hand-
 #: authored only); RULE 119/701.8's **hand-disruption discard** (Duress/
 #: Thoughtseize-shaped, `RevealHandChooseDiscardEffect` reusing
-#: `request_choose_objects`'s existing chooser, +63-card family);
+#: `_request_choose_objects`'s existing chooser, +63-card family);
 #: `RulesEngine.blink`'s **``controller``** param (Restoration Angel's
 #: "return under *your* control", not the owner's) — which also surfaced
 #: a real latent bug: `creature_you_control`'s `legal_targets` branch
@@ -1177,7 +1177,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "112": PAR-29 - RULE 701.63 "Endure N" (Bloomburrow): the permanent's
 #: controller either puts N +1/+1 counters on it or creates an N/N white
 #: Spirit creature token. `RulesEngine.endure` + a modal `endure`
-#: `pending_choice` (`resolve_endure_choice`) + `effects.EndureEffect`
+#: `pending_choice` (`_resume_endure`) + `effects.EndureEffect`
 #: (self / previous / target subject shapes, mirroring `explore`). The
 #: "you may pay {cost}. If you do, it endures N" wrapper (Descendant of
 #: Storms) stays UNMODELED - a separate pay-cost-then build. Literal N
@@ -1702,12 +1702,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "173": MEC-46 — RULE 701.38 vote outcome bodies that needed new
 #: engine primitives. Four handlers on the shared `_VOTE_HEADER_RE`:
 #: `_vote_winner_protection` ("~ gains protection from each color with the
-#: most votes or tied for most votes" → `request_vote(winner_specs=...)`
+#: most votes or tied for most votes" → `_request_vote(winner_specs=...)`
 #: + an indefinite RULE 611 self-scoped `grant_protection_static` per
 #: leading colour — Council Guardian); `_vote_object` ("vote for a nonland
 #: permanent you don't control / a card in your graveyard, exile / return
 #: each most-voted" → new `vote_object` spec / `ObjectVoteEffect` /
-#: `request_object_vote` / `vote_object` pending_choice — Council's
+#: `_request_object_vote` / `vote_object` pending_choice — Council's
 #: Judgment, Custodi Squire); `_vote_expropriate` (count-aware
 #: `take_extra_turn` per time vote + `per_voter_gain_control` per money
 #: vote — Expropriate); `_forced_vote` ("you choose how each player votes
@@ -1871,8 +1871,8 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: attacking." and "Put the rest…" (**Winota, Joiner of Forces / A-Winota**).
 #: `_LOOK_TOP_PUT_ATTACKING_RE` grew an optional group validated against
 #: `_LOOK_TOP_HIT_GRANT_KEYWORDS` (fail-closed); `hit_grant_keywords`
-#: threads impulsive_look → `ImpulsiveLookEffect` → `request_impulsive_look`
-#: → `resolve_impulsive_look_choice`, which adds `temp_keywords` to the
+#: threads impulsive_look → `ImpulsiveLookEffect` → `_request_impulsive_look`
+#: → `_resume_impulsive_look`, which adds `temp_keywords` to the
 #: placed card (RULE 514.2). +2.
 #: "194": `normalize` folds a comma-less legendary's **given name** — the
 #: single word before " of " in "Kaalia of the Vast" → `~` — where it's a
@@ -1890,14 +1890,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: proper-noun name, never "enchanted creature"/"chosen permanent". Plus
 #: `impulsive_look` gains `miss_effect_specs` — the `_LOOK_TOP_PUT_ATTACKING_
 #: RE` "if you don't put a card onto the battlefield this way, `<body>`."
-#: else-branch, run in `resolve_impulsive_look_choice` /
-#: `request_impulsive_look` when nothing is placed. +1.
+#: else-branch, run in `_resume_impulsive_look` /
+#: `_request_impulsive_look` when nothing is placed. +1.
 #: "196": PAR-30 "copy of a named card" body singletons — **The Vast
-#: Scrier**. `request_search` / `PutFromHandOntoBattlefieldEffect` gain
+#: Scrier**. `_request_search` / `PutFromHandOntoBattlefieldEffect` gain
 #: `then_specs_if_none` — "if you don't put a card onto the battlefield
 #: this way, `<body>`." (here `scry 2`) runs `<body>` when the from-hand
-#: pick places nothing (declined in `resolve_search_choice`, or nothing
-#: eligible in `request_search`). `_PUT_FROM_HAND_RE` also consumes the
+#: pick places nothing (declined in `_resume_search`, or nothing
+#: eligible in `_request_search`). `_PUT_FROM_HAND_RE` also consumes the
 #: reminder "if it has any 'whenever ~ attacks' triggers, those trigger"
 #: (a no-op — `put_onto_battlefield_attacking` re-fires ATTACKS already).
 #: +1.
@@ -2000,7 +2000,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: optional reflexive "…unless its controller pays {N}. **If they do**,
 #: `<effect>`." tail (`CounterSpellEffect.on_pay_effect_specs`, threaded
 #: through `RulesEngine.counter_unless_pays` /
-#: `resolve_counter_unless_pays_choice`), and "battle" joins the counter-
+#: `_resume_counter_unless_pays`), and "battle" joins the counter-
 #: target spell-type list (`_SPELL_TYPE_WORD`, `targeting._spell_matches_
 #: filter`) — Assimilate Essence + bonus Don't Make a Sound. (b) new
 #: `_IF_PREV_CREATURE_CANT_BLOCK_RE` "if it's a creature, it can't block
@@ -2079,7 +2079,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: resolved target); `RemoveSuspectedEffect` gains ``previous_subject`` /
 #: ``attached`` / ``optional`` subject shapes (Deadly Complication's "you
 #: may have it become no longer suspected." routed through
-#: `request_choose_objects`, action ``"remove_suspected"``); a
+#: `_request_choose_objects`, action ``"remove_suspected"``); a
 #: `subgrammars` target row for "up to one **other** target creature you
 #: control" + `_batch_attack_group_filter` / `_any_attacking_matches`
 #: ``is_suspected`` (Clandestine Meddler). Airtight Alibi hand-authored
@@ -2123,7 +2123,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: owner-scoped zones); `JuxtaposeEffect` (two greatest-mana-value selection
 #: rounds, tie-break simplified to lowest instance id) and
 #: `CulturalExchangeEffect` (two chained interactive rounds via a new
-#: `request_choose_objects` action `"gain_control_for"` + payload
+#: `_request_choose_objects` action `"gain_control_for"` + payload
 #: `control_recipient_id`, "same number" simplified to independent "any
 #: number"); `ExchangeControlSpellEffect` (RULE 701.10i — exchanging a
 #: permanent for a **spell** still on the stack, Perplexing Chimera's

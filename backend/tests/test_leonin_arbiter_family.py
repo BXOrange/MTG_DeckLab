@@ -40,10 +40,10 @@ def _engine_with_arbiter():
 def test_leonin_arbiter_prohibits_every_player_including_its_controller():
     eng, p1, p2 = _engine_with_arbiter()
 
-    eng.rules.request_search(p1, "Creature", "hand", count=1)
+    eng.rules._request_search(p1, "Creature", "hand", count=1)
     assert eng.state.pending_choice is None
 
-    eng.rules.request_search(p2, "Creature", "hand", count=1)
+    eng.rules._request_search(p2, "Creature", "hand", count=1)
     assert eng.state.pending_choice is None
 
 
@@ -61,11 +61,11 @@ def test_paying_the_exemption_lets_only_that_player_search_this_turn():
     eng.pay_search_exemption(p1)
     assert p1.mana_pool.total() == 0
 
-    eng.rules.request_search(p1, "Creature", "hand", count=1)
+    eng.rules._request_search(p1, "Creature", "hand", count=1)
     assert eng.state.pending_choice is not None
     eng.state.pending_choice = None  # leave it unresolved for this check
 
-    eng.rules.request_search(p2, "Creature", "hand", count=1)
+    eng.rules._request_search(p2, "Creature", "hand", count=1)
     assert eng.state.pending_choice is None
 
 

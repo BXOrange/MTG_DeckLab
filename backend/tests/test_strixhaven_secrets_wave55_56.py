@@ -44,7 +44,7 @@ def test_quandrix_apprentice_magecraft_impulsive_look():
     assert pc and pc["kind"] == "impulsive_look"
     opts = [o for o in pc["options"] if o.get("id") != "decline"]
     assert [o["label"] for o in opts] == ["Forest"]
-    eng.rules.resolve_impulsive_look_choice(opts[0]["instance_id"])
+    eng.rules.resolve_choice(opts[0]["instance_id"])
     eng.resolve_until_stable()
     assert [o.name for o in p1.hand] == ["Forest"]
     assert len(p1.library) == 2

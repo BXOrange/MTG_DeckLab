@@ -2,7 +2,7 @@
 When/If you do, `<effect>`." optional-antecedent family.
 
 No new engine primitive: `PayCostThenEffect`/`RulesEngine.
-request_pay_cost_then` (RULE 118.3) already generalized mana/sacrifice/
+_request_pay_cost_then` (RULE 118.3) already generalized mana/sacrifice/
 discard/life payment behind one interactive "can you afford it, do you want
 to, then pay it" gate (Rhystic Study/Mana Vault/Wandering Archaic). The gap
 closed here is a parser one: `catalogue.handlers._pay_cost_then_general`

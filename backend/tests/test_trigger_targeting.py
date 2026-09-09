@@ -75,7 +75,7 @@ def test_choosing_a_target_places_the_trigger_and_it_resolves():
     choice = eng.state.pending_choice
     victim_option = next(o for o in choice["options"] if o["instance_id"] == victim.instance_id)
 
-    eng.rules.resolve_trigger_target_choice(victim_option["id"])
+    eng.rules.resolve_choice(victim_option["id"])
     assert eng.state.pending_choice is None
     assert len(eng.state.stack) == 1
     assert eng.state.stack[0].targets == [victim]
@@ -96,7 +96,7 @@ def test_declining_an_optional_targeting_trigger_never_places_it():
     choice = eng.state.pending_choice
     assert any(o["id"] == "decline" for o in choice["options"])
 
-    eng.rules.resolve_trigger_target_choice("decline")
+    eng.rules.resolve_choice("decline")
     assert eng.state.pending_choice is None
     assert not eng.state.stack
     eng.resolve_until_stable()
@@ -172,7 +172,7 @@ def test_optional_targetless_trigger_do_places_it():
 
     eng.rules.pending_triggers = [(_optional_no_target_trigger(source), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_target_choice("do")
+    eng.rules.resolve_choice("do")
 
     assert eng.state.pending_choice is None
     assert len(eng.state.stack) == 1
@@ -185,7 +185,7 @@ def test_optional_targetless_trigger_decline_skips_it():
 
     eng.rules.pending_triggers = [(_optional_no_target_trigger(source), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_target_choice("decline")
+    eng.rules.resolve_choice("decline")
 
     assert eng.state.pending_choice is None
     assert not eng.state.stack

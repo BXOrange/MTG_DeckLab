@@ -201,7 +201,7 @@ def test_acererak_attack_makes_no_token_when_opponent_sacrifices():
     # paying should remove the bear and create no token.
     assert state.pending_choice is not None
     assert state.pending_choice.get("kind") == "pay_cost_then"
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     engine.resolve_until_stable()
 
     assert victim not in state.battlefield
@@ -376,7 +376,7 @@ def test_burnt_offering_adds_mana_equal_to_sacrificed_creatures_mana_value():
     engine.cast_spell(p1, spell, sacrifice_choice=victim.instance_id)
     engine.resolve_until_stable()
     if state.pending_choice and state.pending_choice.get("kind") == "add_mana_any_color":
-        engine.rules.resolve_add_mana_any_color_choice("B")
+        engine.rules.resolve_choice("B")
         engine.resolve_until_stable()
 
     total = sum(p1.mana_pool.pool.get(c, 0) for c in ("B", "R"))

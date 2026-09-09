@@ -1,7 +1,7 @@
 """PAR-29 — RULE 701.55 Face a Villainous Choice (Doctor Who).
 
-`RulesEngine.request_villainous_choice` runs an APNAP sweep (a
-`villainous_choice` pending_choice per facing player, the `request_vote`
+`RulesEngine._request_villainous_choice` runs an APNAP sweep (a
+`villainous_choice` pending_choice per facing player, the `_request_vote`
 sweep minus the tally); each facing player picks one of two option
 effect-lists and it resolves **for them** (`_apply_effect_specs` with
 `targets=[facing]`). `effects.FaceVillainousChoiceEffect` resolves the
@@ -12,8 +12,8 @@ Only cards whose *both* options parse are MODELED (Damocles Base, The
 Dalek Emperor); the rest are tracked in PAR-30.
 
 Reference: game/effects/core.py (`FaceVillainousChoiceEffect`), game/rules/
-misc_mixin.py (`request_villainous_choice` / `_advance_villainous_choice`
-/ `resolve_villainous_choice`), game/engine/turn_loop_mixin.py dispatch.
+misc_mixin.py (`_request_villainous_choice` / `_advance_villainous_choice`
+/ `_resume_villainous_choice`), game/engine/turn_loop_mixin.py dispatch.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def test_each_opponent_faces_and_applies_own_pick():
     p2_bear = _creature(st, "p2", "P2Bear")
     _creature(st, "p3", "P3Bear")
 
-    eng.rules.request_villainous_choice(
+    eng.rules._request_villainous_choice(
         source=src, controller_id="p1",
         facing_ids=["p2", "p3"],
         option_a=[{"type": "sacrifice", "params": {"what": "creature", "count": 1}}],
@@ -124,7 +124,7 @@ def test_you_clause_stays_controller_scoped():
     st.add_to_battlefield(src)
     _creature(st, "p2", "P2Bear")
 
-    eng.rules.request_villainous_choice(
+    eng.rules._request_villainous_choice(
         source=src, controller_id="p1",
         facing_ids=["p2"],
         option_a=[{"type": "sacrifice", "params": {"what": "creature", "count": 1}}],

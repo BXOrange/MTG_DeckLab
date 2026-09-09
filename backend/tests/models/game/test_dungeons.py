@@ -93,7 +93,7 @@ def test_first_venture_enters_a_chosen_dungeon_at_its_top_room():
     eng.rules.venture_into_the_dungeon(player)
     choice = eng.state.pending_choice
     assert choice["kind"] == "choose_dungeon"
-    eng.rules.resolve_choose_dungeon_choice("Lost Mine of Phandelver")
+    eng.rules.resolve_choice("Lost Mine of Phandelver")
     assert player.dungeon.name == "Lost Mine of Phandelver"
     assert player.dungeon.current_room == "Cave Entrance"
 
@@ -126,7 +126,7 @@ def test_a_second_venture_advances_and_asks_when_two_arrows_lead_out():
     choice = eng.state.pending_choice
     assert choice["kind"] == "venture_room"
     assert {o["id"] for o in choice["options"]} == {"Forge", "Lost Well"}
-    eng.rules.resolve_venture_room_choice("Lost Well")
+    eng.rules.resolve_choice("Lost Well")
     assert player.dungeon.current_room == "Lost Well"
 
 
@@ -134,11 +134,16 @@ def test_a_single_arrow_advances_without_asking():
     eng = make_engine()
     player = library(eng)
     eng.rules.venture_into_the_dungeon(player, "Undercity")
-    eng.rules.resolve_venture_room_choice  # noqa: B018 - documented below
+    # RULE 701.49b: entering the dungeon puts you in its first room, which is
+    # not a choice — only the arrows *out* of a room ever ask. (ENG-35
+    # replaced a bare attribute reference to the old public resolver here,
+    # which asserted nothing at all once evaluated, with the assertion the
+    # test's name was always claiming.)
+    assert eng.state.pending_choice is None
     eng.rules.venture_into_the_dungeon(player)
-    eng.rules.resolve_venture_room_choice("Lost Well")
+    eng.rules.resolve_choice("Lost Well")
     eng.rules.venture_into_the_dungeon(player)   # Lost Well → Arena / Stash
-    eng.rules.resolve_venture_room_choice("Stash")
+    eng.rules.resolve_choice("Stash")
     eng.rules.venture_into_the_dungeon(player)   # Stash → Catacombs (single arrow)
     assert eng.state.pending_choice is None
     assert player.dungeon.current_room == "Catacombs"
@@ -162,7 +167,7 @@ def _walk_to_last_room(eng, player, name="Lost Mine of Phandelver"):
     while not player.dungeon.on_last_room:
         eng.rules.venture_into_the_dungeon(player)
         if eng.state.pending_choice:
-            eng.rules.resolve_venture_room_choice(eng.state.pending_choice["options"][0]["id"])
+            eng.rules.resolve_choice(eng.state.pending_choice["options"][0]["id"])
 
 
 def test_completing_a_dungeon_removes_it_from_the_game():
@@ -226,7 +231,7 @@ def test_retaking_the_initiative_ventures_again():
     eng.rules.put_triggers_on_stack()
     eng.resolve_until_stable()
     if eng.state.pending_choice:
-        eng.rules.resolve_venture_room_choice(eng.state.pending_choice["options"][0]["id"])
+        eng.rules.resolve_choice(eng.state.pending_choice["options"][0]["id"])
     assert eng.state.initiative_id == player.id
     assert player.dungeon.current_room != "Secret Entrance"
 

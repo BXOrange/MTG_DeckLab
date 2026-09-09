@@ -10,7 +10,7 @@ This file exercises the fix directly: `game/rules_engine.py`'s
 dispatch), `RulesEngine.cast_spell`/`GameEngine.cast_spell`/`activate_ability`
 (``target_groups`` threaded through casting/activation), and the triggered-
 ability side — `_trigger_target_specs`/`_continue_trigger_multi_target`/
-`resolve_trigger_target_multi_choice` gathering one target per effect,
+`_resume_trigger_target_multi` gathering one target per effect,
 one choice at a time, mirroring the existing "choose N" iterative pattern.
 
 No real card is known to need this yet (every shipped multi-target/modal
@@ -179,13 +179,13 @@ def test_trigger_with_two_different_effects_offers_one_choice_per_effect():
     # First spec is "creature" — only Bear is offered, not the artifact.
     assert {o["label"] for o in choice["options"]} == {"Bear"}
 
-    eng.rules.resolve_trigger_target_multi_choice(str(bear.instance_id))
+    eng.rules.resolve_choice(str(bear.instance_id))
     choice = eng.state.pending_choice
     assert choice["kind"] == "trigger_target_multi"
     # Second spec is "permanent" — both remaining objects are legal.
     assert {o["label"] for o in choice["options"]} == {"Bear", "Trinket"}
 
-    eng.rules.resolve_trigger_target_multi_choice(str(trinket.instance_id))
+    eng.rules.resolve_choice(str(trinket.instance_id))
     assert eng.state.pending_choice is None
     assert len(eng.state.stack) == 1
 
@@ -205,7 +205,7 @@ def test_trigger_target_multi_decline_on_first_pick_abandons_whole_ability():
     choice = eng.state.pending_choice
     assert any(o["id"] == "decline" for o in choice["options"])  # RULE 603.5, first pick only
 
-    eng.rules.resolve_trigger_target_multi_choice("decline")
+    eng.rules.resolve_choice("decline")
     assert eng.state.pending_choice is None
     assert not eng.state.stack  # nothing placed at all
     assert bear in eng.state.battlefield
@@ -220,7 +220,7 @@ def test_trigger_target_multi_second_spec_offers_no_decline():
 
     eng.rules.pending_triggers = [(_two_effect_trigger(source, optional=True), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_target_multi_choice(str(bear.instance_id))
+    eng.rules.resolve_choice(str(bear.instance_id))
 
     choice = eng.state.pending_choice
     assert not any(o["id"] == "decline" for o in choice["options"])
@@ -271,7 +271,7 @@ def test_trigger_optional_second_spec_with_no_legal_target_is_skipped():
     assert choice["kind"] == "trigger_target_multi"
     assert {o["label"] for o in choice["options"]} == {"Bear"}
 
-    eng.rules.resolve_trigger_target_multi_choice(str(bear.instance_id))
+    eng.rules.resolve_choice(str(bear.instance_id))
     assert eng.state.pending_choice is None
     assert len(eng.state.stack) == 1
 

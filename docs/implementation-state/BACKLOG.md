@@ -43,62 +43,26 @@ its block back into the matching section here.
 
 ## ENG — Game engine
 
-> Scope and rationale for ENG-35…37 live in
+> Scope and rationale for ENG-36/37 live in
 > [14_PARSER_GRAMMAR_DESIGN.md](../concepts/14_PARSER_GRAMMAR_DESIGN.md);
 > the evidence is
 > [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md).
-> Order is a dependency chain, not a preference. **ENG-35 should move
-> coverage by zero** — judge it on the counts named in it.
+> Order is a dependency chain, not a preference.
 >
 > **ENG-34 is closed** (`game/isa.py`, `scripts/isa_report.py`,
-> `tests/test_isa_inventory.py`, `tests/test_target_frames.py`). The three
-> below now read their backlogs off it rather than re-deriving them:
-> `isa.types_classified(Classification.CONTINUATION)` is ENG-35's 59,
-> `isa.fusions_retired_by(<op>)` is ENG-37's 84 split by operator. Its
-> cheap-exit checkpoint **passed** — all 50 top corpus operations resolve to
-> one framed instruction — so the design stands rather than being dropped.
-
-- **ENG-35 · Generalize the continuation primitive (`14_` S1).** **97 of the
-  254 public `RulesEngine` methods (38%) are `request_*`/`resolve_*_choice`
-  pairs** — there is no general "ask the player and resume", so every blocking
-  interaction was hand-written. Do **not** invent a mechanism: MEC-69 already
-  proved the right one, and `RulesEngine.enqueue_reflexive_trigger`
-  (`game/rules/misc_mixin.py`, already extracted, two callers) is it — it builds
-  a fresh `TriggeredAbility` from serialized payoff specs so the ordinary
-  resolve loop stacks it and gathers RULE 115 targets through the normal
-  interactive path. A trigger on the stack *is* a resumable continuation with
-  correct target selection. It already carries a mode choice
-  (`then_trigger_modes`), i.e. a branch resumed after suspension.
-  Promote it to the general path and retire the bespoke pairs onto it.
-  `isa.types_classified(Classification.CONTINUATION)` is the list: **59**
-  effect types, each tagged with the CR rule its choice comes from.
-
-  **Scope refinement (from ENG-34's read of the mechanism — start here).**
-  "`deferred_effects` is not structure-aware" is half right, and the wrong
-  half is the expensive one to get wrong:
-
-  - It is **already a LIFO stack**, and nesting through it already works for
-    the *tail* case. Trace `[A, COMPOSITE, C]` where `COMPOSITE`'s body
-    pauses: the inner `_apply_effects_partitioned` parks the body's
-    remainder, the outer one then parks `[C]`, and the pops come back
-    inner-then-outer — correct order, no change needed. Any plan that starts
-    by rewriting the parking mechanism wholesale is rewriting something that
-    works.
-  - What is genuinely missing is an **iteration frame**. A parked entry is
-    `effects[position+1:]` plus context — there is no way to say "resume this
-    body for item k, *then continue the loop at k+1*". That, specifically, is
-    what `for_each` cannot express, and `optional` needs the same frame to
-    re-enter a body after a yes/no answer.
-
-  So the structure-aware work is: give `deferred_effects` entries a `kind`
-  tag (`"tail"` = today's shape, unchanged), add an `"iteration"` frame
-  carrying `items`/`index`, and dispatch on it in
-  `resume_deferred_effects`. Small, and it is the whole of what **blocks
-  ENG-37**.
-  **Exit:** suite green; method count 254 → ≤170; no coverage movement.
-  > Do the iteration frame first and independently — ENG-37 needs only that,
-  > not the 84-method retirement, so pairing them serialises ENG-37 behind
-  > the largest and riskiest piece of work in the chain for no reason.
+> `tests/test_isa_inventory.py`, `tests/test_target_frames.py`). The two
+> below read their backlogs off it rather than re-deriving them:
+> `isa.fusions_retired_by(<op>)` is ENG-37's 84 fusions split by operator.
+> Its cheap-exit checkpoint **passed** — all 50 top corpus operations
+> resolve to one framed instruction — so the design stands rather than being
+> dropped.
+>
+> **ENG-35 is closed** (`game/continuations.py`,
+> `RulesEngine.open_choice`/`resolve_choice`, `tests/test_continuations.py`).
+> `RulesEngine` went 254 → **162** public methods and the dispatcher 367 →
+> 23 lines. ENG-37's blocker is gone: `GameState.deferred_effects` now
+> carries a `DEFERRED_ITERATION` frame (`RulesEngine.defer_iteration`), so a
+> loop body can suspend mid-iteration and resume at the next item.
 
 - **ENG-36 · Structured effect conditions (`14_` S2).** Replace `spec.py`'s
   **43 flat `_ALLOWED_CONDITION_KEYS`** with subject-qualified predicates
@@ -150,7 +114,9 @@ its block back into the matching section here.
   see `spec.AbilitySpec._clamp_nested` and
   `tests/parser/oracle/test_spec_nested_validation.py`. What remains is the
   composition nodes themselves.
-  **Needs ENG-35.** ENG-34 already did the naming: `game/isa.py`'s
+  ENG-35 (closed) supplied the iteration frame `optional`/`for_each` need —
+  `RulesEngine.defer_iteration` / `DEFERRED_ITERATION`. ENG-34 already did
+  the naming: `game/isa.py`'s
   `fusions_retired_by(<operator>)` returns each operator's list (`seq` 46,
   `bind` 18, `if_else` 13, `for_each` 5, `optional` 2), and
   `tests/test_isa_inventory.py` fails an operator that retires none.
@@ -173,9 +139,9 @@ its block back into the matching section here.
   combinatorial, not lexical.
 
   Execution order (dependency chain): ~~ENG-34~~ (atom inventory, **closed**)
-  → **ENG-35** (continuations) → **ENG-36** (structured conditions) →
-  **ENG-37** (composite IR nodes) → **PAR-62** (clause grammar) → **PAR-63**
-  (slot grammars).
+  → ~~ENG-35~~ (continuations, **closed**) → **ENG-36** (structured
+  conditions) → **ENG-37** (composite IR nodes) → **PAR-62** (clause
+  grammar) → **PAR-63** (slot grammars).
 
   This ticket holds only what is not in those six:
 

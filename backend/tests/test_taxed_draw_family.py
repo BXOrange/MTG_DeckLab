@@ -116,7 +116,7 @@ def test_rhystic_study_does_not_trigger_off_its_own_controllers_spell():
 
 def test_rhystic_study_auto_draws_when_the_opponent_cannot_pay():
     # No pending_choice opens — the "goldfish dummy has no mana" case, same
-    # idiom `counter_unless_pays`/`request_pay_cost_then` already use.
+    # idiom `counter_unless_pays`/`_request_pay_cost_then` already use.
     eng, p1, p2 = two_player_engine()
     battlefield(eng, "Rhystic Study", "p1")
     bolt = to_hand(eng, "Lightning Bolt", "p2")

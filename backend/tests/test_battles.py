@@ -53,7 +53,7 @@ def _enter_battle(eng, card, controller="p1", protector="p2"):
     obj = GameObject(card, owner_id=controller, zone=Zone.BATTLEFIELD)
     eng.rules._offer_protector_choice(obj, lambda: None)
     if eng.state.pending_choice:
-        eng.rules.resolve_protector_choice(protector)
+        eng.rules.resolve_choice(protector)
     eng.state.add_to_battlefield(obj)
     return obj
 
@@ -137,7 +137,7 @@ def test_the_protector_choice_is_offered_when_several_opponents_qualify():
     choice = eng.state.pending_choice
     assert choice["kind"] == "choose_protector"
     assert {o["id"] for o in choice["options"]} == {"p2", "p3"}
-    eng.rules.resolve_protector_choice("p3")
+    eng.rules.resolve_choice("p3")
     assert obj.protector_id == "p3"
 
 
@@ -148,7 +148,7 @@ def test_an_unrecognized_protector_answer_falls_back_to_an_eligible_player():
     )
     obj = GameObject(battle(), owner_id="p1", zone=Zone.BATTLEFIELD)
     eng.rules._offer_protector_choice(obj, lambda: None)
-    eng.rules.resolve_protector_choice("nobody")
+    eng.rules.resolve_choice("nobody")
     assert obj.protector_id in ("p2", "p3")
 
 

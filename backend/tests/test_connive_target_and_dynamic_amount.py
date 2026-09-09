@@ -167,7 +167,7 @@ def test_multiple_subjects_sequence_one_at_a_time_via_deferred_effects():
     assert len(state.deferred_effects) == 1
 
     picked = state.pending_choice["options"][0]["instance_id"]
-    engine.resolve_choose_objects_choice(picked)
+    engine.resolve_choice(picked)
     assert state.pending_choice is None
     assert creature_a.counters.get("+1/+1", 0) == 1
     # Resuming a `choose_objects` choice alone doesn't drain
@@ -182,7 +182,7 @@ def test_multiple_subjects_sequence_one_at_a_time_via_deferred_effects():
     assert not p1.library
     assert state.pending_choice is not None
     picked2 = state.pending_choice["options"][0]["instance_id"]
-    engine.resolve_choose_objects_choice(picked2)
+    engine.resolve_choice(picked2)
     assert state.pending_choice is None
     assert creature_b.counters.get("+1/+1", 0) == 1
     assert len(p1.hand) == 1  # one card never got discarded, and that's correct

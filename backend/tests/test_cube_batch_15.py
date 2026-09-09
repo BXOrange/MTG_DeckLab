@@ -159,7 +159,7 @@ def test_mayhem_devil_pings_on_a_sacrifice():
     # Mayhem Devil's 1-damage effect targets "any target": aim it at p2.
     choice = state.pending_choice
     assert choice is not None and choice["kind"] == "trigger_target"
-    eng.rules.resolve_trigger_target_choice("p2")
+    eng.rules.resolve_choice("p2")
     eng.resolve_until_stable()
 
     assert p2.life == start_life - 1

@@ -24,10 +24,10 @@ just its constructor signature — the fail-closed "verify, don't assume" rule
 * Myriad Landscape — "...basic land cards **that share a land type**." is a
   cross-pick constraint no existing criteria shape could express (`models.
   card_query` only ever judges one candidate in isolation);
-  `SearchLibraryEffect.share_land_type`/`RulesEngine.request_search`'s new
+  `SearchLibraryEffect.share_land_type`/`RulesEngine._request_search`'s new
   param threads a "shares a basic land type with an already-found card"
-  filter through both `request_search`'s first round and
-  `resolve_search_choice`'s later rounds.
+  filter through both `_request_search`'s first round and
+  `_resume_search`'s later rounds.
 
 Reference: docs/implementation-state/Done_Backend.md "MEC-43" entry.
 """
@@ -132,11 +132,11 @@ def test_final_parting_puts_the_first_pick_in_hand_and_the_second_in_the_graveya
 
     assert eng.state.pending_choice is not None
     a_obj = next(o for o in p1.library if o.name == "PickA")
-    eng.rules.resolve_search_choice(a_obj.instance_id)
+    eng.rules.resolve_choice(a_obj.instance_id)
     assert eng.state.pending_choice is not None  # second pick still open
 
     b_obj = next(o for o in p1.library if o.name == "PickB")
-    eng.rules.resolve_search_choice(b_obj.instance_id)
+    eng.rules.resolve_choice(b_obj.instance_id)
 
     assert eng.state.pending_choice is None
     assert any(o.name == "PickA" for o in p1.hand)
@@ -182,7 +182,7 @@ def test_search_for_glory_end_to_end_finds_a_legendary_and_gains_life_for_snow_s
     # plain creature.
     assert _eligible_names(eng.state.pending_choice) == {"LegendBear"}
     found = next(o for o in p1.library if o.name == "LegendBear")
-    eng.rules.resolve_search_choice(found.instance_id)
+    eng.rules.resolve_choice(found.instance_id)
     eng.resolve_until_stable()  # drains the deferred gain_life (RULE 608.2)
 
     assert eng.state.pending_choice is None
@@ -241,14 +241,14 @@ def test_myriad_landscape_second_pick_must_share_a_land_type_with_the_first():
     assert _eligible_names(eng.state.pending_choice) == {"Forest", "Island", "Forest2"}
 
     forest_obj = next(o for o in p1.library if o.name == "Forest")
-    eng.rules.resolve_search_choice(forest_obj.instance_id)
+    eng.rules.resolve_choice(forest_obj.instance_id)
 
     assert eng.state.pending_choice is not None
     # Island doesn't share a basic land type with Forest -- excluded.
     assert _eligible_names(eng.state.pending_choice) == {"Forest2"}
 
     forest2_obj = next(o for o in p1.library if o.name == "Forest2")
-    eng.rules.resolve_search_choice(forest2_obj.instance_id)
+    eng.rules.resolve_choice(forest2_obj.instance_id)
 
     assert eng.state.pending_choice is None
     battlefield = {o.name: o for o in eng.state.battlefield if o.controller_id == "p1"}

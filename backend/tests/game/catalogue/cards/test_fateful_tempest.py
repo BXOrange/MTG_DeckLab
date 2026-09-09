@@ -61,7 +61,7 @@ def test_all_past_votes_mill_and_damage_each_opponent_by_total_mv():
     bind_from_catalogue(src)
 
     spec = _REGISTRY["fateful tempest"]()[0]
-    eng.rules.request_vote(
+    eng.rules._request_vote(
         source=src, controller_id="p1", options=["past", "present"],
         per_vote_specs=spec.effects[0].params["per_vote_specs"],
     )
@@ -84,7 +84,7 @@ def test_present_votes_exile_impulse_playable():
     src.controller_id = "p1"
     bind_from_catalogue(src)
     spec = _REGISTRY["fateful tempest"]()[0]
-    eng.rules.request_vote(
+    eng.rules._request_vote(
         source=src, controller_id="p1", options=["past", "present"],
         per_vote_specs=spec.effects[0].params["per_vote_specs"],
     )

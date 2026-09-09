@@ -4,7 +4,7 @@
    mid-clause **"It gains <keyword> until end of turn."** interpose
    (Winota, Joiner of Forces / A-Winota) — `impulsive_look` carries
    `hit_grant_keywords`, applied as `temp_keywords` on the placed card in
-   `resolve_impulsive_look_choice` (RULE 514.2).
+   `_resume_impulsive_look` (RULE 514.2).
 
 2. The RULE 508.3a **batch attack trigger** "whenever one or more
    [<filter>] creatures you control attack[ a player], …" → a single
@@ -250,11 +250,11 @@ def test_impulsive_look_grants_temp_keyword_to_placed_card():
     human.controller_id = "p1"
     p1.library.append(human)  # top of library
 
-    eng.rules.request_impulsive_look(
+    eng.rules._request_impulsive_look(
         p1, 1, {"type": "creature"}, "battlefield_attacking",
         "library_bottom_random", True, hit_grant_keywords=["indestructible"],
     )
-    eng.rules.resolve_impulsive_look_choice(human.instance_id)
+    eng.rules.resolve_choice(human.instance_id)
 
     assert human in st.battlefield
     assert human.attacking is True

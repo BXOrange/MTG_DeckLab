@@ -501,7 +501,7 @@ def group_selector_objects(
     # "… of the chosen type/color …" (RULE 601.2b, Adaptive Automaton/Ward
     # Sliver-shaped) — the dynamic sibling of the literal ``subtype``/
     # ``color`` params below: reads the ability's own source's `chosen_type`/
-    # `chosen_color` (stamped by `RulesEngine.resolve_enter_choice`) fresh
+    # `chosen_color` (stamped by `RulesEngine._resume_choose_creature_type`) fresh
     # every recompute, rather than a fixed literal baked in at parse time.
     # ``None`` (the choice hasn't happened yet, or the source has left)
     # narrows to "nothing" — the same safe fallback a plain unset filter gets.
@@ -527,7 +527,7 @@ def group_selector_objects(
         # Revoker) — the naming-choice sibling of ``subtype_from_source``/
         # ``color_from_source`` just above: reads the ability's own
         # source's `chosen_card_name` (stamped by `RulesEngine.
-        # resolve_enter_choice`) fresh every recompute. ``None`` (the
+        # _resume_choose_creature_type`) fresh every recompute. ``None`` (the
         # choice hasn't happened yet, or the source has left) narrows to
         # "nothing", the same safe fallback those two selectors use.
         chosen_name = getattr(src, "chosen_card_name", None)

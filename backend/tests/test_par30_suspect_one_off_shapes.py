@@ -11,7 +11,7 @@ primitive-blocked singletons the PAR-29 keyword trail left behind.
   (`_batch_attack_group_filter` / `_any_attacking_matches` ``is_suspected``).
 - **Deadly Complication** — `RemoveSuspectedEffect` gains a
   ``previous_subject`` / ``optional`` shape for "you may have it become no
-  longer suspected." (routed through `request_choose_objects`).
+  longer suspected." (routed through `_request_choose_objects`).
 - **Airtight Alibi** — hand-authored: ETB untap + hexproof-EOT + un-suspect
   on the Aura host, plus a static +2/+2 and a ``cant_become_suspected``
   ``grant_keyword`` slug `RulesEngine.suspect` honours.
@@ -198,7 +198,7 @@ def test_deadly_complication_mode2_counter_then_optional_unsuspect_taken():
     guard = 0
     while state.pending_choice and guard < 4:
         guard += 1
-        eng.rules.resolve_choose_objects_choice(
+        eng.rules.resolve_choice(
             state.pending_choice["options"][0]["instance_id"]
         )
     assert target.plus_one_counters == 1
@@ -217,7 +217,7 @@ def test_deadly_complication_mode2_optional_unsuspect_declined():
     guard = 0
     while state.pending_choice and guard < 4:
         guard += 1
-        eng.rules.resolve_choose_objects_choice(None)   # decline
+        eng.rules.resolve_choice(None)   # decline
     assert target.plus_one_counters == 1
     assert target.is_suspected is True         # declined → menace kept
 

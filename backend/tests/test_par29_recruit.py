@@ -7,7 +7,7 @@ a +1/+1 counter on a source) with a `recruit` "which card to discard"
 `pending_choice`. `effects.RecruitEffect` is a bare "you"-subject effect.
 
 Reference: game/rules/misc_mixin.py (`recruit` / `_recruit_discard` /
-`resolve_recruit_choice`), game/effects/core.py (`RecruitEffect`),
+`_resume_recruit`), game/effects/core.py (`RecruitEffect`),
 parser/oracle/catalogue/handlers.py.
 """
 

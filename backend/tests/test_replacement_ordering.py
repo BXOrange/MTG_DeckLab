@@ -1,7 +1,7 @@
 """Interactive ordering of simultaneous replacement effects (RULE 616.1).
 
 Covers both the general pause/resume mechanism (`RulesEngine.apply_
-replacements`/`resolve_replacement_order_choice`, mirroring RULE 603.3b's
+replacements`/`_resume_replacement_order`, mirroring RULE 603.3b's
 trigger-ordering pattern in `test_ordering.py`) and the four real-card
 replacement families it was built to exercise: token/counter doubling
 (Doubling Season, Parallel Lives — order-invariant, RULE 616.1e still
@@ -85,7 +85,7 @@ def test_second_ambiguous_event_falls_back_while_a_choice_is_pending():
     eng.rules.deal_damage(p2, 3, source=torbran)
     assert state.pending_choice is first_choice  # untouched by the second call
 
-    eng.rules.resolve_replacement_order_choice(0)
+    eng.rules.resolve_choice(0)
     assert state.pending_choice is None
     # Second call: deterministic discovery order, double-then-add: 3*2+2=8.
     # First call, resolved via the choice at index 0 (discovery order too,
@@ -126,7 +126,7 @@ def test_two_token_doublers_prompt_for_order():
     assert choice["player_id"] == "p1"
     assert len(choice["options"]) == 2
 
-    eng.rules.resolve_replacement_order_choice(0)
+    eng.rules.resolve_choice(0)
     assert state.pending_choice is None
     assert len([o for o in state.battlefield if o.is_token]) == 4  # 1 -> 2 -> 4
 
@@ -138,7 +138,7 @@ def test_token_doubler_order_does_not_change_the_final_count():
         _bound(state, "Doubling Season")
         _bound(state, "Parallel Lives")
         eng.rules.create_token("p1", _token_card(), count=1)
-        eng.rules.resolve_replacement_order_choice(first_pick)
+        eng.rules.resolve_choice(first_pick)
         assert len([o for o in state.battlefield if o.is_token]) == 4
 
 
@@ -174,7 +174,7 @@ def test_damage_doubler_and_adder_order_changes_the_total():
     assert choice["kind"] == "replacement_order"
     double_idx = next(i for i, o in enumerate(choice["options"]) if o["label"] == "Furnace of Rath")
 
-    eng.rules.resolve_replacement_order_choice(double_idx)
+    eng.rules.resolve_choice(double_idx)
     assert state.pending_choice is None
     assert p2.life == 20 - 12
 
@@ -193,7 +193,7 @@ def test_damage_adder_then_doubler_gives_a_different_total():
     choice = state.pending_choice
     add_idx = next(i for i, o in enumerate(choice["options"]) if o["label"] == "Torbran, Thane of Red Fell")
 
-    eng.rules.resolve_replacement_order_choice(add_idx)
+    eng.rules.resolve_choice(add_idx)
     assert state.pending_choice is None
     assert p2.life == 20 - 14
 

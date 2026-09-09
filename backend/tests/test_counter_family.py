@@ -281,7 +281,7 @@ def test_unless_pays_countered_when_declined():
     target = push_spell(eng, p2, instant("Doomed Bolt"), [DrawCardEffect(1, player=p2)])
     p2.mana_pool.add("U", 2)
     eng.rules.counter_unless_pays(target, "{1}", source=None)
-    eng.rules.resolve_counter_unless_pays_choice("decline")
+    eng.rules.resolve_choice("decline")
     assert eng.state.pending_choice is None
     assert target not in [item.obj for item in eng.state.stack]
     assert target in p2.graveyard
@@ -292,7 +292,7 @@ def test_unless_pays_stays_on_stack_and_deducts_mana_when_paid():
     target = push_spell(eng, p2, instant("Doomed Bolt"), [DrawCardEffect(1, player=p2)])
     p2.mana_pool.add("U", 2)
     eng.rules.counter_unless_pays(target, "{1}", source=None)
-    eng.rules.resolve_counter_unless_pays_choice("pay")
+    eng.rules.resolve_choice("pay")
     assert eng.state.pending_choice is None
     assert target in [item.obj for item in eng.state.stack]
     assert p2.mana_pool.total() == 1  # {1} generic paid out of {U}{U}
@@ -338,7 +338,7 @@ def test_unless_pays_with_literal_x_cost_uses_the_counterspells_own_announced_x(
     eng.rules.counter_unless_pays(target, "{X}", source=logic_knot)
     choice = eng.state.pending_choice
     assert choice is not None and choice["kind"] == "counter_unless_pays"
-    eng.rules.resolve_counter_unless_pays_choice("pay")
+    eng.rules.resolve_choice("pay")
     assert p2.mana_pool.total() == 0  # paid {2} (X=2) out of {U}{U}
 
 

@@ -4,7 +4,7 @@
 player until ~ finishes resolving. The player plays that card if able."
 
 `WordOfCommandEffect` opens a `word_of_command` pending choice addressed to
-the caster over the target's hand; `GameEngine.resolve_word_of_command_choice`
+the caster over the target's hand; `GameEngine._resume_word_of_command`
 then has the target play the pick — `play_land`, else `cast_without_paying`
 (the effect-driven free-cast primitive cascade/discover use). The RULE 720
 mana restriction and target selection are documented simplifications.

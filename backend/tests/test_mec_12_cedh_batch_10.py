@@ -120,9 +120,9 @@ def _enter(engine: GameEngine, obj: GameObject, controller: str = "p1") -> None:
         kind = engine.state.pending_choice.get("kind")
         options = engine.state.pending_choice.get("options") or []
         if kind == "trigger_target" and options:
-            engine.rules.resolve_trigger_target_choice(str(options[0]["id"]))
+            engine.rules.resolve_choice(str(options[0]["id"]))
         elif kind == "trigger_target_multi" and options:
-            engine.rules.resolve_trigger_target_multi_choice(str(options[0]["id"]))
+            engine.rules.resolve_choice(str(options[0]["id"]))
         else:
             break
         engine.resolve_until_stable()

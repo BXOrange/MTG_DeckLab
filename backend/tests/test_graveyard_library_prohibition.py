@@ -157,8 +157,8 @@ def test_cage_stops_a_tutored_creature_from_reaching_the_battlefield():
     eng.state.active_player.library.append(quarry)
     player = eng.state.active_player
 
-    eng.rules.request_search(player, criteria="Creature", destination="battlefield")
-    eng.rules.resolve_search_choice(quarry.instance_id)
+    eng.rules._request_search(player, criteria="Creature", destination="battlefield")
+    eng.rules.resolve_choice(quarry.instance_id)
 
     assert quarry in eng.state.active_player.library
     assert quarry not in eng.state.battlefield

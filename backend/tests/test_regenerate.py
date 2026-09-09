@@ -144,7 +144,7 @@ def test_multiple_activations_stack_independent_shields():
     bear.damage_marked = 2
     engine.check_state_based_actions()
     assert state.pending_choice is not None
-    engine.resolve_replacement_order_choice(0)
+    engine.resolve_choice(0)
 
     assert bear.zone == Zone.BATTLEFIELD
     assert len(bear.replacement_effects) == 1  # one shield consumed, one left

@@ -71,6 +71,7 @@ from ..effects.core import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -212,7 +213,7 @@ class CopiesMixin:
         ``enter_state`` (``{"tapped": bool, "attacking": bool}``) is a
         trailing "That token enters tapped and attacking" rider — applied to
         the copy here in the degenerate paths, carried on the
-        ``pending_choice`` for the interactive one (`resolve_populate_choice`).
+        ``pending_choice`` for the interactive one (`_resume_populate`).
         """
         tokens = [
             obj
@@ -227,7 +228,7 @@ class CopiesMixin:
             made = self.copy_permanent(player.id, tokens[0])
             self._apply_populate_enter_state(made, enter_state)
             return made
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "populate",
             "player_id": player.id,
             "prompt": "Bevölkern: welches Kreaturen-Token wird kopiert?",
@@ -236,18 +237,15 @@ class CopiesMixin:
                 for obj in tokens
             ],
             **({"enter_state": dict(enter_state)} if enter_state else {}),
-        }
+        })
         return []
-    def resolve_populate_choice(self, instance_id: Optional[int]) -> None:
+    @continuations.choice("populate", answer=continuations.ANSWER_INT, rule="701.36")
+    def _resume_populate(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
         """Answer a pending `populate` choice: create a token copy of the
         chosen creature token. A missing/unrecognized answer defaults to the
         first offered token — populate is mandatory once you control one
         (RULE 701.36a has no "you may")."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "populate":
-            raise ValueError("no pending populate choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         offered = [opt["instance_id"] for opt in choice["options"]]
         chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
         chosen = self._object_by_instance_id(chosen_id) if chosen_id is not None else None
@@ -596,11 +594,11 @@ class CopiesMixin:
             self._put_searched_card(player, obj, "battlefield")
             made.append(obj)
         return made
-    def request_manifest_dread(self, player: Player) -> None:
+    def _request_manifest_dread(self, player: Player) -> None:
         """"Manifest dread": look at the top two cards of ``player``'s
         library, manifest one face down and put the other into the graveyard.
 
-        Its own `pending_choice` kind rather than a `request_choose_objects`
+        Its own `pending_choice` kind rather than a `_request_choose_objects`
         call, because the generic chooser only ever *acts on the picks* — it
         has no notion of "and the ones you didn't pick go somewhere else",
         which is the entire second half of this keyword action. Degenerate
@@ -613,7 +611,7 @@ class CopiesMixin:
         if len(looked) == 1:
             self.manifest(player, 1)
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "manifest_dread",
             "player_id": player.id,
             "prompt": "Manifest dread: welche Karte wird verdeckt gespielt?",
@@ -621,17 +619,14 @@ class CopiesMixin:
                 {"id": str(obj.instance_id), "label": obj.name, "instance_id": obj.instance_id}
                 for obj in reversed(looked)  # top card first
             ],
-        }
-    def resolve_manifest_dread_choice(self, instance_id: Optional[int]) -> None:
+        })
+    @continuations.choice("manifest_dread", answer=continuations.ANSWER_INT, rule="701.62")
+    def _resume_manifest_dread(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
         """Answer a pending manifest-dread choice: manifest the chosen card,
         mill the other. A missing/unrecognized answer defaults to the top
         card — the choice is mandatory (RULE 701.40a's "put one … and the
         other …"), so declining can't mean "neither"."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "manifest_dread":
-            raise ValueError("no pending manifest-dread choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         offered = [opt["instance_id"] for opt in choice["options"]]
         chosen_id = instance_id if instance_id in offered else offered[0]
         chosen = self._object_by_instance_id(chosen_id)

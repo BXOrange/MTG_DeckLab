@@ -123,7 +123,7 @@ def _kodama_of_the_east_tree() -> list[AbilitySpec]:
     Effect` (Tooth and Nail), reading the just-entered permanent's own
     mana value fresh off `GameContext.trigger_event` each firing rather
     than a literal the catalogue could bake in. It places its pick via
-    the new `"hand_to_battlefield"` `request_choose_objects` action
+    the new `"hand_to_battlefield"` `_request_choose_objects` action
     (`RulesEngine._apply_chosen_object`) specifically so the new
     permanent gets `GameObject.entered_via_ability_id` stamped — read
     back by the trigger's own new ``not_entered_via_self`` condition
@@ -242,7 +242,7 @@ def _tergrids_lantern() -> list[AbilitySpec]:
     between the two, unlike every other `ActivationCost` field (AND-
     combined). `PayCostThenEffect`'s new ``payer="target"`` mode (this
     round's other new primitive) asks *the targeted player*, not this
-    ability's own controller — `request_pay_cost_then`'s existing "pay or
+    ability's own controller — `_request_pay_cost_then`'s existing "pay or
     decline" choice, "pay" now able to open a further `sacrifice_or_
     discard` sub-choice when the payer genuinely has both options
     available (``_pay_sacrifice_or_discard``/`resolve_sacrifice_or_
@@ -661,7 +661,7 @@ def _scroll_rack() -> list[AbilitySpec]:
 
     — MEC-43 round 4F. RULE 701.20a-adjacent: reuses `GameObject.
     face_down_in_exile` (Beseech the Mirror's own face-down exile),
-    `RulesEngine.request_choose_objects`'s ``track_exiled_with`` (MEC-21)
+    `RulesEngine._request_choose_objects`'s ``track_exiled_with`` (MEC-21)
     for the "any number" pick, and the scry/surveil two-phase "order the
     rest back on top" machinery (`RulesEngine._LOOK_TOP_KINDS`) for the
     final ordering step — the only genuinely new piece is putting cards
@@ -901,7 +901,7 @@ def _knowledge_pool() -> list[AbilitySpec]:
     Possibility Storm-shaped trigger — unscoped "a player", not just this
     artifact's controller), exiles the just-cast spell straight off the
     stack into the same shared pool via `RulesEngine.move_spell_off_stack`,
-    then offers that player a `request_choose_objects` pick of exactly one
+    then offers that player a `_request_choose_objects` pick of exactly one
     *other* pool member to grant a free-cast window (MEC-20's `"grant_free_
     cast"` action) — already zone-agnostic, so an exiled candidate reaches
     `legal_actions` with full targeting exactly like a hand card would.
@@ -995,7 +995,7 @@ def _traumatic_revelation() -> list[AbilitySpec]:
     — the "if you don't, `<effect>`" *else*-branch on an optional
     `reveal_hand_choose_discard` (Thoughtseize's own template) is the only
     new shape: `RevealHandChooseDiscardEffect` gains ``optional`` +
-    ``else_specs``, threaded through `request_choose_objects`' new
+    ``else_specs``, threaded through `_request_choose_objects`' new
     ``else_specs`` (the mirror of its long-standing ``then_specs``), which
     fires when the choice ends with nothing picked — including when the
     revealed hand held no creature or battle card to begin with. "battle"
@@ -2074,7 +2074,7 @@ register("Secret of Bloodbending", lambda: [
 # from it. You control that player until Word of Command finishes
 # resolving. The player plays that card if able. …" — `WordOfCommandEffect`
 # opens a `word_of_command` pending choice addressed to the caster over the
-# target's hand; `GameEngine.resolve_word_of_command_choice` then has the
+# target's hand; `GameEngine._resume_word_of_command` then has the
 # target play the pick (`play_land`, else `cast_without_paying`). The RULE
 # 720 mana restriction is moot under the free cast, and (like every
 # effect-driven free cast here — cascade/discover) the spell is cast
@@ -2107,7 +2107,7 @@ def _hunted_by_the_family() -> list[AbilitySpec]:
     controller"``: the RULE 115 targets are the creatures ("up to four" ⇒
     ``optional`` + ``count=4`` on the effect's own `target_spec`), and each
     one's controller gets its *own* queued `villainous_choice`
-    (`request_villainous_choice(rounds=…)`) with that creature baked in as
+    (`_request_villainous_choice(rounds=…)`) with that creature baked in as
     the RULE 608.2 referent. Option A is one indefinite RULE 611 grant
     (`grant_until` ``previous_subject`` / ``duration="rest_of_game"``) that
     bundles the layer-4 P/T+type change, the layer-5 colour set and the

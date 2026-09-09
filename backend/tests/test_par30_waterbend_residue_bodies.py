@@ -247,7 +247,7 @@ def test_water_tribe_rallier_reveals_a_small_creature():
     labels = {opt["label"] for opt in ch["options"]}
     assert "Small" in labels and "Big" not in labels
     small_id = next(opt["instance_id"] for opt in ch["options"] if opt["label"] == "Small")
-    eng.rules.resolve_look_top_select_choice(small_id)
+    eng.rules.resolve_choice(small_id)
     eng.resolve_until_stable()
     assert any(o.name == "Small" for o in p1.hand)
 

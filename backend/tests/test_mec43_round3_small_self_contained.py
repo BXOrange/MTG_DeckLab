@@ -148,7 +148,7 @@ def test_volatile_stormdrake_declining_sacrifices_the_exchanged_creature():
     p1, p2, stormdrake, target = _board_stormdrake_and_target(eng)
     _fire_stormdrake_etb(eng, stormdrake, target)
 
-    eng.rules.resolve_sacrifice_unless_pay_choice("decline")
+    eng.rules.resolve_choice("decline")
 
     assert target not in eng.state.battlefield
     assert any(o is target for o in p2.graveyard)  # RULE 701.16c: to its owner's graveyard
@@ -161,7 +161,7 @@ def test_volatile_stormdrake_paying_energy_keeps_the_exchanged_creature():
     _fire_stormdrake_etb(eng, stormdrake, target)
     assert p1.counters.get("energy", 0) == 4
 
-    eng.rules.resolve_sacrifice_unless_pay_choice("pay")
+    eng.rules.resolve_choice("pay")
 
     assert target in eng.state.battlefield
     assert target.controller_id == "p1"

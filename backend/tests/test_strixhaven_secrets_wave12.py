@@ -101,11 +101,11 @@ def test_quandrix_command_shuffle_mode_runtime():
         opts = [o for o in eng.state.pending_choice["options"] if o["id"] != "decline"]
         if not opts:
             break
-        eng.rules.resolve_choose_objects_choice(opts[0]["instance_id"])
+        eng.rules.resolve_choice(opts[0]["instance_id"])
         picked += 1
     if (eng.state.pending_choice
             and eng.state.pending_choice.get("kind") == "choose_objects"):
-        eng.rules.resolve_choose_objects_choice(None)
+        eng.rules.resolve_choice(None)
     assert len(p2.graveyard) == gy0 - 3
     assert len(p2.library) == lib0 + 3
 

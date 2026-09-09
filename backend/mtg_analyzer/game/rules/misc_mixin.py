@@ -75,6 +75,7 @@ from ..effects.core import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -176,7 +177,7 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 class MiscSystemsMixin:
     """Designations (goad/monarch/initiative/Ring), planeswalking, dungeons, wards/rampage/dethrone, countering a spell, generic interactive-payment primitives, tokens, Sagas/day-night."""
 
-    def request_pay_energy_then(
+    def _request_pay_energy_then(
         self, player: Player, amount: int, effect_specs: list[dict], source: Optional[GameObject]
     ) -> None:
         """Open the interactive "you may pay {E}×N. If you do, `<effect>`."
@@ -190,7 +191,7 @@ class MiscSystemsMixin:
             "source": source,
         }
         pips = "{E}" * int(amount)
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "pay_energy_then",
             "player_id": player.id,
             "prompt": f"{pips} bezahlen?",
@@ -198,15 +199,12 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{pips} bezahlen"},
                 {"id": "decline", "label": "Nicht bezahlen"},
             ],
-        }
-    def resolve_pay_energy_then_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("pay_energy_then", answer=continuations.ANSWER_STR, rule="122")
+    def _resume_pay_energy_then(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `pay_energy_then` choice. ``answer == "pay"``
         spends the energy and resolves the follow-up effects; anything else
         (``None``/``"decline"``) does neither."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "pay_energy_then":
-            raise ValueError("no pending pay-energy choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_pay_energy
         self._pending_pay_energy = None
         if pending is None or answer != "pay":
@@ -217,7 +215,7 @@ class MiscSystemsMixin:
             return  # energy changed since the offer — decline by default
         self.add_player_counters(player, -amount, "energy")
         self._apply_effect_specs(pending["effect_specs"], pending["source"])
-    def request_pay_cost_then(
+    def _request_pay_cost_then(
         self,
         player: Player,
         cost: "ActivationCost",
@@ -235,8 +233,8 @@ class MiscSystemsMixin:
         choice (RULE 118.3-style optional payment mid-resolution).
 
         The general form of the already-shipped, energy-only
-        `request_pay_energy_then` (Aether Chaser) and the *optional* mirror
-        of `request_sacrifice_unless_pay` — same `_can_pay_player_cost`/
+        `_request_pay_energy_then` (Aether Chaser) and the *optional* mirror
+        of `_request_sacrifice_unless_pay` — same `_can_pay_player_cost`/
         `_pay_player_cost` machinery all three share, so an arbitrary
         `ActivationCost` (mana, life, discard, sacrifice) works without a
         fourth parallel payment path. Covers Mana Vault's upkeep untap and
@@ -267,7 +265,7 @@ class MiscSystemsMixin:
         card whose mana cost this ``cost`` was priced off) so the paid
         branch's `copy_permanent` ``referent="previous"`` still resolves
         against it once the choice is *answered* — same re-seed idiom
-        `resolve_villainous_choice` uses.
+        `_resume_villainous_choice` uses.
         """
         specs = [dict(d) for d in effect_specs]
         else_specs = [dict(d) for d in (else_effect_specs or [])]
@@ -289,7 +287,7 @@ class MiscSystemsMixin:
             "captured_previous": list(captured_previous) if captured_previous else None,
         }
         cost_label = cost.label()
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "pay_cost_then",
             "player_id": player.id,
             "prompt": prompt or f"{cost_label} bezahlen?",
@@ -297,15 +295,12 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{cost_label} bezahlen"},
                 {"id": "decline", "label": "Nicht bezahlen"},
             ],
-        }
-    def resolve_pay_cost_then_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("pay_cost_then", answer=continuations.ANSWER_STR, rule="118.3")
+    def _resume_pay_cost_then(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `pay_cost_then` choice. ``answer == "pay"``
         charges the cost and resolves the "if you do" effects; anything else
         resolves the "if you don't" branch (usually empty)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "pay_cost_then":
-            raise ValueError("no pending pay-cost-then choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_pay_cost_then
         self._pending_pay_cost_then = None
         if pending is None:
@@ -332,13 +327,13 @@ class MiscSystemsMixin:
                 self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
             self._enqueue_pay_cost_then_trigger(pending)
         # PAR-13: if this single-player choice is one leg of a mass
-        # `request_each_player_pay_or` sweep, move on to whoever's next —
+        # `_request_each_player_pay_or` sweep, move on to whoever's next —
         # a no-op for every ordinary (non-mass) `pay_cost_then` caller,
         # since that dict is only ever populated by the mass primitive.
         if self._pending_each_player_pay_or is not None:
             self._advance_each_player_pay_or()
 
-    def request_exile_source_then(
+    def _request_exile_source_then(
         self, player: Player, source: GameObject, then_trigger_specs: list[dict],
         prompt: Optional[str] = None,
     ) -> None:
@@ -354,7 +349,7 @@ class MiscSystemsMixin:
             "source": source,
             "then_trigger_specs": [dict(d) for d in then_trigger_specs],
         }
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "exile_source_then",
             "player_id": player.id,
             "prompt": prompt or f"{source.name} ins Exil schicken?",
@@ -362,12 +357,10 @@ class MiscSystemsMixin:
                 {"id": "exile", "label": "Ins Exil schicken"},
                 {"id": "decline", "label": "Nicht ins Exil schicken"},
             ],
-        }
+        })
 
-    def resolve_exile_source_then_choice(self, answer: Optional[str]) -> None:
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "exile_source_then":
-            raise ValueError("no pending exile-source-then choice to resolve")
+    @continuations.choice("exile_source_then", answer=continuations.ANSWER_STR, rule="118.3")
+    def _resume_exile_source_then(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         self.state.pending_choice = None
         pending = self._pending_exile_source_then
         self._pending_exile_source_then = None
@@ -453,7 +446,7 @@ class MiscSystemsMixin:
             pending.get("then_trigger_specs") or [], pending.get("source"),
             pending.get("then_trigger_event"), pending.get("then_trigger_modes"),
         )
-    def request_pay_life_or_return_to_library(
+    def _request_pay_life_or_return_to_library(
         self, player: Player, objs: list[GameObject], amount: int = 4,
     ) -> None:
         """"For each of those cards, pay 4 life or put the card on top of
@@ -461,7 +454,7 @@ class MiscSystemsMixin:
         mandatory either/or decision (RULE 601.2h-style, not "may"),
         offered one card at a time (`_open_pay_life_or_return_choice`
         re-opens for the next until ``objs`` is exhausted), the same
-        "resolve one, re-open for the rest" shape `request_choose_objects`
+        "resolve one, re-open for the rest" shape `_request_choose_objects`
         uses for a multi-pick.
         """
         queue = [o.instance_id for o in objs if o is not None]
@@ -478,7 +471,7 @@ class MiscSystemsMixin:
             # nothing left to ask about this one; move on to the rest.
             self._continue_pay_life_or_return(player, queue[1:], amount)
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "pay_life_or_return_to_library",
             "player_id": player.id,
             "instance_id": obj_id,
@@ -490,20 +483,22 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{amount} Leben zahlen"},
                 {"id": "return", "label": "Auf die Bibliothek zurücklegen"},
             ],
-        }
+        })
     def _continue_pay_life_or_return(
         self, player: Player, remaining: list[int], amount: int,
     ) -> None:
         if remaining:
             self._open_pay_life_or_return_choice(player, remaining, amount)
-    def resolve_pay_life_or_return_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice(
+        "pay_life_or_return_to_library",
+        answer=continuations.ANSWER_STR,
+        decline="return",
+        rule="118.3",
+    )
+    def _resume_pay_life_or_return_to_library(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `pay_life_or_return_to_library` choice.
         ``answer == "pay"`` pays the life; anything else (including a
         missing/invalid answer — a mandatory choice) puts the card back."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "pay_life_or_return_to_library":
-            raise ValueError("no pending pay-life-or-return choice to resolve")
-        self.state.pending_choice = None
         player = self.state.player_by_id(choice["player_id"])
         amount = choice["amount"]
         if answer == "pay":
@@ -515,7 +510,7 @@ class MiscSystemsMixin:
                 obj.zone = Zone.LIBRARY
                 player.library.append(obj)
         self._continue_pay_life_or_return(player, choice.get("remaining") or [], amount)
-    def request_each_player_pay_or(
+    def _request_each_player_pay_or(
         self,
         cost: "ActivationCost",
         effect_specs: list[dict[str, Any]],
@@ -531,7 +526,7 @@ class MiscSystemsMixin:
         anyone who doesn't (or can't) gets ``effect_specs`` applied to
         *them* — not the ability's controller, which is why ``targets``
         (not the effects' own untargeted-controller default) carries each
-        player through `request_pay_cost_then`.
+        player through `_request_pay_cost_then`.
 
         ``scope`` (MEC-43, Acererak the Archlich — "for each opponent,
         `<effect>` unless that player `<pays>`.") is ``"each_player"``
@@ -543,7 +538,7 @@ class MiscSystemsMixin:
         and each inner spec resolves against its own untargeted-controller
         default instead.
 
-        Built as a chain of ordinary single-player `request_pay_cost_then`
+        Built as a chain of ordinary single-player `_request_pay_cost_then`
         choices rather than a new chooser: each one either opens a real
         `pending_choice` (this method returns, and `resolve_pay_cost_then_
         choice` calls `_advance_each_player_pay_or` again once it's
@@ -571,7 +566,7 @@ class MiscSystemsMixin:
         }
         self._advance_each_player_pay_or()
     def _advance_each_player_pay_or(self) -> None:
-        """Ask the next still-pending player in a `request_each_player_pay_or`
+        """Ask the next still-pending player in a `_request_each_player_pay_or`
         sweep, or clear it once everyone has answered."""
         pending = self._pending_each_player_pay_or
         if pending is None:
@@ -586,15 +581,15 @@ class MiscSystemsMixin:
                 continue
             if player.has_lost:
                 continue
-            self.request_pay_cost_then(
+            self._request_pay_cost_then(
                 player, pending["cost"], [], pending["source"],
                 else_effect_specs=pending["effect_specs"],
                 targets=[player] if effect_targets == "decliner" else None,
             )
             if self.state.pending_choice is not None:
-                return  # a real choice opened — resumed via resolve_pay_cost_then_choice
+                return  # a real choice opened — resumed via _resume_pay_cost_then
         self._pending_each_player_pay_or = None
-    def request_all_players_decline_or(
+    def _request_all_players_decline_or(
         self,
         cost: "ActivationCost",
         effect_specs: list[dict[str, Any]],
@@ -610,7 +605,7 @@ class MiscSystemsMixin:
         ``effect_specs`` never resolves at all, since *someone* paid to
         stop it. Only once *every* player has declined (or can't pay —
         the same "don't stall on a choice nobody can act on" shortcut
-        `request_each_player_pay_or` takes) does ``effect_specs`` resolve,
+        `_request_each_player_pay_or` takes) does ``effect_specs`` resolve,
         applied *once*, to ``controller_id`` (the ability's own controller
         — "you" in the printed text, not whoever happened to decline
         last).
@@ -658,7 +653,7 @@ class MiscSystemsMixin:
             if player.has_lost or not self._can_pay_player_cost(player, cost):
                 continue
             cost_label = cost.label()
-            self.state.pending_choice = {
+            self.open_choice({
                 "kind": "all_decline_or",
                 "player_id": player.id,
                 "prompt": f"{cost_label} bezahlen, um dies zu verhindern?",
@@ -666,8 +661,8 @@ class MiscSystemsMixin:
                     {"id": "pay", "label": f"{cost_label} bezahlen"},
                     {"id": "decline", "label": "Nicht bezahlen"},
                 ],
-            }
-            return  # a real choice opened — resumed via resolve_all_decline_or_choice
+            })
+            return  # a real choice opened — resumed via _resume_all_decline_or
         # Every remaining player declined or couldn't pay — the sweep is over.
         self._pending_all_decline_or = None
         try:
@@ -675,17 +670,14 @@ class MiscSystemsMixin:
         except (KeyError, ValueError):
             return
         self._apply_effect_specs(pending["effect_specs"], pending["source"], targets=[controller])
-    def resolve_all_decline_or_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("all_decline_or", answer=continuations.ANSWER_STR, rule="118.3")
+    def _resume_all_decline_or(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `all_decline_or` choice (`request_all_players_
         decline_or`). ``answer == "pay"`` charges that player and cancels
         the whole sweep — nothing else happens, since someone paid to stop
         it. Anything else (decline, or a re-check finding they no longer
         can pay — the board can have changed since the offer was made)
         moves on to the next player."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "all_decline_or":
-            raise ValueError("no pending all-decline-or choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_all_decline_or
         if pending is None:
             return
@@ -699,7 +691,7 @@ class MiscSystemsMixin:
                 self._pending_all_decline_or = None
                 return
         self._advance_all_decline_or()
-    def request_vote(
+    def _request_vote(
         self,
         source: Optional[GameObject],
         controller_id: str,
@@ -739,7 +731,7 @@ class MiscSystemsMixin:
 
         Built as a chain of ordinary single-player choices over the same
         `_apply_effect_specs` tail every "if you do" branch already uses,
-        the same way `request_all_players_decline_or` is.
+        the same way `_request_all_players_decline_or` is.
         """
         start = self.state.active_player_index
         n = len(self.state.players)
@@ -769,7 +761,7 @@ class MiscSystemsMixin:
         }
         self._advance_vote()
     def _advance_vote(self) -> None:
-        """Ask the next still-pending voter in a `request_vote` sweep; once
+        """Ask the next still-pending voter in a `_request_vote` sweep; once
         everyone has voted, tally and apply the outcome."""
         pending = self._pending_vote
         if pending is None:
@@ -792,15 +784,15 @@ class MiscSystemsMixin:
             # knows whose ballot they are filling in. A missing answer
             # defaults to option 0.
             decider_id, prompt_prefix = self._vote_decider(player)
-            self.state.pending_choice = {
+            self.open_choice({
                 "kind": "vote",
                 "player_id": decider_id,
                 "prompt": prompt_prefix + "Abstimmung: " + " / ".join(options),
                 "options": [
                     {"id": str(i), "label": opt} for i, opt in enumerate(options)
                 ],
-            }
-            return  # a real choice opened — resumed via resolve_vote_choice
+            })
+            return  # a real choice opened — resumed via _resume_vote
         self._tally_and_apply_vote()
     def _vote_decider(self, voter: Player) -> tuple[str, str]:
         """Who actually answers ``voter``'s ballot, and a prompt prefix.
@@ -817,14 +809,11 @@ class MiscSystemsMixin:
             if forcer is not None and not forcer.has_lost:
                 return forced_id, f"Stimme für {voter.name} — "
         return voter.id, ""
-    def resolve_vote_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("vote", answer=continuations.ANSWER_STR, rule="701.38")
+    def _resume_vote(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `vote` choice: record this player's vote for the
         chosen option index (a missing/unknown answer defaults to option 0,
         RULE 701.38b's "each player must choose"), then move on."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "vote":
-            raise ValueError("no pending vote choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_vote
         if pending is None:
             return
@@ -841,7 +830,7 @@ class MiscSystemsMixin:
             pending["ballots"].append((voter_id, idx))
         self._advance_vote()
     def _tally_and_apply_vote(self) -> None:
-        """Resolve a finished `request_vote` sweep's outcome (majority
+        """Resolve a finished `_request_vote` sweep's outcome (majority
         branch, per-vote scaling, or per-winning-option) and clear it."""
         pending = self._pending_vote
         self._pending_vote = None
@@ -925,7 +914,7 @@ class MiscSystemsMixin:
             if not owned:
                 voter_ids = rest
                 continue
-            self.request_choose_objects(
+            self._request_choose_objects(
                 caster, owned, action="gain_control", count=1, source=source,
                 prompt="Dauerhaften Permanent übernehmen",
                 then_specs=[{
@@ -934,7 +923,7 @@ class MiscSystemsMixin:
                 }],
             )
             return
-    def request_object_vote(
+    def _request_object_vote(
         self,
         source: Optional[GameObject],
         controller_id: str,
@@ -943,7 +932,7 @@ class MiscSystemsMixin:
         prompt: str = "Abstimmung",
     ) -> None:
         """MEC-46 (RULE 701.38): the tally-over-objects sibling of
-        `request_vote`. "Starting with you, each player votes for `<one of
+        `_request_vote`. "Starting with you, each player votes for `<one of
         these objects>`. `<verb>` each `<object>` with the most votes or
         tied for most votes."
 
@@ -979,7 +968,7 @@ class MiscSystemsMixin:
         }
         self._advance_object_vote()
     def _advance_object_vote(self) -> None:
-        """Ask the next still-pending voter in a `request_object_vote`
+        """Ask the next still-pending voter in a `_request_object_vote`
         sweep; once everyone has voted, tally and apply the outcome."""
         pending = self._pending_object_vote
         if pending is None:
@@ -1008,22 +997,19 @@ class MiscSystemsMixin:
                 return
             pending["current_voter_id"] = player.id
             decider_id, prompt_prefix = self._vote_decider(player)
-            self.state.pending_choice = {
+            self.open_choice({
                 "kind": "vote_object",
                 "player_id": decider_id,
                 "prompt": prompt_prefix + pending["prompt_text"],
                 "options": options,
-            }
-            return  # resumed via resolve_object_vote_choice
+            })
+            return  # resumed via _resume_vote_object
         self._tally_and_apply_object_vote()
-    def resolve_object_vote_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("vote_object", answer=continuations.ANSWER_STR, rule="701.38")
+    def _resume_vote_object(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `vote_object` choice: record this player's vote
         for the chosen candidate (a missing/unknown answer defaults to the
         first candidate, RULE 701.38b), then move on."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "vote_object":
-            raise ValueError("no pending object-vote choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_object_vote
         if pending is None:
             return
@@ -1038,7 +1024,7 @@ class MiscSystemsMixin:
             tally[iid] += 1
         self._advance_object_vote()
     def _tally_and_apply_object_vote(self) -> None:
-        """Resolve a finished `request_object_vote` sweep: apply ``outcome``
+        """Resolve a finished `_request_object_vote` sweep: apply ``outcome``
         to every candidate tied for most votes (RULE 701.38d)."""
         pending = self._pending_object_vote
         self._pending_object_vote = None
@@ -1058,7 +1044,7 @@ class MiscSystemsMixin:
                 self.exile(obj)
             elif outcome == "return_to_hand":
                 self.return_to_hand(obj)
-    def request_word_of_command(
+    def _request_word_of_command(
         self,
         controller: Player,
         target: Player,
@@ -1066,7 +1052,7 @@ class MiscSystemsMixin:
     ) -> None:
         """MEC-51b (Word of Command): open a `word_of_command`
         `pending_choice` addressed to ``controller``, listing every card in
-        ``target``'s hand. `GameEngine.resolve_word_of_command_choice` then
+        ``target``'s hand. `GameEngine._resume_word_of_command` then
         has ``target`` play the chosen card. No card in hand → nothing to
         choose, the effect fizzles (RULE 720-adjacent "if able")."""
         hand = list(target.hand)
@@ -1077,7 +1063,7 @@ class MiscSystemsMixin:
             "target_id": target.id,
             "chosen_instance_id": None,
         }
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "word_of_command",
             "player_id": controller.id,   # the *controller* picks
             "target_player_id": target.id,
@@ -1091,9 +1077,12 @@ class MiscSystemsMixin:
                  "instance_id": o.instance_id}
                 for o in hand
             ],
-        }
+        })
 
-    def resolve_word_of_command_choice(self, instance_id: Optional[int]) -> None:
+    @continuations.choice("word_of_command", answer=continuations.ANSWER_INT, rule="723")
+    def _resume_word_of_command(
+        self, choice: dict[str, Any], instance_id: Optional[int]
+    ) -> None:
         """MEC-51b: the Word of Command caster has picked ``instance_id``
         from the target's hand — now have the target *play* it "if able".
 
@@ -1107,7 +1096,6 @@ class MiscSystemsMixin:
         cast). Then the `word_of_command` window closes.
         """
         woc = self.state.word_of_command
-        self.state.pending_choice = None
         if woc is None:
             return
         try:
@@ -1132,7 +1120,7 @@ class MiscSystemsMixin:
                 pass  # "if able" — a play that can't be made simply doesn't
         self.state.word_of_command = None
 
-    def request_villainous_choice(
+    def _request_villainous_choice(
         self,
         source: Optional[GameObject],
         controller_id: str,
@@ -1153,7 +1141,7 @@ class MiscSystemsMixin:
         (the effect's own controller default, since those specs carry no
         target).
 
-        The `request_vote` sweep shape, minus the tally: each player
+        The `_request_vote` sweep shape, minus the tally: each player
         applies their own pick rather than everyone feeding one aggregate
         outcome. RULE 701.55b's "if one option is impossible, they must
         choose the other" is a **documented simplification** — both options
@@ -1205,7 +1193,7 @@ class MiscSystemsMixin:
         self._advance_villainous_choice()
     def _advance_villainous_choice(self) -> None:
         """Ask the next still-pending facing player in a
-        `request_villainous_choice` sweep, or clear it once done."""
+        `_request_villainous_choice` sweep, or clear it once done."""
         pending = self._pending_villainous
         if pending is None:
             return
@@ -1220,7 +1208,7 @@ class MiscSystemsMixin:
                 continue
             pending["current"] = rnd
             la, lb = rnd["labels"]
-            self.state.pending_choice = {
+            self.open_choice({
                 "kind": "villainous_choice",
                 "player_id": player.id,
                 "prompt": f"Schurkische Wahl: {la} / {lb}",
@@ -1228,17 +1216,14 @@ class MiscSystemsMixin:
                     {"id": "0", "label": la},
                     {"id": "1", "label": lb},
                 ],
-            }
-            return  # a real choice opened — resumed via resolve_villainous_choice
+            })
+            return  # a real choice opened — resumed via _resume_villainous_choice
         self._pending_villainous = None
-    def resolve_villainous_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("villainous_choice", answer=continuations.ANSWER_STR, rule="701.55")
+    def _resume_villainous_choice(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `villainous_choice`: apply the chosen option's
         effects for that facing player (a missing/unknown answer defaults to
         option A, RULE 701.55b's "each player must choose"), then advance."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "villainous_choice":
-            raise ValueError("no pending villainous choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_villainous
         if pending is None:
             return
@@ -1273,7 +1258,7 @@ class MiscSystemsMixin:
     ) -> None:
         """Build and apply serialized `EffectSpec` dicts right now, off the
         stack — the shared tail of every "if you do / if you don't" branch
-        (`resolve_pay_cost_then_choice`, `resolve_pay_energy_then_choice`).
+        (`_resume_pay_cost_then`, `_resume_pay_energy_then`).
         Goes through `build_effects`, so the whitelist still gates every
         effect type (docs/09 security boundary)."""
         if not effect_specs:
@@ -1290,7 +1275,7 @@ class MiscSystemsMixin:
         )
         for effect in built:
             effect.apply(self.context, targets)
-    def request_choose_creature_type_grant(
+    def _request_choose_creature_type_grant(
         self, player: Player, source: GameObject, then_specs: list[dict],
     ) -> None:
         """Open a **resolve-time** "choose a creature type" choice — RULE
@@ -1309,7 +1294,7 @@ class MiscSystemsMixin:
         opens `pending_choice` (RULE 608.2), and `GameEngine.
         resolve_until_stable`'s `resume_deferred_effects` resumes it —
         this method only needs to open the choice and, via
-        `resolve_choose_type_for_source_choice`, apply the tail.
+        `_resume_choose_type_for_source`, apply the tail.
         """
         options = _creature_type_options(self.state, player.id)
         if not options:
@@ -1319,15 +1304,15 @@ class MiscSystemsMixin:
             source.chosen_type = None
             self._apply_effect_specs(list(then_specs or []), source)
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "choose_type_for_source",
             "player_id": player.id,
             "prompt": "Kreaturentyp wählen",
             "options": [{"id": t, "label": t} for t in options],
             "source_id": source.instance_id,
             "then_specs": [dict(spec) for spec in (then_specs or [])],
-        }
-    def request_choose_player(self, player: Player, source: GameObject) -> None:
+        })
+    def _request_choose_player(self, player: Player, source: GameObject) -> None:
         """"As this creature enters, choose a player." (Stuffy Doll) — a
         resolve-time choice, the player-choice sibling of `request_choose_
         creature_type_grant` (see its docstring for why this needs its
@@ -1338,19 +1323,20 @@ class MiscSystemsMixin:
         living = self.state.living_players()
         if not living:
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "choose_player_for_source",
             "player_id": player.id,
             "prompt": "Spieler wählen",
             "options": [{"id": p.id, "label": p.name} for p in living],
             "source_id": source.instance_id,
-        }
-    def resolve_choose_player_choice(self, answer: Optional[str]) -> None:
-        """Answer a `request_choose_player` choice."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "choose_player_for_source":
-            raise ValueError("no pending choose-player choice to resolve")
-        self.state.pending_choice = None
+        })
+    @continuations.choice(
+        "choose_player_for_source",
+        answer=continuations.ANSWER_STR,
+        rule="601.2b",
+    )
+    def _resume_choose_player_for_source(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a `_request_choose_player` choice."""
         options = choice["options"]
         valid_ids = {str(o["id"]) for o in options}
         chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
@@ -1360,22 +1346,24 @@ class MiscSystemsMixin:
         if source is not None:
             source.chosen_player_id = chosen
 
-    def request_slithermuse_opponent(self, player: Player, source: GameObject) -> None:
+    def _request_slithermuse_opponent(self, player: Player, source: GameObject) -> None:
         """Slithermuse's non-targeting ``choose an opponent`` resolution."""
         opponents = [p for p in self.state.living_players() if p.id != player.id]
         if not opponents:
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "slithermuse_opponent", "player_id": player.id,
             "prompt": "Gegner für Slithermuse wählen",
             "options": [{"id": p.id, "label": p.name} for p in opponents],
             "source_id": source.instance_id,
-        }
+        })
 
-    def resolve_slithermuse_opponent_choice(self, answer: Optional[str]) -> None:
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "slithermuse_opponent":
-            raise ValueError("no pending Slithermuse opponent choice to resolve")
+    @continuations.choice(
+        "slithermuse_opponent",
+        answer=continuations.ANSWER_STR,
+        rule="601.2b",
+    )
+    def _resume_slithermuse_opponent(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         self.state.pending_choice = None
         options = choice.get("options") or []
         ids = {str(option["id"]) for option in options}
@@ -1388,12 +1376,13 @@ class MiscSystemsMixin:
         opponent = self.state.player_by_id(selected)
         if chooser is not None and opponent is not None:
             self.draw(chooser, max(0, len(opponent.hand) - len(chooser.hand)))
-    def resolve_choose_type_for_source_choice(self, answer: Optional[str]) -> None:
-        """Answer a `request_choose_creature_type_grant` choice."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "choose_type_for_source":
-            raise ValueError("no pending choose-type choice to resolve")
-        self.state.pending_choice = None
+    @continuations.choice(
+        "choose_type_for_source",
+        answer=continuations.ANSWER_STR,
+        rule="601.2b",
+    )
+    def _resume_choose_type_for_source(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a `_request_choose_creature_type_grant` choice."""
         options = choice["options"]
         valid_ids = {str(o["id"]) for o in options}
         chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
@@ -1403,7 +1392,7 @@ class MiscSystemsMixin:
         if source is not None:
             source.chosen_type = chosen
         self._apply_effect_specs(list(choice.get("then_specs") or []), source)
-    def request_sacrifice_unless_pay(
+    def _request_sacrifice_unless_pay(
         self, player: Player, cost: "ActivationCost", source: Optional[GameObject]
     ) -> None:
         """Open the interactive "sacrifice ``source`` unless you pay ``cost``"
@@ -1440,7 +1429,7 @@ class MiscSystemsMixin:
             "source": source,
         }
         cost_label = cost.label()
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "sacrifice_unless_pay",
             "player_id": player.id,
             "prompt": f"{cost_label} bezahlen, um {source.name} zu behalten?",
@@ -1448,15 +1437,16 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{cost_label} bezahlen"},
                 {"id": "decline", "label": f"{source.name} opfern"},
             ],
-        }
-    def resolve_sacrifice_unless_pay_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice(
+        "sacrifice_unless_pay",
+        answer=continuations.ANSWER_STR,
+        rule="701.21",
+    )
+    def _resume_sacrifice_unless_pay(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `sacrifice_unless_pay` choice. ``answer == "pay"``
         charges the cost and keeps the permanent; anything else sacrifices
         it (RULE 701.17)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "sacrifice_unless_pay":
-            raise ValueError("no pending sacrifice-unless-pay choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_sacrifice_unless_pay
         self._pending_sacrifice_unless_pay = None
         if pending is None:
@@ -1476,12 +1466,12 @@ class MiscSystemsMixin:
                 return
         if source is not None and source in self.state.battlefield:
             self.put_into_graveyard(source)
-    def request_destroy_unless_pay(
+    def _request_destroy_unless_pay(
         self, player: Player, cost: "ActivationCost", source: Optional[GameObject]
     ) -> None:
         """Open the interactive "destroy ``source`` unless you pay ``cost``"
         choice — RULE 701.16 destruction gated by an "unless" payment, the
-        real-destruction sibling of `request_sacrifice_unless_pay` above
+        real-destruction sibling of `_request_sacrifice_unless_pay` above
         (The Tabernacle at Pendrell Vale's granted upkeep trigger, "At the
         beginning of your upkeep, destroy this creature unless you pay
         {1}."). Deliberately a separate method rather than a shared "unless
@@ -1505,7 +1495,7 @@ class MiscSystemsMixin:
             "source": source,
         }
         cost_label = cost.label()
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "destroy_unless_pay",
             "player_id": player.id,
             "prompt": f"{cost_label} bezahlen, um {source.name} zu behalten?",
@@ -1513,15 +1503,12 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{cost_label} bezahlen"},
                 {"id": "decline", "label": f"{source.name} zerstören lassen"},
             ],
-        }
-    def resolve_destroy_unless_pay_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("destroy_unless_pay", answer=continuations.ANSWER_STR, rule="701.8")
+    def _resume_destroy_unless_pay(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `destroy_unless_pay` choice. ``answer == "pay"``
         charges the cost and keeps the permanent; anything else destroys it
-        (RULE 701.16, regenerable — see `request_destroy_unless_pay`)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "destroy_unless_pay":
-            raise ValueError("no pending destroy-unless-pay choice to resolve")
-        self.state.pending_choice = None
+        (RULE 701.16, regenerable — see `_request_destroy_unless_pay`)."""
         pending = self._pending_destroy_unless_pay
         self._pending_destroy_unless_pay = None
         if pending is None:
@@ -1533,13 +1520,13 @@ class MiscSystemsMixin:
             player = None
         if answer == "pay" and player is not None:
             # Re-check: the board can have changed between the offer and the
-            # answer, same guard as `resolve_sacrifice_unless_pay_choice`.
+            # answer, same guard as `_resume_sacrifice_unless_pay`.
             if self._can_pay_player_cost(player, pending["cost"]):
                 self._pay_player_cost(player, pending["cost"])
                 return
         if source is not None and source in self.state.battlefield:
             self.destroy(source)
-    def request_tap_or_untap_choice(self, target: GameObject, source: Optional[GameObject] = None) -> None:
+    def _request_tap_or_untap_choice(self, target: GameObject, source: Optional[GameObject] = None) -> None:
         """"You may tap or untap target permanent." (Derevi, Empyrial
         Tactician — MEC-42) — a genuine two-way choice layered on top of
         RULE 115's own target (unlike `TapEffect`'s plain ``untap`` bool,
@@ -1547,7 +1534,7 @@ class MiscSystemsMixin:
         rather than reusing that effect's target-only optionality.
         """
         self._pending_tap_or_untap_target_id = target.instance_id
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "tap_or_untap",
             "player_id": getattr(source, "controller_id", None) or self.state.active_player.id,
             "prompt": f"{target.name} tappen oder enttappen?",
@@ -1556,14 +1543,11 @@ class MiscSystemsMixin:
                 {"id": "untap", "label": "Enttappen"},
                 {"id": "decline", "label": "Nichts tun"},
             ],
-        }
-    def resolve_tap_or_untap_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("tap_or_untap", answer=continuations.ANSWER_STR, rule="701.26")
+    def _resume_tap_or_untap(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `tap_or_untap` choice — ``"tap"``/``"untap"``
         do the obvious thing; anything else (a decline) does nothing."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "tap_or_untap":
-            raise ValueError("no pending tap-or-untap choice to resolve")
-        self.state.pending_choice = None
         target_id = self._pending_tap_or_untap_target_id
         self._pending_tap_or_untap_target_id = None
         if answer not in ("tap", "untap") or target_id is None:
@@ -1597,7 +1581,7 @@ class MiscSystemsMixin:
         else:
             prompt = f"{obj.name}: mit ihr im Friedhof statt in der Hand beginnen?"
             accept_label = "In den Friedhof legen"
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "opening_hand_battlefield",
             "player_id": player.id,
             "prompt": prompt,
@@ -1605,8 +1589,13 @@ class MiscSystemsMixin:
                 {"id": permission.destination, "label": accept_label},
                 {"id": "decline", "label": "In der Hand behalten"},
             ],
-        }
-    def resolve_opening_hand_battlefield_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice(
+        "opening_hand_battlefield",
+        answer=continuations.ANSWER_STR,
+        rule="103.6",
+    )
+    def _resume_opening_hand_battlefield(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `opening_hand_battlefield` `pending_choice`
         (RULE 103.6). Accepting — ``answer`` equal to the permission's own
         `PregameSetupPermission.destination`, "battlefield" or "graveyard"
@@ -1624,10 +1613,6 @@ class MiscSystemsMixin:
         card is exiled is the player's choice (RULE 601.2c); nothing
         happens if the hand is already empty. Anything else (including the
         card having somehow already left hand) leaves it untouched."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "opening_hand_battlefield":
-            raise ValueError("no pending opening-hand-battlefield choice to resolve")
-        self.state.pending_choice = None
         obj = self._pending_opening_hand_obj
         self._pending_opening_hand_obj = None
         if obj is None:
@@ -1659,7 +1644,7 @@ class MiscSystemsMixin:
         if permission.cost_kind == "lose_life":
             self.lose_life(player, permission.cost_amount, cause="cost")
         elif permission.cost_kind == "exile_hand_card":
-            self.request_choose_objects(
+            self._request_choose_objects(
                 player, list(player.hand), "exile", count=1,
                 prompt="Wähle eine Karte aus deiner Hand zum Exilieren",
             )
@@ -1695,7 +1680,7 @@ class MiscSystemsMixin:
         zero-ambiguity case (where it still resolves and returns
         immediately, same as before) — if a RULE 616.1 choice opens instead,
         this returns an empty list right away and the actual tokens are
-        created later, once `resolve_replacement_order_choice` finishes the
+        created later, once `_resume_replacement_order` finishes the
         chain. A token's own `enter_as_copy_effects` choice (below) can pause
         the very same way, for the very same reason.
 
@@ -1766,7 +1751,7 @@ class MiscSystemsMixin:
                     # copies" with a *second* legal target at creation time)
                     # still finishes this whole loop synchronously; a real
                     # choice instead stashes `_continuation` and resumes it
-                    # from `resolve_enter_as_copy_choice`, at which point the
+                    # from `_resume_enter_as_copy`, at which point the
                     # remaining tokens in this batch (if any) are built.
                     self._offer_enter_as_copy(token, _continuation)
                 else:
@@ -2296,7 +2281,7 @@ class MiscSystemsMixin:
             self.move_venture_marker(player, rooms[0].name)
             return
         # RULE 701.49b: "if there are multiple arrows … they choose one".
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "venture_room",
             "player_id": player.id,
             "prompt": f"{dungeon.name}: welchen Raum betrittst du?",
@@ -2304,16 +2289,13 @@ class MiscSystemsMixin:
                 {"id": room.name, "label": f"{room.name} — {room.effect_text}"}
                 for room in rooms
             ],
-        }
-    def resolve_venture_room_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("venture_room", answer=continuations.ANSWER_STR, rule="701.49")
+    def _resume_venture_room(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending RULE 701.49b room choice. Mandatory (the marker
         has to move somewhere), so an unrecognized/missing answer takes the
         first arrow rather than staying put."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "venture_room":
-            raise ValueError("no pending venture-room choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         names = [opt["id"] for opt in choice["options"]]
         self.move_venture_marker(player, answer if answer in names else names[0])
     def _enter_new_dungeon(self, player: Player, dungeon_name: Optional[str] = None) -> None:
@@ -2335,20 +2317,17 @@ class MiscSystemsMixin:
         if len(pool) == 1:
             self._put_dungeon_into_command_zone(player, pool[0])
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "choose_dungeon",
             "player_id": player.id,
             "prompt": "In welchen Dungeon begibst du dich?",
             "options": [{"id": d.name, "label": d.name} for d in pool],
-        }
-    def resolve_choose_dungeon_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("choose_dungeon", answer=continuations.ANSWER_STR, rule="309.2")
+    def _resume_choose_dungeon(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending RULE 309.2a dungeon choice — mandatory, so an
         unrecognized/missing answer takes the first offered dungeon."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "choose_dungeon":
-            raise ValueError("no pending dungeon choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         names = [opt["id"] for opt in choice["options"]]
         chosen = answer if answer in names else names[0]
         dungeon = dungeons.dungeon_by_name(chosen)
@@ -2533,12 +2512,12 @@ class MiscSystemsMixin:
         card, they create a 1/1 white Human Soldier creature token.
 
         The "which card to discard" is a `recruit` `pending_choice`
-        (`resolve_recruit_choice`) whenever the hand has 2+ cards after the
+        (`_resume_recruit`) whenever the hand has 2+ cards after the
         draw; one card → discarded with no choice, an empty hand → the
         discard simply doesn't happen (RULE 701.70a is "discard a card", not
         "you may"). The nonland check + token are `_recruit_discard`.
         Deliberately its own small primitive rather than reusing
-        `request_choose_objects`'s ``connive`` machinery — the payoff is a
+        `_request_choose_objects`'s ``connive`` machinery — the payoff is a
         token, not a counter on a source, and this shape (draw, then a
         mandatory conditional discard) is the same `explore_bin`/`bolster`
         idiom the other PAR-29 keyword actions use.
@@ -2549,7 +2528,7 @@ class MiscSystemsMixin:
         if len(player.hand) == 1:
             self._recruit_discard(player, player.hand[0])
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "recruit",
             "player_id": player.id,
             "prompt": "Rekrutieren: welche Karte abwerfen?",
@@ -2557,7 +2536,7 @@ class MiscSystemsMixin:
                 {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
                 for o in player.hand
             ],
-        }
+        })
     def _recruit_discard(self, player: Player, card: GameObject) -> None:
         """The discard + conditional token half of `recruit` (RULE
         701.70a). ``is_land`` is read before the move — a card-type property
@@ -2573,14 +2552,11 @@ class MiscSystemsMixin:
                 subtypes=["Human", "Soldier"],
             )
             self.create_token(player.id, token, 1)
-    def resolve_recruit_choice(self, instance_id: Optional[int]) -> None:
+    @continuations.choice("recruit", answer=continuations.ANSWER_INT, rule="701.70")
+    def _resume_recruit(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
         """Answer a pending `recruit` discard choice. A missing/unknown answer
         defaults to the first card — RULE 701.70a's discard is mandatory."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "recruit":
-            raise ValueError("no pending recruit choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         offered = [opt["instance_id"] for opt in choice["options"]]
         chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
         card = next(
@@ -2603,14 +2579,14 @@ class MiscSystemsMixin:
         catalogue` already makes for Karn's -2, `entries_010.py`), so Learn
         collapses to its other, fully-modelable half: an optional
         discard-a-card-then-draw-a-card, driven straight through
-        `request_choose_objects`'s existing ``optional`` + ``then_specs``
+        `_request_choose_objects`'s existing ``optional`` + ``then_specs``
         machinery (a real discard fires the draw; a decline does nothing).
         An empty hand → nothing happens (nothing to discard, and the Lesson
         branch is gone).
         """
         if not player.hand:
             return
-        self.request_choose_objects(
+        self._request_choose_objects(
             player, list(player.hand), "discard", count=1, optional=True,
             prompt="Lernen — eine Karte abwerfen, dann eine Karte ziehen?",
             source=source,
@@ -2811,7 +2787,7 @@ class MiscSystemsMixin:
         N/N white Spirit creature token.
 
         A genuine modal choice (`endure` `pending_choice`,
-        `resolve_endure_choice`) — but only when the counters branch is
+        `_resume_endure`) — but only when the counters branch is
         actually possible: if ``permanent`` has left the battlefield or isn't
         a creature, only the token is available (RULE 608.2b), so it resolves
         without asking. Counters go on through `add_counters` so RULE 122.5
@@ -2835,7 +2811,7 @@ class MiscSystemsMixin:
         if not counters_possible:
             self._endure_make_token(player, amount)
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "endure",
             "player_id": player.id,
             "amount": amount,
@@ -2845,15 +2821,17 @@ class MiscSystemsMixin:
                 {"id": "counters", "label": f"{amount} +1/+1-Marken auf {permanent.name}"},
                 {"id": "token", "label": f"{amount}/{amount} weißer Geist-Token"},
             ],
-        }
-    def resolve_endure_choice(self, to_token: bool = False) -> None:
+        })
+    @continuations.choice(
+        "endure",
+        answer=continuations.ANSWER_FLAG,
+        yes="token",
+        rule="701.63",
+    )
+    def _resume_endure(self, choice: dict[str, Any], to_token: bool = False) -> None:
         """Answer a pending `endure` choice. A missing/unknown answer defaults
         to the counters branch (the permanent is still there — RULE 701.63a
         has no "you may", one of the two must happen)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "endure":
-            raise ValueError("no pending endure choice to resolve")
-        self.state.pending_choice = None
         player = self.state.player_by_id(choice["player_id"])
         amount = int(choice["amount"])
         perm = self._object_by_instance_id(choice.get("permanent_id"))
@@ -3064,7 +3042,7 @@ class MiscSystemsMixin:
                 EventType.TOOK_INITIATIVE, player_id=player.id, controller_id=player.id
             )
         )
-    #: The closed vocabulary `request_choose_objects` accepts, mapping each
+    #: The closed vocabulary `_request_choose_objects` accepts, mapping each
     #: action name to what it does to a chosen object. Deliberately small
     #: and data-only: the whole choice (candidates, action, how many are
     #: left) lives in `GameState.pending_choice`, so it survives the
@@ -3114,7 +3092,7 @@ class MiscSystemsMixin:
             # Protection/Rune of Protection): nothing happens to the chosen
             # permanent either — it opens a `prevent_damage_to_player`/
             # `_to_target`-shaped shield scoped to it, via the choice's own
-            # ``prevent_shield`` payload (`request_choose_objects`'s own
+            # ``prevent_shield`` payload (`_request_choose_objects`'s own
             # docstring).
             "remember_source",
             # MEC-30 (RULE 616.1c "that damage is dealt to `<X>` instead" —
@@ -3187,7 +3165,7 @@ class MiscSystemsMixin:
             "destroy",
         }
     )
-    def request_choose_objects(
+    def _request_choose_objects(
         self,
         player: Player,
         candidates: list[GameObject],
@@ -3218,7 +3196,7 @@ class MiscSystemsMixin:
         Vault's and Thassa's Oracle's library reordering. Each of those used
         to auto-pick the first legal candidate.
 
-        Offered one object at a time (`resolve_choose_objects_choice`
+        Offered one object at a time (`_resume_choose_objects`
         re-opens until ``count`` are picked or the pool runs dry), exactly
         like a library search — same UI shape, same undo granularity.
         ``optional`` adds a decline option ("you **may** return…"); a
@@ -3328,7 +3306,7 @@ class MiscSystemsMixin:
                 source, then_specs, then_specs_if_commander, commander_taken
             )
             return
-        self.state.pending_choice = self._choose_objects_choice(
+        self.open_choice(self._choose_objects_choice(
             player, pool, action, count, optional, prompt,
             source_id=source.instance_id if source is not None else None,
             picked=[], then_specs=then_specs,
@@ -3339,7 +3317,7 @@ class MiscSystemsMixin:
             control_recipient_id=control_recipient_id,
             rest_ids=rest_ids, rest_destination=rest_destination,
             decline_leaves_untouched=decline_leaves_untouched,
-        )
+        ))
     def _apply_choose_objects_tail(
         self,
         source: Optional[GameObject],
@@ -3403,13 +3381,13 @@ class MiscSystemsMixin:
             "else_specs": [dict(spec) for spec in (else_specs or [])],
             # MEC-30: the shield `_apply_chosen_object` opens once a source
             # is picked (``action="remember_source"`` only) — see
-            # `request_choose_objects`'s own docstring.
+            # `_request_choose_objects`'s own docstring.
             "prevent_shield": dict(prevent_shield) if prevent_shield else None,
             # MEC-30: `redirect_shield`'s own sibling — see
-            # `request_choose_objects`'s own docstring.
+            # `_request_choose_objects`'s own docstring.
             "redirect_shield": dict(redirect_shield) if redirect_shield else None,
             # PAR-30: `action="gain_control_for"`'s own recipient payload —
-            # see `request_choose_objects`'s own docstring.
+            # see `_request_choose_objects`'s own docstring.
             "control_recipient_id": control_recipient_id,
             "then_specs_if_commander": [
                 dict(spec) for spec in (then_specs_if_commander or [])
@@ -3419,28 +3397,26 @@ class MiscSystemsMixin:
             "commander_taken": False,
             # MEC-17: whether this pick should also be remembered onto
             # ``source`` (`GameObject.linked_exile_id`) — see
-            # `request_choose_objects`'s own docstring.
+            # `_request_choose_objects`'s own docstring.
             "remember": remember,
             # MEC-12: whether every ``"exile"`` pick should accumulate onto
             # ``source`` (`GameObject.exiled_with_ids`) — see
-            # `request_choose_objects`'s own docstring.
+            # `_request_choose_objects`'s own docstring.
             "track_exiled_with": track_exiled_with,
             # MEC-43 (RULE 701.47, connive): whether an ``action="discard"``
             # pick should also check the discarded card's own ``is_land``
             # and place a +1/+1 counter on ``source`` — see
-            # `request_choose_objects`'s own docstring.
+            # `_request_choose_objects`'s own docstring.
             "connive": connive,
             "rest_ids": list(rest_ids) if rest_ids else None,
             "rest_destination": rest_destination,
             "decline_leaves_untouched": decline_leaves_untouched,
         }
-    def resolve_choose_objects_choice(self, instance_id: Optional[int]) -> None:
+    @continuations.choice("choose_objects", answer=continuations.ANSWER_INT, rule="601.2b")
+    def _resume_choose_objects(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
         """Answer a pending `choose_objects` decision: apply the action to
         the chosen object, then re-ask while picks remain (or stop on a
         decline — RULE 601.2c's "up to"/"may" shape)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "choose_objects":
-            raise ValueError("no pending object choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
         picked: list[int] = list(choice["picked"])
         offered = {o["instance_id"] for o in choice["options"] if "instance_id" in o}
@@ -3507,7 +3483,7 @@ class MiscSystemsMixin:
             decline_leaves_untouched=bool(choice.get("decline_leaves_untouched")),
         )
         next_choice["commander_taken"] = commander_taken
-        self.state.pending_choice = next_choice
+        self.open_choice(next_choice)
     def _choose_objects_pool(
         self, choice: dict[str, Any], picked: list[int]
     ) -> list[GameObject]:
@@ -3761,7 +3737,7 @@ class MiscSystemsMixin:
                 continuous.recompute(self.state)
         elif action == "gain_control_for" and control_recipient_id is not None:
             # PAR-30 (Cultural Exchange): control moves to a *third*
-            # player, not the chooser — see `request_choose_objects`'s own
+            # player, not the chooser — see `_request_choose_objects`'s own
             # docstring for ``control_recipient_id``.
             if obj.controller_id != control_recipient_id:
                 obj.controller_id = control_recipient_id
@@ -3825,7 +3801,7 @@ class MiscSystemsMixin:
         Finally fires `EventType.RING_TEMPTED` (for "whenever the Ring
         tempts you, `<effect>`" triggers) once ``ring_bearer_id`` is
         settled — immediately for the 0/1-candidate paths here, or from
-        `resolve_ring_bearer_choice` once the interactive pick resolves, so
+        `_resume_ring_bearer` once the interactive pick resolves, so
         a trigger reading "if you chose a creature other than ~" always
         sees the final bearer.
         """
@@ -3841,7 +3817,7 @@ class MiscSystemsMixin:
             player.ring_bearer_id = candidates[0].instance_id
             self.state.fire_event(GameEvent(EventType.RING_TEMPTED, player_id=player.id))
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "ring_bearer",
             "player_id": player.id,
             "prompt": "Wähle eine Kreatur als deinen Ringträger (RULE 701.52a).",
@@ -3853,21 +3829,22 @@ class MiscSystemsMixin:
                 }
                 for obj in candidates
             ],
-        }
-    def resolve_ring_bearer_choice(self, instance_id: int) -> None:
+        })
+    @continuations.choice(
+        "ring_bearer",
+        answer=continuations.ANSWER_INT_REQUIRED,
+        rule="701.52",
+    )
+    def _resume_ring_bearer(self, choice: dict[str, Any], instance_id: int) -> None:
         """Answer a pending `ring_bearer` choice (RULE 701.52a).
 
         Not optional — the choice only ever opens when the player controls
         2+ creatures, and RULE 701.52a makes choosing mandatory then.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "ring_bearer":
-            raise ValueError("no pending Ring-bearer choice to resolve")
         allowed = {o["instance_id"] for o in choice["options"]}
         if instance_id not in allowed:
             raise ValueError(f"{instance_id} is not a legal Ring-bearer")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         if player is not None:
             player.ring_bearer_id = instance_id
             # `the_ring_tempts_you`'s own RING_TEMPTED firing is deferred to
@@ -4021,9 +3998,9 @@ class MiscSystemsMixin:
         if not optional and len(options) == 1:
             item.targets = [self._target_from_descriptor(options[0])]
             return
-        self.state.pending_choice = self._change_target_choice(
+        self.open_choice(self._change_target_choice(
             source.controller_id, item.stack_id, options, optional
-        )
+        ))
     def _target_from_descriptor(self, descriptor: dict[str, Any]) -> Any:
         """A `targeting.legal_targets` descriptor, resolved back to the
         live `GameObject`/`Player` it names."""
@@ -4060,18 +4037,15 @@ class MiscSystemsMixin:
             "prompt": "Neues Ziel wählen",
             "options": choice_options,
         }
-    def resolve_change_target_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("change_target", answer=continuations.ANSWER_STR, rule="115.4")
+    def _resume_change_target(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `change_target` choice (RULE 115.4/601.2c).
 
         ``answer`` is the chosen new target's option id, same shape as
-        `resolve_trigger_target_choice`; a decline (only offered when
+        `_resume_trigger_target`; a decline (only offered when
         `ChangeTargetEffect.optional` was set) leaves the spell's existing
         target untouched.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "change_target":
-            raise ValueError("no pending change-target choice to resolve")
-        self.state.pending_choice = None
         if answer is None or answer == "decline":
             return
         item = next(
@@ -4393,7 +4367,7 @@ class MiscSystemsMixin:
         ``unless_pays`` cost this is a plain `counter_spell`. Otherwise it's
         RULE 601's "Mana Leak" template: if the target's controller *can*
         pay ``unless_pays``, this opens an interactive `counter_unless_pays`
-        `pending_choice` for them (`resolve_counter_unless_pays_choice`
+        `pending_choice` for them (`_resume_counter_unless_pays`
         finishes it); a controller who genuinely cannot pay has no real
         decision, so the spell is simply countered without pausing — this is
         also what keeps a passive goldfish-dummy opponent (who never holds
@@ -4409,7 +4383,7 @@ class MiscSystemsMixin:
         ``on_pay_effect_specs`` (Assimilate Essence — "…unless its
         controller pays {4}. If they do, you incubate 2.") are serialized
         `EffectSpec` dicts applied *only* on the branch where the target's
-        controller pays, from `resolve_counter_unless_pays_choice` — stashed
+        controller pays, from `_resume_counter_unless_pays` — stashed
         alongside the other `_pending_counter_*` fields. Inert on every
         branch that ends in a `counter_spell` (they didn't pay).
         """
@@ -4436,7 +4410,7 @@ class MiscSystemsMixin:
         self._pending_counter_suspend = suspend_time_counters
         self._pending_counter_on_pay_specs = list(on_pay_effect_specs or [])
         self._pending_counter_on_pay_source = source
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "counter_unless_pays",
             "player_id": controller.id,
             "prompt": f"{obj.name}: {unless_pays} zahlen, um es vor dem Countern zu bewahren?",
@@ -4444,8 +4418,9 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{unless_pays} zahlen"},
                 {"id": "decline", "label": "Nicht zahlen"},
             ],
-        }
-    def resolve_counter_unless_pays_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("counter_unless_pays", answer=continuations.ANSWER_STR, rule="118.3")
+    def _resume_counter_unless_pays(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `counter_unless_pays` choice (RULE 601).
 
         ``answer == "pay"`` deducts the cost from the target spell's
@@ -4454,10 +4429,6 @@ class MiscSystemsMixin:
         Essence's "If they do, you incubate 2."); anything else (``None``/
         ``"decline"``) counters it and the on-pay effects never fire.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "counter_unless_pays":
-            raise ValueError("no pending counter-unless-pays choice to resolve")
-        self.state.pending_choice = None
         target = self._pending_counter_target
         cost = self._pending_counter_cost
         suspend_time_counters = getattr(self, "_pending_counter_suspend", None)
@@ -4626,7 +4597,7 @@ class MiscSystemsMixin:
         self._pending_ward_caster_id = caster_id
         self._pending_ward_cost = cost
         cost_label = cost.label()
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "ward",
             "player_id": caster.id,
             "prompt": f"Ward {cost_label} — zahlen, um deinen Zauberspruch/deine Fähigkeit zu "
@@ -4635,7 +4606,7 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{cost_label} zahlen"},
                 {"id": "decline", "label": "Nicht zahlen"},
             ],
-        }
+        })
     def _can_pay_player_cost(self, player: Player, cost: ActivationCost) -> bool:
         """Whether ``player`` can pay ``cost`` out of their own resources.
 
@@ -4723,9 +4694,9 @@ class MiscSystemsMixin:
         """Pay a `sacrifice_or_discard` cost component — the payer's own
         choice of *which* half (Tergrid's Lantern, MEC-43 round 4E). Forced
         (no prompt) when only one half is actually available, the same
-        "asking would be theatre" idiom `request_choose_objects` uses; with
+        "asking would be theatre" idiom `_request_choose_objects` uses; with
         both available, opens the small dedicated `sacrifice_or_discard`
-        choice below, then `resolve_sacrifice_or_discard_choice` dispatches
+        choice below, then `_resume_sacrifice_or_discard` dispatches
         into the existing interactive `sacrifice`/`discard_choice`
         machinery (each already its own "which one" chooser)."""
         can_sacrifice = any(
@@ -4734,7 +4705,7 @@ class MiscSystemsMixin:
         )
         can_discard = bool(player.hand)
         if can_sacrifice and can_discard:
-            self.state.pending_choice = {
+            self.open_choice({
                 "kind": "sacrifice_or_discard",
                 "player_id": player.id,
                 "prompt": "Eine bleibende Karte opfern oder eine Karte abwerfen?",
@@ -4742,22 +4713,23 @@ class MiscSystemsMixin:
                     {"id": "sacrifice", "label": "Bleibende Karte opfern"},
                     {"id": "discard", "label": "Karte abwerfen"},
                 ],
-            }
+            })
             return
         if can_sacrifice:
             self.sacrifice(player, "nonland", 1)
         elif can_discard:
             self.discard_choice(player, 1)
-    def resolve_sacrifice_or_discard_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice(
+        "sacrifice_or_discard",
+        answer=continuations.ANSWER_STR,
+        rule="701.21",
+    )
+    def _resume_sacrifice_or_discard(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `sacrifice_or_discard` choice — ``"sacrifice"``
         opens the interactive "which permanent" chooser, ``"discard"`` the
         interactive "which card" one; anything else re-checks both halves
         defensively (the board can have changed since the offer was made)
         rather than silently paying nothing."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "sacrifice_or_discard":
-            raise ValueError("no pending sacrifice-or-discard choice to resolve")
-        self.state.pending_choice = None
         player = self.state.player_by_id(choice["player_id"])
         if answer == "discard":
             self.discard_choice(player, 1)
@@ -4765,7 +4737,8 @@ class MiscSystemsMixin:
             self.sacrifice(player, "nonland", 1)
         else:
             self._pay_sacrifice_or_discard(player)
-    def resolve_ward_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("ward", answer=continuations.ANSWER_STR, rule="702.21")
+    def _resume_ward(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `ward` choice (RULE 702.21).
 
         ``answer == "pay"`` charges the *caster* the cost and leaves the
@@ -4775,10 +4748,6 @@ class MiscSystemsMixin:
         becomes the new top of the stack and resolves next through the
         ordinary stack loop — no extra bookkeeping needed here.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "ward":
-            raise ValueError("no pending ward choice to resolve")
-        self.state.pending_choice = None
         item = self._pending_ward_item
         cost = self._pending_ward_cost
         caster_id = self._pending_ward_caster_id
@@ -4951,7 +4920,7 @@ class MiscSystemsMixin:
     def choose_protector(self, obj: GameObject, player_id: Optional[str]) -> None:
         """Set ``obj``'s protector (RULE 310.8a), validated against its battle
         type. An unrecognized/missing ``player_id`` falls back to the first
-        eligible player — the same treatment `resolve_enter_choice` gives a
+        eligible player — the same treatment `_resume_choose_creature_type` gives a
         missing answer to a mandatory choice, so a battle is never left
         without one (which RULE 310.10 would then punish with a graveyard
         move)."""

@@ -434,7 +434,7 @@ def test_bounce_land_etb_trigger_offers_only_the_controllers_own_lands():
     assert bounce.instance_id in ids
 
     option = next(o for o in choice["options"] if o["instance_id"] == my_other_land.instance_id)
-    engine.resolve_trigger_target_choice(option["id"])
+    engine.resolve_choice(option["id"])
     engine.resolve_top_of_stack()
 
     assert my_other_land in p1.hand
@@ -690,7 +690,7 @@ def test_deathrite_shaman_end_to_end_from_real_oracle_text():
     assert dead_land.zone == Zone.EXILE
     choice = state.pending_choice
     assert choice["kind"] == "add_mana_any_color"
-    engine.rules.resolve_add_mana_any_color_choice("G")
+    engine.rules.resolve_choice("G")
     assert p1.mana_pool.pool["G"] == 1
 
     deathrite.tapped = False  # simulate untapping for the next ability in this test
@@ -734,7 +734,7 @@ def test_unrestricted_tutor_moves_the_chosen_card_to_hand_and_shuffles():
 
     choice = state.pending_choice
     assert choice["kind"] == "search"
-    engine.resolve_search_choice(wanted.instance_id)
+    engine.resolve_choice(wanted.instance_id)
 
     assert wanted in p1.hand
     assert state.pending_choice is None
@@ -761,7 +761,7 @@ def test_basic_land_fetch_activated_ability_recognized_by_the_oracle_parser():
     choice = state.pending_choice
     assert choice["kind"] == "search"
     opt = choice["eligible"][0]
-    engine.resolve_search_choice(opt["instance_id"])
+    engine.resolve_choice(opt["instance_id"])
 
     fetched = next(o for o in state.battlefield if o.name == "Plains")
     assert fetched.tapped is True
@@ -802,7 +802,7 @@ def test_add_mana_any_color_opens_an_interactive_choice():
     assert choice["player_id"] == "p1"
     assert {opt["id"] for opt in choice["options"]} == {"W", "U", "B", "R", "G"}
 
-    engine.resolve_add_mana_any_color_choice("R")
+    engine.resolve_choice("R")
 
     assert state.pending_choice is None
     assert p1.mana_pool.pool["R"] == 1
@@ -816,7 +816,7 @@ def test_add_mana_any_color_missing_answer_defaults_to_white():
 
     engine.cast_spell(p1, spell)
     engine.resolve_top_of_stack()
-    engine.resolve_add_mana_any_color_choice(None)
+    engine.resolve_choice(None)
 
     assert p1.mana_pool.pool["W"] == 1
 
@@ -850,7 +850,7 @@ def test_etb_self_attach_only_offers_the_controllers_own_creatures_and_attaches(
     assert opp_bear.instance_id not in ids  # controller-restricted
 
     option = next(o for o in choice["options"] if o["instance_id"] == my_bear.instance_id)
-    engine.resolve_trigger_target_choice(option["id"])
+    engine.resolve_choice(option["id"])
     engine.resolve_top_of_stack()
 
     assert equip.attached_to == my_bear.instance_id

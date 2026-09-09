@@ -520,7 +520,7 @@ class StateBasedActionsMixin:
                 for obj in player.zones[zone]:
                     if obj.commander_zone_choice_pending:
                         obj.commander_zone_choice_pending = False
-                        self.state.pending_choice = self._commander_zone_choice(obj, zone)
+                        self.open_choice(self._commander_zone_choice(obj, zone))
                         return True
         return False
     def _remove_stranded_tokens(self) -> bool:

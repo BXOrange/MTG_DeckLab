@@ -707,7 +707,7 @@ def _eventides_shadow() -> list[AbilitySpec]:
 
     Authored: new bespoke `RemoveCountersFromAmongThenDrawLoseLifeEffect`
     ("remove_counters_from_among_then_draw_lose_life") — an ``optional``
-    `request_choose_objects` over counter-bearing permanents
+    `_request_choose_objects` over counter-bearing permanents
     (action ``strip_all_counters``), then a draw + life-loss equal to the
     battlefield counter-total delta.
     """

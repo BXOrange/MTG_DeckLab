@@ -143,7 +143,7 @@ class PregameSetupPermission:
     "if you do" consequence — never a payable cost that could make the
     player reconsider): ``None``/``"lose_life"`` (an amount off `RulesEngine
     .lose_life`) or ``"exile_hand_card"`` (a card the player chooses,
-    `RulesEngine.request_choose_objects`'s ``"exile"`` action — nothing
+    `RulesEngine._request_choose_objects`'s ``"exile"`` action — nothing
     happens if the hand is empty, same as any "if you do" with nothing left
     to do).
     """

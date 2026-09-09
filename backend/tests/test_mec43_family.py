@@ -136,7 +136,7 @@ def test_natural_order_sacrifices_green_creature_and_finds_one():
     choice = state.pending_choice
     assert choice is not None and choice.get("kind") == "search"
     picked = choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(picked)
+    eng.rules.resolve_choice(picked)
     assert any(o.name == "Library Green" for o in state.battlefield)
 
 
@@ -201,7 +201,7 @@ def test_magda_sacrifice_five_treasures_finds_artifact_or_dragon():
     eng.resolve_until_stable()
     if state.pending_choice and state.pending_choice.get("kind") == "search":
         picked = state.pending_choice["eligible"][0]["instance_id"]
-        eng.rules.resolve_search_choice(picked)
+        eng.rules.resolve_choice(picked)
 
     treasures_left = [o for o in state.battlefield if o.name == "Treasure"]
     assert len(treasures_left) == 0

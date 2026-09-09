@@ -54,7 +54,7 @@ def test_doomsday_stacks_five_chosen_cards_exiles_the_rest_and_halves_life():
         lib_by_name[name] for name in ("Lib0", "Lib1", "Lib2", "Lib3")
     ]
     for instance_id in order:
-        eng.rules.resolve_search_choice(instance_id)
+        eng.rules.resolve_choice(instance_id)
     eng.resolve_until_stable()  # drains the deferred lose_life (RULE 608.2m)
 
     assert eng.state.pending_choice is None
@@ -87,7 +87,7 @@ def test_doomsday_leaves_no_pending_choice_when_fewer_than_five_cards_exist():
     eng.resolve_until_stable()
 
     assert eng.state.pending_choice is not None
-    eng.rules.resolve_search_choice(only.instance_id)
+    eng.rules.resolve_choice(only.instance_id)
     eng.resolve_until_stable()
 
     assert eng.state.pending_choice is None  # nothing left to search for

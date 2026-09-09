@@ -471,7 +471,7 @@ def test_phyrexian_metamorph_enters_as_a_copy_and_gains_artifact_type():
     # Interactive "enter as a copy" choice — answer it directly if opened.
     choice = state.pending_choice
     if choice is not None and choice.get("kind") == "enter_as_copy":
-        eng.rules.resolve_enter_as_copy_choice(str(bear_obj.instance_id))
+        eng.rules.resolve_choice(str(bear_obj.instance_id))
 
     resolved = next(o for o in state.battlefield if o.instance_id == meta_obj.instance_id)
     assert resolved.name == "MetaBear"
@@ -552,7 +552,7 @@ def test_grinding_station_may_untap_when_an_artifact_enters():
     # An optional "you may" trigger — resolve it if it opened a choice.
     choice = state.pending_choice
     if choice is not None and choice.get("kind") == "trigger_target":
-        eng.rules.resolve_trigger_target_choice("do")
+        eng.rules.resolve_choice("do")
         eng.resolve_until_stable()
 
     assert station_obj.tapped is False
@@ -624,7 +624,7 @@ def test_winds_of_abandon_exiles_and_opponent_searches_for_a_basic_land():
     assert victim_obj.zone == Zone.EXILE
     choice = state.pending_choice
     if choice is not None and choice.get("kind") == "search":
-        eng.rules.resolve_search_choice(p2_lib_obj.instance_id)
+        eng.rules.resolve_choice(p2_lib_obj.instance_id)
     assert p2_lib_obj.zone == Zone.BATTLEFIELD
     assert p2_lib_obj.tapped is True
 

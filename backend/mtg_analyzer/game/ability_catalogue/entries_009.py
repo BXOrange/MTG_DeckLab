@@ -1006,10 +1006,10 @@ def _intuition() -> list[AbilitySpec]:
     opponent chooses one. Put that card into your hand and the rest into
     your graveyard. Then shuffle.
 
-    — Vivi B4 batch. `IntuitionEffect`/`RulesEngine.request_intuition` —
+    — Vivi B4 batch. `IntuitionEffect`/`RulesEngine._request_intuition` —
     a genuinely two-player interactive search (the caster picks the three
     cards, then the *targeted opponent* picks which one is kept), self-
-    contained rather than composed from `request_search` (whose single
+    contained rather than composed from `_request_search` (whose single
     ``destination`` has no way to hand off to a second player's choice).
     """
     return [
@@ -1289,7 +1289,7 @@ def _scheming_fence() -> list[AbilitySpec]:
     ``"chosen_permanent"`` `continuous.group_selector_objects` case (the
     `attached_permanent` idiom, reading a chosen id instead of an
     attachment), and a new `ChoosePermanentEffect`/``"choose_permanent"``
-    `RulesEngine.request_choose_objects` action to make the pick (an
+    `RulesEngine._request_choose_objects` action to make the pick (an
     ordinary interactive ETB trigger, not a pre-entry RULE 601.2b
     replacement like `chosen_type`/`chosen_color` — see `GameObject.
     chosen_permanent_id`'s own docstring for why the "as it enters" wording

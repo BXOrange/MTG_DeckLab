@@ -80,7 +80,7 @@ def test_wyleth_draws_a_card_per_attached_aura_and_equipment():
     eng.declare_attackers(state.active_player, [wyleth])
     eng.resolve_until_stable()
     if state.pending_choice and state.pending_choice.get("kind") == "search":
-        eng.rules.resolve_search_choice(None)  # decline Sword of the Animist's land tutor
+        eng.rules.resolve_choice(None)  # decline Sword of the Animist's land tutor
         eng.resolve_until_stable()
 
     assert len(state.active_player.hand) - before == 2
@@ -145,7 +145,7 @@ def test_relic_seeker_renown_fires_the_search_for_equipment():
     # opens the actual library-search choice.
     assert state.pending_choice is not None
     assert state.pending_choice.get("kind") == "trigger_target"
-    eng.rules.resolve_trigger_target_choice("do")
+    eng.rules.resolve_choice("do")
     eng.resolve_until_stable()
     assert state.pending_choice is not None
     assert state.pending_choice.get("kind") == "search"
@@ -255,7 +255,7 @@ def test_sunforger_unattaches_itself_and_free_casts_a_found_instant():
     assert choice is not None and choice["kind"] == "search"
     assert choice["destination"] == "cast_free"
     found = next(o for o in choice["options"] if o.get("instance_id"))
-    eng.rules.resolve_search_choice(found["instance_id"])
+    eng.rules.resolve_choice(found["instance_id"])
 
     assert any(
         getattr(item.obj, "name", None) == "Swords to Plowshares" for item in state.stack

@@ -424,7 +424,7 @@ class AbilitySpec:
     #: (`game/rules_engine.py`'s `_place_triggers`/`resolve_trigger_mode_
     #: choice` — one mode picked per round, already-picked ones excluded
     #: from the next offer, mirroring the existing library-search
-    #: `_search_choice`/`resolve_search_choice` "pick up to N one at a time"
+    #: `_search_choice`/`_resume_search` "pick up to N one at a time"
     #: pattern, plus a "done" option once ``choose`` are picked when
     #: ``at_least``) — the same "choice made before the target/optional
     #: choice" ordering RULE 601.2c already uses for a spell's own mode.

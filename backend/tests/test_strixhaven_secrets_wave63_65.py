@@ -74,7 +74,7 @@ def test_promise_of_loyalty_each_player_keeps_one_creature():
         pc = eng.state.pending_choice
         if pc and pc.get("kind") == "choose_objects":
             opts = [o for o in pc.get("options", []) if o.get("id") != "decline"]
-            eng.rules.resolve_choose_objects_choice(
+            eng.rules.resolve_choice(
                 opts[0]["instance_id"] if opts else None)
         else:
             break
@@ -83,7 +83,7 @@ def test_promise_of_loyalty_each_player_keeps_one_creature():
         pc = eng.state.pending_choice
         if pc and pc.get("kind") == "choose_objects":
             opts = [o for o in pc.get("options", []) if o.get("id") != "decline"]
-            eng.rules.resolve_choose_objects_choice(
+            eng.rules.resolve_choice(
                 opts[0]["instance_id"] if opts else None)
         else:
             break

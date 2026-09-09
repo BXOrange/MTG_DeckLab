@@ -51,9 +51,9 @@ def events_of(eng):
 def test_put_onto_battlefield_does_not_use_the_stack_or_fire_cast():
     eng, p1 = engine_with_library([spell("Bear", 2)])
     seen = events_of(eng)
-    eng.rules.request_search(p1, "Creature", "battlefield")
+    eng.rules._request_search(p1, "Creature", "battlefield")
     chosen = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(chosen)
+    eng.rules.resolve_choice(chosen)
 
     types = [e.type for e in seen]
     assert EventType.ENTERS_BATTLEFIELD in types
@@ -93,13 +93,13 @@ def test_cascade_exiles_until_a_cheaper_nonland_then_offers_a_free_cast():
     eng, p1 = engine_with_library(lib)
     small = next(o for o in p1.library if o.name == "Small")
 
-    eng.rules.request_cascade(p1, max_mana_value=4)  # hits mana value <= 3
+    eng.rules._request_cascade(p1, max_mana_value=4)  # hits mana value <= 3
     choice = eng.state.pending_choice
     assert choice["kind"] == "cascade"
     assert [e["name"] for e in choice["eligible"]] == ["Small"]
     assert len(p1.exile) == 3  # Land, Big, Small revealed
 
-    eng.rules.resolve_cascade_choice(cast=True)  # cast it for free
+    eng.rules.resolve_choice("cast")  # cast it for free
     eng.resolve_until_stable()
     assert small in eng.state.battlefield
     # The non-hits went to the bottom; nothing is left in exile.
@@ -111,8 +111,8 @@ def test_cascade_exiles_until_a_cheaper_nonland_then_offers_a_free_cast():
 def test_cascade_declined_bottoms_the_hit_too():
     lib = [land("Filler"), spell("Small", 2), land("TopLand")]
     eng, p1 = engine_with_library(lib)
-    eng.rules.request_cascade(p1, max_mana_value=4)
-    eng.rules.resolve_cascade_choice(cast=False)  # decline the free cast
+    eng.rules._request_cascade(p1, max_mana_value=4)
+    eng.rules.resolve_choice("decline")  # decline the free cast
     assert eng.state.pending_choice is None
     assert not eng.state.stack
     assert not p1.exile
@@ -121,7 +121,7 @@ def test_cascade_declined_bottoms_the_hit_too():
 
 def test_cascade_with_no_hit_bottoms_everything_no_choice():
     eng, p1 = engine_with_library([land("A"), land("B")])
-    eng.rules.request_cascade(p1, max_mana_value=4)  # only lands — no hit
+    eng.rules._request_cascade(p1, max_mana_value=4)  # only lands — no hit
     assert eng.state.pending_choice is None
     assert not p1.exile
     assert len(p1.library) == 2  # all put back on the bottom
@@ -134,9 +134,9 @@ def test_discover_can_cast_the_hit_for_free():
     lib = [land("Filler"), spell("Small", 3), land("TopLand")]
     eng, p1 = engine_with_library(lib)
     small = next(o for o in p1.library if o.name == "Small")
-    eng.rules.request_discover(p1, max_mana_value=3)  # mana value <= 3
+    eng.rules._request_discover(p1, max_mana_value=3)  # mana value <= 3
     assert eng.state.pending_choice["kind"] == "discover"
-    eng.rules.resolve_discover_choice(to_hand=False)  # cast
+    eng.rules.resolve_choice("cast")  # cast
     eng.resolve_until_stable()
     assert small in eng.state.battlefield
     assert not p1.exile
@@ -145,8 +145,8 @@ def test_discover_can_cast_the_hit_for_free():
 def test_discover_declined_puts_the_hit_into_hand():
     lib = [land("Filler"), spell("Small", 3), land("TopLand")]
     eng, p1 = engine_with_library(lib)
-    eng.rules.request_discover(p1, max_mana_value=3)
-    eng.rules.resolve_discover_choice(to_hand=True)  # "put it into your hand"
+    eng.rules._request_discover(p1, max_mana_value=3)
+    eng.rules.resolve_choice("hand")  # "put it into your hand"
     assert any(o.name == "Small" for o in p1.hand)
     assert not eng.state.stack
     assert not p1.exile
@@ -174,7 +174,7 @@ def test_engine_resolve_pending_choice_routes_cascade():
     lib = [land("Filler"), spell("Small", 2), land("TopLand")]
     eng, p1 = engine_with_library(lib)
     small = next(o for o in p1.library if o.name == "Small")
-    eng.rules.request_cascade(p1, max_mana_value=4)
+    eng.rules._request_cascade(p1, max_mana_value=4)
     eng.resolve_pending_choice("cast")  # option id, through the kind dispatch
     assert eng.state.pending_choice is None
     assert small in eng.state.battlefield
@@ -186,7 +186,7 @@ def test_engine_resolve_pending_choice_routes_cascade():
 def test_cascade_offers_a_yes_no_option_pair():
     lib = [land("Filler"), spell("Small", 2), land("TopLand")]
     eng, p1 = engine_with_library(lib)
-    eng.rules.request_cascade(p1, max_mana_value=4)
+    eng.rules._request_cascade(p1, max_mana_value=4)
     ids = [o["id"] for o in eng.state.pending_choice["options"]]
     assert ids == ["cast", "decline"]
     assert eng.state.pending_choice["prompt"]
@@ -195,7 +195,7 @@ def test_cascade_offers_a_yes_no_option_pair():
 def test_discover_offers_two_positive_options_not_a_decline():
     lib = [land("Filler"), spell("Small", 3), land("TopLand")]
     eng, p1 = engine_with_library(lib)
-    eng.rules.request_discover(p1, max_mana_value=3)
+    eng.rules._request_discover(p1, max_mana_value=3)
     choice = eng.state.pending_choice
     assert [o["id"] for o in choice["options"]] == ["cast", "hand"]
     assert choice["optional"] is False  # never "nothing"
@@ -205,13 +205,13 @@ def test_engine_dispatch_discover_to_hand_and_cast():
     # to_hand path
     lib = [land("Filler"), spell("Small", 3), land("TopLand")]
     eng, p1 = engine_with_library(lib)
-    eng.rules.request_discover(p1, max_mana_value=3)
+    eng.rules._request_discover(p1, max_mana_value=3)
     eng.resolve_pending_choice("hand")
     assert any(o.name == "Small" for o in p1.hand)
 
     # cast path (fresh game)
     eng2, p2 = engine_with_library(lib)
     small2 = next(o for o in p2.library if o.name == "Small")
-    eng2.rules.request_discover(p2, max_mana_value=3)
+    eng2.rules._request_discover(p2, max_mana_value=3)
     eng2.resolve_pending_choice("cast")
     assert small2 in eng2.state.battlefield

@@ -604,7 +604,7 @@ def test_choosing_a_no_target_mode_places_and_resolves_immediately():
 
     eng.rules.pending_triggers = [(_modal_etb_trigger(source), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_mode_choice("0")
+    eng.rules.resolve_choice("0")
 
     assert eng.state.pending_choice is None
     assert len(eng.state.stack) == 1
@@ -620,7 +620,7 @@ def test_choosing_a_targeted_mode_opens_the_target_choice_next():
 
     eng.rules.pending_triggers = [(_modal_etb_trigger(source), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_mode_choice("1")
+    eng.rules.resolve_choice("1")
 
     assert not eng.state.stack  # still awaiting the target
     choice = eng.state.pending_choice
@@ -628,7 +628,7 @@ def test_choosing_a_targeted_mode_opens_the_target_choice_next():
     victim_option = next(o for o in choice["options"] if o["instance_id"] == victim.instance_id)
     assert source.instance_id not in {o.get("instance_id") for o in choice["options"]}
 
-    eng.rules.resolve_trigger_target_choice(victim_option["id"])
+    eng.rules.resolve_choice(victim_option["id"])
     assert len(eng.state.stack) == 1
     assert eng.state.stack[0].targets == [victim]
     eng.resolve_until_stable()
@@ -647,7 +647,7 @@ def test_missing_mode_answer_defaults_to_the_first_mode():
 
     eng.rules.pending_triggers = [(_modal_etb_trigger(source), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_mode_choice(None)
+    eng.rules.resolve_choice(None)
 
     eng.resolve_until_stable()
     assert p1.life == life_before + 3  # mode 0, the first option
@@ -666,7 +666,7 @@ def test_or_both_offers_a_combined_both_choice():
     choice = eng.state.pending_choice
     assert {o["id"] for o in choice["options"]} == {"0", "1", "both"}
 
-    eng.rules.resolve_trigger_mode_choice("both")
+    eng.rules.resolve_choice("both")
     # Neither mode needs a target — "both" places and resolves immediately,
     # applying both modes' effects together (RULE 700.2e).
     assert eng.state.pending_choice is None
@@ -686,7 +686,7 @@ def test_choosing_one_mode_of_an_or_both_ability_applies_only_that_one():
 
     eng.rules.pending_triggers = [(_modal_etb_trigger_or_both(source), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_mode_choice("0")
+    eng.rules.resolve_choice("0")
 
     eng.resolve_until_stable()
     assert p1.life == life_before + 3
@@ -719,7 +719,7 @@ def test_modal_triggered_ability_end_to_end_from_oracle_text():
 
     choice = eng.state.pending_choice
     assert choice is not None and choice["kind"] == "trigger_mode"
-    eng.rules.resolve_trigger_mode_choice("0")
+    eng.rules.resolve_choice("0")
     eng.resolve_until_stable()
     assert p1.life == life_before + 3
     assert obj in eng.state.battlefield

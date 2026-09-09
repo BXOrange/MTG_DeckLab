@@ -31,7 +31,10 @@ from ..models.mana.mana_cost import ManaCost
 from ..models.game.player import Player
 from ..parser.oracle.catalogue.keywords import parse_keywords
 from ..parser.oracle.catalogue.saga import all_chapter_numbers
-from . import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from . import (
+    ability_catalogue, combat, continuations, continuous, copy_mechanics,
+    dungeons, face_down, variants,
+)
 from .combat import is_protected_from
 from .costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from .mana_abilities import restriction_predicate_for_cast
@@ -226,7 +229,7 @@ class RulesEngine(
         #: (2+ *different* targeting effects on one trigger, RULE 115.1) —
         #: every spec (`_trigger_target_specs`) and the groups gathered for
         #: it so far, one at a time; see `_continue_trigger_multi_target`/
-        #: `resolve_trigger_target_multi_choice`.
+        #: `_resume_trigger_target_multi`.
         self._pending_trigger_specs: list[TargetSpec] = []
         self._pending_trigger_groups: list[list[Any]] = []
         #: How those specs map back onto the *original* requirements when one
@@ -241,21 +244,21 @@ class RulesEngine(
         #: Backing state for a `pay_cost_then` `pending_choice` — the
         #: general "you may pay <cost>. If you do, <effect>." optional
         #: payment (Mana Vault's upkeep untap, Wandering Archaic's per-
-        #: opponent {2}); see `request_pay_cost_then`/
-        #: `resolve_pay_cost_then_choice`.
+        #: opponent {2}); see `_request_pay_cost_then`/
+        #: `_resume_pay_cost_then`.
         self._pending_pay_cost_then: Optional[dict[str, Any]] = None
         #: Backing state for an optional "exile this card. If you do, …"
         #: resolution.  Unlike an activation cost the source can already be
         #: in a graveyard when this is offered (Greenwarden of Murasa), so it
         #: deliberately has its own zone-aware primitive.
         self._pending_exile_source_then: Optional[dict[str, Any]] = None
-        #: Backing state for a `request_each_player_pay_or` mass sweep
+        #: Backing state for a `_request_each_player_pay_or` mass sweep
         #: (PAR-13's "each player loses N life unless they `<pay cost>`" —
         #: Bellowing Mauler/Lim-Dûl's Hex/Tomb of Annihilation's own two
         #: dungeon rooms): the still-to-ask player ids, chained one
         #: `pay_cost_then` choice at a time; see `_advance_each_player_pay_or`.
         self._pending_each_player_pay_or: Optional[dict[str, Any]] = None
-        #: Backing state for a `request_all_players_decline_or` mass sweep
+        #: Backing state for a `_request_all_players_decline_or` mass sweep
         #: (Rhystic Circle's "Any player may pay {1}. If no one does,
         #: `<effect>`." — RULE 118.3-adjacent, MEC-30): the still-to-ask
         #: player ids, chained one `all_decline_or` choice at a time — the
@@ -263,29 +266,29 @@ class RulesEngine(
         #: above (that one applies its effect once **per decliner**; this
         #: one applies it once, only if **every** player declined, and the
         #: first player to actually pay cancels the whole sweep with no
-        #: effect at all). See `request_all_players_decline_or`/
-        #: `_advance_all_decline_or`/`resolve_all_decline_or_choice`.
+        #: effect at all). See `_request_all_players_decline_or`/
+        #: `_advance_all_decline_or`/`_resume_all_decline_or`.
         self._pending_all_decline_or: Optional[dict[str, Any]] = None
-        #: Backing state for a `request_vote` APNAP sweep (RULE 701.38 —
+        #: Backing state for a `_request_vote` APNAP sweep (RULE 701.38 —
         #: "starting with you, each player votes for `<A>` or `<B>`."): the
         #: still-to-ask player ids, the running per-option tally, and the
         #: serialized outcome specs (a `majority` winner/tie branch, or a
         #: `per_vote` set of magnitude-scaled effect lists). Chained one
         #: `vote` choice at a time, the same shape as
-        #: `_pending_all_decline_or`. See `request_vote`/`_advance_vote`/
-        #: `resolve_vote_choice`/`_tally_and_apply_vote`.
+        #: `_pending_all_decline_or`. See `_request_vote`/`_advance_vote`/
+        #: `_resume_vote`/`_tally_and_apply_vote`.
         self._pending_vote: Optional[dict[str, Any]] = None
-        #: MEC-46: backing state for a `request_object_vote` APNAP sweep
+        #: MEC-46: backing state for a `_request_object_vote` APNAP sweep
         #: (RULE 701.38 — "each player votes for a nonland permanent you
         #: don't control" / "…a card in your graveyard", then "exile /
         #: return each `<object>` with the most votes or tied for most
         #: votes"): the still-to-ask player ids, the candidate object ids,
         #: a per-object-id tally, and the outcome verb. Chained one
         #: `vote_object` choice at a time, the tally-over-objects sibling of
-        #: `_pending_vote`. See `request_object_vote`/`_advance_object_vote`/
-        #: `resolve_object_vote_choice`/`_tally_and_apply_object_vote`.
+        #: `_pending_vote`. See `_request_object_vote`/`_advance_object_vote`/
+        #: `_resume_vote_object`/`_tally_and_apply_object_vote`.
         self._pending_object_vote: Optional[dict[str, Any]] = None
-        #: Backing state for a `request_villainous_choice` APNAP sweep (RULE
+        #: Backing state for a `_request_villainous_choice` APNAP sweep (RULE
         #: 701.55 — "`<player>` faces a villainous choice — `<A>`, or
         #: `<B>`."): a FIFO ``rounds`` queue of ``{facing_id, option_a,
         #: option_b, labels, captured}`` dicts plus the ``current`` one
@@ -295,30 +298,30 @@ class RulesEngine(
         #: builds one round per id sharing the option bodies; MEC-52's
         #: per-target form (Hunted by The Family) queues distinct bodies /
         #: RULE 608.2 referents per round. Chained one `villainous_choice`
-        #: choice at a time. See `request_villainous_choice`/
-        #: `_advance_villainous_choice`/`resolve_villainous_choice`.
+        #: choice at a time. See `_request_villainous_choice`/
+        #: `_advance_villainous_choice`/`_resume_villainous_choice`.
         self._pending_villainous: Optional[dict[str, Any]] = None
         #: Backing state for a `name_card` `pending_choice` (Demonic
         #: Consultation's "choose a card name") — the follow-up effects the
-        #: chosen name gets substituted into; see `request_name_card`/
-        #: `resolve_name_card_choice`.
+        #: chosen name gets substituted into; see `_request_name_card`/
+        #: `_resume_name_card`.
         self._pending_name_card: Optional[dict[str, Any]] = None
         #: Backing state for an `impulsive_look` `pending_choice` whose clause
         #: carries an else-branch ("If you don't put a card onto the
         #: battlefield this way, <body>." — The Joiner of Cats): the source
         #: object + serialized `EffectSpec` dicts, kept off `state.pending_
         #: choice` (non-serializable), the same split `_pending_name_card`
-        #: uses. See `request_impulsive_look`/`resolve_impulsive_look_choice`.
+        #: uses. See `_request_impulsive_look`/`_resume_impulsive_look`.
         self._pending_impulsive_look: Optional[dict[str, Any]] = None
         #: Backing state for a `pay_energy_then` `pending_choice` (Aether
         #: Chaser-shaped "you may pay {E}{E}. If you do, …") — see
-        #: `request_pay_energy_then`/`resolve_pay_energy_then_choice`.
+        #: `_request_pay_energy_then`/`_resume_pay_energy_then`.
         self._pending_pay_energy: Optional[dict[str, Any]] = None
         #: A replacement chain awaiting an interactive `replacement_order`
         #: choice (RULE 616.1e/f — 2+ simultaneously-applicable replacement
         #: effects), and the continuation to resume once it's answered.
         #: Populated only while that choice is pending; see
-        #: `apply_replacements`/`resolve_replacement_order_choice`.
+        #: `apply_replacements`/`_resume_replacement_order`.
         self._pending_replacement_event: Optional[GameEvent] = None
         self._pending_replacement_applied: set[int] = set()
         self._pending_replacement_applicable: list[ReplacementEffect] = []
@@ -329,7 +332,7 @@ class RulesEngine(
         #: 614.1c/614.12), its `EnterAsCopyReplacement`, and the battlefield-
         #: entry continuation to resume once it's answered — populated only
         #: while that choice is pending; see `_offer_enter_as_copy`/
-        #: `resolve_enter_as_copy_choice`.
+        #: `_resume_enter_as_copy`.
         self._pending_enter_as_copy_obj: Optional[GameObject] = None
         self._pending_enter_as_copy_effect: Optional[Any] = None
         self._pending_enter_as_copy_continuation: Optional[Callable[[], None]] = None
@@ -339,7 +342,7 @@ class RulesEngine(
         #: to resume once it's answered (which may itself open the *next*
         #: queued choice, if the card has more than one) — populated only
         #: while that choice is pending; see `_offer_enter_choices`/
-        #: `resolve_enter_choice`.
+        #: `_resume_choose_creature_type`.
         self._pending_enter_choice_obj: Optional[GameObject] = None
         self._pending_enter_choice_effect: Optional[Any] = None
         self._pending_enter_choice_continuation: Optional[Callable[[], None]] = None
@@ -347,7 +350,7 @@ class RulesEngine(
         #: Pact) awaiting a "take it or keep digging" answer, its owner, and
         #: the growing "names seen this resolution" set to resume with —
         #: populated only while that choice is pending; see
-        #: `resolve_tainted_pact_choice`.
+        #: `_resume_tainted_pact`.
         self._pending_tainted_pact_obj: Optional[GameObject] = None
         self._pending_tainted_pact_player: Optional[Player] = None
         self._pending_tainted_pact_seen: Optional[set] = None
@@ -370,21 +373,21 @@ class RulesEngine(
         #: populated only while that choice is pending, ahead of every other
         #: entry choice (if it's declined, none of them matter — the object
         #: never becomes a permanent at all); see `_offer_enter_or_graveyard`/
-        #: `resolve_enter_or_graveyard_choice`.
+        #: `_resume_enter_or_graveyard`.
         self._pending_enter_or_graveyard_obj: Optional[GameObject] = None
         self._pending_enter_or_graveyard_continuation: Optional[Callable[[], None]] = None
         #: The battle currently awaiting its RULE 310.8a/310.11a "choose a
         #: player to protect it" pick, and the battlefield-entry
         #: continuation to resume once it's answered — populated only while
         #: that choice is pending; see `_offer_protector_choice`/
-        #: `resolve_protector_choice`.
+        #: `_resume_choose_protector`.
         self._pending_protector_obj: Optional[GameObject] = None
         self._pending_protector_continuation: Optional[Callable[[], None]] = None
         #: A Saga with Read Ahead (RULE 702.155/714.3b) awaiting its "choose a
         #: number from 1 to this Saga's final chapter number" pick, and the
         #: battlefield-entry continuation to resume once it's answered —
         #: populated only while that choice is pending; see
-        #: `_offer_read_ahead`/`resolve_read_ahead_choice`. The chosen count
+        #: `_offer_read_ahead`/`_resume_read_ahead`. The chosen count
         #: itself is stashed separately (`_pending_read_ahead_count`) since it
         #: must survive past the continuation into `_resolve_permanent_spell`'s
         #: `_finish`, which passes it to `GameState.add_to_battlefield` as
@@ -398,7 +401,7 @@ class RulesEngine(
         #: "counter target spell unless its controller pays …"), and the
         #: resolved `ManaCost` it would take to save it — populated only
         #: while that choice is pending; see `counter_unless_pays`/
-        #: `resolve_counter_unless_pays_choice`.
+        #: `_resume_counter_unless_pays`.
         self._pending_counter_target: Any = None
         self._pending_counter_cost: Optional[ManaCost] = None
         #: RULE 702.21 (ward): the item awaiting a `ward` pay-or-be-countered
@@ -410,23 +413,23 @@ class RulesEngine(
         #: `counter_unless_pays` — multiple simultaneous wards need no queue
         #: here: the stack itself sequences them one resolution at a time
         #: (RULE 702.21c). Populated only while a ward choice is pending;
-        #: see `resolve_ward_effect`/`resolve_ward_choice`.
+        #: see `resolve_ward_effect`/`_resume_ward`.
         #: The "sacrifice ~ unless you pay `<cost>`" choice currently awaiting
-        #: an answer (`request_sacrifice_unless_pay`/
-        #: `resolve_sacrifice_unless_pay_choice`) — the permanent at stake,
+        #: an answer (`_request_sacrifice_unless_pay`/
+        #: `_resume_sacrifice_unless_pay`) — the permanent at stake,
         #: whose controller is being asked, and the `ActivationCost`. Only one
         #: can be pending at a time (like every other `pending_choice`); a
         #: second upkeep trigger simply waits its turn on the stack.
         self._pending_sacrifice_unless_pay: Optional[dict[str, Any]] = None
         #: The "destroy ~ unless you pay `<cost>`" choice currently awaiting
-        #: an answer (`request_destroy_unless_pay`/
-        #: `resolve_destroy_unless_pay_choice`) — the RULE 701.16 real-
+        #: an answer (`_request_destroy_unless_pay`/
+        #: `_resume_destroy_unless_pay`) — the RULE 701.16 real-
         #: destruction sibling of `_pending_sacrifice_unless_pay` above (a
         #: regeneration shield can still save this one).
         self._pending_destroy_unless_pay: Optional[dict[str, Any]] = None
         #: RULE 103.6: the opening-hand card awaiting a "begin the game
         #: somewhere else" answer (`offer_opening_hand_battlefield_choice`/
-        #: `resolve_opening_hand_battlefield_choice` — battlefield or
+        #: `_resume_opening_hand_battlefield` — battlefield or
         #: graveyard, per its own `PregameSetupPermission.destination`) —
         #: only one can be pending at a time, same as every other
         #: `pending_choice`.
@@ -439,7 +442,7 @@ class RulesEngine(
         #: counters from target permanent"), and how many are still left to
         #: remove once the amount is settled and a per-kind choice is
         #: underway — populated only while one of those choices is pending;
-        #: see `request_remove_counters_choice`/`_continue_remove_counters`.
+        #: see `_request_remove_counters_choice`/`_continue_remove_counters`.
         self._pending_remove_counters_target: Optional[Union[GameObject, Player]] = None
         self._pending_remove_counters_remaining: int = 0
         # Tally spells cast this turn for the RULE 731.2 day/night check —
@@ -469,6 +472,72 @@ class RulesEngine(
         # Consume a "when you next cast a spell matching X this turn, …"
         # watcher (Dual Strike-shaped) — see `GameState.spell_watchers`.
         state.subscribe(self._check_spell_watchers)
+    def open_choice(self, choice: dict[str, Any]) -> None:
+        """ENG-35: suspend and ask. The other half of `resolve_choice`.
+
+        Every ``pending_choice`` is opened through here so that one
+        invariant holds by construction: **a choice may only be asked if
+        something can answer it.** Scroll Rack (MEC-43 round 4F) shipped
+        without that invariant — it opened a ``"scroll_rack"`` choice that
+        the old ``if kind == …`` cascade had no branch for, so the answer
+        fell through to the *search* resolver and raised. The board could
+        reach a state no input could leave. Only a test calling the private
+        resolver directly kept that off anyone's radar.
+
+        Raising here rather than at answer time is deliberate: it fails at
+        the point the bug actually is (the ask), while the state is still
+        recoverable, instead of stranding a live game on an unanswerable
+        prompt.
+        """
+        kind = choice.get("kind")
+        if kind not in continuations.CHOICE_HANDLERS:
+            raise ValueError(
+                f"refusing to open an unanswerable choice: no continuation "
+                f"registered for kind {kind!r} (see game/continuations.py)"
+            )
+        self.state.pending_choice = choice
+
+    def resolve_choice(self, answer: Any = None) -> None:
+        """ENG-35: answer the open choice and resume. **The** continuation.
+
+        This is the general "ask the player and resume" `14_` §3 found
+        missing — the reason 97 of this class's 254 public methods were
+        `request_*`/`resolve_*_choice` pairs, one hand-written syscall per
+        blocking question, dispatched by a 368-line ``if kind == …`` cascade.
+
+        ``answer`` is the chosen option's ``id`` as the client sends it (a
+        string), or ``None``/``"decline"`` to decline. The registered
+        `game/continuations.py` handler for the pending choice's ``kind``
+        says how to read it; `coerce_answer` does the reading, so a caller
+        never has to know whether a given kind wants an int, a string or a
+        yes/no flag.
+
+        Three things happen here that used to be repeated in every resolver:
+        the pending choice is **claimed** (checked, then cleared *before* the
+        handler runs, so a handler that re-opens a choice — a multi-pick
+        loop, a two-stage search — simply opens a fresh one), the answer is
+        **coerced**, and an unknown kind **fails closed**. It deliberately
+        does *not* resolve the stack afterwards: `GameEngine.resolve_pending_
+        choice` is the client-facing entry point and owns that step, so the
+        rules-level primitive stays a single step the way every other
+        `RulesEngine` method is.
+        """
+        choice = self.state.pending_choice
+        if not choice:
+            raise ValueError("no pending choice to resolve")
+        kind = choice.get("kind")
+        handler = continuations.CHOICE_HANDLERS.get(kind)
+        if handler is None:
+            # Fail closed rather than guessing. The old cascade's ``else``
+            # branch sent every unrecognized kind to the *search* resolver,
+            # which is how ``"scroll_rack"`` came to be unanswerable in a
+            # live game (MEC-43 round 4F opened the choice; nothing could
+            # answer it). `tests/test_continuations.py` now asserts the
+            # registry covers every kind the engine can open.
+            raise ValueError(f"no continuation registered for choice kind {kind!r}")
+        self.state.pending_choice = None
+        handler.func(self, choice, continuations.coerce_answer(handler, answer))
+
     @staticmethod
     def mana_cost_of(card: Card) -> ManaCost:
         """The structured cost of a card.
@@ -520,7 +589,7 @@ class RulesEngine(
         ``replacement_order`` `pending_choice` and returns ``None``
         immediately *without* calling it yet — `resolve_replacement_order_
         choice` finishes the chain later (mirroring `put_triggers_on_
-        stack`/`resolve_trigger_order_choice`'s RULE 603.3b pause/resume)
+        stack`/`_resume_order_triggers`'s RULE 603.3b pause/resume)
         and invokes ``on_resolved`` with the final event once it settles.
         A choice already pending (e.g. a second ambiguous damage event
         resolving in the same synchronous combat-damage batch) isn't a
@@ -567,7 +636,7 @@ class RulesEngine(
                 self._pending_replacement_applied = applied
                 self._pending_replacement_applicable = applicable
                 self._pending_replacement_callback = on_resolved
-                self.state.pending_choice = self._replacement_order_choice(current, applicable)
+                self.open_choice(self._replacement_order_choice(current, applicable))
                 return None
             chosen = applicable[0]
             applied.add(id(chosen))
@@ -612,9 +681,12 @@ class RulesEngine(
             "prompt": "Reihenfolge der Ersetzungseffekte wählen",
             "options": options,
         }
-    def resolve_replacement_order_choice(self, index: Optional[int]) -> None:
+    @continuations.choice("replacement_order", answer=continuations.ANSWER_INT, rule="616.1")
+    def _resume_replacement_order(
+        self, choice: dict[str, Any], index: Optional[int]
+    ) -> None:
         """Apply the chosen replacement next, then resume the chain (RULE
-        616.1e/f) — mirrors `resolve_trigger_order_choice`'s pattern.
+        616.1e/f) — mirrors `_resume_order_triggers`'s pattern.
 
         ``index`` selects one of the still-applicable effects by its option
         id; missing/out-of-range defaults to the first. Re-opens a fresh
@@ -624,7 +696,6 @@ class RulesEngine(
         """
         callback = self._pending_replacement_callback
         if callback is None:
-            self.state.pending_choice = None
             return
         applicable = self._pending_replacement_applicable
         event = self._pending_replacement_event
@@ -633,7 +704,6 @@ class RulesEngine(
         self._pending_replacement_applicable = []
         self._pending_replacement_applied = set()
         self._pending_replacement_callback = None
-        self.state.pending_choice = None
 
         if index is None or not 0 <= index < len(applicable):
             index = 0

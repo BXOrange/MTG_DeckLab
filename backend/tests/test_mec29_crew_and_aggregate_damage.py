@@ -199,7 +199,7 @@ def test_balthier_and_fran_grants_extra_combat_when_its_own_crewed_vehicle_attac
 
     assert eng.state.pending_choice is not None
     assert eng.state.pending_choice["kind"] == "pay_cost_then"
-    eng.rules.resolve_pay_cost_then_choice("pay")
+    eng.rules.resolve_choice("pay")
     eng.resolve_until_stable()
     assert eng.state.pending_extra_combats == [False]
 

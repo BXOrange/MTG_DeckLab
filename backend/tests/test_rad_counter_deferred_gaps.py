@@ -321,7 +321,7 @@ def test_harold_and_bob_dies_returns_as_an_aura_attached_to_a_forest():
     assert choice["kind"] == "trigger_target"
     forest_option = next(o for o in choice["options"] if o["instance_id"] == forest.instance_id)
 
-    eng.rules.resolve_trigger_target_choice(forest_option["id"])
+    eng.rules.resolve_choice(forest_option["id"])
     assert eng.state.pending_choice is None
     eng.resolve_until_stable()
 
@@ -341,7 +341,7 @@ def test_harold_and_bobs_granted_mana_ability_produces_three_mana_and_two_rad_co
     eng.rules.put_triggers_on_stack()
     choice = eng.state.pending_choice
     forest_option = next(o for o in choice["options"] if o["instance_id"] == forest.instance_id)
-    eng.rules.resolve_trigger_target_choice(forest_option["id"])
+    eng.rules.resolve_choice(forest_option["id"])
     eng.resolve_until_stable()
 
     p1 = eng.state.player_by_id("p1")
@@ -681,7 +681,7 @@ def test_ghoul_gunslinger_own_death_grants_rad_counters_and_a_treasure_when_self
     p1 = eng.state.player_by_id("p1")
     p1_option = next(o for o in choice["options"] if o.get("id") == "p1" or o.get("instance_id") == "p1")
 
-    eng.rules.resolve_trigger_target_choice(p1_option["id"])
+    eng.rules.resolve_choice(p1_option["id"])
     eng.resolve_until_stable()
 
     assert p1.counters.get("rad", 0) == 2
@@ -699,7 +699,7 @@ def test_ghoul_gunslinger_targeting_an_opponent_grants_no_treasure():
     choice = eng.state.pending_choice
     p2_option = next(o for o in choice["options"] if o.get("id") == "p2" or o.get("instance_id") == "p2")
 
-    eng.rules.resolve_trigger_target_choice(p2_option["id"])
+    eng.rules.resolve_choice(p2_option["id"])
     eng.resolve_until_stable()
 
     p2 = eng.state.player_by_id("p2")

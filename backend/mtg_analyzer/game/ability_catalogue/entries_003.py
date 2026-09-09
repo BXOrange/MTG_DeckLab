@@ -303,7 +303,7 @@ def _archivist_of_oghma() -> list[AbilitySpec]:
     and draw a card.
 
     — Archivist of Oghma. Flash is a keyword, already covered by the
-    parser's keyword catalogue. `RulesEngine.request_search` already fires
+    parser's keyword catalogue. `RulesEngine._request_search` already fires
     ``EventType.LIBRARY_SEARCHED`` (``player_id``-keyed) for every search,
     real or fizzled (no eligible cards) — this batch added it to
     `effect_binder._GROUP_CONTROLLER_EVENT_KEYS` so the existing "group" +

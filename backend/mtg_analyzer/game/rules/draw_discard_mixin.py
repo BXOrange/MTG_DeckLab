@@ -73,6 +73,7 @@ from ..effects.core import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -197,7 +198,7 @@ class DrawDiscardMixin:
             # may" — offered here (the single-card path only; a multi-card
             # `draw()` is a documented simplification) as an interactive
             # `dredge` `pending_choice`. If it opens, the draw is deferred:
-            # `GameEngine.resolve_dredge_choice` either mills+returns the
+            # `GameEngine._resume_dredge` either mills+returns the
             # dredged card or falls back to `_single_draw`.
             if self._maybe_offer_dredge(player):
                 return
@@ -317,23 +318,20 @@ class DrawDiscardMixin:
             for o in candidates
         ]
         options.append({"id": "draw", "label": "Eine Karte ziehen"})
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "dredge",
             "player_id": player.id,
             "prompt": "Statt zu ziehen aufmahlen (Dredge)?",
             "options": options,
-        }
+        })
         return True
-    def resolve_dredge_choice(self, answer: Optional[Union[str, int]]) -> None:
+    @continuations.choice("dredge", answer=continuations.ANSWER_STR, rule="702.52")
+    def _resume_dredge(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a `dredge` `pending_choice` (RULE 702.52b): ``"draw"`` /
         ``None`` draws the deferred card normally; a card's instance id
         mills that card's N and, if it milled anything or not, returns the
         card from the graveyard to its owner's hand."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "dredge":
-            return
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         if answer in (None, "draw", "decline"):
             self._single_draw(player)
             return
@@ -495,7 +493,7 @@ class DrawDiscardMixin:
         """Interactive discard (RULE 701.8): ``player`` — the one discarding,
         not necessarily an effect's controller (Mind Rot targets an
         opponent) — picks which ``count`` cards leave their own hand,
-        through the same `request_choose_objects` chooser that replaced
+        through the same `_request_choose_objects` chooser that replaced
         "auto-pick the first candidate" for sacrifice/tap/bounce effects.
         Forced with no prompt when the hand has at most ``count`` cards left
         (a "discard your hand" effect, or `count` >= hand size) — nothing to
@@ -511,7 +509,7 @@ class DrawDiscardMixin:
         (never for a would-be discard against an empty hand), the same
         count `DiscardEffect`'s own ``count`` already asks for.
         """
-        self.request_choose_objects(
+        self._request_choose_objects(
             player, list(player.hand), "discard", count=count,
             prompt="Wähle eine Karte zum Abwerfen", source=source, then_specs=then_specs,
         )

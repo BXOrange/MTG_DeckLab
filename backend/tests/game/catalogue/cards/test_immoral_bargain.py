@@ -41,7 +41,7 @@ def test_destroy_choose_action_removes_the_pick():
     src.controller_id = "p1"
     eng.state.add_to_battlefield(src)
 
-    eng.rules.request_choose_objects(
+    eng.rules._request_choose_objects(
         eng.state.player_by_id("p1"), [victim], "destroy", count=1, source=src)
     eng.resolve_until_stable()
     assert victim not in eng.state.battlefield

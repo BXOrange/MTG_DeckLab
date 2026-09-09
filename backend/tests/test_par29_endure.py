@@ -16,7 +16,7 @@ existing `pay_cost_then_general` wrapper (MEC-18), widened to pass
 ``self_subject=True`` into its recursive follow-up parse so "it endures N"
 resolves as the ability's own source.
 
-Reference: game/rules/misc_mixin.py (`endure` / `resolve_endure_choice`),
+Reference: game/rules/misc_mixin.py (`endure` / `_resume_endure`),
 game/effects/core.py (`EndureEffect`), parser/oracle/catalogue/handlers.py.
 """
 

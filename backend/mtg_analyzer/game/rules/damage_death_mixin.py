@@ -72,6 +72,7 @@ from ..effects.core import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -547,7 +548,7 @@ class DamageDeathMixin:
         call and can't pause for a chooser — see `GameEngine._pay_activation_
         cost`'s own ``sacrifice_choice``).
 
-        A real interactive choice via `request_choose_objects` (RULE 601.2c-
+        A real interactive choice via `_request_choose_objects` (RULE 601.2c-
         style) rather than an auto-pick: with ``count`` >= however many
         candidates exist there's nothing to decide (every one is taken, same
         as before), but a defending player facing Annihilator on a board
@@ -570,7 +571,7 @@ class DamageDeathMixin:
         ]
         if count == "all_but_one":
             count = max(0, len(candidates) - 1)
-        self.request_choose_objects(
+        self._request_choose_objects(
             player, candidates, "sacrifice", count=count,
             prompt="Wähle eine bleibende Karte zum Opfern",
         )
@@ -679,7 +680,7 @@ class DamageDeathMixin:
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.HAND)
         if obj.is_commander:
-            self.state.pending_choice = self._commander_zone_choice(obj, Zone.HAND)
+            self.open_choice(self._commander_zone_choice(obj, Zone.HAND))
     def return_to_library(self, obj: GameObject, position: str = "top") -> None:
         """Put ``obj`` on top (default) or the bottom of its owner's library
         (RULE 701.3's "put" — Time Ebb/Griptide/Roil Spout-shaped tempo
@@ -713,7 +714,7 @@ class DamageDeathMixin:
         else:
             owner.add_to_zone(obj, Zone.LIBRARY)  # top (index -1)
         if obj.is_commander:
-            self.state.pending_choice = self._commander_zone_choice(obj, Zone.LIBRARY)
+            self.open_choice(self._commander_zone_choice(obj, Zone.LIBRARY))
     def shuffle_into_library(self, obj: GameObject) -> None:
         """Move ``obj`` into its owner's library, then shuffle (RULE 701.20 —
         Green Sun's Zenith's own trailing "Shuffle ~ into its owner's
@@ -1912,17 +1913,14 @@ class DamageDeathMixin:
                 {"id": "decline", "label": f"{stay_prefix} {label} bleiben"},
             ],
         }
-    def resolve_commander_zone_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("commander_zone", answer=continuations.ANSWER_STR, rule="903.9")
+    def _resume_commander_zone(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending RULE 903.9a/9b `commander_zone` choice.
 
         ``"command"`` moves the commander into the command zone from
         whichever zone currently holds it; anything else (``None``/
         ``"decline"``) leaves it exactly where it already is.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "commander_zone":
-            raise ValueError("no pending commander-zone choice to resolve")
-        self.state.pending_choice = None
         if answer != "command":
             return
         obj = self.state.find_object(choice["instance_id"])

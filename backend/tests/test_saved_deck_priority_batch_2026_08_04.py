@@ -378,7 +378,7 @@ def test_blood_artist_fires_when_a_different_creature_dies():
     choice = state.pending_choice
     assert choice["kind"] == "trigger_target"
     option = next(o for o in choice["options"] if o["id"] == p2.id)
-    eng.rules.resolve_trigger_target_choice(option["id"])
+    eng.rules.resolve_choice(option["id"])
     eng.rules.resolve_top_of_stack()
 
     assert p2.life == p2_life_before - 1

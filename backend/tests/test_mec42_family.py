@@ -202,7 +202,7 @@ def test_derevi_etb_offers_tap_or_untap_choice():
 
     choice = state.pending_choice
     assert choice is not None and choice.get("kind") == "tap_or_untap"
-    eng.rules.resolve_tap_or_untap_choice("untap")
+    eng.rules.resolve_choice("untap")
     assert other.tapped is False
 
 
@@ -341,7 +341,7 @@ def test_praetors_grasp_searches_target_opponents_library_and_grants_standing_ca
     assert choice.get("player_id") == "p1"  # the CASTER answers
     assert choice.get("library_owner_id") == "p2"
     picked = state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(picked)
+    eng.rules.resolve_choice(picked)
 
     obj = state.find_object(picked)
     assert obj.zone == Zone.EXILE
@@ -448,7 +448,7 @@ def test_touch_the_spirit_realm_etb_exile_returns_when_it_leaves():
     _fire_etb(state, touch)
     eng.resolve_until_stable()
     if state.pending_choice:
-        eng.rules.resolve_trigger_target_choice(str(target.instance_id))
+        eng.rules.resolve_choice(str(target.instance_id))
         eng.resolve_until_stable()
 
     assert target.zone == Zone.EXILE
@@ -503,7 +503,7 @@ def test_tymna_postcombat_main_offers_pay_life_draw_x():
 
     choice = state.pending_choice
     assert choice is not None and choice.get("kind") == "pay_cost_then"
-    eng.rules.resolve_pay_cost_then_choice("pay")
+    eng.rules.resolve_choice("pay")
     eng.resolve_until_stable()
 
     assert p1.life == 29

@@ -354,7 +354,7 @@ def test_thassas_oracle_only_digs_when_the_library_is_bigger_than_devotion():
     # "Put **up to one** of them on top" is the player's choice now.
     choice = state.pending_choice
     assert choice["kind"] == "choose_objects"
-    engine.rules.resolve_choose_objects_choice(top_before.instance_id)
+    engine.rules.resolve_choice(top_before.instance_id)
     assert p1.library[-1] is top_before
 
 

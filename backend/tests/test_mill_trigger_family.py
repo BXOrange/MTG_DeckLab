@@ -185,7 +185,7 @@ def test_radroach_triggers_on_an_opponents_mill_and_may_return_to_hand():
     choice = eng.state.pending_choice
     assert choice["kind"] == "trigger_target"
 
-    eng.rules.resolve_trigger_target_choice("do")
+    eng.rules.resolve_choice("do")
     eng.resolve_until_stable()
 
     assert radroach.zone == Zone.HAND
@@ -200,7 +200,7 @@ def test_radroach_may_decline_and_stays_in_the_graveyard():
 
     eng.rules.mill(p2, 1)
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_target_choice("decline")
+    eng.rules.resolve_choice("decline")
     eng.resolve_until_stable()
 
     assert radroach.zone == Zone.GRAVEYARD
@@ -267,11 +267,11 @@ def test_mothman_places_one_counter_trigger_per_nonland_card_milled():
     choice = eng.state.pending_choice
     assert choice["kind"] == "trigger_target"
     bear1_opt = next(o for o in choice["options"] if o.get("instance_id") == bear1.instance_id)
-    eng.rules.resolve_trigger_target_choice(bear1_opt["id"])
+    eng.rules.resolve_choice(bear1_opt["id"])
 
     choice = eng.state.pending_choice
     assert any(o["id"] == "decline" for o in choice["options"])  # "up to one" is skippable
-    eng.rules.resolve_trigger_target_choice("decline")
+    eng.rules.resolve_choice("decline")
     eng.resolve_until_stable()
 
     assert bear1.counters.get("+1/+1", 0) == 1

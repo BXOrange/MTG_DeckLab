@@ -299,7 +299,7 @@ def test_leonin_relic_warder_exiles_then_returns_on_leaving():
         # Choose to exile the artifact.
         opt = next((o for o in choice.get("options", [])
                     if o.get("instance_id") == art_obj.instance_id), None)
-        eng.rules.resolve_trigger_target_choice(opt["id"] if opt else "do")
+        eng.rules.resolve_choice(opt["id"] if opt else "do")
         eng.resolve_until_stable()
 
     assert art_obj.zone == Zone.EXILE
@@ -358,7 +358,7 @@ def test_zealous_conscripts_steals_a_permanent_until_end_of_turn():
     if choice is not None and choice.get("kind") == "trigger_target":
         opt = next((o for o in choice.get("options", [])
                     if o.get("instance_id") == victim.instance_id), None)
-        eng.rules.resolve_trigger_target_choice(opt["id"] if opt else "do")
+        eng.rules.resolve_choice(opt["id"] if opt else "do")
         eng.resolve_until_stable()
 
     assert victim.controller_id == "p1"
@@ -542,7 +542,7 @@ def test_endurance_puts_a_graveyard_on_the_bottom_of_library():
     if choice is not None and choice.get("kind") == "trigger_target":
         opt = next((o for o in choice.get("options", [])
                     if o.get("player_id") == "p1" or o.get("id") == "p1"), None)
-        eng.rules.resolve_trigger_target_choice(opt["id"] if opt else "do")
+        eng.rules.resolve_choice(opt["id"] if opt else "do")
         eng.resolve_until_stable()
 
     assert len(p1.graveyard) == 0

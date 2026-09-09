@@ -209,7 +209,7 @@ def test_single_pass_priority_places_a_trigger_the_resolution_just_fired():
         "the trigger this resolution fired should already be placed (and "
         f"its own target choice opened), not stranded: {eng.rules.pending_triggers!r}"
     )
-    eng.rules.resolve_trigger_target_choice(str(knight.instance_id))
+    eng.rules.resolve_choice(str(knight.instance_id))
     eng.pass_priority()  # resolves the now-stacked triggered ability
     equip_obj = next(o for o in eng.state.battlefield if o.card.name == equip.card.name)
     assert equip_obj.attached_to == knight.instance_id
@@ -238,7 +238,7 @@ def test_interactive_pass_priority_places_a_trigger_the_resolution_just_fired():
     assert not eng.state.stack
     choice = eng.state.pending_choice
     assert choice is not None and choice.get("kind") == "trigger_target"
-    eng.rules.resolve_trigger_target_choice(str(knight.instance_id))
+    eng.rules.resolve_choice(str(knight.instance_id))
     eng.pass_priority(p1)
     eng.pass_priority(p2)  # resolves the now-stacked triggered ability
     equip_obj = next(o for o in eng.state.battlefield if o.card.name == equip.card.name)

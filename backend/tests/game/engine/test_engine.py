@@ -927,7 +927,7 @@ def test_commander_dying_offers_command_zone_choice_and_can_move_there():
     assert choice is not None and choice["kind"] == "commander_zone"
     assert choice["instance_id"] == commander.instance_id
 
-    eng.rules.resolve_commander_zone_choice("command")
+    eng.rules.resolve_choice("command")
 
     assert commander in p1.command
     assert commander not in p1.graveyard
@@ -957,7 +957,7 @@ def test_commander_moved_to_the_command_zone_forgets_its_battlefield_state():
 
     eng.rules.deal_damage(commander, 4)
     eng.rules.check_state_based_actions()
-    eng.rules.resolve_commander_zone_choice("command")
+    eng.rules.resolve_choice("command")
 
     assert commander in p1.command
     assert commander.attacking is False
@@ -978,7 +978,7 @@ def test_commander_dying_choice_declined_stays_in_graveyard():
 
     eng.rules.deal_damage(commander, 1)
     eng.rules.check_state_based_actions()
-    eng.rules.resolve_commander_zone_choice("decline")
+    eng.rules.resolve_choice("decline")
 
     assert commander in p1.graveyard
     assert commander not in p1.command
@@ -1004,7 +1004,7 @@ def test_countered_commander_spell_offers_command_zone_choice():
     eng.rules.check_state_based_actions()
     choice = eng.state.pending_choice
     assert choice is not None and choice["kind"] == "commander_zone"
-    eng.rules.resolve_commander_zone_choice("command")
+    eng.rules.resolve_choice("command")
 
     assert commander in p1.command
     assert commander not in p1.graveyard
@@ -1025,7 +1025,7 @@ def test_exiled_commander_offers_command_zone_choice():
     choice = eng.state.pending_choice
     assert choice is not None and choice["kind"] == "commander_zone"
 
-    eng.rules.resolve_commander_zone_choice("command")
+    eng.rules.resolve_choice("command")
 
     assert commander in p1.command
     assert commander not in p1.exile
@@ -1047,7 +1047,7 @@ def test_bounced_commander_offers_command_zone_choice():
     assert choice is not None and choice["kind"] == "commander_zone"
     assert choice["instance_id"] == commander.instance_id
 
-    eng.rules.resolve_commander_zone_choice("command")
+    eng.rules.resolve_choice("command")
 
     assert commander in p1.command
     assert commander not in p1.hand
@@ -1061,7 +1061,7 @@ def test_bounced_commander_choice_declined_stays_in_hand():
     eng.state.add_to_battlefield(commander)
 
     eng.rules.return_to_hand(commander)
-    eng.rules.resolve_commander_zone_choice("decline")
+    eng.rules.resolve_choice("decline")
 
     assert commander in p1.hand
     assert commander not in p1.command
@@ -1753,13 +1753,13 @@ def test_search_opens_a_choice_then_moves_the_chosen_card():
     eng = make_engine(lib, hand=0)
     p1 = eng.state.active_player
 
-    eng.rules.request_search(p1, "Creature", "hand")
+    eng.rules._request_search(p1, "Creature", "hand")
     choice = eng.state.pending_choice
     assert choice["kind"] == "search"
     assert {e["name"] for e in choice["eligible"]} == {"Bear A", "Bear B"}
 
     chosen = choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(chosen)
+    eng.rules.resolve_choice(chosen)
     assert eng.state.pending_choice is None
     assert any(o.instance_id == chosen for o in p1.hand)
     assert len(p1.library) == 3  # one card left the library
@@ -1768,7 +1768,7 @@ def test_search_opens_a_choice_then_moves_the_chosen_card():
 def test_search_with_no_match_just_shuffles_no_choice():
     eng = make_engine([land("Forest"), land("Forest")], hand=0)
     p1 = eng.state.active_player
-    eng.rules.request_search(p1, "Creature", "hand")  # no creatures in library
+    eng.rules._request_search(p1, "Creature", "hand")  # no creatures in library
     assert eng.state.pending_choice is None
     assert len(p1.hand) == 0
 
@@ -1776,8 +1776,8 @@ def test_search_with_no_match_just_shuffles_no_choice():
 def test_search_can_be_declined():
     eng = make_engine([creature("Bear")], hand=0)
     p1 = eng.state.active_player
-    eng.rules.request_search(p1, "Creature", "hand")
-    eng.rules.resolve_search_choice(None)  # decline
+    eng.rules._request_search(p1, "Creature", "hand")
+    eng.rules.resolve_choice(None)  # decline
     assert eng.state.pending_choice is None
     assert len(p1.hand) == 0
 
@@ -1804,7 +1804,7 @@ def test_search_for_a_basic_land():
     lib = [creature("Bear"), land("Forest"), land("Island", produces="Island")]
     eng = make_engine(lib, hand=0)
     p1 = eng.state.active_player
-    eng.rules.request_search(p1, {"basic": True}, "hand")
+    eng.rules._request_search(p1, {"basic": True}, "hand")
     names = {e["name"] for e in eng.state.pending_choice["eligible"]}
     assert names == {"Forest", "Island"}
 
@@ -1813,7 +1813,7 @@ def test_search_for_a_subtype_or_list_like_farseek():
     lib = [land("Forest"), land("Island", produces="Island"), creature("Bear")]
     eng = make_engine(lib, hand=0)
     p1 = eng.state.active_player
-    eng.rules.request_search(p1, {"type": ["Plains", "Island"]}, "battlefield_tapped")
+    eng.rules._request_search(p1, {"type": ["Plains", "Island"]}, "battlefield_tapped")
     names = {e["name"] for e in eng.state.pending_choice["eligible"]}
     assert names == {"Island"}  # only the Island subtype matches
 
@@ -1822,7 +1822,7 @@ def test_search_for_any_card():
     lib = [land("Forest"), creature("Bear"), instant("Shock")]
     eng = make_engine(lib, hand=0)
     p1 = eng.state.active_player
-    eng.rules.request_search(p1, "", "hand")  # "search for a card"
+    eng.rules._request_search(p1, "", "hand")  # "search for a card"
     assert len(eng.state.pending_choice["eligible"]) == 3
 
 
@@ -1830,7 +1830,7 @@ def test_search_bounded_by_mana_value():
     lib = [creature("Bear", cost="{1}{G}"), creature("Dragon", cost="{4}{R}{R}")]
     eng = make_engine(lib, hand=0)
     p1 = eng.state.active_player
-    eng.rules.request_search(p1, {"type": "Creature", "max_mana_value": 3}, "battlefield")
+    eng.rules._request_search(p1, {"type": "Creature", "max_mana_value": 3}, "battlefield")
     names = {e["name"] for e in eng.state.pending_choice["eligible"]}
     assert names == {"Bear"}
 
@@ -1839,9 +1839,9 @@ def test_search_bounded_by_mana_value():
 
 
 def _search_one(eng, player, criteria, destination):
-    eng.rules.request_search(player, criteria, destination)
+    eng.rules._request_search(player, criteria, destination)
     chosen = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(chosen)
+    eng.rules.resolve_choice(chosen)
     return chosen
 
 
@@ -1891,17 +1891,17 @@ def test_search_for_up_to_two_cards_reopens_the_choice():
     lib = [land("Forest"), land("Island", produces="Island"), creature("Bear")]
     eng = make_engine(lib, hand=0)
     p1 = eng.state.active_player
-    eng.rules.request_search(p1, {"basic": True}, "hand", count=2)
+    eng.rules._request_search(p1, {"basic": True}, "hand", count=2)
 
     first = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(first)
+    eng.rules.resolve_choice(first)
     # Still one to go: the choice re-opened, excluding the first pick.
     assert eng.state.pending_choice is not None
     assert eng.state.pending_choice["remaining"] == 1
     assert first not in {e["instance_id"] for e in eng.state.pending_choice["eligible"]}
 
     second = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(second)
+    eng.rules.resolve_choice(second)
     assert eng.state.pending_choice is None
     hand_ids = {o.instance_id for o in p1.hand}
     assert {first, second} <= hand_ids
@@ -1911,10 +1911,10 @@ def test_up_to_n_can_stop_early_by_declining():
     lib = [land("Forest"), land("Island", produces="Island")]
     eng = make_engine(lib, hand=0)
     p1 = eng.state.active_player
-    eng.rules.request_search(p1, {"basic": True}, "hand", count=2)
+    eng.rules._request_search(p1, {"basic": True}, "hand", count=2)
     first = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(first)
-    eng.rules.resolve_search_choice(None)  # stop after one
+    eng.rules.resolve_choice(first)
+    eng.rules.resolve_choice(None)  # stop after one
     assert eng.state.pending_choice is None
     assert len(p1.hand) == 1
 
@@ -1922,9 +1922,9 @@ def test_up_to_n_can_stop_early_by_declining():
 def test_search_reopen_stops_when_library_exhausted():
     eng = make_engine([creature("Bear")], hand=0)  # only one match
     p1 = eng.state.active_player
-    eng.rules.request_search(p1, "Creature", "hand", count=3)
+    eng.rules._request_search(p1, "Creature", "hand", count=3)
     only = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(only)
+    eng.rules.resolve_choice(only)
     # No further eligible cards, so the search finishes rather than looping.
     assert eng.state.pending_choice is None
     assert any(o.instance_id == only for o in p1.hand)
@@ -1947,7 +1947,7 @@ def test_search_announces_and_shuffles():
     p1 = eng.state.active_player
     seen = []
     eng.state.subscribe(lambda e: seen.append(e.type))
-    eng.rules.request_search(p1, "Creature", "hand")  # nothing matches
+    eng.rules._request_search(p1, "Creature", "hand")  # nothing matches
     assert EventType.LIBRARY_SEARCHED in seen
     assert EventType.SHUFFLE in seen  # a failed search still shuffles
 
@@ -2611,10 +2611,10 @@ def test_annihilator_makes_defending_player_sacrifice_permanents():
     choice = eng.state.pending_choice
     assert choice is not None and choice["action"] == "sacrifice"
     first_pick = choice["options"][0]["instance_id"]
-    eng.rules.resolve_choose_objects_choice(first_pick)
+    eng.rules.resolve_choice(first_pick)
     assert eng.state.pending_choice is not None  # one more to pick
     second_pick = eng.state.pending_choice["options"][0]["instance_id"]
-    eng.rules.resolve_choose_objects_choice(second_pick)
+    eng.rules.resolve_choice(second_pick)
     eng.resolve_until_stable()
 
     remaining = [o for o in eng.state.battlefield if o.controller_id == "p2"]

@@ -57,7 +57,7 @@ def test_may_discard_then_draw_mill_runtime():
     eff.apply(eng.rules.context)
     # Answer the interactive discard: pitch the first hand card.
     assert eng.state.pending_choice and eng.state.pending_choice.get("kind") == "choose_objects"
-    eng.rules.resolve_choose_objects_choice(p1.hand[0].instance_id)
+    eng.rules.resolve_choice(p1.hand[0].instance_id)
     eng.resolve_until_stable()
 
     # discarded 1 -> hand 3-1+2 = 4; library 10-2 (draw) -1 (mill) = 7; gy 2

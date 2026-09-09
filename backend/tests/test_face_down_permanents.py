@@ -284,12 +284,12 @@ def test_manifest_dread_asks_which_of_the_top_two_to_manifest():
     player = _library(
         eng, [plain_creature("Deep"), plain_creature("Second"), plain_creature("Top")]
     )
-    eng.rules.request_manifest_dread(player)
+    eng.rules._request_manifest_dread(player)
     choice = eng.state.pending_choice
     assert choice["kind"] == "manifest_dread"
     assert [o["label"] for o in choice["options"]] == ["Top", "Second"]
     second_id = choice["options"][1]["instance_id"]
-    eng.rules.resolve_manifest_dread_choice(second_id)
+    eng.rules.resolve_choice(second_id)
     assert [o.name for o in eng.state.battlefield] == [face_down.FACE_DOWN_NAME]
     assert eng.state.battlefield[0].instance_id == second_id
     assert [o.name for o in player.graveyard] == ["Top"]

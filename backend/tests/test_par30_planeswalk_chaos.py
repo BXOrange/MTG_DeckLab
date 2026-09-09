@@ -125,7 +125,7 @@ def test_planeswalk_or_chaos_vote_applies_the_leader_branch():
     src.controller_id = "p1"
     eng.state.add_to_battlefield(src)
 
-    eng.rules.request_vote(
+    eng.rules._request_vote(
         source=src, controller_id="p1", options=["planeswalk", "chaos"],
         majority_specs=[
             [{"type": "planeswalk", "params": {}}],

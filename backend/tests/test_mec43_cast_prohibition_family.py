@@ -129,7 +129,7 @@ def test_sanctum_prelate_choose_number_stamps_chosen_number():
     choice = state.pending_choice
     assert choice["kind"] == "choose_number"
     assert choice.get("free_text") is True
-    engine.rules.resolve_enter_choice("3")
+    engine.rules.resolve_choice("3")
 
     prelate = next(o for o in state.battlefield if o.name == "Sanctum Prelate")
     assert prelate.chosen_number == 3
@@ -297,7 +297,7 @@ def test_sacrifice_stamp_resets_between_activations():
     assert pod.sacrificed_cost_mana_value == 2
     engine.rules.resolve_top_of_stack()  # clear the stack for the next sorcery-speed activation
     if state.pending_choice is not None:
-        engine.rules.resolve_search_choice(None)  # decline — nothing to find in an empty library
+        engine.rules.resolve_choice(None)  # decline — nothing to find in an empty library
     pod.tapped = False  # no untap step ran in this unit test; untap by hand for the 2nd activation
 
     second = _bf(state, _bear("Second", "{5}{G}", 6))
@@ -339,7 +339,7 @@ def test_chandras_incinerator_copies_noncombat_damage_at_a_named_target():
     option_ids = {o.get("instance_id") for o in choice["options"]}
     assert option_ids == {theirs.instance_id}  # only p2's own creature is legal
     option = next(o for o in choice["options"] if o["instance_id"] == theirs.instance_id)
-    engine.rules.resolve_trigger_target_choice(option["id"])
+    engine.rules.resolve_choice(option["id"])
     engine.rules.resolve_top_of_stack()
     engine.rules.check_state_based_actions()
 

@@ -3,7 +3,7 @@ number of other nonland permanents you control" ETB plus its mass
 leaves-battlefield return.
 
 New primitives: `ExileAnyNumberYouControlEffect` (a *selection*, not a RULE
-115 target, via `RulesEngine.request_choose_objects`'s chooser with its new
+115 target, via `RulesEngine._request_choose_objects`'s chooser with its new
 `track_exiled_with=True`) and `continuous.count_selector`'s new
 `exiled_with_count` kind (reading `GameObject.exiled_with_ids`'s own
 length). The leaves-battlefield half reuses `ReturnAllExiledWithEffect`

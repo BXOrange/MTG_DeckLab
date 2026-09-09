@@ -85,7 +85,7 @@ def test_confusion_in_the_ranks_chooser_is_the_entering_permanents_controller():
     # The chooser is p2 (entering permanent's controller), not p1 (Confusion
     # in the Ranks' own controller) — PAR-30's controller_from_trigger_event.
     assert choice["player_id"] == "p2"
-    eng.rules.resolve_trigger_target_choice(str(theirs.instance_id))
+    eng.rules.resolve_choice(str(theirs.instance_id))
     eng.rules.resolve_top_of_stack()
     assert entering.controller_id == "p1" and theirs.controller_id == "p2"
 
@@ -308,7 +308,7 @@ def test_cultural_exchange_round1_pick_chains_into_round2():
     ])
     # Round 1: pick `a` (p1's only creature) -> goes to p2.
     assert state.pending_choice is not None and state.pending_choice["kind"] == "choose_objects"
-    eng.rules.resolve_choose_objects_choice(a.instance_id)
+    eng.rules.resolve_choice(a.instance_id)
     assert a.controller_id == "p2"
     # Forced-complete or still asking -> either way it must move on to round 2
     # (from p2's creatures to p1) once round 1 finishes.
@@ -316,12 +316,12 @@ def test_cultural_exchange_round1_pick_chains_into_round2():
             and state.pending_choice.get("count", 0) > 1:
         # keep declining/round1 extra slots if offered — for this test we
         # just decline further round-1 picks to move to round 2 quickly.
-        eng.rules.resolve_choose_objects_choice(None)
+        eng.rules.resolve_choice(None)
         break
     # Whatever remains open must now be offering B1/B2 (round 2, recipient p1).
     if state.pending_choice is not None:
         assert state.pending_choice["control_recipient_id"] == "p1"
-        eng.rules.resolve_choose_objects_choice(b1.instance_id)
+        eng.rules.resolve_choice(b1.instance_id)
         assert b1.controller_id == "p1"
 
 
@@ -378,7 +378,7 @@ def test_perplexing_chimera_reflexive_may_swaps_with_the_cast_spell():
     choice = state.pending_choice
     assert choice is not None and choice["kind"] == "trigger_target"
     assert set(o["id"] for o in choice["options"]) == {"do", "decline"}
-    eng.rules.resolve_trigger_target_choice("do")
+    eng.rules.resolve_choice("do")
     eng.rules.resolve_top_of_stack()
 
     assert chimera.controller_id == "p2"
@@ -399,7 +399,7 @@ def test_perplexing_chimera_reflexive_may_declined_does_nothing():
         EventType.SPELL_CAST, instance_id=spell_obj.instance_id, controller_id="p2",
     ))
     assert eng.rules.put_triggers_on_stack() == 1
-    eng.rules.resolve_trigger_target_choice("decline")
+    eng.rules.resolve_choice("decline")
     assert chimera.controller_id == "p1" and spell_obj.controller_id == "p2"
 
 
@@ -447,7 +447,7 @@ def test_arteeoh_exchange_then_copy_token_reflexive_connector():
     assert eng.rules.put_triggers_on_stack() == 1
     choice = state.pending_choice
     assert choice is not None and choice["kind"] == "trigger_target"
-    eng.rules.resolve_trigger_target_choice(str(other.instance_id))
+    eng.rules.resolve_choice(str(other.instance_id))
     eng.rules.resolve_top_of_stack()
 
     tokens = [o for o in state.battlefield if o.is_token and "Squirrel" in o.card.type_line]

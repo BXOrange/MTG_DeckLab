@@ -5,7 +5,7 @@ grammar, so hand-authored in `game/ability_catalogue/entries_016.py`.
 - **Hunted by The Family** — `FaceVillainousChoiceEffect`
   ``subject="previous_target_controller"``: the RULE 115 targets are the
   creatures, each one's controller gets its own queued `villainous_choice`
-  (`request_villainous_choice(rounds=…)`) with that creature baked in as the
+  (`_request_villainous_choice(rounds=…)`) with that creature baked in as the
   RULE 608.2 referent, and the option bodies act on the *creature*.
 - **Ensnared by the Mara** — `dig_until` ``digger="facing"`` /
   ``caster="controller"`` (dig an opponent's library, *you* get the free
@@ -13,7 +13,7 @@ grammar, so hand-authored in `game/ability_catalogue/entries_016.py`.
   source.
 - **Back from the Brink** — `BackFromTheBrinkEffect` /
   `PayCostThenPreviousMvEffect`: a pick-then-price cost modeled as a
-  resolution-time flow, plus `request_pay_cost_then` ``captured_previous``.
+  resolution-time flow, plus `_request_pay_cost_then` ``captured_previous``.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def test_request_villainous_choice_rounds_are_independent():
     b2 = _put_bf(st, _bear("P2Bear"), "p2")
     b3 = _put_bf(st, _bear("P3Bear"), "p3")
 
-    eng.rules.request_villainous_choice(
+    eng.rules._request_villainous_choice(
         source=src, controller_id="p1",
         rounds=[
             {"facing_id": "p2",

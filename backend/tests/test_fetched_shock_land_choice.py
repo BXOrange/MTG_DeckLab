@@ -52,10 +52,10 @@ def _engine_with_library(*cards, starting_life=20):
 
 def test_fetched_shock_land_defaults_tapped_and_opens_the_pay_life_choice():
     engine, p1 = _engine_with_library(_shock_land())
-    engine.rules.request_search(p1, {"type": "Land"}, "battlefield", count=1)
+    engine.rules._request_search(p1, {"type": "Land"}, "battlefield", count=1)
     [land] = [o for o in p1.library if o.name == "Steam Vents"]
 
-    engine.rules.resolve_search_choice(land.instance_id)
+    engine.rules.resolve_choice(land.instance_id)
     assert land in engine.state.battlefield
     assert land.tapped is True  # defaults tapped, same as a played shock land
     choice = engine.state.pending_choice
@@ -64,9 +64,9 @@ def test_fetched_shock_land_defaults_tapped_and_opens_the_pay_life_choice():
 
 def test_paying_the_life_leaves_it_untapped():
     engine, p1 = _engine_with_library(_shock_land())
-    engine.rules.request_search(p1, {"type": "Land"}, "battlefield", count=1)
+    engine.rules._request_search(p1, {"type": "Land"}, "battlefield", count=1)
     [land] = [o for o in p1.library if o.name == "Steam Vents"]
-    engine.rules.resolve_search_choice(land.instance_id)
+    engine.rules.resolve_choice(land.instance_id)
 
     engine.resolve_pending_choice("pay")
     assert land.tapped is False
@@ -76,9 +76,9 @@ def test_paying_the_life_leaves_it_untapped():
 
 def test_declining_leaves_it_tapped_and_keeps_the_life():
     engine, p1 = _engine_with_library(_shock_land())
-    engine.rules.request_search(p1, {"type": "Land"}, "battlefield", count=1)
+    engine.rules._request_search(p1, {"type": "Land"}, "battlefield", count=1)
     [land] = [o for o in p1.library if o.name == "Steam Vents"]
-    engine.rules.resolve_search_choice(land.instance_id)
+    engine.rules.resolve_choice(land.instance_id)
 
     engine.resolve_pending_choice("decline")
     assert land.tapped is True
@@ -91,10 +91,10 @@ def test_explicit_battlefield_tapped_destination_offers_no_choice():
     # already decides it (the accepted real-card ruling) — no pay-life
     # choice opens, the land just enters tapped, no life spent.
     engine, p1 = _engine_with_library(_shock_land())
-    engine.rules.request_search(p1, {"type": "Land"}, "battlefield_tapped", count=1)
+    engine.rules._request_search(p1, {"type": "Land"}, "battlefield_tapped", count=1)
     [land] = [o for o in p1.library if o.name == "Steam Vents"]
 
-    engine.rules.resolve_search_choice(land.instance_id)
+    engine.rules.resolve_choice(land.instance_id)
     assert land in engine.state.battlefield
     assert land.tapped is True
     assert engine.state.pending_choice is None
@@ -106,10 +106,10 @@ def test_a_plain_fetched_basic_land_still_enters_untapped_with_no_choice():
     # (`land_tap_condition` kind "never") fetched to "battlefield" stays
     # untapped, no pending choice opened.
     engine, p1 = _engine_with_library(_basic("Forest"))
-    engine.rules.request_search(p1, {"type": "Land"}, "battlefield", count=1)
+    engine.rules._request_search(p1, {"type": "Land"}, "battlefield", count=1)
     [land] = [o for o in p1.library if o.name == "Forest"]
 
-    engine.rules.resolve_search_choice(land.instance_id)
+    engine.rules.resolve_choice(land.instance_id)
     assert land in engine.state.battlefield
     assert land.tapped is False
     assert engine.state.pending_choice is None
@@ -127,8 +127,8 @@ def test_a_fetched_check_land_still_resolves_its_deterministic_condition():
     mountain = GameObject(_basic("Mountain"), owner_id=p1.id, zone=Zone.BATTLEFIELD)
     engine.state.add_to_battlefield(mountain)
 
-    engine.rules.request_search(p1, {"type": "Land"}, "battlefield", count=1)
+    engine.rules._request_search(p1, {"type": "Land"}, "battlefield", count=1)
     [land] = [o for o in p1.library if o.name == "Rootbound Crag"]
-    engine.rules.resolve_search_choice(land.instance_id)
+    engine.rules.resolve_choice(land.instance_id)
     assert land.tapped is False  # already controls a Mountain
     assert engine.state.pending_choice is None

@@ -82,6 +82,18 @@ class GameContext:
         #: the permanent's own controller — read by `PreventDamageEffect`'s
         #: opt-in ``recipient_is_activator``.
         self.resolving_controller_id: Optional[str] = None
+        #: ENG-35: the item the enclosing `for_each`-style loop is currently
+        #: on, or ``None`` outside one. Set and restored by
+        #: `RulesEngine._resume_iteration` around each pass of a parked loop
+        #: body, so a clause inside the body can name "that creature" /
+        #: "that player" for *its* iteration rather than for the whole
+        #: selector — the per-iteration sibling of `previous_targets`.
+        #:
+        #: Deliberately scoped like `trigger_event` (saved, set, restored)
+        #: rather than left standing, so a nested loop cannot leak its item
+        #: to the outer one, and so a resolution that is not iterating at
+        #: all reads ``None`` instead of a stale value.
+        self.iteration_item: Any = None
         #: The targets the last *targeting* effect of this same resolution
         #: used (RULE 608.2 applies an effect list in printed order), so a
         #: clause whose subject is a pronoun pointing back at an earlier one
@@ -286,9 +298,9 @@ class GameContext:
         # RULE 701.40a manifest / RULE 701.58a cloak.
         self.engine.manifest(player, count, kind=kind)
 
-    def request_manifest_dread(self, player: "Player") -> None:
+    def _request_manifest_dread(self, player: "Player") -> None:
         # RULE 701.40a's look-at-two variant.
-        self.engine.request_manifest_dread(player)
+        self.engine._request_manifest_dread(player)
 
     def take_extra_turn(self, player: "Player") -> None:
         # RULE 500.7: queue an extra turn for ``player``, taken after the
@@ -465,7 +477,7 @@ class GameContext:
     def sacrifice(self, player: "Player", what: str = "permanent", count: int = 1) -> None:
         self.engine.sacrifice(player, what, count)
 
-    def request_search(
+    def _request_search(
         self,
         player: "Player",
         criteria: Any = "",
@@ -487,7 +499,7 @@ class GameContext:
         track_exiled_with: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
     ) -> None:
-        self.engine.request_search(
+        self.engine._request_search(
             player, criteria, destination, count, optional,
             zones=zones, destinations=destinations, exile_rest=exile_rest,
             extra_counters=extra_counters, destination_if=destination_if,
@@ -502,13 +514,13 @@ class GameContext:
             untap_if_lands_at_least=untap_if_lands_at_least,
         )
 
-    def request_intuition(
+    def _request_intuition(
         self, searcher: "Player", chooser_id: str, count: int, source: Optional["GameObject"] = None,
         search_optional: bool = False, distinct_names: bool = False,
         chosen_count: int = 1, chosen_destination: str = "hand",
         rest_destination: str = "graveyard",
     ) -> None:
-        self.engine.request_intuition(
+        self.engine._request_intuition(
             searcher, chooser_id, count, source,
             search_optional=search_optional, distinct_names=distinct_names,
             chosen_count=chosen_count, chosen_destination=chosen_destination,
@@ -529,8 +541,8 @@ class GameContext:
         else_specs: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         """Open the general "which of these objects?" choice — see
-        `RulesEngine.request_choose_objects`."""
-        self.engine.request_choose_objects(
+        `RulesEngine._request_choose_objects`."""
+        self.engine._request_choose_objects(
             player, candidates, action, count=count, optional=optional,
             prompt=prompt, source=source, then_specs=then_specs,
             then_specs_if_commander=then_specs_if_commander,
@@ -549,7 +561,7 @@ class GameContext:
         miss_effect_specs: Optional[list[dict]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
-        self.engine.request_impulsive_look(
+        self.engine._request_impulsive_look(
             player, count, criteria, hit_destination, miss_destination, optional,
             hit_grant_keywords=hit_grant_keywords,
             miss_effect_specs=miss_effect_specs, source=source,
@@ -579,10 +591,10 @@ class GameContext:
         self.engine.shuffle_hand_and_graveyard_into_library(player)
 
     def cascade(self, player: "Player", max_mana_value: int) -> None:
-        self.engine.request_cascade(player, max_mana_value)
+        self.engine._request_cascade(player, max_mana_value)
 
     def discover(self, player: "Player", max_mana_value: int) -> None:
-        self.engine.request_discover(player, max_mana_value)
+        self.engine._request_discover(player, max_mana_value)
 
     def counter(
         self,
@@ -626,7 +638,7 @@ class GameContext:
         """Build and apply serialized `EffectSpec` dicts right now, off the
         stack — the same "chain a follow-up effect from inside another
         effect's own `apply`" idiom `RulesEngine._apply_effect_specs`
-        already offers `resolve_pay_cost_then_choice`/`request_choose_
+        already offers `_resume_pay_cost_then`/`request_choose_
         objects`' own ``then_specs``/``else_specs``, exposed here so an
         effect can reach it directly too (PAR-30, `CulturalExchangeEffect`'s
         own zero-candidates fallback)."""
@@ -1278,14 +1290,14 @@ class TriggeredAbility(GameEffect):
     ``{"effects": [GameEffect, ...], "description": str}`` entries, one per
     printed mode. ``modes`` is chosen from interactively as the ability is
     placed on the stack (`game/rules_engine.py`'s `_place_triggers`/
-    `resolve_trigger_mode_choice`, a `trigger_mode` `pending_choice` — the
+    `_resume_trigger_mode`, a `trigger_mode` `pending_choice` — the
     same "chosen before target/optional choice" ordering a modal spell's own
     mode gets at cast time); ``modes_or_both`` mirrors RULE 700.2e for a
     triggered ability with exactly two modes. ``modes_choose`` is RULE
     700.2's "choose *N* —" count (``1`` for the ordinary "choose one" case);
     for ``modes_choose > 1`` the choice is made iteratively, one mode per
     round, mirroring how a library search offers "up to N" one card at a
-    time (`resolve_trigger_mode_choice`). ``modes_at_least`` is RULE 700.2's
+    time (`_resume_trigger_mode`). ``modes_at_least`` is RULE 700.2's
     "choose *N* or more —" (Farewell-shaped): ``modes_choose`` becomes a
     minimum rather than an exact count, and the iterative choice offers a
     "done" option once that minimum is met instead of forcing every mode to
@@ -1858,14 +1870,14 @@ class CreateEmblemEffect(GameEffect):
 
 class RequestChoosePlayerEffect(GameEffect):
     """"As this creature enters, choose a player." (Stuffy Doll) — opens
-    `RulesEngine.request_choose_player`.
+    `RulesEngine._request_choose_player`.
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None or self.source is None:
             return
-        context.engine.request_choose_player(player, self.source)
+        context.engine._request_choose_player(player, self.source)
 
 
 class SlithermuseEffect(GameEffect):
@@ -1874,7 +1886,7 @@ class SlithermuseEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is not None and self.source is not None:
-            context.engine.request_slithermuse_opponent(player, self.source)
+            context.engine._request_slithermuse_opponent(player, self.source)
 
 
 class HauntEffect(GameEffect):
@@ -1959,7 +1971,7 @@ class DealDamageToChosenPlayerEffect(GameEffect):
 class RequestChooseCreatureTypeGrantEffect(GameEffect):
     """"When this creature enters, choose a creature type. <effect naming
     the chosen type>." (Selfless Safewright) — opens `RulesEngine.
-    request_choose_creature_type_grant`'s resolve-time type choice; see its
+    _request_choose_creature_type_grant`'s resolve-time type choice; see its
     docstring for why this needs its own primitive rather than RULE
     601.2b's as-it-enters `choose_creature_type_on_enter`.
     """
@@ -1976,7 +1988,7 @@ class RequestChooseCreatureTypeGrantEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None or self.source is None:
             return
-        context.engine.request_choose_creature_type_grant(player, self.source, self.then_specs)
+        context.engine._request_choose_creature_type_grant(player, self.source, self.then_specs)
 
 
 class GrantKeywordsToChosenTypeUntilEotEffect(GameEffect):
@@ -4108,7 +4120,7 @@ class SylvanLibraryEffect(GameEffect):
     the "you may draw" gate (declining draws nothing, so there's nothing
     left to choose from afterward) — this effect is the "if you do"
     continuation: draw ``count`` more, then hand the *specific just-drawn
-    objects* to `RulesEngine.request_pay_life_or_return_to_library`'s own
+    objects* to `RulesEngine._request_pay_life_or_return_to_library`'s own
     sequential per-card chooser.
 
     **Documented simplification**: doesn't offer a genuine "choose which
@@ -4135,7 +4147,7 @@ class SylvanLibraryEffect(GameEffect):
             context.state.cards_drawn_this_turn_ids.get(player.id, [])[-self.count:]
         )
         objs = [o for o in player.hand if o.instance_id in drawn_ids]
-        context.engine.request_pay_life_or_return_to_library(player, objs, amount=self.life)
+        context.engine._request_pay_life_or_return_to_library(player, objs, amount=self.life)
 
 
 class RevealTopConditionalToHandEffect(GameEffect):
@@ -4206,7 +4218,7 @@ class DiscardEffect(GameEffect):
     for every player asked to discard, so this effect's own controller
     draws ``count`` cards *per player who actually discarded* — not a flat
     amount, and not double-counted for a player whose hand was already
-    empty (`request_choose_objects` only ever runs its "if you do" tail
+    empty (`_request_choose_objects` only ever runs its "if you do" tail
     when at least one card was actually picked). Deliberately built on the
     discard's own resolution rather than a `GameContext` same-resolution
     accumulator (`life_lost_this_way`'s idiom): unlike a destroy/life-loss,
@@ -4322,7 +4334,7 @@ class DiscardCardsDiscardedDeltaDrawEffect(GameEffect):
     """Draw for a player the number of cards they've discarded *since a
     snapshot* — the "then draw that many cards" tail of "discard up to N
     cards, then draw that many cards" (Cathartic Pyre / Kinetic Augur /
-    Daretti). Queued as `request_choose_objects`' ``then_specs`` by
+    Daretti). Queued as `_request_choose_objects`' ``then_specs`` by
     `DiscardUpToThenDrawThatManyEffect`, which records ``before`` (the
     player's `GameState.cards_discarded_this_turn` count) right before
     opening the interactive discard; the delta is exactly how many were
@@ -4351,7 +4363,7 @@ class DiscardCardsDiscardedDeltaDrawEffect(GameEffect):
 class DiscardUpToThenDrawThatManyEffect(GameEffect):
     """"Discard up to N cards, then draw that many cards." (Cathartic Pyre
     mode 2, Kinetic Augur, Daretti +2, Jaya Ballard +1 — RULE 701.8 loot
-    with a chosen quantity.) Opens an ``optional`` `request_choose_objects`
+    with a chosen quantity.) Opens an ``optional`` `_request_choose_objects`
     discard capped at ``count`` (so the player may stop after 0/1/…/N), then
     draws exactly the number actually discarded via
     `DiscardCardsDiscardedDeltaDrawEffect`.
@@ -4368,7 +4380,7 @@ class DiscardUpToThenDrawThatManyEffect(GameEffect):
         before = int((context.state.cards_discarded_this_turn or {}).get(player.id, 0) or 0)
         if not player.hand:
             return  # nothing to discard, so nothing to draw
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, list(player.hand), "discard", count=self.count, optional=True,
             source=self.source,
             prompt="Wirf bis zu {} Karten ab".format(self.count),
@@ -4402,7 +4414,7 @@ class MayDiscardThenDrawMillEffect(GameEffect):
         if player is None or not player.hand:
             return
         before = int((context.state.cards_discarded_this_turn or {}).get(player.id, 0) or 0)
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, list(player.hand), "discard", count=1, optional=True,
             source=self.source, prompt="Wirf eine Karte ab",
             then_specs=[{
@@ -4454,7 +4466,7 @@ class RevealHandChooseDiscardEffect(GameEffect):
     client-visibility layer to update mid-resolution anyway) — the real
     behaviour is that the *chooser* is this effect's controller (the
     caster), not the revealed hand's owner, over that owner's *actual*
-    cards. That's exactly `RulesEngine.request_choose_objects`'s shape
+    cards. That's exactly `RulesEngine._request_choose_objects`'s shape
     (Tevesh Szat's sacrifice, Cloudstone Curio's bounce, …), just sourced
     from a hand instead of the battlefield, with its pre-existing
     ``action="discard"`` (`_apply_chosen_object` already resolves that
@@ -5390,7 +5402,7 @@ class RequestPreventDamageSourceEffect(GameEffect):
     """RULE 615/616.1d: "The next time a source of your choice [matching
     ``source_filter``] would deal damage to `<recipient>` this turn, prevent
     [half] that damage[, rounded up/down]." — the Circle of Protection/Rune
-    of Protection family. Opens `RulesEngine.request_choose_objects`'s
+    of Protection family. Opens `RulesEngine._request_choose_objects`'s
     general chooser (a ``"remember_source"`` action) over every battlefield
     permanent matching ``source_filter`` (a `combat.matches_object_filter`-
     shaped dict — a colour, "an artifact source", a creature of an
@@ -5401,7 +5413,7 @@ class RequestPreventDamageSourceEffect(GameEffect):
 
     Scoped to battlefield permanents only — RULE 609.7a's other two source
     kinds (a spell or an ability still on the stack) aren't offered, since
-    `request_choose_objects` only ever candidates `GameObject`s already on
+    `_request_choose_objects` only ever candidates `GameObject`s already on
     the battlefield. No card in this family's real pool needs to name an
     unresolved spell/ability, so this is a deliberate, documented
     simplification rather than a silent gap.
@@ -5483,7 +5495,7 @@ class RequestPreventDamageSourceEffect(GameEffect):
             if combat.matches_object_filter(obj, self.source_filter, reference=src)
         ]
         recipient_is_player = recipient_obj is not None and not hasattr(recipient_obj, "instance_id")
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, candidates, "remember_source", count=1, optional=self.optional,
             prompt=f"{src.name}: Quelle wählen",
             source=src,
@@ -5546,7 +5558,7 @@ class RequestRedirectDamageSourceEffect(GameEffect):
             obj for obj in context.state.battlefield
             if combat.matches_object_filter(obj, self.source_filter, reference=src)
         ]
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, candidates, "remember_source_redirect", count=1, optional=self.optional,
             prompt=f"{src.name}: Quelle wählen",
             source=src,
@@ -5590,7 +5602,7 @@ class ChooseSourceCoinFlipEffect(GameEffect):
         if player is None:
             return
         candidates = list(context.state.permanents_controlled_by(player.id))
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, candidates, "remember_source_coinflip", count=1,
             prompt=f"{src.name}: Quelle für den Münzwurf wählen",
             source=src,
@@ -5758,7 +5770,7 @@ class CurrencyConverterCashOutEffect(GameEffect):
     accumulating MEC-21 tracker `ExileTriggeringDiscardMayPlayThisTurnEffect`
     with ``track_exiled_with=True`` fills from the discard trigger). With one
     candidate it acts directly; with several it opens the general
-    `request_choose_objects` chooser (``"choose_permanent"`` action — a bare
+    `_request_choose_objects` chooser (``"choose_permanent"`` action — a bare
     "stamp the pick, act in ``then_specs``" idiom, no zone concept of its
     own), running `currency_converter_resolve` once answered.
     """
@@ -5801,7 +5813,7 @@ class CurrencyConverterCashOutEffect(GameEffect):
         if len(cands) == 1:
             self._cash_out(context, cands[0])
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, cands, "choose_permanent", count=1, optional=False,
             prompt="Currency Converter: verbannte Karte in den Friedhof legen",
             source=self.source,
@@ -6051,7 +6063,7 @@ class CulturalExchangeRound2Effect(GameEffect):
     player_id``/``to_player_id``, both resolved player ids from the first
     round's own two RULE 115 targets, not card text) rather than a second
     `GameContext.previous_targets`-style referent, since the first round's
-    ``request_choose_objects`` needs a concrete `EffectSpec` to hand its own
+    ``_request_choose_objects`` needs a concrete `EffectSpec` to hand its own
     ``then_specs``/``else_specs`` — the "run round 2 regardless of round 1's
     outcome" combination `CulturalExchangeEffect.apply` sets both to.
     """
@@ -6075,7 +6087,7 @@ class CulturalExchangeRound2Effect(GameEffect):
         ]
         if not candidates:
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             caster, candidates, "gain_control_for", count=len(candidates), optional=True,
             source=self.source, control_recipient_id=self.to_player_id,
             prompt="Kreatur an den anderen Spieler abgeben?",
@@ -6089,7 +6101,7 @@ class CulturalExchangeEffect(GameEffect):
     (Cultural Exchange) — two independent RULE 115 player targets, then two
     chained interactive rounds: this ability's own controller picks any
     number of the *first* target's creatures to hand to the *second*
-    (`RulesEngine.request_choose_objects`, action ``"gain_control_for"``),
+    (`RulesEngine._request_choose_objects`, action ``"gain_control_for"``),
     then — via `CulturalExchangeRound2Effect`, run through the first
     round's own ``then_specs``/``else_specs`` so it fires either way — the
     same from the second target's creatures back to the first.
@@ -6097,7 +6109,7 @@ class CulturalExchangeEffect(GameEffect):
     **Documented simplification**: the printed "choose the **same**
     number" — the second round's count matching however many the first
     round picked exactly — isn't modeled; both rounds are independently
-    "any number of" instead (`request_choose_objects` has no "count =
+    "any number of" instead (`_request_choose_objects` has no "count =
     however many a separate, already-finished choice ended up with"
     primitive, and this is the only card that would ever need one). The
     actual control transfer — every creature picked from the first target
@@ -6131,7 +6143,7 @@ class CulturalExchangeEffect(GameEffect):
         if not a_creatures:
             context.apply_effect_specs(round2, self.source)
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             caster, a_creatures, "gain_control_for", count=len(a_creatures), optional=True,
             source=self.source, control_recipient_id=b.id,
             prompt="Kreatur an den anderen Spieler abgeben?",
@@ -6528,7 +6540,7 @@ class DiesGrantsRadCountersEqualPowerEffect(GameEffect):
 class SacrificeEffect(GameEffect):
     """A player sacrifices up to ``count`` permanents matching ``what``
     (RULE 701.17) — untargeted; a real RULE 601.2c-style choice via
-    `RulesEngine.sacrifice`/`request_choose_objects`, not an auto-pick
+    `RulesEngine.sacrifice`/`_request_choose_objects`, not an auto-pick
     (`GameEngine._sacrifice_candidate`'s non-interactive convention is a
     *cost*-payment concern, a synchronous call that can't pause for a
     chooser — this is an effect resolving, which can).
@@ -6733,7 +6745,7 @@ class BrudicladCombatEffect(GameEffect):
         ]
         if len(tokens) < 2:
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, tokens, "choose_permanent", count=1, optional=True,
             prompt="Brudiclad: einen Spielstein waehlen (andere werden zu Kopien)",
             source=self.source,
@@ -6944,7 +6956,7 @@ class SacrificeUnlessPayEffect(GameEffect):
             # can express, so this is a belt-and-braces guard for a
             # hand-authored entry, not a path real oracle text reaches.)
             return
-        context.engine.request_sacrifice_unless_pay(player, cost, subject)
+        context.engine._request_sacrifice_unless_pay(player, cost, subject)
 
 
 class DestroyUnlessPayEffect(GameEffect):
@@ -6984,7 +6996,7 @@ class DestroyUnlessPayEffect(GameEffect):
         if cost.is_free:
             # See `SacrificeUnlessPayEffect.apply`'s matching guard.
             return
-        context.engine.request_destroy_unless_pay(player, cost, subject)
+        context.engine._request_destroy_unless_pay(player, cost, subject)
 
 
 class TaxedDrawEffect(GameEffect):
@@ -6997,7 +7009,7 @@ class TaxedDrawEffect(GameEffect):
     event's ``player_id`` (`GameContext.trigger_event`), not this ability's
     controller — so this only makes sense on a trigger whose condition
     already scopes the firing event to an opponent (``"controller":
-    "not_you"``). Reuses `request_pay_cost_then`'s pay-or-lose-it machinery
+    "not_you"``). Reuses `_request_pay_cost_then`'s pay-or-lose-it machinery
     exactly like `SacrificeUnlessPayEffect` does: paying does nothing,
     declining (or being unable to pay) draws a card for this ability's own
     controller (`DrawCardEffect`'s untargeted default).
@@ -7041,7 +7053,7 @@ class TaxedDrawEffect(GameEffect):
         cost = parse_activation_cost(cost_text)
         if cost.is_free:
             return
-        context.engine.request_pay_cost_then(
+        context.engine._request_pay_cost_then(
             payer, cost, [], source,
             else_effect_specs=[{"type": "draw", "params": {"count": self.count}}],
         )
@@ -7059,8 +7071,8 @@ class EachPlayerPayOrEffect(GameEffect):
     ``cost`` is printed cost text exactly like `SacrificeUnlessPayEffect`'s
     own; ``effects`` are serialized `EffectSpec` dicts applied with the
     declining player as the sole target (`RulesEngine.
-    request_each_player_pay_or` passes ``targets=[player]`` through to
-    `request_pay_cost_then`), so a spec here should carry a matching
+    _request_each_player_pay_or` passes ``targets=[player]`` through to
+    `_request_pay_cost_then`), so a spec here should carry a matching
     ``target_kind`` (``"player"`` for `lose_life`/`discard`/etc.) rather
     than relying on an untargeted default.
     """
@@ -7106,7 +7118,7 @@ class EachPlayerPayOrEffect(GameEffect):
             cost.sacrifice_or_discard = True
         if cost.is_free:
             return  # see SacrificeUnlessPayEffect's identical guard
-        context.engine.request_each_player_pay_or(
+        context.engine._request_each_player_pay_or(
             cost, self.inner_specs, self.source,
             scope=self.scope, effect_targets=self.effect_targets,
         )
@@ -7146,7 +7158,7 @@ class CounterSpellEffect(GameEffect):
         #: on the branch where the target's controller *pays* the
         #: ``unless_pays`` cost (so the spell resolves). Threaded through
         #: `RulesEngine.counter_unless_pays` and fired from
-        #: `resolve_counter_unless_pays_choice`'s "pay" answer; inert on the
+        #: `_resume_counter_unless_pays`'s "pay" answer; inert on the
         #: countered / can't-pay branches (they didn't pay).
         self.on_pay_effect_specs = list(on_pay_effect_specs or [])
         #: "…if no mana was spent to cast it, counter that spell." (Vexing
@@ -7854,7 +7866,7 @@ class GrantSearchProhibitedEffect(GameEffect):
     doesn't — the search is skipped, not replaced). A bind-time
     `static_effects` marker, the same minimal shape
     `GrantCantBeCounteredEffect` uses; scanned by `RulesEngine.
-    request_search`'s own guard rather than the layer engine (a
+    _request_search`'s own guard rather than the layer engine (a
     permission, not a characteristic).
 
     ``scope="opponents"`` (the default, Stranglehold's own shape) prohibits
@@ -8445,7 +8457,7 @@ class ExileTopThenDamageByMvEffect(GameEffect):
     the **total mana value of those exiled cards** to that player."
 
     Applied inside a villainous choice with ``targets=[the facing player]``
-    (`RulesEngine.request_villainous_choice` hands each option its facing
+    (`RulesEngine._request_villainous_choice` hands each option its facing
     player as the target). Exiles up to ``count`` cards off the top of that
     player's library and deals damage equal to their summed mana value back
     to them, from this effect's source — the summed-MV amount source the
@@ -8545,7 +8557,7 @@ class ExileAnyNumberYouControlEffect(GameEffect):
     leaves the battlefield." (MEC-12, Abdel Adrian, Gorion's Ward) — a
     *selection* among the controller's own permanents, not a RULE 115
     target at all (the printed line has no "target" word), so it opens
-    `RulesEngine.request_choose_objects`'s "choose N of these objects"
+    `RulesEngine._request_choose_objects`'s "choose N of these objects"
     chooser instead of `ExileEffect`'s own target-gathering, offering
     every eligible permanent at once (``count=len(candidates)``) with
     ``optional=True`` so the player may stop after any number, including
@@ -8574,7 +8586,7 @@ class ExileAnyNumberYouControlEffect(GameEffect):
             if not obj.is_land and obj.controller_id == player.id
             and (not self.other_only or obj is not source)
         ]
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, candidates, "exile", count=len(candidates), optional=True,
             prompt=f"{source.name}: Permanente exilieren?",
             source=source, track_exiled_with=True,
@@ -8588,7 +8600,7 @@ class ImprintEffect(GameEffect):
     no "target" word at all, matching every other "exile a card from your
     hand" cost/effect in this codebase).
 
-    Reuses `RulesEngine.request_choose_objects`'s general "choose N of
+    Reuses `RulesEngine._request_choose_objects`'s general "choose N of
     these objects" chooser (``action="exile"``) rather than a bespoke
     pending_choice — the same primitive Gemstone Caverns' own "exile a
     card from your hand" pregame tail already rides — with its new
@@ -8636,7 +8648,7 @@ class ImprintEffect(GameEffect):
             and (self.include_card_type is None or getattr(obj.card, f"is_{self.include_card_type}", False))
             and (self.max_mana_value is None or obj.card.converted_mana_cost <= self.max_mana_value)
         ]
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, candidates, "exile", count=1, optional=self.optional,
             prompt=f"{source.name}: Karte aus der Hand exilieren?",
             source=source, remember=True,
@@ -8698,7 +8710,7 @@ class ChoosePermanentEffect(GameEffect):
     """"As this creature enters, you may choose a nonland permanent."
     (MEC-26, Scheming Fence) — a resolve-time choice stamped onto this
     permanent's own `GameObject.chosen_permanent_id`, the object-choice
-    sibling of `ImprintEffect` just above (same `request_choose_objects`
+    sibling of `ImprintEffect` just above (same `_request_choose_objects`
     reuse, a different action — ``"choose_permanent"`` stamps a pointer
     rather than exiling).
 
@@ -8724,7 +8736,7 @@ class ChoosePermanentEffect(GameEffect):
         if player is None:
             return
         candidates = [obj for obj in context.state.permanents() if not obj.is_land]
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, candidates, "choose_permanent", count=1, optional=self.optional,
             prompt=f"{source.name}: nichtländliches Bleibendes wählen?",
             source=source,
@@ -8740,7 +8752,7 @@ class BounceOwnLandFromTriggerEffect(GameEffect):
     target (the printed line has no "target" word — it's the caster's own
     choice among their own lands, the same non-targeted shape `ReturnToHand
     Effect`'s ``"land_you_control"`` kind is for a fixed controller), so
-    this reuses `RulesEngine.request_choose_objects`'s general chooser
+    this reuses `RulesEngine._request_choose_objects`'s general chooser
     (``action="return_to_hand"``) with the *triggering* player passed in
     directly instead of this effect's own controller.
     """
@@ -8757,7 +8769,7 @@ class BounceOwnLandFromTriggerEffect(GameEffect):
         candidates = [o for o in context.state.permanents_controlled_by(player.id) if o.is_land]
         if not candidates:
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, candidates, "return_to_hand", count=1, optional=False,
             prompt="Land auf die Hand zurückgeben?",
         )
@@ -8771,7 +8783,7 @@ class FreeCastFromHandEffect(GameEffect):
 
     A resolve-time *choice* among the controller's own hand (RULE 601.3b
     analogue), not a target — none of the printed lines carry "target".
-    Opens `RulesEngine.request_choose_objects`'s general chooser with a new
+    Opens `RulesEngine._request_choose_objects`'s general chooser with a new
     ``"grant_free_cast"`` action that only *arms* the chosen card's
     `GameState.free_cast_instance_ids` entry rather than casting it
     immediately (unlike the existing ``"cast_free"`` action's
@@ -8837,7 +8849,7 @@ class FreeCastFromHandEffect(GameEffect):
             and (not self.noncreature_only or not obj.card.is_creature)
             and (not isinstance(max_mv, int) or (obj.card.converted_mana_cost or 0) <= max_mv)
         ]
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, candidates, "grant_free_cast", count=1, optional=True,
             prompt=f"{source.name}: Karte kostenlos zaubern?",
             source=source,
@@ -9533,7 +9545,7 @@ class GainControlBySourceEffect(GameEffect):
     opponent (the common 1v1 goldfish/Replay case) the pick is unambiguous;
     with 2+ (multiplayer), this auto-picks the next player after the
     current controller in seating order — no "choose an opponent" chooser
-    exists yet for a *player* (`request_choose_objects` only offers
+    exists yet for a *player* (`_request_choose_objects` only offers
     `GameObject` candidates), the same "auto-pick, no chooser in this MVP"
     idiom `put_hand_cards_on_top` already documents for a value-neutral
     selection among equally-valid choices.
@@ -9745,7 +9757,7 @@ class CelestialReunionSearchEffect(GameEffect):
     putting it into your hand."
 
     X is the spell's own announced ``{X}`` (`GameObject.x_paid`). The
-    conditional destination rides `request_search`'s ``destination_if``: a
+    conditional destination rides `_request_search`'s ``destination_if``: a
     ``{"type": <chosen creature type>}`` criteria → ``"battlefield"``,
     active only when the optional "choose a creature type and behold two
     creatures of that type" additional cost was paid
@@ -9768,7 +9780,7 @@ class CelestialReunionSearchEffect(GameEffect):
             destination_if = [
                 {"criteria": {"type": str(chosen)}, "destination": "battlefield"}
             ]
-        context.request_search(
+        context._request_search(
             player, criteria, "hand", 1, optional=True,
             destination_if=destination_if, source=src,
         )
@@ -9942,7 +9954,7 @@ class CreateTokenForLinkedExileEffect(GameEffect):
 class ExileOwnGraveyardCardManaValueXEffect(GameEffect):
     """"Exile target creature card with mana value X from your graveyard.
     ..." (Lazotep Quarry, MEC-41's own ``{X}{2}, {T}, Sacrifice a Desert:``
-    activated ability) — opens a `request_choose_objects` pick among the
+    activated ability) — opens a `_request_choose_objects` pick among the
     controller's own graveyard creature cards whose mana value equals the
     source's own announced ``{X}`` (`GameObject.x_paid`, now stamped for an
     ability's own source too — see `GameEngine.activate_ability`).
@@ -9979,7 +9991,7 @@ class ExileOwnGraveyardCardManaValueXEffect(GameEffect):
             if (o.is_creature or not self.creature_only)
             and o.card.converted_mana_cost == x
         ]
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, candidates, "exile", count=1, source=self.source,
             remember=True, then_specs=self.then_specs,
         )
@@ -10055,7 +10067,7 @@ class ChooseVoidCounterCardEffect(GameEffect):
         ]
         if not candidates:
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, candidates, "grant_free_cast", count=1, optional=True, source=self.source,
         )
 
@@ -10101,7 +10113,7 @@ class ShuffleTargetGraveyardCardsIntoLibraryEffect(GameEffect):
     The picks are the spell's controller's to make (RULE 601.2c), out of the
     *targeted* player's graveyard, and each returns to that player's own
     library (RULE 404 "their"). Modeled as a resolve-time
-    `request_choose_objects` (action ``graveyard_to_library``, which also
+    `_request_choose_objects` (action ``graveyard_to_library``, which also
     shuffles) rather than three separate card `TargetSpec`s — an accepted
     RULE 115 precision loss in line with this module's norms.
     """
@@ -10126,7 +10138,7 @@ class ShuffleTargetGraveyardCardsIntoLibraryEffect(GameEffect):
         pool = list(target_player.graveyard)
         if not pool:
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             chooser,
             pool,
             "graveyard_to_library",
@@ -10697,7 +10709,7 @@ class ExileControllerSearchesBasicLandEffect(GameEffect):
             player = context.state.player_by_id(controller_id)
         except (KeyError, ValueError):
             return
-        context.request_search(player, {"basic": True}, "battlefield_tapped", 1, False)
+        context._request_search(player, {"basic": True}, "battlefield_tapped", 1, False)
 
 
 class DestroyControllerMaySearchBasicLandEffect(GameEffect):
@@ -10709,7 +10721,7 @@ class DestroyControllerMaySearchBasicLandEffect(GameEffect):
     still applies, unlike exile) rather than exile, the search is *optional*
     and untapped rather than Winds of Abandon's mandatory tapped one, and
     "a land card with a basic land type" (any land carrying a basic land
-    type, not only a true basic) is `request_search`'s own criteria dict.
+    type, not only a true basic) is `_request_search`'s own criteria dict.
     ``target_kind`` drops the "an opponent controls" restriction — no target
     kind carries an ownership exclusion yet, the same documented
     simplification `ExileControllerSearchesBasicLandEffect` uses.
@@ -10742,7 +10754,7 @@ class DestroyControllerMaySearchBasicLandEffect(GameEffect):
             player = context.state.player_by_id(controller_id)
         except (KeyError, ValueError):
             return
-        context.request_search(
+        context._request_search(
             # "a land card with a basic land type" — `card_query`'s "basic"
             # criterion (RULE 205.4h supertype) rather than a stricter
             # basic-land-*type* check; the two coincide for every real card
@@ -11628,7 +11640,7 @@ class ReturnChosenCreatureTypeFromGraveyardEffect(GameEffect):
                 for obj in cards:
                     context.return_from_graveyard(obj, "battlefield")
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, cards, "return_from_graveyard", count=2, optional=True,
             prompt=f"Bis zu zwei {chosen.capitalize()}-Kreaturenkarten zurückbringen",
             source=self.source,
@@ -11746,7 +11758,7 @@ class ExpressiveIterationEffect(GameEffect):
         # recovered by instance id (`_object_by_instance_id`).
         context.state._expressive_iteration_ids = [o.instance_id for o in top3]
         context.state._expressive_iteration_player = player.id
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, top3, "library_to_hand", count=1, optional=False,
             prompt="Expressive Iteration: eine Karte auf die Hand",
             source=self.source,
@@ -11783,7 +11795,7 @@ class ExpressiveIterationExileStepEffect(GameEffect):
             )
             context.state._expressive_iteration_ids = []
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, remaining, "exile", count=1, optional=False,
             prompt="Expressive Iteration: eine Karte verbannen (diesen Zug spielbar)",
             source=self.source,
@@ -12062,7 +12074,7 @@ class SacrificeAnyNumberDrawLoseScaledEffect(GameEffect):
     each creature sacrificed this way. You draw a card and lose 1 life."
 
     Reuses the Eventide's Shadow idiom (`RemoveCountersFromAmongThenDraw
-    LoseLifeEffect`): an optional multi-pick `request_choose_objects`
+    LoseLifeEffect`): an optional multi-pick `_request_choose_objects`
     (action ``sacrifice``) plus a queued ``then_specs`` tail that reads a
     before/after graveyard-size delta to learn how many were sacrificed.
 
@@ -12087,7 +12099,7 @@ class SacrificeAnyNumberDrawLoseScaledEffect(GameEffect):
         if not creatures:
             return
         before = len(player.graveyard)
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, creatures, "sacrifice", count=len(creatures), optional=True,
             source=self.source, prompt="Opfere beliebig viele Kreaturen",
             then_specs=[{
@@ -12131,7 +12143,7 @@ class ImmoralBargainEffect(GameEffect):
     (RULE 601.2b). Reuses the same sacrifice-choose + delta-tail idiom as
     `SacrificeAnyNumberDrawLoseScaledEffect`, then destroys that many
     nonland permanents chosen the same way (the new ``destroy`` action of
-    `request_choose_objects`).
+    `_request_choose_objects`).
 
     Documented simplification: both the additional-cost sacrifice and the
     number of targets are resolved at *resolution* rather than at
@@ -12148,7 +12160,7 @@ class ImmoralBargainEffect(GameEffect):
         if not creatures:
             return
         before = len(player.graveyard)
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, creatures, "sacrifice", count=len(creatures), optional=True,
             source=self.source, prompt="Opfere X Kreaturen",
             then_specs=[{
@@ -12183,7 +12195,7 @@ class ImmoralBargainDestroyTailEffect(GameEffect):
         cands = [o for o in context.state.battlefield if not o.card.is_land]
         if not cands:
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, cands, "destroy", count=min(n, len(cands)), optional=False,
             source=self.source, prompt="Zerstoere X Nichtland-bleibende Karten",
         )
@@ -12462,7 +12474,7 @@ class DescendantsFurySacrificeEffect(GameEffect):
         ]
         if not candidates:
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player,
             candidates,
             action="sacrifice_for_descendants_fury",
@@ -13072,7 +13084,7 @@ class PayEnergyThenEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None or player.counters.get("energy", 0) < self.amount:
             return  # can't pay — the optional payment simply doesn't happen
-        context.engine.request_pay_energy_then(player, self.amount, self.inner_specs, self.source)
+        context.engine._request_pay_energy_then(player, self.amount, self.inner_specs, self.source)
 
 
 class BackFromTheBrinkEffect(GameEffect):
@@ -13085,7 +13097,7 @@ class BackFromTheBrinkEffect(GameEffect):
     the activation flow have no such cost, so this is modeled as the
     **resolution** of an otherwise free (sorcery-speed-only) activated
     ability: on resolution the controller picks a creature card in their
-    graveyard (`request_choose_objects` ``action="exile"``, which now also
+    graveyard (`_request_choose_objects` ``action="exile"``, which now also
     seeds `GameContext.previous_targets` with the exiled card), then a
     `PayCostThenPreviousMvEffect` prices the "pay its mana cost" half off
     that card and, if paid, creates the copy (`copy_permanent`
@@ -13106,7 +13118,7 @@ class BackFromTheBrinkEffect(GameEffect):
         candidates = [o for o in controller.graveyard if o.card.is_creature]
         if not candidates:
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             controller,
             candidates,
             action="exile",
@@ -13119,7 +13131,7 @@ class BackFromTheBrinkEffect(GameEffect):
 
 class PayCostThenPreviousMvEffect(GameEffect):
     """MEC-52 — the "and pay its mana cost" half of Back from the Brink: a
-    `request_pay_cost_then` whose cost is the mana cost of whatever card the
+    `_request_pay_cost_then` whose cost is the mana cost of whatever card the
     previous clause of this resolution exiled (`GameContext.previous_
     targets`). Paid ⇒ ``effects`` (a `copy_permanent` ``referent="previous"``
     of that same card); declined ⇒ nothing.
@@ -13140,7 +13152,7 @@ class PayCostThenPreviousMvEffect(GameEffect):
         if controller is None:
             return
         cost = ActivationCost(mana=ManaCost.from_card(card_obj.card))
-        context.engine.request_pay_cost_then(
+        context.engine._request_pay_cost_then(
             controller,
             cost,
             effect_specs=[{
@@ -13175,7 +13187,7 @@ class MayExileSourceThenEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None or self.source is None:
             return
-        context.engine.request_exile_source_then(
+        context.engine._request_exile_source_then(
             player, self.source, self.then_trigger_specs, prompt=self.prompt,
         )
 
@@ -13232,7 +13244,7 @@ class PayCostThenEffect(GameEffect):
         #: could never be chosen), these serialized `EffectSpec` dicts go on
         #: the stack as their *own* triggered ability once the cost is paid,
         #: with full target selection — see `RulesEngine.
-        #: resolve_pay_cost_then_choice`. Mutually exclusive with
+        #: _resume_pay_cost_then`. Mutually exclusive with
         #: ``effects``/``else_effects`` in practice; an "if you don't" on a
         #: reflexive card doesn't occur.
         self.then_trigger_specs = list(then_trigger or [])
@@ -13327,7 +13339,7 @@ class PayCostThenEffect(GameEffect):
         cost = parse_activation_cost(self.cost_text)
         if self.sacrifice_or_discard:
             cost.sacrifice_or_discard = True
-        context.engine.request_pay_cost_then(
+        context.engine._request_pay_cost_then(
             player,
             cost,
             self.inner_specs,
@@ -13355,7 +13367,7 @@ class RequestAllPlayersDeclineOrEffect(GameEffect):
     pay, in turn order, and ``effects`` only resolves — once, for this
     effect's own controller — if literally every one of them declines (or
     can't pay). The first player to actually pay cancels the whole thing.
-    See `RulesEngine.request_all_players_decline_or` for the turn-order
+    See `RulesEngine._request_all_players_decline_or` for the turn-order
     chaining.
 
     ``cost`` is free-form cost text (`game/costs.py`'s
@@ -13378,7 +13390,7 @@ class RequestAllPlayersDeclineOrEffect(GameEffect):
         controller = _controller_of(self.source, context)
         if controller is None:
             return
-        context.engine.request_all_players_decline_or(
+        context.engine._request_all_players_decline_or(
             parse_activation_cost(self.cost_text), self.inner_specs, self.source, controller.id,
         )
 
@@ -13451,7 +13463,7 @@ class TheRingTemptsYouEffect(GameEffect):
 
 class ChooseObjectsEffect(GameEffect):
     """"[You] choose N <kind> you control and <do something to it>." — the
-    spec-facing front for `RulesEngine.request_choose_objects`.
+    spec-facing front for `RulesEngine._request_choose_objects`.
 
     The general answer to every clause that names *what kind* of permanent
     to act on but leaves *which one* to a player: Tevesh Szat's "you may
@@ -13532,7 +13544,7 @@ class ConniveEffect(GameEffect):
     a nonland card was discarded this way, put a +1/+1 counter on it.
 
     The draw is plain `context.draw`; the discard is the general
-    interactive hand-card chooser (`RulesEngine.request_choose_objects`,
+    interactive hand-card chooser (`RulesEngine._request_choose_objects`,
     ``action="discard"`` — already `_apply_chosen_object`'s own primitive
     for a *chosen* discard, called directly here rather than through
     `ChooseObjectsEffect`, whose own candidate gathering is battlefield-
@@ -13553,7 +13565,7 @@ class ConniveEffect(GameEffect):
     ``times``/``times_from_count_selector``/``times_from_trigger_event`` are
     RULE 701.50d's "connives N"/"connives X": the controller draws N cards,
     discards N cards (**one** N-card choice, not N separate 1-and-1
-    cycles — `request_choose_objects`'s own ``count=N`` already offers that
+    cycles — `_request_choose_objects`'s own ``count=N`` already offers that
     as N sequential picks, same as any other multi-pick chooser), then a
     counter goes on the conniving permanent for each nonland card among
     those N discards (unbounded — RULE 701.50d, unlike 701.50a's implicit
@@ -13660,7 +13672,7 @@ class ConniveEffect(GameEffect):
             before = getattr(state, "pending_choice", None)
             context.draw(player, times)
             if player.hand:
-                context.engine.request_choose_objects(
+                context.engine._request_choose_objects(
                     player, list(player.hand), "discard", count=min(times, len(player.hand)),
                     source=obj, connive=True,
                 )
@@ -13790,7 +13802,7 @@ class ForageEffect(GameEffect):
 
 class VoteEffect(GameEffect):
     """RULE 701.38: "Starting with you, each player votes for one of
-    ``options``." An APNAP sweep (`RulesEngine.request_vote`) collects one
+    ``options``." An APNAP sweep (`RulesEngine._request_vote`) collects one
     vote per living player, then resolves an outcome:
 
     * ``majority_specs`` — one serialized effect list per option (same order
@@ -13831,7 +13843,7 @@ class VoteEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None or len(self.options) < 2:
             return
-        context.engine.request_vote(
+        context.engine._request_vote(
             source=self.source,
             controller_id=player.id,
             options=self.options,
@@ -13934,7 +13946,7 @@ class ObjectVoteEffect(GameEffect):
             prompt = "Abstimmung: bleibender Nichtland-Permanent"
         if not candidates:
             return
-        context.engine.request_object_vote(
+        context.engine._request_object_vote(
             source=self.source,
             controller_id=controller.id,
             candidates=candidates,
@@ -13961,7 +13973,7 @@ class FaceVillainousChoiceEffect(GameEffect):
     """RULE 701.55: "`<player>` faces a villainous choice — `<A>`, or
     `<B>`." Each facing player (resolved from ``subject``) chooses one of
     the two options; that option's effects resolve **for that player**
-    (`RulesEngine.request_villainous_choice`, an APNAP sweep — the
+    (`RulesEngine._request_villainous_choice`, an APNAP sweep — the
     `VoteEffect` sweep minus the tally).
 
     ``subject`` — who faces it:
@@ -14073,7 +14085,7 @@ class FaceVillainousChoiceEffect(GameEffect):
             ]
         if not facing:
             return
-        context.engine.request_villainous_choice(
+        context.engine._request_villainous_choice(
             source=self.source,
             controller_id=controller.id,
             facing_ids=[p.id for p in facing],
@@ -14114,7 +14126,7 @@ class FaceVillainousChoiceEffect(GameEffect):
             })
         if not rounds:
             return
-        context.engine.request_villainous_choice(
+        context.engine._request_villainous_choice(
             source=self.source, controller_id=controller.id, rounds=rounds,
         )
 
@@ -14737,7 +14749,7 @@ class ScrollRackEffect(GameEffect):
     round 4F — Scroll Rack, RULE 701.20a-adjacent) — the exile-any-number
     half of the ability. Candidates are the whole hand, unlike
     `ChooseObjectsEffect` (hard-coded to `permanents_controlled_by` —
-    battlefield only), so this opens `RulesEngine.request_choose_objects`
+    battlefield only), so this opens `RulesEngine._request_choose_objects`
     directly rather than going through that registry effect. ``track_
     exiled_with=True`` (MEC-21) accumulates every pick's instance id onto
     this ability's own source (`GameObject.exiled_with_ids`), which
@@ -14745,7 +14757,7 @@ class ScrollRackEffect(GameEffect):
     ``then_specs``, since "how many cards to draw and which cards need
     reordering" is only known *after* the player answers. Zero cards
     exiled (a legal "any number") correctly does nothing further, since
-    `request_choose_objects` only fires ``then_specs`` once at least one
+    `_request_choose_objects` only fires ``then_specs`` once at least one
     pick was made.
     """
 
@@ -14753,7 +14765,7 @@ class ScrollRackEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None or self.source is None:
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, list(player.hand), "exile", count=len(player.hand), optional=True,
             prompt="Scroll Rack: Karten verdeckt aus der Hand verbannen",
             source=self.source, track_exiled_with=True,
@@ -14767,7 +14779,7 @@ class ScrollRackFinishEffect(GameEffect):
     just-exiled card `GameObject.face_down_in_exile` (RULE 701.20a — the
     same flag Beseech the Mirror's own face-down exile uses, set here
     rather than at the moment of exile since `RulesEngine.
-    request_choose_objects`'s own ``"exile"`` action has no face-down
+    _request_choose_objects`'s own ``"exile"`` action has no face-down
     concept of its own and several *other* cards share that action
     unchanged); put that many cards from the top of the controller's
     library into their hand (a plain "put into hand", not a draw — RULE
@@ -15013,7 +15025,7 @@ class CheatCreatureFromHandEffect(GameEffect):
     optional OR-filter for cards such as Incandescent Soulstoke's Elemental
     restriction. The controller chooses the eligible card, including the
     option not to put one onto the battlefield; that choice has to survive
-    a session snapshot, so it uses `RulesEngine.request_choose_objects`
+    a session snapshot, so it uses `RulesEngine._request_choose_objects`
     rather than a resolution-time callback.
     """
 
@@ -15048,7 +15060,7 @@ class CheatCreatureFromHandEffect(GameEffect):
         if not candidates:
             return
         criterion = " oder ".join(self.subtypes) if self.subtypes else "Kreatur"
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player,
             candidates,
             action="hand_to_battlefield_haste_sacrifice",
@@ -15144,10 +15156,10 @@ class WordOfCommandEffect(GameEffect):
     and choose a card from it. You control that player until ~ finishes
     resolving. The player plays that card if able."
 
-    `RulesEngine.request_word_of_command` opens a `word_of_command`
+    `RulesEngine._request_word_of_command` opens a `word_of_command`
     `pending_choice` addressed to *this effect's controller* (the hand is
     revealed to them via `game_session`), listing the target's hand;
-    `resolve_word_of_command_choice` then has the target player play the
+    `_resume_word_of_command` then has the target player play the
     chosen card — `play_land` if it's a land they can play, else
     `cast_without_paying` (the same effect-driven free-cast primitive
     cascade/discover use — see that method).
@@ -15171,7 +15183,7 @@ class WordOfCommandEffect(GameEffect):
         target = targets[0] if targets else None
         if controller is None or target is None or getattr(target, "id", None) is None:
             return
-        context.engine.request_word_of_command(controller, target, source=self.source)
+        context.engine._request_word_of_command(controller, target, source=self.source)
 
 
 class ExtraCombatPhaseEffect(GameEffect):
@@ -15397,7 +15409,7 @@ class TapEffect(GameEffect):
         #: Tactician, MEC-42) — a real choice at resolution, layered on top
         #: of RULE 115's own "up to one" target optionality (``optional``
         #: above only ever decides *whether there's a target at all*).
-        #: Opens `RulesEngine.request_tap_or_untap_choice` instead of
+        #: Opens `RulesEngine._request_tap_or_untap_choice` instead of
         #: applying ``untap`` directly.
         self.choose_tap_or_untap = choose_tap_or_untap
         self.selector = selector if _is_valid_tap_selector(selector) else None
@@ -15497,7 +15509,7 @@ class TapEffect(GameEffect):
             target = self.source
         if target is not None:
             if self.choose_tap_or_untap:
-                context.engine.request_tap_or_untap_choice(target, source=self.source)
+                context.engine._request_tap_or_untap_choice(target, source=self.source)
             else:
                 context.set_tapped(target, tapped=not self.untap)
 
@@ -16921,13 +16933,13 @@ class PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect(GameEffect):
     dealt combat damage this turn. If you do, draw X cards." (Tymna the
     Weaver, MEC-42) — computes X once (`continuous.count_selector`'s new
     ``"opponents_dealt_combat_damage_this_turn"``), then opens the
-    general `RulesEngine.request_pay_cost_then` choice with a
+    general `RulesEngine._request_pay_cost_then` choice with a
     *dynamically built* ``ActivationCost(pay_life=X)`` and a matching
     draw-X-cards follow-up, rather than `PayCostThenEffect`'s own fixed
     cost-text shape (which has no way to plug in a live board count).
     X=0 skips the choice outright — there's nothing to gain from paying
     0 life to draw 0 cards, the same "don't stall on a choice nobody can
-    meaningfully act on" idiom `request_pay_cost_then` already applies
+    meaningfully act on" idiom `_request_pay_cost_then` already applies
     to an unpayable cost.
     """
 
@@ -16941,7 +16953,7 @@ class PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect(GameEffect):
         x = continuous.count_selector(context.state, player.id, "opponents_dealt_combat_damage_this_turn")
         if x <= 0:
             return
-        context.engine.request_pay_cost_then(
+        context.engine._request_pay_cost_then(
             player, ActivationCost(pay_life=x), [{"type": "draw", "params": {"count": x}}], self.source,
         )
 
@@ -17394,7 +17406,7 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
         #: control."
         self.under_your_control = under_your_control
         #: "...with a +1/+1 counter on it." (Feign Death) — the same
-        #: ``{"kind", "count"}`` shape `request_search`'s own
+        #: ``{"kind", "count"}`` shape `_request_search`'s own
         #: ``extra_counters`` uses, put on the object right after it lands.
         self.extra_counters = dict(extra_counters) if extra_counters else None
 
@@ -17526,7 +17538,7 @@ class RevealTopThenCreatureAndOrLandBattlefieldEffect(GameEffect):
         ]
         creature_candidates = [obj for obj in revealed if obj.card.is_creature]
         land_pick = [{"type": "ojer_kaslem_land_pick", "params": {}}]
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, creature_candidates, "library_to_battlefield", count=1, optional=True,
             prompt="Lege bis zu eine der aufgedeckten Kreaturenkarten auf das Schlachtfeld",
             source=self.source, then_specs=land_pick, else_specs=land_pick,
@@ -17559,7 +17571,7 @@ class OjerKaslemLandPickEffect(GameEffect):
             obj for obj in (context.state.find_object(iid) for iid in land_ids)
             if obj is not None and obj.zone == Zone.LIBRARY
         ]
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, land_candidates, "library_to_battlefield", count=1, optional=True,
             prompt="Lege bis zu eine der aufgedeckten Landkarten auf das Schlachtfeld",
             source=self.source,
@@ -17862,7 +17874,7 @@ class RemoveSuspectedEffect(GameEffect):
       * ``attached`` — this Aura's host.
 
     ``optional`` (the "you may have it …" rider) routes through
-    `request_choose_objects` so declining is a real board choice, not an
+    `_request_choose_objects` so declining is a real board choice, not an
     auto-take — a suspected creature has menace, which its controller may
     want to keep.
     """
@@ -17900,7 +17912,7 @@ class RemoveSuspectedEffect(GameEffect):
             controller = _controller_of(self.source, context)
             if controller is None:
                 return
-            context.engine.request_choose_objects(
+            context.engine._request_choose_objects(
                 controller, objs, "remove_suspected", count=len(objs),
                 optional=True, source=self.source,
                 prompt="Have it become no longer suspected?",
@@ -18096,9 +18108,9 @@ class RemoveCountersEffect(GameEffect):
     "remove up to N counters from target permanent/creature") switches to a
     genuinely different, interactive **chosen**-quantity shape instead:
     resolution opens a `pending_choice` (`RulesEngine.
-    request_remove_counters_choice`) asking how many (0..min(max_count,
+    _request_remove_counters_choice`) asking how many (0..min(max_count,
     counters present)), then — only if the target carries 2+ counter kinds —
-    which kind to remove one at a time, mirroring `request_search`'s
+    which kind to remove one at a time, mirroring `_request_search`'s
     "open a choice, the engine's `resolve_*_choice` finishes it" shape
     rather than doing anything synchronously here.
     """
@@ -18132,7 +18144,7 @@ class RemoveCountersEffect(GameEffect):
         if self.max_count is not None:
             target = targets[0] if targets else None
             if target is not None:
-                context.engine.request_remove_counters_choice(
+                context.engine._request_remove_counters_choice(
                     target, self.max_count, _controller_of(self.source, context)
                 )
             return
@@ -18165,7 +18177,7 @@ class RemoveCountersFromAmongThenDrawLoseLifeEffect(GameEffect):
     counters removed this way." (Eventide's Shadow.)
 
     The controller picks counter-bearing permanents through an ``optional``
-    `request_choose_objects` (action ``strip_all_counters`` — each pick
+    `_request_choose_objects` (action ``strip_all_counters`` — each pick
     loses *all* its counters, a documented permanent-granularity
     simplification of "any number of counters", the same RULE 122 precision
     `MoveCountersEffect` already accepts). This effect's controller then
@@ -18184,7 +18196,7 @@ class RemoveCountersFromAmongThenDrawLoseLifeEffect(GameEffect):
         if not candidates:
             return
         before = _battlefield_counter_total(context.state)
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             controller, candidates, "strip_all_counters",
             count=len(candidates), optional=True, source=self.source,
             prompt="Entferne Marken von bleibenden Karten",
@@ -18891,7 +18903,7 @@ class ManifestDreadEffect(GameEffect):
     onto the battlefield face down and the other into your graveyard (RULE
     701.40a plus a look-and-choose wrapper).
 
-    The choice is a real interactive one (`RulesEngine.request_manifest_dread`)
+    The choice is a real interactive one (`RulesEngine._request_manifest_dread`)
     rather than "take the top card", since which of the two is worth
     manifesting — and which is worth *binning*, for a graveyard deck — is
     the whole decision the mechanic exists for."""
@@ -18902,7 +18914,7 @@ class ManifestDreadEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is not None:
-            context.request_manifest_dread(player)
+            context._request_manifest_dread(player)
 
 
 class CreateNamedCardTokenEffect(GameEffect):
@@ -19115,7 +19127,7 @@ class CreateTokenEffect(GameEffect):
         #: "…create an Incubator token with two +1/+1 counters on it…"
         #: (Glissa, Herald of Predation's Incubate) — ``{"kind": "+1/+1",
         #: "count": 2}``, put on each created token right after it enters,
-        #: the same shape `request_search`'s own ``extra_counters`` uses
+        #: the same shape `_request_search`'s own ``extra_counters`` uses
         #: for a found card reaching the battlefield.
         self.extra_counters = dict(extra_counters) if extra_counters else None
         # "…create an X/X blue Shark creature token with flying, where X is
@@ -19713,7 +19725,7 @@ class EnterAsCopyReplacement(GameEffect):
         self.add_keywords_if_target_lacks = list(add_keywords_if_target_lacks or [])
         #: "…except it has ~'s other abilities" (Sakashima of a Thousand
         #: Faces) — RULE 706.2 would otherwise erase ~'s own printed
-        #: abilities entirely; see `resolve_enter_as_copy_choice`.
+        #: abilities entirely; see `_resume_enter_as_copy`.
         self.keep_own_abilities = keep_own_abilities
         #: "…except it's an artifact and it has '{T}: Add {U}.'" (Machine
         #: God's Effigy) — a plain ``{T}``-only mana ability granted
@@ -19836,7 +19848,7 @@ class ChooseCardNameReplacement(GameEffect):
     sibling of `ChooseCreatureTypeReplacement`/`ChooseColorReplacement`/
     `ChooseNamedModeReplacement`, but naming any Magic card rather than
     picking from a small enumerable set: `RulesEngine._offer_enter_choices`
-    offers a free-text choice (suggestions only, like `request_name_card`'s
+    offers a free-text choice (suggestions only, like `_request_name_card`'s
     own "name any card" idiom) and stamps the answer verbatim onto
     `GameObject.chosen_card_name` — read back by `continuous.
     group_selector_objects`'s ``card_name_from_source`` selector param.
@@ -19947,7 +19959,7 @@ class IntuitionEffect(GameEffect):
     """"Search your library for `<count>` cards and reveal them. Target
     opponent chooses one. Put that card into your hand and the rest into
     your graveyard. Then shuffle." (Intuition) — see
-    `RulesEngine.request_intuition` for the two-phase shape (the searcher
+    `RulesEngine._request_intuition` for the two-phase shape (the searcher
     picks the cards, then the *targeted opponent* — a real RULE 115 target,
     not the searcher — picks from among them).
 
@@ -19979,7 +19991,7 @@ class IntuitionEffect(GameEffect):
         chooser_id = getattr(chooser, "id", None)
         if searcher is None or chooser_id is None:
             return
-        context.request_intuition(
+        context._request_intuition(
             searcher, chooser_id, self.count, self.source,
             search_optional=self.search_optional, distinct_names=self.distinct_names,
             chosen_count=self.chosen_count, chosen_destination=self.chosen_destination,
@@ -20024,7 +20036,7 @@ class SearchLibraryEffect(GameEffect):
       entirely (Doomsday-shaped).
 
     Because *which* card is a player choice, this doesn't move a card itself
-    — it asks the engine to open a choice (`GameContext.request_search`); the
+    — it asks the engine to open a choice (`GameContext._request_search`); the
     chosen card(s) are moved to their destination(s) and the library
     shuffled (unless ``exile_rest``) when the player answers.
 
@@ -20090,11 +20102,11 @@ class SearchLibraryEffect(GameEffect):
         #: the count *after* the search's RULE 608.2 pending-choice
         #: suspension (the list lives on the permanent, not the resolution
         #: `GameContext`). Same accumulator `ExileEffect.track_exiled_with`
-        #: and `request_choose_objects` already write.
+        #: and `_request_choose_objects` already write.
         self.track_exiled_with = bool(track_exiled_with)
         #: "...basic land cards **that share a land type**." (Myriad
         #: Landscape, MEC-43 round 3) — a cross-pick constraint on a
-        #: multi-card search; see `RulesEngine.request_search`'s own
+        #: multi-card search; see `RulesEngine._request_search`'s own
         #: docstring for how it's enforced round by round.
         self.share_land_type = share_land_type
         #: "Search **target opponent's** library for a card…" (Praetor's
@@ -20102,7 +20114,7 @@ class SearchLibraryEffect(GameEffect):
         #: ability's own RULE 115 target resolved to (the library that gets
         #: searched/shuffled and stays the found card's owner), while the
         #: *chooser* — who actually answers the search — stays this
-        #: effect's own controller, via `RulesEngine.request_search`'s
+        #: effect's own controller, via `RulesEngine._request_search`'s
         #: ``chooser`` param. Distinct from every other ``player`` sentinel
         #: above (``"previous_target_controller"`` etc.), which all still
         #: make the target both the searcher *and* the one who answers.
@@ -20115,7 +20127,7 @@ class SearchLibraryEffect(GameEffect):
         #: ``max_mana_value`` (a fixed per-card cap): each round's own
         #: eligible pool additionally excludes any card whose mana value
         #: would push the sum of everything picked so far over this total.
-        #: See `RulesEngine.request_search`'s own docstring for how the
+        #: See `RulesEngine._request_search`'s own docstring for how the
         #: running total is threaded through the choice loop.
         self.total_mana_value_budget = total_mana_value_budget
         #: "Exile a card from a graveyard. [...] the exiled card." (Cemetery
@@ -20146,7 +20158,7 @@ class SearchLibraryEffect(GameEffect):
         self.mana_value_from = mana_value_from
         #: "…put that card onto the battlefield **with an additional +1/+1
         #: counter on it**" (Neoform) — ``{"kind": "+1/+1", "count": 1}``,
-        #: applied by `RulesEngine.resolve_search_choice` right after the
+        #: applied by `RulesEngine._resume_search` right after the
         #: found card reaches the battlefield.
         self.extra_counters = extra_counters
         #: "…put it onto the battlefield, **attach it to a creature you
@@ -20212,7 +20224,7 @@ class SearchLibraryEffect(GameEffect):
         else:
             player = self.player or context.active_player
         chooser = _controller_of(self.source, context) if self.player_from_target else None
-        context.request_search(
+        context._request_search(
             player, self._resolved_criteria(context), self.destination, self.count, self.optional,
             zones=self.zones, destinations=self.destinations, exile_rest=self.exile_rest,
             extra_counters=self.extra_counters, destination_if=self.destination_if,
@@ -20240,7 +20252,7 @@ class ImpulsiveLookEffect(GameEffect):
     permission (never moves a card). Peels exactly ``count`` cards, offers a
     choice among only the ones matching ``criteria``, routes the pick to
     ``hit_destination`` and the rest to ``miss_destination`` (see
-    `GameContext.impulsive_look`/`RulesEngine.request_impulsive_look`).
+    `GameContext.impulsive_look`/`RulesEngine._request_impulsive_look`).
     """
 
     def __init__(
@@ -20380,7 +20392,7 @@ class DrawRevealCastOneFreeEffect(GameEffect):
     Reveal is purely informational (RULE 701.28 — no hidden-zone state to
     model, since `services/game_session.py`'s own redaction already keeps
     a hand private otherwise), so this only draws, then offers
-    `RulesEngine.request_choose_objects`'s ``"cast_free"`` action over
+    `RulesEngine._request_choose_objects`'s ``"cast_free"`` action over
     *exactly* the cards this draw put into hand (never the rest of the
     hand) — snapshotting the hand before/after rather than assuming a
     fixed append count, since a draw can be redirected (RULE 121.5's
@@ -20416,7 +20428,7 @@ class RevealTopThenFreeCastIfMVMatchEffect(GameEffect):
     real but vanishingly rare decline), so this always looks. The mana-
     value match is checked against `GameContext.trigger_event`'s own
     ``mana_value`` (`SPELL_CAST`'s stamped field, RULE 601.2b), and only
-    when it holds does this offer `request_choose_objects`'s existing
+    when it holds does this offer `_request_choose_objects`'s existing
     ``"cast_free"`` action over the top card — a genuine interactive "you
     may cast", unlike the reveal half.
     """
@@ -21180,7 +21192,7 @@ class ExchangeControlThenEnergySacrificeEffect(GameEffect):
         context.add_player_counters(player, 4, "energy", source=mine)
         from ..costs import ActivationCost  # function-scoped: costs↔effects cycle
         mv = theirs.card.converted_mana_cost or 0
-        context.engine.request_sacrifice_unless_pay(player, ActivationCost(pay_energy=mv), theirs)
+        context.engine._request_sacrifice_unless_pay(player, ActivationCost(pay_energy=mv), theirs)
 
 
 class ExchangeControlThenCopyTokenEffect(GameEffect):
@@ -21609,7 +21621,7 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
 
     Every other "put onto the battlefield" shape in the engine moves a card
     out of a library (a search) or a graveyard (reanimation); none opens an
-    arbitrary pick from hand. Reuses `RulesEngine.request_search`'s
+    arbitrary pick from hand. Reuses `RulesEngine._request_search`'s
     interactive one-at-a-time choice machinery by searching the ``"hand"``
     zone, so the UI, the undo snapshots and the "up to N" semantics are
     identical to every other pick — rather than a parallel choice kind that
@@ -21639,13 +21651,13 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         self.count = count
         self.tapped = tapped
         #: "…from your hand **or graveyard**…" (Dread Tiller) — the pool to
-        #: pick from, defaulting to hand only (`request_search` already
+        #: pick from, defaulting to hand only (`_request_search` already
         #: takes a multi-zone list). Every other caller stays hand-only.
         self.zones = list(zones) if zones else ["hand"]
         #: "If you don't put a card onto the battlefield this way, <body>."
         #: (The Vast Scrier) — serialized `EffectSpec` dicts run when the
         #: from-hand pick places nothing (declined / nothing eligible),
-        #: threaded through `request_search`'s ``then_specs_if_none``.
+        #: threaded through `_request_search`'s ``then_specs_if_none``.
         self.miss_effect_specs = list(miss_effect_specs or [])
         #: "…onto the battlefield tapped **and attacking**." (RULE 508.4 —
         #: Preeminent Captain, Kaalia of the Vast). Routes to the
@@ -21688,7 +21700,7 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
                 # No power on the source → nothing has "lesser power" → an
                 # impossible cap (fail closed) rather than an open pick.
                 criteria["max_power"] = (src_power - 1) if src_power is not None else -1
-        context.request_search(
+        context._request_search(
             player, criteria, destination, self.count, optional=True, zones=list(self.zones),
             then_specs_if_none=self.miss_effect_specs or None, source=self.source,
         )
@@ -21705,7 +21717,7 @@ class NameCardThenEffect(GameEffect):
     other choice in the engine picks from an enumerable set, and a player
     may name *any* card in Magic, including one nowhere in this game.
 
-    `RulesEngine.request_name_card` therefore offers the names the player
+    `RulesEngine._request_name_card` therefore offers the names the player
     can actually see (their own hand/library/graveyard) as suggestions while
     accepting an arbitrary string, and substitutes it into the follow-up
     effects' ``"named_card"`` criteria sentinel — the naming counterpart of
@@ -21726,7 +21738,7 @@ class NameCardThenEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        context.engine.request_name_card(player, self.inner_specs, self.source)
+        context.engine._request_name_card(player, self.inner_specs, self.source)
 
 
 class ExileUntilDuplicateNameEffect(GameEffect):
@@ -21937,14 +21949,14 @@ class LookTopPayLifeLoopEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        context.engine.request_look_top_pay_life_loop(player, self.count, self.life_cost)
+        context.engine._request_look_top_pay_life_loop(player, self.count, self.life_cost)
 
 
 class RevealTopHandLoseLifeLoopEffect(GameEffect):
     """"Reveal the top card of your library and put that card into your
     hand. You lose life equal to its mana value. You may repeat this
     process any number of times." (Ad Nauseam, MEC-41) — see `RulesEngine.
-    request_reveal_top_hand_lose_life_loop`'s own docstring for why this is
+    _request_reveal_top_hand_lose_life_loop`'s own docstring for why this is
     a distinct open-ended loop from `LookTopPayLifeLoopEffect` just above,
     not a parameterization of it.
     """
@@ -21953,7 +21965,7 @@ class RevealTopHandLoseLifeLoopEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        context.engine.request_reveal_top_hand_lose_life_loop(player)
+        context.engine._request_reveal_top_hand_lose_life_loop(player)
 
 
 class ScrambleSpellEffect(GameEffect):
@@ -22085,9 +22097,9 @@ class PutEqualOrLesserManaValueFromHandEffect(GameEffect):
     isn't a literal baked into the spec, it's *this firing's own*
     entering permanent's mana value (RULE 603.1, read off `GameContext.
     trigger_event`'s ``instance_id``) rather than something the catalogue
-    could supply ahead of time. Uses `RulesEngine.request_choose_objects`'s
+    could supply ahead of time. Uses `RulesEngine._request_choose_objects`'s
     new ``"hand_to_battlefield"`` action (rather than
-    `PutFromHandOntoBattlefieldEffect`'s `request_search`) specifically so
+    `PutFromHandOntoBattlefieldEffect`'s `_request_search`) specifically so
     the new pick gets `GameObject.entered_via_ability_id` stamped — the
     printed "if it wasn't put onto the battlefield with this ability"
     guard on Kodama's own trigger (`effect_binder`'s
@@ -22109,7 +22121,7 @@ class PutEqualOrLesserManaValueFromHandEffect(GameEffect):
                 "max_mana_value": max_mv,
             })
         ]
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             player, candidates, "hand_to_battlefield", count=1, optional=True,
             prompt="Permanentenkarte auf das Schlachtfeld legen",
             source=self.source,
@@ -22139,7 +22151,7 @@ class ExileCastSpellIntoImprintPoolEffect(GameEffect):
     "They may cast a spell from **among** other cards exiled with this
     artifact" is a genuine choice among 0+ candidates (every pool member
     except the one just added by this same resolution) —
-    `RulesEngine.request_choose_objects`'s ``"grant_free_cast"`` action
+    `RulesEngine._request_choose_objects`'s ``"grant_free_cast"`` action
     (MEC-20's Expertise-cycle primitive: arms the *one* chosen card's
     free-cast window rather than casting it immediately, so the caster
     still gets full RULE 115 targeting through the ordinary `legal_actions`
@@ -22184,7 +22196,7 @@ class ExileCastSpellIntoImprintPoolEffect(GameEffect):
         ]
         if not candidates:
             return
-        context.engine.request_choose_objects(
+        context.engine._request_choose_objects(
             caster, candidates, "grant_free_cast", count=1, optional=True,
             prompt=f"{self.source.name}: Karte ohne Bezahlen ihrer Manakosten wirken?",
             source=self.source,
@@ -22287,7 +22299,7 @@ def _scale_cumulative_upkeep_cost(cost: "ActivationCost", n: int) -> "Activation
     once regardless of the age-counter count — since "pay this cost N
     *separate* times" (tap N different creatures, sacrifice N different
     permanents) is a distinct, more general primitive genuinely unbuilt
-    both here and in `RulesEngine.request_sacrifice_unless_pay`'s existing
+    both here and in `RulesEngine._request_sacrifice_unless_pay`'s existing
     RULE 701.17 machinery this reuses.
     """
     from dataclasses import replace
@@ -22310,7 +22322,7 @@ class CumulativeUpkeepEffect(GameEffect):
     (`_scale_cumulative_upkeep_cost`) reuses the exact same pay-or-
     sacrifice machinery a plain "Sacrifice ~ unless you pay `<cost>`"
     already rides (RULE 701.17, `SacrificeUnlessPayEffect` →
-    `RulesEngine.request_sacrifice_unless_pay`), just with the parsed cost
+    `RulesEngine._request_sacrifice_unless_pay`), just with the parsed cost
     multiplied by however many age counters the permanent now carries.
     """
 
@@ -22332,7 +22344,7 @@ class CumulativeUpkeepEffect(GameEffect):
         player = _controller_of(obj, context)
         if player is None:
             return
-        context.engine.request_sacrifice_unless_pay(
+        context.engine._request_sacrifice_unless_pay(
             player, _scale_cumulative_upkeep_cost(base, n), obj
         )
 
@@ -23067,7 +23079,7 @@ class DiscardOrLoseLifeEffect(GameEffect):
                 continue
             cost = ActivationCost(discard=self.count)
             rest = [self._continuation_spec(round_index, player_index + 1)]
-            context.engine.request_pay_cost_then(
+            context.engine._request_pay_cost_then(
                 player,
                 cost,
                 effect_specs=rest,
@@ -24501,7 +24513,7 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "request_choose_player", lambda p: RequestChoosePlayerEffect()  # Stuffy Doll
+    "_request_choose_player", lambda p: RequestChoosePlayerEffect()  # Stuffy Doll
 )
 EffectRegistry.register("slithermuse", lambda p: SlithermuseEffect())
 EffectRegistry.register("haunt", lambda p: HauntEffect())
@@ -24516,7 +24528,7 @@ EffectRegistry.register(
     "deal_damage_to_chosen_player", lambda p: DealDamageToChosenPlayerEffect()  # Stuffy Doll
 )
 EffectRegistry.register(
-    "request_choose_creature_type_grant",  # Selfless Safewright
+    "_request_choose_creature_type_grant",  # Selfless Safewright
     lambda p: RequestChooseCreatureTypeGrantEffect(then_specs=p.get("then_specs")),
 )
 EffectRegistry.register(
@@ -24805,7 +24817,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     # MEC-52 — the "and pay its mana cost" half of Back from the Brink:
-    # `request_pay_cost_then` priced off the just-exiled graveyard card.
+    # `_request_pay_cost_then` priced off the just-exiled graveyard card.
     # Never placed in an `AbilitySpec` directly — only chained by
     # `BackFromTheBrinkEffect` as a `then_specs` entry.
     "pay_cost_then_previous_mv",
@@ -25298,7 +25310,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     # "You may sacrifice/tap/return a <kind> you control." — the player
-    # picks which; see `RulesEngine.request_choose_objects`.
+    # picks which; see `RulesEngine._request_choose_objects`.
     "choose_objects",
     lambda p: ChooseObjectsEffect(
         action=str(p.get("action", "sacrifice")),
@@ -25406,7 +25418,7 @@ EffectRegistry.register(
 EffectRegistry.register(
     # "Face a villainous choice" (RULE 701.55, PAR-29): each facing player
     # picks one of two option effect-lists, applied for them. See
-    # `FaceVillainousChoiceEffect` / `RulesEngine.request_villainous_choice`.
+    # `FaceVillainousChoiceEffect` / `RulesEngine._request_villainous_choice`.
     "face_villainous_choice",
     lambda p: FaceVillainousChoiceEffect(
         option_a=list(p.get("option_a", [])),
@@ -25420,7 +25432,7 @@ EffectRegistry.register(
 EffectRegistry.register(
     # "Vote" (RULE 701.38, PAR-29): an APNAP vote among `options`, then a
     # majority-branch or per-vote-scaled outcome. See `VoteEffect` /
-    # `RulesEngine.request_vote`.
+    # `RulesEngine._request_vote`.
     "vote",
     lambda p: VoteEffect(
         options=list(p.get("options", [])),
@@ -25440,7 +25452,7 @@ EffectRegistry.register(
     # MEC-46 (RULE 701.38): "each player votes for a nonland permanent you
     # don't control" / "…a card in your graveyard", then "exile / return
     # each `<object>` with the most votes or tied for most votes". See
-    # `ObjectVoteEffect` / `RulesEngine.request_object_vote`. Closes
+    # `ObjectVoteEffect` / `RulesEngine._request_object_vote`. Closes
     # Council's Judgment, Custodi Squire.
     "vote_object",
     lambda p: ObjectVoteEffect(
@@ -26556,7 +26568,7 @@ EffectRegistry.register(
     #     (`continuous.group_selector_objects`'s matching selector) — "This
     #     creature has all activated abilities of the chosen permanent."
     #     (Scheming Fence), a single donor picked once by its own ETB
-    #     `request_choose_objects` rather than exiled or group-scoped.
+    #     `_request_choose_objects` rather than exiled or group-scoped.
     # ``exclude_loyalty`` (Scheming Fence's own "…except for loyalty
     # abilities" — RULE 606.5c abilities are a planeswalker-only concept
     # that makes no sense borrowed onto a creature) drops any donor ability

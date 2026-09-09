@@ -18,7 +18,7 @@ Keen Duelist: a simultaneous mutual reveal-and-compare upkeep trigger —
 fully deterministic, one atomic effect.
 
 Scroll Rack: reuses `GameObject.face_down_in_exile`, `RulesEngine.
-request_choose_objects`, and the scry/surveil two-phase "order the rest
+_request_choose_objects`, and the scry/surveil two-phase "order the rest
 back on top" machinery — the genuinely new part is putting the *exiled*
 cards back on top afterward.
 
@@ -142,7 +142,7 @@ def test_maralen_prohibits_draws_and_runs_the_draw_step_replacement():
     choice = state.pending_choice
     assert choice is not None and choice["kind"] == "search"
     found_id = choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(found_id)
+    eng.rules.resolve_choice(found_id)
     assert any(o.name == "Library Bear" for o in p1.hand)
 
 
@@ -169,7 +169,7 @@ def test_keen_duelist_mutual_reveal_compares_mana_values():
 
     choice = state.pending_choice
     assert choice is not None and choice["kind"] == "trigger_target"
-    eng.rules.resolve_trigger_target_choice("p2")
+    eng.rules.resolve_choice("p2")
     eng.resolve_until_stable()
 
     assert p1.life == 16  # lost p2's revealed mana value (4)
@@ -206,10 +206,10 @@ def test_scroll_rack_exiles_hand_draws_and_reorders_onto_library():
     choice = state.pending_choice
     assert choice is not None and choice["kind"] == "choose_objects"
     assert choice["action"] == "exile"
-    eng.rules.resolve_choose_objects_choice(hand_a.instance_id)
+    eng.rules.resolve_choice(hand_a.instance_id)
     choice = state.pending_choice
     assert choice is not None and choice["kind"] == "choose_objects"
-    eng.rules.resolve_choose_objects_choice(hand_b.instance_id)
+    eng.rules.resolve_choice(hand_b.instance_id)
 
     # Both hand cards are now exiled, face down; two cards moved from the
     # top of the library into hand (not exiled — RULE 121.4, not a draw).
@@ -222,7 +222,7 @@ def test_scroll_rack_exiles_hand_draws_and_reorders_onto_library():
     # so it ends up on top (A goes automatically underneath it).
     order_choice = state.pending_choice
     assert order_choice is not None and order_choice["kind"] == "scroll_rack"
-    eng.rules.resolve_scroll_rack_choice(hand_b.instance_id)
+    eng.rules.resolve_choice(hand_b.instance_id)
 
     assert state.pending_choice is None
     assert hand_a.zone == Zone.LIBRARY and hand_a.face_down_in_exile is False
@@ -305,6 +305,6 @@ def test_dance_of_the_dead_upkeep_pay_untaps_the_enchanted_creatures_controller_
 
     choice = eng.state.pending_choice
     assert choice is not None and choice["kind"] == "pay_cost_then"
-    eng.rules.resolve_pay_cost_then_choice("pay")
+    eng.rules.resolve_choice("pay")
 
     assert reanimated.tapped is False

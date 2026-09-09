@@ -242,7 +242,7 @@ def test_unkicked_vastwood_surge_skips_the_counters():
     p1.hand.append(obj)
 
     # Bypass the interactive library-search choice: no basics in the deck,
-    # so `request_search` resolves with nothing to find — only the kicked
+    # so `_request_search` resolves with nothing to find — only the kicked
     # gate matters here, not the search itself.
     eng.cast_spell(p1, obj, kicked=0)
     eng.resolve_until_stable()

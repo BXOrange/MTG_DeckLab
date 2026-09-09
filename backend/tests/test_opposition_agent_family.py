@@ -43,9 +43,9 @@ def _engine_with_agent():
 def test_opponent_search_redirects_the_found_card_to_exile():
     eng, p1, p2 = _engine_with_agent()
 
-    eng.rules.request_search(p2, "Creature", "hand", count=1)
+    eng.rules._request_search(p2, "Creature", "hand", count=1)
     chosen = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(chosen)
+    eng.rules.resolve_choice(chosen)
 
     found = eng.state.find_object(chosen)
     assert found in p2.exile
@@ -59,9 +59,9 @@ def test_agents_own_controller_searching_is_not_redirected():
     lib_bear = GameObject(creature("OwnBear"), owner_id="p1", zone=Zone.LIBRARY)
     p1.library.append(lib_bear)
 
-    eng.rules.request_search(p1, "Creature", "hand", count=1)
+    eng.rules._request_search(p1, "Creature", "hand", count=1)
     chosen = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(chosen)
+    eng.rules.resolve_choice(chosen)
 
     found = eng.state.find_object(chosen)
     assert found in p1.hand

@@ -193,7 +193,7 @@ def _sakashima_of_a_thousand_faces() -> list[AbilitySpec]:
     ``keep_own_abilities=True`` — RULE 706.2 would otherwise erase
     Sakashima's own printed abilities entirely, but the "except" clause adds
     them back onto the copy, snapshotted before the copy runs and reattached
-    after in `resolve_enter_as_copy_choice`); and a standing
+    after in `_resume_enter_as_copy`); and a standing
     `ignore_legend_rule` static (RULE 704.5j) so two same-named legendary
     permanents — Sakashima-as-a-copy and the original it copied, or any
     other pair — can coexist under its controller. Partner is already
@@ -358,7 +358,7 @@ def _aven_mindcensor() -> list[AbilitySpec]:
     parser-claimed for free; the static half is the new
     `grant_search_limited_to_top_n` (RULE 701.19a-adjacent narrowing, not
     `grant_search_prohibited`'s outright block) — `RulesEngine.
-    _search_zone_objects` scans for it exactly where `request_search`
+    _search_zone_objects` scans for it exactly where `_request_search`
     already scans for the prohibition.
     """
     return [
@@ -386,7 +386,7 @@ def _phyrexian_revoker() -> list[AbilitySpec]:
     carve-out at all, so naming a mana dork silences its mana ability too.
     The printed "nonland" restriction on the *choice itself* isn't
     enforced (this engine's naming choices are never validated against
-    real card data — `RulesEngine.request_name_card` accepts any string
+    real card data — `RulesEngine._request_name_card` accepts any string
     the same way); naming a land simply matches nothing, same as any other
     name that happens not to be on the board.
     """
@@ -696,7 +696,7 @@ def _abdel_adrian_gorions_ward() -> list[AbilitySpec]:
     — MEC-12 (cEDH staples 2), the O-Ring/exile family's last remaining
     member. The new `ExileAnyNumberYouControlEffect` is a *selection*
     among the controller's own permanents, not a RULE 115 target at all —
-    `RulesEngine.request_choose_objects`'s chooser, with its own new
+    `RulesEngine._request_choose_objects`'s chooser, with its own new
     `track_exiled_with=True` accumulating every pick onto `GameObject.
     exiled_with_ids`, the same field `ExileEffect(track_exiled_with=True)`
     uses. The token count is the new `exiled_with_count` count_selector

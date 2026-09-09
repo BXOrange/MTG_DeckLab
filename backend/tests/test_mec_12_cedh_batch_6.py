@@ -134,7 +134,7 @@ def test_mox_diamond_discards_a_land_to_enter():
     engine.cast_spell(p1, spell, targets=None)
     engine.resolve_until_stable()
     assert state.pending_choice is not None and state.pending_choice["kind"] == "enter_or_graveyard"
-    engine.rules.resolve_enter_or_graveyard_choice(str(land.instance_id))
+    engine.rules.resolve_choice(str(land.instance_id))
     engine.resolve_until_stable()
 
     assert any(o.name == "Mox Diamond" for o in state.battlefield)
@@ -153,7 +153,7 @@ def test_mox_diamond_declined_goes_to_graveyard_never_a_permanent():
 
     engine.cast_spell(p1, spell, targets=None)
     engine.resolve_until_stable()
-    engine.rules.resolve_enter_or_graveyard_choice("decline")
+    engine.rules.resolve_choice("decline")
     engine.resolve_until_stable()
 
     assert not any(o.name == "Mox Diamond" for o in state.battlefield)
@@ -277,7 +277,7 @@ def test_stonehewer_giant_is_modeled_and_search_attaches_to_a_creature():
     engine.resolve_until_stable()
     choice = state.pending_choice
     equip_id = next(e["instance_id"] for e in choice["eligible"] if e["name"] == "SomeEquip")
-    engine.rules.resolve_search_choice(equip_id)
+    engine.rules.resolve_choice(equip_id)
     engine.resolve_until_stable()
 
     equip_obj = next(o for o in state.battlefield if o.name == "SomeEquip")
@@ -325,7 +325,7 @@ def test_tainted_pact_continuing_can_hit_a_duplicate_and_gain_nothing():
     engine.cast_spell(p1, spell, targets=None)
     engine.resolve_until_stable()
     assert state.pending_choice is not None and state.pending_choice["kind"] == "tainted_pact"
-    engine.rules.resolve_tainted_pact_choice("continue")
+    engine.rules.resolve_choice("continue")
     engine.resolve_until_stable()
 
     assert p1.hand == []
@@ -356,7 +356,7 @@ def test_transmute_artifact_cheap_find_enters_free():
     choice = state.pending_choice
     assert choice["kind"] == "transmute_search"
     found_id = next(o["instance_id"] for o in choice["options"] if o.get("label") == "Cheap2")
-    engine.rules.resolve_transmute_search_choice(str(found_id))
+    engine.rules.resolve_choice(str(found_id))
     engine.resolve_until_stable()
 
     assert any(o.name == "Cheap2" for o in state.battlefield)
@@ -381,11 +381,11 @@ def test_transmute_artifact_pricier_find_needs_the_difference_paid():
     engine.cast_spell(p1, spell, targets=None)
     engine.resolve_until_stable()
     found_id = next(o["instance_id"] for o in state.pending_choice["options"] if o.get("label") == "Pricey6")
-    engine.rules.resolve_transmute_search_choice(str(found_id))
+    engine.rules.resolve_choice(str(found_id))
     engine.resolve_until_stable()
 
     assert state.pending_choice["kind"] == "transmute_pay_x"
-    engine.rules.resolve_transmute_pay_x_choice("decline")
+    engine.rules.resolve_choice("decline")
     engine.resolve_until_stable()
 
     assert not any(o.name == "Pricey6" for o in state.battlefield)

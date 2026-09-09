@@ -216,5 +216,5 @@ def test_discover_executes_and_opens_the_choice():
 
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "discover"
-    eng.rules.resolve_discover_choice(to_hand=True)
+    eng.rules.resolve_choice("hand")
     assert any(o.name == "Small" for o in p1.hand)

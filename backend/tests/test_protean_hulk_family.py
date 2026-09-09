@@ -52,13 +52,13 @@ def test_protean_hulk_finds_multiple_creatures_within_total_budget():
     eligible_names = {e["name"] for e in choice["eligible"]}
     assert eligible_names == {"Five", "One", "Six"}
 
-    eng.rules.resolve_search_choice(five.instance_id)
+    eng.rules.resolve_choice(five.instance_id)
     # Budget now 6 - 5 = 1 remaining: "Six" no longer fits, "One" still does.
     choice = eng.state.pending_choice
     eligible_names = {e["name"] for e in choice["eligible"]}
     assert eligible_names == {"One"}
 
-    eng.rules.resolve_search_choice(one.instance_id)
+    eng.rules.resolve_choice(one.instance_id)
     # Budget exhausted (0 remaining) — search auto-finishes with no more choice.
     assert eng.state.pending_choice is None
     assert five in eng.state.battlefield
@@ -80,7 +80,7 @@ def test_protean_hulk_declining_early_still_keeps_earlier_picks():
     eng.rules.destroy(hulk)
     eng.resolve_until_stable()
 
-    eng.rules.resolve_search_choice(two.instance_id)
+    eng.rules.resolve_choice(two.instance_id)
     # Still eligible (budget 6-2=4 > 0) but only "Two" existed and it's now
     # picked, so the search should have auto-finished already.
     assert eng.state.pending_choice is None

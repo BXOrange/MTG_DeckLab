@@ -73,7 +73,7 @@ def test_mode2_discard_two_then_draw_two():
     for _ in range(2):
         pc = eng.state.pending_choice
         assert pc and pc["kind"] == "choose_objects"
-        eng.rules.resolve_choose_objects_choice(pc["options"][0]["instance_id"])
+        eng.rules.resolve_choice(pc["options"][0]["instance_id"])
     eng.resolve_until_stable()
 
     assert len(p1.graveyard) == 2
@@ -91,8 +91,8 @@ def test_mode2_decline_after_one_draws_one():
     eff.apply(GameContext(eng.state, eng.rules), targets=None)
 
     pc = eng.state.pending_choice
-    eng.rules.resolve_choose_objects_choice(pc["options"][0]["instance_id"])   # discard 1
-    eng.rules.resolve_choose_objects_choice(None)                              # decline the rest
+    eng.rules.resolve_choice(pc["options"][0]["instance_id"])   # discard 1
+    eng.rules.resolve_choice(None)                              # decline the rest
     eng.resolve_until_stable()
 
     assert len(p1.graveyard) == 1

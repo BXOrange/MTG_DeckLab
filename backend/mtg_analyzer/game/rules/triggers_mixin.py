@@ -76,6 +76,7 @@ from ..effects.core import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -1100,7 +1101,7 @@ class TriggerCollectionMixin:
             self._ordering_active = mine
             self._ordering_rest = rest
             self.pending_triggers.clear()
-            self.state.pending_choice = self._trigger_order_choice()
+            self.open_choice(self._trigger_order_choice())
             return 0
 
         count = len(self.pending_triggers)
@@ -1158,13 +1159,13 @@ class TriggerCollectionMixin:
         A mandatory, non-modal trigger with no targeting effect is placed
         immediately (unaffected — the overwhelming common case). One that's
         modal, targets, or is optional, opens a `pending_choice`:
-        `resolve_trigger_mode_choice`/`resolve_trigger_target_choice` places
+        `_resume_trigger_mode`/`_resume_trigger_target` places
         it (or not, if declined) and resumes this same queue. A *required*
         target with no legal option at all doesn't go on the stack (RULE
         603.3c) — dropped, not placed.
 
         A trigger chosen via the (opt-in, off-by-default) RULE 603.3b
-        interactive-ordering choice (`resolve_trigger_order_choice`) is
+        interactive-ordering choice (`_resume_order_triggers`) is
         placed through this same method — as a one-item ``queue`` — so it
         pauses for its own mode/target/"you may" choice exactly like the
         deterministic path; `_maybe_continue_ordering` (called once this
@@ -1194,7 +1195,7 @@ class TriggerCollectionMixin:
                     self._pending_trigger_queue = queue
                     self._pending_trigger_event = event
                     self._pending_trigger_reflexive_target = obj
-                    self.state.pending_choice = self._trigger_may_choice(ability, event=event)
+                    self.open_choice(self._trigger_may_choice(ability, event=event))
                     return
                 self._place_trigger(ability, targets=[obj], event=event)
                 continue
@@ -1208,7 +1209,7 @@ class TriggerCollectionMixin:
                 self._pending_trigger_ability = ability
                 self._pending_trigger_queue = queue
                 self._pending_trigger_event = event
-                self.state.pending_choice = self._trigger_mode_choice(ability)
+                self.open_choice(self._trigger_mode_choice(ability))
                 return
             if not self._place_or_pause_trigger(ability, ability.effects, queue, event=event):
                 return
@@ -1230,7 +1231,7 @@ class TriggerCollectionMixin:
 
         ``effects`` is ``ability.effects`` for an ordinary trigger, or a
         modal trigger's already-chosen mode's effects (`_trigger_mode_
-        choice`/`resolve_trigger_mode_choice`) — only in the latter case
+        choice`/`_resume_trigger_mode`) — only in the latter case
         does the placed `StackItem` carry ``effects`` directly instead of
         the `TriggeredAbility` wrapper (`_place_trigger`'s
         ``effects_override``), since the ability's own fixed ``effects``
@@ -1261,7 +1262,7 @@ class TriggerCollectionMixin:
             self._pending_trigger_effects = override
             self._pending_trigger_queue = queue
             self._pending_trigger_event = event
-            self.state.pending_choice = self._trigger_may_choice(ability, event=event)
+            self.open_choice(self._trigger_may_choice(ability, event=event))
             return False
         if len(specs) == 1:
             # The overwhelming common case — one targeting effect, unchanged
@@ -1295,9 +1296,9 @@ class TriggerCollectionMixin:
             # optional` correctly; this prompt-building branch didn't, so
             # "up to one" only ever showed a decline button when the whole
             # ability happened to *also* be a "you may".
-            self.state.pending_choice = self._trigger_target_choice(
+            self.open_choice(self._trigger_target_choice(
                 ability, options, allow_decline=spec.optional or ability.optional, event=event,
-            )
+            ))
             return False
         # RULE 115.1/603.3c generalized: 2+ *different* targeting effects (or
         # one effect wanting 2+ targets, expanded above) — gather one target
@@ -1413,7 +1414,7 @@ class TriggerCollectionMixin:
         _, span_len = self._span_bounds(spans, idx)
         if spec.optional and span_len > 1:
             choice["options"].append({"id": "stop", "label": "Keine weiteren"})
-        self.state.pending_choice = choice
+        self.open_choice(choice)
         return False
     def _trigger_modal_choice_config(self, ability: "TriggeredAbility") -> tuple[int, bool]:
         """Active count for a triggered conditional modal header."""
@@ -1449,7 +1450,7 @@ class TriggerCollectionMixin:
         """Build the `pending_choice` for a modal triggered ability's mode
         (RULE 700.2) — chosen as it's put on the stack, before any target/
         "you may" choice the chosen mode's own effects might still need
-        (`resolve_trigger_mode_choice` hands off to `_place_or_pause_
+        (`_resume_trigger_mode` hands off to `_place_or_pause_
         trigger` for that).
 
         ``chosen`` is the indices already picked in an earlier round of a
@@ -1501,7 +1502,8 @@ class TriggerCollectionMixin:
             "chosen": list(chosen or []),
             "mode_history_key": history_key,
         }
-    def resolve_trigger_mode_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("trigger_mode", answer=continuations.ANSWER_STR, rule="700.2")
+    def _resume_trigger_mode(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `trigger_mode` choice (RULE 700.2): pick which
         mode(s) this firing uses, then continue exactly like a non-modal
         trigger via `_place_or_pause_trigger` — the chosen mode's own
@@ -1515,7 +1517,7 @@ class TriggerCollectionMixin:
         For a "choose *N*" ability (``modes_choose > 1``, RULE 700.2) this
         picks one mode per call — once fewer than ``modes_choose`` are
         picked, the choice re-opens (excluding what's already picked)
-        instead of placing anything, exactly like `resolve_search_choice`
+        instead of placing anything, exactly like `_resume_search`
         offering a library search "one card at a time". For "choose *N* or
         more" (``modes_at_least``) the choice keeps re-opening past the
         minimum too, until either every mode is picked or the player answers
@@ -1524,9 +1526,6 @@ class TriggerCollectionMixin:
         in the order the ability's text lists them, same as RULE 700.2e
         "both" already did.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "trigger_mode":
-            raise ValueError("no pending trigger mode choice to resolve")
         ability = self._pending_trigger_ability
         queue = self._pending_trigger_queue
         event = self._pending_trigger_event
@@ -1601,14 +1600,13 @@ class TriggerCollectionMixin:
             )
             if more_needed:
                 # RULE 700.2 "choose N"/"choose N or more": re-open, excluding what's picked.
-                self.state.pending_choice = self._trigger_mode_choice(ability, chosen=picked)
+                self.open_choice(self._trigger_mode_choice(ability, chosen=picked))
                 return
             # Enough modes picked — combine in printed order, not pick order.
             effects = []
             for i in sorted(picked):
                 effects.extend(options[i]["effects"])
 
-        self.state.pending_choice = None
         self._pending_trigger_ability = None
         self._pending_trigger_queue = []
         self._pending_trigger_event = None
@@ -1630,7 +1628,7 @@ class TriggerCollectionMixin:
         ``kind``/``allow_decline`` are only overridden by
         `_continue_trigger_multi_target` (2+ *different* targeting effects,
         ``"trigger_target_multi"`` — its own resolver,
-        `resolve_trigger_target_multi_choice`, so the single-spec path below
+        `_resume_trigger_target_multi`, so the single-spec path below
         stays byte-for-byte unchanged); ``allow_decline=None`` keeps this
         method's original behaviour of following ``ability.optional``
         (RULE 603.5 "you may"). ``event`` is only consulted (via
@@ -1661,7 +1659,7 @@ class TriggerCollectionMixin:
         """Build the `pending_choice` for a targetless "you may" trigger
         (RULE 603.5) — do it, or don't. Reuses the ``trigger_target`` kind
         (same resolver, same generic choice UI); ``"do"`` is the sentinel
-        `resolve_trigger_target_choice` recognizes as "yes, without a
+        `_resume_trigger_target` recognizes as "yes, without a
         target"."""
         return {
             "kind": "trigger_target",
@@ -1672,7 +1670,8 @@ class TriggerCollectionMixin:
                 {"id": "decline", "label": "Nichts tun"},
             ],
         }
-    def resolve_trigger_target_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("trigger_target", answer=continuations.ANSWER_STR, rule="603.3")
+    def _resume_trigger_target(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `trigger_target` choice, then resume `_place_
         triggers` on whatever was still queued behind it.
 
@@ -1681,10 +1680,6 @@ class TriggerCollectionMixin:
         may" — or `None`/``"decline"`` to not do the (optional) ability at
         all, which simply never goes on the stack.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "trigger_target":
-            raise ValueError("no pending trigger target choice to resolve")
-        self.state.pending_choice = None
         ability = self._pending_trigger_ability
         queue = self._pending_trigger_queue
         effects_override = self._pending_trigger_effects
@@ -1717,23 +1712,20 @@ class TriggerCollectionMixin:
                     ability, targets=[target], effects_override=effects_override, event=event
                 )
         self._place_triggers(queue)
-    def resolve_trigger_target_multi_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("trigger_target_multi", answer=continuations.ANSWER_STR, rule="603.3")
+    def _resume_trigger_target_multi(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `trigger_target_multi` choice — one target for
         the *next* not-yet-filled targeting effect of a trigger with 2+
         *different* targeting effects (`_continue_trigger_multi_target`).
 
         ``answer`` is the chosen option's ``id``, same shape as
-        `resolve_trigger_target_choice`. A decline (only ever offered on the
+        `_resume_trigger_target`. A decline (only ever offered on the
         first spec, RULE 603.5 "you may") abandons the whole ability — every
         spec after the first is already committed to. Once every spec has a
         target (or an empty pick for one that's "up to N" with nothing
         legal), the ability is placed with `target_groups` so each effect
         resolves against its own pick, not a shared list.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "trigger_target_multi":
-            raise ValueError("no pending multi-target trigger choice to resolve")
-        self.state.pending_choice = None
         ability = self._pending_trigger_ability
         queue = self._pending_trigger_queue
         effects_override = self._pending_trigger_effects
@@ -1861,7 +1853,8 @@ class TriggerCollectionMixin:
             "prompt": "Reihenfolge der ausgelösten Fähigkeiten wählen",
             "options": options,
         }
-    def resolve_trigger_order_choice(self, index: Optional[int]) -> None:
+    @continuations.choice("order_triggers", answer=continuations.ANSWER_INT, rule="603.3")
+    def _resume_order_triggers(self, choice: dict[str, Any], index: Optional[int]) -> None:
         """Place the chosen trigger next (RULE 603.3b), then re-ask or finish.
 
         ``index`` selects one of the remaining active-player triggers (by its
@@ -1874,13 +1867,11 @@ class TriggerCollectionMixin:
         only one is left, then flushing the non-active-player triggers the
         same way."""
         if not self._ordering_active:
-            self.state.pending_choice = None
             return
         # Default to the first if the index is missing/out of range.
         if index is None or not 0 <= index < len(self._ordering_active):
             index = 0
         ability, event = self._ordering_active.pop(index)
-        self.state.pending_choice = None
         self._place_triggers([(ability, event)])
     def _maybe_continue_ordering(self) -> None:
         """Resume the RULE 603.3b ordering flow once a `_place_triggers`
@@ -1897,7 +1888,7 @@ class TriggerCollectionMixin:
         placed the same pause-aware way."""
         if self._ordering_active:
             if len(self._ordering_active) > 1:
-                self.state.pending_choice = self._trigger_order_choice()
+                self.open_choice(self._trigger_order_choice())
                 return
             ability, event = self._ordering_active.pop(0)
             self._place_triggers([(ability, event)])

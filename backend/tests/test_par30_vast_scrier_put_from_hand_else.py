@@ -1,10 +1,10 @@
 """PAR-30 "copy of a named card" body singletons (v196) — The Vast Scrier.
 
-`PutFromHandOntoBattlefieldEffect` / `request_search` gain
+`PutFromHandOntoBattlefieldEffect` / `_request_search` gain
 `then_specs_if_none` — "If you don't put a card onto the battlefield this
 way, `<body>`." runs `<body>` (here `scry 2`) when the from-hand pick
-places nothing: declined in `resolve_search_choice`, or nothing eligible
-in `request_search`. The "if it has any 'whenever ~ attacks' triggers,
+places nothing: declined in `_resume_search`, or nothing eligible
+in `_request_search`. The "if it has any 'whenever ~ attacks' triggers,
 those trigger" reminder sentence is consumed as a no-op (the engine
 re-fires ATTACKS for the placed creature via
 `put_onto_battlefield_attacking` already).
@@ -118,7 +118,7 @@ def test_scry_fires_when_player_declines():
     eng.state.player_by_id("p1").hand.append(sol)
     build_effects(_SPEC, src)[0].apply(eng.rules.context, None)
     assert eng.state.pending_choice["kind"] == "search"
-    eng.rules.resolve_search_choice(None)  # decline
+    eng.rules.resolve_choice(None)  # decline
     assert eng.state.pending_choice is not None
     assert eng.state.pending_choice["kind"] == "scry"
 
@@ -131,7 +131,7 @@ def test_no_scry_when_a_card_is_placed():
     sol.controller_id = "p1"
     eng.state.player_by_id("p1").hand.append(sol)
     build_effects(_SPEC, src)[0].apply(eng.rules.context, None)
-    eng.rules.resolve_search_choice(sol.instance_id)
+    eng.rules.resolve_choice(sol.instance_id)
     assert sol in eng.state.battlefield and sol.attacking and sol.tapped
     assert eng.state.pending_choice is None
 

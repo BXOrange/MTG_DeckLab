@@ -412,7 +412,7 @@ class GameObject:
         #: Whether this object is a commander (RULE 903.6) — governs whether
         #: its owner may move it into the command zone instead of wherever
         #: it would otherwise go when it would leave play (RULE 903.9, see
-        #: `RulesEngine._commander_zone_choice`/`resolve_commander_zone_choice`).
+        #: `RulesEngine._commander_zone_choice`/`_resume_commander_zone`).
         self.is_commander = is_commander
         #: RULE 903.9a: set the instant this commander lands in a graveyard
         #: or exile zone, offering its owner a one-time SBA choice to move it
@@ -733,7 +733,7 @@ class GameObject:
         #: "As this creature enters, you may choose a nonland permanent."
         #: (MEC-26, Scheming Fence) — an *object*-choice sibling of
         #: `chosen_player_id`, but modeled as an ordinary interactive ETB
-        #: trigger (`RulesEngine.request_choose_objects`'s new
+        #: trigger (`RulesEngine._request_choose_objects`'s new
         #: ``"choose_permanent"`` action) rather than a pre-entry RULE
         #: 601.2b replacement like `chosen_type`/`chosen_color`: unlike
         #: those, the pick never feeds back into *this object's own*

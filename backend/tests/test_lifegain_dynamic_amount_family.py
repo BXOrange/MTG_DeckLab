@@ -128,7 +128,7 @@ def test_sanguine_bond_drains_the_opponent_for_the_amount_gained():
     # (a documented simplification, subgrammars._TARGET_ROWS), so both
     # players are offered — pick the actual opponent explicitly.
     option = next(o for o in state.pending_choice["options"] if o["id"] == "p2")
-    eng.rules.resolve_trigger_target_choice(option["id"])
+    eng.rules.resolve_choice(option["id"])
     eng.rules.resolve_top_of_stack()
 
     assert p1.life == 25

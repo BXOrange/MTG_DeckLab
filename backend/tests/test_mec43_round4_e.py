@@ -92,7 +92,7 @@ def test_tergrid_reanimates_an_opponents_sacrificed_permanent_under_her_control(
 
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "pay_cost_then"
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     engine.resolve_until_stable()
 
     assert victim in state.battlefield
@@ -113,7 +113,7 @@ def test_tergrid_reanimates_an_opponents_discarded_permanent_card_but_not_a_spel
 
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "pay_cost_then"
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     engine.resolve_until_stable()
 
     assert permanent_card in state.battlefield
@@ -141,7 +141,7 @@ def test_tergrids_lantern_offers_a_sacrifice_or_discard_choice_and_forces_life_l
 
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "pay_cost_then"
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     engine.resolve_until_stable()
 
     assert state.pending_choice is not None

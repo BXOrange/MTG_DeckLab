@@ -144,7 +144,7 @@ def test_dualcaster_mage_copies_the_spell_it_targets():
     choice = state.pending_choice
     assert choice is not None and choice["kind"] == "trigger_target"
     bolt_option = next(o for o in choice["options"] if o.get("instance_id") == bolt.instance_id)
-    eng.rules.resolve_trigger_target_choice(bolt_option["id"])
+    eng.rules.resolve_choice(bolt_option["id"])
     eng.resolve_until_stable()
 
     # Copy (3) + original Bolt (3) both hit p2.

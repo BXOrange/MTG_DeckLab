@@ -201,7 +201,7 @@ def test_assassins_trophy_destroys_and_offers_search_to_the_victims_controller()
     assert state.pending_choice["kind"] == "search"
     assert state.pending_choice["player_id"] == "p2"  # the victim's controller, not the caster
 
-    engine.rules.resolve_search_choice(basic.instance_id)
+    engine.rules.resolve_choice(basic.instance_id)
     assert state.pending_choice is None
 
 
@@ -224,7 +224,7 @@ def test_ghost_quarter_destroys_and_offers_search_to_land_controller():
     assert state.pending_choice["player_id"] == "p2"
     assert any(option["instance_id"] == basic.instance_id for option in state.pending_choice["options"])
 
-    engine.rules.resolve_search_choice(basic.instance_id)
+    engine.rules.resolve_choice(basic.instance_id)
     assert basic in state.battlefield
     assert state.pending_choice is None
     assert any(

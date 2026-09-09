@@ -278,7 +278,7 @@ def test_sigardas_aid_attaches_the_entering_equipment_to_chosen_target():
     # The "you may" target choice: answer it with the creature.
     choice = state.pending_choice
     assert choice is not None and choice.get("kind") == "trigger_target"
-    eng.rules.resolve_trigger_target_choice(str(creature_obj.instance_id))
+    eng.rules.resolve_choice(str(creature_obj.instance_id))
     eng.resolve_until_stable()
 
     assert equip_obj.attached_to == creature_obj.instance_id

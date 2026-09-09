@@ -1,8 +1,9 @@
 # 14 — The atom/composition design: oracle text as a program
 
-**Status:** design, 2026-09-08. **S0 is implemented** (ENG-34, closed —
-`game/isa.py`, `scripts/isa_report.py`, `game/targeting.py`'s
-`TARGET_FRAMES`); S1–S5 are still proposal. **S0b's cheap-exit checkpoint
+**Status:** design, 2026-09-08. **S0 and S1 are implemented** (ENG-34 and
+ENG-35, both closed — `game/isa.py`, `scripts/isa_report.py`,
+`game/targeting.py`'s `TARGET_FRAMES`, `game/continuations.py`); S2–S5 are
+still proposal. **S0b's cheap-exit checkpoint
 (§8) passed** — all 50 top corpus operations resolve to one instruction with
 a canonical frame — so the programme continues rather than being abandoned
 here. See `Done_Backend.md` "Instruction-Set Architecture (ISA) &
@@ -252,6 +253,25 @@ S1 is therefore: promote `enqueue_reflexive_trigger` from a two-caller helper
 into the general continuation path, and retire the bespoke pairs onto it.
 Per this repo's own rule, that is citing an existing primitive rather than
 proposing a new one.
+
+> **Shipped (ENG-35), with one correction to the analysis above.** The
+> resumption mechanisms were indeed not the problem and were left untouched:
+> `enqueue_reflexive_trigger` still runs any payoff needing RULE 115 targets,
+> and `deferred_effects` still suspends a resolution. What was actually
+> written out 68 times was the *dispatch* — an identical guard/clear preamble
+> per resolver, plus each kind's answer coercion split between the cascade
+> and the resolver. `game/continuations.py` is that: a handler registry,
+> `open_choice` / `resolve_choice`. 254 → 162 public methods, 367 → 23 lines
+> of dispatch.
+>
+> **§3.1's claim that `deferred_effects` "cannot resume into a nested
+> structure" is half wrong, and the wrong half is the expensive one.** It is
+> already a LIFO stack and nesting through it already worked — an inner pause
+> parks before the outer one and pops first. The missing piece was never the
+> stack, only a loop counter: no frame could say "resume this body for item
+> k, *then* continue at k+1". `DEFERRED_ITERATION` adds exactly that, which
+> is the whole of what S3 blocked on. Anyone reading §3.1 as a mandate to
+> rewrite the parking mechanism would have rewritten something that works.
 
 ### S2 — Structured conditions
 

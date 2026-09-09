@@ -131,7 +131,7 @@ def test_popular_card_is_expressible(label, criteria, destination, count, expect
         assert names == expected, f"{label}: eligible {names} != {expected}"
 
     chosen = choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(chosen)
+    eng.rules.resolve_choice(chosen)
     assert eng.state.pending_choice is None
     assert _zone_has(p1, eng.state, chosen, destination), (
         f"{label}: card did not reach {destination}"
@@ -141,7 +141,7 @@ def test_popular_card_is_expressible(label, criteria, destination, count, expect
 def test_buried_alive_puts_three_creatures_in_graveyard():
     """Buried Alive — search for up to three creature cards to the graveyard."""
     eng, p1 = new_engine()
-    eng.rules.request_search(p1, "Creature", "graveyard", count=3)
+    eng.rules._request_search(p1, "Creature", "graveyard", count=3)
     picked = []
     for _ in range(3):
         choice = eng.state.pending_choice
@@ -149,7 +149,7 @@ def test_buried_alive_puts_three_creatures_in_graveyard():
             break
         cid = choice["eligible"][0]["instance_id"]
         picked.append(cid)
-        eng.rules.resolve_search_choice(cid)
+        eng.rules.resolve_choice(cid)
     # Only two creatures exist, so it finishes after two picks.
     assert eng.state.pending_choice is None
     assert len(picked) == 2
@@ -167,14 +167,14 @@ def test_cultivate_split_destination_single_search():
     workaround a prior version of this test documented.
     """
     eng, p1 = new_engine()
-    eng.rules.request_search(
+    eng.rules._request_search(
         p1, {"basic": True}, "battlefield_tapped", count=2,
         destinations=["battlefield_tapped", "hand"],
     )
     first = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(first)
+    eng.rules.resolve_choice(first)
     second = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(second)
+    eng.rules.resolve_choice(second)
     assert eng.state.pending_choice is None
     assert eng.state.find_object(first).tapped
     assert any(o.instance_id == second for o in p1.hand)

@@ -3851,7 +3851,7 @@ register("Currency Converter", _currency_converter)
 # ===========================================================================
 # Fateful Tempest (council's dilemma) — PAR-60
 # ===========================================================================
-# Reuse of the PAR-29 vote subsystem (`VoteEffect` / `request_vote` with
+# Reuse of the PAR-29 vote subsystem (`VoteEffect` / `_request_vote` with
 # ``per_vote_specs``). New primitive: `mill_then_damage_each_opponent_by_mv`
 # folds the "mill, then deal damage = total MV milled" pair into one atomic
 # effect (a per-vote-scaled ``count``), avoiding a milled-MV context
@@ -4246,7 +4246,7 @@ register("Animist's Awakening", _animists_awakening)
 # ===========================================================================
 # Expressive Iteration (look 3: hand / bottom / exile-play) — PAR-60
 # ===========================================================================
-# New `expressive_iteration` effect: two chained `request_choose_objects`
+# New `expressive_iteration` effect: two chained `_request_choose_objects`
 # picks (hand card, then which of the last two to exile with a this-turn
 # play window; the other goes to the bottom).
 
@@ -4722,7 +4722,7 @@ register("Plumb the Forbidden", _plumb_the_forbidden)
 # Immoral Bargain (sacrifice X creatures -> destroy X) — PAR-60
 # ===========================================================================
 # New `immoral_bargain` effect + a new ``destroy`` action for
-# `request_choose_objects` (the destroy sibling of ``sacrifice``). X is
+# `_request_choose_objects` (the destroy sibling of ``sacrifice``). X is
 # defined by the additional-cost sacrifice, resolved at resolution.
 
 

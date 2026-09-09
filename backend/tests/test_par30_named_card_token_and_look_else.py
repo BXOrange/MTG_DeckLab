@@ -145,7 +145,7 @@ def test_miss_branch_runs_when_player_declines():
     p1.library.append(cat)
     _run_look(eng, src)
     assert eng.state.pending_choice is not None  # a real choice opened
-    eng.rules.resolve_impulsive_look_choice(None)  # decline
+    eng.rules.resolve_choice(None)  # decline
     toks = [o for o in eng.state.battlefield if getattr(o, "is_token", False)]
     assert [t.name for t in toks] == ["Lurrus of the Dream-Den"]
 
@@ -162,7 +162,7 @@ def test_miss_branch_does_not_run_when_a_card_is_placed():
     cat.controller_id = "p1"
     p1.library.append(cat)
     _run_look(eng, src)
-    eng.rules.resolve_impulsive_look_choice(cat.instance_id)  # take the Cat
+    eng.rules.resolve_choice(cat.instance_id)  # take the Cat
     names = sorted(o.name for o in eng.state.battlefield if getattr(o, "is_token", False))
     assert "Lurrus of the Dream-Den" not in names
     assert cat in eng.state.battlefield and cat.attacking

@@ -28,12 +28,12 @@ of which needed a new *targeting* primitive:
   top two cards of your library. You may play them." — also closes
   Bonehoard Dracosaur/Painter's Studio's own duration variants.
 * A new one-shot `DrawRevealCastOneFreeEffect` + `RulesEngine.
-  request_choose_objects`'s new `"cast_free"` action (a hand-zone pick,
+  _request_choose_objects`'s new `"cast_free"` action (a hand-zone pick,
   unlike every existing action) for Mad Wizard's Lair's "Draw three cards
   and reveal them. You may cast one of them without paying its mana cost."
 * A new mass-interactive primitive, `RulesEngine.
-  request_each_player_pay_or` (RULE 101.4 APNAP, chained off the existing
-  single-player `request_pay_cost_then`) for Veils of Fear/Sandfall Cell's
+  _request_each_player_pay_or` (RULE 101.4 APNAP, chained off the existing
+  single-player `_request_pay_cost_then`) for Veils of Fear/Sandfall Cell's
   "Each player loses N life unless they `<pay cost>`." — Sandfall Cell's
   own "sacrifice a creature, artifact, or land of their choice" cost also
   needed a new compound `ActivationCost.sacrifice` value
@@ -55,7 +55,7 @@ never this ticket's own scope to close — CLAUDE.md already frames it as
 regressed.
 
 Reference: mtg_analyzer/game/dungeons.py, mtg_analyzer/game/effects/core.py,
-mtg_analyzer/game/rules/misc_mixin.py (`request_each_player_pay_or`),
+mtg_analyzer/game/rules/misc_mixin.py (`_request_each_player_pay_or`),
 mtg_analyzer/game/costs.py, mtg_analyzer/services/token_database.py,
 mtg_analyzer/parser/oracle/catalogue/handlers.py.
 """

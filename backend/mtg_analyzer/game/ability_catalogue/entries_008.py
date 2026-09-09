@@ -1447,7 +1447,7 @@ def _stuffy_doll() -> list[AbilitySpec]:
     {T}: This creature deals 1 damage to itself.
 
     — Imodane deck batch. Indestructible is a RULE 702 keyword, auto-
-    bound. The player choice is the new `request_choose_player`
+    bound. The player choice is the new `_request_choose_player`
     (`GameObject.chosen_player_id`); the damage-redirect trigger is the
     new `self_as_recipient` trigger subject (the "is dealt damage"
     mirror image of the ordinary source-keyed "self") paired with the
@@ -1457,7 +1457,7 @@ def _stuffy_doll() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("request_choose_player", {})],
+            [EffectSpec("_request_choose_player", {})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
         AbilitySpec(

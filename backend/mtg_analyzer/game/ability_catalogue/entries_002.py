@@ -1608,7 +1608,7 @@ register("Muldrotha, the Gravetide", _muldrotha_the_gravetide)
 
 def _distant_melody() -> list[AbilitySpec]:
     return [AbilitySpec("spell_effect", [
-        EffectSpec("request_choose_creature_type_grant", {"then_specs": [
+        EffectSpec("_request_choose_creature_type_grant", {"then_specs": [
             {"type": "draw_controlled_chosen_creature_type", "params": {}},
         ]}),
     ])]
@@ -1682,7 +1682,7 @@ def _haunting_voyage() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("request_choose_creature_type_grant", {"then_specs": [
+            [EffectSpec("_request_choose_creature_type_grant", {"then_specs": [
                 {"type": "return_chosen_creature_type_from_graveyard", "params": {}},
             ]})],
         ),
@@ -1728,7 +1728,7 @@ def _kindred_summons() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("request_choose_creature_type_grant", {"then_specs": [
+            [EffectSpec("_request_choose_creature_type_grant", {"then_specs": [
                 {"type": "kindred_summons", "params": {}},
             ]})],
         ),

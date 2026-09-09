@@ -233,7 +233,7 @@ def test_emergence_zone_is_modeled_and_grants_flash_this_turn():
     engine.resolve_until_stable()
     # A "you may" grant offers a choice; answer "yes" if one is pending.
     if state.pending_choice is not None:
-        engine.rules.resolve_pay_cost_then_choice("pay")
+        engine.rules.resolve_choice("pay")
         engine.resolve_until_stable()
 
     assert state.temp_flash_until_turn.get("p1") == state.internal_turn.number
@@ -292,7 +292,7 @@ def test_smothering_tithe_offers_a_choice_and_no_treasure_when_paid():
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "pay_cost_then"
 
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     engine.resolve_until_stable()
 
     assert p2.mana_pool.pool.get("C", 0) == 0

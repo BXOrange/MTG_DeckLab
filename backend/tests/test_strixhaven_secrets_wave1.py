@@ -65,7 +65,7 @@ def test_fetched_land_untaps_with_four_or_more_lands():
     effect.source = _source(p1)
     effect.apply(eng.rules.context)
     chosen = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(chosen)
+    eng.rules.resolve_choice(chosen)
     obj = eng.state.find_object(chosen)
     assert obj in eng.state.battlefield
     assert obj.is_land
@@ -79,7 +79,7 @@ def test_fetched_land_stays_tapped_below_threshold():
     effect.source = _source(p1)
     effect.apply(eng.rules.context)
     chosen = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(chosen)
+    eng.rules.resolve_choice(chosen)
     obj = eng.state.find_object(chosen)
     assert obj in eng.state.battlefield
     assert obj.tapped is True, "with only 3 lands it should stay tapped"
@@ -92,6 +92,6 @@ def test_plain_battlefield_tapped_search_unaffected_without_param():
     )
     effect.apply(eng.rules.context)
     chosen = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(chosen)
+    eng.rules.resolve_choice(chosen)
     obj = eng.state.find_object(chosen)
     assert obj.tapped is True, "no untap param -> Evolving Wilds behaviour is unchanged"

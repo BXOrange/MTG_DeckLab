@@ -9,7 +9,7 @@ via a triggered ability, so it's modeled as a second `enter_replacement`
 family alongside the existing "enter as a copy of target X" one
 (`ChooseCreatureTypeReplacement`/`ChooseColorReplacement`,
 `GameObject.enter_choice_effects`, `RulesEngine._offer_enter_choices`/
-`resolve_enter_choice`) — offered interactively before battlefield entry,
+`_resume_choose_creature_type`) — offered interactively before battlefield entry,
 stamping `GameObject.chosen_type`/`chosen_color`, which `game/continuous.py`
 reads back every recompute via the ``subtype_from_source``/
 ``color_from_source``/``add_subtypes_from_source`` selector params (so a

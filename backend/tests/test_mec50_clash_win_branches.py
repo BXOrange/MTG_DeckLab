@@ -216,7 +216,7 @@ def test_pulling_teeth_win_discards_two_otherwise_that_player_discards_one():
         while st.pending_choice and guard < 6:
             guard += 1
             opt = st.pending_choice["options"][0]
-            eng.rules.resolve_choose_objects_choice(opt["instance_id"])
+            eng.rules.resolve_choice(opt["instance_id"])
         assert len(p2.graveyard) == expected
 
 
@@ -249,7 +249,7 @@ def test_that_player_discards_reads_the_damage_events_player():
     guard = 0
     while st.pending_choice and guard < 5:
         guard += 1
-        eng.rules.resolve_choose_objects_choice(st.pending_choice["options"][0]["instance_id"])
+        eng.rules.resolve_choice(st.pending_choice["options"][0]["instance_id"])
     assert len(p2.graveyard) == 1  # p2 (the damaged player) discarded, not p1
 
 

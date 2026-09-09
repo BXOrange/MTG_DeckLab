@@ -109,7 +109,7 @@ def test_syphon_mind_opponent_discards_then_caster_draws():
     assert choice["kind"] == "choose_objects"
     assert choice["player_id"] == "p2"
     picked = choice["options"][0]["instance_id"]
-    eng.rules.resolve_choose_objects_choice(picked)
+    eng.rules.resolve_choice(picked)
 
     assert len(p2.hand) == 1
     assert any(o.instance_id == picked for o in p2.graveyard)
@@ -184,7 +184,7 @@ def test_dark_petition_searches_and_adds_spell_mastery_bonus_mana():
     choice = state.pending_choice
     assert choice is not None and choice.get("kind") == "search"
     picked = choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(picked)
+    eng.rules.resolve_choice(picked)
     eng.resolve_until_stable()
 
     assert any(o.instance_id == picked for o in p1.hand)
@@ -204,7 +204,7 @@ def test_dark_petition_no_bonus_mana_without_spell_mastery():
     eng.resolve_until_stable()
 
     picked = state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(picked)
+    eng.rules.resolve_choice(picked)
     eng.resolve_until_stable()
 
     assert p1.mana_pool.pool.get("B", 0) == 0
@@ -233,7 +233,7 @@ def test_demonic_bargain_exiles_thirteen_then_searches_the_rest():
     choice = state.pending_choice
     assert choice is not None and choice.get("kind") == "search"
     picked = choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(picked)
+    eng.rules.resolve_choice(picked)
     eng.resolve_until_stable()
 
     assert any(o.instance_id == picked for o in p1.hand)
@@ -362,7 +362,7 @@ def test_hoarding_broodlord_etb_searches_and_grants_a_standing_exile_cast_permis
     assert choice is not None and choice.get("kind") == "search"
     assert choice.get("player_id") == "p1"
     picked = choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(picked)
+    eng.rules.resolve_choice(picked)
 
     obj = state.find_object(picked)
     assert obj.zone == Zone.EXILE

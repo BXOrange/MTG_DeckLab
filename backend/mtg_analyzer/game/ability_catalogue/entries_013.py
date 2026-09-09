@@ -852,7 +852,7 @@ def _gifts_ungiven() -> list[AbilitySpec]:
     shuffle.
 
     — MEC-41. Intuition's own two-phase `intuition_search`/`RulesEngine.
-    request_intuition` shape, generalized with ``search_optional``/
+    _request_intuition` shape, generalized with ``search_optional``/
     ``distinct_names``/``chosen_count``/``chosen_destination``/
     ``rest_destination`` — see that method's own docstring for exactly how
     Gifts Ungiven's shape differs from Intuition's (2 chosen instead of 1,
@@ -976,7 +976,7 @@ def _derevi_empyrial_tactician() -> list[AbilitySpec]:
     ``untap`` bool is fixed at bind time, but this is a real decision at
     resolution, layered on top of RULE 115's own "up to one" target
     optionality — so `TapEffect.choose_tap_or_untap` opens a new, small
-    `RulesEngine.request_tap_or_untap_choice` `pending_choice` instead of
+    `RulesEngine._request_tap_or_untap_choice` `pending_choice` instead of
     applying a fixed tap/untap directly; two `AbilitySpec`s (ETB self,
     and the already-general RULE 603.1 group-subject "a creature you
     control deals combat damage to a player" shape Bident of Thassa/
@@ -1183,7 +1183,7 @@ def _praetors_grasp() -> list[AbilitySpec]:
     `SearchLibraryEffect`'s own controller (who actually picks) to differ
     from the library it searches/shuffles (the RULE 115 target) — new
     ``player_from_target`` (resolves ``player`` to the targeted opponent)
-    threading a real ``chooser`` through `RulesEngine.request_search`
+    threading a real ``chooser`` through `RulesEngine._request_search`
     down to `_search_choice`/`_finish_search`/`_put_searched_card`
     (``player_id`` in the pending choice becomes "who answers", a new
     ``library_owner_id`` carries "whose library" — the general "who's

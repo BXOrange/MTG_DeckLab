@@ -1,6 +1,6 @@
 """PAR-29 — RULE 701.38 Vote (Conspiracy / "Will of the Council").
 
-`RulesEngine.request_vote` runs an APNAP sweep (`vote` pending_choice per
+`RulesEngine._request_vote` runs an APNAP sweep (`vote` pending_choice per
 living player), then `_tally_and_apply_vote` resolves the outcome:
 
 * majority — one serialized effect list per option; the strict leader's
@@ -12,7 +12,7 @@ living player), then `_tally_and_apply_vote` resolves the outcome:
 parse the two "starting with you, each player votes for A or B. …" shapes.
 
 Reference: game/effects/core.py (`VoteEffect`), game/rules/misc_mixin.py
-(`request_vote`/`_advance_vote`/`resolve_vote_choice`/`_tally_and_apply_
+(`_request_vote`/`_advance_vote`/`_resume_vote`/`_tally_and_apply_
 vote`), parser/oracle/catalogue/handlers.py.
 """
 
@@ -120,7 +120,7 @@ def test_majority_vote_applies_leader_branch():
     src.controller_id = "p1"
     eng.state.add_to_battlefield(src)
 
-    eng.rules.request_vote(
+    eng.rules._request_vote(
         source=src, controller_id="p1", options=["a", "b"],
         majority_specs=[
             [{"type": "gain_life", "params": {"amount": 5}}],   # option a
@@ -148,7 +148,7 @@ def test_majority_vote_tie_goes_to_tie_index():
         p1.add_to_zone(GameObject(Card(id=f"L{i}", name=f"L{i}", type_line="Plains", is_land=True),
                                   owner_id="p1", zone=Zone.LIBRARY), Zone.LIBRARY)
 
-    eng.rules.request_vote(
+    eng.rules._request_vote(
         source=src, controller_id="p1", options=["a", "b"],
         majority_specs=[
             [{"type": "gain_life", "params": {"amount": 5}}],
@@ -170,7 +170,7 @@ def test_per_vote_scales_by_tally():
     src.controller_id = "p1"
     eng.state.add_to_battlefield(src)
 
-    eng.rules.request_vote(
+    eng.rules._request_vote(
         source=src, controller_id="p1", options=["strength", "numbers"],
         per_vote_specs=[
             {"option": 0, "effects": [{"type": "add_counters",
@@ -213,7 +213,7 @@ def test_capital_punishment_scopes_the_carried_subject_to_each_opponent():
         "each opponent sacrifices a creature of their choice for each death vote "
         "and discards a card for each taxes vote."
     )[0].params["per_vote_specs"]
-    eng.rules.request_vote(source=src, controller_id="p1", options=["death", "taxes"],
+    eng.rules._request_vote(source=src, controller_id="p1", options=["death", "taxes"],
                            per_vote_specs=pv)
     eng.resolve_pending_choice("0")   # p1 -> death
     eng.resolve_pending_choice("0")   # p2 -> death   => death 2

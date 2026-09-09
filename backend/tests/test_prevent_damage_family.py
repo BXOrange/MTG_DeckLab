@@ -303,7 +303,7 @@ def test_emblem_replacement_effect_binds_and_applies():
 
 # ---------------------------------------------------------------------------
 # Phase 4: the "a source of your choice" one-shot chooser
-# (`RequestPreventDamageSourceEffect` / `request_choose_objects`'s new
+# (`RequestPreventDamageSourceEffect` / `_request_choose_objects`'s new
 # ``"remember_source"`` action)
 # ---------------------------------------------------------------------------
 
@@ -317,7 +317,7 @@ def test_chosen_source_shield_protects_only_that_source_this_turn():
     engine = RulesEngine(state)
 
     candidates = [o for o in state.battlefield if "R" in (o.card.color_identity or [])]
-    engine.request_choose_objects(
+    engine._request_choose_objects(
         p1, candidates, "remember_source", count=1, source=circle,
         prevent_shield={
             "recipient_id": p1.id, "recipient_is_player": True, "amount": "all", "rider": None,
@@ -344,7 +344,7 @@ def test_chosen_source_shield_is_swept_at_end_of_turn_even_if_unused():
     game_engine.rules = RulesEngine(state)
 
     engine = game_engine.rules
-    engine.request_choose_objects(
+    engine._request_choose_objects(
         p1, [red_attacker], "remember_source", count=1, source=circle,
         prevent_shield={"recipient_id": p1.id, "recipient_is_player": True, "amount": "all", "rider": None},
     )
@@ -404,7 +404,7 @@ def _resolve_any_replacement_order_choice(engine):
     this helper's loop body no longer fires for Gisela at all (see
     `test_gisela_blade_of_goldnight_no_spurious_ordering_choice` below)."""
     while engine.state.pending_choice and engine.state.pending_choice.get("kind") == "replacement_order":
-        engine.resolve_replacement_order_choice(0)
+        engine.resolve_choice(0)
 
 
 def test_gisela_blade_of_goldnight_catalogue_entry():
@@ -582,7 +582,7 @@ def test_any_target_chooser_shields_a_targeted_permanent_not_just_you():
     attacker = _bf(state, _creature("Attacker"), controller="p2")
     engine = RulesEngine(state)
 
-    engine.request_choose_objects(
+    engine._request_choose_objects(
         p1, [attacker], "remember_source", count=1, source=victim,
         prevent_shield={
             "recipient_id": victim.instance_id, "recipient_is_player": False,
@@ -614,7 +614,7 @@ def test_haazda_shield_mate_catalogue_entry_binds_both_abilities():
     # attacker) are legal candidates — unlike the single-candidate tests
     # above, this really does open an interactive choice; answer it.
     assert state.pending_choice is not None
-    engine.resolve_choose_objects_choice(attacker.instance_id)
+    engine.resolve_choice(attacker.instance_id)
 
     engine.deal_damage(p1, 3, source=attacker)
     assert p1.life == 20  # the shield ability itself still works
@@ -1060,7 +1060,7 @@ def test_kithkin_armor_catalogue_entry_shields_the_enchanted_creature():
     # No source_filter, so every battlefield permanent qualifies (host,
     # armor, attacker) — a real choice, not an auto-pick; answer it.
     assert state.pending_choice is not None
-    engine.resolve_choose_objects_choice(attacker.instance_id)
+    engine.resolve_choice(attacker.instance_id)
 
     engine.deal_damage(host, 4, source=attacker)
     assert host.damage_marked == 0
@@ -1085,7 +1085,7 @@ def test_shadowbane_catalogue_entry_shields_you_and_your_creatures():
     effect.apply(GameContext(state, engine))
     # No source_filter, so both battlefield creatures qualify — answer it.
     assert state.pending_choice is not None
-    engine.resolve_choose_objects_choice(black_attacker.instance_id)
+    engine.resolve_choice(black_attacker.instance_id)
 
     # Both the prevention and the rider fire together within one
     # `deal_damage` call — the damage never lands, and (black source) the
@@ -1113,7 +1113,7 @@ def test_honorable_passage_catalogue_entry_reflects_red_source_damage():
     effect.apply(GameContext(state, engine), targets=[victim])
     # No source_filter, so both battlefield creatures qualify — answer it.
     assert state.pending_choice is not None
-    engine.resolve_choose_objects_choice(red_attacker.instance_id)
+    engine.resolve_choice(red_attacker.instance_id)
 
     engine.deal_damage(victim, 4, source=red_attacker)
     assert victim.damage_marked == 0  # prevented
@@ -1166,7 +1166,7 @@ def test_samite_blessing_catalogue_entry_grants_a_chooser_ability_to_the_host():
     effect.apply(GameContext(state, engine), targets=[victim])
     # No source_filter, so every battlefield permanent qualifies — answer it.
     assert state.pending_choice is not None
-    engine.resolve_choose_objects_choice(attacker.instance_id)
+    engine.resolve_choice(attacker.instance_id)
 
     engine.deal_damage(victim, 4, source=attacker)
     assert victim.damage_marked == 0
@@ -1258,7 +1258,7 @@ def test_opal_eye_catalogue_entry_redirects_the_chosen_source():
     # Only one battlefield permanent besides Opal-Eye itself — but Opal-Eye
     # is also a candidate (no source_filter), so this is a real choice.
     assert state.pending_choice is not None
-    engine.resolve_choose_objects_choice(attacker.instance_id)
+    engine.resolve_choice(attacker.instance_id)
 
     engine.deal_damage(p1, 5, source=attacker)
     assert p1.life == 20
@@ -1395,7 +1395,7 @@ def test_seasoned_tactician_catalogue_entry_shields_the_controller():
     # No source_filter — Seasoned Tactician and Attacker are both
     # candidates, so this is a real choice.
     assert state.pending_choice is not None
-    engine.resolve_choose_objects_choice(attacker.instance_id)
+    engine.resolve_choice(attacker.instance_id)
 
     engine.deal_damage(p1, 5, source=attacker)
     assert p1.life == 20
@@ -1487,7 +1487,7 @@ def test_bone_mask_catalogue_entry_exiles_top_of_library_equal_to_prevented():
     # No source_filter — Bone Mask and Attacker are both candidates, so
     # this is a real choice.
     assert state.pending_choice is not None
-    engine.resolve_choose_objects_choice(attacker.instance_id)
+    engine.resolve_choice(attacker.instance_id)
 
     engine.deal_damage(p1, 5, source=attacker)
     assert p1.life == 20  # fully prevented
@@ -1611,15 +1611,15 @@ def test_rhystic_circle_shield_grants_when_every_player_declines():
     # Active-player-first turn order: p1, then p2 — both explicitly decline.
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "all_decline_or"
-    engine.rules.resolve_all_decline_or_choice("decline")
+    engine.rules.resolve_choice("decline")
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "all_decline_or"
-    engine.rules.resolve_all_decline_or_choice("decline")
+    engine.rules.resolve_choice("decline")
 
     # Everyone declined — the shield's own "choose a source" chooser opens.
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "choose_objects"
-    engine.rules.resolve_choose_objects_choice(attacker.instance_id)
+    engine.rules.resolve_choice(attacker.instance_id)
 
     engine.rules.deal_damage(p1, 5, source=attacker)
     assert p1.life == 20
@@ -1643,7 +1643,7 @@ def test_rhystic_circle_sweep_is_cancelled_the_moment_someone_pays():
     # p1 (asked first) pays — cancels the whole sweep immediately, no
     # shield at all, and p2 is never even asked.
     assert state.pending_choice is not None
-    engine.rules.resolve_all_decline_or_choice("pay")
+    engine.rules.resolve_choice("pay")
     assert state.pending_choice is None
     assert p1.mana_pool.total() == 0
     assert p2.mana_pool.total() == 1  # untouched — never asked
@@ -1671,7 +1671,7 @@ def test_rhystic_circle_sweep_auto_skips_a_player_who_cannot_pay():
     # chooser with no `all_decline_or` pending_choice in between.
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "choose_objects"
-    engine.rules.resolve_choose_objects_choice(attacker.instance_id)
+    engine.rules.resolve_choice(attacker.instance_id)
 
     engine.rules.deal_damage(p1, 5, source=attacker)
     assert p1.life == 20

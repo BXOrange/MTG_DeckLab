@@ -1,7 +1,7 @@
 """Tests for RULE 119/701.8's "Target opponent reveals their hand. You
 choose a `<filter>` card from it. That player discards that card."
 (Duress/Thoughtseize/Coercion/Despise-shaped) — `RevealHandChooseDiscardEffect`,
-reusing `RulesEngine.request_choose_objects`'s pre-existing ``action="discard"``
+reusing `RulesEngine._request_choose_objects`'s pre-existing ``action="discard"``
 general chooser (Tevesh Szat's sacrifice, Cloudstone Curio's bounce, …), just
 sourced from a hand instead of the battlefield. The chooser is this effect's
 controller (the caster), not the hand's owner — `_apply_chosen_object`'s
@@ -113,7 +113,7 @@ def test_the_caster_not_the_revealed_players_hand_owner_makes_the_choice():
     ctx = GameContext(state, engine)
 
     RevealHandChooseDiscardEffect(source=caster).apply(ctx, targets=[p2])
-    engine.resolve_choose_objects_choice(target_card.instance_id)
+    engine.resolve_choice(target_card.instance_id)
 
     assert target_card in p2.graveyard
     assert target_card not in p2.hand
@@ -177,7 +177,7 @@ def test_duress_end_to_end_discards_the_chosen_noncreature_nonland_card():
     choice = state.pending_choice
     offered = {o["instance_id"] for o in choice["options"] if "instance_id" in o}
     assert offered == {spell.instance_id, other_spell.instance_id}
-    engine.resolve_choose_objects_choice(spell.instance_id)
+    engine.resolve_choice(spell.instance_id)
 
     assert spell in p2.graveyard
     assert land in p2.hand

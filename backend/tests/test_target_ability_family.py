@@ -228,7 +228,7 @@ def test_resolve_change_target_choice_retargets_the_ability():
     eng.rules.change_target(ability_item, optional=True, source=swat)
     choice = eng.state.pending_choice
     pick = next(o for o in choice["options"] if o["label"] == "Other Victim")
-    eng.rules.resolve_change_target_choice(pick["id"])
+    eng.rules.resolve_choice(pick["id"])
     assert eng.state.pending_choice is None
     assert ability_item.targets == [other]
 

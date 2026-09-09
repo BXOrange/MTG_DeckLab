@@ -2,14 +2,14 @@
 
 Four engine shapes that each had their own entry on the blocker list:
 
-* **naming a card** (`RulesEngine.request_name_card`) — the only choice
+* **naming a card** (`RulesEngine._request_name_card`) — the only choice
   whose answer space isn't enumerable from game state. Demonic Consultation.
 * **dig-until-a-predicate** (`RulesEngine.dig_until`) — the cascade dig with
   the predicate and both destinations made parameters.
 * **repeat-until-a-predicate** (`MillUntilCreatureEffect`) — every other
   repetition primitive had its count fixed before it started. Helm of
   Obedience.
-* **an open-ended loop** (`request_look_top_pay_life_loop`) — bounded by its
+* **an open-ended loop** (`_request_look_top_pay_life_loop`) — bounded by its
   own life payment rather than any counter. Lim-Dûl's Vault.
 
 Plus `ScrambleSpellEffect` (Possibility Storm / Tibalt's Trickery), which
@@ -228,11 +228,11 @@ def test_lim_duls_vault_offers_the_loop_and_re_opens_it_after_each_iteration():
     assert state.pending_choice["kind"] == "look_top_pay_life"
     assert len(state.pending_choice["looking_at"]) == 5
 
-    engine.rules.resolve_look_top_pay_life_loop_choice("again")
+    engine.rules.resolve_choice("again")
     assert p1.life == 19
     assert state.pending_choice["kind"] == "look_top_pay_life"  # re-opened
 
-    engine.rules.resolve_look_top_pay_life_loop_choice("again")
+    engine.rules.resolve_choice("again")
     assert p1.life == 18
     assert state.pending_choice["kind"] == "look_top_pay_life"
 
@@ -246,7 +246,7 @@ def test_stopping_the_vault_loop_shuffles_then_restores_the_last_batch_on_top():
     _cast_vault(engine, state, p1)
     top_five = [o.name for o in p1.library[-5:]]
 
-    engine.rules.resolve_look_top_pay_life_loop_choice("decline")
+    engine.rules.resolve_choice("decline")
 
     assert state.pending_choice is None
     assert [o.name for o in p1.library[-5:]] == top_five

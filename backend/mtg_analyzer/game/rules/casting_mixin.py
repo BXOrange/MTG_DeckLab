@@ -77,6 +77,7 @@ from ..effects.core import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
 
 #: RULE 702.108a Converge's colors — the five WUBRG colors, never colorless
 #: ``"C"`` (`ManaPool.pool`'s own key vocabulary includes colorless, which
@@ -279,7 +280,7 @@ class CastingResolutionMixin:
         to the battlefield, so "other lands" naturally excludes it). A
         shock land's "you may pay N life" is a genuine choice: ``obj``
         defaults tapped (as if declined) and a `land_tapped` `pending_choice`
-        opens; `resolve_land_tapped_choice` flips it untapped if the
+        opens; `_resume_land_tapped` flips it untapped if the
         controller pays.
         """
         condition = ability_catalogue.land_tap_condition(obj.card)
@@ -366,7 +367,7 @@ class CastingResolutionMixin:
             obj.tapped = True
             self._pending_land_choice_obj = obj
             self._pending_land_choice_amount = condition["amount"]
-            self.state.pending_choice = self._land_tapped_choice(obj, condition["amount"])
+            self.open_choice(self._land_tapped_choice(obj, condition["amount"]))
         elif kind == "optional_bonus_rad":
             # Mariposa Military Base: the mirror image of a shock land —
             # untapped by default, with the controller able to choose
@@ -374,7 +375,7 @@ class CastingResolutionMixin:
             obj.tapped = False
             self._pending_land_choice_obj = obj
             self._pending_land_choice_amount = condition["amount"]
-            self.state.pending_choice = self._land_tapped_bonus_choice(obj, condition["amount"])
+            self.open_choice(self._land_tapped_bonus_choice(obj, condition["amount"]))
         elif kind == "reveal_types":
             # "Reveal land" cycle: untapped iff the controller both *can*
             # (holds a matching card) and *chooses to* reveal one — unlike
@@ -389,7 +390,7 @@ class CastingResolutionMixin:
             )
             if has_match:
                 self._pending_land_choice_obj = obj
-                self.state.pending_choice = self._land_tapped_reveal_choice(obj)
+                self.open_choice(self._land_tapped_reveal_choice(obj))
         else:
             obj.tapped = kind == "always"
         if not obj.tapped:
@@ -485,17 +486,14 @@ class CastingResolutionMixin:
                 {"id": "decline", "label": "Getappt ins Spiel kommen lassen"},
             ],
         }
-    def resolve_land_tapped_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("land_tapped", answer=continuations.ANSWER_STR, rule="614.1")
+    def _resume_land_tapped(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending shock-land `land_tapped` choice.
 
         ``answer`` is ``"pay"`` to pay the life and keep it untapped, or
         anything else (``None``/``"decline"``) to leave it tapped — already
         the default `enter_land_tapped` set while the choice was open.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "land_tapped":
-            raise ValueError("no pending land-tapped choice to resolve")
-        self.state.pending_choice = None
         obj = self._pending_land_choice_obj
         amount = self._pending_land_choice_amount
         self._pending_land_choice_obj = None
@@ -518,17 +516,14 @@ class CastingResolutionMixin:
                 {"id": "decline", "label": "Ungetappt ins Spiel kommen lassen"},
             ],
         }
-    def resolve_land_tapped_bonus_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("land_tapped_bonus", answer=continuations.ANSWER_STR, rule="614.1")
+    def _resume_land_tapped_bonus(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `land_tapped_bonus` choice (Mariposa Military
         Base). ``answer`` is ``"tap"`` to enter tapped and get the rad
         counters, or anything else (``None``/``"decline"``) to stay
         untapped (already the default `enter_land_tapped` set while the
         choice was open) with no bonus.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "land_tapped_bonus":
-            raise ValueError("no pending land-tapped-bonus choice to resolve")
-        self.state.pending_choice = None
         obj = self._pending_land_choice_obj
         amount = self._pending_land_choice_amount
         self._pending_land_choice_obj = None
@@ -551,7 +546,8 @@ class CastingResolutionMixin:
                 {"id": "decline", "label": "Getappt ins Spiel kommen lassen"},
             ],
         }
-    def resolve_land_tapped_reveal_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("land_tapped_reveal", answer=continuations.ANSWER_STR, rule="614.1")
+    def _resume_land_tapped_reveal(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending "reveal land" `land_tapped_reveal` choice.
 
         ``answer`` is ``"reveal"`` to reveal a matching card and enter
@@ -561,10 +557,6 @@ class CastingResolutionMixin:
         distinguish *which* matching card was revealed — only that one was),
         matching the read-only `has_match` check that opened the choice.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "land_tapped_reveal":
-            raise ValueError("no pending land-tapped-reveal choice to resolve")
-        self.state.pending_choice = None
         obj = self._pending_land_choice_obj
         self._pending_land_choice_obj = None
         if obj is not None and answer == "reveal":
@@ -1255,6 +1247,89 @@ class CastingResolutionMixin:
         finally:
             self.context.trigger_event = outer_trigger_event
             self.context.resolving_controller_id = outer_resolving_controller_id
+    #: `GameState.deferred_effects` frame kinds (ENG-35).
+    #:
+    #: ``"tail"`` is the original and still the overwhelmingly common shape:
+    #: the *rest of a flat effect list*, parked by
+    #: `_apply_effects_partitioned` at the position a choice opened. An entry
+    #: with no ``kind`` key is a tail — old snapshots and every existing
+    #: caller keep working untouched.
+    #:
+    #: ``"iteration"`` is what `14_` S1 means by making this **structure-
+    #: aware**, and it is the piece ENG-37 blocks on. A tail can only say
+    #: "continue after position N of one list"; it has no way to say *resume
+    #: this body for item k, then run it again for k+1*. That is exactly what
+    #: a `for_each` node needs (a body that may pause inside any iteration),
+    #: and what `optional` needs to re-enter a body after a yes/no answer.
+    #: Nesting itself already worked — `deferred_effects` is a LIFO stack, so
+    #: an inner pause parks before the outer one and pops first — the missing
+    #: piece was never the stack, only the loop counter.
+    DEFERRED_TAIL = "tail"
+    DEFERRED_ITERATION = "iteration"
+
+    def defer_iteration(
+        self,
+        effects: list["GameEffect"],
+        items: list[Any],
+        *,
+        index: int = 0,
+        source: Optional[GameObject] = None,
+        targets: Optional[list[Any]] = None,
+    ) -> None:
+        """Park a loop body so it resumes at ``items[index]`` (ENG-35).
+
+        The structure-aware counterpart to `_apply_effects_partitioned`'s
+        tail parking. `resume_deferred_effects` runs the body once per
+        remaining item, re-parking with an advanced ``index`` each time the
+        body pauses on a choice — so a `for_each` whose body asks a question
+        gets one prompt per item, in order, instead of losing its place.
+
+        The current item is exposed to the body as
+        `GameContext.iteration_item`, which is how a body clause names
+        "that creature" / "that player" for the iteration it is running in.
+        """
+        if index >= len(items):
+            return
+        self.state.deferred_effects.append({
+            "kind": self.DEFERRED_ITERATION,
+            "effects": list(effects),
+            "items": list(items),
+            "index": index,
+            "source": source,
+            "targets": targets,
+        })
+
+    def _resume_iteration(self, frame: dict[str, Any]) -> None:
+        """Run one iteration of a parked loop body, then queue the next.
+
+        The next iteration is parked *before* the body runs, so that if the
+        body pauses on a choice its own tail parks on top of it and pops
+        first — the same innermost-first ordering `resume_deferred_effects`
+        already relies on. Running the body first and parking afterwards
+        would invert that and interleave the iterations.
+        """
+        items = frame["items"]
+        index = frame["index"]
+        if index >= len(items):
+            return
+        if index + 1 < len(items):
+            self.defer_iteration(
+                frame["effects"], items, index=index + 1,
+                source=frame.get("source"), targets=frame.get("targets"),
+            )
+        outer_item = getattr(self.context, "iteration_item", None)
+        self.context.iteration_item = items[index]
+        try:
+            _apply_effects_partitioned(
+                list(frame["effects"]),
+                self.context,
+                frame.get("targets"),
+                None,
+                source=frame.get("source"),
+            )
+        finally:
+            self.context.iteration_item = outer_item
+
     def resume_deferred_effects(self) -> bool:
         """Pick a suspended effect list back up (RULE 608.2), innermost first.
 
@@ -1266,18 +1341,22 @@ class CastingResolutionMixin:
         one entry (which may itself pause again and re-park what's left of
         it). Returns whether anything was resumed.
 
+        ENG-35: an entry is now one of two **frame kinds** (`DEFERRED_TAIL`
+        / `DEFERRED_ITERATION`) rather than always the tail of a flat list.
+        Everything below the dispatch is the original tail path, unchanged.
+
         The resumed effects run *outside* the `GameContext.trigger_event`
         window their original resolution had — an effect that reads the
         firing event has to be the one that pauses, not one after it. No
         shipped card is shaped that way; the alternative (persisting the
         event through the suspension) would have to survive the state
-        `clone()` that undo takes, which the event object isn't built for.
+        `clone()` that undo takes, which the event object is not built for.
 
         MEC-37 (Doomsday): a parked entry belonging to a top-level *spell*
         (as opposed to a triggered/activated ability) also carries that
         spell's own `StackItem`. If the drained remainder finishes with
         nothing left to pause on, `_finish_spell_routing` runs here — the
-        spell wasn't actually done resolving (RULE 608.2m) while its own
+        spell was not actually done resolving (RULE 608.2m) while its own
         interactive effect was still open, so routing it to the graveyard/
         etc. had to wait for exactly this moment rather than happening
         eagerly back when `_apply_stack_item` first paused on it.
@@ -1285,6 +1364,9 @@ class CastingResolutionMixin:
         if self.state.pending_choice or not self.state.deferred_effects:
             return False
         resumed = self.state.deferred_effects.pop()
+        if resumed.get("kind") == self.DEFERRED_ITERATION:
+            self._resume_iteration(resumed)
+            return True
         stack_item = resumed.get("stack_item")
         deferred_again = _apply_effects_partitioned(
             resumed["effects"],
@@ -1428,7 +1510,7 @@ class CastingResolutionMixin:
         object is ever added to the battlefield/fires ENTERS_BATTLEFIELD as
         itself — unlike every other resolution path here, this can pause on
         a `pending_choice` (possibly more than one, in sequence) and resume
-        later from `resolve_enter_as_copy_choice`/`resolve_enter_choice`.
+        later from `_resume_enter_as_copy`/`_resume_choose_creature_type`.
         """
         def _finish() -> None:
             if obj.cast_via_mutate:
@@ -1613,13 +1695,14 @@ class CastingResolutionMixin:
             for c in lands
         ]
         options.append({"id": "decline", "label": "Nicht abwerfen (auf den Friedhof)"})
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "enter_or_graveyard",
             "player_id": obj.controller_id,
             "prompt": f"{obj.name}: Land abwerfen, um es ins Spiel zu bringen?",
             "options": options,
-        }
-    def resolve_enter_or_graveyard_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("enter_or_graveyard", answer=continuations.ANSWER_STR, rule="614.12")
+    def _resume_enter_or_graveyard(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `enter_or_graveyard` choice (RULE 614.12), then
         either resume whatever battlefield-entry work `_offer_enter_or_
         graveyard` deferred (a land was discarded) or route the object
@@ -1628,10 +1711,6 @@ class CastingResolutionMixin:
         ``answer`` is a land card's stringified ``instance_id``, or
         ``None``/``"decline"`` to decline.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "enter_or_graveyard":
-            raise ValueError("no pending enter-or-graveyard choice to resolve")
-        self.state.pending_choice = None
         obj = self._pending_enter_or_graveyard_obj
         continuation = self._pending_enter_or_graveyard_continuation
         self._pending_enter_or_graveyard_obj = None
@@ -1703,24 +1782,21 @@ class CastingResolutionMixin:
 
         self._pending_protector_obj = obj
         self._pending_protector_continuation = continuation
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "choose_protector",
             "player_id": obj.controller_id,
             "prompt": f"{obj.name}: Beschützer wählen (Regel 310.11a)",
             "options": [{"id": p.id, "label": p.name} for p in eligible],
-        }
-    def resolve_protector_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("choose_protector", answer=continuations.ANSWER_STR, rule="310.8")
+    def _resume_choose_protector(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `choose_protector` choice (RULE 310.8a), then
         resume whatever `_offer_protector_choice` deferred.
 
         Mandatory, with no "decline" option offered — an unrecognized or
         missing ``answer`` falls back to the first eligible player, the same
-        treatment `resolve_enter_choice` gives a skipped mandatory pick.
+        treatment `_resume_choose_creature_type` gives a skipped mandatory pick.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "choose_protector":
-            raise ValueError("no pending protector choice to resolve")
-        self.state.pending_choice = None
         obj = self._pending_protector_obj
         continuation = self._pending_protector_continuation
         self._pending_protector_obj = None
@@ -1736,7 +1812,7 @@ class CastingResolutionMixin:
         Calls ``continuation`` immediately if there's no legal target to
         offer (RULE 603.3c-style: nothing to choose, nothing pauses);
         otherwise opens an ``enter_as_copy`` `pending_choice` and stashes
-        ``continuation`` for `resolve_enter_as_copy_choice` to resume.
+        ``continuation`` for `_resume_enter_as_copy` to resume.
         ``obj`` is not yet on the battlefield at this point — `legal_targets`
         only needs it for exclusion/protection checks, both fine against an
         object that isn't in ``state.battlefield`` yet.
@@ -1758,22 +1834,19 @@ class CastingResolutionMixin:
         self._pending_enter_as_copy_obj = obj
         self._pending_enter_as_copy_effect = effect
         self._pending_enter_as_copy_continuation = continuation
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "enter_as_copy",
             "player_id": obj.controller_id,
             "prompt": effect.description or "Als Kopie ins Spiel kommen lassen?",
             "options": choice_options,
-        }
-    def resolve_enter_as_copy_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("enter_as_copy", answer=continuations.ANSWER_STR, rule="614.1")
+    def _resume_enter_as_copy(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `enter_as_copy` choice, then resume whatever
         battlefield-entry work `_offer_enter_as_copy` deferred.
 
         ``answer`` is a target's stringified ``instance_id``, or
         ``None``/``"decline"`` to enter as itself."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "enter_as_copy":
-            raise ValueError("no pending enter-as-copy choice to resolve")
-        self.state.pending_choice = None
         obj = self._pending_enter_as_copy_obj
         effect = self._pending_enter_as_copy_effect
         continuation = self._pending_enter_as_copy_continuation
@@ -1891,8 +1964,8 @@ class CastingResolutionMixin:
             # Unlike every other RULE 601.2b pick above, the answer space
             # isn't enumerable (any Magic card is a legal name, not just one
             # on this board) — the battlefield's own names are offered as
-            # convenience suggestions only, the same idiom `request_name_card`
-            # uses; `resolve_enter_choice` accepts any string for this kind.
+            # convenience suggestions only, the same idiom `_request_name_card`
+            # uses; `_resume_choose_creature_type` accepts any string for this kind.
             options = [
                 {"id": name, "label": name}
                 for name in sorted({o.card.name for o in self.state.battlefield})
@@ -1925,14 +1998,22 @@ class CastingResolutionMixin:
         self._pending_enter_choice_obj = obj
         self._pending_enter_choice_effect = effect
         self._pending_enter_choice_continuation = _next
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": kind,
             "player_id": obj.controller_id,
             "prompt": prompt,
             "options": options,
             **({"free_text": True} if kind in ("choose_card_name", "choose_number") else {}),
-        }
-    def resolve_enter_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice(
+        "choose_creature_type", "choose_color", "choose_named_mode",
+        "choose_basic_land_type", "choose_card_name", "choose_number",
+        answer=continuations.ANSWER_STR,
+        rule="601.2b",
+    )
+    def _resume_choose_creature_type(
+        self, choice: dict[str, Any], answer: Optional[str]
+    ) -> None:
         """Answer a pending `choose_creature_type`/`choose_color` choice
         (RULE 601.2b), then resume whatever `_offer_enter_choices` deferred —
         which may open the *next* queued choice rather than finishing entry
@@ -1940,20 +2021,13 @@ class CastingResolutionMixin:
 
         A mandatory choice (there's no "decline" option offered at all): an
         unrecognized/missing ``answer`` defaults to the first offered option,
-        the same treatment `resolve_add_mana_any_color_choice` gives a
+        the same treatment `_resume_add_mana_any_color` gives a
         missing mandatory answer, so a dependent selector is never silently
         starved by a skipped pick. ``choose_card_name`` is the one exception —
-        like `resolve_name_card_choice`, its answer isn't validated against
+        like `_resume_name_card`, its answer isn't validated against
         the offered (suggestion-only) options at all; a missing answer names
         the empty string, which simply matches no permanent.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") not in (
-            "choose_creature_type", "choose_color", "choose_named_mode",
-            "choose_basic_land_type", "choose_card_name", "choose_number",
-        ):
-            raise ValueError("no pending enter-choice to resolve")
-        self.state.pending_choice = None
         obj = self._pending_enter_choice_obj
         continuation = self._pending_enter_choice_continuation
         self._pending_enter_choice_obj = None
@@ -2019,24 +2093,21 @@ class CastingResolutionMixin:
             return
         self._pending_read_ahead_obj = obj
         self._pending_read_ahead_continuation = continuation
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "read_ahead",
             "player_id": obj.controller_id,
             "prompt": f"{obj.name}: Voraus lesen — Kapitelmarke wählen (1-{final})",
             "options": [{"id": str(n), "label": f"Kapitel {n}"} for n in range(1, final + 1)],
-        }
-    def resolve_read_ahead_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("read_ahead", answer=continuations.ANSWER_STR, rule="714.3")
+    def _resume_read_ahead(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `read_ahead` choice (RULE 702.155), then resume
         whatever `_offer_read_ahead` deferred.
 
         A mandatory choice (no "decline" option is ever offered): an
         unrecognized/missing ``answer`` defaults to 1 (no read-ahead), the
-        same missing-mandatory-answer treatment `resolve_enter_choice` gives.
+        same missing-mandatory-answer treatment `_resume_choose_creature_type` gives.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "read_ahead":
-            raise ValueError("no pending read-ahead choice to resolve")
-        self.state.pending_choice = None
         obj = self._pending_read_ahead_obj
         continuation = self._pending_read_ahead_continuation
         self._pending_read_ahead_obj = None

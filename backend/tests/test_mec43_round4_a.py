@@ -319,7 +319,7 @@ def test_legolass_quick_reflexes_untaps_and_grants_keywords_and_a_trigger():
     # pending_choice any granted triggered ability's own target uses.
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "trigger_target"
-    engine.rules.resolve_trigger_target_choice(str(victim.instance_id))
+    engine.rules.resolve_choice(str(victim.instance_id))
     engine.resolve_until_stable()
 
     assert victim.damage_marked == 3

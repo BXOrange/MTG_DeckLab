@@ -56,7 +56,7 @@ def test_answering_the_choice_discards_exactly_the_chosen_card():
     a, b, c = (_hand_card(p1, n) for n in ("A", "B", "C"))
     DiscardEffect(count=1).apply(GameContext(state, engine), targets=[p1])
 
-    engine.resolve_choose_objects_choice(b.instance_id)
+    engine.resolve_choice(b.instance_id)
 
     assert state.pending_choice is None
     assert b in p1.graveyard
@@ -69,9 +69,9 @@ def test_discarding_two_cards_asks_twice():
     a, b, c = (_hand_card(p1, n) for n in ("A", "B", "C"))
     DiscardEffect(count=2).apply(GameContext(state, engine), targets=[p1])
 
-    engine.resolve_choose_objects_choice(a.instance_id)
+    engine.resolve_choice(a.instance_id)
     assert state.pending_choice is not None  # one more to pick
-    engine.resolve_choose_objects_choice(c.instance_id)
+    engine.resolve_choice(c.instance_id)
 
     assert state.pending_choice is None
     assert a in p1.graveyard and c in p1.graveyard

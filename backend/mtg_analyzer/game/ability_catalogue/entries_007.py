@@ -1142,7 +1142,7 @@ def _selfless_safewright() -> list[AbilitySpec]:
 
     — Eliferate deck batch. Flash/Convoke come from the RULE 702 keyword
     catalogue automatically. The ETB clause is a *resolve-time* "choose a
-    creature type" (RulesEngine.request_choose_creature_type_grant — see
+    creature type" (RulesEngine._request_choose_creature_type_grant — see
     its docstring for why this is a different primitive from RULE 601.2b's
     as-it-enters `choose_creature_type_on_enter`), immediately followed by
     the grant (`grant_keywords_to_chosen_type_until_eot`) as its own
@@ -1153,7 +1153,7 @@ def _selfless_safewright() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("request_choose_creature_type_grant", {
+            [EffectSpec("_request_choose_creature_type_grant", {
                 "then_specs": [
                     {
                         "type": "grant_keywords_to_chosen_type_until_eot",

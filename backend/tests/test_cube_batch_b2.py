@@ -358,7 +358,7 @@ def test_nether_void_counters_a_spell_unless_its_caster_pays_three():
     choice = state.pending_choice
     assert choice["kind"] == "trigger_target"
     option = next(o for o in choice["options"] if o["instance_id"] == bolt_obj.instance_id)
-    eng.rules.resolve_trigger_target_choice(option["id"])
+    eng.rules.resolve_choice(option["id"])
     eng.resolve_until_stable()
 
     # p2 already spent its only mana casting the bolt, so it genuinely can't
@@ -403,7 +403,7 @@ def test_spellseeker_etb_searches_for_a_cheap_instant_or_sorcery():
     assert "SSBolt" in names  # mana value 1, eligible
     assert "SSBigSorc" not in names  # mana value 4, filtered out
     option = next(e for e in choice["eligible"] if e["name"] == "SSBolt")
-    eng.rules.resolve_search_choice(option["instance_id"])
+    eng.rules.resolve_choice(option["instance_id"])
     eng.resolve_until_stable()
 
     assert any(o.name == "SSBolt" for o in p1.hand)

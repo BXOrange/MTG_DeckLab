@@ -368,7 +368,7 @@ def _chrome_mox() -> list[AbilitySpec]:
     exile-and-remember half is hand-authored here, via `ImprintEffect`
     (``exclude_card_types=["artifact", "land"]`` — Chrome Mox's own
     "nonartifact, nonland" filter) with ``remember=True`` threaded through
-    `RulesEngine.request_choose_objects`'s general chooser.
+    `RulesEngine._request_choose_objects`'s general chooser.
     """
     # `optional` deliberately stays off the *spec* — the trigger itself is
     # unconditionally put on the stack (there's no separate RULE 603.5 "you
@@ -780,10 +780,10 @@ def _tooth_and_nail() -> list[AbilitySpec]:
     every "put onto the battlefield" in the engine moves a card out of a
     *library* (a search) or a *graveyard* (reanimation), never an open pick
     from hand. `PutFromHandOntoBattlefieldEffect` reuses `RulesEngine.
-    request_search`'s interactive one-at-a-time choice against a new
+    _request_search`'s interactive one-at-a-time choice against a new
     ``"hand"`` search zone, so the prompt, the undo snapshots and the "up to
     N" semantics match every other pick rather than needing a parallel
-    choice kind wired through the session and frontend. `request_search`
+    choice kind wired through the session and frontend. `_request_search`
     already keys its shuffle and its `LIBRARY_SEARCHED` event to
     ``"library"``, so a hand pick correctly does neither.
 
@@ -880,13 +880,13 @@ register("Wandering Archaic", _wandering_archaic)
 # Four genuinely new engine shapes, each previously listed as its own
 # blocker:
 #
-# * **naming a card** (`request_name_card`) — the only choice in the engine
+# * **naming a card** (`_request_name_card`) — the only choice in the engine
 #   whose answer space isn't enumerable from game state.
 # * **dig-until-a-predicate** (`RulesEngine.dig_until`) — the cascade dig
 #   generalized so both the predicate and both destinations are parameters.
 # * **repeat-until-a-predicate** (`MillUntilCreatureEffect`) — every other
 #   repetition here had its count fixed before it started.
-# * **an open-ended loop** (`request_look_top_pay_life_loop`) — bounded by
+# * **an open-ended loop** (`_request_look_top_pay_life_loop`) — bounded by
 #   its own life payment rather than by any counter.
 # ---------------------------------------------------------------------------
 

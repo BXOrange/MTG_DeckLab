@@ -2165,7 +2165,7 @@ class CastingMixin:
         ``sacrifice_choice``/``tap_choices``-as-an-action-parameter shape
         `activate_ability` already uses for an activated ability's cost —
         cost payment is one synchronous call inside `cast_spell`, so it
-        can't pause for a `request_choose_objects` chooser the way an
+        can't pause for a `_request_choose_objects` chooser the way an
         *effect* resolving can (see `RulesEngine.sacrifice`, ENG-2's
         upgrade); the choice has to already be known when this runs.
         ``obj`` — the spell itself — is never a valid sacrifice candidate at

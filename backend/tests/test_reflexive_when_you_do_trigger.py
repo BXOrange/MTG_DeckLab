@@ -113,7 +113,7 @@ def test_sample_collector_reflexive_counter_goes_on_the_stack_and_targets():
 
     # the pay-cost-then choice is open
     assert st.pending_choice is not None and st.pending_choice["kind"] == "pay_cost_then"
-    eng.rules.resolve_pay_cost_then_choice("pay")
+    eng.rules.resolve_choice("pay")
 
     # collect evidence 3 exiled from the graveyard
     assert sum(1 for c in p1.exile) >= 1
@@ -124,7 +124,7 @@ def test_sample_collector_reflexive_counter_goes_on_the_stack_and_targets():
     opts = {o["instance_id"] for o in choice["options"] if "instance_id" in o}
     assert ally.instance_id in opts and collector.instance_id in opts
 
-    eng.rules.resolve_trigger_target_choice(ally.instance_id)
+    eng.rules.resolve_choice(ally.instance_id)
     eng.resolve_until_stable()
     assert ally.counters.get("+1/+1") == 1
 
@@ -148,7 +148,7 @@ def test_no_reflexive_trigger_when_the_cost_is_declined():
 
     trig = next(s for s in parse_oracle(collector.card).specs if s.ability_kind == "triggered")
     _apply_effects_partitioned(build_effects(trig.effects, collector), eng.rules.context, None, None, source=collector)
-    eng.rules.resolve_pay_cost_then_choice(None)  # decline
+    eng.rules.resolve_choice(None)  # decline
     eng.resolve_until_stable()
 
     assert not st.pending_choice
@@ -179,11 +179,11 @@ def test_mana_cost_variant_surgespanner_bounce():
     trig = next(s for s in parse_oracle(src.card).specs if s.ability_kind == "triggered")
     _apply_effects_partitioned(build_effects(trig.effects, src), eng.rules.context, None, None, source=src)
     assert st.pending_choice and st.pending_choice["kind"] == "pay_cost_then"
-    eng.rules.resolve_pay_cost_then_choice("pay")
+    eng.rules.resolve_choice("pay")
     eng.resolve_until_stable()
 
     assert st.pending_choice and st.pending_choice["kind"] == "trigger_target"
-    eng.rules.resolve_trigger_target_choice(victim.instance_id)
+    eng.rules.resolve_choice(victim.instance_id)
     eng.resolve_until_stable()
     assert victim in p2.hand and victim not in st.battlefield
 
@@ -210,12 +210,12 @@ def test_warren_torchmaster_reflexive_haste_grant_resolves():
     trig = next(s for s in parse_oracle(torch.card).specs if s.ability_kind == "triggered")
     _apply_effects_partitioned(build_effects(trig.effects, torch), eng.rules.context, None, None, source=torch)
     assert st.pending_choice and st.pending_choice["kind"] == "pay_cost_then"
-    eng.rules.resolve_pay_cost_then_choice("pay")
+    eng.rules.resolve_choice("pay")
     eng.resolve_until_stable()
 
     # reflexive "target creature gains haste until end of turn"
     if st.pending_choice and st.pending_choice["kind"] == "trigger_target":
-        eng.rules.resolve_trigger_target_choice(goblin.instance_id)
+        eng.rules.resolve_choice(goblin.instance_id)
         eng.resolve_until_stable()
     eng.recompute_continuous_effects()
     assert "haste" in (goblin.granted_keywords or [])

@@ -179,7 +179,7 @@ def _quandrix_command() -> list[AbilitySpec]:
     picks up to three cards in the targeted player's graveyard at
     resolution (RULE 601.2c) and each returns to that player's library,
     which is then shuffled (RULE 701.20). Modeled with a
-    `request_choose_objects` rather than three separate card targets, an
+    `_request_choose_objects` rather than three separate card targets, an
     accepted RULE 115 precision loss."""
     QUANDRIX_COUNTERS = 2
     QUANDRIX_GY_CARD_CAP = 3

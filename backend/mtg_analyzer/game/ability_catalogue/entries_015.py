@@ -885,7 +885,7 @@ def _ledger_shredder() -> list[AbilitySpec]:
     its own (Hearthborn Battler's own precedent); what blocked the whole
     card was "connives" itself, RULE 701.47 — draw a card, then discard a
     card, +1/+1 counter if the discard was nonland — genuinely new
-    (`ConniveEffect`, `RulesEngine.request_choose_objects`'s new
+    (`ConniveEffect`, `RulesEngine._request_choose_objects`'s new
     ``connive`` flag).
     """
     return [

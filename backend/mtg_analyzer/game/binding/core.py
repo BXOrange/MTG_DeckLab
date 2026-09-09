@@ -198,7 +198,7 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     "LAND_PLAYED": "player_id",
     "UNTAP": "player_id",
     # "Whenever an opponent searches their library, …" (Archivist of Oghma)
-    # — `RulesEngine.request_search` fires this keyed by ``player_id`` too.
+    # — `RulesEngine._request_search` fires this keyed by ``player_id`` too.
     "LIBRARY_SEARCHED": "player_id",
     # "Whenever a player/an opponent mills a nonland card, …" (RULE 728's
     # Glowing One/Infesting Radroach, The Wise Mothman) — `RulesEngine.mill`

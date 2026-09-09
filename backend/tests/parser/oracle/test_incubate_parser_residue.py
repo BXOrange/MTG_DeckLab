@@ -6,7 +6,7 @@ Three parser rows close them (PAR-30), all reusable well beyond Incubate:
   its controller pays {4}. **If they do**, you incubate 2.": a reflexive
   follow-up on the pay branch of an "unless … pays" counter
   (`CounterSpellEffect.on_pay_effect_specs`, threaded through
-  `RulesEngine.counter_unless_pays` / `resolve_counter_unless_pays_choice`),
+  `RulesEngine.counter_unless_pays` / `_resume_counter_unless_pays`),
   plus "battle" as a counter-target spell type. Also unlocks
   **Don't Make a Sound** ("… If they do, surveil 2.").
 - **Searing Barb** — "~ deals 2 damage to any target. **If it's a
@@ -172,7 +172,7 @@ def test_assimilate_essence_incubates_only_when_the_controller_pays():
 
     choice = st.pending_choice
     assert choice is not None and choice["kind"] == "counter_unless_pays"
-    eng.rules.resolve_counter_unless_pays_choice("pay")
+    eng.rules.resolve_choice("pay")
 
     assert target in [i.obj for i in st.stack]  # paid → not countered
     toks = [o for o in st.battlefield if getattr(o, "is_token", False)]
@@ -194,7 +194,7 @@ def test_assimilate_essence_no_incubate_on_the_counter_branch():
     effs = build_effects(parse_oracle(src.card).specs[0].effects, src)
     effs[0].apply(eng.rules.context, [target])
     assert st.pending_choice is not None
-    eng.rules.resolve_counter_unless_pays_choice(None)  # decline → countered
+    eng.rules.resolve_choice(None)  # decline → countered
 
     assert not [o for o in st.battlefield if getattr(o, "is_token", False)]
     assert target not in [i.obj for i in st.stack]

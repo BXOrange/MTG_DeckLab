@@ -1195,7 +1195,7 @@ def _draw_reveal_cast_free(m: re.Match[str]) -> list[EffectSpec]:
 #: than by exempting `_peel_optional` (nothing else about this clause is
 #: sensitive to the optional marker: `spec.optional` is read only by the
 #: ``triggered`` binder branch, never ``spell_effect``, and this effect's
-#: own `request_choose_objects(optional=True)` already models the "may").
+#: own `_request_choose_objects(optional=True)` already models the "may").
 _FREE_CAST_FROM_HAND_RE = _c(
     # ENG-33 (Great Intelligence's Plan) / ENG-32 (Waterbend "cast a
     # noncreature spell without paying"): the "with mana value N or less"
@@ -1258,7 +1258,7 @@ _PUT_FROM_HAND_RE = _c(
     # placed creature's own "whenever ~ attacks" triggers fire — the engine
     # already re-fires ATTACKS via `put_onto_battlefield_attacking`, so this
     # is consumed as a no-op; (2) "if you don't put a card … this way,
-    # <body>." → `miss_effect_specs` (via `request_search`'s
+    # <body>." → `miss_effect_specs` (via `_request_search`'s
     # ``then_specs_if_none``).
     r"(?:\. if it has any \"whenever ~ attacks\" triggers,? those trigger)?"
     r"(?:\. if you don'?t put a card onto the battlefield this way, (?P<elsebody>.+?))?"
@@ -1646,7 +1646,7 @@ def _target_player_edict(m: re.Match[str]) -> list[EffectSpec]:
 #: "Each player loses N life unless they discard a card."/"...unless they
 #: sacrifice a creature, artifact, or land of their choice." (PAR-13, Tomb
 #: of Annihilation's "Veils of Fear"/"Sandfall Cell" dungeon rooms) — RULE
-#: 101.4's APNAP mass "unless", `RulesEngine.request_each_player_pay_or`'s
+#: 101.4's APNAP mass "unless", `RulesEngine._request_each_player_pay_or`'s
 #: only oracle-text route. Only these two cost phrasings (the ones real
 #: cards in the pool actually print for this shape) — a compound sacrifice
 #: cost the plain-word `_SACRIFICE_RE`/`ActivationCost.sacrifice` vocabulary
@@ -3499,7 +3499,7 @@ def _exile_target_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: test_search_popular_tutors.py` proves it against 15 real popular tutors)
 #: — no new effect type needed, just recognition. Three siblings below
 #: extend the same `"search"` `EffectSpec` onto its ``zones``/
-#: ``destinations``/``exile_rest`` params (`RulesEngine.request_search`):
+#: ``destinations``/``exile_rest`` params (`RulesEngine._request_search`):
 #: "library and/or graveyard" combined search (`_search_zone_put`, ~50 real
 #: cards — the backgrounds/planeswalker-tutor family), a split destination
 #: per found card (`_search_split_destination` — Cultivate/Kodama's Reach),
@@ -3666,7 +3666,7 @@ _SEARCH_PUT_THEN_SHUFFLE_RE = _c(
 #: put-clause; a separate regex rather than an optional group spliced into
 #: the shared one, since only this one shape maps onto `"search"`'s new
 #: ``share_land_type`` param (`SearchLibraryEffect`/`RulesEngine.
-#: request_search`).
+#: _request_search`).
 _SEARCH_PUT_THEN_SHUFFLE_SHARE_TYPE_RE = _c(
     rf"search your library for {_SEARCH_CRITERIA} that share a land type,?\s*"
     rf"{_SEARCH_REVEAL}"
@@ -4964,7 +4964,7 @@ def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: from one hardcoded antecedent (a bare mana cost / `{E}` pips) and, for
 #: the first, one hardcoded consequence (draw a card) to the *whole*
 #: `ActivationCost` vocabulary `pay_cost_then`/`RulesEngine.
-#: request_pay_cost_then` already supports server-side (mana, sacrifice,
+#: _request_pay_cost_then` already supports server-side (mana, sacrifice,
 #: discard, life — see that method's own docstring) plus an arbitrary
 #: recursively-parsed follow-up. No new engine primitive: `pay_cost_then`
 #: was already general, just never had an oracle-text recognizer past the
@@ -7590,7 +7590,7 @@ def _chaos_ensues(m: re.Match[str]) -> list[EffectSpec]:
 
 # "Starting with you, each player votes for `<A>` or `<B>`. If `<A>` gets
 # more votes, `<X>`. If `<B>` gets more votes or the vote is tied, `<Y>`."
-# (RULE 701.38, PAR-29). `RulesEngine.request_vote` / `effects.VoteEffect`
+# (RULE 701.38, PAR-29). `RulesEngine._request_vote` / `effects.VoteEffect`
 # own the APNAP sweep and outcome. Two shapes: a majority branch (this
 # handler) and per-vote scaling ("… for each `<A>` vote", `_vote_per_vote`
 # below). Only the 2-option majority form here — 3+-option votes
@@ -7770,7 +7770,7 @@ def _vote_winner_protection(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 # MEC-46 — the tally-over-objects vote (`ObjectVoteEffect` /
-# `RulesEngine.request_object_vote`): "each player votes for a nonland
+# `RulesEngine._request_object_vote`): "each player votes for a nonland
 # permanent you don't control. Exile each permanent with the most votes or
 # tied for most votes." (Council's Judgment) / "…an artifact, creature, or
 # enchantment card in your graveyard. Return each card … to your hand."
@@ -7853,7 +7853,7 @@ def _forced_vote(m: re.Match[str]) -> list[EffectSpec]:
 
 
 # "`<player>` faces a villainous choice — `<A>`, or `<B>`." (RULE 701.55,
-# PAR-29). `RulesEngine.request_villainous_choice` / `effects.FaceVillainous
+# PAR-29). `RulesEngine._request_villainous_choice` / `effects.FaceVillainous
 # ChoiceEffect` own the APNAP sweep (each facing player applies their own
 # pick). Each option is mini-parsed with the facing player as the target:
 # "they/that player `<verb>`" → a player-targeted `sacrifice`/`discard`/
@@ -7890,7 +7890,7 @@ def _villainous_option_specs(body: str):
 
     A "you …" clause parses controller-scoped as-is. A "they/that player
     `<verb>`" clause is retried as "target player `<verb>`" (the facing
-    player is the effect's target — `request_villainous_choice` applies
+    player is the effect's target — `_request_villainous_choice` applies
     each option with ``targets=[facing]``); a bare edict ("they sacrifice
     a creature of their choice") maps straight to a player-less
     `sacrifice` spec.
@@ -8227,7 +8227,7 @@ def _remove_suspected_all(m: re.Match[str]) -> list[EffectSpec]:
 # PAR-30 Suspect one-off shapes — "You may have it become no longer
 # suspected." (Deadly Complication's second mode, after "put a +1/+1 counter
 # on target suspected creature you control"). "it" is the previous clause's
-# target; the "you may" routes through `request_choose_objects` so declining
+# target; the "you may" routes through `_request_choose_objects` so declining
 # keeps the menace a suspected creature has (`RemoveSuspectedEffect.optional`).
 def _remove_suspected_may_previous(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("remove_suspected", {"previous_subject": True, "optional": True})]

@@ -149,7 +149,7 @@ def _rhystic_circle() -> list[AbilitySpec]:
     first player to pay cancels the whole thing. New primitive:
     `RequestAllPlayersDeclineOrEffect`/`RulesEngine.request_all_players_
     decline_or` (a chain of ordinary single-player pay/decline choices,
-    the aggregate-outcome mirror of PAR-13's `request_each_player_pay_or`
+    the aggregate-outcome mirror of PAR-13's `_request_each_player_pay_or`
     — that one applies its effect *per decliner*, this one applies it
     *once*, only if *every* player declined). The activation cost itself
     ({1}) is ordinary — unlike Mercenaries, only Rhystic Circle's own
@@ -418,8 +418,8 @@ def _protean_hulk() -> list[AbilitySpec]:
     total* shared across the whole open-ended pick — a creature that costs
     5 and one that costs 1 are both individually well under 6, but picking
     both exhausts the budget for a third. `SearchLibraryEffect.total_mana_
-    value_budget` (`RulesEngine.request_search`/`_search_choice`/
-    `resolve_search_choice`, all three threading a `spent_mana_value`
+    value_budget` (`RulesEngine._request_search`/`_search_choice`/
+    `_resume_search`, all three threading a `spent_mana_value`
     running total through the recursive multi-round loop) narrows each
     round's own eligible pool to whatever still fits the *remaining*
     budget, on top of `criteria`'s ordinary type filter — orthogonal to,

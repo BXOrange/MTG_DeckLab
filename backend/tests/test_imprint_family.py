@@ -2,7 +2,7 @@
 
 Two new primitives, both general rather than Chrome-Mox-specific:
 
-* `RulesEngine.request_choose_objects`'s new ``remember=True`` param
+* `RulesEngine._request_choose_objects`'s new ``remember=True`` param
   (`game/rules/misc_mixin.py`) — stamps whichever object gets
   ``action="exile"``ed onto the calling permanent's own
   `GameObject.linked_exile_id`, the same field `ExileEffect(remember=True)`
@@ -13,13 +13,13 @@ Two new primitives, both general rather than Chrome-Mox-specific:
   currently points at.
 
 `ImprintEffect` (`game/effects/core.py`) is the ETB half — "you may exile a
-`<filter>` card from your hand" — riding `request_choose_objects` exactly
+`<filter>` card from your hand" — riding `_request_choose_objects` exactly
 like Gemstone Caverns' own pregame "exile a card from your hand" tail
 already does, just with `remember=True` added.
 
 Reference: mtg_analyzer/game/effects/core.py (`ImprintEffect`),
 game/mana_abilities.py (`_IMPRINTED_COLOR_ADD_RE`, `resolve_options`),
-game/rules/misc_mixin.py (`request_choose_objects`), game/ability_catalogue.py.
+game/rules/misc_mixin.py (`_request_choose_objects`), game/ability_catalogue.py.
 """
 
 from __future__ import annotations

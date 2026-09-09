@@ -7,7 +7,7 @@ free_cast_instance_ids` already zeroed a cast's mana cost — RULE 702.88b
 Rebound/Beseech the Mirror already used it from *exile*) but the interactive
 "which hand card, if any, meets the mana-value cap" choice. Since a hand
 card is already a legal cast zone (`can_cast`'s ``in_castable_zone``), the
-new ``"grant_free_cast"`` `request_choose_objects` action only *arms* the
+new ``"grant_free_cast"`` `_request_choose_objects` action only *arms* the
 picked card's free-cast flag — deliberately not `RulesEngine.
 cast_without_paying`, which would cast it immediately with no further
 interaction. The caster then casts it (or doesn't) through the ordinary
@@ -170,7 +170,7 @@ def test_declining_arms_nothing():
     from mtg_analyzer.game.effects.core import FreeCastFromHandEffect, GameContext
 
     FreeCastFromHandEffect(criteria={"max_mana_value": 1}, source=source).apply(GameContext(eng.state, eng.rules))
-    eng.rules.resolve_choose_objects_choice(None)
+    eng.rules.resolve_choice(None)
     assert eng.state.free_cast_instance_ids == set()
 
 
@@ -181,7 +181,7 @@ def test_picking_a_card_arms_it_for_a_genuinely_free_cast():
     from mtg_analyzer.game.effects.core import FreeCastFromHandEffect, GameContext
 
     FreeCastFromHandEffect(criteria={"max_mana_value": 1}, source=source).apply(GameContext(eng.state, eng.rules))
-    eng.rules.resolve_choose_objects_choice(bolt.instance_id)
+    eng.rules.resolve_choice(bolt.instance_id)
 
     p1 = eng.state.player_by_id("p1")
     assert eng.can_cast(p1, bolt)  # legal with an empty mana pool

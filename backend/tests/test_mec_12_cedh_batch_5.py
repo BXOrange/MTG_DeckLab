@@ -193,7 +193,7 @@ def test_green_sun_zenith_is_modeled_and_shuffles_itself_into_library():
     # this test only cares about the trailing self-shuffle) so the parked
     # ShuffleSelfIntoLibraryEffect actually runs.
     assert state.pending_choice is not None and state.pending_choice["kind"] == "search"
-    engine.rules.resolve_search_choice(None)
+    engine.rules.resolve_choice(None)
     engine.resolve_until_stable()
 
     assert not any(o.name == "Green Sun's Zenith" for o in p1.graveyard)
@@ -270,7 +270,7 @@ def test_wishclaw_talisman_activation_searches_and_passes_control_to_opponent():
     assert engine.can_activate(p1, obj, ability)
     engine.activate_ability(p1, obj, ability_index=0)
     engine.resolve_until_stable()
-    engine.rules.resolve_search_choice(None)  # decline the tutor, only care about the rest
+    engine.rules.resolve_choice(None)  # decline the tutor, only care about the rest
     engine.resolve_until_stable()
 
     assert obj.counters.get("wish") == 2

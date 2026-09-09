@@ -201,7 +201,7 @@ def test_resolve_change_target_choice_retargets_the_spell():
     choice = eng.state.pending_choice
     pick = next(o for o in choice["options"] if o["label"] == "Third Bear")
     assert pick is not None
-    eng.rules.resolve_change_target_choice(pick["id"])
+    eng.rules.resolve_choice(pick["id"])
     assert eng.state.pending_choice is None
     item = eng.rules._stack_item_for(victim)
     assert item.targets == [third]
@@ -217,7 +217,7 @@ def test_resolve_change_target_choice_decline_leaves_the_target_unchanged():
     )
     swat = GameObject(instant("Deflecting Swat"), owner_id="p1", zone=Zone.STACK)
     eng.rules.change_target(victim, optional=True, source=swat)
-    eng.rules.resolve_change_target_choice("decline")
+    eng.rules.resolve_choice("decline")
     assert eng.state.pending_choice is None
     item = eng.rules._stack_item_for(victim)
     assert item.targets == [bear]

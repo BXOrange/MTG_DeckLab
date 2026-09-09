@@ -3,7 +3,7 @@
 
 New bespoke `RemoveCountersFromAmongThenDrawLoseLifeEffect`
 ("remove_counters_from_among_then_draw_lose_life"): an ``optional``
-`request_choose_objects` over counter-bearing permanents (new action
+`_request_choose_objects` over counter-bearing permanents (new action
 ``strip_all_counters``), then a draw + life loss equal to the battlefield
 counter-total delta (`DrawLoseLifeCounterRemovedDeltaEffect`).
 """
@@ -80,8 +80,8 @@ def test_removing_from_all_counter_bearers_draws_and_drains_the_total():
     pc = eng.state.pending_choice
     assert pc and pc["kind"] == "choose_objects"
     assert {o.get("instance_id") for o in pc["options"] if o.get("instance_id")} == {a.instance_id, b.instance_id}
-    eng.rules.resolve_choose_objects_choice(a.instance_id)
-    eng.rules.resolve_choose_objects_choice(b.instance_id)
+    eng.rules.resolve_choice(a.instance_id)
+    eng.rules.resolve_choice(b.instance_id)
     eng.resolve_until_stable()
 
     assert not a.counters and not b.counters
@@ -101,8 +101,8 @@ def test_partial_selection_then_decline():
     build_effects([EffectSpec("remove_counters_from_among_then_draw_lose_life", {})], src)[0] \
         .apply(GameContext(eng.state, eng.rules), targets=None)
 
-    eng.rules.resolve_choose_objects_choice(a.instance_id)   # strip A (3)
-    eng.rules.resolve_choose_objects_choice(None)            # decline the rest
+    eng.rules.resolve_choice(a.instance_id)   # strip A (3)
+    eng.rules.resolve_choice(None)            # decline the rest
     eng.resolve_until_stable()
 
     assert not a.counters
@@ -120,7 +120,7 @@ def test_declining_immediately_is_a_noop():
 
     build_effects([EffectSpec("remove_counters_from_among_then_draw_lose_life", {})], src)[0] \
         .apply(GameContext(eng.state, eng.rules), targets=None)
-    eng.rules.resolve_choose_objects_choice(None)
+    eng.rules.resolve_choice(None)
     eng.resolve_until_stable()
 
     assert not p1.hand and p1.life == life0

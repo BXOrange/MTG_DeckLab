@@ -138,7 +138,7 @@ def test_gristle_glutton_discard_then_draw_sequence():
         while st.pending_choice and st.pending_choice["kind"] == "choose_objects" and guard < 5:
             guard += 1
             cid = st.pending_choice["options"][0]["instance_id"]
-            eng.rules.resolve_choose_objects_choice(cid)
+            eng.rules.resolve_choice(cid)
     # discarded one (→ graveyard), drew the known top card
     assert any(o.name == "Top" for o in p1.hand)
     assert len(p1.graveyard) == 1
@@ -191,7 +191,7 @@ def test_each_opponent_pay_or_loses_life_when_declined():
         guard += 1
         k = st.pending_choice["kind"]
         if k == "pay_cost_then":
-            eng.rules.resolve_pay_cost_then_choice(None)
+            eng.rules.resolve_choice(None)
         else:
             break
     eng.resolve_until_stable()

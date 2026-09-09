@@ -96,7 +96,7 @@ def _answer_trigger_target(engine, state, label):
     (a permanent name or a player id) and resolve it."""
     pc = state.pending_choice
     option = next(o for o in pc["options"] if o.get("label") == label)
-    engine.rules.resolve_trigger_target_choice(option["id"])
+    engine.rules.resolve_choice(option["id"])
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +458,7 @@ def test_vrondiss_creates_optional_dragon_spirit_token():
     pc = state.pending_choice
     assert pc is not None and pc["kind"] == "trigger_target"
     assert {o["id"] for o in pc["options"]} == {"do", "decline"}
-    engine.rules.resolve_trigger_target_choice("do")
+    engine.rules.resolve_choice("do")
     engine.resolve_until_stable()
     assert len(state.battlefield) == before + 1
     tokens = [o for o in state.battlefield if o.name == "Dragon Spirit"]

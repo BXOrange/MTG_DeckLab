@@ -150,7 +150,7 @@ def test_reveal_land_declining_leaves_it_tapped():
     state = GameState(players=[p1, p2])
     engine = GameEngine(state)
     engine.rules.enter_land_tapped(land_obj)
-    engine.rules.resolve_land_tapped_reveal_choice(None)
+    engine.rules.resolve_choice(None)
     assert land_obj.tapped is True
     assert state.pending_choice is None
 
@@ -164,7 +164,7 @@ def test_reveal_land_revealing_enters_untapped():
     state = GameState(players=[p1, p2])
     engine = GameEngine(state)
     engine.rules.enter_land_tapped(land_obj)
-    engine.rules.resolve_land_tapped_reveal_choice("reveal")
+    engine.rules.resolve_choice("reveal")
     assert land_obj.tapped is False
     assert state.pending_choice is None
 
@@ -179,7 +179,7 @@ def test_reveal_land_played_via_engine_action_end_to_end():
     engine.play_land(p1, land)
     assert land.tapped is True
     assert engine.state.pending_choice["kind"] == "land_tapped_reveal"
-    engine.rules.resolve_land_tapped_reveal_choice("reveal")
+    engine.rules.resolve_choice("reveal")
     assert land.tapped is False
 
 

@@ -1,7 +1,7 @@
 """PAR-29 — RULE 701.48 Learn (Strixhaven).
 
 `RulesEngine.learn(player)` opens an optional "discard a card, then draw a
-card" via the existing `request_choose_objects` chooser (`optional=True` +
+card" via the existing `_request_choose_objects` chooser (`optional=True` +
 `then_specs`). **Documented simplification:** RULE 701.48a's "reveal a
 Lesson card you own from outside the game" branch is dropped — this engine
 has no sideboard / outside-the-game zone with a Commander-legal use (the

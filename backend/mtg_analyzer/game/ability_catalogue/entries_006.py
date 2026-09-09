@@ -566,7 +566,7 @@ def _indoraptor_the_perfect_hybrid() -> list[AbilitySpec]:
     is never worse for the chosen opponent — and the "unless they
     sacrifice a nontoken creature" escape clause isn't modeled (that would
     need a genuinely new opponent-side interactive "unless" primitive; the
-    existing `sacrifice_unless_pay`/`request_pay_cost_then` family is
+    existing `sacrifice_unless_pay`/`_request_pay_cost_then` family is
     always about *this ability's own controller* paying, not an
     opponent). The damage simply always happens. Bloodthirst is bind-on-
     load from the RULE 702 keyword catalogue, not hand-authored here.

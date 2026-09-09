@@ -8,7 +8,7 @@ inert. This batch adds `CumulativeUpkeepEffect`/`_kw_cumulative_upkeep`:
 "At the beginning of your upkeep, put an age counter on this permanent,
 then sacrifice it unless you pay its upkeep cost for each age counter on
 it" — reusing RULE 701.17's existing "Sacrifice ~ unless you pay `<cost>`"
-pay-or-lose-it machinery (`RulesEngine.request_sacrifice_unless_pay`,
+pay-or-lose-it machinery (`RulesEngine._request_sacrifice_unless_pay`,
 shared with ward's own cost-payment plumbing) with the parsed cost scaled
 by the age-counter count.
 
@@ -24,7 +24,7 @@ separate real-card test confirms Old Fogey's own clause still binds.
 Reference: mtg_analyzer/game/effects/core.py (`CumulativeUpkeepEffect`,
 `_scale_cumulative_upkeep_cost`), game/binding/core.py
 (`_kw_cumulative_upkeep`), game/rules/misc_mixin.py
-(`request_sacrifice_unless_pay`).
+(`_request_sacrifice_unless_pay`).
 """
 
 from __future__ import annotations

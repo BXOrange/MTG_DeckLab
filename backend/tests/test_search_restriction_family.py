@@ -39,7 +39,7 @@ def test_opponent_search_is_limited_to_top_four():
     # the list end (`.pop()`'s own convention) — only the last 4 are eligible.
     named_top_four = {c.card.name for c in p2.library[-4:]}
 
-    eng.rules.request_search(p2, criteria="", destination="hand")
+    eng.rules._request_search(p2, criteria="", destination="hand")
     pending = eng.state.pending_choice
     assert pending is not None
     offered = {o["label"] for o in pending["options"] if o.get("instance_id") is not None}
@@ -53,7 +53,7 @@ def test_own_search_is_not_limited():
     mindcensor = obj_on_battlefield(eng.state, eng, _named("Aven Mindcensor"), controller="p1")
     bind_from_catalogue(mindcensor)
 
-    eng.rules.request_search(p1, criteria="", destination="hand")
+    eng.rules._request_search(p1, criteria="", destination="hand")
     pending = eng.state.pending_choice
     assert pending is not None
     offered = {o["label"] for o in pending["options"] if o.get("instance_id") is not None}

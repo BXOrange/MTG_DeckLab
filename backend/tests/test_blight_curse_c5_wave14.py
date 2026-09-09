@@ -79,7 +79,7 @@ def test_only_cards_within_the_counter_count_are_targetable():
     ids = {o.get("instance_id") for o in choice["options"] if o.get("instance_id")}
     assert cheap.instance_id in ids and dear.instance_id not in ids
 
-    eng.rules.resolve_trigger_target_choice(str(cheap.instance_id))
+    eng.rules.resolve_choice(str(cheap.instance_id))
     eng.resolve_until_stable()
     assert cheap in p1.hand and cheap not in p1.graveyard
 
@@ -93,7 +93,7 @@ def test_limit_stops_a_second_trigger_the_same_turn():
     eng.rules.put_triggers_on_stack()
     # decline the first (optional) target choice
     if eng.state.pending_choice:
-        eng.rules.resolve_trigger_target_choice(None)
+        eng.rules.resolve_choice(None)
     eng.resolve_until_stable()
 
     dyer2 = GameObject(Card(id="D2", name="Dyer2", type_line="Creature — Rat", is_creature=True,

@@ -368,7 +368,7 @@ def test_real_ramp_card_binds_and_resolves_end_to_end():
     names = {e["name"] for e in choice["eligible"]}
     assert names == {"Forest"}  # criteria correctly excluded the Island
 
-    eng.rules.resolve_search_choice(forest_obj.instance_id)
+    eng.rules.resolve_choice(forest_obj.instance_id)
     assert forest_obj in eng.state.battlefield
     assert forest_obj.tapped is False  # Nature's Lore's untapped destination
     assert any(e.type == EventType.SHUFFLE for e in eng.state.event_log)
@@ -409,7 +409,7 @@ def test_real_zone_search_card_finds_a_graveyard_hit():
     assert choice is not None and choice["kind"] == "search"
     assert {e["name"] for e in choice["eligible"]} == {"Command Tower"}
 
-    eng.rules.resolve_search_choice(tower_obj.instance_id)
+    eng.rules.resolve_choice(tower_obj.instance_id)
     assert eng.state.pending_choice is None
     assert tower_obj in p1.hand
     assert tower_obj not in p1.graveyard
@@ -440,9 +440,9 @@ def test_real_split_destination_card_binds_and_resolves_end_to_end():
     eng.resolve_until_stable()
 
     first = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(first)
+    eng.rules.resolve_choice(first)
     second = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(second)
+    eng.rules.resolve_choice(second)
 
     assert eng.state.pending_choice is None
     first_obj = eng.state.find_object(first)
@@ -464,14 +464,14 @@ def test_exile_rest_engine_moves_leftover_matches_to_exile_and_skips_shuffle():
     p1.remove_from_zone(gy_obj, gy_obj.zone)
     p1.add_to_zone(gy_obj, Zone.GRAVEYARD)
 
-    eng.rules.request_search(
+    eng.rules._request_search(
         p1, "", "library_top", count=5, zones=["library", "graveyard"], exile_rest=True,
     )
     picked = []
     while eng.state.pending_choice is not None:
         cid = eng.state.pending_choice["eligible"][0]["instance_id"]
         picked.append(cid)
-        eng.rules.resolve_search_choice(cid)
+        eng.rules.resolve_choice(cid)
 
     assert len(picked) == 5  # every card in the 5-card library+graveyard
     # MEC-37: every one of the 5 cards was itself *chosen* (destination

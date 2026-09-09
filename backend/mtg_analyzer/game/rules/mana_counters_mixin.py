@@ -71,6 +71,7 @@ from ..effects.core import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -203,7 +204,7 @@ class ManaCountersMixin:
         Flowers' target-dependent X, can resolve to zero real targets/count).
 
         Opens an `add_mana_any_color` `pending_choice`;
-        `resolve_add_mana_any_color_choice` finishes it by adding
+        `_resume_add_mana_any_color` finishes it by adding
         ``amount`` mana of the chosen colour to ``player``'s pool.
         """
         offered = list(colors) if colors is not None else list(self._ANY_COLOR_LABELS)
@@ -212,7 +213,7 @@ class ManaCountersMixin:
         if len(offered) == 1:
             self.add_mana(player, offered[0], amount)
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "add_mana_any_color",
             "player_id": player.id,
             "amount": amount,
@@ -221,20 +222,17 @@ class ManaCountersMixin:
                 {"id": color, "label": self._MANA_TYPE_LABELS.get(color, color)}
                 for color in offered
             ],
-        }
-    def resolve_add_mana_any_color_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("add_mana_any_color", answer=continuations.ANSWER_STR, rule="106.4")
+    def _resume_add_mana_any_color(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `add_mana_any_color` choice.
 
         A mandatory choice (RULE 106.4 mana must have a colour) — an
         unrecognized or missing ``answer`` defaults to the first colour
         ("W") rather than adding nothing, the same "defaults instead of
-        dropping the effect" treatment `resolve_trigger_mode_choice` gives
+        dropping the effect" treatment `_resume_trigger_mode` gives
         a missing mode answer.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "add_mana_any_color":
-            raise ValueError("no pending add-mana-any-color choice to resolve")
-        self.state.pending_choice = None
         player = self.state.player_by_id(choice["player_id"])
         offered = [o["id"] for o in choice.get("options") or []]
         color = answer if answer in offered else (offered[0] if offered else "W")
@@ -246,28 +244,29 @@ class ManaCountersMixin:
         pick (RULE 702.16, Mother/Giver of Runes) for ``target``.
 
         Opens a `grant_protection_color` `pending_choice` carrying the target's
-        instance id; `resolve_grant_protection_choice` finishes it by adding
+        instance id; `_resume_grant_protection_color` finishes it by adding
         the chosen quality to ``target.temp_protections`` (cleared at cleanup).
         ``allow_colorless`` adds Giver of Runes' extra "colorless" option.
         """
         options = [{"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()]
         if allow_colorless:
             options.append({"id": "colorless", "label": "Farblos"})
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "grant_protection_color",
             "player_id": player.id,
             "target_id": target.instance_id,
             "prompt": "Farbe für den Schutz wählen",
             "options": options,
-        }
-    def resolve_grant_protection_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice(
+        "grant_protection_color",
+        answer=continuations.ANSWER_STR,
+        rule="702.16",
+    )
+    def _resume_grant_protection_color(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `grant_protection_color` choice — a mandatory pick
         (an unrecognized/missing answer defaults to the first colour "W",
-        the same treatment `resolve_add_mana_any_color_choice` gives)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "grant_protection_color":
-            raise ValueError("no pending grant-protection choice to resolve")
-        self.state.pending_choice = None
+        the same treatment `_resume_add_mana_any_color` gives)."""
         target = self.state.find_object(choice["target_id"])
         if target is None:
             return  # RULE 608.2b: target left — the grant simply does nothing
@@ -498,7 +497,7 @@ class ManaCountersMixin:
         Degenerate cases resolve without asking (the `RulesEngine.populate`
         idiom): no creatures, or a single least-toughness creature → place
         the counters straight away; a genuine tie → a `bolster`
-        `pending_choice` (`resolve_bolster_choice`). The counters go on
+        `pending_choice` (`_resume_bolster`). The counters go on
         through `add_counters`, so RULE 616.1 doublers (Doubling Season) and
         RULE 122.5 "whenever a +1/+1 counter is put on ~" triggers apply.
         """
@@ -516,7 +515,7 @@ class ManaCountersMixin:
         if len(tied) == 1:
             self.add_counters(tied[0], amount, "+1/+1", source=source)
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "bolster",
             "player_id": player.id,
             "amount": amount,
@@ -526,16 +525,13 @@ class ManaCountersMixin:
                 {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
                 for o in tied
             ],
-        }
-    def resolve_bolster_choice(self, instance_id: Optional[int]) -> None:
+        })
+    @continuations.choice("bolster", answer=continuations.ANSWER_INT, rule="701.39")
+    def _resume_bolster(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
         """Answer a pending `bolster` tie-break: put the parked +1/+1
         counters on the chosen least-toughness creature. A missing/unknown
         answer defaults to the first tied creature — RULE 701.39a is
         mandatory once you control a creature (no "you may")."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "bolster":
-            raise ValueError("no pending bolster choice to resolve")
-        self.state.pending_choice = None
         offered = [opt["instance_id"] for opt in choice["options"]]
         chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
         chosen = self._object_by_instance_id(chosen_id) if chosen_id is not None else None
@@ -585,7 +581,7 @@ class ManaCountersMixin:
             )
             self.add_counters(victim, amount, "-1/-1", source=source)
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "blight",
             "player_id": player.id,
             "amount": amount,
@@ -595,17 +591,14 @@ class ManaCountersMixin:
                 {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
                 for o in creatures
             ],
-        }
-    def resolve_blight_choice(self, instance_id: Optional[int]) -> None:
+        })
+    @continuations.choice("blight", answer=continuations.ANSWER_INT, rule="701.68")
+    def _resume_blight(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
         """Answer a pending `blight` choice: put the parked -1/-1 counters on
         the chosen creature you control. A missing/unknown answer defaults to
         the first offered creature (blight has no "you may" once you control
         one — its optionality lives in the "you may blight N" wrapper, not
         here)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "blight":
-            raise ValueError("no pending blight choice to resolve")
-        self.state.pending_choice = None
         offered = [opt["instance_id"] for opt in choice["options"]]
         chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
         chosen = self._object_by_instance_id(chosen_id) if chosen_id is not None else None
@@ -671,13 +664,13 @@ class ManaCountersMixin:
         bender = self.state.player_by_id(bender_id) if bender_id else None
         if bender is not None:
             self.record_bend(bender, "earthbend", amount, source=source)
-    def request_remove_counters_choice(
+    def _request_remove_counters_choice(
         self, target: Union[GameObject, Player], max_count: int, chooser: Player
     ) -> None:
         """Open the "how many counters to remove" choice for ``target``.
 
         A no-op if ``target`` carries no counters at all — nothing to
-        choose, same as an empty-eligible `request_search`. ``target`` may
+        choose, same as an empty-eligible `_request_search`. ``target`` may
         be a `Player` (PAR-2's "…or opponent" compound target) as freely as
         a permanent — see `_counter_totals`.
         """
@@ -686,28 +679,29 @@ class ManaCountersMixin:
             return
         upper = min(max_count, total)
         self._pending_remove_counters_target = target
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "remove_counters_amount",
             "player_id": chooser.id,
             "prompt": f"Wie viele Marker entfernen (bis zu {upper})?",
             "max": upper,
             "options": [{"id": str(n), "label": str(n)} for n in range(upper, -1, -1)],
-        }
-    def resolve_remove_counters_amount_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice(
+        "remove_counters_amount",
+        answer=continuations.ANSWER_STR,
+        rule="122.2",
+    )
+    def _resume_remove_counters_amount(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer the "how many" choice, then either finish (0 chosen, or
         only one counter kind present — no further choice needed) or open
         the "which kind" choice for the first of the chosen counters.
 
         An unrecognized/missing answer defaults to 0 (remove nothing) —
-        unlike a mandatory pick (`resolve_enter_choice`'s default-to-first),
+        unlike a mandatory pick (`_resume_choose_creature_type`'s default-to-first),
         0 is always itself a legal answer here (RULE 115.1a's "up to N"),
         so the safe default is the no-op rather than a guessed nonzero
         amount.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "remove_counters_amount":
-            raise ValueError("no pending remove-counters-amount choice to resolve")
-        self.state.pending_choice = None
         target = self._pending_remove_counters_target
         self._pending_remove_counters_target = None
 
@@ -740,23 +734,20 @@ class ManaCountersMixin:
             return
         self._pending_remove_counters_target = target
         self._pending_remove_counters_remaining = remaining
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "remove_counters_kind",
             # RULE 101.4c: with no instruction otherwise, the choice is made
             # by whoever controls the target — a player controls themselves.
             "player_id": target.controller_id if isinstance(target, GameObject) else target.id,
             "prompt": f"Von welcher Markerart einen entfernen? (noch {remaining})",
             "options": [{"id": kind, "label": kind} for kind in kinds],
-        }
-    def resolve_remove_counters_kind_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("remove_counters_kind", answer=continuations.ANSWER_STR, rule="122.2")
+    def _resume_remove_counters_kind(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending "which kind" choice: remove one counter of the
         chosen kind, then re-open the choice for the next one if any remain
         (a mandatory pick — an unrecognized/missing answer defaults to the
-        first offered kind, same treatment `resolve_enter_choice` gives)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "remove_counters_kind":
-            raise ValueError("no pending remove-counters-kind choice to resolve")
-        self.state.pending_choice = None
+        first offered kind, same treatment `_resume_choose_creature_type` gives)."""
         target = self._pending_remove_counters_target
         remaining = self._pending_remove_counters_remaining
         self._pending_remove_counters_target = None

@@ -121,9 +121,9 @@ def test_multiple_activations_stack_independent_shields():
     rules.prevent_damage_to_player(p1, 1)
     rules.deal_damage(p1, 5)
     assert state.pending_choice is not None
-    rules.resolve_replacement_order_choice(0)
+    rules.resolve_choice(0)
     if state.pending_choice is not None:
-        rules.resolve_replacement_order_choice(0)
+        rules.resolve_choice(0)
     assert p1.life == 17  # 2 points prevented (one from each shield), 3 dealt
 
 

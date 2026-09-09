@@ -4043,6 +4043,100 @@ instruction set actually *is*, measured rather than asserted. Design is
 evidence is
 [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md).
 
+### The general continuation primitive (ENG-35, `14_` S1)
+
+- **What:** `game/continuations.py` — a registry of choice handlers, plus
+  `RulesEngine.open_choice` (ask) and `RulesEngine.resolve_choice` (answer
+  and resume). **`RulesEngine` went 254 → 162 public methods**, the
+  `GameEngine.resolve_pending_choice` cascade **367 → 23 lines**, and 66
+  handler functions now cover 73 choice kinds.
+- **Files:** `game/continuations.py`, `game/rules_engine.py`,
+  `game/rules/*_mixin.py`, `game/engine/turn_loop_mixin.py`,
+  `tests/test_continuations.py` (314 tests)
+- **The finding that made it easy.** `14_` §3 framed this as "the parser's
+  disease one layer down" — the engine enumerated choice interactions
+  because it could not suspend. Reading all 68 resolvers showed they were
+  never 68 different things: every one opened with the *identical* preamble
+  (fetch `pending_choice`, check its ``kind``, raise, clear), and each
+  kind's answer handling was split across two files — the dispatcher decided
+  what a decline meant (``None if declined else str(answer)``) while the
+  resolver decided what an *invalid* answer meant ("default to the first
+  option"). Two halves of one rule, a file apart, written out 68 times.
+- **Why a registry and not a base class.** Handlers stay methods on the
+  subsystem mixin that owns them — ENG-20/21 split those deliberately and
+  hauling 3,400 lines into one module would have undone it. The decorator
+  records the unbound function; because every mixin is imported when
+  `rules_engine` is, the registry is complete before anything can ask a
+  question. Same shape as `EffectRegistry`, which is the codebase's
+  established answer to "a whitelisted name → a behaviour".
+- **What was *not* invented.** Per this repo's own rule about citing an
+  existing primitive rather than proposing one, the two resumption
+  mechanisms are untouched: `enqueue_reflexive_trigger` (MEC-69 — a trigger
+  on the stack is a resumable continuation with correct RULE 115 target
+  selection) still runs any payoff that needs targets, and
+  `deferred_effects` still suspends the rest of a resolution. Those answer
+  "how does the game resume"; this module answers "how does an *answer* find
+  its handler", which was the part written out by hand.
+- **It found a real bug.** ``"scroll_rack"`` (MEC-43 round 4F) opened a
+  `pending_choice` the cascade had **no branch for**, so a live game's answer
+  fell through to the cascade's ``else`` — the *search* resolver — and raised
+  `no pending search choice to resolve`. Scroll Rack's ordering prompt was
+  unanswerable through the only entry point a client has; the board could
+  reach a state no input could leave. It went unnoticed because the one test
+  covering it called the private resolver directly. Registering the handler
+  fixed it, and the three `scry`/`surveil`/`scroll_rack` one-line wrappers
+  collapsed into a single handler registered for three kinds.
+- **The invariant that makes that bug class impossible.** Every
+  `pending_choice` is now constructed through `open_choice`, which **refuses
+  an unanswerable kind** — failing at the ask, while the state is still
+  recoverable, rather than stranding a live game on a dead prompt. All 50
+  inline dict literals and 31 builder-returned assignments were routed
+  through it, and a test asserts nothing in `game/` sets `pending_choice`
+  directly any more, because the check is worth nothing if it can be
+  bypassed — which is precisely how Scroll Rack got in.
+- **Tests moved to the client surface.** 313 test call sites went from
+  `rules.resolve_<kind>_choice(x)` to `rules.resolve_choice(x)`. This is not
+  churn: calling a resolver directly *bypassed the dispatcher's own answer
+  coercion*, so those tests were not exercising what a UI actually sends —
+  the same argument `services/bots.py` makes for bots playing through the
+  client surface and nothing else.
+- **Two behaviours deliberately preserved rather than tidied.**
+  `ring_bearer`/`intuition_choose` coerce with a bare `int()` and so *raise*
+  on a decline (neither ever offers one), and Tainted Pact / Sylvan Library
+  declare a real fallback answer (`"take"` / `"return"`) because declining
+  them is a choice, not an abstention. Both are now declared on the handler
+  instead of being implicit in a cascade branch.
+
+### Structure-aware suspension: the iteration frame (ENG-35, `14_` S1)
+
+- **What:** `GameState.deferred_effects` entries carry a frame kind —
+  `RulesEngine.DEFERRED_TAIL` (the original shape; an entry with no `kind`
+  key still is one, so every snapshot and caller kept working) or
+  `DEFERRED_ITERATION`, parked by `RulesEngine.defer_iteration` and drained
+  by `_resume_iteration`. `GameContext.iteration_item` exposes the current
+  item to the body, scoped and restored like `trigger_event`.
+- **Files:** `game/rules/casting_mixin.py`, `game/effects/core.py`
+- **Half the ticket's premise was wrong, in the expensive direction.**
+  "`deferred_effects` is not structure-aware" reads as "the parking
+  mechanism needs rewriting". It does not: it is **already a LIFO stack**,
+  and nesting through it already worked. Trace `[A, COMPOSITE, C]` where
+  `COMPOSITE`'s body pauses — the inner `_apply_effects_partitioned` parks
+  the body's remainder, the outer one then parks `[C]`, and the pops come
+  back innermost-first. What was genuinely missing was never the stack, only
+  a **loop counter**: a tail can say "continue after position N of one list"
+  but not "resume this body for item k, *then* run it again for k+1". That
+  is exactly what `for_each` cannot express and what `optional` needs to
+  re-enter a body after a yes/no answer.
+- **Why the next iteration is parked before the body runs.** If the body
+  pauses on a choice, its own tail must park *on top of* the next
+  iteration's frame so it pops first — the same innermost-first ordering the
+  rest of the mechanism relies on. Running the body first and parking
+  afterwards would invert that and interleave the iterations.
+- **This is the whole of what blocked ENG-37**, and it is small — which is
+  why it was worth separating from the 92-method retirement rather than
+  serialising the composition nodes behind the largest piece of work in the
+  chain.
+
 ### Spec validation reaches every nesting depth (ENG-37, partial)
 
 - **What:** `AbilitySpec.validate()` walked only `self.effects`, so docs/09's

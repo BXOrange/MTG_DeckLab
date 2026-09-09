@@ -324,7 +324,7 @@ def test_tenacious_dead_returns_tapped_when_the_cost_is_paid():
 
     assert state.pending_choice is not None
     assert state.pending_choice.get("kind") == "pay_cost_then"
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     engine.resolve_until_stable()
 
     returned = next((o for o in state.battlefield if o.name == "Tenacious Dead"), None)
