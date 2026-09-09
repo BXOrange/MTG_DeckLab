@@ -41,6 +41,20 @@ PERMANENT_TYPE_WORDS: tuple[str, ...] = (
 #: "permanent"), for embedding inline in a handler's own regex.
 PERMANENT_TYPE_WORD = "|".join(PERMANENT_TYPE_WORDS)
 
+#: RULE 105.1's five colours → their WUBRG symbol. **The** map: PAR-63 found
+#: this exact five-entry dict declared eight times across five modules under
+#: six different private names (`_COLOR_WORDS`, `_COLOR_LETTERS`,
+#: `_COLOR_WORD_TO_LETTER`, `_COLOR_CONDITION_WORDS`, `_DEVOTION_COLOR_WORDS`),
+#: which is the cross-module duplication `14_` S5 is about — the colour words
+#: are a fact about Magic, not about any one handler family. Import it rather
+#: than re-declaring; a variant that needs colourless spells it as
+#: ``{**COLOR_LETTERS, "colorless": "C"}`` so the shared part stays shared.
+COLOR_LETTERS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+}
+
+
+
 
 def pluralize_permanent_type(word: str) -> str:
     """A `PERMANENT_TYPE_WORDS` member, singular → its plural noun phrase.
@@ -303,9 +317,8 @@ COUNT_X = r"(?P<n>a|an|x|\d+)"
 #: once each, regardless of which two colours it's between, unlike ordinary
 #: devotion where a hybrid pip counts toward *both* its colours) is its own
 #: ``devotion_to_hybrid`` reading, not a colour/wedge name at all.
-_DEVOTION_COLOR_WORDS: dict[str, str] = {
-    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
-}
+#: PAR-63: was its own copy of the five-colour map, in this same file.
+_DEVOTION_COLOR_WORDS = COLOR_LETTERS
 _DEVOTION_WEDGE_WORDS: frozenset[str] = frozenset({"abzan", "jeskai", "mardu", "sultai", "temur"})
 #: RULE 613.7c's much wider "X is the number of `<noun phrase>` you
 #: control" family (MEC-12's own count-amount resolver gap — 446 cards
@@ -507,9 +520,7 @@ def count_or_x_of(token: str) -> "int | str":
 #: can reuse this word list rather than re-declaring it.
 COLOR_WORD_ALT = r"white|blue|black|red|green"
 _COLOR_ALT = COLOR_WORD_ALT
-_COLOR_LETTERS: dict[str, str] = {
-    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
-}
+_COLOR_LETTERS = COLOR_LETTERS
 
 
 def resolve_color_word(word: Optional[str]) -> Optional[str]:

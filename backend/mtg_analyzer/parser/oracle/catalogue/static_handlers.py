@@ -61,7 +61,14 @@ from .handlers import (
     _split_keywords_with_parametric,
 )
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
-from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, DEVOTION, count_of, devotion_selector
+from .subgrammars import (
+    CANT_BE_COUNTERED_RE,
+    COLOR_LETTERS,
+    COUNT,
+    DEVOTION,
+    count_of,
+    devotion_selector,
+)
 
 #: Trigger events a granted triggered ability can be safely re-scoped to a
 #: *different* object each time it's granted (`continuous.
@@ -148,10 +155,10 @@ _NONCREATURE_TYPES: frozenset[str] = frozenset(
 #: scope` already uses for the bare main-type words.
 _ARTIFACT_SUBTYPES: frozenset[str] = frozenset({"vehicle"})
 
-#: Colour words → their WUBRG/C symbol, for a colour-scoped anthem.
-_COLOR_WORDS: dict[str, str] = {
-    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G", "colorless": "C",
-}
+#: Colour words → their WUBRG/C symbol, for a colour-scoped anthem. PAR-63:
+#: the shared five plus the one entry this use genuinely adds, so the common
+#: part stays common instead of being re-typed.
+_COLOR_WORDS: dict[str, str] = {**COLOR_LETTERS, "colorless": "C"}
 
 #: An optional "of the chosen type/color" tail (RULE 601.2b, Adaptive
 #: Automaton/Ward Sliver-shaped) — the dynamic sibling of a literal subtype/
@@ -520,9 +527,7 @@ _TARGET_CRIT_KEYWORDS = frozenset({
     "reach", "menace", "haste", "defender", "hexproof", "indestructible",
 })
 _TARGET_CRIT_HEADS = frozenset({"creature", "permanent", "artifact", "enchantment", "land", "spell"})
-_COLOR_WORD_TO_LETTER = {
-    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
-}
+_COLOR_WORD_TO_LETTER = COLOR_LETTERS
 _TARGETS_CRITERIA_RE = re.compile(
     r"it targets an? (?P<body>[a-z' +/\-\d]+?)"
     r"(?P<ctrl> you control| you don'?t control)?$",
@@ -2692,9 +2697,8 @@ def _attached_characteristic(word: str) -> Optional[dict]:
 
 
 #: RULE 105.1's five colours as an "…is red" condition would print them.
-_COLOR_CONDITION_WORDS: dict[str, str] = {
-    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
-}
+#: PAR-63: the shared map.
+_COLOR_CONDITION_WORDS = COLOR_LETTERS
 
 #: The creature/artifact subtypes real "as long as enchanted `<x>` is a `<y>`"
 #: clauses actually name. Kept small and explicit for the same reason

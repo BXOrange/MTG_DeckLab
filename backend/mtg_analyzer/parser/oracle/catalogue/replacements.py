@@ -36,11 +36,12 @@ import re
 from typing import Optional
 
 from ..spec import EffectSpec
+from .subgrammars import COLOR_LETTERS
 
-#: Colour words → their WUBRG symbol (`additional_damage`'s single-colour filter).
-_COLOR_WORDS: dict[str, str] = {
-    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
-}
+#: Colour words → their WUBRG symbol (`additional_damage`'s single-colour
+#: filter). PAR-63: this module imported *nothing* from `subgrammars` before —
+#: the first cross-module reuse `14_` S5 asks for.
+_COLOR_WORDS = COLOR_LETTERS
 
 #: Doubling Season's/Anointed Procession's token-doubling line — identical
 #: phrasing on every real card that prints it.

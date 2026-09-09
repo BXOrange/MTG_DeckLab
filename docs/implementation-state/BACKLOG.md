@@ -235,12 +235,31 @@ its block back into the matching section here.
   than on parser grammar, which is the honest signal that S4's own surface is
   done. Coverage has not regressed on any increment (0 across +197 cards).
 
-- **PAR-63 · Cross-module sub-grammar reuse (`14_` S5).** `static_handlers.py`
-  (3,943 lines) imports five names from `subgrammars` and **not** `TARGET`;
-  `replacements.py` imports **none**; the same five-entry colour dict is
-  declared three times (`handlers.py`, `replacements.py`, `subgrammars.py`).
-  `PERMANENT_TYPE_WORD` has zero uses despite a docstring describing the
-  duplication it exists to remove.
+- **PAR-63 · Cross-module sub-grammar reuse (`14_` S5).** The colour map is
+  **done** (see `Done_Backend.md`): it was declared **eight** times across five
+  modules under six private names — not three as this ticket said — and is now
+  one `subgrammars.COLOR_LETTERS` everyone imports, with `replacements.py`
+  importing from `subgrammars` for the first time. Behaviour-neutral, verified
+  by an identical corpus verdict (14,761 both sides) rather than by the suite
+  alone. What is left:
+
+  - **`static_handlers.py` still doesn't import `TARGET`.** It hand-rolls its
+    own target phrases. This is the ticket's biggest remaining claim and the
+    one that needs `81c3320`'s method before touching: measure whether those
+    rows are genuinely the same language as `TARGET`'s alternation, or whether
+    they differ for parse-context reasons the way the damage/destroy/exile
+    rows did.
+  - **`PERMANENT_TYPE_WORD` — measured, and the finding is that it should
+    change or go.** It has zero uses, and the reason is not neglect: only two
+    sites hand-roll a permanent-type alternation, and **neither wants its
+    member list**. `static_handlers.py:710` deliberately omits "land" and bare
+    "permanent"; the `is_card_type` condition row must omit "nonland
+    permanent"/"permanent" entirely, since neither is a card type and emitting
+    one would produce a condition that can never be true. So the macro's
+    docstring — "the duplication it exists to remove" — describes duplication
+    that isn't there. Either narrow it to the five real card types (which both
+    sites *could* share) or delete it; don't force the current list in.
+
   Scope is *cross-module* reuse only. **Do not re-run `81c3320`'s experiment**
   on the damage/destroy/exile rows — it already showed their count is driven by
   genuine semantic and parse-context variety, not redundant surface grammar.

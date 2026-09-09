@@ -40,6 +40,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..spec import AbilitySpec, ParserProvenance
+from .subgrammars import COLOR_LETTERS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only; keeps the front-end pure
     from ....models.cards.card import Card
@@ -159,7 +160,8 @@ _EVOKE_EXILE_COLOR_RE = re.compile(
     r"evoke\s*[—-]\s*exile a (?P<color>white|blue|black|red|green) card from your hand",
     re.I,
 )
-_COLOR_LETTERS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
+#: PAR-63: the shared map.
+_COLOR_LETTERS = COLOR_LETTERS
 
 #: Ward's cost line may be a non-mana clause ("Ward—Discard a card.",
 #: "Ward—Pay 3 life.", "Ward—Sacrifice a creature.") that the mana-only

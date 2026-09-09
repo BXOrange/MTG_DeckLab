@@ -4486,6 +4486,37 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-63: one colour map instead of eight (`14_` S5)
+
+- **What:** RULE 105.1's five-colour → WUBRG map is now
+  `subgrammars.COLOR_LETTERS`, imported by every module that used to declare
+  its own. Behaviour-neutral: the corpus verdict is byte-identical either side
+  (14,761 / 34,811), so the `PARSER_VERSION.lock` pin was regenerated rather
+  than the version bumped — the path its own failure message prescribes for a
+  confirmed-neutral edit.
+- **Files:** `parser/oracle/catalogue/subgrammars.py`, `handlers.py`,
+  `static_handlers.py`, `replacements.py`, `keywords.py`.
+- **The ticket undercounted it.** PAR-63 said "declared three times". It was
+  **eight** declarations across five modules under six different private names
+  — `_COLOR_WORDS` (×3), `_COLOR_LETTERS` (×2), `_COLOR_WORD_TO_LETTER`,
+  `_COLOR_CONDITION_WORDS`, `_DEVOTION_COLOR_WORDS` — two of them in the *same
+  file* as each other, and one (`_DEVOTION_COLOR_WORDS`) in `subgrammars.py`
+  itself, sitting a few hundred lines from the canonical copy.
+- **The one real variant is kept as a variant.** `static_handlers`' anthem map
+  adds `"colorless": "C"`. It now spells that `{**COLOR_LETTERS, "colorless":
+  "C"}`, so the shared part stays shared and the one genuinely different entry
+  is visible as the difference rather than hidden inside a retyped dict.
+- **`replacements.py` imported nothing from `subgrammars` before this** — the
+  concrete instance of the cross-module gap `14_` S5 names, now opened.
+- **`PERMANENT_TYPE_WORD` is a measurement, not a cleanup.** It has zero uses,
+  and the cause turned out not to be neglect: only two sites hand-roll a
+  permanent-type alternation and **neither wants its member list** — one omits
+  "land" and bare "permanent" on purpose, and the `is_card_type` condition row
+  must omit "nonland permanent"/"permanent" because neither is a card type, so
+  emitting one would build a condition that can never hold. The macro's
+  docstring describes duplication that does not exist. Left in place with that
+  recorded on the ticket rather than forced into either site.
+
 ### PAR-62: closing out the S4 grammar surface (PARSER_VERSION 304)
 
 - **What:** the depth behind three connectives — the quantity half of

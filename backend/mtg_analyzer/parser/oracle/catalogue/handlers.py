@@ -28,6 +28,7 @@ from ..spec import EffectSpec, ParserProvenance
 from .keywords import KEYWORDS, KeywordShape, keyword_slug
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
+    COLOR_LETTERS,
     COLOR_WORD_ALT,
     COUNT,
     COUNT_X,
@@ -51,9 +52,8 @@ from .subgrammars import (
 )
 
 #: Colour words → their WUBRG symbol (for a created token's colours).
-_COLOR_WORDS: dict[str, str] = {
-    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
-}
+#: PAR-63: the shared map, not a local copy.
+_COLOR_WORDS = COLOR_LETTERS
 #: Words in a token's description that are supertypes/joiners, not its subtype.
 _TOKEN_NOISE_WORDS: frozenset[str] = frozenset(
     {"artifact", "enchantment", "legendary", "snow", "colorless", "and", "or"}
