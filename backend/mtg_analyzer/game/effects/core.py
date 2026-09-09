@@ -6018,32 +6018,6 @@ class LoseAllPlayerCountersEffect(GameEffect):
             context.add_player_counters(player, -current, self.kind, source=self.source)
 
 
-class DiesGrantsRadCountersEqualPowerEffect(GameEffect):
-    """"When this creature dies, each opponent gets a number of rad
-    counters equal to its power." (Feral Ghoul-shaped) — an atomic effect
-    reading the dying creature's own last-known power (RULE 400.7) at
-    apply time, the same "read the characteristic directly rather than
-    compose two effects" shape Swords to Plowshares' composition (`exile` + `bind`, ENG-37) used to need for
-    "exile ~; you gain life equal to its power" — a generic
-    `AddPlayerCountersEffect` has no way to receive a dynamic amount from
-    its own triggering object.
-    """
-
-    def __init__(self, kind: str = "rad", source: Optional["GameObject"] = None) -> None:
-        super().__init__(source)
-        self.kind = kind
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        power = getattr(self.source, "power", 0) or 0
-        if power <= 0:
-            return
-        controller_id = getattr(self.source, "controller_id", None)
-        for p in context.state.living_players():
-            if p.id == controller_id:
-                continue
-            context.add_player_counters(p, power, self.kind, source=self.source)
-
-
 class SacrificeEffect(GameEffect):
     """A player sacrifices up to ``count`` permanents matching ``what``
     (RULE 701.17) — untargeted; a real RULE 601.2c-style choice via
@@ -23230,10 +23204,6 @@ EffectRegistry.register(
     lambda p: LoseAllPlayerCountersEffect(
         kind=p.get("kind", "rad"), player=p.get("player"), target_kind=p.get("target_kind"),
     ),
-)
-EffectRegistry.register(
-    "dies_grants_rad_counters_equal_power",
-    lambda p: DiesGrantsRadCountersEqualPowerEffect(kind=p.get("kind", "rad")),
 )
 EffectRegistry.register(
     "counter",

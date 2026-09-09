@@ -82,10 +82,27 @@ its block back into the matching section here.
   amounts.py` is `bind`'s measured-quantity vocabulary, and
   `isa.Classification.COMPOSITION` records axis 3 as existing. Frodo, Sauron's
   Bane is the first card on it (its complementary-conditional pair is now one
-  `if_else`). What remains is retiring the fusions, and the reason that is a
-  separate piece of work is measured rather than assumed:
+  `if_else`). **Fusion count: 73** (down from the first-pass 84 — Swords to
+  Plowshares / Nature's Claim / Feed the Swarm onto the operand axis;
+  `dies_grants_rad_counters_equal_power` migrated to a real `bind` node; and
+  **seven** misclassifications corrected to `ALIAS` — `create_token_copy_of_
+  named`, the three `shuffle_*_into_library` / `*_transformed` families' atomic
+  primitives (`shuffle_self_into_library`, `shuffle_graveyard_into_library`,
+  `exile_return_transformed`, `return_from_graveyard_transformed`), and two
+  one-"part" gated effects (`draw_if_trigger_object_greatest_power` → `draw`,
+  `reveal_top_then_transform` → `transform`); see `Done_Backend.md`). What
+  remains is retiring the rest, and the reason that is a separate piece of
+  work is measured rather than assumed:
 
-  - **80 of the 84 fusions have every part already registered as a standalone
+  - **Only 9 of the fusions are emitted by `parser/oracle/` at all** — the
+    rest are hand-authored `ability_catalogue` entries. And "parser side
+    exists" is not "cleanly retirable": `impulsive_draw` (~11 catalogue call
+    sites, card-specific params) and `blink` (a reusable primitive) are
+    entangled across producers; `return_from_graveyard_transformed` /
+    `reveal_top_conditional_to_hand` / `draw_reveal_cast_one_free` are genuine
+    axis-4 linkage needing referent/continuation wiring inside the node. See
+    `Done_Backend.md`'s parser-side scan.
+  - **Most fusions have every part already registered as a standalone
     instruction** (`pay_cost` ×3 and `investigate` ×1 are the only missing
     operations), so the blocker is not a missing operation and not the
     composition axis either.
@@ -101,20 +118,64 @@ its block back into the matching section here.
     operand may name a referent, e.g. `gain_life` with
     `player={"of": "previous_target", "as": "controller"}`. Three fusions
     retired onto it as proof of the pattern (**84 → 81**) — Swords to
-    Plowshares (referent amount *and* referent recipient), Nature's Claim
-    (recipient only), Feed the Swarm (amount only). What remains is the
-    batch work: each migration is rewrite-the-producer, delete-the-class,
-    drop-the-`isa`-row, with the card's own test asserting the number.
-  - **Only two effects are wired to the operand vocabulary so far**
-    (`gain_life`, `lose_life`, via `GameEffect._operand_player` on the two
-    existing fallback chains). Each further batch needs its effects wired the
-    same way — a one-line intercept per fallback chain, not a new parameter.
-  - **Re-derive the 84 before using it as a target.** Inspection found the
-    count over-states: `wheel`/`wheel_of_fortune` are `for_each` with a fixed
-    draw, not `bind` (nothing is measured), and several `seq` rows (`haunt`,
-    `taxed_draw`, `blink`) are single rules concepts rather than welded pairs.
-  - **Exit:** an operand-side referent vocabulary; the re-derived fusion list
-    retired in batches, `isa.fusions_retired_by(<op>)` shrinking with it.
+    Plowshares, Nature's Claim, Feed the Swarm. Only `gain_life`/`lose_life`
+    are wired so far (`GameEffect._operand_player`, one intercept per fallback
+    chain).
+
+  - **Batch plan — cluster by mechanism, not by operator.** The remaining 76
+    are ~7 shared mechanisms, not 76 problems (the `*_create_token` classes
+    say so themselves: *"the same 'read something off the target, then act'
+    shape"*). Each batch **builds one mechanism and sweeps every `_FUSION_
+    TYPES` row it clears in the same pass** — grep the table before starting
+    and again when the primitive lands (CLAUDE.md "No half-implementations").
+    The rows are a menu, not a strict order. **B8 (reclassify-only) is done
+    (batch 3).** Next: B3→B5 are the high-count mechanism builds; B6 depends
+    on B3+B4; B9 needs ENG-35 coordination.
+
+    | # | Mechanism to build | Clears (approx) | Notes |
+    | --- | --- | --- | --- |
+    | **B3** | extend `GameEffect._operand_player`-style referent wiring to `create_token` / `deal_damage` / `attach` / `copy_object` recipient+amount operands | `exile_create_token`, `destroy_create_token`, `counter_create_token`, `create_attached_aura_token`, `create_token_copy_of_linked_exile`, `copy_self_controlled_by_previous_target`, `copy_attachments_onto_last_created`, `exile_graveyard_creatures_gain_life`, `exile_top_then_damage_by_mv`, `mill_then_damage_each_opponent_by_mv` (~10) | pure operand-axis continuation; lowest risk, highest count |
+    | **B4** | `seq` (or a `with_target` wrapper) that declares **one** `target_spec` and shares the resolved target across its whole body — docs/11 §5's "one targeting effect per ability" is the reason these are fused | `target_player_draw_lose_life`, `add_counter_first_strike`, `counter_then_fightlike_damage`, `counter_untap_grant_keyword`, `remove_counters_from_among_then_draw_lose_life`, `damage_and_drain_capped` (~6) | new node behaviour; needs a targeting-time + resolution-time test each |
+    | **B5** | `reveal` stashes the revealed object as a `GameContext` referent + an `effect_conditions` predicate family for "revealed card is a land / MV matches / …" | `reveal_top_conditional_to_hand`, `reveal_top_then_counter_if_mv_match`, `reveal_top_then_free_cast_if_mv_match`, `reveal_top_then_land_battlefield_or_draw`, `reveal_top_then_maybe_battlefield_if_land_or_cheap_creature`, `reveal_top_then_creature_and_or_land_battlefield`, `reveal_top_then_take_and_lose_life`, `exile_then_reveal_greater_mana_value` (~8) | biggest single family; `reveal_top_then_transform` folds in (acts on self) |
+    | **B6** | depends on B3+B4: `optional`/`seq` body of `[<verb>, grant_keyword/grant_until on previous_target|source]` — the "if you do, it gains …" shape | `return_creature_grant_indestructible`, `unattach_tap_indestructible`, `return_top_graveyard_creature_with_haste`, `exile_discount_cost`, `exile_top_then_grant_conditional_cast`, `exile_triggering_discard_may_play_this_turn`, `impulsive_draw` (~7) | `impulsive_draw`'s ~11 call sites + `count_if_additional_cost_paid` param are the real cost here |
+    | **B7** | `bind` over `hand_size` / a new `cards_discarded_this_way` `THIS_WAY_TALLIES` entry; `wheel`/`windfall` are `for_each`-over-players wrapping that `bind` | `exile_hand_then_draw_that_many`, `discard_up_to_then_draw_that_many`, `windfall`, `wheel`, `wheel_of_fortune` (~5) | `DiscardCardsDiscardedDeltaDrawEffect` already reads the delta — half-built |
+    | ~~**B8**~~ | **DONE (batch 3).** reclassify-only, `FUSION → ALIAS`, no code | `exile_return_transformed`, `return_from_graveyard_transformed`, `reveal_top_then_transform` → `transform`. Checked and **kept as fusions**: `blink` (targeted, params), `dies_return_as_enchantment` (appends a type static to the returned object), `return_dies_as_new_permanent` (synthetic card + RULE 115 target), `put_hand_card_on_bottom_then_draw` (genuine move-then-draw). | shipped |
+    | **B9** | coordinate with **ENG-35** + bump `test_isa_inventory`'s `CONTINUATION ≤ 59` / `SPECIAL ≤ 42` pins in the same commit | `taxed_draw`, `exchange_control_then_energy_sacrifice`, `pay_life_equal_to_opponents_combat_damaged_draw_that_many`, `destroy_controller_may_search_basic_land`, `exile_controller_searches_basic_land`, `shuffle_target_graveyard_cards_into_library`, `draw_reveal_cast_one_free` (~7); plus `haunt` → INSTRUCTION, and the bespoke one-card residue → SPECIAL | these open a `pending_choice`, so they are ENG-35-shaped, not axis-3; the two pins being *exact* is the coordination point |
+
+    Internal plumbing (`draw_mill_if_discarded`, `draw_lose_life_counter_
+    removed_delta`, `sacrifice_count_draw_lose`) retires **with its parent
+    CONTINUATION effect** in B9, never on its own.
+
+    The table names the mechanism clusters (~55 rows); the ~20 not listed
+    (the `for_each` family — `each_player_counter_then_protection`,
+    `each_player_exile_from_graveyard_then_counters`,
+    `owner_draw_others_lose_per_dying_counter`,
+    `exile_top_from_each_player_cast_free`,
+    `create_tokens_per_counter_among_target_player_creatures` — plus
+    `<verb>+create_token`/`<verb>+reveal`/`copy`-variant `seq`/`if_else` rows)
+    fold into whichever batch's pre-start grep claims them: the `for_each`
+    ones are B4/B7 bodies wrapped in the existing `for_each` node, the rest
+    are B3 (referent) or B5 (revealed-card) once those mechanisms exist. Any
+    row still standing after B3→B9 is a genuine one-card SPECIAL — hand-author
+    and bump the `≤42` pin.
+
+  - **Re-derive before using the count as a target.** Inspection keeps finding
+    the classification over-states: `wheel`/`wheel_of_fortune` are `for_each`
+    with a fixed draw, not `bind` (nothing is measured); several `seq` rows
+    (`haunt`, `taxed_draw`, `blink`) are single rules concepts rather than
+    welded pairs; `dies_grants_rad_counters_equal_power` was tagged
+    `create_delayed_trigger`+`put_counter` but has no delayed trigger at all
+    (retired as a plain `bind` over `put_counter`, `Done_Backend.md`);
+    `create_token_copy_of_named` / `shuffle_self_into_library` /
+    `shuffle_graveyard_into_library` / `exile_return_transformed` /
+    `return_from_graveyard_transformed` were welds only on paper — one atomic
+    engine call each (now `ALIAS`); `draw_if_trigger_object_greatest_power`
+    (→ `draw`) and `reveal_top_then_transform` (→ `transform`) were one-"part"
+    gated effects, not welds (now `ALIAS`).
+  - **Exit:** the batch plan above worked through B3→B7 + B9 (B8 done),
+    `_FUSION_TYPES` empty, `isa.Classification.FUSION` retired. Track progress
+    with `scripts/isa_report.py --registry` (fusion count) and
+    `isa.fusions_retired_by(<op>)`.
 
 ## PAR — Parser
 

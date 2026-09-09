@@ -444,6 +444,12 @@ _ALIAS_TYPES: dict[str, str] = {
     "copy_spell": "copy_object",
     "create_emblem": "create",
     "create_token_for_linked_exile": "create",
+    # ENG-37 re-derivation: not a `create`+`copy_object` weld. The "copy" is
+    # the token's printed descriptor, resolved from a clamped card-*name*
+    # string (parser data), never RULE 707 `copy_object` operating on a live
+    # game object — that is `create_token_copy_of_linked_exile`, which stays a
+    # fusion. This is `create` with a copy-descriptor operand.
+    "create_token_copy_of_named": "create",
     "damage_equal_to_counters": "deal_damage",
     "damage_equal_to_power": "deal_damage",
     "damage_life_floor": "deal_damage",
@@ -455,6 +461,12 @@ _ALIAS_TYPES: dict[str, str] = {
     "draw_cards_discarded_delta": "draw",
     "draw_controlled_chosen_creature_type": "draw",
     "draw_each_player_with_creature_power": "draw",
+    # ENG-37 re-derivation: a one-"part" fusion (`("draw",), if_else`) is not
+    # a weld — it is one `draw` gated on a live board comparison ("its power
+    # greater than each other creature's"), the same shape as the three
+    # dynamically-scoped `draw_*` aliases above. The bespoke gate is a
+    # condition operand, not a second instruction.
+    "draw_if_trigger_object_greatest_power": "draw",
     "draw_per_attached_aura_controller": "draw",
     "each_creature_you_control_damages_each_opponent": "deal_damage",
     "each_opponent_counter_own_creature": "put_counter",
@@ -546,6 +558,23 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_to_hand": "move_object",
     "return_to_library": "move_object",
     "return_uncast_exiled": "move_object",
+    # ENG-37 batch 3 (`14_` S3, B8): one atomic engine primitive each,
+    # untargeted + always-self, despite a multi-part `parts` tuple — the same
+    # "welds only on paper" case as the shuffle family. The rules-salient
+    # action is a RULE 712.8 transform (a permanent ends up as its other
+    # face); the exile / graveyard round-trip is the *mechanism* that yields a
+    # fresh RULE 400.7 object, an operand of `transform` rather than a second
+    # instruction. `reveal_top_then_transform` is a `transform` gated on a
+    # library-top `criteria` check with no "else" branch — a condition
+    # operand, exactly like `draw_if_trigger_object_greatest_power` → `draw`
+    # (batch 2). (`dies_return_as_enchantment` / `return_dies_as_new_permanent`
+    # / `put_hand_card_on_bottom_then_draw` were checked the same way and stay
+    # fusions: the first appends a type-setting static to the *returned*
+    # object, the second builds a synthetic card and can take a RULE 115
+    # target, the third is a genuine move-then-draw.)
+    "exile_return_transformed": "transform",
+    "return_from_graveyard_transformed": "transform",
+    "reveal_top_then_transform": "transform",
     "reveal_until": "reveal",
     "sacrifice_attached_permanent": "sacrifice",
     "sacrifice_permanents_per_counter": "sacrifice",
@@ -553,6 +582,15 @@ _ALIAS_TYPES: dict[str, str] = {
     "sacrifice_specific": "sacrifice",
     "set_copy_target": "copy_object",
     "set_forced_voter": "vote",
+    # ENG-37 re-derivation: RULE 701.24 shuffle already subsumes moving the
+    # cards in — "shuffle <X> into <a> library" is one atomic action, not a
+    # `move_object`+`shuffle` weld. `shuffle_self_into_library` is the Aura/
+    # self form; `shuffle_graveyard_into_library` the whole-graveyard form
+    # (Paradigm Shift). Both read as one instruction with a ``subject``
+    # operand. (`shuffle_target_graveyard_cards_into_library` is *not* here —
+    # it opens a RULE 601.2c pick, so it is continuation-shaped, not an alias.)
+    "shuffle_graveyard_into_library": "shuffle",
+    "shuffle_self_into_library": "shuffle",
     "skip_next_untap": "skip_step",
     "skip_untap_step": "skip_step",
     "subject_damages_each_opponent_equal_to_power": "deal_damage",
@@ -586,7 +624,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "counter_untap_grant_keyword": (("counter", "untap", "create_continuous_effect"), OP_SEQ),
     "create_attached_aura_token": (("create", "attach"), OP_SEQ),
     "create_token_copy_of_linked_exile": (("create", "copy_object"), OP_BIND),
-    "create_token_copy_of_named": (("create", "copy_object"), OP_SEQ),
     "create_token_may_attach_equipment": (("create", "attach"), OP_OPTIONAL),
     "create_tokens_per_counter_among_target_player_creatures": (("create",), OP_FOR_EACH),
     "damage_and_drain_capped": (("deal_damage", "gain_life"), OP_SEQ),
@@ -595,10 +632,8 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "destroy_controller_may_search_basic_land": (("destroy", "search"), OP_OPTIONAL),
     "destroy_create_token": (("destroy", "create"), OP_SEQ),
     "destroy_exile_then_controller_reveal_creature": (("destroy", "exile", "reveal"), OP_SEQ),
-    "dies_grants_rad_counters_equal_power": (("create_delayed_trigger", "put_counter"), OP_BIND),
     "dies_return_as_enchantment": (("create_delayed_trigger", "move_object"), OP_SEQ),
     "discard_up_to_then_draw_that_many": (("discard", "draw"), OP_BIND),
-    "draw_if_trigger_object_greatest_power": (("draw",), OP_IF_ELSE),
     "draw_lose_life_counter_removed_delta": (("draw", "lose_life"), OP_BIND),
     "draw_mill_if_discarded": (("draw", "mill"), OP_IF_ELSE),
     "draw_reveal_cast_one_free": (("draw", "reveal", "cast"), OP_SEQ),
@@ -614,7 +649,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "exile_graveyard_creatures_gain_life": (("exile", "gain_life"), OP_BIND),
     "exile_hand_then_draw_that_many": (("exile", "draw"), OP_BIND),
     "exile_opponents_graveyards_impulsive_cast": (("exile", "cast"), OP_SEQ),
-    "exile_return_transformed": (("exile", "move_object", "transform"), OP_SEQ),
     "exile_then_reveal_greater_mana_value": (("exile", "reveal"), OP_SEQ),
     "exile_top_from_each_player_cast_free": (("exile", "cast"), OP_FOR_EACH),
     "exile_top_then_damage_by_mv": (("exile", "deal_damage"), OP_BIND),
@@ -629,7 +663,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "remove_counters_from_among_then_draw_lose_life": (("remove_counter", "draw", "lose_life"), OP_SEQ),
     "return_creature_grant_indestructible": (("move_object", "create_continuous_effect"), OP_SEQ),
     "return_dies_as_new_permanent": (("create_delayed_trigger", "move_object"), OP_SEQ),
-    "return_from_graveyard_transformed": (("move_object", "transform"), OP_SEQ),
     "return_to_hand_draw_if_controlled": (("move_object", "draw"), OP_IF_ELSE),
     "return_to_library_then_dig_shared_type": (("move_object", "search"), OP_SEQ),
     "return_top_graveyard_creature_with_haste": (("move_object", "create_continuous_effect"), OP_SEQ),
@@ -640,11 +673,8 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "reveal_top_then_land_battlefield_or_draw": (("reveal", "move_object", "draw"), OP_IF_ELSE),
     "reveal_top_then_maybe_battlefield_if_land_or_cheap_creature": (("reveal", "move_object"), OP_IF_ELSE),
     "reveal_top_then_take_and_lose_life": (("reveal", "move_object", "lose_life"), OP_SEQ),
-    "reveal_top_then_transform": (("reveal", "transform"), OP_IF_ELSE),
     "sacrifice_any_number_draw_lose_scaled": (("sacrifice", "draw", "lose_life"), OP_BIND),
     "sacrifice_count_draw_lose": (("sacrifice", "draw", "lose_life"), OP_BIND),
-    "shuffle_graveyard_into_library": (("move_object", "shuffle"), OP_SEQ),
-    "shuffle_self_into_library": (("move_object", "shuffle"), OP_SEQ),
     "shuffle_target_graveyard_cards_into_library": (("move_object", "shuffle"), OP_SEQ),
     "shuffle_target_into_library_reveal_top": (("move_object", "shuffle", "reveal"), OP_SEQ),
     "target_player_draw_lose_life": (("draw", "lose_life"), OP_SEQ),

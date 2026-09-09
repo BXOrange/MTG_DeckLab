@@ -2060,13 +2060,24 @@ def _lose_all_rad_counters(m: re.Match[str]) -> list[EffectSpec]:
 
 #: "each opponent gets a number of rad counters equal to its power" (Feral
 #: Ghoul's "When this creature dies, ..." — a dynamic amount tied to the
-#: dying object's own power, RULE 400.7 last-known-information). Unlike
-#: every other rad-counter clause above, the amount can't be a plain int/
-#: "x" sentinel, so this is its own dedicated effect
-#: (`DiesGrantsRadCountersEqualPowerEffect`) rather than a param shape on
-#: the generic `add_player_counters`.
+#: dying object's own power, RULE 400.7 last-known-information). ENG-37: this
+#: is `bind` (measure the dying creature's power) over the generic
+#: `add_player_counters`, not a fused effect type — `DiesGrantsRadCounters
+#: EqualPowerEffect` is retired. `minimum: 0` reproduces that effect's own
+#: `power <= 0` guard (RULE 122.1 — a negative counter count is zero; without
+#: it a creature that died with negative power would *remove* opponents' rad
+#: counters via `add_player_counters`' non-positive path).
 def _dies_rad_counters_equal_power(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("dies_grants_rad_counters_equal_power", {"kind": "rad"})]
+    return [EffectSpec("bind", {
+        "name": "rad_pow",
+        "amount": {
+            "kind": "characteristic", "characteristic": "power",
+            "of": "source", "minimum": 0,
+        },
+        "effects": [{"type": "add_player_counters", "params": {
+            "kind": "rad", "selector": "each_opponent", "amount": "$rad_pow",
+        }}],
+    })]
 
 
 #: "you get half X rad counters, rounded up/down" (Contaminated Drink's
@@ -9799,9 +9810,10 @@ HANDLERS: list[EffectHandler] = [
         _lose_all_rad_counters,
     ),
     # "each opponent gets a number of rad counters equal to its power"
-    # (Feral Ghoul's dies trigger).
+    # (Feral Ghoul's dies trigger) — ENG-37: emits a `bind` node, not the
+    # retired `dies_grants_rad_counters_equal_power` fused type.
     EffectHandler(
-        "dies_grants_rad_counters_equal_power",
+        "rad_counters_equal_dying_power",
         _c(r"each opponent gets a number of rad counters equal to its power"),
         _dies_rad_counters_equal_power,
     ),

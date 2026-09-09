@@ -4156,6 +4156,91 @@ evidence is
   reason each migrated card keeps a test asserting the number rather than
   just that it ran.
 
+### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
+
+Running total: **81 → 73**.
+
+- **Batch 3 (isa-only, plan row B8).** Three more `FUSION → ALIAS`, no code:
+  `exile_return_transformed`, `return_from_graveyard_transformed` → `transform`
+  (one `RulesEngine` method each, untargeted + always-self; the rules-salient
+  action is a RULE 712.8 transform, the exile/graveyard round-trip is the
+  operand that yields a fresh RULE 400.7 object); `reveal_top_then_transform`
+  → `transform` (a `transform` gated on a library-top `criteria` with no
+  "else" branch — a condition operand, same shape as batch 2's
+  `draw_if_trigger_object_greatest_power`). **Checked and kept as fusions:**
+  `blink` (targeted, `count`/`under_your_control` params, 3 catalogue sites),
+  `dies_return_as_enchantment` (appends a type-setting `StaticAbility` to the
+  *returned* object — a genuine move + `create_continuous_effect`),
+  `return_dies_as_new_permanent` (synthetic `Card` + an optional RULE 115
+  target), `put_hand_card_on_bottom_then_draw` (a real move-then-draw).
+  Verified by `test_isa_inventory` + the transform-family behaviour tests
+  (`test_batch9_conditional_transform_family`, `test_effect_families_wave3`).
+
+- **Batch 2 (isa-only re-derivation).** Two more misclassifications
+  corrected, no code touched:
+  - **`shuffle_graveyard_into_library`** → `ALIAS` of `shuffle`, the
+    whole-graveyard sibling of batch 1's `shuffle_self_into_library` — RULE
+    701.24 subsumes the move. (`shuffle_target_graveyard_cards_into_library`
+    stays a fusion: it opens a RULE 601.2c pick, so it is continuation-shaped.)
+  - **`draw_if_trigger_object_greatest_power`** → `ALIAS` of `draw`. It was a
+    one-"part" fusion (`("draw",), if_else`), which is not a weld at all — one
+    `draw` gated on a live board comparison ("its power greater than each other
+    creature's", Selvala, Heart of the Wilds), exactly the shape of the three
+    dynamically-scoped `draw_*` aliases it now sits beside. The gate is a
+    condition operand, not a second instruction.
+  - Verified by `test_isa_inventory` + the Selvala / Paradigm Shift behaviour
+    tests (unchanged — isa.py is pure data).
+
+- **Batch 1 (`81 → 78`).** Three types retired, split by why they were
+  retirable:
+  - **`dies_grants_rad_counters_equal_power`** (Feral Ghoul's dies trigger) —
+    a genuine `bind` migration. The parser handler
+    (`_dies_rad_counters_equal_power`) now emits a `bind` node measuring
+    `{"kind": "characteristic", "characteristic": "power", "of": "source",
+    "minimum": 0}` over the generic `add_player_counters`
+    (`selector: "each_opponent"`, `amount: "$rad_pow"`), and
+    `DiesGrantsRadCountersEqualPowerEffect` is deleted. The `minimum: 0`
+    reproduces the retired effect's own `power <= 0` guard — without it a
+    creature that died with negative power (a −X/−X trick) would hit
+    `add_player_counters`' non-positive path and *remove* opponents' rad
+    counters (RULE 122.1). Its isa row also turned out **misclassified** —
+    `("create_delayed_trigger", "put_counter"), bind` — there is no delayed
+    trigger; the "when this dies" is the ability's own trigger, and the body
+    is one `put_counter` with a bound amount.
+  - **`create_token_copy_of_named`** and **`shuffle_self_into_library`** —
+    reclassified `FUSION → ALIAS`, no code touched. `create_token_copy_of_named`
+    is `create` with a copy-*descriptor* operand: the copy is resolved from a
+    clamped card-*name* string, never RULE 707 `copy_object` on a live object
+    (its sibling `create_token_copy_of_linked_exile`, which copies a real
+    exiled object, stays a fusion). `shuffle_self_into_library` is one RULE
+    701.24 action — "shuffle ~ into its library" subsumes the move — so it is
+    `shuffle` with a `subject` operand, not a `move_object`+`shuffle` weld.
+- **Files:** `parser/oracle/catalogue/handlers.py`, `game/effects/core.py`
+  (`DiesGrantsRadCountersEqualPowerEffect` removed), `game/isa.py`,
+  `tests/test_rad_counters.py` (+2: parse-as-`bind`, negative-power floor).
+- **The parser-side scan, for whoever picks up the rest.** Of the open
+  fusions, only **9** are emitted by `parser/oracle/` at all (the rest are
+  hand-authored `ability_catalogue` entries): `blink`,
+  `create_token_copy_of_named` (now retired), `dies_grants_rad_counters_equal_power`
+  (now retired), `draw_reveal_cast_one_free`, `exile_return_transformed`,
+  `impulsive_draw`, `return_from_graveyard_transformed`,
+  `reveal_top_conditional_to_hand`, `shuffle_self_into_library` (now retired).
+  "Parser side exists" does **not** mean "cleanly retirable": `impulsive_draw`
+  (~11 catalogue call sites, 5 card-specific params) and `blink` (a reusable
+  Ephemerate/Restoration Angel primitive) are entangled across producers;
+  `return_from_graveyard_transformed` / `reveal_top_conditional_to_hand` /
+  `draw_reveal_cast_one_free` are genuine axis-4 linkage (the later
+  instruction names what the earlier one produced) and need referent or
+  continuation wiring inside the node, not a mechanical handler swap. The
+  central finding holds all the way down: what keeps a fusion a fusion is
+  linkage or param-carrying, never "the parser can't emit a node".
+- **The rest is planned, not grind.** `BACKLOG.md`'s ENG-37 ticket now carries
+  a **mechanism-clustered batch plan** (B3→B9): the ~76 remaining fusions are
+  ~7 shared mechanisms, each batch builds one and sweeps every `_FUSION_TYPES`
+  row it clears in the same pass. B8 (reclassify-only, like the shuffle
+  family) is zero-risk and first; B3 (referent wiring for `create_token`/
+  `deal_damage`/`attach`/`copy_object`) is the highest-count mechanism build.
+
 ### What ENG-37's exit criterion actually requires (measured)
 
 The ticket's exit is "those 84 fusion types are gone". They are not, and the
