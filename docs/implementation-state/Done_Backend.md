@@ -6766,6 +6766,39 @@ table, re-measured after each batch.
 - **What:** A `GreedyBot` against a real infinite-mana combo would tap forever without the turn ending. `run_one_match` checks `GameState.mana_produced_this_turn` after every action and aborts the match once it crosses a named `INFINITE_MANA_THRESHOLD` (1000), dropping only that turn's snapshot and counting the match separately (`matches_aborted_infinite_mana`) rather than silently lowering the sample count.
 - **Files:** `services/dynamic_analysis.py`
 
+### Simulated matches keep no undo history (ENG-39)
+
+- **What:** `GameSession` gained `keep_history=False`; `dynamic_analysis.
+  run_one_match` builds its session with it. **~8x faster** analysis:
+  `tests/services/test_dynamic_analysis.py` went **96.3s → 12.2s**, its worst
+  test 22.4s → 3.6s.
+- **Files:** `services/game_session.py` (`_keep_history`, `_snapshot`),
+  `services/dynamic_analysis.py` (`run_one_match`).
+- **Found by profiling, not by guessing.** The module was blowing
+  `pytest.ini`'s 20s per-test cap, and pytest-timeout kills the *session*, so
+  a plain `pytest -q` never reached a summary line — the suite could not be
+  run to completion at all. The obvious suspects were both wrong: it was not
+  the `--full-cache` tier (it reproduced without it) and not the
+  `ProcessPoolExecutor` (pinning `DYNAMIC_ANALYSIS_MATCH_WORKERS=1` changed
+  the time by 0.03s). A `cProfile` run put **88% of the wall time** in
+  `GameSession._snapshot` → `GameState.clone` → `deepcopy` — 7.8M `deepcopy`
+  calls for two matches.
+- **Why it is safe to switch off here rather than made cheaper.** `_history`
+  exists for exactly two features, `rewind` and `take_back`, both undo. A
+  simulated match is played strictly forward and read only for metrics;
+  nothing in `dynamic_analysis` calls either. `restart` still works (it keeps
+  its own single `_initial` clone) and `can_rewind` simply always answers
+  False — the same answer it already gives once history is exhausted. Default
+  stays `True`, so every session a human can see is untouched.
+- **A user-visible win, not only a test fix.** ANA-4's dynamic deck analysis
+  runs the same code path, so a real analysis job got the same speed-up; the
+  `DYNAMIC_ANALYSIS_MATCH_WORKERS` process pool now parallelizes work that is
+  actually simulation rather than deep-copying.
+- **Second-order:** `test_worker_pool_bounds_concurrent_jobs` (19.0s, an
+  intermittent "flake" in an earlier session — the same slide, caught earlier)
+  dropped to 1.8s. Its "second job stays queued while the first runs" check
+  reads a shorter window now, so it was re-run 8x to confirm no new race.
+
 ### Bounded worker pool for background analysis jobs (ANA-4 follow-up)
 
 - **What:** Each analysis job originally got its own bare `threading.Thread`, risking an unbounded burst of CPU-bound threads. `DynamicAnalysisJobs` now owns a fixed `_JobWorkerPool` (default 4 workers, `MTG_DYNAMIC_ANALYSIS_WORKERS`) pulling jobs off a queue; an over-capacity job sits as a new `"queued"` status until a worker frees up.

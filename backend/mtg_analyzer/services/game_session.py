@@ -409,10 +409,24 @@ class GameSession:
         mulligan_style: str = "london",
         takebacks_per_player: int = 0,
         spell_timer_seconds: Optional[float] = None,
+        keep_history: bool = True,
     ) -> None:
         self.id = session_id or str(uuid.uuid4())
         self.mode = mode
         self.engine = engine
+        #: Whether every applied action deep-copies the whole `GameState`
+        #: into `_history` for `rewind`/`take_back` (ENG-39). On for every
+        #: session a human can see, because both are undo features. Off for
+        #: a *simulation* that only ever plays forward and reads metrics
+        #: (`services/dynamic_analysis.run_one_match`), where the snapshots
+        #: are pure waste — profiling one analysis run put **88% of its
+        #: total time** in `_snapshot` → `GameState.clone` → `deepcopy`,
+        #: which is what pushed `tests/services/test_dynamic_analysis.py`
+        #: past `pytest.ini`'s 20s per-test timeout and aborted the whole
+        #: suite run. `restart` still works (it holds its own single
+        #: `_initial` clone); `can_rewind` is simply always False, the same
+        #: answer it already gives once history is exhausted.
+        self._keep_history = keep_history
         #: RULE-free, table-agreed convenience (UC4 Setup): each seat may
         #: unilaterally undo its own last move this many times over the
         #: whole game, no matter who currently holds priority — unlike
@@ -532,6 +546,8 @@ class GameSession:
     # -- Snapshot / restore --------------------------------------------
 
     def _snapshot(self, label: str, actor_id: Optional[str] = None) -> None:
+        if not self._keep_history:
+            return
         self._history.append((label, self.engine.state.clone(), self.engine.step_cursor, actor_id))
         if len(self._history) > MAX_HISTORY:
             self._history.pop(0)

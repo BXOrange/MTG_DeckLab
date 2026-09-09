@@ -198,7 +198,12 @@ def run_one_match(
         game_format=game_format,
         dummy_starting_life=DUMMY_ANALYSIS_LIFE,
     )
-    session = GameSession(engine, mode=GOLDFISH, starting_hand=starting_hand, require_setup=True)
+    # `keep_history=False`: a match is played strictly forward and only read
+    # for metrics — nothing here ever calls `rewind`/`take_back`, so the
+    # per-action `GameState` deepcopy those exist for is pure cost. It was
+    # 88% of an analysis run's wall time (ENG-39).
+    session = GameSession(engine, mode=GOLDFISH, starting_hand=starting_hand,
+                          require_setup=True, keep_history=False)
     state = engine.state
     player = state.player_by_id("p1")
 
