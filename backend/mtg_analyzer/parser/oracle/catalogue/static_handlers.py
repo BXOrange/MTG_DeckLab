@@ -63,6 +63,7 @@ from .handlers import (
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
+    CARD_TYPE_WORD_ALT,
     COLOR_LETTERS,
     COUNT,
     DEVOTION,
@@ -705,7 +706,12 @@ _GRAVEYARD_LIBRARY_CAST_PROHIBITION_RE = re.compile(
 # round 2, Kunoros — no "and libraries") — the card-type word feeds
 # `continuous.graveyard_library_entry_prohibited`'s ``card_type`` param
 # verbatim, except "nonland permanent" which is its own sentinel (checked
-# separately from the plain `_CARD_TYPE_ATTRS` words).
+# separately from the plain `_CARD_TYPE_ATTRS` words). Deliberately *not*
+# `subgrammars.CARD_TYPE_WORD_ALT`: this row wants four of the five printed
+# types (no real card here says "land cards … can't enter") plus the
+# non-card-type "nonland permanent" sentinel — a different member set, so it
+# stays hand-rolled rather than forcing the shared alternation to fit
+# (PAR-63).
 _GRAVEYARD_LIBRARY_ENTRY_PROHIBITION_RE = re.compile(
     r"(?P<type>creature|artifact|enchantment|planeswalker|nonland permanent) cards "
     r"in graveyards(?P<libraries> and libraries)? can'?t enter the battlefield",
@@ -2551,8 +2557,12 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"an opponent lost life this turn", re.I),
      lambda m: {"kind": "opponent_lost_life_this_turn", "min": 1}),
     # "if ~ is an enchantment" (22) — a live card-type read of the source,
-    # which matters for the Cases/Sagas that change type mid-game.
-    (re.compile(r"(?:~|it)(?:'s| is) an? (?P<ct>artifact|creature|enchantment|land|planeswalker)", re.I),
+    # which matters for the Cases/Sagas that change type mid-game. The five
+    # alternatives are exactly the printed card types (`subgrammars.
+    # CARD_TYPE_WORD_ALT`, shared with the N-way permanent target row) — the
+    # abstract "permanent"/"nonland permanent" readings are excluded on
+    # purpose: neither is a card type, so `is_card_type` on one can never hold.
+    (re.compile(rf"(?:~|it)(?:'s| is) an? (?P<ct>{CARD_TYPE_WORD_ALT})", re.I),
      lambda m: {"kind": "is_card_type", "card_type": m.group("ct").lower()}),
     # -- The source's own state. "it"/"~" both appear; after `normalize` the
     # card's own name is already `~`, and a leading "it" in this position can

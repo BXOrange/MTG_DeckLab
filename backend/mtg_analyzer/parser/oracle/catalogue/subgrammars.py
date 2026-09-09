@@ -36,10 +36,19 @@ PERMANENT_TYPE_WORDS: tuple[str, ...] = (
     "artifact", "creature", "enchantment", "land", "planeswalker",
     "nonland permanent", "permanent",
 )
-#: `PERMANENT_TYPE_WORDS`, alternated (longest/most-specific member first,
-#: this file's usual convention — "nonland permanent" above bare
-#: "permanent"), for embedding inline in a handler's own regex.
-PERMANENT_TYPE_WORD = "|".join(PERMANENT_TYPE_WORDS)
+#: The five **printed card types** that name a permanent (RULE 300.1), as a
+#: regex alternation for embedding inline — `PERMANENT_TYPE_WORDS[:5]`, i.e.
+#: the concrete subset with the two abstract readings ("permanent", "nonland
+#: permanent") dropped: those are not card types, so a row that emitted one
+#: as a `card_type` selector would build a check that can never hold.
+#: PAR-63: replaced the zero-use full-list `PERMANENT_TYPE_WORD` join — no
+#: site ever wanted all seven words. Shared by `_TARGET_ROWS`' N-way
+#: permanent row below and `static_handlers`' `is_card_type` condition row.
+#: The one site that stays hand-rolled is `static_handlers`'
+#: `_GRAVEYARD_LIBRARY_ENTRY_PROHIBITION_RE`: it wants four of these (no
+#: "land") *plus* the non-card-type "nonland permanent" sentinel, a
+#: different member set this alternation deliberately doesn't carry.
+CARD_TYPE_WORD_ALT = "|".join(PERMANENT_TYPE_WORDS[:5])
 
 #: RULE 105.1's five colours → their WUBRG symbol. **The** map: PAR-63 found
 #: this exact five-entry dict declared eight times across five modules under
@@ -161,9 +170,9 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # ``"permanent"`` branch offers every permanent regardless of type, not
     # just the printed subset — the same simplification the 2-way row below
     # already ships).
-    (rf"target (?:{'|'.join(PERMANENT_TYPE_WORDS[:5])})"
-     rf"(?:, (?:{'|'.join(PERMANENT_TYPE_WORDS[:5])}))*"
-     rf",? or (?:{'|'.join(PERMANENT_TYPE_WORDS[:5])})", "permanent"),
+    (rf"target (?:{CARD_TYPE_WORD_ALT})"
+     rf"(?:, (?:{CARD_TYPE_WORD_ALT}))*"
+     rf",? or (?:{CARD_TYPE_WORD_ALT})", "permanent"),
     # "target artifact or enchantment" (Archdruid's Charm) — the dedicated
     # union kind `targeting.legal_targets` already implements, rather than
     # the broad ``"permanent"`` the N-way row above deliberately keeps (RULE
@@ -240,6 +249,17 @@ _TARGET_ROWS: list[tuple[str, str]] = [
 #: chosen player). `catalogue.handlers`'s selector-based damage handler
 #: (``each_creature``/``each_player``/``each_opponent``) claims those
 #: phrases on its own, bypassing TARGET entirely.
+
+#: An optional self-subject prefix a resolve-time effect clause may open
+#: with — "~ deals 3 damage…"/"it deals 3 damage…" (a triggered ability's
+#: own elided-source subject, English writing "it" for the permanent whose
+#: ability this is)/"this creature deals…"/"this land deals…"/"this
+#: permanent deals…". Purely cosmetic: the source is already bound at bind
+#: time regardless of which word prints, so every consumer just needs it
+#: stripped the same way. Was hand-typed identically at many separate call
+#: sites in `handlers.py`'s damage family before this existed (docs/09
+#: "Factor shared sub-grammars"; PAR-61's port of the `81c3320` prototype).
+SELF_SUBJECT_PREFIX = r"(?:(?:~|it|this creature|this land|this permanent) )?"
 
 #: An optional "up to one "/"up to 1 " prefix (RULE 115.1a) a TARGET phrase
 #: may carry — "destroy up to one target creature" is the same choice as

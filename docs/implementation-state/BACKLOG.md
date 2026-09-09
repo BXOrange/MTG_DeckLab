@@ -133,20 +133,14 @@ its block back into the matching section here.
   Execution order (dependency chain): ~~ENG-34~~ (atom inventory, **closed**)
   → ~~ENG-35~~ (continuations, **closed**) → ~~ENG-36~~ (structured
   conditions, **closed**) → **ENG-37** (composition axis **shipped**; fusion
-  retirement remains) → **PAR-62**
-  (clause grammar) → **PAR-63** (slot grammars).
+  retirement remains) → **PAR-62** (clause grammar; connectives built,
+  engine-vocabulary remainders open) → ~~PAR-63~~ (slot grammars, **closed** —
+  `Done_Backend.md`).
 
-  This ticket holds only what is not in those six:
+  The `81c3320` port is **done** (`SELF_SUBJECT_PREFIX` + the 09_ clause-tree
+  negative result on the mainline; `Done_Backend.md`). This ticket now holds
+  only its two standing guardrails, live until ENG-37 and PAR-62 close:
 
-  - **Cherry-pick `81c3320` onto this branch first** — its 44-line
-    "clause-tree grammar tier" conclusion in `09_` and its
-    `subgrammars.SELF_SUBJECT_PREFIX`. It lives on the unmerged
-    `arch/grammar-tier-prototype`, so a recorded architectural negative result
-    is currently invisible to anyone working here and will keep being
-    re-proposed. It rejected an *adjacent* proposal (a clause-tier for
-    handler-count reduction) and does not refute the above, but its
-    instruction — measure a family's genuinely-duplicated vs genuinely-distinct
-    rows before touching it — binds.
   - **Do not displace the per-template track.** `PAR-12` / `PAR-31…PAR-53`
     remain where the near-term coverage is; `13_` section 5.6 confirms it. Note
     in particular the **1,279 clauses where the trigger body already parses and
@@ -235,37 +229,6 @@ its block back into the matching section here.
   than on parser grammar, which is the honest signal that S4's own surface is
   done. Coverage has not regressed on any increment (0 across +197 cards).
 
-- **PAR-63 · Cross-module sub-grammar reuse (`14_` S5).** The colour map is
-  **done** (see `Done_Backend.md`): it was declared **eight** times across five
-  modules under six private names — not three as this ticket said — and is now
-  one `subgrammars.COLOR_LETTERS` everyone imports, with `replacements.py`
-  importing from `subgrammars` for the first time. Behaviour-neutral, verified
-  by an identical corpus verdict (14,761 both sides) rather than by the suite
-  alone. What is left:
-
-  - **`static_handlers.py` still doesn't import `TARGET`.** It hand-rolls its
-    own target phrases. This is the ticket's biggest remaining claim and the
-    one that needs `81c3320`'s method before touching: measure whether those
-    rows are genuinely the same language as `TARGET`'s alternation, or whether
-    they differ for parse-context reasons the way the damage/destroy/exile
-    rows did.
-  - **`PERMANENT_TYPE_WORD` — measured, and the finding is that it should
-    change or go.** It has zero uses, and the reason is not neglect: only two
-    sites hand-roll a permanent-type alternation, and **neither wants its
-    member list**. `static_handlers.py:710` deliberately omits "land" and bare
-    "permanent"; the `is_card_type` condition row must omit "nonland
-    permanent"/"permanent" entirely, since neither is a card type and emitting
-    one would produce a condition that can never be true. So the macro's
-    docstring — "the duplication it exists to remove" — describes duplication
-    that isn't there. Either narrow it to the five real card types (which both
-    sites *could* share) or delete it; don't force the current list in.
-
-  Scope is *cross-module* reuse only. **Do not re-run `81c3320`'s experiment**
-  on the damage/destroy/exile rows — it already showed their count is driven by
-  genuine semantic and parse-context variety, not redundant surface grammar.
-  Measure any family the way that commit did before touching it.
-
-
 - **PAR-12 · The indefinite long tail (methodology pointer, not a closeable
   ticket).** Strategy, coverage, and worked examples live in
   [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Two tracks: **basic
@@ -284,10 +247,11 @@ its block back into the matching section here.
   > keywords; `PAR-30` was `PAR-29`'s parser trail, closed PARSER_VERSION
   > 216 — all 24 RULE 701 keyword actions have recognition + an engine
   > primitive, and its last residue moved to `MEC-52`, closed). The first free
-  > parser ticket id is **`PAR-62`** (checked 2026-09-08): `PAR-31…PAR-53` are
+  > parser ticket id is **`PAR-64`** (checked 2026-09-09): `PAR-31…PAR-53` are
   > the Commander-legal tail clusters below, `PAR-54`/`PAR-55`/`PAR-57`/`PAR-60`
-  > are shipped and written up in `Done_Backend.md`, `PAR-56`/`PAR-58`/`PAR-59`
-  > are open below, and `PAR-61` is the grammar-restructure decision above.
+  > /`PAR-63` are shipped and written up in `Done_Backend.md`,
+  > `PAR-56`/`PAR-58`/`PAR-59`/`PAR-62` are open below, and `PAR-61` is the
+  > grammar-restructure umbrella above.
 
 - **PAR-31…PAR-53 · Commander-legal tail — one PAR per recurring template
   cluster.** Seeded from `scripts/commander_tail_report.py` (read-only,

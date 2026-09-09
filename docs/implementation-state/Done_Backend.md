@@ -4486,14 +4486,53 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
-### PAR-63: one colour map instead of eight (`14_` S5)
+### PAR-61: grammar-restructure umbrella — porting the clause-tree-tier negative result
 
-- **What:** RULE 105.1's five-colour → WUBRG map is now
-  `subgrammars.COLOR_LETTERS`, imported by every module that used to declare
-  its own. Behaviour-neutral: the corpus verdict is byte-identical either side
-  (14,761 / 34,811), so the `PARSER_VERSION.lock` pin was regenerated rather
-  than the version bumped — the path its own failure message prescribes for a
-  confirmed-neutral edit.
+- **What:** PAR-61 is the umbrella over the ENG-34→37 / PAR-62 / PAR-63 chain;
+  its own residue was one concrete task — get commit `81c3320` off the
+  unmerged `arch/grammar-tier-prototype` branch and onto the mainline. That
+  commit prototyped an efficiency-review proposal (a shallow subject/verb/
+  object "clause-tree grammar tier" between `normalize()` and the handler
+  table, meant to cut handler count) against the damage/destroy/exile family
+  and recorded a **negative result**: that family's handler count is driven by
+  genuine semantic and parse-context variety, not redundant surface grammar,
+  so a clause-tree tier would relocate the distinctions, not remove them. The
+  one real duplication it found — a `(?:(?:~|it|this creature|this land|this
+  permanent) )?` self-subject prefix hand-typed at many call sites — it fixed
+  the ordinary way, `subgrammars.SELF_SUBJECT_PREFIX`.
+- **Ported manually, not cherry-picked:** `handlers.py` has roughly doubled in
+  length since the commit and `PARSER_VERSION.lock` had moved 96 → 304, so a
+  straight `git cherry-pick` would have been all conflict. Re-applied by hand:
+  `SELF_SUBJECT_PREFIX` added to `subgrammars.py`, the literal prefix (11
+  occurrences on the current branch, up from the commit's 7) replaced with it,
+  and the 44-line negative-result section added to
+  `docs/concepts/09_ORACLE_EFFECT_PARSER.md`. Behaviour-neutral: probe diff
+  +0 / −0 across the whole cache, `PARSER_VERSION.lock` regenerated, version
+  held at 304.
+- **Why it mattered enough to port:** a recorded architectural negative result
+  that lives only on an unmerged branch is invisible to anyone working here and
+  gets re-proposed from scratch. `13_`/`14_`'s later restructure *does* add a
+  composition/branching node to the IR — but for deriving effect *combinations*
+  the memorized table can't (RULE 603.4 gates, `for_each`), not for
+  handler-count reduction, which this finding still bounds.
+- **Files:** `parser/oracle/catalogue/subgrammars.py`,
+  `parser/oracle/catalogue/handlers.py`, `docs/concepts/09_ORACLE_EFFECT_PARSER.md`.
+- **Still open under other tickets** (PAR-61's two guardrail notes remain in
+  `BACKLOG.md`): ENG-37's fusion retirement, PAR-62's engine-vocabulary
+  remainders. Neither is PAR-61's own work.
+
+### PAR-63: cross-module sub-grammar reuse (`14_` S5)
+
+- **What:** three shared-grammar items, all behaviour-neutral (the corpus
+  verdict is byte-identical either side, 14,761 / 34,811, so
+  `PARSER_VERSION.lock` was regenerated rather than the version bumped — the
+  path its own failure message prescribes for a confirmed-neutral edit):
+  (1) RULE 105.1's five-colour → WUBRG map is now `subgrammars.COLOR_LETTERS`,
+  imported by every module that used to declare its own; (2) the zero-use
+  `PERMANENT_TYPE_WORD` join became `subgrammars.CARD_TYPE_WORD_ALT` — the
+  five *printed* card types — and is now genuinely shared; (3) the
+  `static_handlers` ↔ `TARGET` gap `14_` S5 flagged was measured and ruled
+  out (below).
 - **Files:** `parser/oracle/catalogue/subgrammars.py`, `handlers.py`,
   `static_handlers.py`, `replacements.py`, `keywords.py`.
 - **The ticket undercounted it.** PAR-63 said "declared three times". It was
@@ -4508,14 +4547,35 @@ measurement of why is the useful half of this work.
   is visible as the difference rather than hidden inside a retyped dict.
 - **`replacements.py` imported nothing from `subgrammars` before this** — the
   concrete instance of the cross-module gap `14_` S5 names, now opened.
-- **`PERMANENT_TYPE_WORD` is a measurement, not a cleanup.** It has zero uses,
-  and the cause turned out not to be neglect: only two sites hand-roll a
-  permanent-type alternation and **neither wants its member list** — one omits
-  "land" and bare "permanent" on purpose, and the `is_card_type` condition row
-  must omit "nonland permanent"/"permanent" because neither is a card type, so
-  emitting one would build a condition that can never hold. The macro's
-  docstring describes duplication that does not exist. Left in place with that
-  recorded on the ticket rather than forced into either site.
+- **`PERMANENT_TYPE_WORD` was a measurement first, then a cleanup.** The old
+  join over all seven `PERMANENT_TYPE_WORDS` (five printed types + the abstract
+  "permanent"/"nonland permanent") had **zero uses**, and the cause was not
+  neglect: no site wants those seven words. It is now
+  `CARD_TYPE_WORD_ALT = "|".join(PERMANENT_TYPE_WORDS[:5])` — the five printed
+  card types only — and is shared by two rows: `_TARGET_ROWS`' N-way
+  permanent-target row (which already sliced `[:5]` inline three times) and
+  `static_handlers`' `is_card_type` RULE 613.6 condition row (five literal
+  alternatives before this). The abstract readings stay excluded on purpose —
+  `is_card_type` on "permanent"/"nonland permanent" can never hold, since
+  neither is a card type. **One site stays hand-rolled and says why in a
+  comment:** `static_handlers`' `_GRAVEYARD_LIBRARY_ENTRY_PROHIBITION_RE` wants
+  four of the five (no "land" — no real card says "land cards … can't enter the
+  battlefield") *plus* the non-card-type "nonland permanent" sentinel, a
+  different member set the shared alternation deliberately does not carry
+  (`BACKLOG`'s "don't force the current list in").
+- **`static_handlers.py` ↔ `TARGET`: measured, ruled out.** `14_` S5 flagged
+  that `static_handlers` imports from `subgrammars` but not `TARGET`, and
+  "hand-rolls its own target phrases". Applying `81c3320`'s method (count the
+  genuinely-duplicated vs genuinely-distinct rows before touching): its
+  target-adjacent grammar is **not** `TARGET`'s language. `TARGET` maps a
+  printed noun phrase → an engine `target_kind` for RULE 115 target *selection*;
+  statics take no targets. What `static_handlers` has instead is
+  `_TARGETS_CRITERIA_RE` / `reduce_if_targets` / `targets_source` — matching a
+  *spell's already-chosen* targets against a criteria dict
+  (`continuous._obj_matches_target_criteria`), a structurally different job.
+  Importing `TARGET` there would be a category error, the same
+  parse-context-not-redundant-grammar finding the damage/destroy/exile family
+  gave. No change.
 
 ### PAR-62: closing out the S4 grammar surface (PARSER_VERSION 304)
 

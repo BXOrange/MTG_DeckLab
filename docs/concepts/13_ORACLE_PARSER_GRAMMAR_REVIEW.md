@@ -228,10 +228,18 @@ It held for `TARGET` (114 uses) and essentially nowhere else.
   macro carries no colour slot, so a dedicated row."*
 - **`PERMANENT_TYPE_WORD` has zero uses**, despite a docstring describing the
   duplication it was written to remove. The same five-entry colour dict is
-  declared **three times**.
+  declared **three times**. *(PAR-63: the colour dict was actually declared
+  **eight** times; unified as `subgrammars.COLOR_LETTERS`. `PERMANENT_TYPE_WORD`
+  became `CARD_TYPE_WORD_ALT` — the five printed card types — and is now shared
+  by two rows; no site ever wanted the abstract "permanent"/"nonland permanent"
+  readings the old join carried.)*
 - **Reuse across modules is near zero.** `static_handlers.py` (3,943 lines)
   imports five names from `subgrammars` and not `TARGET`; `replacements.py`
-  imports none. Both roll their own subject and scope grammar.
+  imports none. Both roll their own subject and scope grammar. *(PAR-63:
+  `replacements.py` now imports `COLOR_LETTERS`. `static_handlers` not importing
+  `TARGET` was measured and is **correct** — its target-adjacent grammar
+  matches a spell's chosen targets against criteria, `TARGET`'s maps a phrase
+  to an engine `target_kind`; different jobs, statics take no targets.)*
 - **Effect *pairs* are written out longhand.** Five near-identical handlers
   cover pairs drawn from {draw, gain_life, lose_life} sharing one
   `{DEVOTION}`-scaled X. The comment above them explains why they cannot be

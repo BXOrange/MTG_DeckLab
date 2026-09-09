@@ -36,6 +36,7 @@ from .subgrammars import (
     IF_COLOR_SUFFIX,
     NUMBER,
     PERMANENT_TYPE_WORDS,
+    SELF_SUBJECT_PREFIX,
     SPELL_TARGET,
     TARGET,
     UP_TO_ONE,
@@ -315,7 +316,7 @@ def _damage_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: `DealDamageEffect.recipient_subject` derives the player; no RULE 115
 #: target of this effect's own.
 _DAMAGE_TO_SUBJECT_CONTROLLER_RE = _c(
-    r"(?:(?:~|it|this creature|this land|this permanent) )?(?:also )?deals? "
+    rf"{SELF_SUBJECT_PREFIX}(?:also )?deals? "
     r"(?P<n>\d+) damage to that (?:creature|permanent)'?s controller"
 )
 
@@ -681,7 +682,7 @@ def _damage_each_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: "target creatures", and the Modern Horizons Incarnation wording
 #: "target creatures and/or planeswalkers" are the real phrasings.
 _DIVIDED_DAMAGE_RE = _c(
-    rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+    rf"{SELF_SUBJECT_PREFIX}"
     rf"deals? {COUNT_X} damage divided as you choose among any number of "
     r"(?P<target>targets|target creatures|target creatures and/or planeswalkers)"
 )
@@ -707,7 +708,7 @@ def _divided_damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: one. Same local ``targets|target creatures`` alternation as that row
 #: (not the shared `_MULTI_TARGET_ALT`, which this family has never used).
 _DIVIDED_DAMAGE_RANGE_RE = _c(
-    rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+    rf"{SELF_SUBJECT_PREFIX}"
     rf"deals? {COUNT_X} damage divided as you choose among "
     r"(?P<range_min>\d+) or (?P<range_max>\d+) (?P<target>targets|target creatures)"
 )
@@ -729,7 +730,7 @@ def _divided_damage_range(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: `_damage_each_multi_target` relates to `_divided_damage` for the "any
 #: number of"/"up to N" shapes), same local bare-``targets`` alternation.
 _DAMAGE_EACH_RANGE_RE = _c(
-    rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+    rf"{SELF_SUBJECT_PREFIX}"
     rf"deals? (?P<amount>\d+) damage to each of "
     r"(?P<range_min>\d+) or (?P<range_max>\d+) (?P<target>targets|target creatures)"
 )
@@ -860,7 +861,7 @@ _SELECTOR_WORD_MAP: dict[str, str] = {
 #: Volley-shaped) — `TargetSpec.colors`' own OR narrowing (`_destroy`'s
 #: single-``color`` sibling; only ever two colours on a real card so far).
 _DAMAGE_TARGET_TWO_COLOR_RE = _c(
-    rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to target "
+    rf"{SELF_SUBJECT_PREFIX}deals? {NUMBER} damage to target "
     rf"(?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) creature"
     # "The damage can't be prevented." (Combust, RULE 615.6) — an optional
     # rider on this one damage instance, folded in the way
@@ -893,7 +894,7 @@ def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
 #: selector_filter`. Digit or ``{X}`` amount; the optional "and each
 #: player" tail flips the union selector (players are never filtered).
 _DAMAGE_EACH_NONFLYER_RE = _c(
-    rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? (?P<n>\d+|x) damage to "
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
     rf"each creature without flying(?P<and_player> and each player)?"
 )
 
@@ -2307,7 +2308,7 @@ _exile_creature_filter = _quality_filter_builder("exile")
 #: quality filter); `optional` isn't read since this phrasing has no
 #: "up to one target creature with flying" card.
 _DAMAGE_CREATURE_FILTER_RE = _c(
-    rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+    rf"{SELF_SUBJECT_PREFIX}"
     rf"deals? {NUMBER} damage to target creature {_CREATURE_FILTER_SUFFIX}"
 )
 
@@ -9309,7 +9310,7 @@ HANDLERS: list[EffectHandler] = [
     # since the source is already bound at bind time regardless of wording).
     EffectHandler(
         "damage",
-        _c(rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to {TARGET}"),
+        _c(rf"{SELF_SUBJECT_PREFIX}deals? {NUMBER} damage to {TARGET}"),
         _damage,
     ),
     # "~ deals X damage to any target." (Blaze/Devil's Play/Fanning the
@@ -9319,7 +9320,7 @@ HANDLERS: list[EffectHandler] = [
     # announced {X}. Digit-free, so no overlap with the `NUMBER` row above.
     EffectHandler(
         "damage_x",
-        _c(rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? x damage to {TARGET}"),
+        _c(rf"{SELF_SUBJECT_PREFIX}deals? x damage to {TARGET}"),
         _damage_x,
     ),
     # "~ deals damage equal to that spell's mana value to target opponent."
@@ -9363,7 +9364,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "damage_each_multi_target",
         _c(
-            rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+            rf"{SELF_SUBJECT_PREFIX}"
             rf"deals? (?P<amount>\d+) damage to each of {_MULTI_TARGET_QUANTIFIER}"
             rf"(?P<target>{_MULTI_TARGET_ALT})"
         ),
@@ -9454,7 +9455,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "damage_selector",
         _c(
-            rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to "
+            rf"{SELF_SUBJECT_PREFIX}deals? {NUMBER} damage to "
             rf"(?P<selector>each creature and each player|each creature and each planeswalker"
             rf"|each creature your opponents control|each creature an opponent controls"
             rf"|each creature|each player|each opponent|that player|them|you)"
