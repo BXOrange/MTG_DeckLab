@@ -220,8 +220,15 @@ def test_foretell_exiles_face_down_then_casts_for_its_alt_cost_on_a_later_turn()
 def test_crib_swap_is_registered_with_a_full_spell_effect():
     (spec,) = specs_for(_crib_swap())
     assert spec.ability_kind == "spell_effect"
-    assert spec.effects[0].type == "exile_create_token"
-    assert spec.effects[0].params["keywords"] == ["changeling"]
+    # ENG-37 B3: retired `exile_create_token` -> a `seq` of `exile` then
+    # `create_token` for the exiled object's last-known controller.
+    node = spec.effects[0]
+    assert node.type == "seq"
+    body = node.params["effects"]
+    assert body[0]["type"] == "exile"
+    assert body[1]["type"] == "create_token"
+    assert body[1]["params"]["keywords"] == ["changeling"]
+    assert body[1]["params"]["creators"] == "previous_target_controller"
 
 
 def test_crib_swap_exiles_target_and_creates_changeling_for_its_controller():

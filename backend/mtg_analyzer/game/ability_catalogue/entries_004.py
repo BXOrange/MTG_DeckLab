@@ -113,17 +113,24 @@ def _pongify() -> list[AbilitySpec]:
     """Destroy target creature. It can't be regenerated. Its controller
     creates a 3/3 green Ape creature token.
 
-    — Pongify. Reuses `destroy_create_token` (Beast Within), with
-    ``can_be_regenerated=False`` for the "can't be regenerated" clause.
+    — Pongify. ENG-37 B3: a `seq` of `destroy` (``can_be_regenerated=False``
+    for the "can't be regenerated" clause) then `create_token` with
+    ``creators="previous_target_controller"``, retiring the fused
+    ``destroy_create_token``.
     """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("destroy_create_token", {
-                "target_kind": "creature",
-                "power": 3, "toughness": 3, "colors": ["G"], "subtypes": ["Ape"],
-                "can_be_regenerated": False,
-            })],
+            [EffectSpec("seq", {"effects": [
+                {"type": "destroy", "params": {
+                    "target_kind": "creature", "can_be_regenerated": False,
+                }},
+                {"type": "create_token", "params": {
+                    "power": 3, "toughness": 3, "colors": ["G"],
+                    "subtypes": ["Ape"],
+                    "creators": "previous_target_controller",
+                }},
+            ]})],
         )
     ]
 
@@ -135,17 +142,22 @@ def _rapid_hybridization() -> list[AbilitySpec]:
     """Destroy target creature. It can't be regenerated. That creature's
     controller creates a 3/3 green Frog Lizard creature token.
 
-    — Rapid Hybridization. Pongify's blue sibling (`destroy_create_token`).
+    — Rapid Hybridization. Pongify's blue sibling (ENG-37 B3: `seq` of
+    `destroy` + `create_token` with ``creators="previous_target_controller"``).
     """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("destroy_create_token", {
-                "target_kind": "creature",
-                "power": 3, "toughness": 3, "colors": ["G"],
-                "subtypes": ["Frog", "Lizard"], "token_name": "Frog Lizard",
-                "can_be_regenerated": False,
-            })],
+            [EffectSpec("seq", {"effects": [
+                {"type": "destroy", "params": {
+                    "target_kind": "creature", "can_be_regenerated": False,
+                }},
+                {"type": "create_token", "params": {
+                    "power": 3, "toughness": 3, "colors": ["G"],
+                    "subtypes": ["Frog", "Lizard"], "token_name": "Frog Lizard",
+                    "creators": "previous_target_controller",
+                }},
+            ]})],
         )
     ]
 
@@ -157,18 +169,24 @@ def _swan_song() -> list[AbilitySpec]:
     """Counter target enchantment, instant, or sorcery spell. Its controller
     creates a 2/2 blue Bird creature token with flying.
 
-    — Swan Song. A new `counter_create_token` effect this batch — the
-    stack-side sibling of `destroy_create_token`: the token goes to the
-    countered spell's own controller.
+    — Swan Song. ENG-37 B3: a `seq` of `counter` (``card_types`` restricts the
+    legal spell targets) then `create_token` with ``creators="previous_target_
+    controller"`` — the countered spell object keeps its ``controller_id`` in
+    the graveyard (RULE 608.2h) — retiring the fused ``counter_create_token``.
     """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("counter_create_token", {
-                "card_types": ["enchantment", "instant", "sorcery"],
-                "power": 2, "toughness": 2, "colors": ["U"],
-                "subtypes": ["Bird"], "keywords": ["flying"],
-            })],
+            [EffectSpec("seq", {"effects": [
+                {"type": "counter", "params": {
+                    "card_types": ["enchantment", "instant", "sorcery"],
+                }},
+                {"type": "create_token", "params": {
+                    "power": 2, "toughness": 2, "colors": ["U"],
+                    "subtypes": ["Bird"], "keywords": ["flying"],
+                    "creators": "previous_target_controller",
+                }},
+            ]})],
         )
     ]
 
@@ -181,16 +199,22 @@ def _strix_serenade() -> list[AbilitySpec]:
     controller creates a 2/2 blue Bird creature token with flying.
 
     — Strix Serenade. Swan Song's mirror over the other card-type triplet
-    (`counter_create_token`).
+    (ENG-37 B3: `seq` of `counter` + `create_token` with
+    ``creators="previous_target_controller"``).
     """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("counter_create_token", {
-                "card_types": ["artifact", "creature", "planeswalker"],
-                "power": 2, "toughness": 2, "colors": ["U"],
-                "subtypes": ["Bird"], "keywords": ["flying"],
-            })],
+            [EffectSpec("seq", {"effects": [
+                {"type": "counter", "params": {
+                    "card_types": ["artifact", "creature", "planeswalker"],
+                }},
+                {"type": "create_token", "params": {
+                    "power": 2, "toughness": 2, "colors": ["U"],
+                    "subtypes": ["Bird"], "keywords": ["flying"],
+                    "creators": "previous_target_controller",
+                }},
+            ]})],
         )
     ]
 
@@ -202,19 +226,24 @@ def _an_offer_you_cant_refuse() -> list[AbilitySpec]:
     """Counter target noncreature spell. Its controller creates two Treasure
     tokens.
 
-    — An Offer You Can't Refuse (`counter_create_token`, ``noncreature`` +
-    ``count=2``). The Treasure tokens are created as artifact tokens named
-    "Treasure"; their own "sacrifice for mana" ability isn't bound (no
-    generic Treasure-behaviour primitive yet) — the token exists on the
-    board but can't yet be cracked for mana.
+    — An Offer You Can't Refuse. ENG-37 B3: a `seq` of `counter`
+    (``noncreature``) then `create_token` for two Treasures with
+    ``creators="previous_target_controller"``. As a bare named token with no
+    inline stats, `create_token` now pulls the **curated** Treasure from the
+    token database — so its "{T}, Sacrifice this artifact: Add one mana of any
+    colour" ability *is* bound, which the retired ``counter_create_token``
+    synthesise path couldn't do.
     """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("counter_create_token", {
-                "noncreature": True, "count": 2,
-                "subtypes": ["Treasure"], "token_name": "Treasure",
-            })],
+            [EffectSpec("seq", {"effects": [
+                {"type": "counter", "params": {"noncreature": True}},
+                {"type": "create_token", "params": {
+                    "token_name": "Treasure", "count": 2,
+                    "creators": "previous_target_controller",
+                }},
+            ]})],
         )
     ]
 

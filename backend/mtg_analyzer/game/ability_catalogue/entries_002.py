@@ -1091,15 +1091,23 @@ def _resculpt() -> list[AbilitySpec]:
 
     — Resculpt. ``target_kind="permanent"`` is the same documented
     simplification Feed the Swarm's entry above uses (drops the artifact/
-    creature type union — no target kind names exactly that pair).
+    creature type union — no target kind names exactly that pair). ENG-37 B3:
+    a `seq` of `exile` then `create_token` with ``creators="previous_target_
+    controller"`` — `create_token` reads the just-exiled object's last-known
+    controller (RULE 608.2h), which survives the zone change — retiring the
+    fused `exile_create_token`.
     """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("exile_create_token", {
-                "target_kind": "permanent",
-                "power": 4, "toughness": 4, "colors": ["U", "R"], "subtypes": ["Elemental"],
-            })],
+            [EffectSpec("seq", {"effects": [
+                {"type": "exile", "params": {"target_kind": "permanent"}},
+                {"type": "create_token", "params": {
+                    "power": 4, "toughness": 4, "colors": ["U", "R"],
+                    "subtypes": ["Elemental"],
+                    "creators": "previous_target_controller",
+                }},
+            ]})],
         )
     ]
 
@@ -1113,18 +1121,22 @@ def _crib_swap() -> list[AbilitySpec]:
     Shapeshifter creature token with changeling.
 
     The one-card token-replacement shape is not worth a parser row (the
-    cache probe finds Crib Swap alone), but its behaviour is exact: the
-    existing atomic ``exile_create_token`` preserves the exiled creature's
-    last controller and now accepts the token's printed keyword.
+    cache probe finds Crib Swap alone). ENG-37 B3: a `seq` of `exile` then
+    `create_token` with ``creators="previous_target_controller"`` (reads the
+    exiled creature's last-known controller, RULE 608.2h), retiring the fused
+    ``exile_create_token``.
     """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("exile_create_token", {
-                "target_kind": "creature", "power": 1, "toughness": 1,
-                "subtypes": ["Shapeshifter"], "keywords": ["changeling"],
-                "token_name": "Shapeshifter",
-            })],
+            [EffectSpec("seq", {"effects": [
+                {"type": "exile", "params": {"target_kind": "creature"}},
+                {"type": "create_token", "params": {
+                    "power": 1, "toughness": 1, "subtypes": ["Shapeshifter"],
+                    "keywords": ["changeling"], "token_name": "Shapeshifter",
+                    "creators": "previous_target_controller",
+                }},
+            ]})],
         )
     ]
 

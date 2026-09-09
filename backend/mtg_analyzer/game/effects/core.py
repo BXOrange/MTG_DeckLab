@@ -7081,69 +7081,6 @@ class ExchangeControlSpellEffect(GameEffect):
         context.change_target(spell, optional=True, source=self.source)
 
 
-class CounterCreateTokenEffect(GameEffect):
-    """"Counter target spell. Its controller creates a token." (Swan Song,
-    Strix Serenade, An Offer You Can't Refuse) — the stack-side sibling of
-    `DestroyCreateTokenEffect`: the token goes to the *countered spell's own
-    controller* (the player being answered), read off the stack item before
-    it's countered, the same "read something off the target, then act" shape.
-
-    ``noncreature``/``card_types`` narrow which spells are legal targets,
-    folded into ``target_spec.spell_filter`` exactly as `CounterSpellEffect`
-    does; ``power``/``toughness``/``colors``/``subtypes``/``token_name``
-    describe the token exactly as `DestroyCreateTokenEffect`'s do.
-    """
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        noncreature: bool = False,
-        card_types: Optional[list[str]] = None,
-        power: Optional[int] = None,
-        toughness: Optional[int] = None,
-        colors: Optional[list[str]] = None,
-        subtypes: Optional[list[str]] = None,
-        token_name: Optional[str] = None,
-        count: int = 1,
-        keywords: Optional[list[str]] = None,
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        spell_filter: dict[str, Any] = {}
-        if noncreature:
-            spell_filter["noncreature"] = True
-        if card_types:
-            spell_filter["card_types"] = list(card_types)
-        self.target_spec = TargetSpec(kind="spell", spell_filter=spell_filter or None)
-        self.power = power
-        self.toughness = toughness
-        self.colors = colors or []
-        self.subtypes = subtypes or []
-        self.token_name = token_name or (subtypes[0] if subtypes else "Token")
-        self.count = count
-        self.keywords = keywords or []
-
-    def target_polarity(self) -> Optional[str]:
-        return "harmful"
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...services.token_database import synthesize_token_card
-
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        controller_id = getattr(target, "controller_id", None)
-        context.counter(target, source=self.source)
-        if controller_id is None:
-            return
-        card = synthesize_token_card(
-            self.token_name, power=self.power, toughness=self.toughness,
-            colors=self.colors, subtypes=self.subtypes, keywords=self.keywords,
-        )
-        context.create_token(controller_id, card, self.count)
-
-
 class WardEffect(GameEffect):
     """A ward triggered ability's own resolution body (RULE 702.21a):
     "counter that spell or ability unless that player pays [cost]."
@@ -8445,59 +8382,6 @@ class ExileTargetGraveyardEffect(GameEffect):
             context.exile(obj)
 
 
-class ExileCreateTokenEffect(GameEffect):
-    """"Exile target artifact or creature. Its controller creates a 4/4
-    blue and red Elemental creature token." (Resculpt) — a single atomic
-    effect: the token goes to the *exiled permanent's own controller*
-    (unlike `CreateTokenEffect`, which always creates under the effect's
-    own source's controller), so the target's controller must be read
-    before/alongside exiling it, the same "read something off the target,
-    then act" shape Swords to Plowshares' composition (`exile` + `bind`, ENG-37) uses for life gain
-    instead of a token.
-    """
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "permanent",
-        power: Optional[int] = None,
-        toughness: Optional[int] = None,
-        colors: Optional[list[str]] = None,
-        subtypes: Optional[list[str]] = None,
-        keywords: Optional[list[str]] = None,
-        token_name: Optional[str] = None,
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
-        self.power = power
-        self.toughness = toughness
-        self.colors = colors or []
-        self.subtypes = subtypes or []
-        self.keywords = keywords or []
-        self.token_name = token_name or (subtypes[0] if subtypes else "Token")
-
-    def target_polarity(self) -> Optional[str]:
-        return "harmful"
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...services.token_database import synthesize_token_card
-
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        controller_id = getattr(target, "controller_id", None)
-        context.exile(target)
-        if controller_id is None:
-            return
-        card = synthesize_token_card(
-            self.token_name, power=self.power, toughness=self.toughness,
-            colors=self.colors, subtypes=self.subtypes, keywords=self.keywords,
-        )
-        context.create_token(controller_id, card, 1)
-
-
 class AttackerCreatesAttackingTokenEffect(GameEffect):
     """"Whenever a player attacks one of your opponents, that attacking
     player creates a tapped 2/1 white and black Inkling creature token with
@@ -8556,58 +8440,6 @@ class AttackerCreatesAttackingTokenEffect(GameEffect):
                 if defender_player is not None else None
             )
             context.engine.put_onto_battlefield_attacking(tok, defender=defender)
-
-
-class DestroyCreateTokenEffect(GameEffect):
-    """"Destroy target permanent. Its controller creates a 3/3 green Beast
-    creature token." (Beast Within) — `ExileCreateTokenEffect`'s destroy-
-    instead-of-exile sibling: the token still goes to the *destroyed
-    permanent's own controller*, read before it leaves the battlefield,
-    same "read something off the target, then act" shape.
-    """
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "permanent",
-        power: Optional[int] = None,
-        toughness: Optional[int] = None,
-        colors: Optional[list[str]] = None,
-        subtypes: Optional[list[str]] = None,
-        keywords: Optional[list[str]] = None,
-        token_name: Optional[str] = None,
-        can_be_regenerated: bool = True,
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
-        self.power = power
-        self.toughness = toughness
-        self.colors = colors or []
-        self.subtypes = subtypes or []
-        self.keywords = keywords or []
-        self.token_name = token_name or (subtypes[0] if subtypes else "Token")
-        self.can_be_regenerated = can_be_regenerated
-
-    def target_polarity(self) -> Optional[str]:
-        return "harmful"
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...services.token_database import synthesize_token_card
-
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        controller_id = getattr(target, "controller_id", None)
-        context.destroy(target, can_be_regenerated=self.can_be_regenerated)
-        if controller_id is None:
-            return
-        card = synthesize_token_card(
-            self.token_name, power=self.power, toughness=self.toughness,
-            colors=self.colors, subtypes=self.subtypes, keywords=self.keywords,
-        )
-        context.create_token(controller_id, card, 1)
 
 
 class DestroyExileThenControllerRevealCreatureEffect(GameEffect):
@@ -10034,7 +9866,9 @@ class ExileControllerSearchesBasicLandEffect(GameEffect):
     shuffle." (Winds of Abandon, single-target cast — Overload's "each
     opponent" rewrite isn't modeled, see the catalogue entry) — the search
     is offered to the *exiled creature's own controller*, not the caster,
-    the same target-controller resolution `ExileCreateTokenEffect` uses.
+    the same "read the target's last-known controller off the object after
+    the zone change" resolution `create_token` with ``creators="previous_
+    target_controller"`` uses.
     ``target_kind="creature"`` (broader than "you don't control" — no
     target kind carries an ownership exclusion yet) is a documented
     simplification, mirroring `ExileControllerSearchesBasicLandEffect`'s
@@ -23587,16 +23421,6 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "exile_create_token",  # Resculpt
-    lambda p: ExileCreateTokenEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
-        power=p.get("power"), toughness=p.get("toughness"),
-        colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
-        keywords=list(p.get("keywords", [])),
-        token_name=p.get("token_name"),
-    ),
-)
-EffectRegistry.register(
     # "Whenever a player attacks one of your opponents, that attacking
     # player creates a tapped … token that's attacking that opponent."
     # (Combat Calligrapher, PAR-60)
@@ -23606,30 +23430,6 @@ EffectRegistry.register(
         colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
         keywords=list(p.get("keywords", [])),
         token_name=p.get("token_name"),
-    ),
-)
-EffectRegistry.register(
-    "destroy_create_token",  # Beast Within
-    lambda p: DestroyCreateTokenEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
-        power=p.get("power"), toughness=p.get("toughness"),
-        colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
-        keywords=list(p.get("keywords", [])),
-        token_name=p.get("token_name"),
-        can_be_regenerated=bool(p.get("can_be_regenerated", True)),
-    ),
-)
-EffectRegistry.register(
-    "counter_create_token",  # Swan Song, Strix Serenade, An Offer You Can't Refuse
-    lambda p: CounterCreateTokenEffect(
-        target=p.get("target"),
-        noncreature=bool(p.get("noncreature", False)),
-        card_types=list(p.get("card_types", [])) or None,
-        power=p.get("power"), toughness=p.get("toughness"),
-        colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
-        token_name=p.get("token_name"),
-        count=int(p.get("count", 1)),
-        keywords=list(p.get("keywords", [])),
     ),
 )
 EffectRegistry.register(

@@ -4158,7 +4158,30 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 73**.
+Running total: **81 → 70**.
+
+- **Batch 4 (plan row B3, `*_create_token` slice).** `exile_create_token` /
+  `destroy_create_token` / `counter_create_token` retired to
+  `seq([<verb>{target}, create_token{creators: "previous_target_controller"}])`
+  emitted by their catalogue entries (Resculpt, Crib Swap, Beast Within,
+  Pongify, Rapid Hybridization, Swan Song, Strix Serenade, An Offer You Can't
+  Refuse). The three fused classes and their registrations are deleted.
+  **No new engine code:** `CreateTokenEffect` already had
+  `creators="previous_target_controller"` (built for Excise the Imperfect),
+  and `_apply_effects_partitioned` already sets `context.previous_targets` to
+  a body effect's resolved targets — so the `create_token` body reads the
+  just-exiled/destroyed/countered object's `controller_id`, which survives the
+  zone change as RULE 608.2h last-known information (verified on a live engine:
+  `controller_id` is unchanged after `context.exile` and `context.destroy`).
+  The fusion was pure producer convenience, not a linkage the IR couldn't
+  express. **Side effect:** An Offer You Can't Refuse's Treasures are now the
+  *curated* token (bare `token_name` + no inline stats → the token database),
+  so their sacrifice-for-mana ability is finally bound — the retired
+  `counter_create_token` synthesise path couldn't do that. Tests:
+  `test_cube_batch_b1/b3/b4` (behaviour, unchanged), plus spec-shape updates
+  in `test_dance_elements_batch` and `test_cube_batch_b4` (the bound effect is
+  a `seq`, so its target is read from `target_specs`, not a singular
+  `target_spec`).
 
 - **Batch 3 (isa-only, plan row B8).** Three more `FUSION → ALIAS`, no code:
   `exile_return_transformed`, `return_from_graveyard_transformed` → `transform`
@@ -4663,6 +4686,17 @@ measurement of why is the useful half of this work.
   gave. No change.
 
 ### PAR-62: closing out the S4 grammar surface (PARSER_VERSION 304)
+
+- **Follow-up (active worktree, parser-version bump intentionally deferred):**
+  `you_attacked_this_turn` records a player's actual RULE 508.1a attacker
+  declaration in `GameState`, resets at each new turn, and stays false when
+  RULE 508.4 puts a creature onto the battlefield attacking. The shared
+  `static_condition` whitelist uses it for ordinary `if` gates; the
+  casting-condition vocabulary uses the same history for Raid's "If you
+  attacked this turn, you may pay {1}{U} rather than pay this spell's mana
+  cost" alternative-cost form (Admiral's Order). This closes the former
+  47-occurrence condition-vocabulary head without equating a live attacker
+  count or Boast's per-object flag with a player attack declaration.
 
 - **What:** the depth behind three connectives — the quantity half of
   "for each", four rows on the shared condition whitelist, and the RULE 614
