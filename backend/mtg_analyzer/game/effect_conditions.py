@@ -184,8 +184,20 @@ def _object_or_none(candidate: Any) -> Any:
     return candidate if getattr(candidate, "instance_id", None) is not None else None
 
 
-def _subject(of: str, context: "GameContext", source: Any, targets: Optional[list[Any]]) -> Any:
-    """The referent ``of`` names — see `EFFECT_SUBJECTS`. ``None`` if absent."""
+def subject_of(
+    of: str, context: "GameContext", source: Any, targets: Optional[list[Any]] = None
+) -> Any:
+    """The referent ``of`` names — see `EFFECT_SUBJECTS`. ``None`` if absent.
+
+    Public because the referent axis is not a condition-only idea: ENG-37's
+    `game/effect_amounts.py` asks "how much" about the same referents this
+    asks "is it" about, and both must agree on what "that creature" means.
+    ``source`` is handled here too (unlike inside `_evaluate`, which lets
+    `static_conditions` resolve it), so a caller with no state vocabulary
+    behind it still gets a complete answer.
+    """
+    if of in ("source", "", None):
+        return source
     if of == "target":
         return targets[0] if targets else None
     if of == "previous_target":
@@ -195,7 +207,7 @@ def _subject(of: str, context: "GameContext", source: Any, targets: Optional[lis
         chosen = _object_or_none(targets[0]) if targets else None
         if chosen is not None:
             return chosen
-        return _subject("previous_target", context, source, targets)
+        return subject_of("previous_target", context, source, targets)
     if of == "entering":
         event = getattr(context, "trigger_event", None) or {}
         instance_id = event.get("instance_id")
@@ -244,7 +256,7 @@ def _context_holds(
         return bool(played.type_words & exiled.type_words & real_types)
 
     if kind == "entering_object_unique_name":
-        entering = _subject("entering", context, source, targets)
+        entering = subject_of("entering", context, source, targets)
         if entering is None:
             # The trigger fired but its subject is no longer findable; there
             # is nothing to compare names against, and the shipped behaviour
@@ -319,7 +331,7 @@ def _evaluate(
         # standing ability.
         return static_conditions.condition_holds(condition, context.state, source, controller_id)
 
-    subject = _subject(of, context, source, targets)
+    subject = subject_of(of, context, source, targets)
     if subject is None:
         return None
     # Point the predicate at the resolved referent and let the one shared
@@ -330,6 +342,22 @@ def _evaluate(
         subject,
         controller_id,
     )
+
+
+def condition_state(
+    condition: Optional[dict[str, Any]],
+    context: "GameContext",
+    source: Any = None,
+    targets: Optional[list[Any]] = None,
+) -> Optional[bool]:
+    """``condition``'s three-valued answer — ``None`` = unanswerable.
+
+    `condition_holds` is the bool collapse of this and is what a plain gate
+    wants. An ``if_else`` composition node needs the third value: RULE
+    701.30d's "if you win the clash, A. **Otherwise**, B." must run *neither*
+    branch when no clash is in scope, which "not A" cannot express.
+    """
+    return _evaluate(condition_from_legacy(condition), context, source, targets)
 
 
 def condition_holds(

@@ -152,11 +152,28 @@ class TestClassifications:
                 f"{entry.instruction!r}"
             )
 
-    def test_only_fusions_carry_parts_or_an_operator(self) -> None:
+    def test_only_fusions_and_compositions_name_an_operator(self) -> None:
+        # A fusion names the operator that *retires* it; a composition node
+        # names the operator it *is* (ENG-37). Nothing else may claim one, and
+        # only a fusion welds `parts`.
         for name, entry in isa.EFFECT_TYPES.items():
             if entry.classification is isa.Classification.FUSION:
                 continue
-            assert not entry.parts and entry.operator is None, f"{name}"
+            assert not entry.parts, f"{name}"
+            if entry.classification is isa.Classification.COMPOSITION:
+                assert entry.operator in isa.OPERATORS, f"{name}"
+            else:
+                assert entry.operator is None, f"{name}"
+
+    def test_every_operator_has_exactly_one_composition_type(self) -> None:
+        # The five nodes are axis 3 itself: an operator with no node cannot
+        # retire the fusions that name it, and two nodes for one operator
+        # would mean the axis had grown a second spelling.
+        by_operator: dict[str, list[str]] = {op: [] for op in isa.OPERATORS}
+        for name, entry in isa.EFFECT_TYPES.items():
+            if entry.classification is isa.Classification.COMPOSITION:
+                by_operator[str(entry.operator)].append(name)
+        assert all(len(names) == 1 for names in by_operator.values()), by_operator
 
     def test_out_of_stream_labels_stay_out_of_the_isa(self) -> None:
         # 14_ §1.1: a RULE 613 static is a continuously re-derived constraint

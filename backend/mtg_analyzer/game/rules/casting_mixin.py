@@ -1275,6 +1275,8 @@ class CastingResolutionMixin:
         index: int = 0,
         source: Optional[GameObject] = None,
         targets: Optional[list[Any]] = None,
+        specs: Optional[list[dict[str, Any]]] = None,
+        item_as_target: bool = False,
     ) -> None:
         """Park a loop body so it resumes at ``items[index]`` (ENG-35).
 
@@ -1287,17 +1289,75 @@ class CastingResolutionMixin:
         The current item is exposed to the body as
         `GameContext.iteration_item`, which is how a body clause names
         "that creature" / "that player" for the iteration it is running in.
+
+        ENG-37 added the two keyword-only options a `for_each` node needs.
+        ``specs`` parks the body as `EffectSpec`-shaped dicts instead of
+        built effects, so **each iteration builds its own**: a `GameEffect`
+        is not always reusable across passes (`SacrificeEffect` and friends
+        stash per-pass remainders on themselves), and a spec list is plain
+        data that survives the `state.clone()` undo takes. ``item_as_target``
+        hands the current item to the body as its ``targets`` — which is what
+        lets an ordinary registered effect ("draw a card", "deal 2 damage")
+        serve as a loop body with no knowledge that it is in one.
         """
         if index >= len(items):
             return
         self.state.deferred_effects.append({
             "kind": self.DEFERRED_ITERATION,
             "effects": list(effects),
+            "specs": [dict(d) for d in specs] if specs is not None else None,
             "items": list(items),
             "index": index,
             "source": source,
             "targets": targets,
+            "item_as_target": bool(item_as_target),
         })
+
+    @continuations.choice(
+        "composite_optional",
+        answer=continuations.ANSWER_FLAG,
+        yes="yes",
+        rule="601.2b",
+    )
+    def _resume_composite_optional(self, choice: dict[str, Any], accepted: bool = False) -> None:
+        """Answer an ``optional`` composition node (ENG-37, RULE 601.2b).
+
+        Declining does nothing at all, which is what "you may" means — there
+        is no "if you don't" branch here; a card printing one spells it as an
+        ``if_else`` around the same question.
+
+        The body runs through `_apply_effects_partitioned`, not a plain
+        `apply` loop, so a body that itself opens a choice parks the rest of
+        itself the same way it would have at the top level.
+        """
+        if not accepted:
+            return
+        specs = choice.get("effect_specs") or []
+        if not specs:
+            return
+        source = self.state.find_object(choice.get("source_id"))             if choice.get("source_id") is not None else None
+        # RULE 608.2h: the resolution that chose this referent is over, so it
+        # is re-found by id — a target that has since left is simply dropped,
+        # the same last-known-information handling every resumed branch does.
+        previous = [
+            obj for obj in (
+                self.state.find_object(instance_id)
+                for instance_id in (choice.get("previous_target_ids") or [])
+            ) if obj is not None
+        ]
+        from ..binding.core import build_effects  # function-scoped: binder cycle
+        from ...parser.oracle.spec import EffectSpec
+
+        built = build_effects(
+            [EffectSpec(type=d["type"], params=dict(d.get("params") or {}),
+                        condition=d.get("condition"))
+             for d in specs],
+            source,
+        )
+        _apply_effects_partitioned(
+            built, self.context, None, None, source=source,
+            previous_targets=previous,
+        )
 
     def _resume_iteration(self, frame: dict[str, Any]) -> None:
         """Run one iteration of a parked loop body, then queue the next.
@@ -1316,14 +1376,32 @@ class CastingResolutionMixin:
             self.defer_iteration(
                 frame["effects"], items, index=index + 1,
                 source=frame.get("source"), targets=frame.get("targets"),
+                specs=frame.get("specs"),
+                item_as_target=bool(frame.get("item_as_target")),
             )
+        item = items[index]
+        specs = frame.get("specs")
+        if specs is not None:
+            # Built fresh for this pass — see `defer_iteration`'s ``specs``.
+            from ..binding.core import build_effects  # function-scoped: binder cycle
+            from ...parser.oracle.spec import EffectSpec
+
+            effects = build_effects(
+                [EffectSpec(type=d["type"], params=dict(d.get("params") or {}),
+                            condition=d.get("condition"))
+                 for d in specs],
+                frame.get("source"),
+            )
+        else:
+            effects = list(frame["effects"])
+        targets = [item] if frame.get("item_as_target") else frame.get("targets")
         outer_item = getattr(self.context, "iteration_item", None)
-        self.context.iteration_item = items[index]
+        self.context.iteration_item = item
         try:
             _apply_effects_partitioned(
-                list(frame["effects"]),
+                effects,
                 self.context,
-                frame.get("targets"),
+                targets,
                 None,
                 source=frame.get("source"),
             )

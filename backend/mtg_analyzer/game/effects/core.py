@@ -1076,6 +1076,17 @@ def _apply_effects_partitioned(
             if source is not None and effect.source is None:
                 effect.source = source
             specs = effect.target_specs
+            # Where this list's own remainder belongs on the deferred stack
+            # if this effect pauses: *below* anything the effect parks
+            # itself. `SacrificeEffect`/`ConniveEffect`/`PopulateEffect` (and
+            # every ENG-37 composition node) suspend a loop of their own by
+            # pushing a frame from inside `apply`, and `resume_deferred_
+            # effects` pops from the top — so appending the remainder
+            # afterwards would resume *it* first and run the rest of this
+            # list while that loop was still half-finished (RULE 608.2: the
+            # effects happen in order). Recording the depth first and
+            # inserting there keeps the innermost suspension on top.
+            depth = len(state.deferred_effects) if state is not None else 0
             if target_groups is not None and specs:
                 # An effect with 2+ requirements consumes that many groups and
                 # sees them flattened, so its `apply` reads targets[0],
@@ -1098,7 +1109,8 @@ def _apply_effects_partitioned(
                 continue
             opened = getattr(state, "pending_choice", None)
             if opened is not None and opened is not already_pending:
-                state.deferred_effects.append(
+                state.deferred_effects.insert(
+                    depth,
                     {
                         "effects": list(effects[position + 1:]),
                         "targets": targets,

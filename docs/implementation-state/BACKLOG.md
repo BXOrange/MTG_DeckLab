@@ -52,7 +52,9 @@ its block back into the matching section here.
 > **ENG-34 is closed** (`game/isa.py`, `scripts/isa_report.py`,
 > `tests/test_isa_inventory.py`, `tests/test_target_frames.py`). The two
 > below read their backlogs off it rather than re-deriving them:
-> `isa.fusions_retired_by(<op>)` is ENG-37's 84 fusions split by operator.
+> `isa.fusions_retired_by(<op>)` is ENG-37's fusion backlog split by
+> operator — a first-pass count that ENG-37 found over-states (see its
+> ticket).
 > Its cheap-exit checkpoint **passed** — all 50 top corpus operations
 > resolve to one framed instruction — so the design stands rather than being
 > dropped.
@@ -74,35 +76,40 @@ its block back into the matching section here.
 > carries a `DEFERRED_ITERATION` frame (`RulesEngine.defer_iteration`), so a
 > loop body can suspend mid-iteration and resume at the next item.
 
-- **ENG-37 · Composite IR nodes (`14_` S3).** Add nesting to `EffectSpec` -
-  `seq`, `if/else`, `optional`, `for_each`, `bind` — with
-  `AbilitySpec.validate()` recursing. Binds onto the nested-spec machinery that
-  already exists (`pay_cost_then`, `repeat_process`, `create_delayed_trigger`,
-  `choose_objects.then`), all of which build through `build_effects`, so the
-  `type` whitelist keeps gating every depth. `bind` is what the shared
-  `{DEVOTION}`-scaled-X handler cluster works around; `if/else` is what the
-  kicked-override family works around.
-  The security half of this ticket is **done** (PARSER_VERSION 299):
-  `AbilitySpec.validate()` now recurses into nested specs, so
-  `MAX_EFFECT_MAGNITUDE` and the `condition` whitelist are enforced at every
-  depth instead of only at 0, with a `MAX_SPEC_DEPTH` fail-closed cap.
-  Recognition is *structural* (an `EffectSpec`, or a `{"type", "params"}`
-  dict) rather than keyed on the dozen different names nested lists go by —
-  see `spec.AbilitySpec._clamp_nested` and
-  `tests/parser/oracle/test_spec_nested_validation.py`. What remains is the
-  composition nodes themselves.
-  ENG-35 (closed) supplied the iteration frame `optional`/`for_each` need —
-  `RulesEngine.defer_iteration` / `DEFERRED_ITERATION`. ENG-36 (closed)
-  supplied `if_else`'s predicate half: the complementary-conditional pairs it
-  is meant to retire (`clash_won` ± , `ring_tempted` min/max, suspected/not)
-  are now one predicate under the `not` combinator, so an `if_else` node has
-  a single condition to branch on rather than two hand-paired keys. ENG-34 already did
-  the naming: `game/isa.py`'s
-  `fusions_retired_by(<operator>)` returns each operator's list (`seq` 46,
-  `bind` 18, `if_else` 13, `for_each` 5, `optional` 2), and
-  `tests/test_isa_inventory.py` fails an operator that retires none.
-  **Exit:** those 84 fusion types are gone; the test's
-  `test_fusion_backlog_does_not_grow` bound drops with them.
+- **ENG-37 · Retiring the fused effect types (`14_` S3, continued).** The
+  **composition nodes are built and shipped** — `game/effects/composition.py`
+  registers `seq`/`if_else`/`optional`/`for_each`/`bind`, `game/effect_
+  amounts.py` is `bind`'s measured-quantity vocabulary, and
+  `isa.Classification.COMPOSITION` records axis 3 as existing. Frodo, Sauron's
+  Bane is the first card on it (its complementary-conditional pair is now one
+  `if_else`). What remains is retiring the fusions, and the reason that is a
+  separate piece of work is measured rather than assumed:
+
+  - **80 of the 84 fusions have every part already registered as a standalone
+    instruction** (`pay_cost` ×3 and `investigate` ×1 are the only missing
+    operations), so the blocker is not a missing operation and not the
+    composition axis either.
+  - **The blocker is axis 4 — linkage.** A fusion exists because its second
+    part must name what the first part *produced*, and an effect's **operands**
+    have no general way to name a referent. `exile_gain_life_equal_power` says
+    so in its own docstring: "composing two effects here couldn't pass the
+    power along". Same for `destroy_gain_life_to_controller` ("its controller"),
+    `reveal_top_conditional_to_hand` ("if it's a land"),
+    `create_token_may_attach_equipment` ("attach to the token you just made"),
+    `each_player_exile_from_graveyard_then_counters` ("that many").
+  - Half of that already exists: ENG-36's `effect_conditions.subject_of` lets
+    a body *ask* about `previous_target`/`entering`/`chosen`, and
+    `effect_amounts` lets it measure one. **The missing direction is an
+    operand naming a referent** — `gain_life` with
+    `player={"of": "previous_target_controller"}` rather than a fused type.
+    That is the next ticket's shape: one referent vocabulary on the operand
+    side, then the 80 retire in batches.
+  - **Re-derive the 84 before using it as a target.** Inspection found the
+    count over-states: `wheel`/`wheel_of_fortune` are `for_each` with a fixed
+    draw, not `bind` (nothing is measured), and several `seq` rows (`haunt`,
+    `taxed_draw`, `blink`) are single rules concepts rather than welded pairs.
+  - **Exit:** an operand-side referent vocabulary; the re-derived fusion list
+    retired in batches, `isa.fusions_retired_by(<op>)` shrinking with it.
 
 
 ## PAR — Parser
@@ -121,7 +128,8 @@ its block back into the matching section here.
 
   Execution order (dependency chain): ~~ENG-34~~ (atom inventory, **closed**)
   → ~~ENG-35~~ (continuations, **closed**) → ~~ENG-36~~ (structured
-  conditions, **closed**) → **ENG-37** (composite IR nodes) → **PAR-62**
+  conditions, **closed**) → **ENG-37** (composition axis **shipped**; fusion
+  retirement remains) → **PAR-62**
   (clause grammar) → **PAR-63** (slot grammars).
 
   This ticket holds only what is not in those six:
@@ -158,9 +166,11 @@ its block back into the matching section here.
   `subgrammars.UP_TO_ONE`, hardcoded to N=1.
   **Highest-risk ticket in the chain** — every currently-MODELED card is
   re-derived through it, and there is no partial rollout. Mitigation: the full
-  suite plus a full-cache before/after coverage diff. **Needs ENG-37** (ENG-34 is closed);
-  without an atom layer to hand residue *to*, recursive descent has nothing to
-  descend into.
+  suite plus a full-cache before/after coverage diff. **The atom layer it
+  needs now exists** — ENG-34/35/36 are closed and ENG-37's composition nodes
+  are shipped, so recursive descent has something to descend into; ENG-37's
+  remaining half (retiring the fused types) shrinks what this has to route
+  around but does not block it.
   **Exit:** coverage does not regress; templates-per-blocked-card (**1.12
   today**) falls.
 

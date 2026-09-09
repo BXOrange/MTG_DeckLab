@@ -84,9 +84,13 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "is_ring_bearer", "ring_tempted_at_least",
         # ``ring_tempted_at_most`` is `ring_tempted_at_least`'s upper-bound
         # mirror — "… <effect>. Otherwise, the Ring tempts you." (Frodo,
-        # Sauron's Bane) is an if/else over one threshold, written as two
-        # complementary conditionals because the IR has no "otherwise"
-        # branch (which is exactly what ENG-37's `if_else` node retires).
+        # Sauron's Bane) was an if/else over one threshold, written as two
+        # complementary conditionals because the IR had no "otherwise"
+        # branch. **ENG-37's `if_else` node retired that spelling**: Frodo
+        # now carries one node over one `ring_tempted` bound, so nothing
+        # produces this key any more. Kept because the upper bound is real
+        # vocabulary a future card may print on its own, and because of what
+        # it recorded — see below.
         # It was **evaluated by `ConditionalEffect._condition_holds` but
         # missing from this whitelist**, and went unnoticed because Frodo
         # nests it: before ENG-37 made `validate()` recurse, a nested
@@ -163,6 +167,15 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # control it" branch.
         "counter_recipient_is_you",
     }
+)
+
+#: The `game/effects/composition.py` node types (ENG-37), which are the only
+#: effect types whose ``params`` may carry an `_validate_condition`-shaped
+#: ``condition``. Named here rather than imported because `parser/oracle/`
+#: must not import `game/` (docs/09); `tests/test_composition_nodes.py`
+#: asserts this stays equal to `isa`'s `COMPOSITION` classification.
+_COMPOSITION_EFFECT_TYPES: frozenset[str] = frozenset(
+    {"seq", "if_else", "optional", "for_each", "bind"}
 )
 
 #: Non-``kind`` keys a **structured** effect condition may carry, and the
@@ -662,7 +675,7 @@ class AbilitySpec:
         for effect in self.effects:
             if not isinstance(effect, EffectSpec) or not effect.type:
                 raise SpecValidationError(f"malformed effect spec: {effect!r}")
-            self._clamp_params(effect.params)
+            self._clamp_params(effect.params, 0, effect.type)
             if effect.condition is not None:
                 self._validate_condition(effect.condition)
 
@@ -773,7 +786,7 @@ class AbilitySpec:
             for effect in option:
                 if not isinstance(effect, EffectSpec) or not effect.type:
                     raise SpecValidationError(f"malformed effect spec in mode: {effect!r}")
-                self._clamp_params(effect.params)
+                self._clamp_params(effect.params, 0, effect.type)
         descriptions = self.modes.get("descriptions")
         if descriptions is not None and (
             not isinstance(descriptions, list) or len(descriptions) != len(options)
@@ -1243,7 +1256,23 @@ class AbilitySpec:
                 )
 
     @staticmethod
-    def _clamp_params(params: dict[str, Any], _depth: int = 0) -> None:
+    def _clamp_params(
+        params: dict[str, Any], _depth: int = 0, _effect_type: Optional[str] = None
+    ) -> None:
+        # ENG-37: a composition node carries its gate in ``params`` rather
+        # than on the spec, because it *branches* on the condition instead of
+        # being gated by it. Same vocabulary, so the same check — otherwise
+        # `if_else` would be the one place a card-derived condition reached
+        # the engine unvalidated. Scoped by effect type, because ``condition``
+        # is **not** one vocabulary across all params: a `combat_restriction`
+        # static carries a combat-time condition of its own
+        # (`GameEngine._combat_condition_met`), which is exactly why
+        # `static_conditions.py` uses ``active_if`` for its own gate rather
+        # than sharing the key.
+        if _effect_type in _COMPOSITION_EFFECT_TYPES:
+            node_condition = params.get("condition")
+            if isinstance(node_condition, dict) and node_condition:
+                AbilitySpec._validate_condition(node_condition)
         for key in _CLAMPED_PARAM_KEYS:
             value = params.get(key)
             if isinstance(value, bool):  # bool is an int subclass — leave flags alone
@@ -1301,7 +1330,7 @@ class AbilitySpec:
                 f"levels; refusing to validate (fail-closed)"
             )
         if isinstance(container, EffectSpec):
-            AbilitySpec._clamp_params(container.params, depth + 1)
+            AbilitySpec._clamp_params(container.params, depth + 1, container.type)
             if container.condition is not None:
                 AbilitySpec._validate_condition(container.condition)
             return
@@ -1311,7 +1340,9 @@ class AbilitySpec:
             if isinstance(container.get("type"), str):
                 nested = container.get("params")
                 if isinstance(nested, dict):
-                    AbilitySpec._clamp_params(nested, depth + 1)
+                    AbilitySpec._clamp_params(
+                        nested, depth + 1, str(container.get("type"))
+                    )
                 condition = container.get("condition")
                 if isinstance(condition, dict):
                     AbilitySpec._validate_condition(condition)

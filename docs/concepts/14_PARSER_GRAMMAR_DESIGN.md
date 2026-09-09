@@ -1,9 +1,12 @@
 # 14 — The atom/composition design: oracle text as a program
 
 **Status:** design, 2026-09-08. **S0, S1 and S2 are implemented** (ENG-34,
-ENG-35 and ENG-36, all closed — `game/isa.py`, `scripts/isa_report.py`,
-`game/targeting.py`'s `TARGET_FRAMES`, `game/continuations.py`,
-`game/effect_conditions.py`); S3–S5 are still proposal. **S0b's cheap-exit checkpoint
+ENG-35, ENG-36, all closed) and **S3's composition axis is shipped** (ENG-37,
+partly — the nodes exist; retiring the fused types is what remains):
+`game/isa.py`, `scripts/isa_report.py`, `game/targeting.py`'s
+`TARGET_FRAMES`, `game/continuations.py`, `game/effect_conditions.py`,
+`game/effects/composition.py`, `game/effect_amounts.py`. S4–S5 are still
+proposal. **S0b's cheap-exit checkpoint
 (§8) passed** — all 50 top corpus operations resolve to one instruction with
 a canonical frame — so the programme continues rather than being abandoned
 here. See `Done_Backend.md` "Instruction-Set Architecture (ISA) &
@@ -307,12 +310,44 @@ earned, recorded so the next stage doesn't inherit them:
   (what this section proposed) is not a sufficient combinator basis for this
   vocabulary.
 
-### S3 — Composite IR nodes
+### S3 — Composite IR nodes — **axis shipped** (ENG-37), retirement remains
 
 `seq` / `if-else` / `optional` / `for_each` / `bind` on `EffectSpec`, with
 `validate()` recursing. Binds onto the nested-spec machinery the engine already
 has (`pay_cost_then`, `repeat_process`, `create_delayed_trigger`), so little new
 engine code — **provided S1 has landed.**
+
+The "little new engine code" held: `game/effects/composition.py` is thin, and
+the nodes reuse S1's iteration frame and S2's conditions as predicted. Three
+things this section did not anticipate, recorded so S4 doesn't inherit them:
+
+- **The nodes do not retire the fusions on their own.** 80 of the 84 have every
+  part registered as a standalone instruction already, so the blocker was never
+  the operation vocabulary *or* the composition axis. It is **axis 4,
+  linkage**: a fusion exists because its second part must name what the first
+  produced, and an effect's *operands* cannot name a referent.
+  `exile_gain_life_equal_power`'s own docstring states it — "composing two
+  effects here couldn't pass the power along". S2 built half of what is needed
+  (a body can *ask* about `previous_target`/`entering`/`chosen`, and
+  `effect_amounts` can measure one); the operand side is missing and is not
+  staged anywhere in this document.
+- **`all` is not a sufficient combinator basis, and neither is a two-valued
+  gate.** `if_else` needs "the referent doesn't exist" to be distinct from
+  "the answer is no", or RULE 701.30d's "otherwise" fires whenever no clash
+  happened and `else` becomes the catch-all for every unmodelled condition —
+  fail-*open*. S2 shipped that three-valued evaluator for this reason; the two
+  stages only fit together that way.
+- **RULE 601.2c constrains which nodes may announce targets.** Only `seq` can:
+  it runs every part. `if_else` doesn't know which branch will run and
+  `for_each` doesn't know how many times, so neither may claim a requirement
+  when the ability goes on the stack. Any S4 rule that puts a targeting clause
+  inside a branch has to route the target through a sibling.
+
+A **pre-existing RULE 608.2 ordering bug** had to be fixed before the nodes
+could be trusted: `_apply_effects_partitioned` appended an enclosing list's
+remainder *after* frames the paused effect had parked itself, and the deferred
+stack pops from the top — so "each player sacrifices a creature, you gain 5
+life" gained the life before the second player had sacrificed.
 
 ### S4 — Clause grammar with residue
 
@@ -346,7 +381,7 @@ there. S0 and S1 should move it by **zero** — they are substrate.
 | S0 | every top-50 operation classified + framed; fusion backlog enumerated |
 | S1 | `RulesEngine` method count (254 → target ≤170); suite green |
 | S2 | condition-key count (44 flat → 5 context predicates over 65 shared state ones); peeler cascade removed (15 → 1); `_condition_holds` 554 → 16 lines ✓ |
-| S3 | fusion effect types retired, named individually |
+| S3 | the five nodes exist and are used ✓; fusion effect types retired, named individually (blocked on axis 4 — see above) |
 | S4 | Commander-legal coverage; templates-per-blocked-card (**1.12 today**) |
 | S5 | enumerated row count (394 `HANDLERS` + 949 catalogue entries) |
 

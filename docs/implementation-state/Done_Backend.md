@@ -4043,6 +4043,93 @@ instruction set actually *is*, measured rather than asserted. Design is
 evidence is
 [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md).
 
+### The composition axis (ENG-37, `14_` S3)
+
+- **What:** `game/effects/composition.py` — `seq`, `if_else`, `optional`,
+  `for_each`, `bind` as ordinary registered effect types whose operands are
+  nested `EffectSpec` lists; `game/effect_amounts.py`, the measured-quantity
+  vocabulary `bind` needs; a new `isa.Classification.COMPOSITION`.
+- **Files:** `game/effects/composition.py`, `game/effect_amounts.py`,
+  `game/effects/core.py`, `game/rules/casting_mixin.py`,
+  `game/effect_conditions.py`, `game/isa.py`, `parser/oracle/spec.py`,
+  `game/ability_catalogue/entries_007.py`,
+  `tests/test_composition_nodes.py` (40 tests)
+- **The axis, and why it was missing.** `14_` §1.1 describes the registered
+  effect types as a cross-product of operation × operands × **composition** ×
+  linkage. An `AbilitySpec` could hold a *list*, and that was the only
+  composition it had — so a card printing "if X, A, otherwise B", "you may
+  A", "for each player, A", or "A, then B with a number measured from A" got
+  a **new registered type** welding its parts together. That is what the 84
+  `FUSION` rows are.
+- **Built out of what already existed, on purpose.** The bodies are ordinary
+  spec lists built through `binding.build_effects`, so the `type` whitelist
+  still gates every depth and `AbilitySpec.validate()` already recursed into
+  them (this ticket's security half, PARSER_VERSION 299). The conditions are
+  ENG-36's vocabulary; the suspension is ENG-35's iteration frame. A node
+  needing its own resumption or its own predicate language would have been
+  another fusion with a grander name.
+- **Three-valued `if_else` is the reason ENG-36's evaluator is three-valued.**
+  A condition whose referent doesn't exist runs **neither** branch. RULE
+  701.30d's "otherwise" must not fire because no clash happened; a two-valued
+  gate would make `else` the catch-all for every unmodelled condition, which
+  is fail-*open*. The two tickets only fit together this way.
+- **RULE 601.2c: only `seq` announces targets.** It runs every part, so every
+  part's requirement is fixed when the ability goes on the stack. The other
+  four cannot: `if_else` doesn't know which branch will run and `for_each`
+  doesn't know how many times. They announce nothing, and a body clause
+  inside them reads a target a *sibling* announced.
+- **It found a real RULE 608.2 ordering bug, already reachable.**
+  `SacrificeEffect`, `ConniveEffect` and `PopulateEffect` each suspend a loop
+  of their own by pushing a frame from inside `apply`, while
+  `_apply_effects_partitioned` **appended** the enclosing list's remainder
+  afterwards — and `resume_deferred_effects` pops from the top. So the
+  remainder resumed *first*: "Each player sacrifices a creature. You gain 5
+  life." gained the life after the first player answered, with the second
+  still to sacrifice. Verified on a live engine before and after. The fix is
+  three lines — record the deferred-stack depth before applying each effect
+  and `insert` the remainder there — so anything the effect parked stays
+  above it. Every composition node has that shape, so this had to be right
+  first.
+- **First card on the new axis.** Frodo, Sauron's Bane's granted Rogue
+  trigger was *two* complementary conditionals (`ring_tempted_at_least: 4`
+  and a `ring_tempted_at_most: 3` added for the purpose) standing in for one
+  if/else, with nothing recording that the halves were complements — a later
+  edit to one bound would have silently left a gap or an overlap. It is now
+  one `if_else` over one threshold, both branches still covered by its own
+  tests.
+
+### What ENG-37's exit criterion actually requires (measured)
+
+The ticket's exit is "those 84 fusion types are gone". They are not, and the
+measurement of why is the useful half of this work.
+
+- **80 of the 84 have every part registered as a standalone instruction**
+  (only `pay_cost` ×3 and `investigate` ×1 are missing outright), so the
+  blocker is not a missing operation.
+- **The blocker is axis 4, linkage.** A fusion exists because its second part
+  must name something the first part *produced*, and the IR has no general
+  way to say that. Sampled across four operators, every case was this:
+  `exile_gain_life_equal_power` (the life goes to the exiled creature's own
+  controller, in an amount read off it — whose docstring says outright that
+  "composing two effects here couldn't pass the power along"),
+  `destroy_gain_life_to_controller`, `reveal_top_conditional_to_hand` (the
+  branch is about the card the reveal just named),
+  `create_token_may_attach_equipment` (attach to the token just created),
+  `each_player_exile_from_graveyard_then_counters` (counters equal to the
+  nonland cards exiled this way).
+- ENG-36's referent axis (`effect_conditions.subject_of`) and
+  `effect_amounts` are the first half of that: a body can now *ask* about
+  `previous_target` / `entering` / `chosen`. What is missing is the other
+  direction — an effect's **operands** naming a referent, so "gain life" can
+  say "to that permanent's controller" instead of needing a fused type.
+- **Two classification corrections** the inspection turned up, both in the
+  direction of the backlog being smaller than 84: `wheel`/`wheel_of_fortune`
+  are `for_each` over each player with a *fixed* draw of seven, not `bind`
+  (nothing is measured), and several `seq` rows (`haunt`, `taxed_draw`,
+  `blink`) are single rules concepts rather than two instructions welded
+  together. The 84 is a first-pass count from ENG-34 and should be re-derived
+  before it is used as a target.
+
 ### One structured condition vocabulary (ENG-36, `14_` S2)
 
 - **What:** `game/effect_conditions.py` — `{kind, of, min/max}` predicates

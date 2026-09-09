@@ -307,6 +307,13 @@ class Classification(str, Enum):
     STATIC = "static"
     #: RULE 614/616 event middleware, outside the instruction stream.
     REPLACEMENT = "replacement"
+    #: **Axis 3 itself** (ENG-37). `14_` §1.1 describes the effect types as a
+    #: cross-product of operation × operands × composition × linkage and
+    #: observes that the composition axis does not exist — which is exactly
+    #: why `FUSION` has 84 members. These five types *are* that axis
+    #: (`game/effects/composition.py`), so they are neither instructions nor
+    #: fusions of instructions: they are what a fusion decomposes *into*.
+    COMPOSITION = "composition"
 
 
 @dataclass(frozen=True)
@@ -801,6 +808,18 @@ _SPECIAL_TYPES: dict[str, str] = {
 }
 
 
+#: COMPOSITION — axis 3's own types (ENG-37), one per `OPERATORS` entry.
+#: Registered in `game/effects/composition.py`; each retires the `_FUSION_
+#: TYPES` rows naming its operator (`fusions_retired_by`).
+_COMPOSITION_TYPES: dict[str, str] = {
+    "seq": OP_SEQ,
+    "if_else": OP_IF_ELSE,
+    "optional": OP_OPTIONAL,
+    "for_each": OP_FOR_EACH,
+    "bind": OP_BIND,
+}
+
+
 def _build_effect_types() -> dict[str, TypeEntry]:
     """Assemble `EFFECT_TYPES` from the tables above.
 
@@ -831,6 +850,8 @@ def _build_effect_types() -> dict[str, TypeEntry]:
         _add(TypeEntry(name, Classification.STATIC))
     for name in sorted(_REPLACEMENT_TYPES):
         _add(TypeEntry(name, Classification.REPLACEMENT))
+    for name, operator in _COMPOSITION_TYPES.items():
+        _add(TypeEntry(name, Classification.COMPOSITION, operator=operator))
     for name, card in _SPECIAL_TYPES.items():
         _add(TypeEntry(name, Classification.SPECIAL, note=card))
     return out

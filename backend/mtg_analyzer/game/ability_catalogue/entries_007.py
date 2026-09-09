@@ -391,14 +391,17 @@ def _frodo_saurons_bane() -> list[AbilitySpec]:
                     "filter": {"combat": True, "is_player": True},
                     "grant_effects": [
                         {
-                            "type": "lose_game_trigger_damaged_player",
-                            "params": {},
-                            "condition": {"ring_tempted_at_least": 4},
-                        },
-                        {
-                            "type": "the_ring_tempts_you",
-                            "params": {},
-                            "condition": {"ring_tempted_at_most": 3},
+                            "type": "if_else",
+                            "params": {
+                                "condition": {"kind": "ring_tempted", "min": 4},
+                                "then": [
+                                    {"type": "lose_game_trigger_damaged_player",
+                                     "params": {}},
+                                ],
+                                "else": [
+                                    {"type": "the_ring_tempts_you", "params": {}},
+                                ],
+                            },
                         },
                     ],
                     "active_if": {"kind": "source_counters", "counter": "frodo_stage", "min": 2},

@@ -488,11 +488,11 @@ proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
 **Coverage: 41.8% (14,557 / 34,811) as of 2026-09-08, measured at
-PARSER_VERSION 298** (the parser is at **300**; neither 299 — ENG-37's
-nested-spec validation fix — nor 300 — ENG-36's structured conditions —
-moves any card's verdict, the latter confirmed by an A/B of both
-checkouts over all 38,123 raw-store cards; re-measure before quoting a
-300 number)
+PARSER_VERSION 298** (the parser is at **301**; none of 299–301 — ENG-37's
+nested-spec validation, ENG-36's structured conditions, ENG-37's
+composition-node validation — moves any card's verdict, the middle one
+confirmed by an A/B of both checkouts over all 38,123 raw-store cards;
+re-measure before quoting a 301 number)
 (parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
@@ -735,6 +735,7 @@ English and German.
 | Dungeons + venturing | `models/dungeon.py`, `game/dungeons.py`, `services/dungeon_database.py`, `rules_engine.venture_into_the_dungeon` |
 | Formats & casual variants (Planechase/Archenemy/Vanguard) | `models/game_format.py`, `game/variants.py`, `services/variant_card_database.py`, `game_engine.new_game(game_format=…)` |
 | "Play/cast from top of library" permission | `game/top_library.py`, `game/game_engine.py` (`can_play_land`/`can_cast`/`legal_actions`), `gameBoardView.js` (`libraryTopHtml`) |
+| Combining effects: branching, "you may", "for each", "…equal to" | `backend/mtg_analyzer/game/effects/composition.py` (`seq`/`if_else`/`optional`/`for_each`/`bind`), `game/effect_amounts.py` (what `bind` measures) |
 | An "if `<predicate>`, `<effect>`" gate on a resolving effect (RULE 603.4/702.33b) | `backend/mtg_analyzer/game/effect_conditions.py` (referents + the `GameContext` predicates + the flat-key translator), `game/static_conditions.py` (every state predicate, shared with statics/triggers/replacements), `parser/oracle/segmenter.py`'s `_CONDITION_PREFIXES` |
 | A player choice: opening one, answering one, adding a new kind | `backend/mtg_analyzer/game/continuations.py` (the handler registry), `RulesEngine.open_choice`/`resolve_choice` |
 | What an effect type/engine method *is* (instruction/fusion/alias/…) | `backend/mtg_analyzer/game/isa.py`, `scripts/isa_report.py --registry` |

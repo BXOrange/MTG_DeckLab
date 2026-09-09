@@ -2671,7 +2671,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: to what `condition_from_legacy` produces from the old flat form. The
 #: version still moves because the emitted spec content differs, which is
 #: what this hash exists to notice.
-PARSER_VERSION = "300"
+#: v301 — ENG-37: `AbilitySpec` validation now checks the ``condition`` a
+#: composition node (`seq`/`if_else`/`optional`/`for_each`/`bind`) carries in
+#: its ``params`` — a node *branches* on its gate rather than being gated by
+#: it, so the condition does not sit on the spec where `_validate_condition`
+#: was already looking. Scoped to those five types, because ``condition`` is
+#: not one vocabulary across all params (a `combat_restriction` static's is a
+#: combat-time check of its own). **No parse-behaviour change**: this package
+#: emits no composition node yet, so no card's verdict can move — but the
+#: gate can reject a spec it used to accept, which is the same reasoning that
+#: moved the version at v299.
+PARSER_VERSION = "301"
 
 
 def parser_source_hash() -> str:
