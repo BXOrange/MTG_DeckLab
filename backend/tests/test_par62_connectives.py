@@ -212,6 +212,7 @@ class TestConditionWhitelistWidening:
          {"kind": "opponent_lost_life_this_turn", "min": 1}),
         ("~ is an enchantment",
          {"kind": "is_card_type", "card_type": "enchantment"}),
+        ("you attacked this turn", {"kind": "you_attacked_this_turn"}),
     ])
     def test_the_new_rows_resolve(self, phrase: str, expected: dict) -> None:
         from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_condition
@@ -231,6 +232,87 @@ class TestConditionWhitelistWidening:
         specs = parse_effect_body("if a creature died this turn, draw a card")
         assert specs is not None
         assert specs[0].condition == {"kind": "creatures_died_this_turn", "min": 1}
+
+        raid_specs = parse_effect_body("if you attacked this turn, draw a card")
+        assert raid_specs is not None
+        assert raid_specs[0].condition == {"kind": "you_attacked_this_turn"}
+
+    def test_player_attack_history_gates_an_effect_and_resets(self) -> None:
+        from mtg_analyzer.game import static_conditions
+
+        eng = GameEngine.new_game(
+            [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
+        )
+        p1 = eng.state.active_player
+        attacker = GameObject(
+            Card(id="raider", name="Raider", type_line="Creature - Human", is_creature=True),
+            owner_id=p1.id,
+            zone=Zone.BATTLEFIELD,
+        )
+        attacker.summoning_sick = False
+        eng.state.add_to_battlefield(attacker)
+        condition = {"kind": "you_attacked_this_turn"}
+
+        assert not static_conditions.condition_holds(condition, eng.state, None, p1.id)
+        eng.state.current_step = "declare_attackers"
+        eng.declare_attackers(p1, [attacker])
+        assert static_conditions.condition_holds(condition, eng.state, None, p1.id)
+
+        eng.begin_turn()
+        assert not static_conditions.condition_holds(condition, eng.state, None, p1.id)
+
+    def test_entering_attacking_does_not_enable_player_attack_history(self) -> None:
+        from mtg_analyzer.game.condition_query import free_cast_condition_holds
+
+        eng = GameEngine.new_game(
+            [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
+        )
+        p1 = eng.state.active_player
+        attacker = GameObject(
+            Card(id="token", name="Token", type_line="Creature - Human", is_creature=True),
+            owner_id=p1.id,
+            zone=Zone.BATTLEFIELD,
+        )
+        eng.state.add_to_battlefield(attacker)
+        eng.rules.put_onto_battlefield_attacking(attacker)
+
+        assert attacker.attacking
+        assert p1.id not in eng.state.players_attacked_this_turn
+        raid_spell = GameObject(
+            Card(id="raid", name="Raid Spell", type_line="Instant"), owner_id=p1.id, zone=Zone.HAND
+        )
+        assert not free_cast_condition_holds(
+            {"you_attacked_this_turn": True}, raid_spell, eng.state
+        )
+
+    def test_raid_alternative_cost_is_parsed_and_uses_history(self) -> None:
+        from mtg_analyzer.game.condition_query import free_cast_condition_holds
+        from mtg_analyzer.parser.oracle.gate import parse_oracle
+
+        card = Card(
+            id="admirals-order", name="Admiral's Order", type_line="Instant",
+            oracle_text=(
+                "Raid — If you attacked this turn, you may pay {1}{U} rather than pay "
+                "this spell's mana cost.\nCounter target spell."
+            ),
+            keywords=["Raid"],
+        )
+        result = parse_oracle(card)
+        # This slice claims the Raid cost line.  The existing counterspell
+        # handler accepts the bare body, but gate coverage still leaves this
+        # card's independent body unclaimed, so do not turn this condition
+        # test into an unrelated counterspell-coverage assertion.
+        assert "counter target spell." in result.unclaimed
+        alt = next(spec.alt_cost for spec in result.specs if spec.alt_cost is not None)
+        assert alt == {"mana": "{1}{u}", "condition": {"you_attacked_this_turn": True}}
+
+        eng = GameEngine.new_game(
+            [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
+        )
+        spell = GameObject(card, owner_id="p1", zone=Zone.HAND)
+        assert not free_cast_condition_holds(alt["condition"], spell, eng.state)
+        eng.state.players_attacked_this_turn.add("p1")
+        assert free_cast_condition_holds(alt["condition"], spell, eng.state)
 
 
 class TestForEachQuantity:

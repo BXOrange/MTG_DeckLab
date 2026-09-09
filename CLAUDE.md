@@ -500,10 +500,10 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 42.40% (14,761 / 34,811) as of 2026-09-09, measured at
-PARSER_VERSION 304** (ledger-backed, whole cache re-parsed — 299–301 moved no
-card's verdict, so 301 measured identically to 298 at 14,557; 302–304 are
-PAR-62's increments, **+197 total with 0 regressions**)
+**Coverage: 42.47% (14,784 / 34,811) as of 2026-09-10, measured at
+PARSER_VERSION 305** (whole cache re-parsed; 302–304 were PAR-62's +197-card,
+zero-regression connective increments, while the intervening +23 is ENG-37
+fusion-retirement work)
 (parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)

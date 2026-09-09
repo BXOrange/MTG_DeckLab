@@ -965,6 +965,10 @@ class GameState:
         #: attacks" triggers and a creature only ever attacks on its own
         #: controller's turn.
         self.life_gained_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: Players who declared an attacker this turn (RULE 508.1a; Raid).
+        #: This player history is distinct from an individual creature's
+        #: Boast flag: a creature entering attacking did not declare an attack.
+        self.players_attacked_this_turn: set[str] = set()
         #: The life each player has *lost* this turn — the mirror of
         #: `life_gained_this_turn`, bumped at `RulesEngine.lose_life`'s single
         #: choke point (damage, life-paid costs, "loses N life" effects all

@@ -4626,8 +4626,9 @@ measurement of why is the useful half of this work.
 - **Files:** `parser/oracle/catalogue/subgrammars.py`,
   `parser/oracle/catalogue/handlers.py`, `docs/concepts/09_ORACLE_EFFECT_PARSER.md`.
 - **Still open under other tickets** (PAR-61's two guardrail notes remain in
-  `BACKLOG.md`): ENG-37's fusion retirement, PAR-62's engine-vocabulary
-  remainders. Neither is PAR-61's own work.
+  `BACKLOG.md`): ENG-37's fusion retirement. PAR-62 closed once its grammar
+  surface was complete; its depth remainders are now explicit MEC-81…84 and
+  PAR-64 work, not umbrella residue. Neither is PAR-61's own work.
 
 ### PAR-63: cross-module sub-grammar reuse (`14_` S5)
 
@@ -4685,18 +4686,40 @@ measurement of why is the useful half of this work.
   parse-context-not-redundant-grammar finding the damage/destroy/exile family
   gave. No change.
 
-### PAR-62: closing out the S4 grammar surface (PARSER_VERSION 304)
+### PAR-62: clause grammar surface complete (PARSER_VERSION 302–305)
 
-- **Follow-up (active worktree, parser-version bump intentionally deferred):**
+- **Final follow-up (PARSER_VERSION 305):**
   `you_attacked_this_turn` records a player's actual RULE 508.1a attacker
   declaration in `GameState`, resets at each new turn, and stays false when
   RULE 508.4 puts a creature onto the battlefield attacking. The shared
   `static_condition` whitelist uses it for ordinary `if` gates; the
   casting-condition vocabulary uses the same history for Raid's "If you
   attacked this turn, you may pay {1}{U} rather than pay this spell's mana
-  cost" alternative-cost form (Admiral's Order). This closes the former
-  47-occurrence condition-vocabulary head without equating a live attacker
-  count or Boast's per-object flag with a player attack declaration.
+  cost" alternative-cost form (Admiral's Order). It deliberately does not
+  equate a live attacker count or Boast's per-object flag with a player attack
+  declaration. The live probe found 20 SOLO cards still blocked where the
+  condition occurs inside entry, trigger, activation, or override grammar;
+  those positional forms are PAR-64, not a reason to keep S4 open.
+- **Exit and successor routing:** every `13_` §5.2 connective now has a safe
+  path: `if`/`unless` → shared gate, `you may` → `optional` (including
+  mid-body), `then` → existing sequence, object/quantity `for each` →
+  `for_each`/`bind`, `otherwise` → `if_else`, and `instead` → the replacement
+  path rather than a composition node. The hardcoded `UP_TO_ONE` expansion was
+  measured and ruled out because existing multi-target rows already own that
+  language. The remaining group replacement, magnitude override, amount-kind,
+  and permanent-left-history capabilities are MEC-81…84; the 799-distinct
+  `instead` long tail remains PAR-12's hand-authoring territory. PAR-62 is
+  therefore closed under the surface-completion exit rule, rather than an
+  arbitrary coverage threshold.
+- **Measurement:** full cache **14,784 / 34,811 (42.47%)**; Commander-legal
+  **14,174 / 31,830 (44.5%)**, at v305. The version-304 figure was 14,761;
+  the intervening +23 comes from concurrent ENG-37 work, not this condition
+  vocabulary slice. No regression was observed in the full no-ledger reparse.
+- **Files:** `game_state.py`, `game/engine/combat_mixin.py`,
+  `game/engine/turn_loop_mixin.py`, `game/static_conditions.py`,
+  `game/condition_query.py`, `parser/oracle/catalogue/static_handlers.py`,
+  `parser/oracle/segmenter.py`, `parser/oracle/spec.py`, `gate.py` (v305),
+  `tests/test_par62_connectives.py`.
 
 - **What:** the depth behind three connectives — the quantity half of
   "for each", four rows on the shared condition whitelist, and the RULE 614

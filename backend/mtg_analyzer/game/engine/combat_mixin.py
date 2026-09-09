@@ -666,6 +666,11 @@ class CombatMixin:
                 )
             player.mana_pool.pay(tax_cost)
 
+        # Rule 508.1a/Raid: entering attacking does not reach this declared-
+        # attackers path, so it cannot make this alternative cost available.
+        if resolved:
+            self.state.players_attacked_this_turn.add(player.id)
+
         for obj, defender, exert in resolved:
             # Vigilance (RULE 702.21b): attacking doesn't cause it to tap.
             if not combat.has_vigilance(obj):

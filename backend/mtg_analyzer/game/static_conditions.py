@@ -76,6 +76,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # reset each untap step (unlike ``source_attacking``, which clears
         # the instant combat ends, RULE 511.3).
         "source_attacked_this_turn",
+        # PAR-62: Raid's player-scoped declaration history, not Boast's
+        # source-only flag.
+        "you_attacked_this_turn",
         # PAR-28: RULE 702.169b/719.3b Solved — "As long as this Case is
         # solved, …" (and its activate-/trigger-only siblings). A permanent
         # designation that persists until the Case leaves the battlefield.
@@ -443,6 +446,8 @@ def condition_holds(
         return bool(getattr(subject, "attacking", False))
     if kind == "source_attacked_this_turn":  # PAR-28 RULE 702.142a
         return bool(getattr(subject, "attacked_this_turn", False))
+    if kind == "you_attacked_this_turn":  # PAR-62 / RULE 508.1a (Raid)
+        return controller_id in (getattr(state, "players_attacked_this_turn", None) or set())
     if kind == "source_solved":  # PAR-28 RULE 702.169b / 719.3b
         return bool(getattr(subject, "is_solved", False))
     if kind == "your_speed_is_max":  # PAR-28 RULE 702.178a / 702.179e
@@ -932,6 +937,7 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         "source_equipped": "ausgerüstet",
         "source_enchanted": "verzaubert",
         "source_attacked_this_turn": "hat diesen Zug angegriffen",
+        "you_attacked_this_turn": "du hast diesen Zug angegriffen",
         "source_solved": "solange gelöst",
     }
     if kind == "your_speed_is_max":

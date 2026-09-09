@@ -259,6 +259,9 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
         # sibling of ``opponent_spells_cast_this_turn_at_least``, same
         # int-threshold shape.
         "creatures_attacking_at_least",
+        # PAR-62/Raid: declaration history rather than a live battlefield
+        # count, so it remains true after combat ends.
+        "you_attacked_this_turn",
     }
 )
 
@@ -1057,6 +1060,7 @@ class AbilitySpec:
             raise SpecValidationError("'control_commander' condition must be a bool")
         if key in (
             "not_your_turn", "your_turn", "opponent_controls_forest_and_you_control_island",
+            "you_attacked_this_turn",
         ) and not isinstance(value, bool):
             raise SpecValidationError(f"{key!r} condition must be a bool")
         if key == "opponent_spells_cast_this_turn_at_least" and (

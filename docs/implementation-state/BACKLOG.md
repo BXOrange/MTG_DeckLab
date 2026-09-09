@@ -198,13 +198,13 @@ its block back into the matching section here.
   Execution order (dependency chain): ~~ENG-34~~ (atom inventory, **closed**)
   → ~~ENG-35~~ (continuations, **closed**) → ~~ENG-36~~ (structured
   conditions, **closed**) → **ENG-37** (composition axis **shipped**; fusion
-  retirement remains) → **PAR-62** (clause grammar; connectives built,
-  engine-vocabulary remainders open) → ~~PAR-63~~ (slot grammars, **closed** —
+  retirement remains) → ~~PAR-62~~ (clause grammar, **closed** —
+  `Done_Backend.md`) → ~~PAR-63~~ (slot grammars, **closed** —
   `Done_Backend.md`).
 
   The `81c3320` port is **done** (`SELF_SUBJECT_PREFIX` + the 09_ clause-tree
   negative result on the mainline; `Done_Backend.md`). This ticket now holds
-  only its two standing guardrails, live until ENG-37 and PAR-62 close:
+  only its two standing guardrails, live until ENG-37 closes:
 
   - **Do not displace the per-template track.** `PAR-12` / `PAR-31…PAR-53`
     remain where the near-term coverage is; `13_` section 5.6 confirms it. Note
@@ -216,85 +216,6 @@ its block back into the matching section here.
     blocked cards. That bounds *retrofitting* composition, not *atoms +
     composition* — the payoff is multiplicative. An earlier draft drew the wrong
     conclusion.
-
-- **PAR-62 · Clause grammar: the remainder (`14_` S4).** The connectives
-  themselves are **built** (PARSER_VERSION 302–303, +145 cards, 0 regressions,
-  41.82% → 42.23%) — see `Done_Backend.md`. What is left:
-
-  - **"instead" — RULE 614 replacements, detected here and tied to the
-    existing engine machinery.** Not a composition node (that would be a wrong
-    reading), but very much this stage's job: **876 clauses / 799 distinct**,
-    a flat tail with two families.
-    - *Embedded replacement riders* — "…deals N damage to target creature.
-      **If that creature would die this turn, exile it instead.**" The engine
-      primitive already exists and is parser-reachable
-      (`GrantDieToExileThisTurnEffect` / `grant_die_to_exile_this_turn`), and
-      `_DIE_TO_EXILE_SENTENCE_RE` now also accepts "that creature or
-      planeswalker" and "a creature dealt damage this way". Its use site
-      already refuses a body that announced no target, so mass damage
-      ("deals 3 damage to each creature") fails closed rather than arming a
-      replacement on nobody — **that** case is what is still open, and it
-      needs a group-scoped arm ("every creature damaged this way"), i.e. an
-      engine extension, not a regex.
-    - *Magnitude overrides* — "target creature gets -2/-2. **If this spell was
-      kicked, that creature gets -6/-6 instead.**" This is `BACKLOG`'s
-      standing "kicked … instead override" gap; the additive shape ships, the
-      override doesn't. It wants a spec that *replaces* an earlier clause's
-      magnitude rather than adding a second effect.
-    - The rest is genuinely long-tail (799 distinct over 876), so treat it the
-      way `PARSER_LONG_TAIL.md` says: take the recurring shapes, hand-author
-      the singletons.
-  - **"for each `<count phrase>`" — the rest of the quantity vocabulary.**
-    Object groups ship (`for_each`) and the two commonest quantities ship via
-    ENG-37's `bind` node ("for each card in your hand/graveyard" →
-    `effect_amounts`' ``resource`` reading). Still open: quantities with no
-    `AMOUNT_KINDS` entry behind them — "for each +1/+1 counter on it" (a
-    counter count on a permanent), "for each basic land type among lands you
-    control". Those need a new amount *kind* in `game/effect_amounts.py`
-    first; the parser row is trivial once one exists.
-  - **Keep widening `static_handlers.static_condition`.** Five rows added (see
-    `Done_Backend.md`). The gate is only as good as this whitelist, and there
-    are **2,087 distinct unresolved `if` phrases / 5,164 occurrences** left.
-    "You attacked this turn" (47) now has `you_attacked_this_turn`: a
-    player-scoped RULE 508.1a declaration history, reset each turn and kept
-    distinct from Boast's per-object `source_attacked_this_turn`; it also
-    recognizes Raid's Admiral's Order-shaped alternative-cost line. The next top
-    engine gap is "a permanent left the battlefield under your control this
-    turn" (25).
-    Note "if you do" (847) and "if able" (159) are **not** conditions — the
-    first is RULE 603.3's reflexive trigger, the second a requirement.
-
-  **Exit — completion of the grammar surface, not a metric.** The original
-  criterion was "templates-per-blocked-card (1.12) falls"; it measured
-  **1.119** after this work, flat and structurally so (it is distinct
-  *whole-clause* templates ÷ blocked cards, so claiming cards removes
-  templates and cards together — decomposition cannot move it). A coverage or
-  ratio target is the wrong shape for a grammar stage anyway: it makes the
-  stage "done" at whatever number, and leaves no way to say which of its parts
-  exist. S4 is done when its surface is complete and each item is either built
-  or explicitly ruled out with a reason:
-
-  | `13_` 5.2 connective | share | state |
-  | --- | --- | --- |
-  | `if <cond>` | 16.5% | **built** — RULE 603.4 gate, shared whitelist |
-  | `you may` | 13.8% | **built** — `optional` node, incl. mid-body |
-  | `then` | 8.3% | **built** (pre-existing `_CONNECTORS`) |
-  | `for each` | 5.9% | **built** — groups → `for_each`, quantities → `bind` |
-  | `unless` | 1.7% | **built** — the gate under `not` |
-  | `otherwise` | 0.6% | **built** — `if_else` node |
-  | `instead` | 3.4% | **partly built** — replacement path, not composition |
-
-  Plus the two positional gaps this stage was told to close: mid-body
-  `you may` (**built**), and `subgrammars.UP_TO_ONE`'s hardcoded N=1
-  (**ruled out, measured** — dedicated `*_multi_target` rows already claim
-  "up to N target Xs"; widening the macro would make `{TARGET}` builders emit
-  a single-target effect for a multi-target clause).
-
-  Every connective now has a path. What is left is *depth* behind three of
-  them — the replacement tail, the amount kinds, and the condition whitelist —
-  and each of those is now blocked on an **engine** vocabulary entry rather
-  than on parser grammar, which is the honest signal that S4's own surface is
-  done. Coverage has not regressed on any increment (0 across +197 cards).
 
 - **PAR-12 · The indefinite long tail (methodology pointer, not a closeable
   ticket).** Strategy, coverage, and worked examples live in
@@ -316,8 +237,8 @@ its block back into the matching section here.
   > primitive, and its last residue moved to `MEC-52`, closed). The first free
   > parser ticket id is **`PAR-64`** (checked 2026-09-09): `PAR-31…PAR-53` are
   > the Commander-legal tail clusters below, `PAR-54`/`PAR-55`/`PAR-57`/`PAR-60`
-  > /`PAR-63` are shipped and written up in `Done_Backend.md`,
-  > `PAR-56`/`PAR-58`/`PAR-59`/`PAR-62` are open below, and `PAR-61` is the
+  > /`PAR-62`/`PAR-63` are shipped and written up in `Done_Backend.md`,
+  > `PAR-56`/`PAR-58`/`PAR-59` are open below, and `PAR-61` is the
   > grammar-restructure umbrella above.
 
 - **PAR-31…PAR-53 · Commander-legal tail — one PAR per recurring template
@@ -490,12 +411,20 @@ its block back into the matching section here.
     Voltstorm Angel,
     Hylda of the Icy Crown, Gorbag of Minas Morgul, Vision Synthezoid
     Avenger.
-  - **PAR-59 · Haunt-trigger modal wrapper (RULE 702.55).** Parse `when ~
-    enters or the creature it haunts dies, choose N —` and the standalone
-    `when the creature this card haunts dies` form. The haunt link/exile
-    mechanic and event (MEC-70) are **done**, so this is parser-only. Seed
-    cards: Orzhov Pontiff, Absolver
-    Thrull, Belfry Spirit, Blind Hunter, Exhumer Thrull, Graven Dominator.
+- **PAR-59 · Haunt-trigger modal wrapper (RULE 702.55).** Parse `when ~
+  enters or the creature it haunts dies, choose N —` and the standalone
+  `when the creature this card haunts dies` form. The haunt link/exile
+  mechanic and event (MEC-70) are **done**, so this is parser-only. Seed
+  cards: Orzhov Pontiff, Absolver
+  Thrull, Belfry Spirit, Blind Hunter, Exhumer Thrull, Graven Dominator.
+
+- **PAR-64 · Raid condition positional forms.** `you_attacked_this_turn` is
+  now a real shared engine predicate (PAR-62), but the live probe still finds
+  20 SOLO cards whose condition sits in an entry replacement, trigger wrapper,
+  activation restriction, or `instead` override rather than the ordinary
+  `if <cond>, <body>` gate. Measure each wrapper before widening it; the
+  condition vocabulary is no longer the blocker. Seed cards: Rigging Runner,
+  Bloodsoaked Champion, Alesha, Who Laughs at Fate, and Arrow Storm.
 
 ## MEC — Game mechanics
 
@@ -550,6 +479,30 @@ its block back into the matching section here.
   a primitive. Small by construction — the same amount-scaling operation at a
   different factor, which is the ISA's point: one operation, an `amount`
   role, not two registry rows.
+
+- **MEC-81 · Group-scoped death replacement arm (RULE 614).** The existing
+  die-to-exile rider can arm a replacement for one previously targeted object;
+  it deliberately fails closed after mass damage because it cannot name
+  "each creature damaged this way". Add a group/referent arm that records the
+  actual damaged objects and applies the replacement only to that set.
+
+- **MEC-82 · Conditional magnitude replacement.** Model "if this spell was
+  kicked, that creature gets -6/-6 instead" as a replacement of an earlier
+  effect's magnitude, not as a second additive effect. This is the shared
+  RULE 614-style override vocabulary behind kicked/alternative magnitude
+  clauses; do not route it through `if_else`.
+
+- **MEC-83 · Effect amount kinds for counters and basic-land types.** Extend
+  `game/effect_amounts.py` with the safe, live readings for a named counter on
+  a permanent and the distinct basic land types among lands a player controls.
+  The existing PAR-62 `for each <quantity>` `bind` route can consume these
+  immediately once the engine vocabulary exists.
+
+- **MEC-84 · Controller-scoped permanent-left-battlefield history.** Add the
+  turn-scoped predicate for "a permanent left the battlefield under your
+  control this turn" (25 occurrences in PAR-62's audit), with correct owner/
+  controller attribution and turn reset. This is distinct from a source-only
+  leaves trigger and from death-only history.
 
 ## PLR — Player management
 

@@ -2179,10 +2179,17 @@ _ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE = re.compile(
 #: own ``mana`` key, newly wired into `GameEngine._can_pay_alt_cast_cost`/
 #: `_pay_alt_cast_cost` (previously unread: `alt_cost=True` always routed
 #: through `RulesEngine.cast_without_paying`, which skips mana entirely).
-#: Deliberately only the *unconditional* printing — a leading "Raid —
-#: if you attacked this turn, "-shaped gate (Admiral's Order) would need a
-#: `condition` key this row doesn't parse, so it's left unclaimed rather
-#: than silently dropping the gate.
+#: The generic unconditional form remains immediately below; the Raid form
+#: now has its own earlier, condition-preserving rule.
+#: "Raid — If you attacked this turn, you may pay `<mana>` rather than pay
+#: this spell's mana cost." (Admiral's Order) — declaration history, not a
+#: live attacker count: the condition remains true after combat ends.
+_ALT_COST_PAY_MANA_IF_YOU_ATTACKED_RE = re.compile(
+    r"^if you attacked this turn, you may pay (?P<mana>(?:\{[^{}]+\})+) "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+
 _ALT_COST_PAY_MANA_RE = re.compile(
     r"^you may pay (?P<mana>(?:\{[^{}]+\})+) rather than pay this spell'?s mana cost\.?\s*$",
     re.IGNORECASE,
@@ -4784,6 +4791,20 @@ def segment_line(
                 "condition": {
                     "creatures_attacking_at_least": int(pay_mana_if_attacking.group("n")),
                 },
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    pay_mana_if_you_attacked = _ALT_COST_PAY_MANA_IF_YOU_ATTACKED_RE.match(raw)
+    if pay_mana_if_you_attacked is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={
+                "mana": re.sub(r"\s+", "", pay_mana_if_you_attacked.group("mana")),
+                "condition": {"you_attacked_this_turn": True},
             },
             raw_text=raw,
             parser=provenance,

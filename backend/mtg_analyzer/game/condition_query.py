@@ -195,6 +195,14 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             attacking = sum(1 for o in battlefield if getattr(o, "attacking", False))
             if attacking < threshold:
                 return False
+        elif key == "you_attacked_this_turn":
+            # Raid (RULE 508.1a): this cannot be inferred from a live
+            # `.attacking` scan because the alternative cost can be cast
+            # after combat. It is set only for a declaration, not when RULE
+            # 508.4 puts a creature onto the battlefield attacking.
+            attacked = getattr(state, "players_attacked_this_turn", None) or set()
+            if bool(value) != (controller_id in attacked):
+                return False
         else:
             return False
     return True

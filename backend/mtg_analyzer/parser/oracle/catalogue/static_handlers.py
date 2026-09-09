@@ -2564,6 +2564,11 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # purpose: neither is a card type, so `is_card_type` on one can never hold.
     (re.compile(rf"(?:~|it)(?:'s| is) an? (?P<ct>{CARD_TYPE_WORD_ALT})", re.I),
      lambda m: {"kind": "is_card_type", "card_type": m.group("ct").lower()}),
+    # "if you attacked this turn" (Raid; 47 occurrences in PAR-62's
+    # residual scan). This asks whether the ability controller declared any
+    # attacker; it is deliberately not the source-only Boast condition.
+    (re.compile(r"you attacked this turn", re.I),
+     lambda m: {"kind": "you_attacked_this_turn"}),
     # -- The source's own state. "it"/"~" both appear; after `normalize` the
     # card's own name is already `~`, and a leading "it" in this position can
     # only mean the source (the condition precedes any target).

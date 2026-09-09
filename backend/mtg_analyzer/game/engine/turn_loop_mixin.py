@@ -250,6 +250,8 @@ class TurnLoopMixin:
         self.state.cards_drawn_this_turn_ids[active.id] = []
         self.state.cards_discarded_this_turn[active.id] = 0
         self.state.life_gained_this_turn[active.id] = 0
+        # Raid declaration history is game-wide and expires on every new turn.
+        self.state.players_attacked_this_turn.clear()
         # RULE 120.3 history ("dealt combat damage by ~ *this turn*", Hope of
         # Ghirapur) — game-wide, not per active player: last turn's combat
         # damage is stale for everyone once a new turn starts.
