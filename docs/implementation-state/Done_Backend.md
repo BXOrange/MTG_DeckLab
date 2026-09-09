@@ -1854,6 +1854,7 @@ is in the rules-engine categories below them.
 
 - **What:** `TapEffect` gained a `"trigger_subject"` `target_kind` mode reading `GameContext.trigger_event` live at resolution; `effect_binder._retarget_implicit_subject_effects` grew a second branch so a `{"subject": "group"}` trigger ("whenever a creature you control attacks alone, untap it.") retargets a self-acting effect onto the actual firing object instead of the ability's source.
 - **Files:** `game/effects/core.py`, `game/binding/core.py`.
+- **The rewrite hijacked a documented meaning — corrected by ENG-38.** `target_kind=None` already meant something specific ("act on the effect's own source, no player choice"), and this branch silently repurposed it under a group trigger. Right for the parser's "untap **it**" (Raiyuu, Storm's Edge, the motivating card); wrong for a group trigger whose body names *itself* — Grinding Station's "whenever an artifact enters, you may untap **this artifact**" (RULE 109.2) untapped the artifact that had just entered instead. That is a silent no-op, since a permanent almost always enters untapped, which is why nothing caught it. The distinction isn't recoverable from the IR — both spell an untargeted untap as a bare `None` — so `TapEffect` gained an explicit **`target_kind="source"`**, meaning exactly what `None` means but immune to the rewrite; a hand-authored entry that means its own source now says so. Grinding Station is the only card in the catalogue that took the group-subject branch at all (measured, not assumed), and the whole Raiyuu/Karlach/Raph & Leo family is unaffected.
 
 ### MEC-49: Per-turn damage-source attribution (PARSER_VERSION 219)
 
@@ -4613,6 +4614,64 @@ measurement of why is the useful half of this work.
 - **cEDH staples cube — Batch 25 + Batch 26 (43 cards):**
   - **What:** Made all 43 cards of the "cEDH staples cube" pool playable (2026-07-22), organized in six waves around shared primitives (state-tracking, mana, control/zones, naming+loop shapes, RULE 702 keywords, bespoke tail), then closed the nine documented residual simplifications in a same-day Batch 26 follow-up.
   - **Files:** `game/effects/core.py`, `game/rules_engine.py`, `game/ability_catalogue.py`
+
+### ENG-38: Six stale cube-batch pins, and why an opt-in test tier goes stale
+
+- **What:** The six `test_cube_batch_*` failures that surfaced once the
+  `--full-cache` tier was actually run. One was a real engine defect; five
+  were assertions that had quietly stopped describing the engine.
+- **Files:** `game/effects/core.py`, `game/ability_catalogue/entries_002.py`,
+  `tests/test_cube_batch_15.py`, `tests/test_cube_batch_a1.py`,
+  `tests/test_cube_batch_a2.py`, `tests/test_cube_batch_b1.py`,
+  `tests/test_cube_batch_b3.py`.
+- **The ticket's own premise was wrong.** ENG-38 was filed saying the app card
+  cache was empty, so every `full_cache` test silently skipped. It isn't the
+  cache: `backend/conftest.py` redirects `MTG_CACHE_DIR` to an isolated
+  `cache/test/` and **seeds it itself** when empty, so `DEFAULT_DB_PATH`
+  resolves there during any pytest run and the production cache is never read.
+  These six were invisible for one reason only — `test_cube_batch*` is
+  `--full-cache`-gated by design (`tests/conftest.py`), and nobody passes the
+  flag. That is the durable lesson: **an opt-in tier accumulates stale pins at
+  exactly the rate the rest of the codebase improves**, and none of them
+  announce themselves.
+- **The one real defect (Grinding Station)** is written up under
+  [Group-Subject Retarget (`trigger_subject`) (MEC-28)](#group-subject-retarget-trigger_subject-mec-28)
+  — MEC-28's bind-time rewrite silently repurposed `target_kind=None`, so
+  "untap **this artifact**" untapped the artifact that had just entered.
+- **Three were negative pins that outlived their gap** — each says "this isn't
+  covered yet", and each was closed later by an unrelated batch that never
+  swept back for the pin (CLAUDE.md's own "no half-implementations" hazard,
+  with the `--full-cache` gate hiding the evidence):
+  - **Elsha of the Infinite / Bolas's Citadel** — `top_library_permission` now
+    parses the real play/cast-from-top clause, not just the "you may look at
+    the top card any time" no-op. Both cards are `MODELED`; the test now
+    asserts the parsed permission params.
+  - **Pemmin's Aura** — `segmenter._inline_pt_modal_bodies` handles the compact
+    inline modal ("gets +1/-1 **or** -1/+1" with no bulleted header) by
+    emitting two separately activatable abilities sharing the printed cost,
+    which is faithful for an *activated* ability: RULE 602.2b picks the mode on
+    activation anyway, so choosing which to activate **is** the printed choice.
+  - **Mana Vault** — one of its two out-of-scope clauses (the optional
+    pay-{4}-to-untap upkeep trigger) became claimable via `pay_cost_then`. The
+    pin was a `len(unclaimed) == 2` count, which can only ever report "2 != 1";
+    it now names the remaining clause, so a future fix reads as the clause it
+    closed.
+- **One pin contradicted a deliberate rules correction.** `test_cube_batch_15`
+  asserted a sacrificed *noncreature* fires `SACRIFICE` but not `DIES`. True
+  when written; `damage_death_mixin` later widened `DIES` to every permanent,
+  on purpose and with its reasoning in a comment, because RULE 700.4 defines
+  "dies" as "is put into a graveyard from the battlefield" with no narrowing to
+  creatures (Rancor's "When this Aura dies…"). Creature-specific consumers
+  already narrow on the event's own `object_types`.
+- **One pin was simply incomplete (Ponder).** "Scry 3, then draw a card"
+  suspends on the scry's own player choice, and RULE 608.2 requires the scry to
+  *finish* before the draw — so the draw parks behind the pending choice. The
+  test asserted the draw straight after `resolve_until_stable()` and never
+  answered the scry, so it could only have passed if the two ran out of order.
+  It now walks both scry phases (`away`, then `order`) and pins that the draw
+  has **not** happened before they are answered. Confirmed against the
+  pre-ENG-37 ordering as well: this is not the RULE 608.2 `insert`-vs-`append`
+  fix, which was checked by reverting it in place.
 
 ### Deck Batch: Wyleth Equip (Boros Voltron)
 

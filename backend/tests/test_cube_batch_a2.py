@@ -222,10 +222,14 @@ def test_monolith_family_modeled_and_own_other_lines_unaffected():
     """Basalt/Grim Monolith flip to fully `MODELED`: the "doesn't untap"
     line is new coverage, and their own mana ability + "{N}: Untap this
     artifact." activated ability were already independently claimed. Mana
-    Vault stays `UNMODELED` for two unrelated, out-of-scope trigger clauses
-    (an optional pay-{4}-to-untap upkeep trigger and a "deals 1 damage to
-    you" draw-step trigger) — pinning exactly those two so a future fix's
-    regression shows up here too."""
+    Vault stays `UNMODELED` for one unrelated, out-of-scope trigger clause
+    (its "deals 1 damage to you" draw-step trigger) — pinned by its text
+    rather than by a count, so a future fix reads as the clause it closed.
+
+    ENG-38: this pinned *two* clauses until the optional pay-{4}-to-untap
+    upkeep trigger became claimable (`pay_cost_then`). The count assertion
+    could only ever report "2 != 1"; naming the clause says which one
+    went."""
     for name in ("Basalt Monolith", "Grim Monolith"):
         result = parse_oracle(_card(name))
         assert result.modeled, (name, result.unclaimed)
@@ -233,7 +237,11 @@ def test_monolith_family_modeled_and_own_other_lines_unaffected():
     mana_vault = parse_oracle(_card("Mana Vault"))
     assert not mana_vault.modeled
     assert not any("doesn't untap" in u for u in mana_vault.unclaimed)
-    assert len(mana_vault.unclaimed) == 2
+    assert not any("pay {4}" in u for u in mana_vault.unclaimed)
+    assert mana_vault.unclaimed == [
+        "at the beginning of your draw step, if ~ is tapped, "
+        "it deals 1 damage to you."
+    ]
 
 
 def test_basalt_monolith_stays_tapped_through_its_controllers_untap_step():

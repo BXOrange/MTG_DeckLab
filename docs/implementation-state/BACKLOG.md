@@ -116,20 +116,24 @@ its block back into the matching section here.
   - **Exit:** an operand-side referent vocabulary; the re-derived fusion list
     retired in batches, `isa.fusions_retired_by(<op>)` shrinking with it.
 
-
-- **ENG-38 · Six full-cache regressions, invisible until now.** The app card
-  cache was empty on the dev machine, so every `full_cache`-marked test
-  silently skipped; reseeding it (`scripts/import_bulk.py --reseed-only`,
-  offline from the raw store) made them runnable again and six fail at
-  `e10d726`, none related to the ISA work:
-  `test_cube_batch_15.py::test_sacrificed_noncreature_fires_sacrifice_but_not_dies`,
-  `test_cube_batch_a1.py::test_look_at_top_any_time_claimed_but_permission_clause_still_blocks`,
-  `test_cube_batch_a1.py::test_pemmins_aura_stays_unmodeled_inline_or_modal`,
-  `test_cube_batch_a2.py::test_monolith_family_modeled_and_own_other_lines_unaffected`,
-  `test_cube_batch_b1.py::test_grinding_station_may_untap_when_an_artifact_enters`,
-  `test_cube_batch_b3.py::test_ponder_draws_a_card`.
-  Run them with `pytest --full-cache`. **Exit:** each one either fixed or
-  re-scoped with the reason it no longer holds.
+- **ENG-39 · `test_dynamic_analysis.py` blows the project's own 20s per-test
+  timeout and aborts the whole run.** `tests/services/test_dynamic_analysis.py`
+  takes **~97s** for its 30 tests, and at least
+  `test_aggressive_deck_does_not_lose_later_turn_samples` exceeds the 20s
+  `pytest.ini` cap on its own. pytest-timeout then kills the *session*, so a
+  plain `pytest -q` never reaches a summary line — there is currently no way to
+  run the suite to completion on this machine without
+  `--ignore=tests/services/test_dynamic_analysis.py` or a raised `--timeout`.
+  Reproduced at `72655dd` with a clean tree, with and without `--full-cache`,
+  so it is neither ENG-38's work nor the full-cache tier; an earlier session
+  saw the same module as an intermittent "flake", which is the same thing
+  earlier in its slide. Not a hang — all 30 pass under `--timeout=300`.
+  Likely the real simulated matches in `run_dynamic_analysis`
+  (`DYNAMIC_ANALYSIS_MATCH_WORKERS` defaults to one process per core, which a
+  test may not be getting). **Exit:** the module runs inside the standing
+  timeout, or its slow tests are explicitly marked and the marker documented
+  the way `full_cache` is — not the timeout raised globally, which would
+  disarm the guard for everything else.
 
 ## PAR — Parser
 

@@ -14726,6 +14726,20 @@ class TapEffect(GameEffect):
     "whenever this creature becomes tapped, untap it" trigger (Dionus, Elvish
     Archdruid), mirroring `AddCountersEffect`'s untargeted mode.
 
+    ``target_kind="source"`` means the *same thing* — the effect's own source
+    — but says so explicitly, which matters only because `effect_binder.
+    _retarget_implicit_subject_effects` rewrites a bare ``None`` into
+    ``"trigger_subject"`` under a RULE 603.1 ``{"subject": "group"}``
+    trigger. That rewrite is right for the parser's "untap **it**" (Raiyuu,
+    Storm's Edge — "whenever a Samurai or Warrior you control attacks alone,
+    untap it", where "it" is whichever creature attacked) and wrong for a
+    card whose group trigger unambiguously names *itself* (Grinding
+    Station — "whenever an artifact enters, you may untap **this
+    artifact**", RULE 109.2). Both spell an untargeted untap as a bare
+    ``None``, so the difference has to be written down rather than inferred:
+    an entry that means its own source says ``"source"``, and the rewrite
+    leaves it alone.
+
     ``target_kind="attached_permanent"`` is a third, similarly targetless
     mode — "{U}: Tap enchanted creature."/"{U}: Untap enchanted creature."
     (Freed from the Real/Pemmin's Aura-shaped Aura activated abilities):
@@ -14816,6 +14830,9 @@ class TapEffect(GameEffect):
         #: _subject_event_key`'s same per-event-type lookup — e.g.
         #: ``source_id`` for a DAMAGE-sourced group condition).
         self._trigger_subject_mode = target_kind == "trigger_subject"
+        #: The explicit spelling of ``target_kind=None``'s "act on my own
+        #: source" — see the class docstring for why it has to be sayable.
+        self._source_mode = target_kind == "source"
         self.trigger_event_key = trigger_event_key or "instance_id"
         self.previous_subject = previous_subject
         self.target_spec = (
@@ -14825,7 +14842,8 @@ class TapEffect(GameEffect):
                 count_selector=count_selector,
             )
             if target_kind is not None and not self._attached_mode
-            and not self._trigger_subject_mode and self.selector is None and not previous_subject
+            and not self._trigger_subject_mode and not self._source_mode
+            and self.selector is None and not previous_subject
             else None
         )
 
@@ -14885,6 +14903,10 @@ class TapEffect(GameEffect):
                 context.set_tapped(one, tapped=not self.untap)
             return
         target = (targets[0] if targets else None) or self.target
+        if self._source_mode:
+            # Explicitly this effect's own source, never a passed-in target
+            # and never the group trigger's acting object.
+            target = self.source
         if target is None and self.target_spec is None:
             target = self.source
         if target is not None:

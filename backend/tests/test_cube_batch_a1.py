@@ -167,18 +167,42 @@ def test_quirion_ranger_and_scryb_ranger_modeled():
 # ---------------------------------------------------------------------------
 
 
-def test_look_at_top_any_time_claimed_but_permission_clause_still_blocks():
-    """Elsha/Bolas's Citadel's "You may look at the top card of your
-    library any time." line is now claimed as a documented no-op
-    (`segmenter._LOOK_AT_TOP_ANY_TIME_RE`) — it no longer appears in
-    ``unclaimed`` — but each card's *actual* play/cast-from-top permission
-    clause has no parser-front-end recognition yet (only hand-authored per
-    card today), so the cards stay `UNMODELED` overall. See
-    docs/implementation-state/BACKLOG.md."""
-    for name in ("Elsha of the Infinite", "Bolas's Citadel"):
+def test_look_at_top_any_time_and_the_permission_clause_are_both_claimed():
+    """Was a negative pin: the "You may look at the top card of your library
+    any time." line was claimed as a documented no-op
+    (`segmenter._LOOK_AT_TOP_ANY_TIME_RE`) while each card's *actual*
+    play/cast-from-top permission clause had no parser recognition, leaving
+    both cards `UNMODELED`.
+
+    ENG-38: that gap closed — `top_library_permission` now reads the
+    permission clause too, so both cards are fully `MODELED` and the pin is
+    inverted to assert the parsed permissions rather than their absence.
+    """
+    expected = {
+        # "You may cast noncreature spells from the top of your library. If
+        # you cast a spell this way, you may cast it as though it had flash."
+        "Elsha of the Infinite": {
+            "look": True, "cast_spells": True,
+            "noncreature_only": True, "grants_flash": True,
+        },
+        # "You may play lands and cast spells from the top of your library.
+        # If you cast a spell this way, pay life equal to its mana value…"
+        "Bolas's Citadel": {
+            "look": True, "play_lands": True,
+            "cast_spells": True, "life_payment": True,
+        },
+    }
+    for name, params in expected.items():
         result = parse_oracle(_card(name))
-        assert not result.modeled
-        assert not any("look at the top card" in u for u in result.unclaimed), (name, result.unclaimed)
+        assert result.modeled, (name, result.unclaimed)
+        permissions = [
+            e.params for spec in result.specs for e in spec.effects
+            if e.type == "top_library_permission"
+        ]
+        # The standalone "look at the top card any time" line stays its own
+        # spec; the permission clause is the one carrying the real grant.
+        assert {"look": True} in permissions, (name, permissions)
+        assert params in permissions, (name, permissions)
 
 
 # ---------------------------------------------------------------------------
@@ -256,16 +280,29 @@ def test_freed_from_the_real_modeled():
         assert effect._attached_mode is True
 
 
-def test_pemmins_aura_stays_unmodeled_inline_or_modal():
-    """Three of its four activated abilities (tap/untap/flying/shroud) now
-    model fine via the same `attached_permanent` mechanism; the fourth
-    ("gets +1/-1 or -1/+1") is an inline two-way modal choice with no
-    bulleted "Choose one —" header — the modal grammar doesn't recognize
-    that shape. See BACKLOG.md."""
+def test_pemmins_aura_inline_or_modal_is_two_abilities_sharing_a_cost():
+    """Was a negative pin: three of the four activated abilities modeled via
+    `attached_permanent`, but the fourth ("gets +1/-1 **or** -1/+1") is an
+    inline two-way modal with no bulleted "Choose one —" header, which the
+    modal grammar couldn't see.
+
+    ENG-38: `segmenter._inline_pt_modal_bodies` closed that — it splits the
+    compact form into two full pump clauses, emitted as two separately
+    activatable abilities sharing the one printed cost. That is faithful for
+    an *activated* ability, where RULE 602.2b picks the mode on activation
+    anyway: choosing which of the two to activate **is** the printed choice,
+    so no mode-selection machinery is needed. (It is tried only after the
+    ordinary parse has already failed, so it can never steal a line that had
+    a reading.)
+    """
     result = parse_oracle(_card("Pemmin's Aura"))
-    assert not result.modeled
-    assert len(result.unclaimed) == 1
-    assert "+1/-1 or -1/+1" in result.unclaimed[0]
+    assert result.modeled, result.unclaimed
+    pt_modes = {
+        (e.params.get("power"), e.params.get("toughness"), spec.cost["text"])
+        for spec in result.specs for e in spec.effects
+        if e.type == "pump" and e.params.get("power") is not None
+    }
+    assert pt_modes == {(1, -1, "{1}"), (-1, 1, "{1}")}, pt_modes
 
 
 # ---------------------------------------------------------------------------

@@ -305,6 +305,19 @@ variant cards are committed JSON in `mtg_analyzer/data/`. Don't reintroduce
 an unconditional `pip install --upgrade pip` (it always queries PyPI);
 `backend/tests/test_setup_offline_start.py` pins this down.
 
+**A plain `pytest -q` skips a whole tier.** Tests that need the real ~35k-card
+cache (every `test_cube_batch_*` module, plus anything marked `full_cache`) are
+opt-in: `pytest --full-cache` or `MTG_FULL_CACHE_TESTS=1`
+(`tests/conftest.py`). They read an *isolated* cache — `backend/conftest.py`
+redirects `MTG_CACHE_DIR` to `backend/cache/test/` and seeds it itself, so they
+never touch the production `backend/cache/db/cards.db`, and **never export
+`MTG_CACHE_DIR` at the production cache to run tests**: that `setdefault` is
+the only thing standing between a test run and a wiped 35k-card cache. Run the
+tier before closing anything that changes engine or parser behaviour — an
+opt-in tier accumulates stale assertions at exactly the rate the rest of the
+codebase improves, and ENG-38 closed six of them at once (five were pins that
+had quietly stopped describing the engine, one was a live bug).
+
 **Stuck-test detection is automatic** (`backend/pytest.ini`, `pytest-timeout`):
 any single test running past 20s aborts with a `Timeout (>20.0s) from
 pytest-timeout.` traceback naming it, instead of hanging the run — no

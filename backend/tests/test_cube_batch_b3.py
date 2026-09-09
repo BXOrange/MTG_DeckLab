@@ -422,6 +422,12 @@ def test_snap_bounces_a_creature_and_untaps_two_lands():
 
 
 def test_ponder_draws_a_card():
+    """RULE 608.2: the scry is *finished* — including the player's own
+    choice — before the draw happens. The draw parks behind the pending
+    choice and resumes when it is answered; this test originally asserted
+    the draw straight after `resolve_until_stable()` and so could only ever
+    have passed if the two ran out of order (ENG-38).
+    """
     eng = _engine()
     state = eng.state
     p1 = state.active_player
@@ -435,6 +441,19 @@ def test_ponder_draws_a_card():
     eng.cast_spell(p1, ponder_obj)
     eng.resolve_until_stable()
 
+    # The scry stops the resolution and the draw has *not* happened yet.
+    choice = state.pending_choice
+    assert choice is not None and choice["kind"] == "scry"
+    assert len(p1.hand) == hand_before
+
+    # "Put them back in any order": the scry runs two phases — which cards
+    # go away, then how the kept ones are ordered. Decline both.
+    for phase in ("away", "order"):
+        assert state.pending_choice["phase"] == phase
+        eng.rules.resolve_choice("decline")
+        eng.resolve_until_stable()
+
+    assert state.pending_choice is None
     assert len(p1.hand) == hand_before + 1
 
 

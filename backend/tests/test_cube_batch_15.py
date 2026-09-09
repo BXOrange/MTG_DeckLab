@@ -8,8 +8,17 @@ permanent" be told apart from a plain death.
 
 Proven here on Mayhem Devil (the motivating real card) plus the event
 plumbing itself: a sacrificed creature fires both DIES and SACRIFICE, a
-sacrificed noncreature only SACRIFICE, and a *destroyed* (non-sacrifice)
-creature fires DIES but never SACRIFICE (so Mayhem Devil doesn't over-fire).
+sacrificed *noncreature* fires both too (RULE 700.4 — see below), and a
+*destroyed* (non-sacrifice) creature fires DIES but never SACRIFICE (so
+Mayhem Devil doesn't over-fire).
+
+ENG-38: the noncreature case originally asserted SACRIFICE **without**
+DIES. That was right when written and is not any more — `damage_death_
+mixin` later widened DIES to every permanent, deliberately and with its
+reasoning in a comment, because RULE 700.4 defines "dies" as "is put into a
+graveyard from the battlefield" without narrowing to creatures (Rancor's
+"When this Aura dies…"). The pin was never re-swept because this whole
+module is `--full-cache`-gated and so had not run since.
 """
 
 from __future__ import annotations
@@ -104,7 +113,11 @@ def test_sacrificed_creature_fires_both_dies_and_sacrifice():
     assert seen.index(EventType.SACRIFICE) > seen.index(EventType.DIES)
 
 
-def test_sacrificed_noncreature_fires_sacrifice_but_not_dies():
+def test_sacrificed_noncreature_fires_sacrifice_and_dies():
+    """RULE 700.4: "dies" is every permanent, not only creatures — so a
+    sacrificed artifact fires both, in the same order a creature does. What
+    tells the two apart is the event's own ``object_types``, which is what
+    every creature-specific consumer already narrows on."""
     eng = _engine()
     state = eng.state
     rock = _battlefield(state, _artifact("SacRock"), controller="p1")
@@ -113,7 +126,8 @@ def test_sacrificed_noncreature_fires_sacrifice_but_not_dies():
     eng.rules.put_into_graveyard(rock)
 
     assert EventType.SACRIFICE in seen
-    assert EventType.DIES not in seen
+    assert EventType.DIES in seen
+    assert seen.index(EventType.SACRIFICE) > seen.index(EventType.DIES)
 
 
 def test_destroyed_creature_fires_dies_but_not_sacrifice():
