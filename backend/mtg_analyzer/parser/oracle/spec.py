@@ -82,6 +82,18 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "kicked", "kicked_at_least", "bargained", "target_is_controller",
         "life_gained_this_turn_at_least", "opponent_lost_life_this_turn_at_least",
         "is_ring_bearer", "ring_tempted_at_least",
+        # ``ring_tempted_at_most`` is `ring_tempted_at_least`'s upper-bound
+        # mirror — "… <effect>. Otherwise, the Ring tempts you." (Frodo,
+        # Sauron's Bane) is an if/else over one threshold, written as two
+        # complementary conditionals because the IR has no "otherwise"
+        # branch (which is exactly what ENG-37's `if_else` node retires).
+        # It was **evaluated by `ConditionalEffect._condition_holds` but
+        # missing from this whitelist**, and went unnoticed because Frodo
+        # nests it: before ENG-37 made `validate()` recurse, a nested
+        # condition was never checked at all, so the same key would have
+        # been rejected at depth 0 and accepted one level down. Kept as a
+        # standing example of what the depth hole was hiding.
+        "ring_tempted_at_most",
         "controls_none_of_type", "source_x_paid_at_least",
         "creatures_died_this_turn_at_least", "graveyard_has_type", "target_is_player",
         "not_already_exerted", "is_first_combat_phase", "is_your_turn",
@@ -1163,7 +1175,7 @@ class AbilitySpec:
                     )
 
     @staticmethod
-    def _clamp_params(params: dict[str, Any]) -> None:
+    def _clamp_params(params: dict[str, Any], _depth: int = 0) -> None:
         for key in _CLAMPED_PARAM_KEYS:
             value = params.get(key)
             if isinstance(value, bool):  # bool is an int subclass — leave flags alone
@@ -1176,6 +1188,74 @@ class AbilitySpec:
         for entry in params.get("parametric_keywords") or []:
             if isinstance(entry, dict) and isinstance(entry.get("n"), int) and not isinstance(entry["n"], bool):
                 entry["n"] = max(0, min(entry["n"], MAX_EFFECT_MAGNITUDE))
+        # ENG-37: descend into nested effect specs. `validate()` used to walk
+        # only `self.effects`, i.e. depth 0 — so `MAX_EFFECT_MAGNITUDE` and
+        # the `condition` whitelist were **unenforced below the top level**,
+        # even though the engine has carried nested spec lists for a long
+        # time (`pay_cost_then`'s `on_pay_effect_specs`, `repeat_process`,
+        # `create_delayed_trigger`, `choose_objects`' `then_specs`, a modal
+        # option's own list, …). docs/09's security model says clamp params
+        # and whitelist conditions; a spec is only as safe as its deepest
+        # node, and "draw 10^9 cards" parked one level down inside a
+        # `then_specs` wedged a session exactly as well as at depth 0.
+        AbilitySpec._clamp_nested(params, _depth)
+
+    #: How deep a spec tree may nest before validation fails closed. Nesting
+    #: is structural (a "then" body, a modal option, ENG-37's composition
+    #: nodes), so real cards are only a few levels deep — Doomsday and the
+    #: modal-with-a-then families are the deepest shipped shapes at 3. The
+    #: cap exists so a hostile or malformed spec cannot make validation
+    #: itself the denial of service, the same reasoning behind
+    #: `MAX_EFFECT_MAGNITUDE`.
+    MAX_SPEC_DEPTH: int = 8
+
+    @staticmethod
+    def _clamp_nested(container: Any, depth: int) -> None:
+        """Recursively clamp/validate every nested effect spec in ``container``.
+
+        Structural, not name-keyed: nested spec lists are spelled a dozen
+        different ways across the effect factories (``then_specs``,
+        ``on_pay_effect_specs``, ``miss_effect_specs``, ``winner_specs``,
+        ``else_specs``, ``lose_effects``, ``per_vote_specs``, …), so keying
+        off the names would silently miss the next one — precisely the trap
+        `static_conditions.py`'s own docstring describes for selector params.
+        A node is recognised by *shape* instead: an `EffectSpec`, or the
+        ``{"type": ..., "params": {...}}`` dict form `enqueue_reflexive_
+        trigger` and the catalogue both use.
+        """
+        # ``depth`` counts **spell-out spec levels**, not walk steps: it only
+        # advances where one spec node's params contain another spec node, so
+        # the cap means what it says (a three-level card is at depth 3, not at
+        # whatever the intervening dicts and lists happen to add up to).
+        if depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError(
+                f"effect spec nests deeper than {AbilitySpec.MAX_SPEC_DEPTH} "
+                f"levels; refusing to validate (fail-closed)"
+            )
+        if isinstance(container, EffectSpec):
+            AbilitySpec._clamp_params(container.params, depth + 1)
+            if container.condition is not None:
+                AbilitySpec._validate_condition(container.condition)
+            return
+        if isinstance(container, dict):
+            # An `EffectSpec.to_dict()`-shaped node: clamp its own params,
+            # then keep descending through them.
+            if isinstance(container.get("type"), str):
+                nested = container.get("params")
+                if isinstance(nested, dict):
+                    AbilitySpec._clamp_params(nested, depth + 1)
+                condition = container.get("condition")
+                if isinstance(condition, dict):
+                    AbilitySpec._validate_condition(condition)
+                return
+            for value in container.values():
+                if isinstance(value, (list, tuple, dict, EffectSpec)):
+                    AbilitySpec._clamp_nested(value, depth)
+            return
+        if isinstance(container, (list, tuple)):
+            for item in container:
+                if isinstance(item, (list, tuple, dict, EffectSpec)):
+                    AbilitySpec._clamp_nested(item, depth)
 
     def to_dict(self) -> dict[str, Any]:
         return {

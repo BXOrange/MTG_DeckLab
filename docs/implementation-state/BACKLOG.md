@@ -43,37 +43,20 @@ its block back into the matching section here.
 
 ## ENG — Game engine
 
-> Scope and rationale for ENG-34…37 live in
+> Scope and rationale for ENG-35…37 live in
 > [14_PARSER_GRAMMAR_DESIGN.md](../concepts/14_PARSER_GRAMMAR_DESIGN.md);
 > the evidence is
 > [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md).
-> Order is a dependency chain, not a preference. **ENG-34/35 should move
-> coverage by zero** — judge them on the counts named in each.
-
-- **ENG-34 · Atom inventory: classify the instruction set (`14_` S0).** Derive
-  the operation list from the CR (RULE 701 keyword actions + the zone-change /
-  damage / counter / life operations), then classify every one of
-  `RulesEngine`'s **254 public methods** and `EffectRegistry`'s **457 types** as
-  *instruction* / *continuation pair* / *fusion* / *alias* / *one-card special*.
-  A **fusion** is two instructions welded together because the IR cannot
-  sequence them (`LivingWeaponEffect`'s docstring states the problem); that list
-  is the backlog ENG-37's operators must retire, and every proposed operator has
-  to name the fusions it kills. Also declare each instruction's **argument
-  frame** (agent, patient, source zone, destination zone, amount, duration) -
-  frames are not canonical today (11,532 observed against ~130 operations), and
-  the frame vocabulary must be shared with the parser, replacing
-  `targeting.py`'s 59 opaque `kind` strings and its 58 hand-written
-  `kind == …` branches.
-  Side task: re-point `scripts/commander_tail_report.py`'s bucket-D signatures,
-  and file the CR-versus-engine diff as fresh `MEC-*` tickets — that diff is
-  what the `MEC` category means, produced systematically instead of
-  card-by-card.
-  **Exit:** every top-50 corpus operation has a named instruction with a frame;
-  all 457 types carry a classification. No behaviour change.
-  > **Cheap-exit checkpoint.** That a canonical frame exists for most
-  > instructions is asserted, not demonstrated. If frames do not canonicalize
-  > here, ENG-37 and PAR-62 lose their footing and the design should be dropped
-  > rather than pushed through.
+> Order is a dependency chain, not a preference. **ENG-35 should move
+> coverage by zero** — judge it on the counts named in it.
+>
+> **ENG-34 is closed** (`game/isa.py`, `scripts/isa_report.py`,
+> `tests/test_isa_inventory.py`, `tests/test_target_frames.py`). The three
+> below now read their backlogs off it rather than re-deriving them:
+> `isa.types_classified(Classification.CONTINUATION)` is ENG-35's 59,
+> `isa.fusions_retired_by(<op>)` is ENG-37's 84 split by operator. Its
+> cheap-exit checkpoint **passed** — all 50 top corpus operations resolve to
+> one framed instruction — so the design stands rather than being dropped.
 
 - **ENG-35 · Generalize the continuation primitive (`14_` S1).** **97 of the
   254 public `RulesEngine` methods (38%) are `request_*`/`resolve_*_choice`
@@ -86,11 +69,36 @@ its block back into the matching section here.
   interactive path. A trigger on the stack *is* a resumable continuation with
   correct target selection. It already carries a mode choice
   (`then_trigger_modes`), i.e. a branch resumed after suspension.
-  Promote it to the general path and retire the bespoke pairs onto it; make
-  `GameState.deferred_effects` **structure-aware** (it parks the tail of a flat
-  list *by position*, so it cannot resume into a tree).
-  **Blocks ENG-37** — `optional`/`for_each` must suspend inside a body.
+  Promote it to the general path and retire the bespoke pairs onto it.
+  `isa.types_classified(Classification.CONTINUATION)` is the list: **59**
+  effect types, each tagged with the CR rule its choice comes from.
+
+  **Scope refinement (from ENG-34's read of the mechanism — start here).**
+  "`deferred_effects` is not structure-aware" is half right, and the wrong
+  half is the expensive one to get wrong:
+
+  - It is **already a LIFO stack**, and nesting through it already works for
+    the *tail* case. Trace `[A, COMPOSITE, C]` where `COMPOSITE`'s body
+    pauses: the inner `_apply_effects_partitioned` parks the body's
+    remainder, the outer one then parks `[C]`, and the pops come back
+    inner-then-outer — correct order, no change needed. Any plan that starts
+    by rewriting the parking mechanism wholesale is rewriting something that
+    works.
+  - What is genuinely missing is an **iteration frame**. A parked entry is
+    `effects[position+1:]` plus context — there is no way to say "resume this
+    body for item k, *then continue the loop at k+1*". That, specifically, is
+    what `for_each` cannot express, and `optional` needs the same frame to
+    re-enter a body after a yes/no answer.
+
+  So the structure-aware work is: give `deferred_effects` entries a `kind`
+  tag (`"tail"` = today's shape, unchanged), add an `"iteration"` frame
+  carrying `items`/`index`, and dispatch on it in
+  `resume_deferred_effects`. Small, and it is the whole of what **blocks
+  ENG-37**.
   **Exit:** suite green; method count 254 → ≤170; no coverage movement.
+  > Do the iteration frame first and independently — ENG-37 needs only that,
+  > not the 84-method retirement, so pairing them serialises ENG-37 behind
+  > the largest and riskiest piece of work in the chain for no reason.
 
 - **ENG-36 · Structured effect conditions (`14_` S2).** Replace `spec.py`'s
   **43 flat `_ALLOWED_CONDITION_KEYS`** with subject-qualified predicates
@@ -107,6 +115,22 @@ its block back into the matching section here.
   Retires `parse_effect_body`'s **26 hand-coded prefix-peelers** in favour of
   one general `if <predicate>, <effect>` rule (PAR-62 consumes it; this ticket
   owns the vocabulary).
+
+  **Migrate the way `static_conditions.py` did, not by rewriting producers.**
+  Every shipped `AbilitySpec` and catalogue entry spells these conditions
+  flat (`condition={"kicked": True}`), and there are thousands of them, so a
+  producer-side rewrite is both enormous and needlessly risky. That module
+  already solved this for statics: `condition_from_legacy_params` translates
+  the legacy spellings into the structured vocabulary so there is **one
+  implementation, not two**, and the old spellings keep working untouched.
+  Do the same — `normalize_effect_condition(flat) -> {kind, of, …}` at
+  validation time, one evaluator behind it — and
+  `ConditionalEffect._condition_holds` (**554 lines** of flat if-chains,
+  `game/effects/core.py`) collapses to a delegation.
+
+  Note the evaluator is *already* reachable from every depth: ENG-37's
+  nested-validation fix means a condition parked inside a `then_specs` is
+  whitelisted too, so the structured form does not need its own depth story.
   **Exit:** condition keys structured; peeler cascade 26 → 1.
 
 - **ENG-37 · Composite IR nodes (`14_` S3).** Add nesting to `EffectSpec` -
@@ -117,11 +141,21 @@ its block back into the matching section here.
   `type` whitelist keeps gating every depth. `bind` is what the shared
   `{DEVOTION}`-scaled-X handler cluster works around; `if/else` is what the
   kicked-override family works around.
-  Also closes a real hole: nested `params["effects"]` currently bypass
-  `_clamp_params` and `_validate_condition`, so `MAX_EFFECT_MAGNITUDE` is
-  **unenforced below depth 0**.
-  **Needs ENG-35.** **Exit:** each operator names the ENG-34 fusions it retires,
-  and those types are gone.
+  The security half of this ticket is **done** (PARSER_VERSION 299):
+  `AbilitySpec.validate()` now recurses into nested specs, so
+  `MAX_EFFECT_MAGNITUDE` and the `condition` whitelist are enforced at every
+  depth instead of only at 0, with a `MAX_SPEC_DEPTH` fail-closed cap.
+  Recognition is *structural* (an `EffectSpec`, or a `{"type", "params"}`
+  dict) rather than keyed on the dozen different names nested lists go by —
+  see `spec.AbilitySpec._clamp_nested` and
+  `tests/parser/oracle/test_spec_nested_validation.py`. What remains is the
+  composition nodes themselves.
+  **Needs ENG-35.** ENG-34 already did the naming: `game/isa.py`'s
+  `fusions_retired_by(<operator>)` returns each operator's list (`seq` 46,
+  `bind` 18, `if_else` 13, `for_each` 5, `optional` 2), and
+  `tests/test_isa_inventory.py` fails an operator that retires none.
+  **Exit:** those 84 fusion types are gone; the test's
+  `test_fusion_backlog_does_not_grow` bound drops with them.
 
 
 ## PAR — Parser
@@ -138,9 +172,10 @@ its block back into the matching section here.
   closed: **130 operations, top 50 covering 94.9%**. The explosion is
   combinatorial, not lexical.
 
-  Execution order (dependency chain): **ENG-34** (atom inventory) → **ENG-35**
-  (continuations) → **ENG-36** (structured conditions) → **ENG-37** (composite
-  IR nodes) → **PAR-62** (clause grammar) → **PAR-63** (slot grammars).
+  Execution order (dependency chain): ~~ENG-34~~ (atom inventory, **closed**)
+  → **ENG-35** (continuations) → **ENG-36** (structured conditions) →
+  **ENG-37** (composite IR nodes) → **PAR-62** (clause grammar) → **PAR-63**
+  (slot grammars).
 
   This ticket holds only what is not in those six:
 
@@ -176,7 +211,7 @@ its block back into the matching section here.
   `subgrammars.UP_TO_ONE`, hardcoded to N=1.
   **Highest-risk ticket in the chain** — every currently-MODELED card is
   re-derived through it, and there is no partial rollout. Mitigation: the full
-  suite plus a full-cache before/after coverage diff. **Needs ENG-34 + ENG-37**;
+  suite plus a full-cache before/after coverage diff. **Needs ENG-37** (ENG-34 is closed);
   without an atom layer to hand residue *to*, recursive descent has nothing to
   descend into.
   **Exit:** coverage does not regress; templates-per-blocked-card (**1.12
@@ -396,12 +431,57 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-> **(none open.)** `scripts/commander_tail_report.py`'s bucket D routes
-> ~132 Commander-legal cards here; its signature labels now name the *missing
-> primitive* rather than a ticket id (they previously cited MEC-47/49 and
-> PAR-30, all closed, and MEC-48, parked in `DEFERRED.md`). File a fresh
-> `MEC-*` when starting one. **ENG-34** will additionally derive this list
-> systematically — a CR-versus-`RulesEngine` diff — rather than card-by-card.
+> `scripts/commander_tail_report.py`'s bucket D routes ~132 Commander-legal
+> cards here. Its signature labels name the *missing primitive* rather than a
+> ticket id, and ENG-34 re-pointed the ones that are missing **instructions**
+> at `game/isa.py`, so the report's routing and the ISA are one ground truth.
+>
+> The six below are ENG-34's **CR-versus-engine diff**, produced
+> systematically (`scripts/isa_report.py`) rather than discovered
+> card-by-card: ISA instructions the Comprehensive Rules define that this
+> engine has no realisation of at all. They are deliberately small and
+> mechanical — `14_` §7 predicted exactly that, because the historical `MEC`
+> stream was largely composition gaps wearing a mechanic's name.
+>
+> Not filed, on purpose: the Attractions family (RULE 701.45 Assemble,
+> 701.51 Open an Attraction, 701.52 Roll to Visit Your Attractions) is a
+> permanent non-goal in `DEFERRED.md`.
+
+- **MEC-75 · Rolling a die (RULE 706).** No dice subsystem exists at all —
+  `game/ability_catalogue/entries_006.py`'s Vrondiss entry says so in as many
+  words ("the dice-roll clause is skipped entirely — this engine has no
+  dice-rolling subsystem at all") and creates a vanilla token instead. Needs
+  a `roll_die` primitive (agent, amount), a `DICE_ROLLED` event for the
+  "whenever you roll one or more dice" trigger family, and the RULE 706.3
+  ignore-lowest/highest riders. Sibling of `flip_coin` (RULE 705), which is
+  already a primitive — copy its shape.
+  > While here: several catalogue comments cite **`RULE 706` for copying**
+  > (Clever Impersonator, `commander_cards.py`'s become-copy note). Copying
+  > is RULE **707** in the current CR; 706 is Rolling a Die. Those citations
+  > are stale, not wrong-in-spirit — fix them in the same pass so the new
+  > `roll_die` work does not collide with them.
+
+- **MEC-76 · Fateseal (RULE 701.29).** Absent. Scry's opponent-facing twin
+  (look at the top N of *target opponent's* library, put any number on the
+  bottom) — `scry`/`surveil` are both primitives, so this is the same shape
+  with the agent and the patient's owner split apart, which is precisely the
+  ISA's `agent`/`patient` frame distinction.
+
+- **MEC-77 · Meld (RULE 701.42).** Absent as a primitive; `meld` exists only
+  as a `Card.layout` string. Needs the pair-exile-and-return-as-one-permanent
+  zone change plus the melded permanent's own back-face identity.
+
+- **MEC-78 · Heal (RULE 701.69).** Absent. A recent keyword action (remove N
+  damage / -1/-1 counters) with no engine realisation; the counter half is
+  `remove_counter`, so scope is the damage-marking half plus the keyword.
+
+- **MEC-79 · Harness (RULE 701.64).** Absent. (Grep hits on "harness" are the
+  card *Fractal Harness*, not the keyword action.)
+
+- **MEC-80 · Triple (RULE 701.11).** Absent, though `double` (RULE 701.10) is
+  a primitive. Small by construction — the same amount-scaling operation at a
+  different factor, which is the ISA's point: one operation, an `amount`
+  role, not two registry rows.
 
 ## PLR — Player management
 

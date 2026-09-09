@@ -2650,7 +2650,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `draw` `EffectSpec`s — one untargeted (the source's controller) and one
 #: `target_kind="opponent"` — resolved in that order. 6 SOLO cache-wide;
 #: +Secret Rendezvous [Silverquill + Lorehold decks].
-PARSER_VERSION = "298"
+#: v299 — ENG-37: `AbilitySpec.validate()` now recurses into **nested**
+#: effect specs. `_clamp_params` and `_validate_condition` previously ran
+#: only over `self.effects` (depth 0), so `MAX_EFFECT_MAGNITUDE` and the
+#: `condition` whitelist were unenforced inside every nested spec list
+#: (`then_specs`, `on_pay_effect_specs`, a modal option's own effects, …).
+#: Recognition is structural rather than name-keyed, plus a
+#: `MAX_SPEC_DEPTH` fail-closed cap. **No parse-behaviour change measured**
+#: — no shipped spec nests an out-of-range amount or an unwhitelisted
+#: nested condition — but the gate can now reject a spec it used to accept,
+#: which is a verdict-affecting change by definition, so the version moves.
+PARSER_VERSION = "299"
 
 
 def parser_source_hash() -> str:

@@ -93,7 +93,37 @@ _MODE_BODY_PREFIX_RE = re.compile(r"^(?:•\s+|\+\s+.*?\s+—\s+)")
 #: Labels name the missing primitive, deliberately NOT a ticket id: the
 #: tickets these once pointed at (MEC-47/49, PAR-30) are closed and MEC-48 is
 #: parked in DEFERRED.md, so citing them here went stale. File a fresh MEC-*.
+#:
+#: **ENG-34 re-pointed these at the ISA** (`game/isa.py`). Where a row's gap
+#: is a missing *instruction* rather than a missing handler, its label now
+#: names that instruction and the CR rule defining it, so the routing here
+#: and the CR-versus-engine diff are the same ground truth rather than two
+#: independently-drifting prose lists. Rows whose gap is a residue of an
+#: instruction that *does* exist keep a descriptive label — naming an ISA
+#: instruction that is implemented would be misleading.
+#:
+#: The six `RULE 7xx` rows below are that diff: ISA instructions with no
+#: engine realisation at all, derived by `scripts/isa_report.py` rather than
+#: discovered card-by-card, which is what `14_` §7 means by a
+#: systematically-generated MEC backlog. The Attractions family (RULE
+#: 701.51/701.52/701.45) is deliberately **not** here — it is a permanent
+#: non-goal in DEFERRED.md, so those cards belong in bucket F's spirit, not
+#: in a bucket-D worklist.
 _PRIMITIVE_GAP_SIGNATURES: dict[str, re.Pattern[str]] = {
+    # --- ENG-34's CR-versus-engine diff: no ISA instruction realised ------
+    "ISA gap: roll_die (RULE 706) — no dice subsystem at all":
+        re.compile(r"\broll(?:s|ed)? (?:a|one or more|\d+|two|three) (?:six|twenty|"
+                   r"\d+)?[- ]?sided (?:di[ce]|die)\b|\broll(?:s|ed)? a d\d+", re.I),
+    "ISA gap: fateseal (RULE 701.29)":
+        re.compile(r"\bfateseal(?:s|ed)?\b", re.I),
+    "ISA gap: meld (RULE 701.42)":
+        re.compile(r"\bmeld(?:s|ed)? (?:them|it)\b|\bmelds with\b", re.I),
+    "ISA gap: heal (RULE 701.69)":
+        re.compile(r"\bheal(?:s|ed)? \d+\b", re.I),
+    "ISA gap: harness (RULE 701.64)":
+        re.compile(r"\bharness(?:es|ed)?\b", re.I),
+    "ISA gap: triple (RULE 701.11) — only `double` exists":
+        re.compile(r"\btriple(?:s|d)? (?:that|the|its|your|target)\b", re.I),
     "Licid — creature becomes an Aura":
         re.compile(r"loses this ability and becomes an aura enchantment", re.I),
     "Specialize (Duskmourn) — parked, see DEFERRED.md":

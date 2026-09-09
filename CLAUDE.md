@@ -487,7 +487,10 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 41.8% (14,557 / 34,811) as of 2026-09-08, PARSER_VERSION 298**
+**Coverage: 41.8% (14,557 / 34,811) as of 2026-09-08, measured at
+PARSER_VERSION 298** (the parser is at **299** — ENG-37's nested-spec
+validation fix, which moves no card's verdict; re-measure before
+quoting a 299 number)
 (parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
@@ -730,6 +733,9 @@ English and German.
 | Dungeons + venturing | `models/dungeon.py`, `game/dungeons.py`, `services/dungeon_database.py`, `rules_engine.venture_into_the_dungeon` |
 | Formats & casual variants (Planechase/Archenemy/Vanguard) | `models/game_format.py`, `game/variants.py`, `services/variant_card_database.py`, `game_engine.new_game(game_format=…)` |
 | "Play/cast from top of library" permission | `game/top_library.py`, `game/game_engine.py` (`can_play_land`/`can_cast`/`legal_actions`), `gameBoardView.js` (`libraryTopHtml`) |
+| What an effect type/engine method *is* (instruction/fusion/alias/…) | `backend/mtg_analyzer/game/isa.py`, `scripts/isa_report.py --registry` |
+| Which operations the corpus actually uses, and their argument frames | `scripts/isa_report.py --corpus` (re-derives `13_` §5.6b from the ledger) |
+| What a `TargetSpec.kind` decomposes into (types × scope × filters) | `game/targeting.py`'s `TARGET_FRAMES` |
 | On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Solo vs. bots (Multiplayer engine, no lobby) | `backend/mtg_analyzer/api/solo.py`, `frontend/src/js/soloView.js`; shared picker/mulligan/banner markup in `frontend/src/js/gameSetup.js` (also used by goldfish/multiplayer) |

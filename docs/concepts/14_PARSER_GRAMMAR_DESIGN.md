@@ -1,6 +1,12 @@
 # 14 — The atom/composition design: oracle text as a program
 
-**Status:** design proposal, 2026-09-08. **Nothing here is implemented.**
+**Status:** design, 2026-09-08. **S0 is implemented** (ENG-34, closed —
+`game/isa.py`, `scripts/isa_report.py`, `game/targeting.py`'s
+`TARGET_FRAMES`); S1–S5 are still proposal. **S0b's cheap-exit checkpoint
+(§8) passed** — all 50 top corpus operations resolve to one instruction with
+a canonical frame — so the programme continues rather than being abandoned
+here. See `Done_Backend.md` "Instruction-Set Architecture (ISA) &
+Composition" for what landed and what the classification found.
 **Follows:** [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](13_ORACLE_PARSER_GRAMMAR_REVIEW.md)
 (the evidence) and [09_ORACLE_EFFECT_PARSER.md](09_ORACLE_EFFECT_PARSER.md)
 (the current design).
@@ -15,6 +21,13 @@ design that follows from that: **find the atoms, then compose them.**
 > 2026-09-08 while a large `models/`/`game/` package split was landing
 > uncommitted (675 files in flight). They were read statically, not by importing
 > a running engine. Re-derive before relying on any exact figure.
+>
+> **Partly discharged.** ENG-34 re-derived these against a live import and
+> they hold: **254** public `RulesEngine` methods, **97** of them
+> `request_*`/`resolve_*_choice` (27 + 68 + 2 strays), **457** registered
+> effect types, **43** `_ALLOWED_CONDITION_KEYS`, **59** explicit
+> `TargetSpec.kind` strings plus the 36-kind composed graveyard family (95
+> total). `scripts/isa_report.py` re-derives the first three on demand.
 
 ---
 

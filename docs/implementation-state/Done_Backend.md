@@ -1006,6 +1006,48 @@ is in the rules-engine categories below them.
 
 ## Targeting
 
+### Structural target frames — `kind` decomposed (ENG-34, `14_` S0b)
+
+- **What:** `TargetSpec.kind` was 59 opaque strings dispatched by **58**
+  hand-written `kind == …` branches in `legal_targets`, with union types
+  written as single words (`artifact_creature_planeswalker_or_opponent`)
+  rather than composed. `TARGET_FRAMES` now decomposes **46** of those kinds
+  into a structured `TargetFrame` (type predicate × controller/ownership
+  scope × source exclusion × attachment mode × which of colour /
+  mana-value / creature filters apply), and one generic resolver
+  (`_legal_from_frame`) replaces **38** branch bodies. The cascade is
+  **58 → 12** remaining name branches.
+- **Files:** `game/targeting.py`, `tests/test_target_frames.py` (153 tests)
+- **Why this and not a rename:** the kind *strings* are unchanged. They are
+  `AbilitySpec` IR and part of the security whitelist, so renaming them
+  would be a schema break for no gain — what changes is that they now
+  **decompose**, so a parser handler or a PAR-63 slot grammar can ask "what
+  types, whose, excluding what" instead of matching a name. This is the
+  shared operand vocabulary `14_` §4 asks for, on the engine side.
+- **The pattern was already here.** The graveyard family (36 kinds) was
+  already composed as scope × type-filter through a single branch, which
+  `14_` §4 calls "the one place the codebase already demonstrates the
+  alternative". This extends that demonstration to the battlefield rather
+  than inventing a second mechanism.
+- **Twelve kinds keep a branch, on purpose,** and `IRREDUCIBLE_KINDS` in the
+  test spells out why each: they read the stack, a plain player list, a
+  per-turn damage record, or `source.blocking` rather than the battlefield,
+  or (`permanent`) carry equip/fortify/reconfigure/enchant attachment
+  legality of their own. A *new* opaque kind fails the totality test, which
+  is the point — it forces the "can this be a frame?" question.
+- **Quirks preserved, not smoothed.** Several branches silently ignored
+  `spec.color` / `spec.max_mana_value` / `spec.creature_filter`, one skipped
+  targetability filtering entirely (the RULE 614.12 enter-as-copy candidate
+  pool, which is not a RULE 115 target), and only three emitted
+  `controller_id` in their descriptors. Those are recorded per frame rather
+  than normalized, because ENG-34 is a no-behaviour-change ticket and the
+  full suite passing is the evidence. **Normalizing them is a real
+  follow-up** — a spec that sets `color` on a kind that ignores it is a
+  latent bug — but it changes behaviour and belongs in its own ticket.
+- **Verified by:** the full suite, before and after, at each of the two steps
+  (add the frame dispatch ahead of the branches; then delete the dead
+  branches) — 6,686 passing, unchanged except for the new tests.
+
 ### Generalized graveyard-card targeting and Deathrite Shaman
 
 - **What:** The Regrowth/Reanimate recursion family generalized to the full real-card vocabulary (card type × graveyard scope — own/any/an opponent's). New `return_from_graveyard`, `reanimate_under_your_control` (steals control regardless of whose graveyard), and `exile_from_graveyard` effects share a `_graveyard_target_kind` helper.
@@ -3992,6 +4034,140 @@ is in the rules-engine categories below them.
 
 - **What:** `blank_replay` was capped at 2 players even though the turn engine and Multiplayer both already support up to 4 seats. Raised the cap to `[1, 4]`, naming blank seats "Du"/"Gegner 1-3"; the play-mode board needed no engine change since it already runs the same `GameSession`/`gameBoardView.js` Multiplayer uses at 3-4 seats.
 - **Files:** `services/replay.py`
+
+## Instruction-Set Architecture (ISA) & Composition
+
+The `14_` atom/composition programme's substrate: what this engine's
+instruction set actually *is*, measured rather than asserted. Design is
+[14_PARSER_GRAMMAR_DESIGN.md](../concepts/14_PARSER_GRAMMAR_DESIGN.md),
+evidence is
+[13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md).
+
+### Spec validation reaches every nesting depth (ENG-37, partial)
+
+- **What:** `AbilitySpec.validate()` walked only `self.effects`, so docs/09's
+  two security-model guarantees — *clamp numeric params*, *whitelist
+  conditions* — held at depth 0 and nowhere else. The engine has carried
+  nested spec lists for a long time (`pay_cost_then`'s
+  `on_pay_effect_specs`, `repeat_process`'s `effects`,
+  `create_delayed_trigger`, `choose_objects`' `then_specs`, a modal option's
+  own list), and a "draw 10^9 cards" parked one level down inside any of them
+  wedged a session exactly as well as at depth 0. `_clamp_nested` now
+  recurses; `MAX_SPEC_DEPTH` (8) fails closed beyond a sane nesting.
+- **Files:** `parser/oracle/spec.py`,
+  `tests/parser/oracle/test_spec_nested_validation.py` (9 tests),
+  `parser/oracle/gate.py` (PARSER_VERSION 298 → **299**)
+- **Recognition is structural, not name-keyed.** Nested spec lists are
+  spelled at least a dozen ways across the effect factories (`then_specs`,
+  `on_pay_effect_specs`, `miss_effect_specs`, `winner_specs`, `else_specs`,
+  `lose_effects`, `per_vote_specs`, …). Keying the walk off those names would
+  have missed the thirteenth — the exact trap `static_conditions.py`'s own
+  docstring describes for selector params. A node is recognised by shape
+  instead: an `EffectSpec`, or the `{"type": …, "params": {…}}` dict form
+  `enqueue_reflexive_trigger` and the catalogue both use. A test asserts an
+  *invented* param name is still clamped, so the guarantee is about the
+  mechanism rather than about today's key list.
+- **`depth` counts spec levels, not walk steps.** The first cut incremented
+  on every dict/list hop, which made a legitimate three-level card (the
+  deepest shipped shape) look like depth 9 and fail. The cap now means what
+  it says.
+- **It immediately caught a real one.** Frodo, Sauron's Bane ships
+  `condition={"ring_tempted_at_most": 3}` — a key
+  `ConditionalEffect._condition_holds` evaluates but
+  `_ALLOWED_CONDITION_KEYS` never listed. It had worked *only* because the
+  card nests it: the identical key at depth 0 would have been rejected all
+  along. That is the shape of bug the hole was hiding — not a hostile spec,
+  a shipped card quietly depending on a security check not running.
+  `ring_tempted_at_most` is now whitelisted (it is
+  `ring_tempted_at_least`'s upper-bound mirror, written as a second
+  complementary conditional because the IR has no "otherwise" branch —
+  exactly what ENG-37's `if_else` node is for), and two tests now assert the
+  whitelist and the evaluator name the same keys in both directions, so
+  neither an ungated key nor a dead one can drift back in.
+- **Why the version bumped despite no coverage movement:** no shipped spec
+  nests an out-of-range amount, and the one unwhitelisted nested condition
+  was a real key rather than a rejected card, so coverage is unmoved — but
+  the gate can now *reject* a spec it used to accept, which is
+  verdict-affecting by definition, and `PARSER_VERSION` is what the coverage
+  ledger keys on.
+
+### The atom inventory (ENG-34, `14_` S0)
+
+- **What:** `game/isa.py` — a CR-derived instruction set (**106** operations:
+  every RULE 701.2–701.70 keyword action, plus the damage / draw / life /
+  counter / mana / zone-change / copy / randomizer operations the rules use
+  without naming as keywords), each carrying the rule that defines it and an
+  **argument frame** drawn from one six-role vocabulary (agent, patient,
+  source zone, dest zone, amount, duration). Against it, **all 457
+  registered effect types are classified**: 74 instruction, 141 alias, 84
+  fusion, 59 continuation pair, 42 one-card special, 41 static, 16
+  replacement.
+- **Files:** `game/isa.py`, `scripts/isa_report.py`,
+  `tests/test_isa_inventory.py` (73 tests)
+- **Why this shape:** The classification is *data with a test behind it*, not
+  a document. `test_isa_inventory.py` fails when a new effect type is
+  registered without being classified, when a composition operator retires no
+  fusion (`14_` S0c's own rule), when a fusion welds an instruction that does
+  not exist, and when a RULE 701 keyword action has no ISA entry at all. A
+  prose inventory would have been stale within a batch; this one cannot go
+  stale silently.
+- **The two labels `14_` S0a did not name.** Classifying the 457 forced a
+  finding: **57 of them are not instruction-stream at all.** `14_` §1.1 is
+  explicit that a RULE 613 static is a continuously re-derived constraint and
+  a RULE 614 replacement is event middleware — neither is ever executed — so
+  forcing `anthem` or `graveyard_redirect` into "instruction" would have put
+  them in the layer the design exists to keep them out of. They carry
+  `STATIC`/`REPLACEMENT` instead and are excluded from the ISA coverage
+  assertions.
+- **Classification precedence.** Several types answer to more than one label.
+  They are classified by which axis *retires* them — CONTINUATION > FUSION >
+  ALIAS > INSTRUCTION > SPECIAL — so ENG-35 sweeps everything that blocks on a
+  choice and ENG-37 sweeps everything that exists only because two
+  instructions could not be sequenced, however card-specific either is.
+  `SPECIAL` is therefore a real residue ("does not decompose into today's
+  ISA"), not a synonym for "named after a card".
+
+### The cheap-exit checkpoint passed (ENG-34, `14_` S0b)
+
+- **What:** `scripts/isa_report.py --corpus` re-derives `13_` §5.6(b) from the
+  coverage ledger: decompose every unclaimed clause on its connectives into
+  atoms (**51,288** atoms from **25,896** clauses at PARSER_VERSION 298), take
+  each atom's leading operation verb against a lexicon hand-written from the
+  CR *without looking at the corpus*, and rank. Result: **81.9%** of atoms
+  invoke a known operation, **83** distinct operations occur, and the **top 50
+  carry 99.5%** of them — every one of which resolves to a single ISA
+  instruction with a canonical frame.
+- **Why it matters more than the number:** `14_` §8 named S0b as the point
+  where the whole atom/composition design could still be abandoned cheaply,
+  because "a canonical role frame exists for most instructions" was *asserted
+  from the 130/11,532 gap, not demonstrated*. It is now demonstrated. The head
+  of the distribution — `choose` 9.6%, `gain_control` 8.8%,
+  `create_continuous_effect` 8.4%, `put_counter` 8.0%, `cast` 6.7% — is the
+  shape `14_` predicted, and `choose` leading it is the same finding as `14_`
+  §3's "38% of `RulesEngine` is choice plumbing" arriving from the corpus side.
+- **Files:** `scripts/isa_report.py`, `isa.TOP_CORPUS_OPERATIONS` (frozen, so
+  the exit criterion is checkable without the ledger, which is a developer
+  artifact rather than a committed fixture)
+
+### The CR-versus-engine diff as a generated MEC backlog (ENG-34, `14_` §7)
+
+- **What:** Diffing the CR-derived ISA against what the engine can actually
+  perform yields exactly "operations the rules require that the engine cannot
+  do" — the literal definition of the `MEC` category, produced systematically
+  instead of card-by-card. Six survived checking every candidate against real
+  engine code rather than against a naming convention: **MEC-75** rolling a
+  die (RULE 706 — no dice subsystem at all, which a catalogue entry already
+  admitted in prose), **MEC-76** fateseal, **MEC-77** meld, **MEC-78** heal,
+  **MEC-79** harness, **MEC-80** triple.
+- **Why so few:** `14_` §7 predicted it — most historical `MEC` tickets were
+  composition gaps wearing a mechanic's name, and the atom/fusion/alias split
+  is what tells the two apart *before* a ticket gets written. Most apparent
+  gaps turned out to be implemented under another name; the Attractions family
+  (RULE 701.45/701.51/701.52) was deliberately not filed, being a permanent
+  non-goal in `DEFERRED.md`.
+- **Files:** `docs/implementation-state/BACKLOG.md` (MEC section),
+  `scripts/commander_tail_report.py` (bucket-D signatures re-pointed at the
+  ISA, so the report's routing and the diff are one ground truth)
 
 ## Oracle-Text Parser Front-End
 
