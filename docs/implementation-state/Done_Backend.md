@@ -4158,7 +4158,21 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 70**.
+Running total: **81 → 69**.
+
+- **Batch 5 (plan row B3, `bind` slice — Crypt Incursion).**
+  `exile_graveyard_creatures_gain_life` retired to
+  `seq([exile_target_graveyard{card_type: "creature"},
+  bind({this_way: objects_exiled_this_way, multiply: 3},
+  gain_life($n))])`. The one engine addition is a `card_type` filter on
+  `ExileTargetGraveyardEffect` (a `Card.is_<type>` flag check; `None` = the
+  whole graveyard, so Bojuka Bog/Tormod's Crypt are unchanged) — the "gain 3
+  life for each card exiled this way" half was already expressible: every
+  `GameContext.exile` bumps `objects_exiled_this_way`, and `effect_amounts`'
+  `this_way` kind with a `multiply` modifier reads it. The fused class had no
+  test; added three (`test_effect_families_wave3`): the `card_type` filter
+  (creatures exiled, land kept), and Crypt Incursion end-to-end (3 creatures
+  → exiled, +9 life; land stays).
 
 - **Batch 4 (plan row B3, `*_create_token` slice).** `exile_create_token` /
   `destroy_create_token` / `counter_create_token` retired to

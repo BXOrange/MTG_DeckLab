@@ -643,7 +643,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "exile_controller_searches_basic_land": (("exile", "search"), OP_SEQ),
     "exile_discount_cost": (("exile", "create_continuous_effect"), OP_SEQ),
     "exile_graveyard_card_counter_if_permanent": (("exile", "put_counter"), OP_IF_ELSE),
-    "exile_graveyard_creatures_gain_life": (("exile", "gain_life"), OP_BIND),
     "exile_hand_then_draw_that_many": (("exile", "draw"), OP_BIND),
     "exile_opponents_graveyards_impulsive_cast": (("exile", "cast"), OP_SEQ),
     "exile_then_reveal_greater_mana_value": (("exile", "reveal"), OP_SEQ),

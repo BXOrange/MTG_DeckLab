@@ -8329,49 +8329,29 @@ class ExileGraveyardCardCounterIfPermanentEffect(GameEffect):
             context.add_counters(self.source, 1, "+1/+1", source=self.source)
 
 
-class ExileGraveyardCreaturesGainLifeEffect(GameEffect):
-    """"Exile all creature cards from target player's graveyard. You gain 3
-    life for each card exiled this way." (Crypt Incursion)."""
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "player",
-        life_per_card: int = 3,
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.life_per_card = life_per_card
-        self.target_spec = TargetSpec(kind=target_kind)
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = (targets[0] if targets else None) or self.target
-        if player is None:
-            return
-        creatures = [o for o in list(player.graveyard) if o.card.is_creature]
-        for obj in creatures:
-            context.exile(obj)
-        if creatures:
-            controller = _controller_of(self.source, context)
-            if controller is not None:
-                context.gain_life(controller, self.life_per_card * len(creatures))
-
-
 class ExileTargetGraveyardEffect(GameEffect):
     """"Exile target player's graveyard." (Bojuka Bog/Tormod's Crypt-shaped)
     — every card in that one graveyard, untargeted per-card unlike
     `_exile_from_graveyard`'s single-card family; the untargeted "every
-    graveyard" sibling is `ExileAllGraveyardsEffect` above."""
+    graveyard" sibling is `ExileAllGraveyardsEffect` above.
+
+    ``card_type`` (a `Card.is_<type>` flag name — "creature", "land", …)
+    narrows it to "exile all `<type>` cards from that graveyard" (Crypt
+    Incursion); ``None`` is the whole graveyard. The exiles run through
+    `GameContext.exile`, so ``objects_exiled_this_way`` counts them — which
+    is how Crypt Incursion's "gain 3 life for each card exiled this way"
+    reads the count as an ENG-37 `bind` rather than needing a fused effect."""
 
     def __init__(
         self,
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: str = "player",
+        card_type: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        self.card_type = card_type
         self.target_spec = TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -8379,6 +8359,8 @@ class ExileTargetGraveyardEffect(GameEffect):
         if player is None:
             return
         for obj in list(player.graveyard):
+            if self.card_type and not getattr(obj.card, f"is_{self.card_type}", False):
+                continue
             context.exile(obj)
 
 
@@ -23408,16 +23390,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "exile_graveyard_creatures_gain_life",  # Crypt Incursion
-    lambda p: ExileGraveyardCreaturesGainLifeEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "player"),
-        life_per_card=p.get("life_per_card", 3),
-    ),
-)
-EffectRegistry.register(
-    "exile_target_graveyard",  # Bojuka Bog/Tormod's Crypt
+    "exile_target_graveyard",  # Bojuka Bog/Tormod's Crypt; Crypt Incursion (card_type)
     lambda p: ExileTargetGraveyardEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "player"),
+        card_type=p.get("card_type"),
     ),
 )
 EffectRegistry.register(

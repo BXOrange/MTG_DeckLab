@@ -82,9 +82,10 @@ its block back into the matching section here.
   amounts.py` is `bind`'s measured-quantity vocabulary, and
   `isa.Classification.COMPOSITION` records axis 3 as existing. Frodo, Sauron's
   Bane is the first card on it (its complementary-conditional pair is now one
-  `if_else`). **Fusion count: 70** (down from the first-pass 84 — Swords to
+  `if_else`). **Fusion count: 69** (down from the first-pass 84 — Swords to
   Plowshares / Nature's Claim / Feed the Swarm onto the operand axis;
-  `dies_grants_rad_counters_equal_power` migrated to a real `bind` node;
+  `dies_grants_rad_counters_equal_power` and `exile_graveyard_creatures_gain_life`
+  (Crypt Incursion, batch 5) migrated to real `bind` nodes;
   `exile_create_token` / `destroy_create_token` / `counter_create_token`
   migrated to `seq([<verb>, create_token{creators: previous_target_controller}])`
   (batch 4, no new engine code); and **seven** misclassifications corrected to
@@ -132,13 +133,15 @@ its block back into the matching section here.
     TYPES` row it clears in the same pass** — grep the table before starting
     and again when the primitive lands (CLAUDE.md "No half-implementations").
     The rows are a menu, not a strict order. **B8 done (batch 3); the
-    `*_create_token` slice of B3 done (batch 4).** Next: the B3 `bind`
-    remainder, then B4→B5 (high-count mechanism builds); B6 depends on B3+B4;
-    B9 needs ENG-35 coordination.
+    `*_create_token` slice of B3 done (batch 4); Crypt Incursion (B3 `bind`)
+    done (batch 5).** The remaining B3 rows need genuine new vocabulary (a
+    sum-over-a-list amount kind, a previous-moved-object referent), so the
+    freebie slice is exhausted — B4→B5 are the next high-count mechanism
+    builds; B6 depends on B3+B4; B9 needs ENG-35 coordination.
 
     | # | Mechanism to build | Clears (approx) | Notes |
     | --- | --- | --- | --- |
-    | **B3** | recipient/amount referent operands. **`*_create_token` slice done (batch 4)** — no new engine code needed: `create_token` already had `creators="previous_target_controller"`, and a `seq` body's `previous_targets` carries the just-removed object (whose `controller_id` survives the zone change, RULE 608.2h). **Remaining:** the `bind`-linkage rows below still need `deal_damage`/`copy_object`/`attach` wired to `effect_operands`/`effect_amounts`. | ~~`exile_create_token`, `destroy_create_token`, `counter_create_token`~~ (done); still: `create_attached_aura_token`, `create_token_copy_of_linked_exile`, `copy_self_controlled_by_previous_target`, `copy_attachments_onto_last_created`, `exile_graveyard_creatures_gain_life`, `exile_top_then_damage_by_mv`, `mill_then_damage_each_opponent_by_mv` (~7) | the done slice needed zero engine code — the fusion was pure producer convenience |
+    | **B3** | recipient/amount referent operands. **`*_create_token` slice done (batch 4); `exile_graveyard_creatures_gain_life` done (batch 5)** — both needed ~no engine code: `create_token` already had `creators="previous_target_controller"`, and Crypt Incursion's "for each card exiled this way" is the existing `effect_amounts` `this_way` kind over `objects_exiled_this_way` (one small addition: a `card_type` filter on `ExileTargetGraveyardEffect`). **Remaining:** the rows below need a **sum-over-a-list** `effect_amounts` kind (`exile_top_then_damage_by_mv`/`mill_..._by_mv` deal *summed* MV of N moved cards) and a **"the object(s) the previous instruction moved"** referent, plus `copy_object`/`attach` operand wiring. | ~~`exile_create_token`, `destroy_create_token`, `counter_create_token`, `exile_graveyard_creatures_gain_life`~~ (done); still: `create_attached_aura_token`, `create_token_copy_of_linked_exile`, `copy_self_controlled_by_previous_target`, `copy_attachments_onto_last_created`, `exile_top_then_damage_by_mv`, `mill_then_damage_each_opponent_by_mv` (~6) | the done slice was pure producer convenience; the rest is genuine new vocabulary |
     | **B4** | `seq` (or a `with_target` wrapper) that declares **one** `target_spec` and shares the resolved target across its whole body — docs/11 §5's "one targeting effect per ability" is the reason these are fused | `target_player_draw_lose_life`, `add_counter_first_strike`, `counter_then_fightlike_damage`, `counter_untap_grant_keyword`, `remove_counters_from_among_then_draw_lose_life`, `damage_and_drain_capped` (~6) | new node behaviour; needs a targeting-time + resolution-time test each |
     | **B5** | `reveal` stashes the revealed object as a `GameContext` referent + an `effect_conditions` predicate family for "revealed card is a land / MV matches / …" | `reveal_top_conditional_to_hand`, `reveal_top_then_counter_if_mv_match`, `reveal_top_then_free_cast_if_mv_match`, `reveal_top_then_land_battlefield_or_draw`, `reveal_top_then_maybe_battlefield_if_land_or_cheap_creature`, `reveal_top_then_creature_and_or_land_battlefield`, `reveal_top_then_take_and_lose_life`, `exile_then_reveal_greater_mana_value` (~8) | biggest single family; `reveal_top_then_transform` folds in (acts on self) |
     | **B6** | depends on B3+B4: `optional`/`seq` body of `[<verb>, grant_keyword/grant_until on previous_target|source]` — the "if you do, it gains …" shape | `return_creature_grant_indestructible`, `unattach_tap_indestructible`, `return_top_graveyard_creature_with_haste`, `exile_discount_cost`, `exile_top_then_grant_conditional_cast`, `exile_triggering_discard_may_play_this_turn`, `impulsive_draw` (~7) | `impulsive_draw`'s ~11 call sites + `count_if_additional_cost_paid` param are the real cost here |

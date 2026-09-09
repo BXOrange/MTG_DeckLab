@@ -17,6 +17,7 @@ from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.game_state import GameState
 from mtg_analyzer.models.game.player import Player
+from mtg_analyzer.game.ability_catalogue import specs_for
 from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
 from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.game.game_engine import GameEngine
@@ -561,6 +562,55 @@ def test_exile_target_graveyard_end_to_end_empties_only_the_targeted_players_gra
     # lands in the graveyard afterward, as any resolved instant does.
     assert p1.graveyard == [exile_gy]
     assert p2_card in p2.graveyard  # untouched
+
+
+def test_exile_target_graveyard_card_type_filters_to_creatures_only():
+    engine, state, p1, p2 = _rules()
+    bear = GameObject(_bear("GY Bear"), owner_id="p2", zone=Zone.GRAVEYARD)
+    land = GameObject(_land("GY Island"), owner_id="p2", zone=Zone.GRAVEYARD)
+    p2.add_to_zone(bear, Zone.GRAVEYARD)
+    p2.add_to_zone(land, Zone.GRAVEYARD)
+
+    spell = _spell(
+        "Test Creature Exile", "Exile all creature cards from target player's graveyard.",
+        [EffectSpec("exile_target_graveyard",
+                    {"target_kind": "player", "card_type": "creature"})],
+        target={"kind": "player"},
+    )
+    p1.hand.append(spell)
+    engine.cast_spell(p1, spell, targets=[p2])
+    engine.resolve_top_of_stack()
+
+    assert bear.zone == Zone.EXILE
+    assert land in p2.graveyard  # non-creature card untouched
+
+
+def test_crypt_incursion_end_to_end_exiles_creatures_and_gains_three_life_each():
+    # ENG-37 B3: the retired `exile_graveyard_creatures_gain_life` is now a
+    # `seq` of `exile_target_graveyard` (card_type=creature) + a `bind`
+    # measuring `objects_exiled_this_way` x3 into `gain_life`.
+    engine, state, p1, p2 = _rules()
+    for i in range(3):
+        p2.add_to_zone(GameObject(_bear(f"Corpse {i}"), owner_id="p2", zone=Zone.GRAVEYARD),
+                       Zone.GRAVEYARD)
+    keep = GameObject(_land("Buried Island"), owner_id="p2", zone=Zone.GRAVEYARD)
+    p2.add_to_zone(keep, Zone.GRAVEYARD)
+
+    (spec,) = specs_for(Card(id="Crypt Incursion", name="Crypt Incursion",
+                             type_line="Instant", is_instant=True))
+    spell = _spell("Crypt Incursion", "Exile all creature cards from target player's "
+                   "graveyard. You gain 3 life for each card exiled this way.",
+                   spec.effects, target={"kind": "player"})
+    p1.hand.append(spell)
+    life_before = p1.life
+
+    engine.cast_spell(p1, spell, targets=[p2])
+    engine.resolve_top_of_stack()
+
+    assert all(o.zone == Zone.EXILE for o in list(p2.graveyard) if o.card.is_creature) \
+        and not [o for o in p2.graveyard if o.card.is_creature]
+    assert keep in p2.graveyard  # the land stays
+    assert p1.life == life_before + 9  # 3 creatures x 3 life
 
 
 def test_return_from_graveyard_transformed_via_registry():
