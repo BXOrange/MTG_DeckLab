@@ -1739,8 +1739,27 @@ _DIE_TO_EXILE_SENTENCE_RE = re.compile(
     # for `previous_subject` to arm on and so fails closed there, rather than
     # arming a replacement on nobody.
     r"^(?P<before>.+?)\.\s*if (?:that creature(?: or planeswalker)?|that permanent"
-    r"|a creature dealt damage this way|it) would die this turn,"
+    r"|an? (?:creature|permanent) dealt damage this way|it) would die this turn,"
     r" exile it instead(?:\.\s*(?P<after>.+))?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: MEC-82 / RULE 614: "Target creature gets -2/-2 until end of turn. **If
+#: this spell was kicked, that creature gets -6/-6 until end of turn
+#: instead.**" (Final Flourish / Vayne's Treachery / Explosive Growth /
+#: Marsh Casualties; and the Bargain sibling — Candy Grapple). The trailing
+#: sentence *replaces* the "before" pump's own P/T magnitude — it is not a
+#: second additive pump — so it is stamped onto that spec as
+#: `power_if_kicked`/`toughness_if_kicked` (`PumpEffect`'s
+#: `DealDamageEffect.amount_if_kicked` sibling), never routed through
+#: `if_else`. Fail-closed unless "before" produced a pump with a P/T
+#: magnitude; the "instead … and gains <kw>" form (Colossal Growth) is
+#: excluded — that is magnitude *plus* a keyword grant, more than an
+#: override.
+_KICKED_MAGNITUDE_OVERRIDE_RE = re.compile(
+    r"^(?P<before>.+?)\.\s*if this spell was (?P<cost>kicked|bargained),\s*"
+    r"(?:that creature|those creatures|it) gets? "
+    r"(?P<p>[+-]\d+)/(?P<t>[+-]\d+)(?: until end of turn)?\s*instead\.?$",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -2901,6 +2920,10 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     "cards in your hand": {"kind": "resource", "resource": "hand_size"},
     "card in your graveyard": {"kind": "resource", "resource": "graveyard_size"},
     "cards in your graveyard": {"kind": "resource", "resource": "graveyard_size"},
+    # MEC-83 / RULE 702.42a Domain — distinct basic land types (`effect_
+    # amounts` ``domain`` kind, deferring to the one board-count selector).
+    "basic land type among lands you control": {"kind": "domain"},
+    "basic land types among lands you control": {"kind": "domain"},
 }
 
 #: The params an effect states its own magnitude in. A ``bind`` body has to
@@ -2923,7 +2946,18 @@ def _for_each_amount_specs(
     """
     amount = _FOR_EACH_AMOUNTS.get(phrase)
     if amount is None:
-        return None
+        # MEC-83: "<X> counter on it/~/this <type>" — a dynamic `counters`
+        # read (the ``of`` referent is the source for "~"/"this …", the
+        # previous clause's target for "it").
+        cm = _FOR_EACH_COUNTER_RE.match(phrase)
+        if cm is None:
+            return None
+        who = cm.group("who").lower()
+        amount = {
+            "kind": "counters",
+            "counter": cm.group("counter").lower(),
+            "of": "source" if (who == "~" or who.startswith("this ")) else "previous_target",
+        }
     inner = parse_effect_body(
         match.group("rest").strip(), self_subject=self_subject,
         previous_subject=previous_subject, group_subject=group_subject,
@@ -2974,7 +3008,21 @@ _FOR_EACH_SELECTORS: dict[str, str] = {
 }
 
 _FOR_EACH_SUFFIX_RE = re.compile(
-    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z ]{3,40})$", re.IGNORECASE)
+    # MEC-83 widened the group class to admit "+1/+1 counter on it" — digits
+    # and `+`/`/` — alongside the plain "creatures you control" phrasings.
+    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z0-9+/ -]{3,45})$", re.IGNORECASE)
+
+#: MEC-83: "<effect> for each `<X>` counter on (it|~|this <type>)" — a named
+#: counter read (`effect_amounts` ``counters`` kind), the amount sibling of
+#: the group phrases in `_FOR_EACH_AMOUNTS`. Built dynamically rather than
+#: enumerated: any `<word>` a card prints before "counter" *is* a real
+#: counter name (RULE 122.1), and `GameObject.counters.get(name, 0)` is 0 on
+#: a permanent that has none — safe either way.
+_FOR_EACH_COUNTER_RE = re.compile(
+    r"^(?P<counter>[+\-]?\d+/[+\-]?\d+|[a-z][a-z-]*) counters? on "
+    r"(?P<who>it|~|this [a-z]+)$",
+    re.IGNORECASE,
+)
 
 
 def _for_each_specs(
@@ -3462,13 +3510,48 @@ def parse_effect_body(
             die_to_exile.group("before"), self_subject=self_subject,
             previous_subject=previous_subject, group_subject=group_subject,
         )
-        if before_specs is None or not _announces_creature_target(before_specs):
-            return None  # fail closed — the rider only qualifies a creature/permanent this clause already chose
+        if before_specs is None:
+            return None
+        # MEC-81: a "before" clause that *dealt damage* — single target, "any
+        # target", or mass ("to each creature") — arms the rider on the
+        # actual hit set (`GameContext.damaged_this_way`), the referent that
+        # covers the mass/multi-hit case `previous_subject` could not name.
+        # Otherwise the rider only qualifies a creature/permanent the "before"
+        # clause already *targeted* (Bleed Dry's "-13/-13", the fight forms) —
+        # `previous_subject` off `previous_targets`; anything else fails closed.
+        if any(s.type == "damage" for s in before_specs):
+            rider = EffectSpec("grant_die_to_exile_this_turn", {"damaged_this_way": True})
+        elif _announces_creature_target(before_specs):
+            rider = EffectSpec("grant_die_to_exile_this_turn", {"previous_subject": True})
+        else:
+            return None
         return _with_after_tail(
-            before_specs + [EffectSpec("grant_die_to_exile_this_turn", {"previous_subject": True})],
+            before_specs + [rider],
             die_to_exile.group("after"),
             previous_subject=_announces_creature_target(before_specs), group_subject=group_subject,
         )
+
+    kicked_mag = _KICKED_MAGNITUDE_OVERRIDE_RE.match(body)
+    if kicked_mag is not None:
+        before_specs = parse_effect_body(
+            kicked_mag.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if before_specs is None:
+            return None
+        bargained = kicked_mag.group("cost").lower() == "bargained"
+        key_p = "power_if_bargained" if bargained else "power_if_kicked"
+        key_t = "toughness_if_bargained" if bargained else "toughness_if_kicked"
+        p2, t2 = int(kicked_mag.group("p")), int(kicked_mag.group("t"))
+        for i in range(len(before_specs) - 1, -1, -1):
+            spec = before_specs[i]
+            if spec.type == "pump" and ("power" in spec.params or "toughness" in spec.params):
+                flagged = dict(spec.params)
+                flagged[key_p] = p2
+                flagged[key_t] = t2
+                before_specs[i] = EffectSpec("pump", flagged, condition=spec.condition)
+                return before_specs
+        return None  # no pump magnitude to override — fail closed
 
     gain_control_tail = _GAIN_CONTROL_HASTE_TAIL_RE.match(body)
     if gain_control_tail is not None:

@@ -163,6 +163,18 @@ class GameContext:
         #: Read by `CreateTokenEffect.extra_counters`' ``count_from_context``
         #: key. Same save/reset/restore idiom in `_apply_effects_partitioned`.
         self.objects_exiled_this_way: int = 0
+        #: MEC-81: the permanents an earlier `deal_damage` clause of this same
+        #: resolution **actually dealt damage to** (RULE 616 — "If a creature
+        #: dealt damage this way would die this turn, exile it instead."; Anger
+        #: of the Gods / Crush the Weak / Serpentine Spike / Demonfire). The
+        #: object-list sibling of `previous_targets`, and the reason it isn't
+        #: enough: mass damage ("deals N to each creature") and multi-target
+        #: damage never populate `previous_targets` with the hit set, so a
+        #: `grant_die_to_exile_this_turn` rider after them had to fail closed.
+        #: Appended to (not replaced) by `GameContext.deal_damage` for every
+        #: `GameObject` whose `damage_marked` actually rose; save/reset/restore
+        #: in `_apply_effects_partitioned`, same idiom as `created_objects`.
+        self.damaged_this_way: list[Any] = []
         #: RULE 701.30: whether this resolution's most recent `ClashEffect`
         #: won its clash (RULE 701.30d), or ``None`` if no clash has happened
         #: in it. Read by a following `ConditionalEffect(condition=
@@ -210,7 +222,16 @@ class GameContext:
         self, target: Any, amount: int, source: Optional["GameObject"] = None,
         single_target_hint: bool = False,
     ) -> None:
+        # MEC-81: record the actual hit set for a following "if a creature
+        # dealt damage this way would die this turn, exile it instead" rider.
+        # Before/after `damage_marked` check, the same "only a real effect
+        # counts" idiom as `destroy`/`lose_life` — a prevented or 0 hit, or a
+        # hit on a player, does not land in `damaged_this_way`.
+        before = int(getattr(target, "damage_marked", 0) or 0) if hasattr(target, "instance_id") else None
         self.engine.deal_damage(target, amount, source, single_target_hint=single_target_hint)
+        if before is not None and int(getattr(target, "damage_marked", 0) or 0) > before:
+            if target not in self.damaged_this_way:
+                self.damaged_this_way.append(target)
 
     def draw(self, player: "Player", count: int = 1) -> None:
         self.engine.draw(player, count)
@@ -1039,6 +1060,7 @@ def _apply_effects_partitioned(
     life_lost_this_way: int = 0,
     permanents_destroyed_this_way: int = 0,
     objects_exiled_this_way: int = 0,
+    damaged_this_way: Optional[list[Any]] = None,
     previous_selector: Optional[str] = None,
     stack_item: Optional[Any] = None,
 ) -> bool:
@@ -1109,6 +1131,7 @@ def _apply_effects_partitioned(
     outer_life_lost = getattr(context, "life_lost_this_way", 0)
     outer_permanents_destroyed = getattr(context, "permanents_destroyed_this_way", 0)
     outer_objects_exiled = getattr(context, "objects_exiled_this_way", 0)
+    outer_damaged_this_way = getattr(context, "damaged_this_way", [])
     outer_previous_selector = getattr(context, "previous_selector", None)
     outer_clash_won = getattr(context, "clash_won", None)
     outer_clashed_opponent = getattr(context, "clashed_opponent", None)
@@ -1120,6 +1143,7 @@ def _apply_effects_partitioned(
     context.life_lost_this_way = life_lost_this_way
     context.permanents_destroyed_this_way = permanents_destroyed_this_way
     context.objects_exiled_this_way = objects_exiled_this_way
+    context.damaged_this_way = list(damaged_this_way or [])
     context.previous_selector = previous_selector
     context.clash_won = None
     context.clashed_opponent = None
@@ -1177,6 +1201,7 @@ def _apply_effects_partitioned(
                         "life_lost_this_way": context.life_lost_this_way,
                         "permanents_destroyed_this_way": context.permanents_destroyed_this_way,
                         "objects_exiled_this_way": context.objects_exiled_this_way,
+                        "damaged_this_way": list(context.damaged_this_way),
                         "previous_selector": context.previous_selector,
                         "stack_item": stack_item,
                     }
@@ -1189,6 +1214,7 @@ def _apply_effects_partitioned(
         context.life_lost_this_way = outer_life_lost
         context.permanents_destroyed_this_way = outer_permanents_destroyed
         context.objects_exiled_this_way = outer_objects_exiled
+        context.damaged_this_way = outer_damaged_this_way
         context.previous_selector = outer_previous_selector
         context.clash_won = outer_clash_won
         context.clashed_opponent = outer_clashed_opponent
@@ -9789,6 +9815,7 @@ class GrantDieToExileThisTurnEffect(GameEffect):
     def __init__(
         self, target: Any = None, source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None, previous_subject: bool = False,
+        damaged_this_way: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -9801,9 +9828,22 @@ class GrantDieToExileThisTurnEffect(GameEffect):
         #: `target_spec` in that mode, so `RulesEngine._trigger_target_specs`
         #: doesn't open a spurious RULE 115 choice for it.
         self.previous_subject = bool(previous_subject)
+        #: MEC-81: "~ deals N damage to **each creature**. **If a creature
+        #: dealt damage this way would die this turn, exile it instead.**"
+        #: (Anger of the Gods / Crush the Weak / Serpentine Spike / Demonfire).
+        #: Mass and multi-target damage never populate `previous_targets` with
+        #: the hit set, so this arm reads `GameContext.damaged_this_way` —
+        #: every permanent an earlier `deal_damage` clause of this same
+        #: resolution actually hit — and arms the replacement on exactly that
+        #: set. Supersedes `previous_subject` whenever the "before" clause
+        #: dealt damage (it's the same set for a single target, and correct
+        #: for the mass case where `previous_subject` armed on nobody).
+        self.damaged_this_way = bool(damaged_this_way)
         self.target_spec = (
             TargetSpec(kind=target_kind)
-            if target_kind is not None and not self.previous_subject
+            if target_kind is not None
+            and not self.previous_subject
+            and not self.damaged_this_way
             else None
         )
 
@@ -9830,6 +9870,11 @@ class GrantDieToExileThisTurnEffect(GameEffect):
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.damaged_this_way:  # MEC-81 — the actual hit set
+            for hit in list(getattr(context, "damaged_this_way", [])):
+                if hasattr(hit, "instance_id"):
+                    self._arm(hit, context)
+            return
         if self.previous_subject:
             for prev in list(context.previous_targets):
                 if hasattr(prev, "instance_id"):
@@ -17839,6 +17884,10 @@ class PumpEffect(GameEffect):
         self_multiplier: Optional[int] = None,
         parametric_keywords: Optional[list[dict[str, Any]]] = None,
         colors: Optional[list[str]] = None,
+        power_if_kicked: Optional[int] = None,
+        toughness_if_kicked: Optional[int] = None,
+        power_if_bargained: Optional[int] = None,
+        toughness_if_bargained: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         #: "target `<c1>` or `<c2>` creature gets/gains … until end of
@@ -17945,6 +17994,18 @@ class PumpEffect(GameEffect):
         #: doubles (a "+1x/+1x" delta on top of the base), ``3`` triples
         #: (+2x/+2x); ``None`` leaves ``power``/``toughness`` as printed.
         self.self_multiplier = self_multiplier
+        #: MEC-82 / RULE 614: the "if this spell was kicked/bargained, that
+        #: creature gets `<P2>`/`<T2>` **instead**" magnitude override — a
+        #: *replacement* of this pump's own printed P/T, not a second additive
+        #: effect (Final Flourish / Vayne's Treachery / Explosive Growth /
+        #: Candy Grapple). The `DealDamageEffect.amount_if_kicked` shape for
+        #: the pump axis; resolved once per recipient in `_pump_one` via the
+        #: shared `_resolve_amount_override` chain, off the source's
+        #: `kicker_count`/`bargained` flags.
+        self.power_if_kicked = power_if_kicked
+        self.toughness_if_kicked = toughness_if_kicked
+        self.power_if_bargained = power_if_bargained
+        self.toughness_if_bargained = toughness_if_bargained
         self._attached_mode = target_kind == "attached_permanent"
         if target_kind is not None and not self._attached_mode and not previous_subject:
             # PAR-15: "any number of target creatures each get +N/+N [and
@@ -17976,6 +18037,29 @@ class PumpEffect(GameEffect):
 
         return "harmful" if (_is_negative(self.power) or _is_negative(self.toughness)) else "beneficial"
 
+    def _kicked_magnitude(
+        self, base: Any, if_kicked: Optional[int], if_bargained: Optional[int]
+    ) -> Any:
+        # MEC-82 / RULE 614: swap ``base`` for the kicked/bargained value when
+        # the source spell was cast that way — the same override-not-additive
+        # priority chain `DealDamageEffect.amount` uses.
+        return self._resolve_amount_override(
+            base,
+            [
+                (
+                    if_kicked is not None
+                    and (getattr(self.source, "kicker_count", 0) or 0) > 0,
+                    lambda: if_kicked,
+                ),
+                (
+                    if_bargained is not None
+                    and bool(getattr(self.source, "bargained", False)),
+                    lambda: if_bargained,
+                ),
+            ],
+            stop_at_first=True,
+        )
+
     def _pump_one(self, obj: "GameObject") -> None:
         if self.self_multiplier:
             # RULE 701.10/11: each recipient's own *current* power/toughness
@@ -17986,7 +18070,12 @@ class PumpEffect(GameEffect):
             delta = self.self_multiplier - 1
             power, toughness = delta * obj.power, delta * obj.toughness
         else:
-            power, toughness = self.power, self.toughness
+            power = self._kicked_magnitude(
+                self.power, self.power_if_kicked, self.power_if_bargained
+            )
+            toughness = self._kicked_magnitude(
+                self.toughness, self.toughness_if_kicked, self.toughness_if_bargained
+            )
         obj.temp_power += power
         obj.temp_toughness += toughness
         obj.temp_keywords.update(self.keywords)
@@ -23826,6 +23915,7 @@ EffectRegistry.register(
     lambda p: GrantDieToExileThisTurnEffect(
         target=p.get("target"), target_kind=p.get("target_kind"),
         previous_subject=bool(p.get("previous_subject", False)),
+        damaged_this_way=bool(p.get("damaged_this_way", False)),  # MEC-81
     ),
 )
 EffectRegistry.register(
@@ -25181,6 +25271,10 @@ EffectRegistry.register(
         self_multiplier=p.get("self_multiplier"),
         parametric_keywords=p.get("parametric_keywords"),
         colors=p.get("colors"),
+        power_if_kicked=p.get("power_if_kicked"),  # MEC-82
+        toughness_if_kicked=p.get("toughness_if_kicked"),
+        power_if_bargained=p.get("power_if_bargained"),
+        toughness_if_bargained=p.get("toughness_if_bargained"),
     ),
 )
 EffectRegistry.register(

@@ -501,11 +501,24 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 42.5% (14,806 / 34,811) as of 2026-09-10, measured at
-PARSER_VERSION 310** (v310 is MEC-79's RULE 701.64 Harness — the
-"harnessed" designation + the Infinity Stones' "∞"-ability gate, +
-a `_BLINK_PLAIN_RE` "other"/"another" widen, +4; v309 was MEC-78's RULE
-701.69a Heal — remove marked damage + Wolverine's heal-on-damage
+**Coverage: 42.7% (14,860 / 34,811) as of 2026-09-10, measured at
+PARSER_VERSION 314** (v314 is MEC-84's controller-scoped
+permanent-left-battlefield history — the Revolt / Disappear "if a permanent
+left the battlefield under your control this turn" gate, +18; v313 is
+MEC-83's `effect_amounts` `counters` + `domain` kinds — ENG-37's `bind`
+node can now measure a named counter on a permanent and RULE 702.42a
+Domain, +13; v312 is MEC-82's RULE 614
+conditional magnitude replacement — "gets -2/-2; if kicked, -6/-6 instead"
+now overrides the pump's printed P/T via `PumpEffect.power_if_kicked`
+rather than stacking, the damage-axis `amount_if_kicked` sibling, +10;
+v311 is MEC-81's RULE
+616 group-scoped die-to-exile arm — the "if a creature dealt damage this
+way would die this turn, exile it instead" rider now reads the actual hit
+set, so mass/multi-target damage forms stop failing closed, +13; v310 was
+MEC-79's RULE 701.64
+Harness — the "harnessed" designation + the Infinity Stones' "∞"-ability
+gate, + a `_BLINK_PLAIN_RE` "other"/"another" widen, +4; v309 was MEC-78's
+RULE 701.69a Heal — remove marked damage + Wolverine's heal-on-damage
 replacement, +1; v308 was MEC-77's Meld, +3; v307 was MEC-76's Fateseal,
 +2; v306 was MEC-75's RULE 706 dice subsystem, +12; v305 was
 42.47%/14,784, and 302–304 were PAR-62's +197-card zero-regression
@@ -514,7 +527,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is ~44.6% (14,196 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is ~44.8% (14,249 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring
@@ -532,8 +545,10 @@ verdict distinct from `UNMODELED` and kept out of both the covered count and
 the backlog ranking.
 
 **Notable open gaps** are tracked with exact scope in `BACKLOG.md`: a kicked
-spell's "if kicked, … instead" *override* conditional (the additional-effect
-shape is shipped); Doomsday's "exile up to five cards in a pile"; the oracle
+spell's "if kicked, … instead" override that *also* grants a keyword
+(Colossal Growth — the plain magnitude override is shipped for both the
+damage and pump axes, MEC-82); Doomsday's "exile up to five cards in a pile";
+the oracle
 coverage of the battle pool (the RULE 310 engine is done, ~12 of 39 cached
 battles MODELED); and assorted rough edges on already-shipped features.
 **PAR-30** — PAR-29's residual per-card effect-body grammar — is the current

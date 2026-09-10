@@ -49,11 +49,26 @@ def _creature(state, name, pid, toughness=2):
 
 
 def test_damage_rider_splits_into_two_specs():
+    # MEC-81: a damage "before" clause arms via `damaged_this_way` (the actual
+    # hit set), not `previous_subject` — same creature for a single target,
+    # and correct for the mass case below.
     assert parse_effect_body(
         "~ deals 2 damage to target creature. if that creature would die this turn, exile it instead"
     ) == [
         EffectSpec("damage", {"amount": 2, "target_kind": "creature"}),
-        EffectSpec("grant_die_to_exile_this_turn", {"previous_subject": True}),
+        EffectSpec("grant_die_to_exile_this_turn", {"damaged_this_way": True}),
+    ]
+
+
+def test_mass_damage_rider_arms_on_damaged_this_way():
+    # MEC-81: "deals N damage to each creature" leaves `previous_targets`
+    # empty, so the rider must read the actual hit set instead.
+    assert parse_effect_body(
+        "~ deals 3 damage to each creature. "
+        "if a creature dealt damage this way would die this turn, exile it instead"
+    ) == [
+        EffectSpec("damage", {"amount": 3, "selector": "each_creature"}),
+        EffectSpec("grant_die_to_exile_this_turn", {"damaged_this_way": True}),
     ]
 
 

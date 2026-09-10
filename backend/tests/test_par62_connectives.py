@@ -328,11 +328,20 @@ class TestForEachQuantity:
             {"type": "gain_life", "params": {"amount": "$n"}}
         ]
 
-    def test_an_unmeasurable_quantity_fails_closed(self) -> None:
-        # No `effect_amounts` kind reads counters on a permanent yet, so this
-        # must stay unclaimed rather than bind to something wrong.
+    def test_a_counter_quantity_becomes_a_bind_node(self) -> None:
+        # MEC-83: `effect_amounts` now reads a named counter on a permanent,
+        # so "for each +1/+1 counter on it" measures rather than failing
+        # closed. "it" is the previous clause's target referent.
+        specs = parse_effect_body("you gain 1 life for each +1/+1 counter on it")
+        assert specs is not None
+        assert [s.type for s in specs] == ["bind"]
+        assert specs[0].params["amount"] == {
+            "kind": "counters", "counter": "+1/+1", "of": "previous_target",
+        }
+
+    def test_a_genuinely_unmeasurable_quantity_still_fails_closed(self) -> None:
         assert parse_effect_body(
-            "you gain 1 life for each +1/+1 counter on it"
+            "you gain 1 life for each moonrise you have witnessed"
         ) is None
 
 
@@ -349,11 +358,14 @@ class TestInsteadReplacementRider:
         assert specs is not None
         assert [s.type for s in specs] == ["damage", "grant_die_to_exile_this_turn"]
 
-    def test_mass_damage_fails_closed(self) -> None:
-        # "deals 3 damage to each creature" announces no target, so
-        # `previous_subject` would arm the replacement on nobody. Refusing is
-        # correct until a group-scoped arm exists.
-        assert parse_effect_body(
+    def test_mass_damage_arms_on_the_hit_set(self) -> None:
+        # MEC-81: "deals 3 damage to each creature" announces no target, but
+        # the group-scoped arm (`damaged_this_way`) now reads the actual hit
+        # set off `GameContext.damaged_this_way` rather than failing closed.
+        specs = parse_effect_body(
             "~ deals 3 damage to each creature. "
             "if a creature dealt damage this way would die this turn, exile it instead"
-        ) is None
+        )
+        assert specs is not None
+        assert [s.type for s in specs] == ["damage", "grant_die_to_exile_this_turn"]
+        assert specs[-1].params == {"damaged_this_way": True}

@@ -424,45 +424,18 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-> `scripts/commander_tail_report.py`'s bucket D routes ~132 Commander-legal
-> cards here. Its signature labels name the *missing primitive* rather than a
-> ticket id, and ENG-34 re-pointed the ones that are missing **instructions**
-> at `game/isa.py`, so the report's routing and the ISA are one ground truth.
+> No open tickets. ENG-34's **CR-versus-engine diff** (`scripts/isa_report.py`
+> — ISA instructions the Comprehensive Rules define that the engine had no
+> realisation of) was worked through as **MEC-75…MEC-84** (`Done_Backend.md`);
+> `14_` §7's prediction held — most were small composition gaps wearing a
+> mechanic's name, and one (MEC-80 Triple) was already shipped.
 >
-> The six below are ENG-34's **CR-versus-engine diff**, produced
-> systematically (`scripts/isa_report.py`) rather than discovered
-> card-by-card: ISA instructions the Comprehensive Rules define that this
-> engine has no realisation of at all. They are deliberately small and
-> mechanical — `14_` §7 predicted exactly that, because the historical `MEC`
-> stream was largely composition gaps wearing a mechanic's name.
->
-> Not filed, on purpose: the Attractions family (RULE 701.45 Assemble,
-> 701.51 Open an Attraction, 701.52 Roll to Visit Your Attractions) is a
-> permanent non-goal in `DEFERRED.md`.
-
-- **MEC-81 · Group-scoped death replacement arm (RULE 614).** The existing
-  die-to-exile rider can arm a replacement for one previously targeted object;
-  it deliberately fails closed after mass damage because it cannot name
-  "each creature damaged this way". Add a group/referent arm that records the
-  actual damaged objects and applies the replacement only to that set.
-
-- **MEC-82 · Conditional magnitude replacement.** Model "if this spell was
-  kicked, that creature gets -6/-6 instead" as a replacement of an earlier
-  effect's magnitude, not as a second additive effect. This is the shared
-  RULE 614-style override vocabulary behind kicked/alternative magnitude
-  clauses; do not route it through `if_else`.
-
-- **MEC-83 · Effect amount kinds for counters and basic-land types.** Extend
-  `game/effect_amounts.py` with the safe, live readings for a named counter on
-  a permanent and the distinct basic land types among lands a player controls.
-  The existing `for each <quantity>` `bind` route can consume these
-  immediately once the engine vocabulary exists.
-
-- **MEC-84 · Controller-scoped permanent-left-battlefield history.** Add the
-  turn-scoped predicate for "a permanent left the battlefield under your
-  control this turn" (25 observed occurrences), with correct owner/
-  controller attribution and turn reset. This is distinct from a source-only
-  leaves trigger and from death-only history.
+> New MEC tickets come from `scripts/commander_tail_report.py`'s bucket D
+> (~132 Commander-legal cards; its signature labels name the *missing
+> primitive*, ENG-34 re-pointed the missing-**instruction** ones at
+> `game/isa.py`). Not filed, on purpose: the Attractions family (RULE 701.45
+> Assemble, 701.51 Open an Attraction, 701.52 Roll to Visit Your Attractions)
+> is a permanent non-goal in `DEFERRED.md`.
 
 ## PLR — Player management
 

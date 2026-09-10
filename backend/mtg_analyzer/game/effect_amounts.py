@@ -90,6 +90,15 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # The number of players a `for_each`-style player scope covers, which
         # is what "equal to the number of opponents you have" measures.
         "player_count",  # + ``scope`` ("each_player"/"each_opponent")
+        # MEC-83: a named counter on a permanent — "for each +1/+1 counter on
+        # it", "…for each charge counter on ~". Reads `GameObject.counters`
+        # directly (counters aren't a continuous effect), scoped by ``of``.
+        "counters",  # + ``counter`` (the counter's name), ``of``
+        # MEC-83 / RULE 702.42a Domain — "for each basic land type among lands
+        # you control". Distinct basic land types (RULE 305.6's five) among
+        # the ``of`` player's lands; defers to the one selector that already
+        # defines this so nothing is restated.
+        "domain",  # + ``of`` (a player referent; the controller by default)
     }
 )
 
@@ -156,6 +165,24 @@ def _base(
     subject = effect_conditions.subject_of(
         str(amount.get("of") or "source"), context, source, targets
     )
+
+    if kind == "counters":  # MEC-83
+        counter = str(amount.get("counter", ""))
+        if not counter or subject is None:
+            return 0
+        return int((getattr(subject, "counters", None) or {}).get(counter, 0) or 0)
+
+    if kind == "domain":  # MEC-83 / RULE 702.42a — distinct basic land types
+        from .continuous import count_selector  # function-scoped: import cycle
+
+        player = _as_player(context, subject, controller_id)
+        player_id = getattr(player, "id", None) or controller_id
+        if player_id is None:
+            return 0
+        return int(count_selector(
+            context.state, player_id, "basic_land_types_among_lands_you_control",
+            source=source,
+        ) or 0)
 
     if kind == "characteristic":
         characteristic = str(amount.get("characteristic", ""))

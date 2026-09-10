@@ -4607,6 +4607,13 @@ measurement of why is the useful half of this work.
   gaps turned out to be implemented under another name; the Attractions family
   (RULE 701.45/701.51/701.52) was deliberately not filed, being a permanent
   non-goal in `DEFERRED.md`.
+- **Follow-on (`MEC-81…MEC-84`):** four more small, mechanical gaps found the
+  same way — a **group/referent arm** for the die-to-exile rider (MEC-81), a
+  **conditional-magnitude replacement** on the pump axis (MEC-82), two
+  **`effect_amounts` measurement kinds** (MEC-83), and a **controller-scoped
+  turn-history predicate** for Revolt (MEC-84). Each is composition/vocabulary
+  plumbing, not a new subsystem — the pattern `14_` §7 described. The MEC
+  backlog section is now empty.
 - **Files:** `docs/implementation-state/BACKLOG.md` (MEC section),
   `scripts/commander_tail_report.py` (bucket-D signatures re-pointed at the
   ISA, so the report's routing and the diff are one ground truth)
@@ -5012,6 +5019,213 @@ measurement of why is the useful half of this work.
 - **No PARSER_VERSION bump, no coverage change, no files touched** beyond
   closing the ticket. Tifa's Limit Break stays UNMODELED on **Tiered**
   (a modal additional-cost mechanic), not on "triple".
+
+### MEC-81 — group-scoped die-to-exile arm (RULE 616) [CLOSED, PARSER_VERSION 311]
+
+- **What:** The die-to-exile rider ("If a creature dealt damage this way
+  would die this turn, exile it instead." — Anger of the Gods / Crush the
+  Weak / Yamabushi's Storm / Demonfire / Pillar of Flame) could only arm on
+  one previously *targeted* creature (`GameContext.previous_targets`, via
+  `GrantDieToExileThisTurnEffect.previous_subject`, PAR-40 v227). **Mass**
+  damage ("to each creature") and multi-hit damage never populate that list
+  with the hit set, so the rider failed closed after them — the MEC-81 gap.
+- **Engine:**
+  - `GameContext.damaged_this_way: list` — every `GameObject` an earlier
+    `deal_damage` clause of the same resolution *actually* hit (before/after
+    `damage_marked` check in the `GameContext.deal_damage` delegate, the same
+    "only a real effect counts" idiom as `destroy`/`lose_life`; a prevented
+    hit, a 0 hit, or a hit on a player is not recorded). The object-list
+    sibling of `previous_targets`/`created_objects`, with the same
+    save/reset/restore in `_apply_effects_partitioned` (+ threaded through
+    the deferred-resume frame and `composition.py`'s pass-through).
+  - `GrantDieToExileThisTurnEffect(damaged_this_way=True)` — arms its
+    turn-scoped `WOULD_DIE`→exile `ReplacementEffect` on **each**
+    `context.damaged_this_way` entry. Supersedes `previous_subject` whenever
+    the "before" clause dealt damage: same single object for a single
+    target, and correct for the mass case where `previous_subject` armed on
+    nobody. `target_spec` stays `None` in this mode (no spurious RULE 115
+    choice), same as `previous_subject`.
+- **Parser (per-template, PAR-61 scope):** the `_DIE_TO_EXILE_SENTENCE_RE`
+  use-site now branches on the "before" specs — a `damage` clause (single,
+  "any target", or a mass `selector`) emits the rider with
+  `{"damaged_this_way": True}`; a non-damage creature-antecedent (Bleed
+  Dry's "-13/-13", the fight forms) keeps `{"previous_subject": True}`;
+  anything else still fails closed. `_DIE_TO_EXILE_SENTENCE_RE` also accepts
+  "a **permanent** dealt damage this way" (Chandra / Spikefield Hazard /
+  Underworld Fires phrasing).
+- **Yield:** +13 — Anger of the Gods, Crush the Weak, Yamabushi's Storm,
+  Gallifrey Falls // No More, Underworld Fires, Red Sun's Zenith, Yamabushi's
+  Flame, Touch of the Void, Incendiary Flow, Pillar of Flame, Annihilating
+  Fire, Spikefield Hazard // Spikefield Cave, and one more. Serpentine Spike
+  (multi-target damage clause unparsed), Draconic Intervention ("each
+  non-Dragon creature" + additional cost), Demonfire ("Hellbent —"), Chandra
+  (planeswalker) stay UNMODELED on unrelated gaps.
+- **Files:** `game/effects/core.py` (`GameContext.damaged_this_way` +
+  `.deal_damage` bookkeeping, `_apply_effects_partitioned` save/reset/
+  restore + deferred frame, `GrantDieToExileThisTurnEffect.damaged_this_way`
+  + its `EffectRegistry` row), `game/rules/casting_mixin.py` +
+  `game/effects/composition.py` (thread the new accumulator through the
+  resume / composition paths), `parser/oracle/segmenter.py`
+  (`_DIE_TO_EXILE_SENTENCE_RE` + use-site), `parser/oracle/gate.py`
+  (PARSER_VERSION 311). **Tests:** `tests/test_mec81_damaged_this_way_die_
+  to_exile.py` (mass-damage arms on every hit creature and exiles the ones
+  that die; a creature not hit this way stays on the ordinary graveyard
+  path; damage to a player is not recorded; the real cards MODELED), plus
+  updated `tests/test_par40_die_to_exile_rider.py` /
+  `tests/test_par62_connectives.py` assertions (a damage "before" now arms
+  via `damaged_this_way`, and mass damage no longer fails closed).
+
+### MEC-82 — conditional magnitude replacement (RULE 614) [CLOSED, PARSER_VERSION 312]
+
+- **What:** "Target creature gets -2/-2 until end of turn. **If this spell
+  was kicked, that creature gets -6/-6 until end of turn instead.**" (Final
+  Flourish / Vayne's Treachery / Explosive Growth / Marsh Casualties; the
+  Bargain sibling — Candy Grapple). The *damage* magnitude override
+  (`DealDamageEffect.amount_if_kicked`, Burst Lightning) shipped in PAR-40;
+  the **pump** axis had no equivalent, so ~12 kicker/bargain P/T spells
+  failed closed. The rider *replaces* the pump's printed magnitude — it is
+  one effect whose magnitude is conditional, not two — so per the ticket it
+  is **not** routed through `if_else`.
+- **Engine:** `PumpEffect` gains `power_if_kicked` / `toughness_if_kicked`
+  (+ `_if_bargained` siblings) and `_kicked_magnitude(base, if_kicked,
+  if_bargained)`, which swaps `base` for the alternate value through the
+  shared `_resolve_amount_override` chain (`stop_at_first=True`) off the
+  source's `kicker_count` / `bargained` flags — the exact
+  `DealDamageEffect.amount` idiom, applied per recipient in `_pump_one`'s
+  non-`self_multiplier` branch. Negatives pass through unclamped (same as
+  `power`/`toughness` themselves — `spec.py` never clamped those).
+- **Parser (per-template, PAR-61 scope):** `segmenter._KICKED_MAGNITUDE_
+  OVERRIDE_RE` — the "trailing sentence retroactively modifies the previous
+  clause" idiom (`_DIE_TO_EXILE_SENTENCE_RE`'s neighbour): split "before. if
+  this spell was kicked|bargained, `<subj>` gets P2/T2 [until end of turn]
+  instead", parse "before" with the ordinary pump grammar, then stamp
+  `power_if_kicked`/`toughness_if_kicked` onto the last `pump` spec it
+  produced (fail-closed if there is none). "instead … and gains `<kw>`"
+  (Colossal Growth) is deliberately excluded — that is magnitude *plus* a
+  keyword grant, more than a RULE 614 override.
+- **Yield:** +10 — Final Flourish, Vayne's Treachery, Vicious Offering,
+  Explosive Growth, Might of Murasa, Candy Grapple, Eject the Warp Core,
+  Dauntless Unity ("creatures you control" group form), Gift of Growth
+  ("Untap … . It gets +2/+2 … . If kicked … +4/+4 instead" — the compound
+  "before" composes for free), Stomped by the Foot. Marsh Casualties stays
+  UNMODELED (its base "creatures target player controls get -1/-1" clause
+  doesn't parse — an unrelated gap); Colossal Growth on the keyword-grant
+  rider.
+- **Files:** `game/effects/core.py` (`PumpEffect` params +
+  `_kicked_magnitude` + `_pump_one` + the `pump` `EffectRegistry` row),
+  `parser/oracle/segmenter.py` (`_KICKED_MAGNITUDE_OVERRIDE_RE` + use-site),
+  `parser/oracle/gate.py` (PARSER_VERSION 312). **Tests:**
+  `tests/test_mec82_kicked_magnitude_override.py` (kicked applies the
+  override, unkicked applies the printed value, the bargained flag drives
+  the bargain override, kicked-and-lethal dies via SBA, the parser stamps
+  the before-pump, the keyword-grant rider is not claimed, no-pump fails
+  closed, the real cards MODELED).
+
+### MEC-83 — `effect_amounts` kinds for counters and basic land types [CLOSED, PARSER_VERSION 313]
+
+- **What:** ENG-37's `bind` node (RULE 608.2 "…for each …") had no way to
+  *measure* a named counter on a permanent or a player's **Domain** (RULE
+  702.42a — distinct basic land types), so `game/effect_amounts.py` grew
+  one-off `count_selector` rows per counter kind (`plus_one_counters_on_
+  source`, `study_counters_on_source`, `charge_counters_on_source`) instead
+  of a general reading. MEC-83 adds the two general `AMOUNT_KINDS`:
+  - **`counters`** — `{"kind": "counters", "counter": "<name>", "of": <ref>}`
+    → `GameObject.counters.get(name, 0)` on the referent (counters aren't a
+    continuous effect, so this is a direct read); 0 on a permanent that has
+    none or a missing referent, per the module's fail-safe rule. `+1/+1`
+    works because the `plus_one_counters` property stores into
+    `counters["+1/+1"]`.
+  - **`domain`** — `{"kind": "domain", "of": <player ref, controller by
+    default>}` → defers to `continuous.count_selector`'s existing
+    `basic_land_types_among_lands_you_control` (Collective Restraint, RULE
+    305.6's five types counted once each), passing the referent player's id
+    so "lands **they** control" works too.
+- **Parser (per-template, PAR-61 scope):** `segmenter._FOR_EACH_SUFFIX_RE`'s
+  quantity class widened `[a-z ]` → `[a-z0-9+/ -]` so "+1/+1 counter on it"
+  reaches the quantity route at all; `_FOR_EACH_AMOUNTS` gains the two
+  "basic land type among lands you control" phrasings → `{"kind":
+  "domain"}`; and `_for_each_amount_specs` gains a `_FOR_EACH_COUNTER_RE`
+  fallback that builds `{"kind": "counters", "counter": <word>, "of":
+  "source"|"previous_target"}` dynamically for "`<X>` counter on
+  (it|~|this `<type>`)" — any word a card prints before "counter" *is* a
+  real counter name (RULE 122.1), and the read is 0 either way, so no
+  enumeration is needed. Everything still routes through the existing
+  `bind` builder (magnitude must be a single `amount`/`count` param, no
+  target in the body — unchanged fail-closed guards).
+- **Yield:** +13 — Herd Migration / Ordered Migration / Wandering Stream /
+  Spore Burst (Domain `bind`); Toothy, Imaginary Friend / Vexing Sphinx /
+  Marketback Walker / Bloodtracker / Insight Engine / Krovikan Whispers /
+  Embalmed Brawler / Jötun Owl Keeper / Arctic Nishoba (counter `bind`).
+  The "Domain —" ability-word cluster (Gaea's Might, Allied Strategies, …)
+  stays UNMODELED on unrelated body/label gaps, not on the measurement.
+- **Files:** `game/effect_amounts.py` (`AMOUNT_KINDS` + the two `_base`
+  branches), `parser/oracle/segmenter.py` (`_FOR_EACH_SUFFIX_RE` widen,
+  `_FOR_EACH_COUNTER_RE`, `_FOR_EACH_AMOUNTS` rows, `_for_each_amount_specs`
+  fallback), `parser/oracle/gate.py` (PARSER_VERSION 313). **Tests:**
+  `tests/test_mec83_amount_kinds_counters_domain.py` (counters reads the
+  named counter / `+1/+1` / missing referent → 0; domain counts distinct
+  types across a dual land and ignores an opponent's; the two "for each"
+  phrasings become `bind` nodes; Herd Migration MODELED; end-to-end
+  `bind`-over-domain scales a `gain_life` body), plus an updated
+  `tests/test_par62_connectives.py` assertion (the counter quantity now
+  binds instead of failing closed).
+
+### MEC-84 — controller-scoped permanent-left-battlefield history [CLOSED, PARSER_VERSION 314]
+
+- **What:** The **Revolt** and **Disappear** ability words ("if a permanent
+  left the battlefield under your control this turn, …", ~30 cache cards)
+  gate on a turn history no live board scan can answer — the permanent is
+  gone. Nothing tracked it. MEC-84 adds `GameState.permanents_left_
+  battlefield_this_turn` (+ the RULE 700.4-narrowed `creatures_…` sibling),
+  a `{controller_id: count}` incremented at the **single**
+  `remove_from_battlefield` chokepoint every departure passes through
+  (sacrifice, destroy, exile, bounce, mill-from-battlefield, a token
+  ceasing to exist) — but *not* phasing out, which sets `phased_out`
+  without calling it — keyed by the object's `controller_id` as it left
+  ("under **your** control"), and cleared wholesale each `begin_turn`.
+- **Engine:** the two trackers + reset; `static_conditions`
+  `permanent_left_battlefield_this_turn` / `creature_left_battlefield_this_
+  turn` (`default_min=1`, controller-scoped) feeding the shared whitelist —
+  so the RULE 603.4 effect/trigger gate and any "as long as" static
+  (Aether Revolt) read the same vocabulary; `continuous.count_selector`
+  `creatures_that_left_battlefield_this_turn` for the `bind` amount
+  (Kutzil's Flanker); and a `revolt_gate` branch in
+  `RulesEngine._apply_entry_counters` for "~ enters with N counters on it
+  if a permanent left …" (the suffix sibling of the kicked-gate entry
+  counters).
+- **Parser (per-template, PAR-61 scope):** "Revolt —"/"Disappear —" are
+  already stripped by `normalize` (unregistered ability-word labels).
+  `static_handlers._STATIC_CONDITION_RES` gains the two "a permanent/creature
+  left the battlefield under your control this turn" rows (covers every
+  `if <cond>, <effect>` ETB/end-step trigger). `counters._REVOLT_ENTRY_
+  COUNTERS_RE` + the `revolt_gate` result classify the entry-counter shape;
+  and `ability_catalogue.entry_counters` now passes `card.keywords` to
+  `normalize` (a latent gap — it stripped no ability-word label, so this
+  was the first entry-counter shape gated behind one).
+- **Yield:** +18 — 13 trigger-gated (Airdrop Aeronauts, Countless Gears
+  Renegade, Decommission, Foot Mystic, Hidden Herbalists, Hidden Stockpile,
+  Insectoid Exterminator, Lord Dregg, Michelangelo, Renegade Rallier,
+  Silkweaver Elite, Solemn Recruit, Vengeful Rebel), and 5 entry-counter
+  (Greenwheel Liberator, Lifecraft Cavalry, Narnam Renegade, Night Market
+  Aeronaut, Putrid Pals). Aid from the Cowl (nested modal body), Deadeye
+  Harpooner (target in a gated body), Aether Revolt (damage-plus replacement),
+  Fatal Push / That's Rough Buddy (magnitude/target override), Tale of Momo
+  (cost reduction), Call for Unity (anthem-for-each) stay UNMODELED on
+  unrelated gaps.
+- **Files:** `models/game/game_state.py` (trackers + `remove_from_
+  battlefield`), `game/engine/turn_loop_mixin.py` (reset),
+  `game/static_conditions.py` (two predicates + German labels),
+  `game/continuous.py` (`creatures_that_left_battlefield_this_turn`),
+  `game/rules/casting_mixin.py` (`revolt_gate` entry counters),
+  `parser/oracle/catalogue/static_handlers.py` (two `_STATIC_CONDITION_RES`
+  rows), `parser/oracle/catalogue/counters.py` (`_REVOLT_ENTRY_COUNTERS_RE`
+  + `keywords` passed to `normalize`), `parser/oracle/gate.py`
+  (PARSER_VERSION 314). **Tests:** `tests/test_mec84_permanent_left_
+  battlefield_history.py` (per-controller counting; the creature sibling
+  only counts creatures; `begin_turn` clears it; destruction through the
+  engine registers; the condition is controller-scoped; the real cards
+  MODELED; Greenwheel Liberator gets its counters only after a permanent
+  has left).
 
 ## Oracle-Text Parser Front-End
 

@@ -244,6 +244,13 @@ class CastingResolutionMixin:
                 # pass the same way a card's own printed flag keywords are
                 # (`effect_binder.attach_to_object`'s flag-keyword handling).
                 obj.intrinsic_keywords.add(grant_keyword)
+        elif condition.get("revolt_gate"):
+            # MEC-84 Revolt: ``count`` if a permanent left the battlefield
+            # under this permanent's controller this turn, else 0. Read at
+            # entry, the same "history question, gate at resolution" shape as
+            # the kicked gate above.
+            left = getattr(self.state, "permanents_left_battlefield_this_turn", None) or {}
+            amount = condition["count"] if left.get(getattr(obj, "controller_id", None), 0) > 0 else 0
         elif condition.get("colors_spent_scale"):
             # RULE 702.43a Sunburst: ``count`` per distinct colour of mana
             # actually spent to cast ``obj`` (`GameObject.colors_spent_to_
@@ -1467,6 +1474,7 @@ class CastingResolutionMixin:
             life_lost_this_way=resumed.get("life_lost_this_way", 0),
             permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
             objects_exiled_this_way=resumed.get("objects_exiled_this_way", 0),
+            damaged_this_way=resumed.get("damaged_this_way"),
             stack_item=stack_item,
         )
         if not deferred_again and stack_item is not None:
