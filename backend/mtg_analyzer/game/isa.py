@@ -380,6 +380,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "get_city_blessing": "ascend",
     "goad": "goad",
     "grant_keyword": "create_continuous_effect",
+    "harness": "harness",
     "heal": "heal",
     "imprint": "imprint",
     "learn": "learn",

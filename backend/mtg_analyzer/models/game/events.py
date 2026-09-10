@@ -467,6 +467,14 @@ class EventType:
     #: No card yet triggers on "becomes suspected"; the event exists so one
     #: could bind the same way as `GOADED`.
     SUSPECTED = "SUSPECTED"
+    #: MEC-79 / RULE 701.64a: a permanent just became **harnessed** — carries
+    #: its ``instance_id`` and ``controller_id``. Fired only on the transition
+    #: (701.64a's "if this permanent isn't harnessed" makes a second harness a
+    #: no-op, event included), the same discipline as `BECAME_MONSTROUS`.
+    #: Harnessed itself has no rules meaning (701.64b) beyond being a marker
+    #: `GameObject.harnessed` other spells/abilities read; the Infinity Stones'
+    #: ``∞`` ability is gated on it via `static_conditions`' ``source_harnessed``.
+    HARNESSED = "HARNESSED"
     #: RULE 701.35a: a permanent was just **detained** — carries its
     #: ``instance_id``, ``controller_id`` and ``detainer_id``. The three
     #: 701.35b consequences (can't attack/block, abilities can't be

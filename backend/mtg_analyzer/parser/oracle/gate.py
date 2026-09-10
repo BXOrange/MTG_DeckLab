@@ -2713,7 +2713,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: replacement line "if you would roll one or more dice, instead roll that
 #: many dice plus one and ignore the lowest/highest roll"
 #: (`replacements._ROLL_DICE_MODIFIER_RE` → ``roll_dice_modifier``).
-PARSER_VERSION = "309"
+PARSER_VERSION = "310"
 
 
 def parser_source_hash() -> str:

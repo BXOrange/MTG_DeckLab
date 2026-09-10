@@ -279,6 +279,10 @@ class GameContext:
         # RULE 701.46a.
         return self.engine.adapt(target, amount)
 
+    def harness(self, target: "GameObject") -> bool:
+        # MEC-79 / RULE 701.64a.
+        return self.engine.harness(target)
+
     def goad(self, target: "GameObject", goader_id: str, permanent: bool = False) -> None:
         # RULE 701.15a; ``permanent`` is the "for the rest of the game" form.
         self.engine.goad(target, goader_id, permanent=permanent)
@@ -16941,6 +16945,26 @@ class MonstrosityEffect(GameEffect):
         context.monstrosity(self.source, amount)
 
 
+class HarnessEffect(GameEffect):
+    """MEC-79 / RULE 701.64a: "Harness [this permanent]" — the body of the
+    Marvel Infinity Stones' ``{cost}, {T}: Harness ~`` ability.
+
+    701.64a only ever defines the self form ("[this permanent]"), so this is
+    the `MonstrosityEffect` shape (no `TargetSpec`, always the source) minus
+    the counters. An explicit ``targets`` list is still honoured for the
+    hypothetical "harness that permanent" a future card might print; absent
+    one it harnesses `self.source`.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        objs = [
+            t for t in (targets or [])
+            if getattr(t, "instance_id", None) is not None
+        ] or ([self.source] if self.source is not None else [])
+        for obj in objs:
+            context.harness(obj)
+
+
 class SpecializeEffect(GameEffect):
     """MEC-48: the body of "Specialize {cost}" — "{cost}, Discard a card:
     this permanent specializes." Specialize is an Arena-only digital keyword
@@ -27074,6 +27098,11 @@ EffectRegistry.register(
     # RULE 701.46a "adapt N".
     "adapt",
     lambda p: AdaptEffect(amount=p.get("amount", 1)),
+)
+EffectRegistry.register(
+    # MEC-79 / RULE 701.64a "Harness ~" — designation flip only, no params.
+    "harness",
+    lambda p: HarnessEffect(),
 )
 EffectRegistry.register(
     # MEC-48 "Specialize {cost}" — see `SpecializeEffect`. Digital keyword,

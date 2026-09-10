@@ -501,17 +501,20 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 42.5% (14,802 / 34,811) as of 2026-09-10, measured at
-PARSER_VERSION 309** (v309 is MEC-78's RULE 701.69a Heal — remove marked
-damage + Wolverine's heal-on-damage replacement, +1; v308 was MEC-77's
-Meld, +3; v307 was MEC-76's Fateseal, +2; v306 was MEC-75's RULE 706 dice
-subsystem, +12; v305 was 42.47%/14,784, and 302–304 were PAR-62's
-+197-card zero-regression connective increments)
+**Coverage: 42.5% (14,806 / 34,811) as of 2026-09-10, measured at
+PARSER_VERSION 310** (v310 is MEC-79's RULE 701.64 Harness — the
+"harnessed" designation + the Infinity Stones' "∞"-ability gate, +
+a `_BLINK_PLAIN_RE` "other"/"another" widen, +4; v309 was MEC-78's RULE
+701.69a Heal — remove marked damage + Wolverine's heal-on-damage
+replacement, +1; v308 was MEC-77's Meld, +3; v307 was MEC-76's Fateseal,
++2; v306 was MEC-75's RULE 706 dice subsystem, +12; v305 was
+42.47%/14,784, and 302–304 were PAR-62's +197-card zero-regression
+connective increments)
 (parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is ~44.6% (14,191 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is ~44.6% (14,196 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

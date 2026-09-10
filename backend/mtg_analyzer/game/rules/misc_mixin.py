@@ -2506,6 +2506,30 @@ class MiscSystemsMixin:
             return False
         self.add_counters(obj, max(0, int(amount)), "+1/+1", source=obj)
         return True
+    def harness(self, obj: GameObject) -> bool:
+        """MEC-79 / RULE 701.64a: "Harness [this permanent]" — "if this
+        permanent isn't harnessed, it becomes harnessed."
+
+        `monstrosity`'s designation-flip half without the counters or the
+        amount: the Marvel Infinity Stones' ``{cost}, {T}: Harness ~`` ability.
+        Idempotent (701.64a's guard) and returns whether it actually flipped,
+        so a caller with follow-up behaviour can tell the no-op apart. Fires
+        `HARNESSED` only on the transition. 701.64b's "stays harnessed until it
+        leaves the battlefield" is `GameObject.reset_as_new_object` (RULE 400.7).
+        """
+        if obj.harnessed:
+            return False
+        obj.harnessed = True
+        self.state.fire_event(
+            GameEvent(
+                EventType.HARNESSED,
+                instance_id=obj.instance_id,
+                controller_id=obj.controller_id,
+                object=obj.name,
+                object_types=sorted(obj.type_words),
+            )
+        )
+        return True
     def recruit(self, player: Player) -> None:
         """"Recruit" (RULE 701.70a — Tales of Middle-earth): ``player`` draws
         a card, then discards a card; if the discarded card was a **nonland**

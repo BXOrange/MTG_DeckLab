@@ -1541,9 +1541,12 @@ def _blink_non_subtype(m: re.Match[str]) -> list[EffectSpec]:
 #: to `BlinkEffect`'s own ``optional``/``count_max`` (MEC-12) rather than
 #: the yes/no "you may" a *mandatory*-single-target blink relies on
 #: (stripped upstream, same as `_blink_non_subtype` needs no "you may" in
-#: its own pattern either).
+#: its own pattern either). "other" (MEC-79's The Mind Stone — "up to one
+#: **other** target nonland permanent you control") is the same free case as
+#: "another": the source-excluding ``*_you_control`` `legal_targets` branch
+#: makes plain / "another" / "other" resolve identically.
 _BLINK_PLAIN_RE = _c(
-    r"exile (?:up to (?P<up_to>one|[0-9]+) )?(?:another )?target "
+    r"exile (?:up to (?P<up_to>one|[0-9]+) )?(?:(?:an)?other )?target "
     # "…target **tapped** creature you control…" (Far Traveler's granted
     # end-step blink) — a state filter on the target, `BlinkEffect.
     # creature_filter` (the same param `_blink_non_subtype` uses for its
@@ -7210,6 +7213,15 @@ def _adapt(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("adapt", {"amount": int(m.group("n"))})]
 
 
+# "Harness ~." (MEC-79 / RULE 701.64a) — the Marvel Infinity Stones' activated
+# body. 701.64a only ever spells the self form ("[this permanent]"), and every
+# printing names itself, so after `normalize` folds the card name this is just
+# "harness ~" (or the rules-literal "harness this permanent"). No params — the
+# designation flip is the whole effect.
+def _harness(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("harness", {})]
+
+
 # RULE 701.50d's optional "connives X, where X is …" tail, embedded at the
 # end of every connive verb form below. Two readings: a firing trigger's own
 # event field ("the amount of damage it dealt to that player", Mask of the
@@ -11559,6 +11571,12 @@ HANDLERS: list[EffectHandler] = [
         "adapt",
         _c(rf"adapt {NUMBER}"),
         _adapt,
+    ),
+    # "harness ~" (MEC-79 / RULE 701.64a) — designation flip, no amount.
+    EffectHandler(
+        "harness",
+        _c(r"harness (?:~|this permanent)"),
+        _harness,
     ),
     # "~ connives[ X]" (RULE 701.50a/d) — explicit self reference
     # (activated-ability body / self-subject trigger with the name kept).

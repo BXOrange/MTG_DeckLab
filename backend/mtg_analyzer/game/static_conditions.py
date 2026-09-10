@@ -68,6 +68,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "source_tapped",  # "as long as ~ is tapped"
         "source_untapped",  # "as long as ~ is untapped"
         "source_monstrous",  # RULE 701.37b
+        "source_harnessed",  # MEC-79 / RULE 701.64b — the Infinity Stones' ∞
         "is_licid_aura",  # MEC-47 — this Licid is currently an Aura
         "not_licid_aura",  # MEC-47 — this Licid is still a creature
         "source_attacking",  # "as long as ~ is attacking"
@@ -438,6 +439,8 @@ def condition_holds(
         return subject is not None and not getattr(subject, "tapped", False)
     if kind == "source_monstrous":
         return bool(getattr(subject, "is_monstrous", False))
+    if kind == "source_harnessed":  # MEC-79 / RULE 701.64b
+        return bool(getattr(subject, "harnessed", False))
     if kind == "is_licid_aura":  # MEC-47 — this Licid is currently an Aura
         return bool(getattr(subject, "is_licid_aura", False))
     if kind == "not_licid_aura":  # MEC-47 — this Licid is still a creature
@@ -930,6 +933,7 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         "source_tapped": "getappt",
         "source_untapped": "ungetappt",
         "source_monstrous": "monströs",
+        "source_harnessed": "gezähmt",
         "source_attacking": "angreifend",
         "source_blocking": "blockend",
         "source_paired": "verbündet",

@@ -938,6 +938,15 @@ class GameObject:
         #: by `reset_as_new_object` — 701.37b's "stays monstrous until it
         #: leaves the battlefield" is exactly RULE 400.7's new object.
         self.is_monstrous: bool = False
+        #: MEC-79 / RULE 701.64b: whether this permanent is **harnessed** (the
+        #: Marvel Infinity Stones). A designation exactly like `is_monstrous`
+        #: above — no rules meaning of its own, existing only so 701.64a's "if
+        #: this permanent isn't harnessed" guard fires once and so the Stones'
+        #: `∞` ability (`static_conditions`' ``source_harnessed``) has
+        #: something to read. Survives an ordinary recompute; cleared by
+        #: `reset_as_new_object` — 701.64b's "stays harnessed until it leaves
+        #: the battlefield" is RULE 400.7's new object.
+        self.harnessed: bool = False
         #: MEC-47: a Licid (Tempest — Gliding/Enraging/Corrupting/…) has used
         #: its "{cost}, {T}: this creature loses this ability and becomes an
         #: Aura enchantment … attach it to target creature. You may pay
@@ -1315,6 +1324,10 @@ class GameObject:
         #: no longer monstrous and its monstrosity X is forgotten with it.
         self.is_monstrous = False
         self.monstrosity_x = 0
+        #: MEC-79 / RULE 701.64b/400.7: harnessed "stays until it leaves the
+        #: battlefield" — leaving *is* this transition, so the new object is no
+        #: longer harnessed.
+        self.harnessed = False
         #: MEC-47/400.7: a Licid that left the battlefield comes back a plain
         #: creature — the "became an Aura" effect ended with the object.
         self.is_licid_aura = False

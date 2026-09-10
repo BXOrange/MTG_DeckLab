@@ -570,7 +570,7 @@ is in the rules-engine categories below them.
 - **Yield:** +3 hand-authored (Hunted by The Family, Ensnared by the Mara, Back from the Brink); 0 regressed (full `pytest` green apart from a pre-existing `test_parser_version_lock` failure owned by a concurrent MEC-51 parser-handler change). The `rounds` queue, `digger`/`caster`, the summed-MV damage source and `pay_cost_then` `captured_previous` are all reusable.
 - **Tests:** `tests/test_mec52_villainous_residue.py` — the `rounds` queue (two independent facing players), Hunted (fresh specs; option A vanilla-1/1-white-Human + lose-abilities on each targeted creature; option B per-target token copies under your control; no-targets no-op), Ensnared (registered shape; option B summed-MV damage + 4 exiled; option A the controller gets the free-cast window on the opponent's exiled nonland), Back from the Brink (binds a sorcery-speed activated ability; pay → token copy; decline → nothing; empty graveyard → no-op).
 
-- **PAR-30 close-out — RULE 701 keyword-action trail is verified complete.** Every keyword action has parser recognition *and* an engine primitive (audited action-by-action while closing PAR-29/PAR-30): Attach, Counter, Create, Destroy, Discard, Exile, Fight, Goad, Investigate, Mill, Regenerate, Scry, Search, Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate, Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture, The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster, Support, Suspect, Detain, Endure, Recruit, Collect Evidence, Forage, Behold, Learn, Incubate, Clash, Blight, Earthbend, Airbend, Vote, Face a Villainous Choice, Time Travel, Exchange Control, Exchange Life Totals — plus engine-action verbs with no oracle grammar (Activate/Cast/Play) and variant-subsystem ones (Planeswalk/Set in Motion/Abandon, Meld). Harness (701.64) / Heal (701.69) have ~0–3 cache cards and no dedicated handler — trivially small if one ever prints. Assemble (701.45) is out of the CR; Open an Attraction / Roll to Visit (701.51/52) are the Attractions non-goal; Teams / Get a Life (RULE 810) is a permanent non-goal. The card-by-card *effect-body grammar around* the keyword actions is ordinary long-tail work now (PAR-31…PAR-53 clusters); the residue that still blocked on a distinct engine primitive was **MEC-52**, now closed (see the "MEC-52 CLOSED" entry above).
+- **PAR-30 close-out — RULE 701 keyword-action trail is verified complete.** Every keyword action has parser recognition *and* an engine primitive (audited action-by-action while closing PAR-29/PAR-30): Attach, Counter, Create, Destroy, Discard, Exile, Fight, Goad, Investigate, Mill, Regenerate, Scry, Search, Shuffle, Surveil, Tap/Untap, Transform/Convert, Proliferate, Monstrosity, Adapt, Amass, Manifest/Cloak, Manifest Dread, Venture, The Ring Tempts You, Connive, Discover, Explore, Populate, Bolster, Support, Suspect, Detain, Endure, Recruit, Collect Evidence, Forage, Behold, Learn, Incubate, Clash, Blight, Earthbend, Airbend, Vote, Face a Villainous Choice, Time Travel, Exchange Control, Exchange Life Totals — plus engine-action verbs with no oracle grammar (Activate/Cast/Play). **Meld (701.42)**, **Heal (701.69)** and **Harness (701.64)** were the residue at this close-out and are now shipped as their own MEC tickets (MEC-77 / MEC-78 / MEC-79 — see their entries under `## Instruction-Set Architecture (ISA) & Composition`). Assemble (701.45) is out of the CR; Open an Attraction / Roll to Visit (701.51/52) are the Attractions non-goal; Teams / Get a Life (RULE 810) is a permanent non-goal. The card-by-card *effect-body grammar around* the keyword actions is ordinary long-tail work now (PAR-31…PAR-53 clusters); the residue that still blocked on a distinct engine primitive was **MEC-52**, now closed (see the "MEC-52 CLOSED" entry above).
 
 ### Vote (RULE 701.38) (PAR-29, PARSER_VERSION 124) + outcome bodies that needed new primitives (MEC-46, PARSER_VERSION 173)
 
@@ -4591,11 +4591,16 @@ measurement of why is the useful half of this work.
 - **What:** Diffing the CR-derived ISA against what the engine can actually
   perform yields exactly "operations the rules require that the engine cannot
   do" — the literal definition of the `MEC` category, produced systematically
-  instead of card-by-card. Six survived checking every candidate against real
-  engine code rather than against a naming convention: **MEC-75** rolling a
-  die (RULE 706 — no dice subsystem at all, which a catalogue entry already
-  admitted in prose), **MEC-76** fateseal, **MEC-77** meld, **MEC-78** heal,
-  **MEC-79** harness, **MEC-80** triple.
+  instead of card-by-card. Six were filed; five survived a second check
+  against real engine code (rather than against a naming convention):
+  **MEC-75** rolling a die (RULE 706 — no dice subsystem at all, which a
+  catalogue entry already admitted in prose), **MEC-76** fateseal,
+  **MEC-77** meld, **MEC-78** heal, **MEC-79** harness. The sixth,
+  **MEC-80** triple (RULE 701.11), turned out to be already shipped —
+  `PumpEffect.self_multiplier` + the parser's `{"double": 2, "triple": 3}`
+  table, from the PAR-29 pass — and was closed without code (its own entry
+  below). Exactly `14_` §7's prediction that most apparent `MEC` gaps are
+  already implemented under another name.
 - **Why so few:** `14_` §7 predicted it — most historical `MEC` tickets were
   composition gaps wearing a mechanic's name, and the atom/fusion/alias split
   is what tells the two apart *before* a ticket gets written. Most apparent
@@ -4902,6 +4907,111 @@ measurement of why is the useful half of this work.
   accumulates but a single lethal hit still kills, it only heals its own
   source, clause + replacement-clause parse, ISA/registry, Wolverine fully
   MODELED, the personified-pronoun fight clause).
+
+### MEC-79 — Harness (RULE 701.64) [CLOSED, PARSER_VERSION 310]
+
+- **What:** The fifth ENG-34 CR-versus-engine diff MEC ticket closed —
+  "Harness [this permanent]" is 701.64a's designation flip ("if this
+  permanent isn't harnessed, it becomes harnessed") and nothing else;
+  701.64b's *harnessed* is a marker with no rules meaning of its own, like
+  *monstrous*. The only real cards are the Marvel **Infinity Stones** (The
+  Mind Stone / The Soul Stone in this cache's representative printings), whose
+  ultimate ability prints behind an "``∞ —``" marker line that functions only
+  while the Stone is harnessed.
+- **Engine:**
+  - `RulesEngine.harness(obj) -> bool` (`rules/misc_mixin.py`, beside
+    `monstrosity`/`adapt`) — flips `GameObject.harnessed`, idempotent
+    (701.64a's guard), fires `EventType.HARNESSED` only on the transition
+    (the `BECAME_MONSTROUS` discipline). Returns whether it actually flipped.
+  - `GameObject.harnessed` — a sticky designation in the `is_monstrous`
+    family: survives an ordinary recompute, cleared by `reset_as_new_object`
+    (RULE 701.64b/400.7 — "stays harnessed until it leaves the battlefield").
+  - `effects.HarnessEffect` (registered `harness`, EffectRegistry +
+    `isa.py` `_INSTRUCTION_TYPES["harness"]` → the existing `harness` ISA op,
+    INSTRUCTION) — the `MonstrosityEffect` shape (no `TargetSpec`, always the
+    source) minus the counters. An explicit `targets` list is still honoured
+    for a hypothetical future "harness that permanent".
+  - `static_conditions` `source_harnessed` (RULE 701.64b) — the read path,
+    `bool(getattr(subject, "harnessed", False))`, mirroring `source_monstrous`;
+    German label "gezähmt". Shared by the RULE 603.4 trigger gate and any
+    "as long as ~ is harnessed" RULE 613.6 static a future Stone prints.
+- **Parser (per-template, PAR-61 scope):**
+  - `normalize._rewrite_infinity_ability` — rewrites the "``∞ — at the
+    beginning of <phase>, <body>``" marker line into "``at the beginning of
+    <phase>, if ~ is harnessed, <body>``", so the segmenter's *generic*
+    phase-trigger `active_if` path covers it with no bespoke whole-line
+    handler. The ``∞`` glyph is the rules device (reminder text: "Once
+    harnessed, its ∞ ability is active"), not a strippable RULE 207.2c
+    ability word.
+  - `segmenter._SOURCE_HARNESSED_IF_RE` — peels that injected "if ~ is
+    harnessed," into `trigger["active_if"] = {"kind": "source_harnessed"}`,
+    beside the MEC-46/PAR-32/PAR-60 phase-trigger intervening-ifs.
+  - `handlers._harness` — `EffectHandler("harness", "harness (?:~|this
+    permanent)", …)` → `EffectSpec("harness", {})`. After `normalize` folds
+    the card name, "Harness The Mind Stone." is "harness ~".
+  - `static_handlers._STATIC_CONDITION_RES` — a "``(?:~|it)(?:'s| is)
+    harnessed``" row → `{"kind": "source_harnessed"}`, beside `source_monstrous`.
+  - `handlers._BLINK_PLAIN_RE` widened `(?:another )?` → `(?:(?:an)?other )?`
+    — The Mind Stone's ``∞`` body is "exile up to one **other** target
+    nonland permanent you control, then return that card …"; "other" is the
+    same free case as "another" (the source-excluding `*_you_control`
+    `legal_targets` branch makes them resolve identically).
+- **Yield:** +4 — **The Mind Stone** / **The Soul Stone** (harness + the
+  gated ``∞`` trigger), plus **Photon, Lady of Light** / **Thassa,
+  Deep-Dwelling** from the `_BLINK_PLAIN_RE` "other" widening (they print
+  "up to one **other** target creature you control, then return" where the
+  handler had only accepted "another").
+- **Files:** `models/game/events.py` (`HARNESSED`),
+  `models/game/game_object.py` (`harnessed` + reset),
+  `game/rules/misc_mixin.py` (`harness`), `game/effects/core.py`
+  (`HarnessEffect` + `GameContext.harness` + `EffectRegistry` row),
+  `game/static_conditions.py` (`source_harnessed`), `game/isa.py`
+  (`_INSTRUCTION_TYPES["harness"]`), `parser/oracle/normalize.py`
+  (`_rewrite_infinity_ability`), `parser/oracle/segmenter.py`
+  (`_SOURCE_HARNESSED_IF_RE`), `parser/oracle/catalogue/handlers.py`
+  (`_harness`, `_BLINK_PLAIN_RE`),
+  `parser/oracle/catalogue/static_handlers.py` (the `source_harnessed`
+  condition row), `parser/oracle/gate.py` (PARSER_VERSION 310). **Tests:**
+  `tests/test_mec79_harness.py` (designation flips once + fires the event,
+  `HarnessEffect` targets source, cleared on leave, `source_harnessed`
+  reads the flag, clause parse, `normalize` rewrites the marker line, both
+  Infinity Stones MODELED with the gated trigger, The Mind Stone binds a
+  single gated end-step trigger, the blink "other" widening).
+
+### MEC-80 — Triple (RULE 701.11) [CLOSED — no code, already shipped]
+
+- **What:** The sixth ENG-34 CR-versus-engine diff MEC ticket, and the one
+  its own text got wrong: it read "Absent." A re-check against real engine
+  code (the standing discipline — `engine_bench.py primitives`, grep
+  `Done_Backend.md` — before writing "needs a primitive") found RULE 701.11
+  **fully implemented and execute-tested** already, shipped in the PAR-29
+  keyword-action pass (see "Standalone 'double'/'triple `<X>`'s power and
+  toughness" under the PAR-29 batch entry above):
+  - **Engine:** `PumpEffect.self_multiplier` — `delta = self_multiplier - 1`
+    computed per recipient in `_pump_one` off each creature's own *current*
+    power/toughness, so `3` is RULE 701.11b's "+2×" exactly (a 2/2 → 6/6),
+    `2` is 701.10b's "+1×". One operation with an amount role, not a second
+    registry row — precisely the shape the ticket said it should be.
+  - **Parser:** `_DOUBLE_PT_MULTIPLIERS = {"double": 2, "triple": 3}` feeds
+    all four printed surface shapes (`_double_pt_of` / `_possessive` /
+    `_pronoun` / `_previous`), so "triple target creature's power and
+    toughness until end of turn" already parses to
+    `pump{self_multiplier: 3}`.
+  - **ISA:** `_ins("triple", "701.11", ROLE_AGENT, ROLE_PATIENT)` is in the
+    inventory, realized through `pump`'s param (the same way `double`'s
+    P/T half is) rather than a mapped effect type — `test_isa_inventory`
+    does not require a realizing type, and adding a `pump → triple` row
+    would misclassify the Giant-Growth-shaped majority of `pump` uses.
+  - **Tests:** `tests/test_effect_families.py::test_triple_power_and_
+    toughness_pumps_by_double_the_creatures_own_stats` (RULE 701.11 cited,
+    2/2 → 6/6) and its `double` / group-selector siblings.
+- **701.11 is P/T only** — unlike 701.10 there is no 701.11d–g (counters,
+  mana, life, damage), so nothing else was in scope. Damage "triple"
+  (Fiery Emancipation / City on Fire) is a separate RULE 616 replacement,
+  already shipped via `_double_damage_replacement`'s `multiplier` param.
+- **No PARSER_VERSION bump, no coverage change, no files touched** beyond
+  closing the ticket. Tifa's Limit Break stays UNMODELED on **Tiered**
+  (a modal additional-cost mechanic), not on "triple".
 
 ## Oracle-Text Parser Front-End
 

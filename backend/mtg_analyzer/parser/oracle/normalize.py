@@ -161,6 +161,28 @@ def _strip_unregistered_keyword_labels(text: str, keywords: Optional[list[str]])
     return text
 
 
+#: MEC-79 / RULE 701.64b — the Marvel Infinity Stones print their ultimate
+#: ability behind an "``∞ —``" marker line, with reminder text "(Once
+#: harnessed, its ∞ ability is active.)". The marker *is* the rules device:
+#: an ``∞`` ability functions only while the permanent is harnessed. Every
+#: printed one is a phase-triggered ability, so rewrite the marker line into
+#: an ordinary phase trigger carrying a RULE 603.4 intervening-if — the
+#: segmenter's generic phase-trigger `active_if` path (backed by
+#: `static_conditions`' ``source_harnessed``) then covers it with no bespoke
+#: whole-line handler. Runs after lowercasing; the ``∞`` glyph and em/en/‐
+#: dash both survive `_fold_self_reference` untouched.
+_INFINITY_ABILITY_RE = re.compile(
+    r"^∞\s*[—–-]\s*(?P<lead>at the beginning of [^,\n]+,)\s*(?P<rest>.+)$",
+    re.MULTILINE,
+)
+
+
+def _rewrite_infinity_ability(text: str) -> str:
+    return _INFINITY_ABILITY_RE.sub(
+        lambda m: f"{m.group('lead')} if ~ is harnessed, {m.group('rest')}", text
+    )
+
+
 #: RULE 700.4 — "the term *dies* means 'is put into a graveyard from the
 #: battlefield'". An exact definitional synonym, so folding the long
 #: (pre-2011) phrasing to the modern one-word verb lets every existing
@@ -319,6 +341,7 @@ def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str
     text = _fold_self_reference(text)
     text = _strip_ability_words(text)
     text = _strip_unregistered_keyword_labels(text, keywords)
+    text = _rewrite_infinity_ability(text)
     text = _fold_dies_long_form(text)
     text = _fold_leading_until_end_of_turn(text)
     text = _NUMBER_WORD_RE.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text)

@@ -440,14 +440,6 @@ its block back into the matching section here.
 > 701.51 Open an Attraction, 701.52 Roll to Visit Your Attractions) is a
 > permanent non-goal in `DEFERRED.md`.
 
-- **MEC-79 · Harness (RULE 701.64).** Absent. (Grep hits on "harness" are the
-  card *Fractal Harness*, not the keyword action.)
-
-- **MEC-80 · Triple (RULE 701.11).** Absent, though `double` (RULE 701.10) is
-  a primitive. Small by construction — the same amount-scaling operation at a
-  different factor, which is the ISA's point: one operation, an `amount`
-  role, not two registry rows.
-
 - **MEC-81 · Group-scoped death replacement arm (RULE 614).** The existing
   die-to-exile rider can arm a replacement for one previously targeted object;
   it deliberately fails closed after mass damage because it cannot name

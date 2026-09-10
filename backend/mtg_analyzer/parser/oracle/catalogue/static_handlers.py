@@ -2578,6 +2578,13 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "source_tapped"}),
     (re.compile(r"(?:~|it)(?:'s| is) monstrous", re.I),
      lambda m: {"kind": "source_monstrous"}),
+    # MEC-79 / RULE 701.64b — the Marvel Infinity Stones' `∞` ability is
+    # active "once harnessed"; `normalize` rewrites the `∞ —` marker line into
+    # an ordinary phase trigger with a leading "if ~ is harnessed," so this
+    # row backs both that RULE 603.4 gate and any "as long as ~ is harnessed"
+    # static a future Stone prints.
+    (re.compile(r"(?:~|it)(?:'s| is) harnessed", re.I),
+     lambda m: {"kind": "source_harnessed"}),
     (re.compile(r"(?:~|it)(?:'s| is) attacking", re.I),
      lambda m: {"kind": "source_attacking"}),
     (re.compile(r"(?:~|it)(?:'s| is) blocking", re.I),

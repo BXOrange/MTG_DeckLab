@@ -1059,6 +1059,15 @@ _YOU_DEALT_DAMAGE_IF_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: MEC-79 / RULE 701.64b — the leading "if ~ is harnessed," that
+#: `normalize._rewrite_infinity_ability` injects when it turns an Infinity
+#: Stone's "``∞ —``" marker line into an ordinary phase trigger. Peeled here
+#: into the trigger's own `active_if` (`static_conditions`' ``source_harnessed``).
+_SOURCE_HARNESSED_IF_RE = re.compile(
+    r"^if ~ is harnessed,\s*(?P<rest>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: PAR-60 wave 18 — a phase trigger's leading RULE 603.4 intervening-if
 #: "if you control no `<subtype>`[s]" / "if you don't control a `<subtype>`
 #: [creature] token" (Ophiomancer, Pest Rescuer, Jadar). Attached as the
@@ -5247,7 +5256,11 @@ def segment_line(
         gy_if = _CREATURE_CARD_TO_GY_IF_RE.match(body)
         dmg_if = _YOU_DEALT_DAMAGE_IF_RE.match(body)
         no_subtype_if = _YOU_CONTROL_NO_SUBTYPE_IF_RE.match(body)
-        if entered_if is not None:
+        harnessed_if = _SOURCE_HARNESSED_IF_RE.match(body)
+        if harnessed_if is not None:  # MEC-79 / RULE 701.64b
+            phase_active_if = {"kind": "source_harnessed"}
+            body = harnessed_if.group("rest").strip()
+        elif entered_if is not None:
             phase_active_if = {
                 "kind": "another_subtype_entered_this_turn",
                 "subtype": entered_if.group("sub").lower(),
