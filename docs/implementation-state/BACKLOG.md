@@ -82,7 +82,7 @@ its block back into the matching section here.
   amounts.py` is `bind`'s measured-quantity vocabulary, and
   `isa.Classification.COMPOSITION` records axis 3 as existing. Frodo, Sauron's
   Bane is the first card on it (its complementary-conditional pair is now one
-  `if_else`). **Fusion count: 65** (down from the first-pass 84; migrations to
+  `if_else`). **Fusion count: 64** (down from the first-pass 84; migrations to
   the operand/`bind`/`seq` axes and misclassification fixes are catalogued in
   `Done_Backend.md`'s "Fusion retirement" section). What remains is retiring
   the rest, and the reason that is a separate piece of work is measured
@@ -122,22 +122,19 @@ its block back into the matching section here.
     shape"*). Each batch **builds one mechanism and sweeps every `_FUSION_
     TYPES` row it clears in the same pass** — grep the table before starting
     and again when the primitive lands (CLAUDE.md "No half-implementations").
-    The rows are a menu, not a strict order. Zero-engine-code slices are
-    exhausted (B8, the `*_create_token` and Crypt Incursion parts of B3, and
-    the shared-target part of B4 are all retired — see `Done_Backend.md`).
-    What is left needs genuine new vocabulary: the remaining B3 rows a
-    sum-over-a-list amount kind + a previous-moved-object referent; B5 the
-    revealed-card referent; B6 depends on B3+B4; B9 needs ENG-35 coordination.
+    The rows are a menu, not a strict order. **B4 and B8 are fully retired**;
+    so are the `*_create_token` and Crypt Incursion parts of B3. What is left
+    needs genuine new vocabulary: the remaining B3 rows a sum-over-a-list
+    amount kind + a previous-moved-object referent; B5 the revealed-card
+    referent; B6 depends on B3+B4; B9 needs ENG-35 coordination.
 
     | # | Mechanism to build | Clears (approx) | Notes |
     | --- | --- | --- | --- |
-    | **B3** | recipient/amount referent operands. **`*_create_token` slice done (batch 4); `exile_graveyard_creatures_gain_life` done (batch 5)** — both needed ~no engine code: `create_token` already had `creators="previous_target_controller"`, and Crypt Incursion's "for each card exiled this way" is the existing `effect_amounts` `this_way` kind over `objects_exiled_this_way` (one small addition: a `card_type` filter on `ExileTargetGraveyardEffect`). **Remaining:** the rows below need a **sum-over-a-list** `effect_amounts` kind (`exile_top_then_damage_by_mv`/`mill_..._by_mv` deal *summed* MV of N moved cards) and a **"the object(s) the previous instruction moved"** referent, plus `copy_object`/`attach` operand wiring. | ~~`exile_create_token`, `destroy_create_token`, `counter_create_token`, `exile_graveyard_creatures_gain_life`~~ (done); still: `create_attached_aura_token`, `create_token_copy_of_linked_exile`, `copy_self_controlled_by_previous_target`, `copy_attachments_onto_last_created`, `exile_top_then_damage_by_mv`, `mill_then_damage_each_opponent_by_mv` (~6) | the done slice was pure producer convenience; the rest is genuine new vocabulary |
-    | **B4** | share one resolved target across a `seq` body — first clause carries the RULE 115 requirement, later clauses read it via their own `previous_subject`/`previous_target` pronoun (retired batches 6–7, no new node needed — see `Done_Backend.md`). **One row left:** `damage_and_drain_capped` needs a "target's pre-damage life/loyalty/toughness" `effect_amounts` measurement + a clamp (B3-shaped). `remove_counters_from_among_then_draw_lose_life` retires with its `draw_lose_life_counter_removed_delta` CONTINUATION parent in **B9**. | `damage_and_drain_capped` (~1) | targeting-time + resolution-time test |
+    | **B3** | recipient/amount referent operands. The `*_create_token` slice and Crypt Incursion (`exile_graveyard_creatures_gain_life`) are retired (needed ~no engine code — see `Done_Backend.md`). **Remaining:** a **sum-over-a-list** `effect_amounts` kind (`exile_top_then_damage_by_mv`/`mill_..._by_mv` deal *summed* MV of N moved cards) and a **"the object(s) the previous instruction moved"** referent, plus `copy_object`/`attach` operand wiring. | `create_attached_aura_token`, `create_token_copy_of_linked_exile`, `copy_self_controlled_by_previous_target`, `copy_attachments_onto_last_created`, `exile_top_then_damage_by_mv`, `mill_then_damage_each_opponent_by_mv` (~6) | genuine new vocabulary |
     | **B5** | `reveal` stashes the revealed object as a `GameContext` referent + an `effect_conditions` predicate family for "revealed card is a land / MV matches / …" | `reveal_top_conditional_to_hand`, `reveal_top_then_counter_if_mv_match`, `reveal_top_then_free_cast_if_mv_match`, `reveal_top_then_land_battlefield_or_draw`, `reveal_top_then_maybe_battlefield_if_land_or_cheap_creature`, `reveal_top_then_creature_and_or_land_battlefield`, `reveal_top_then_take_and_lose_life`, `exile_then_reveal_greater_mana_value` (~8) | biggest single family; `reveal_top_then_transform` folds in (acts on self) |
-    | **B6** | depends on B3+B4: `optional`/`seq` body of `[<verb>, grant_keyword/grant_until on previous_target|source]` — the "if you do, it gains …" shape | `return_creature_grant_indestructible`, `unattach_tap_indestructible`, `return_top_graveyard_creature_with_haste`, `exile_discount_cost`, `exile_top_then_grant_conditional_cast`, `exile_triggering_discard_may_play_this_turn`, `impulsive_draw` (~7) | `impulsive_draw`'s ~11 call sites + `count_if_additional_cost_paid` param are the real cost here |
+    | **B6** | depends on B3: `optional`/`seq` body of `[<verb>, grant_keyword/grant_until on previous_target|source]` — the "if you do, it gains …" shape | `return_creature_grant_indestructible`, `unattach_tap_indestructible`, `return_top_graveyard_creature_with_haste`, `exile_discount_cost`, `exile_top_then_grant_conditional_cast`, `exile_triggering_discard_may_play_this_turn`, `impulsive_draw` (~7) | `impulsive_draw`'s ~11 call sites + `count_if_additional_cost_paid` param are the real cost here |
     | **B7** | `bind` over `hand_size` / a new `cards_discarded_this_way` `THIS_WAY_TALLIES` entry; `wheel`/`windfall` are `for_each`-over-players wrapping that `bind` | `exile_hand_then_draw_that_many`, `discard_up_to_then_draw_that_many`, `windfall`, `wheel`, `wheel_of_fortune` (~5) | `DiscardCardsDiscardedDeltaDrawEffect` already reads the delta — half-built |
-    | ~~**B8**~~ | **DONE (batch 3).** reclassify-only, `FUSION → ALIAS`, no code | `exile_return_transformed`, `return_from_graveyard_transformed`, `reveal_top_then_transform` → `transform`. Checked and **kept as fusions**: `blink` (targeted, params), `dies_return_as_enchantment` (appends a type static to the returned object), `return_dies_as_new_permanent` (synthetic card + RULE 115 target), `put_hand_card_on_bottom_then_draw` (genuine move-then-draw). | shipped |
-    | **B9** | coordinate with **ENG-35** + bump `test_isa_inventory`'s `CONTINUATION ≤ 59` / `SPECIAL ≤ 42` pins in the same commit | `taxed_draw`, `exchange_control_then_energy_sacrifice`, `pay_life_equal_to_opponents_combat_damaged_draw_that_many`, `destroy_controller_may_search_basic_land`, `exile_controller_searches_basic_land`, `shuffle_target_graveyard_cards_into_library`, `draw_reveal_cast_one_free` (~7); plus `haunt` → INSTRUCTION, and the bespoke one-card residue → SPECIAL | these open a `pending_choice`, so they are ENG-35-shaped, not axis-3; the two pins being *exact* is the coordination point |
+    | **B9** | coordinate with **ENG-35** + bump `test_isa_inventory`'s `CONTINUATION ≤ 59` / `SPECIAL ≤ 42` pins in the same commit | `taxed_draw`, `exchange_control_then_energy_sacrifice`, `pay_life_equal_to_opponents_combat_damaged_draw_that_many`, `destroy_controller_may_search_basic_land`, `exile_controller_searches_basic_land`, `shuffle_target_graveyard_cards_into_library`, `draw_reveal_cast_one_free`, `remove_counters_from_among_then_draw_lose_life` (~8); plus `haunt` → INSTRUCTION, and the bespoke one-card residue → SPECIAL | these open a `pending_choice`, so they are ENG-35-shaped, not axis-3; the two pins being *exact* is the coordination point |
 
     Internal plumbing (`draw_mill_if_discarded`, `draw_lose_life_counter_
     removed_delta`, `sacrifice_count_draw_lose`) retires **with its parent
@@ -151,8 +148,9 @@ its block back into the matching section here.
     `create_tokens_per_counter_among_target_player_creatures` — plus
     `<verb>+create_token`/`<verb>+reveal`/`copy`-variant `seq`/`if_else` rows)
     fold into whichever batch's pre-start grep claims them: the `for_each`
-    ones are B4/B7 bodies wrapped in the existing `for_each` node, the rest
-    are B3 (referent) or B5 (revealed-card) once those mechanisms exist. Any
+    ones are B7 bodies (or a retired-B4 pronoun body) wrapped in the existing
+    `for_each` node, the rest are B3 (referent) or B5 (revealed-card) once
+    those mechanisms exist. Any
     row still standing after B3→B9 is a genuine one-card SPECIAL — hand-author
     and bump the `≤42` pin.
 

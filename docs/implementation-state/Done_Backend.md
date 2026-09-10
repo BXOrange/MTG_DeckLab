@@ -4158,7 +4158,44 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 65**.
+Running total: **81 → 64**.
+
+- **Batch 8 (plan row B4, capped-drain slice — `65 → 64`; B4's shared-target
+  family now fully retired).** `damage_and_drain_capped` (Drain Life — "~
+  deals X damage to any target. You gain life equal to the damage dealt, but
+  not more than the player's life total / the planeswalker's loyalty / the
+  creature's toughness *before* the damage") retired to
+  `bind{name: "cap", amount: {kind: "target_defense", of: "target",
+  minimum: 0, maximum: "x"}, effects: [damage{amount: "x", target_kind:
+  "any"}, gain_life{amount: "$cap"}]}`.
+
+  Three pieces of new general vocabulary, each reusable:
+  - **`effect_amounts` kind `target_defense`** — the referent's defensive
+    stat: a player's life, a planeswalker's loyalty, a creature's toughness
+    (a battle → 0, matching the printed card's silence). Read live, so the
+    caller times it — here `bind` measures it *before* its body deals the
+    damage (RULE 608.2 "measured between the two halves").
+  - **`BindEffect.target_specs`** — a `bind` runs its body exactly once,
+    unconditionally, so RULE 601.2c lets it announce that body's
+    requirements, like `seq`/`optional` (unlike `if_else`/`for_each`). This
+    is what lets the `damage{target_kind: "any"}` clause live *inside* the
+    bind and still be a legal announced target.
+  - **`_resolve_x` in `composition.py`** — `RulesEngine._substitute_x` only
+    walks a flat built effect list's own magnitude attributes; it never
+    reaches a composition node's still-serialized body or a `bind`'s
+    `amount` dict. `_build` (all five nodes) and `BindEffect.apply` (the
+    `amount`) now substitute `"x"`/`"-x"` from `GameObject.x_paid` (stamped
+    at cast time), so an {X}-scaled card can finally use a composition node.
+
+  `DamageAndDrainCappedEffect` + registration + `_FUSION_TYPES` row deleted.
+  `targeting.legal_targets`' four-way "any target" widening (planeswalkers +
+  battles), shipped with the original card, is untouched. Tests:
+  `test_composition_nodes.TestBindDrainCap` (measure-before-body,
+  `maximum` clamp, `_resolve_x` into body + amount, type gone) +
+  `test_mec43_round4_a` gained X-below-cap / player-life-cap /
+  planeswalker-loyalty-cap execute cases. Full suite green incl.
+  `--full-cache` (the `_build`/`bind` change is on every composition node's
+  path).
 
 - **Batch 7 (plan row B4, boosted-power slice — `66 → 65`).**
   `counter_then_fightlike_damage` (Archdruid's Charm mode 2 — "Put a +1/+1

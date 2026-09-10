@@ -99,6 +99,12 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # the ``of`` player's lands; defers to the one selector that already
         # defines this so nothing is restated.
         "domain",  # + ``of`` (a player referent; the controller by default)
+        # The referent's *defensive* stat — a player's life total, a
+        # planeswalker's loyalty, or a creature's toughness (Drain Life's
+        # life-gain cap, measured *before* the damage). A battle (RULE
+        # 115.4's fourth "any target") has no cap the printed card names, so
+        # it reads 0.
+        "target_defense",  # + ``of`` (an object/player referent)
     }
 )
 
@@ -198,6 +204,21 @@ def _base(
             card = getattr(subject, "card", None)
             return int(getattr(card, "converted_mana_cost", 0) or 0)
         return int(getattr(subject, characteristic, 0) or 0)
+
+    if kind == "target_defense":
+        # RULE 119.3-adjacent: how much "damage" the target can absorb —
+        # life for a player, loyalty for a planeswalker, toughness for a
+        # creature. Read live (the caller times the measurement, e.g. a
+        # `bind` takes it before its body deals the damage).
+        if subject is None:
+            return 0
+        if getattr(subject, "instance_id", None) is None:
+            return int(getattr(subject, "life", 0) or 0)  # a Player
+        if getattr(subject, "is_planeswalker", False):
+            return int((getattr(subject, "counters", None) or {}).get("loyalty", 0) or 0)
+        if getattr(subject, "is_creature", False):
+            return int(getattr(subject, "toughness", 0) or 0)
+        return 0  # a battle, or something with no defensive stat
 
     if kind == "x_paid":
         return int(getattr(subject, "x_paid", 0) or 0)

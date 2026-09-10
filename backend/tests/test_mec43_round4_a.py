@@ -25,10 +25,11 @@ Eight cards, five new engine primitives:
 * `GameState.damage_dealt_to_players_this_turn` + `LoseLifeEffect.
   amount_from_damage_dealt_this_turn` (Final Punishment).
 * `ManaCost.with_x_colored` (RULE 605.3a scoped to just the announced
-  {X}, not the whole cost) + a new atomic `DamageAndDrainCappedEffect`
-  (Drain Life) -- which also widened `targeting.legal_targets`'s "any
-  target" (RULE 115.4) to include planeswalkers/battles, a stale gap from
-  before either card type was modeled.
+  {X}, not the whole cost) + the damage+drain clause (Drain Life) -- which
+  also widened `targeting.legal_targets`'s "any target" (RULE 115.4) to
+  include planeswalkers/battles, a stale gap from before either card type
+  was modeled. (ENG-37 B4 later retired the fused `damage_and_drain_capped`
+  to a `bind` over the new `effect_amounts` `target_defense` measurement.)
 """
 
 from __future__ import annotations
@@ -409,6 +410,52 @@ def test_drain_life_deals_x_damage_and_gains_life_capped_by_toughness():
     # 3 damage dealt, but life gained is capped at the victim's own
     # pre-damage toughness (2), not the full 3 damage.
     assert p1.life == 12
+
+
+def test_drain_life_gains_the_full_x_when_x_is_below_the_cap():
+    # The cap is a ceiling, not a fixed amount — X=3 into a 20-life player
+    # gains 3, not 20.
+    engine, state, p1, p2 = _engine()
+    spell = _catalogue_obj("Drain Life", zone=Zone.HAND)
+    p1.add_to_zone(spell, Zone.HAND)
+    p1.mana_pool.add("B", 10)
+    p1.life, p2.life = 10, 20
+
+    engine.cast_spell(p1, spell, targets=[p2], x=3)
+    engine.resolve_until_stable()
+
+    assert (p1.life, p2.life) == (13, 17)
+
+
+def test_drain_life_life_gain_is_capped_by_a_players_pre_damage_life_total():
+    engine, state, p1, p2 = _engine()
+    spell = _catalogue_obj("Drain Life", zone=Zone.HAND)
+    p1.add_to_zone(spell, Zone.HAND)
+    p1.mana_pool.add("B", 15)
+    p1.life, p2.life = 10, 4
+
+    engine.cast_spell(p1, spell, targets=[p2], x=9)
+    engine.resolve_until_stable()
+
+    # 9 damage dealt (p2 to -5), but only 4 life gained — p2's life *before*
+    # the damage, measured by the `bind`'s `target_defense` amount.
+    assert (p1.life, p2.life) == (14, -5)
+
+
+def test_drain_life_life_gain_is_capped_by_a_planeswalkers_pre_damage_loyalty():
+    engine, state, p1, p2 = _engine()
+    spell = _catalogue_obj("Drain Life", zone=Zone.HAND)
+    p1.add_to_zone(spell, Zone.HAND)
+    p1.mana_pool.add("B", 15)
+    p1.life = 10
+    pw = _bf(state, _named("Chandra, Torch of Defiance"), controller="p2")
+    pw.counters["loyalty"] = 4
+
+    engine.cast_spell(p1, spell, targets=[pw], x=7)
+    engine.resolve_until_stable()
+
+    assert p1.life == 14              # capped at the pre-damage loyalty
+    assert pw not in state.battlefield  # 7 >= 4, so it died
 
 
 def test_drain_life_x_must_be_paid_with_black_mana():

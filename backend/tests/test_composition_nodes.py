@@ -18,7 +18,8 @@ is what `game/isa.py` counts 84 of.
   from "unanswerable";
 * that a body which pauses on a choice suspends correctly, including
   `for_each` asking once per item;
-* RULE 601.2c: only ``seq`` may announce its body's targets.
+* RULE 601.2c: only a node whose body definitely runs in full — ``seq``,
+  ``optional``, ``bind`` — may announce its body's targets.
 
 Reference: mtg_analyzer/game/effects/composition.py,
 mtg_analyzer/game/effect_amounts.py, mtg_analyzer/game/isa.py.
@@ -91,15 +92,31 @@ class TestSeq:
         ]})], None)[0]
         assert [spec.kind for spec in effect.target_specs] == ["creature"]
 
-    @pytest.mark.parametrize("node", ["if_else", "for_each", "bind"])
+    @pytest.mark.parametrize("node", ["if_else", "for_each"])
     def test_the_other_nodes_announce_nothing(self, node: str) -> None:
-        # None of these knows at announce time *what* will run — which branch
-        # (`if_else`), how many times (`for_each`) — so none may claim a RULE
-        # 115 requirement of its own.
+        # Neither knows at announce time *what* will run — which branch
+        # (`if_else`), how many times (`for_each`) — so neither may claim a
+        # RULE 115 requirement of its own.
         effect = build_effects([EffectSpec(node, {"effects": [
             {"type": "destroy", "params": {"target_kind": "creature"}},
         ], "then": [{"type": "destroy", "params": {"target_kind": "creature"}}]})], None)[0]
         assert effect.target_specs == []
+
+    def test_bind_announces_its_bodys_targets(self) -> None:
+        # A `bind` runs its body exactly once, unconditionally — so, like
+        # `seq`/`optional` and unlike `if_else`/`for_each`, RULE 601.2c lets
+        # it surface the body's requirements. "~ deals X damage to any
+        # target. You gain life … but not more than the target's toughness"
+        # (Drain Life) is a `bind` whose body's `damage` clause targets.
+        effect = build_effects([EffectSpec("bind", {
+            "name": "cap",
+            "amount": {"kind": "target_defense", "of": "target"},
+            "effects": [
+                {"type": "damage", "params": {"amount": 1, "target_kind": "any"}},
+                {"type": "gain_life", "params": {"amount": "$cap"}},
+            ],
+        })], None)[0]
+        assert [spec.kind for spec in effect.target_specs] == ["any"]
 
     def test_optional_does_announce_its_bodys_targets(self) -> None:
         # PAR-62 corrected this: `optional` was grouped with the three above,
@@ -679,3 +696,79 @@ class TestB4BoostedPowerRetirement:
     def test_counter_then_fightlike_damage_is_gone(self) -> None:
         assert not EffectRegistry.is_registered("counter_then_fightlike_damage")
         assert "counter_then_fightlike_damage" not in isa.EFFECT_TYPES
+
+
+class TestBindDrainCap:
+    """ENG-37 batch 8: the fused `damage_and_drain_capped` (Drain Life) retired
+    to a `bind` — its `amount` measures the target's `target_defense` (life /
+    loyalty / toughness), clamped to `[0, X]`, *before* the body deals the
+    damage; the body then gains `$cap`.
+    """
+
+    def test_bind_measures_the_target_before_the_body_runs(self) -> None:
+        eng = _engine()
+        victim = _creature(eng.state, owner="p2", name="Victim", power=1, toughness=2)
+        eng.rules.check_state_based_actions()
+        before = _life(eng)
+
+        effects = build_effects([EffectSpec("bind", {
+            "name": "cap",
+            "amount": {"kind": "target_defense", "of": "target", "minimum": 0, "maximum": 5},
+            "effects": [
+                {"type": "damage", "params": {"amount": 5, "target_kind": "any"}},
+                {"type": "gain_life", "params": {"amount": "$cap"}},
+            ],
+        })], None)
+        assert [ts.kind for e in effects for ts in e.target_specs] == ["any"]
+
+        _apply_effects_partitioned(effects, GameContext(eng.state, eng.rules), [victim], None)
+        # 5 damage dealt, but life gained is the pre-damage toughness (2).
+        assert _life(eng) - before == 2
+        assert victim.damage_marked == 5
+        eng.rules.check_state_based_actions()
+        assert victim not in eng.state.battlefield  # 5 >= 2
+
+    def test_bind_amount_maximum_clamps_to_x(self) -> None:
+        eng = _engine()
+        p2 = eng.state.player_by_id("p2")
+        p2.life = 40
+        before = _life(eng)
+
+        effects = build_effects([EffectSpec("bind", {
+            "name": "cap",
+            "amount": {"kind": "target_defense", "of": "target", "minimum": 0, "maximum": 3},
+            "effects": [
+                {"type": "damage", "params": {"amount": 3, "target_kind": "any"}},
+                {"type": "gain_life", "params": {"amount": "$cap"}},
+            ],
+        })], None)
+        _apply_effects_partitioned(effects, GameContext(eng.state, eng.rules), [p2], None)
+        # cap would be 40 (life), clamped to X=3.
+        assert _life(eng) - before == 3
+
+    def test_resolve_x_substitutes_into_a_bind_body_and_amount(self) -> None:
+        # `_substitute_x` never reaches a still-serialized node body; the
+        # composition module does it from the source's announced {X}.
+        spell = Card(id="s", name="Sp", type_line="Sorcery", is_sorcery=True)
+        src = GameObject(spell, owner_id="p1", zone=Zone.STACK)
+        src.x_paid = 4
+
+        eng = _engine()
+        p2 = eng.state.player_by_id("p2")
+        p2.life = 40
+        before = _life(eng)
+        effects = build_effects([EffectSpec("bind", {
+            "name": "cap",
+            "amount": {"kind": "target_defense", "of": "target", "minimum": 0, "maximum": "x"},
+            "effects": [
+                {"type": "damage", "params": {"amount": "x", "target_kind": "any"}},
+                {"type": "gain_life", "params": {"amount": "$cap"}},
+            ],
+        })], src)
+        _apply_effects_partitioned(effects, GameContext(eng.state, eng.rules), [p2], None, source=src)
+        assert p2.life == 36          # 4 damage
+        assert _life(eng) - before == 4  # cap clamped to X=4
+
+    def test_damage_and_drain_capped_is_gone(self) -> None:
+        assert not EffectRegistry.is_registered("damage_and_drain_capped")
+        assert "damage_and_drain_capped" not in isa.EFFECT_TYPES

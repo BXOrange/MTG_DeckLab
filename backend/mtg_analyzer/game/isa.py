@@ -627,7 +627,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "create_token_copy_of_linked_exile": (("create", "copy_object"), OP_BIND),
     "create_token_may_attach_equipment": (("create", "attach"), OP_OPTIONAL),
     "create_tokens_per_counter_among_target_player_creatures": (("create",), OP_FOR_EACH),
-    "damage_and_drain_capped": (("deal_damage", "gain_life"), OP_SEQ),
     "damage_then_investigate_if_excess": (("deal_damage", "investigate"), OP_IF_ELSE),
     "destroy_artifacts_enchantments_then_counters": (("destroy", "put_counter"), OP_SEQ),
     "destroy_controller_may_search_basic_land": (("destroy", "search"), OP_OPTIONAL),

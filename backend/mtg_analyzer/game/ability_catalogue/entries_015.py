@@ -646,12 +646,13 @@ def _drain_life() -> list[AbilitySpec]:
     ``{X}`` portion by *color*, via `ManaCost.with_x_colored` — resolving
     ``{X}`` into ``x`` real `COLOR`-kind pips instead of one generic
     `VARIABLE` pip reuses `ManaPool`'s existing colored-pip backtracking
-    solver for free, no pool changes needed. The damage+drain clause is one
-    new atomic `DamageAndDrainCappedEffect` (the life-gain cap needs the
-    target's own life/loyalty/toughness read *before* the damage, the same
-    "read first, then act" shape Feed the Swarm's composition (`destroy` + `bind`, ENG-37)
-    already uses). Along the way: `targeting.legal_targets`'s own "any
-    target" (RULE 115.4) turned out to only ever offer creatures and
+    solver for free, no pool changes needed. The damage+drain clause is an
+    ENG-37 `bind` (B4): its ``amount`` measures the target's ``target_defense``
+    (life / loyalty / toughness), clamped to ``[0, X]``, *before* the body
+    runs — RULE 608.2 "measured between the two halves" — then the body deals
+    X and gains that much (``$cap``). Retires the fused
+    ``damage_and_drain_capped``. Along the way: `targeting.legal_targets`'s
+    own "any target" (RULE 115.4) turned out to only ever offer creatures and
     players — planeswalkers and battles were never added, a stale gap from
     before either card type was modeled (its own comment said so
     explicitly) — now widened to the real four-way definition, which is
@@ -662,7 +663,17 @@ def _drain_life() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("damage_and_drain_capped", {"amount": "x", "target_kind": "any"})],
+            [EffectSpec("bind", {
+                "name": "cap",
+                "amount": {
+                    "kind": "target_defense", "of": "target",
+                    "minimum": 0, "maximum": "x",
+                },
+                "effects": [
+                    {"type": "damage", "params": {"amount": "x", "target_kind": "any"}},
+                    {"type": "gain_life", "params": {"amount": "$cap"}},
+                ],
+            })],
             cast_x_color_restriction="B",
         ),
     ]

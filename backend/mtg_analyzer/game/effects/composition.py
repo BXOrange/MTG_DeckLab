@@ -69,15 +69,39 @@ def _as_spec_dicts(raw: Any) -> list[dict[str, Any]]:
     return body
 
 
+def _resolve_x(value: Any, x_paid: int) -> Any:
+    """Substitute the ``"x"``/``"-x"`` sentinel anywhere in a params value.
+
+    `RulesEngine._substitute_x` only walks a *flat* built effect list's own
+    magnitude attributes — it never reaches into a composition node's still-
+    serialized body (`_CompositeEffect.inner_specs`) or a `bind`'s ``amount``
+    dict. A node's body is built lazily at `apply` time, by which point the
+    spell/ability's announced {X} is already stamped on the source
+    (`GameObject.x_paid`, RULE 107.3c — set at cast/activate time), so the
+    substitution is done here instead, from that value. Same guard as
+    `_substitute_x`: a real int magnitude never equals the literal string.
+    """
+    if value == "x":
+        return x_paid
+    if value == "-x":
+        return -x_paid
+    if isinstance(value, dict):
+        return {k: _resolve_x(v, x_paid) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_resolve_x(v, x_paid) for v in value]
+    return value
+
+
 def _build(specs: list[dict[str, Any]], source: Optional[GameObject]) -> list[GameEffect]:
     from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
     from ...parser.oracle.spec import EffectSpec
 
+    x_paid = int(getattr(source, "x_paid", 0) or 0)
     return build_effects(
         [
             EffectSpec(
                 type=spec["type"],
-                params=dict(spec.get("params") or {}),
+                params=_resolve_x(dict(spec.get("params") or {}), x_paid),
                 condition=spec.get("condition"),
             )
             for spec in specs
@@ -146,14 +170,16 @@ class SeqEffect(_CompositeEffect):
     ``if_else``, or the body of a ``for_each``, be more than one effect
     without inventing a per-node "and also" parameter.
 
-    It is also the only node that can honestly announce targets. RULE 601.2c
-    fixes targets when the spell or ability is *put on the stack*, before any
-    condition is evaluated or any loop runs — so a `seq` may surface its
-    body's requirements (they all happen, in order), while the other four
-    cannot: an `if_else` doesn't know which branch will run, and a `for_each`
-    doesn't know how many times. Those four therefore announce nothing, and a
-    body clause inside them reads a target a *sibling* clause announced (the
-    ``target_groups=None`` sharing `_apply_effects_partitioned` documents).
+    RULE 601.2c fixes targets when the spell or ability is *put on the
+    stack*, before any condition is evaluated or any loop runs — so a node
+    may surface its body's requirements only if that body definitely runs, in
+    full: `seq` (always), `optional` (a fixed singular body — RULE 601.2b
+    decides only *whether*, at resolution) and `bind` (runs its body once,
+    unconditionally). `if_else` and `for_each` cannot — one doesn't know
+    which branch will run, the other doesn't know how many times — so they
+    announce nothing, and a body clause inside them reads a target a
+    *sibling* clause announced (the ``target_groups=None`` sharing
+    `_apply_effects_partitioned` documents).
     """
 
     @property
@@ -231,11 +257,11 @@ class OptionalEffect(_CompositeEffect):
     def target_specs(self) -> list[TargetSpec]:
         """RULE 601.2c: an optional effect still announces its targets.
 
-        The second node that can honestly do this, and for a different reason
-        than `SeqEffect`'s. The other three can't because they don't know
-        *what* will run — which branch (`if_else`), how many times
-        (`for_each`). Here the body is fixed and singular; the only open
-        question is *whether* it happens, and RULE 601.2b answers that at
+        One of three nodes that can honestly do this (`seq` and `bind` are
+        the others), and for a different reason than `SeqEffect`'s. `if_else`
+        and `for_each` can't because they don't know *what* will run — which
+        branch, how many times. Here the body is fixed and singular; the only
+        open question is *whether* it happens, and RULE 601.2b answers that at
         resolution, long after RULE 601.2c has fixed the targets on
         announcement. "When you cycle this card, you may tap target creature."
         (Choking Tethers) targets when the trigger goes on the stack; the
@@ -400,6 +426,14 @@ class BindEffect(_CompositeEffect):
     `RulesEngine._substitute_x`'s established reasoning — a real magnitude
     parameter is an int and never equals a string — with a name, so nested
     binds don't collide.
+
+    RULE 601.2c: a `bind` runs its body **exactly once, unconditionally** (an
+    empty body aside), so — like `seq`, and unlike `if_else`/`for_each` — it
+    can honestly announce that body's targets. "~ deals X damage to any
+    target. You gain life equal to the damage dealt, but not more than the
+    target's toughness/loyalty/life before the damage" (Drain Life) is a
+    `bind` whose body's first clause carries the RULE 115 requirement and
+    whose ``amount`` measures the target's pre-damage defensive stat.
     """
 
     def __init__(
@@ -412,6 +446,13 @@ class BindEffect(_CompositeEffect):
         super().__init__(effects, source)
         self.name = str(name or "n")
         self.amount = amount
+
+    @property
+    def target_specs(self) -> list[TargetSpec]:
+        specs: list[TargetSpec] = []
+        for effect in _build(self.inner_specs, self.source):
+            specs.extend(effect.target_specs)
+        return specs
 
     @staticmethod
     def _substitute(value: Any, sentinel: str, measured: int) -> Any:
@@ -427,7 +468,12 @@ class BindEffect(_CompositeEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if not self.inner_specs:
             return
-        measured = effect_amounts.amount_of(self.amount, context, self.source, targets)
+        # The measurement can itself be {X}-scaled — "…but not more than X"
+        # (Drain Life's cap). `_substitute_x` never reaches this dict; do it
+        # here from the source's announced {X} (see `_resolve_x`).
+        x_paid = int(getattr(self.source, "x_paid", 0) or 0)
+        amount_spec = _resolve_x(self.amount, x_paid) if x_paid else self.amount
+        measured = effect_amounts.amount_of(amount_spec, context, self.source, targets)
         sentinel = f"${self.name}"
         bound = [
             {**spec, "params": self._substitute(

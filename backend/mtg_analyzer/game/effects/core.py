@@ -3394,56 +3394,6 @@ def _attached_auras_and_equipment_count(context: GameContext, source: Optional["
     )
 
 
-class DamageAndDrainCappedEffect(GameEffect):
-    """"~ deals X damage to any target. You gain life equal to the damage
-    dealt, but not more life than the player's life total before the
-    damage was dealt, the planeswalker's loyalty before the damage was
-    dealt, or the creature's toughness." (Drain Life, MEC-43) — one atomic
-    effect, since the life-gain cap depends on the target's own
-    characteristic *before* the damage (which the damage itself can zero
-    out, or which a battlefield-only permanent loses entirely if it dies),
-    the same "read the target's own characteristic first, then act" shape
-    Swords to Plowshares' / Feed the Swarm's compositions (ENG-37)
-    already use elsewhere. Player/planeswalker/creature are told apart by
-    duck-typing (``hasattr(target, "life")`` for a `Player`, else
-    `GameObject.is_planeswalker`, else the creature/toughness fallback —
-    RULE 115.4's fourth "any target" case, a battle, is a documented
-    non-issue: the printed card predates battles and names no cap for one,
-    so a battle target here simply gains no life, matching the card's own
-    silence on that case rather than guessing a rule for it).
-    """
-
-    def __init__(
-        self, amount: int = 0, target_kind: str = "any", source: Optional["GameObject"] = None,
-    ) -> None:
-        super().__init__(source)
-        self.amount = amount
-        self.target_spec = TargetSpec(kind=target_kind)
-
-    def target_polarity(self) -> Optional[str]:
-        return "harmful"
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = targets[0] if targets else None
-        amount = self.amount
-        if target is None or amount <= 0:
-            return
-        if hasattr(target, "life"):
-            cap = target.life
-        elif getattr(target, "is_planeswalker", False):
-            cap = target.counters.get("loyalty", 0)
-        elif getattr(target, "is_creature", False):
-            cap = target.toughness or 0
-        else:
-            cap = 0  # RULE 115.4's battle case — the printed card names no cap
-        context.deal_damage(target, amount, self.source, single_target_hint=True)
-        gain = min(amount, max(cap, 0))
-        if gain > 0:
-            controller = _controller_of(self.source, context)
-            if controller is not None:
-                context.gain_life(controller, gain)
-
-
 class DrawIfTriggerObjectGreatestPowerEffect(GameEffect):
     """"…its controller may draw a card if its power is greater than each
     other creature's power." (Selvala, Heart of the Wilds, MEC-43) — "its"
@@ -24181,16 +24131,6 @@ EffectRegistry.register(
         dealer_optional=bool(p.get("dealer_optional", False)),
         optional=bool(p.get("optional", False)),
         to_self=bool(p.get("to_self", False)),
-    ),
-)
-EffectRegistry.register(
-    # "~ deals X damage to any target. You gain life equal to the damage
-    # dealt, but not more life than the player's life total before the
-    # damage was dealt, the planeswalker's loyalty before the damage was
-    # dealt, or the creature's toughness." (Drain Life, MEC-43)
-    "damage_and_drain_capped",
-    lambda p: DamageAndDrainCappedEffect(
-        amount=p.get("amount", 0), target_kind=p.get("target_kind", "any"),
     ),
 )
 EffectRegistry.register(
