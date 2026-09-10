@@ -757,7 +757,7 @@ English and German.
 | "As long as …" conditions on a static (RULE 613.6) | `game/static_conditions.py` — the project's **single state-predicate vocabulary**, read by statics' `active_if`, trigger intervening-ifs, `binding/core.py`'s replacement gate and (via `game/effect_conditions.py`) resolving effects; plus `parser/oracle/catalogue/static_handlers.py` (`_STATIC_CONDITION_RES`, `_conditional_static_specs`) |
 | "Until …" durations on a continuous effect (RULE 611) | `game/durations.py`, `GameState.floating_statics`, `effects.GrantUntilEffect` — note "until end of turn" stays on the `temp_*` path |
 | How many targets a spell/ability wants (RULE 115.1/601.2c) | `game/targeting.py` (`TargetSpec.count`/`count_max`/`count_selector`, `effective_count`, `resolved_count`, `expand_counts`/`collapse_groups`) |
-| A clause naming what a previous clause targeted or created | `effects.GameContext.previous_targets` / `created_objects` (both maintained by `_apply_effects_partitioned`) |
+| A clause naming what a previous clause targeted, created, or revealed | `effects.GameContext.previous_targets` / `created_objects` / `revealed_card` (all maintained by `_apply_effects_partitioned`; `revealed_card` is the `of: "revealed"` referent, set by `reveal_top`) |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
 | Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
 | Hand-authoring a specific card's effects | `hand-author-card` skill, [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |

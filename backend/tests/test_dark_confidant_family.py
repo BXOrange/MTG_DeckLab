@@ -1,11 +1,13 @@
 """MEC-12 (cEDH staples 2) — Dark Confidant's "reveal top, put into hand,
 lose life equal to its mana value" upkeep trigger.
 
-New primitive: `RevealTopThenTakeAndLoseLifeEffect` — deliberately not
-`DrawCardEffect`/`RulesEngine.draw` at all (RULE 121.4: moving a card to
-hand without the printed word "draw" isn't a draw, so it must never trip a
-draw-replacement/"whenever you draw" trigger or count toward cards drawn
-this turn).
+ENG-37 B5 retired the fused `RevealTopThenTakeAndLoseLifeEffect` to
+`seq([reveal_top, bind{mv of "revealed", [put_revealed_card{hand},
+lose_life{$mv}]}])`. `put_revealed_card` (for a "hand" destination) is
+deliberately not `DrawCardEffect`/`RulesEngine.draw` at all (RULE 121.4:
+moving a card to hand without the printed word "draw" isn't a draw, so it
+must never trip a draw-replacement/"whenever you draw" trigger or count
+toward cards drawn this turn).
 
 Reference: docs/implementation-state/Done_Backend.md "MEC-12" entries.
 """

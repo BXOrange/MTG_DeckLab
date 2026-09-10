@@ -1475,6 +1475,8 @@ class CastingResolutionMixin:
             permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
             objects_exiled_this_way=resumed.get("objects_exiled_this_way", 0),
             damaged_this_way=resumed.get("damaged_this_way"),
+            previous_selector=resumed.get("previous_selector"),
+            revealed_card=resumed.get("revealed_card"),
             stack_item=stack_item,
         )
         if not deferred_again and stack_item is not None:

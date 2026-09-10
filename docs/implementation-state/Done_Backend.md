@@ -4158,7 +4158,48 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 64**.
+Running total: **81 → 62**.
+
+- **Batch 9 (plan row B5, reveal-referent foundation — `64 → 62`).** The
+  `reveal_top_*` fusion family exists because a "reveal the top card … if
+  it's a land, put it into your hand / onto the battlefield … otherwise draw"
+  clause has to name *the card it just revealed* between the two halves, and
+  no referent could. New mechanism:
+  - **`GameContext.revealed_card`** — threaded through
+    `_apply_effects_partitioned` (param / save / reset / deferred-entry /
+    restore) and `composition._run` / `resume_deferred_effects`, the same
+    save-reset-restore idiom as `previous_selector`.
+  - **`reveal_top` effect** (RULE 701.20) — reveals a library's top card and
+    stashes it there. No mechanical weight of its own (this engine models no
+    face-up public-knowledge state); the acting-on-it is a separate body
+    clause.
+  - **`put_revealed_card` effect** — moves the stashed card to
+    `hand` / `battlefield` / `battlefield_tapped`. For `hand` it is
+    deliberately **not** a `draw` (RULE 121.4 — Dark Confidant must not trip
+    "whenever you draw").
+  - **`"revealed"` referent** in `effect_conditions.EFFECT_SUBJECTS` /
+    `subject_of` — so `{kind: "is_card_type", of: "revealed", …}` and
+    `effect_amounts` `{kind: "characteristic", …, of: "revealed"}` both work.
+
+  Retired with it:
+  - **`reveal_top_then_take_and_lose_life`** (Dark Confidant) →
+    `seq([reveal_top, bind{mv = characteristic(mana_value, of: revealed),
+    [put_revealed_card{hand}, lose_life{$mv}]}])`.
+  - **`reveal_top_then_land_battlefield_or_draw`** (Thrasios) →
+    `seq([reveal_top, if_else(is_card_type(land, of: revealed),
+    [put_revealed_card{battlefield_tapped}], [draw{1}])])`.
+
+  Two fused classes + registrations + `_FUSION_TYPES` rows deleted; `isa`
+  gains `reveal_top` → ALIAS(`reveal`) and `put_revealed_card` →
+  ALIAS(`move_object`). Tests: `test_composition_nodes.TestB5RevealReferent`
+  plus the pre-existing `test_dark_confidant_family` (unchanged, now
+  exercises the composition form). Full suite green incl. `--full-cache`.
+  **Still on B5** (each needs more than the referent): the parser-emitted
+  `reveal_top_conditional_to_hand` (Goblin Guide — its handler
+  `_reveal_top_conditional` must re-emit the `seq` form + a `PARSER_VERSION`
+  bump), plus the "free cast the revealed card", "counter if MV matches",
+  "you may battlefield if land/cheap creature", and "creature and/or land
+  from N revealed" rows (casting-from-library / interactive-choice wiring).
 
 - **Batch 8 (plan row B4, capped-drain slice — `65 → 64`; B4's shared-target
   family now fully retired).** `damage_and_drain_capped` (Drain Life — "~

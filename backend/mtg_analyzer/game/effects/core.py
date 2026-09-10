@@ -121,6 +121,14 @@ class GameContext:
         #: whitelist of effect types (`_PREVIOUS_SELECTOR_EFFECT_TYPES`),
         #: same save/reset/restore idiom as `previous_targets`.
         self.previous_selector: Optional[str] = None
+        #: The card a `reveal_top` clause earlier in this same resolution
+        #: revealed (RULE 701.20), still in its owner's library — the
+        #: referent behind "**it**" / "that card" in "reveal the top card …
+        #: if it's a land card, put it onto the battlefield". Read by
+        #: `effect_conditions`/`effect_amounts` as ``of: "revealed"``.
+        #: Same save/reset/restore idiom in `_apply_effects_partitioned` as
+        #: `previous_selector`.
+        self.revealed_card: Optional[Any] = None
         #: The permanents an earlier clause of this same resolution **just
         #: created**, for a follow-up clause whose subject is "the tokens" /
         #: "that token" — "…each player creates a tapped 2/2 Bird. **The
@@ -1062,6 +1070,7 @@ def _apply_effects_partitioned(
     objects_exiled_this_way: int = 0,
     damaged_this_way: Optional[list[Any]] = None,
     previous_selector: Optional[str] = None,
+    revealed_card: Optional[Any] = None,
     stack_item: Optional[Any] = None,
 ) -> bool:
     """Apply each of ``effects`` against its own share of ``targets``.
@@ -1110,6 +1119,12 @@ def _apply_effects_partitioned(
     card needs a different one — same convention `effect_binder.
     _GROUP_SUBJECT_RETARGET_FIELDS` uses).
 
+    ``revealed_card`` seeds `GameContext.revealed_card` (ENG-37 B5) — the
+    card a `RevealTopEffect` clause put on show (RULE 701.20), read by a
+    following `if_else`/`bind` as the ``of: "revealed"`` referent. Set by
+    the effect, not off a whitelist, but save/reset/restored here so a
+    nested resolution neither inherits nor leaks it.
+
     ``stack_item`` (MEC-37, Doomsday) is threaded through into the parked
     `deferred_effects` entry unchanged, purely so `RulesEngine.
     resume_deferred_effects` can find its way back to the *spell* this
@@ -1133,6 +1148,7 @@ def _apply_effects_partitioned(
     outer_objects_exiled = getattr(context, "objects_exiled_this_way", 0)
     outer_damaged_this_way = getattr(context, "damaged_this_way", [])
     outer_previous_selector = getattr(context, "previous_selector", None)
+    outer_revealed_card = getattr(context, "revealed_card", None)
     outer_clash_won = getattr(context, "clash_won", None)
     outer_clashed_opponent = getattr(context, "clashed_opponent", None)
     outer_die_result = getattr(context, "die_result", None)
@@ -1145,6 +1161,7 @@ def _apply_effects_partitioned(
     context.objects_exiled_this_way = objects_exiled_this_way
     context.damaged_this_way = list(damaged_this_way or [])
     context.previous_selector = previous_selector
+    context.revealed_card = revealed_card
     context.clash_won = None
     context.clashed_opponent = None
     context.die_result = None
@@ -1203,6 +1220,7 @@ def _apply_effects_partitioned(
                         "objects_exiled_this_way": context.objects_exiled_this_way,
                         "damaged_this_way": list(context.damaged_this_way),
                         "previous_selector": context.previous_selector,
+                        "revealed_card": context.revealed_card,
                         "stack_item": stack_item,
                     }
                 )
@@ -1216,6 +1234,7 @@ def _apply_effects_partitioned(
         context.objects_exiled_this_way = outer_objects_exiled
         context.damaged_this_way = outer_damaged_this_way
         context.previous_selector = outer_previous_selector
+        context.revealed_card = outer_revealed_card
         context.clash_won = outer_clash_won
         context.clashed_opponent = outer_clashed_opponent
         context.die_result = outer_die_result
@@ -3732,6 +3751,80 @@ class SylvanLibraryEffect(GameEffect):
         )
         objs = [o for o in player.hand if o.instance_id in drawn_ids]
         context.engine._request_pay_life_or_return_to_library(player, objs, amount=self.life)
+
+
+def _reveal_whose_player(
+    whose: str, source: Optional["GameObject"], context: GameContext
+) -> Optional["Player"]:
+    """The player a `reveal_top` / `put_revealed_card` clause acts on."""
+    if whose == "defending_player":
+        return _defending_player_of(source, context)
+    return _controller_of(source, context)
+
+
+class RevealTopEffect(GameEffect):
+    """RULE 701.20 — reveal the top card of a library, and stash it as
+    `GameContext.revealed_card` so a following `if_else`/`bind` clause can
+    ask about it (``of: "revealed"``) — "reveal the top card of your
+    library. If it's a land card, …" (Goblin Guide, Dark Confidant,
+    Thrasios). ENG-37 B5: the referent half of retiring the `reveal_top_*`
+    fusion family.
+
+    Reveal has no mechanical weight of its own in this engine (no face-up/
+    face-down public-knowledge tracking for a solo game), so this only
+    records the card — the *acting* on it (move to hand/battlefield, lose
+    life, …) is a separate body clause. An empty library reveals nothing
+    and leaves `revealed_card` as it was reset to (``None``).
+    """
+
+    def __init__(self, whose: str = "you", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.whose = str(whose or "you")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _reveal_whose_player(self.whose, self.source, context)
+        if player is None or not player.library:
+            return
+        context.revealed_card = player.library[-1]
+
+
+class PutRevealedCardEffect(GameEffect):
+    """Move `GameContext.revealed_card` (a `RevealTopEffect` clause set it,
+    RULE 701.20) from the top of its owner's library to ``destination``:
+    ``"hand"`` (RULE 121.4 — *not* a draw, so no draw replacement /
+    "whenever you draw" trigger fires), ``"battlefield"`` or
+    ``"battlefield_tapped"``.
+
+    A no-op if nothing was revealed, or if the card is no longer on top of
+    that library (an intervening clause moved it). ENG-37 B5.
+    """
+
+    def __init__(
+        self, destination: str = "hand", whose: str = "you",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.destination = str(destination or "hand")
+        self.whose = str(whose or "you")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        card = getattr(context, "revealed_card", None)
+        if card is None:
+            return
+        player = _reveal_whose_player(self.whose, self.source, context)
+        if player is None or not player.library or player.library[-1] is not card:
+            return
+        player.library.pop()
+        if self.destination in ("battlefield", "battlefield_tapped"):
+            card.zone = Zone.BATTLEFIELD
+            card.tapped = self.destination == "battlefield_tapped"
+            context.state.add_to_battlefield(card)
+            context.state.fire_event(GameEvent(
+                EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=card.name,
+                instance_id=card.instance_id, object_types=sorted(card.type_words),
+            ))
+        else:
+            player.add_to_zone(card, Zone.HAND)
 
 
 class RevealTopConditionalToHandEffect(GameEffect):
@@ -16415,33 +16508,6 @@ class ExileTopThenGrantConditionalCastEffect(GameEffect):
                 context.state.exile_cast_condition[obj.instance_id] = (player.id, dict(self.condition))
 
 
-class RevealTopThenTakeAndLoseLifeEffect(GameEffect):
-    """"Reveal the top card of your library and put that card into your
-    hand. You lose life equal to its mana value." (MEC-12, Dark Confidant-
-    shaped) — fully deterministic, no player choice at all (unlike `look_
-    top_select`'s interactive "pick M of these", there is only one card and
-    nothing to choose among), so both clauses are one atomic effect rather
-    than two sequenced ones needing a resolve-time referent to share.
-
-    Deliberately **not** routed through `RulesEngine.draw`/`DrawCardEffect`
-    — RULE 121.4: an effect that moves a card from library to hand without
-    the word "draw" isn't a draw at all, so it must never trigger a draw
-    replacement/"whenever you draw a card" ability, or count toward "cards
-    drawn this turn". Reveal itself has no state to model (this engine has
-    no face-up/face-down public-knowledge tracking for a solo/local game);
-    only the zone change and the life loss are real, observable effects.
-    """
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
-        if player is None or not player.library:
-            return
-        obj = player.library.pop()
-        obj.zone = Zone.HAND
-        player.hand.append(obj)
-        context.lose_life(player, int(obj.card.converted_mana_cost or 0))
-
-
 class MutualRevealCompareManaValueEffect(GameEffect):
     """"You and target opponent each reveal the top card of your library.
     You each lose life equal to the mana value of the card revealed by the
@@ -16683,34 +16749,6 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
             kind = str(self.extra_counters.get("kind", "+1/+1"))
             count = int(self.extra_counters.get("count", 1) or 1)
             context.add_counters(self.source, count, kind, source=self.source)
-
-
-class RevealTopThenLandBattlefieldOrDrawEffect(GameEffect):
-    """"…then reveal the top card of your library. If it's a land card,
-    put it onto the battlefield tapped. Otherwise, draw a card."
-    (Thrasios, Triton Hero's own activated ability, following a plain
-    ``scry`` effect) — untargeted and fully deterministic: the top card's
-    own type decides the branch, no player choice involved.
-    """
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
-        if player is None or not player.library:
-            return
-        top = player.library[-1]
-        if top.card.is_land:
-            player.library.pop()
-            top.zone = Zone.BATTLEFIELD
-            top.tapped = True
-            context.state.add_to_battlefield(top)
-            context.state.fire_event(
-                GameEvent(
-                    EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=top.name,
-                    instance_id=top.instance_id, object_types=sorted(top.type_words),
-                )
-            )
-        else:
-            context.draw(player, 1)
 
 
 class RevealTopThenMaybeBattlefieldIfLandOrCheapCreatureEffect(GameEffect):
@@ -22895,6 +22933,19 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # RULE 701.20 — reveal a library's top card, stash it as
+    # `GameContext.revealed_card` (ENG-37 B5). The `of: "revealed"` referent.
+    "reveal_top",
+    lambda p: RevealTopEffect(whose=p.get("whose", "you")),
+)
+EffectRegistry.register(
+    # Move the revealed card (RULE 121.4 non-draw for "hand"). ENG-37 B5.
+    "put_revealed_card",
+    lambda p: PutRevealedCardEffect(
+        destination=p.get("destination", "hand"), whose=p.get("whose", "you"),
+    ),
+)
+EffectRegistry.register(
     "reveal_top_conditional_to_hand",  # Goblin Guide-shaped
     lambda p: RevealTopConditionalToHandEffect(
         whose=p.get("whose", "defending_player"),
@@ -23254,13 +23305,6 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    # "…reveal the top card of your library. If it's a land card, put it
-    # onto the battlefield tapped. Otherwise, draw a card." (Thrasios,
-    # Triton Hero)
-    "reveal_top_then_land_battlefield_or_draw",
-    lambda p: RevealTopThenLandBattlefieldOrDrawEffect(),
-)
-EffectRegistry.register(
     # "Look at the top card of your library. If it's a land card or a
     # creature card with mana value less than or equal to the number of
     # loyalty counters on ~, you may put that card onto the battlefield."
@@ -23322,12 +23366,6 @@ EffectRegistry.register(
     lambda p: ExileTopThenGrantConditionalCastEffect(
         count=int(p.get("count", 1) or 1), condition=p.get("condition"),
     ),
-)
-EffectRegistry.register(
-    # "Reveal the top card of your library and put that card into your
-    # hand. You lose life equal to its mana value." (MEC-12, Dark Confidant)
-    "reveal_top_then_take_and_lose_life",
-    lambda p: RevealTopThenTakeAndLoseLifeEffect(),
 )
 EffectRegistry.register(
     # "You and target opponent each reveal the top card of your library.

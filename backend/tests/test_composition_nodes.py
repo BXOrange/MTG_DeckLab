@@ -772,3 +772,101 @@ class TestBindDrainCap:
     def test_damage_and_drain_capped_is_gone(self) -> None:
         assert not EffectRegistry.is_registered("damage_and_drain_capped")
         assert "damage_and_drain_capped" not in isa.EFFECT_TYPES
+
+
+class TestB5RevealReferent:
+    """ENG-37 B5: `reveal_top` (RULE 701.20) stashes the top card as
+    `GameContext.revealed_card`; a following `if_else`/`bind` reads it as the
+    `of: "revealed"` referent; `put_revealed_card` moves it (RULE 121.4
+    non-draw for "hand"). Retires the deterministic `reveal_top_*` fusions.
+    """
+
+    def _lib(self, eng, name, type_line, owner="p1", **card_kw):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, **card_kw),
+            owner_id=owner, zone=Zone.LIBRARY,
+        )
+        eng.state.player_by_id(owner).library.append(obj)
+        return obj
+
+    def test_reveal_then_if_else_land_goes_to_hand(self) -> None:
+        # Goblin-Guide shape: land -> hand, non-land -> left on top.
+        eng = _engine()
+        p1 = eng.state.player_by_id("p1")
+        land = self._lib(eng, "Forest", "Basic Land — Forest", is_land=True)
+        specs = [EffectSpec("seq", {"effects": [
+            {"type": "reveal_top", "params": {"whose": "you"}},
+            {"type": "if_else", "params": {
+                "condition": {"kind": "is_card_type", "of": "revealed", "card_type": "land"},
+                "then": [{"type": "put_revealed_card", "params": {"destination": "hand"}}],
+                "else": [],
+            }},
+        ]})]
+        _run(eng, specs)
+        assert land in p1.hand
+        # a nested resolution must not inherit the stashed card
+        assert eng.rules.context.revealed_card is None
+
+        eng2 = _engine()
+        p1b = eng2.state.player_by_id("p1")
+        inst = self._lib(eng2, "Bolt", "Instant", is_instant=True)
+        _run(eng2, specs)
+        assert inst in p1b.library and not p1b.hand
+
+    def test_reveal_then_bind_measures_the_revealed_cards_mana_value(self) -> None:
+        # Dark Confidant shape.
+        eng = _engine()
+        p1 = eng.state.player_by_id("p1")
+        p1.life = 20
+        card = self._lib(eng, "Bob Hit", "Creature — Human Wizard", is_creature=True,
+                         converted_mana_cost=3, power=2, toughness=1)
+        _run(eng, [EffectSpec("seq", {"effects": [
+            {"type": "reveal_top", "params": {"whose": "you"}},
+            {"type": "bind", "params": {
+                "name": "mv",
+                "amount": {"kind": "characteristic", "characteristic": "mana_value",
+                           "of": "revealed"},
+                "effects": [
+                    {"type": "put_revealed_card", "params": {"destination": "hand"}},
+                    {"type": "lose_life", "params": {"amount": "$mv"}},
+                ],
+            }},
+        ]})])
+        assert card in p1.hand
+        assert p1.life == 17
+        # RULE 121.4 — not a draw
+        assert eng.state.cards_drawn_this_turn.get("p1", 0) == 0
+
+    def test_reveal_then_if_else_land_to_battlefield_else_draw(self) -> None:
+        # Thrasios shape.
+        specs = [EffectSpec("seq", {"effects": [
+            {"type": "reveal_top", "params": {"whose": "you"}},
+            {"type": "if_else", "params": {
+                "condition": {"kind": "is_card_type", "of": "revealed", "card_type": "land"},
+                "then": [{"type": "put_revealed_card",
+                          "params": {"destination": "battlefield_tapped"}}],
+                "else": [{"type": "draw", "params": {"count": 1}}],
+            }},
+        ]})]
+
+        eng = _engine()
+        p1 = eng.state.player_by_id("p1")
+        land = self._lib(eng, "Island", "Basic Land — Island", is_land=True)
+        _run(eng, specs)
+        assert land in eng.state.battlefield and land.tapped
+
+        eng2 = _engine()
+        p2 = eng2.state.player_by_id("p1")
+        self._lib(eng2, "Filler1", "Instant", is_instant=True)
+        self._lib(eng2, "Filler2", "Instant", is_instant=True)  # this is top
+        h0 = len(p2.hand)
+        _run(eng2, specs)
+        assert len(p2.hand) - h0 == 1
+
+    def test_the_reveal_fusions_are_gone(self) -> None:
+        for name in (
+            "reveal_top_then_take_and_lose_life",
+            "reveal_top_then_land_battlefield_or_draw",
+        ):
+            assert not EffectRegistry.is_registered(name)
+            assert name not in isa.EFFECT_TYPES

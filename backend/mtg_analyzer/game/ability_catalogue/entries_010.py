@@ -857,21 +857,29 @@ def _thrasios_triton_hero() -> list[AbilitySpec]:
     card.
     Partner (You can have two commanders if both have partner.)
 
-    — MEC-12 (cEDH Kinnan). `scry` (already general) chained with the new
-    `reveal_top_then_land_battlefield_or_draw` — RULE 608.2's "suspend on
-    a pending choice, resume once answered" already parks the second
-    effect until scry's own interactive choice is settled, so no new
-    sequencing primitive is needed, only the reveal-and-branch effect
-    itself (a genuine singleton shape with nothing close enough to
-    reuse). Partner is a printed keyword, recognized independently of
-    this entry.
+    — MEC-12 (cEDH Kinnan). `scry` (already general) chained with an
+    ENG-37 B5 `seq`: `reveal_top` stashes the top card as the `revealed`
+    referent, then `if_else` on "is it a land" puts it onto the
+    battlefield tapped (`put_revealed_card`) or draws. RULE 608.2's
+    "suspend on a pending choice, resume once answered" already parks the
+    reveal-and-branch clause until scry's own interactive choice is
+    settled. Partner is a printed keyword, recognized independently.
     """
     return [
         AbilitySpec(
             "activated",
             [
                 EffectSpec("scry", {"count": 1}),
-                EffectSpec("reveal_top_then_land_battlefield_or_draw", {}),
+                EffectSpec("seq", {"effects": [
+                    {"type": "reveal_top", "params": {"whose": "you"}},
+                    {"type": "if_else", "params": {
+                        "condition": {"kind": "is_card_type", "of": "revealed",
+                                      "card_type": "land"},
+                        "then": [{"type": "put_revealed_card",
+                                  "params": {"destination": "battlefield_tapped"}}],
+                        "else": [{"type": "draw", "params": {"count": 1}}],
+                    }},
+                ]}),
             ],
             cost={"mana": "{4}"},
         ),

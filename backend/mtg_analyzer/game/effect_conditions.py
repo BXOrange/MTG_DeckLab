@@ -97,6 +97,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #:                         subject rather than the ability's source.
 #: ``counter_recipient`` — the `EventType.COUNTER` event's
 #:                         ``recipient_controller_id``, as a `Player`.
+#: ``revealed``          — the card a `reveal_top` clause earlier in this
+#:                         same resolution revealed (`GameContext.
+#:                         revealed_card`), still in its owner's library.
+#:                         RULE 701.20 — "reveal the top card … if it's a
+#:                         land card, …".
 #:
 #: ``previous_target`` and ``chosen`` resolve only to *objects*: a player in
 #: that slot means the earlier clause chose something these predicates can't
@@ -109,7 +114,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: "the first token made" and "the most recent" with nothing to validate the
 #: choice against would be a guess baked into a whitelisted vocabulary.
 EFFECT_SUBJECTS: frozenset[str] = frozenset(
-    {"target", "previous_target", "chosen", "entering", "counter_recipient"}
+    {"target", "previous_target", "chosen", "entering", "counter_recipient", "revealed"}
 )
 
 #: Every referent a condition may name here, static-resolved ones included.
@@ -215,6 +220,8 @@ def subject_of(
     if of == "counter_recipient":
         event = getattr(context, "trigger_event", None) or {}
         return _player_by_id(context, event.get("recipient_controller_id"))
+    if of == "revealed":
+        return getattr(context, "revealed_card", None)
     return None
 
 
