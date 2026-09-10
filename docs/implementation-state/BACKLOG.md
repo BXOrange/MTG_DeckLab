@@ -201,9 +201,8 @@ its block back into the matching section here.
   Execution order (dependency chain): ~~ENG-34~~ (atom inventory, **closed**)
   → ~~ENG-35~~ (continuations, **closed**) → ~~ENG-36~~ (structured
   conditions, **closed**) → **ENG-37** (composition axis **shipped**; fusion
-  retirement remains) → ~~PAR-62~~ (clause grammar, **closed** —
-  `Done_Backend.md`) → ~~PAR-63~~ (slot grammars, **closed** —
-  `Done_Backend.md`).
+  retirement remains). The grammar and slot-grammar stages that followed are
+  complete; this umbrella now waits only on fusion retirement.
 
   The `81c3320` port is **done** (`SELF_SUBJECT_PREFIX` + the 09_ clause-tree
   negative result on the mainline; `Done_Backend.md`). This ticket now holds
@@ -238,10 +237,9 @@ its block back into the matching section here.
   > keywords; `PAR-30` was `PAR-29`'s parser trail, closed PARSER_VERSION
   > 216 — all 24 RULE 701 keyword actions have recognition + an engine
   > primitive, and its last residue moved to `MEC-52`, closed). The first free
-  > parser ticket id is **`PAR-64`** (checked 2026-09-09): `PAR-31…PAR-53` are
+  > parser ticket id is **`PAR-65`** (checked 2026-09-10): `PAR-31…PAR-53` are
   > the Commander-legal tail clusters below, `PAR-54`/`PAR-55`/`PAR-57`/`PAR-60`
-  > /`PAR-62`/`PAR-63` are shipped and written up in `Done_Backend.md`,
-  > `PAR-56`/`PAR-58`/`PAR-59` are open below, and `PAR-61` is the
+  > `PAR-56`/`PAR-58`/`PAR-59`/`PAR-64` are open below, and `PAR-61` is the
   > grammar-restructure umbrella above.
 
 - **PAR-31…PAR-53 · Commander-legal tail — one PAR per recurring template
@@ -422,7 +420,7 @@ its block back into the matching section here.
   Thrull, Belfry Spirit, Blind Hunter, Exhumer Thrull, Graven Dominator.
 
 - **PAR-64 · Raid condition positional forms.** `you_attacked_this_turn` is
-  now a real shared engine predicate (PAR-62), but the live probe still finds
+  now a real shared engine predicate, but the live probe still finds
   20 SOLO cards whose condition sits in an entry replacement, trigger wrapper,
   activation restriction, or `instead` override rather than the ordinary
   `if <cond>, <body>` gate. Measure each wrapper before widening it; the
@@ -498,12 +496,12 @@ its block back into the matching section here.
 - **MEC-83 · Effect amount kinds for counters and basic-land types.** Extend
   `game/effect_amounts.py` with the safe, live readings for a named counter on
   a permanent and the distinct basic land types among lands a player controls.
-  The existing PAR-62 `for each <quantity>` `bind` route can consume these
+  The existing `for each <quantity>` `bind` route can consume these
   immediately once the engine vocabulary exists.
 
 - **MEC-84 · Controller-scoped permanent-left-battlefield history.** Add the
   turn-scoped predicate for "a permanent left the battlefield under your
-  control this turn" (25 occurrences in PAR-62's audit), with correct owner/
+  control this turn" (25 observed occurrences), with correct owner/
   controller attribution and turn reset. This is distinct from a source-only
   leaves trigger and from death-only history.
 
