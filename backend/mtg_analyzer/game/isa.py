@@ -614,6 +614,12 @@ _ALIAS_TYPES: dict[str, str] = {
     # operand. (`shuffle_target_graveyard_cards_into_library` is *not* here —
     # it opens a RULE 601.2c pick, so it is continuation-shaped, not an alias.)
     "shuffle_graveyard_into_library": "shuffle",
+    # ENG-37 B7: the wheel family's first sentence ("shuffle your hand and
+    # graveyard into your library") — one RULE 701.20 action with a
+    # ``scope`` operand, the "then draws N" tail now a sibling `draw`. The
+    # fused `wheel`/`wheel_of_fortune`/`windfall` types it replaced are
+    # retired (`seq`/`bind` over this + `draw`).
+    "shuffle_hand_and_graveyard_into_library": "shuffle",
     "shuffle_self_into_library": "shuffle",
     "skip_next_untap": "skip_step",
     "skip_untap_step": "skip_step",
@@ -684,9 +690,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "shuffle_target_into_library_reveal_top": (("move_object", "shuffle", "reveal"), OP_SEQ),
     "taxed_draw": (("pay_cost", "draw"), OP_SEQ),
     "unattach_tap_indestructible": (("attach", "tap", "create_continuous_effect"), OP_SEQ),
-    "wheel": (("discard", "draw"), OP_BIND),
-    "wheel_of_fortune": (("discard", "draw"), OP_BIND),
-    "windfall": (("discard", "draw"), OP_BIND),
 }
 
 #: CONTINUATION — every type that suspends on a player answer. **ENG-35's

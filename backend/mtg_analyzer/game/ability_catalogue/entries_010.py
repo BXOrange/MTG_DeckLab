@@ -519,9 +519,11 @@ def _days_undoing() -> list[AbilitySpec]:
     down to your maximum hand size. Damage wears off, and "this turn"
     and "until end of turn" effects end.)
 
-    — MEC-12 (cEDH M-K). `wheel` (Timetwister) covers the first sentence
-    unchanged. "If it's your turn, end the turn" is the new
-    ``is_your_turn`` `ConditionalEffect` gate wrapping the new
+    — MEC-12 (cEDH M-K). The first sentence is a `seq` of the RULE 701.20
+    shuffle (`scope="each_player"`) and a mass `draw`
+    (`selector="each_player"`) — ENG-37 B7 retired the fused `wheel` type it
+    used to be. "If it's your turn, end the turn" is the
+    ``is_your_turn`` `ConditionalEffect` gate wrapping
     `end_the_turn`/`EndTheTurnEffect` (RulesEngine can't reach
     `GameEngine._turn_steps`/`_cursor` directly, so it exiles the stack
     now and queues `GameState.end_turn_requested` for `GameEngine.
@@ -535,7 +537,11 @@ def _days_undoing() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [
-                EffectSpec("wheel", {"draw_count": 7}),
+                EffectSpec("seq", {"effects": [
+                    {"type": "shuffle_hand_and_graveyard_into_library",
+                     "params": {"scope": "each_player"}},
+                    {"type": "draw", "params": {"selector": "each_player", "count": 7}},
+                ]}),
                 EffectSpec("end_the_turn", {}, condition={"is_your_turn": True}),
                 EffectSpec("exile", {"target_kind": None}),
             ],

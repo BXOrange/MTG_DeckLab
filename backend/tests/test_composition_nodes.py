@@ -983,3 +983,129 @@ class TestB5BindOverDigUntil:
     def test_exile_then_reveal_greater_mana_value_is_gone(self) -> None:
         assert not EffectRegistry.is_registered("exile_then_reveal_greater_mana_value")
         assert "exile_then_reveal_greater_mana_value" not in isa.EFFECT_TYPES
+
+
+class TestB7WheelFamilyRetirements:
+    """ENG-37 B7: the fused `wheel` / `wheel_of_fortune` / `windfall` types
+    retired. Each printed line is now `seq`/`bind` over a mass
+    `shuffle_hand_and_graveyard_into_library` or `discard`
+    (``scope="each_player"``, ``whole_hand=True``) plus a mass `draw`
+    (``selector="each_player"``). Windfall's draw count is a `bind` over
+    ``resource: hand_size`` with ``aggregate: max``, taken before the discard.
+    """
+
+    def _stock_library(self, eng, player_id: str, n: int) -> None:
+        p = eng.state.player_by_id(player_id)
+        for i in range(n):
+            p.library.append(GameObject(
+                Card(id=f"Lib{player_id}{i}", name=f"Lib{player_id}{i}",
+                     type_line="Creature", is_creature=True),
+                owner_id=player_id, zone=Zone.LIBRARY,
+            ))
+
+    def _fill_hand(self, eng, player_id: str, n: int) -> None:
+        p = eng.state.player_by_id(player_id)
+        for i in range(n):
+            p.hand.append(GameObject(
+                Card(id=f"H{player_id}{i}", name=f"H{player_id}{i}",
+                     type_line="Land", is_land=True),
+                owner_id=player_id, zone=Zone.HAND,
+            ))
+
+    def test_wheel_of_fortune_each_player_discards_hand_then_draws_seven(self) -> None:
+        eng = _engine()
+        self._stock_library(eng, "p1", 10)
+        self._stock_library(eng, "p2", 10)
+        self._fill_hand(eng, "p1", 2)
+        self._fill_hand(eng, "p2", 5)
+
+        _run(eng, [EffectSpec("seq", {"effects": [
+            {"type": "discard", "params": {"scope": "each_player", "whole_hand": True}},
+            {"type": "draw", "params": {"selector": "each_player", "count": 7}},
+        ]})])
+
+        assert len(eng.state.player_by_id("p1").hand) == 7
+        assert len(eng.state.player_by_id("p2").hand) == 7
+        assert len(eng.state.player_by_id("p1").graveyard) == 2
+        assert len(eng.state.player_by_id("p2").graveyard) == 5
+
+    def test_windfall_draws_the_greatest_pre_discard_hand_size(self) -> None:
+        eng = _engine()
+        self._stock_library(eng, "p1", 10)
+        self._stock_library(eng, "p2", 10)
+        self._fill_hand(eng, "p1", 3)
+        self._fill_hand(eng, "p2", 1)
+
+        _run(eng, [EffectSpec("bind", {
+            "name": "n",
+            "amount": {"kind": "resource", "resource": "hand_size",
+                       "aggregate": "max", "scope": "each_player"},
+            "effects": [
+                {"type": "discard",
+                 "params": {"scope": "each_player", "whole_hand": True}},
+                {"type": "draw",
+                 "params": {"selector": "each_player", "count": "$n"}},
+            ],
+        })])
+
+        # greatest hand size when the bind measured was 3 -> everyone draws 3,
+        # so the player who only discarded 1 still nets +2.
+        assert len(eng.state.player_by_id("p1").hand) == 3
+        assert len(eng.state.player_by_id("p2").hand) == 3
+
+    def test_timetwister_shuffles_hand_and_graveyard_then_draws_seven(self) -> None:
+        eng = _engine()
+        self._stock_library(eng, "p1", 10)
+        self._stock_library(eng, "p2", 10)
+        self._fill_hand(eng, "p1", 1)
+        self._fill_hand(eng, "p2", 1)
+        p1 = eng.state.player_by_id("p1")
+        gy = GameObject(
+            Card(id="GYcard", name="GYcard", type_line="Creature", is_creature=True),
+            owner_id="p1", zone=Zone.GRAVEYARD,
+        )
+        p1.graveyard.append(gy)
+
+        _run(eng, [EffectSpec("seq", {"effects": [
+            {"type": "shuffle_hand_and_graveyard_into_library",
+             "params": {"scope": "each_player"}},
+            {"type": "draw", "params": {"selector": "each_player", "count": 7}},
+        ]})])
+
+        assert len(p1.hand) == 7
+        assert len(eng.state.player_by_id("p2").hand) == 7
+        assert gy not in p1.graveyard  # shuffled into the library, not left behind
+
+    def test_resource_aggregate_reduces_over_a_player_scope(self) -> None:
+        from mtg_analyzer.game import effect_amounts
+
+        eng = _engine()
+        self._fill_hand(eng, "p1", 4)
+        self._fill_hand(eng, "p2", 2)
+        ctx = GameContext(eng.state, eng.rules)
+
+        def measure(aggregate: str) -> int:
+            return effect_amounts.amount_of(
+                {"kind": "resource", "resource": "hand_size",
+                 "aggregate": aggregate, "scope": "each_player"},
+                ctx, None, None,
+            )
+
+        assert measure("max") == 4
+        assert measure("min") == 2
+        assert measure("sum") == 6
+
+    def test_the_wheel_family_types_are_gone(self) -> None:
+        for name in ("wheel", "wheel_of_fortune", "windfall"):
+            assert not EffectRegistry.is_registered(name)
+            assert name not in isa.EFFECT_TYPES
+
+    def test_the_catalogue_entries_still_bind(self) -> None:
+        from mtg_analyzer.game import ability_catalogue as ac
+
+        for name in ("Timetwister", "Wheel of Fortune", "Windfall", "Day's Undoing"):
+            card = Card(id=name, name=name, type_line="Sorcery", is_sorcery=True)
+            specs = ac.specs_for(card)
+            assert specs, name
+            for spec in specs:
+                build_effects(list(spec.effects), None)  # no BindError / KeyError

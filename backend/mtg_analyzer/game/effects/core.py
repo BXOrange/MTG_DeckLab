@@ -3896,10 +3896,19 @@ class DiscardEffect(GameEffect):
         draw_per_discard: bool = False,
         previous_subject: bool = False,
         random: bool = False,
+        whole_hand: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
+        #: "…discards their hand…" (RULE 701.8f — the wheel family: Wheel of
+        #: Fortune, Windfall, Timetwister). ``count`` is then whatever that
+        #: player is holding when this effect reaches them, so a `scope`
+        #: sweep discards each player's own hand size rather than one shared
+        #: number. Non-interactive (there is nothing to pick), matching the
+        #: `context.discard(player, len(hand))` the fused `wheel`/`windfall`
+        #: classes used before ENG-37 decomposed them.
+        self.whole_hand = bool(whole_hand)
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.scope = scope
         #: "…discards a card **at random**." (RULE 701.8d — Black Cat /
@@ -3938,6 +3947,9 @@ class DiscardEffect(GameEffect):
         return [{"type": "draw", "params": {"count": self.count}}]
 
     def _discard_from(self, context: GameContext, player: Any) -> None:
+        if self.whole_hand:
+            context.discard(player, len(player.hand))
+            return
         if self.random:
             context.discard_random(player, self.count)
         else:
@@ -19805,64 +19817,31 @@ class ShuffleLibraryEffect(GameEffect):
         context.shuffle_library(player)
 
 
-class WheelEffect(GameEffect):
-    """"Each player shuffles their hand and graveyard into their library,
-    then draws seven cards." (Timetwister/Time Reversal/Echo of Eons — the
-    identical printed line across all three, so this is a shared, not
-    Timetwister-specific, effect.) An RULE 601.2c untargeted "each player"
-    effect, unlike `DrawCardEffect`'s single-player default — resolved in
-    an arbitrary player order (APNAP order has no observable effect here:
-    every player's own shuffle only touches their own zones).
+class ShuffleHandAndGraveyardIntoLibraryEffect(GameEffect):
+    """"Shuffle your hand and graveyard into your library." (RULE 701.20) —
+    the move underneath the wheel family (Timetwister / Time Reversal / Echo
+    of Eons / Day's Undoing), whose full printed line ("…, then draws seven
+    cards") is now a `seq` of this and a `draw` with ``selector`` set rather
+    than a fused `wheel` type (ENG-37).
+
+    ``scope="each_player"`` is the mass RULE 601.2c form those cards print;
+    without it, just the effect's controller. Every player's shuffle only
+    touches their own zones, so the sequential loop is order-independent
+    (RULE 101.4's simultaneous idiom).
     """
 
-    def __init__(self, draw_count: int = 7, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, scope: Optional[str] = None, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
-        self.draw_count = draw_count
+        self.scope = scope
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        for player in list(context.state.living_players()):
-            context.shuffle_hand_and_graveyard_into_library(player)
-            context.draw(player, self.draw_count)
-
-
-class WheelOfFortuneEffect(GameEffect):
-    """"Each player discards their hand, then draws seven cards." (Wheel of
-    Fortune) — the flat-draw-count sibling of `WindfallEffect`'s
-    shared-maximum shape: every player discards their whole hand (RULE
-    101.4's simultaneous-turn-based-action idiom, same sequential-loop
-    approximation `WheelEffect`/`WindfallEffect` already use), then every
-    player draws the same fixed number regardless of how many they held.
-    """
-
-    def __init__(self, draw_count: int = 7, source: Optional["GameObject"] = None) -> None:
-        super().__init__(source)
-        self.draw_count = draw_count
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        for player in list(context.state.living_players()):
-            context.discard(player, len(player.hand))
-            context.draw(player, self.draw_count)
-
-
-class WindfallEffect(GameEffect):
-    """"Each player discards their hand, then draws cards equal to the
-    greatest number of cards a player discarded this way." (Windfall) —
-    every player discards first (RULE 101.4's simultaneous-turn-based-action
-    idiom this engine approximates with a plain sequential loop, same as
-    `WheelEffect`), *then* every player draws the shared maximum, so a
-    player who discards zero still draws if anyone else discarded more.
-    """
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        players = list(context.state.living_players())
-        discarded: dict[str, int] = {}
+        if self.scope == "each_player":
+            players = list(context.state.living_players())
+        else:
+            controller = _controller_of(self.source, context)
+            players = [controller] if controller is not None else []
         for player in players:
-            discarded[player.id] = len(player.hand)
-            context.discard(player, discarded[player.id])
-        greatest = max(discarded.values(), default=0)
-        if greatest:
-            for player in players:
-                context.draw(player, greatest)
+            context.shuffle_hand_and_graveyard_into_library(player)
 
 
 class CascadeEffect(GameEffect):
@@ -22702,6 +22681,7 @@ EffectRegistry.register(
         draw_per_discard=bool(p.get("draw_per_discard", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         random=bool(p.get("random", False)),
+        whole_hand=bool(p.get("whole_hand", False)),
     ),
 )
 EffectRegistry.register(
@@ -25132,16 +25112,12 @@ EffectRegistry.register(
 )
 EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect())
 EffectRegistry.register(
-    "wheel",  # "Each player shuffles their hand and graveyard into their library, then draws seven cards." (Timetwister)
-    lambda p: WheelEffect(draw_count=p.get("draw_count", p.get("count", 7))),
-)
-EffectRegistry.register(
-    "windfall",  # "Each player discards their hand, then draws cards equal to the greatest number discarded." (Windfall)
-    lambda p: WindfallEffect(),
-)
-EffectRegistry.register(
-    "wheel_of_fortune",  # "Each player discards their hand, then draws seven cards." (Wheel of Fortune)
-    lambda p: WheelOfFortuneEffect(draw_count=p.get("draw_count", 7)),
+    # RULE 701.20 — "shuffle your hand and graveyard into your library". The
+    # wheel family's first sentence; the "then draws N cards" tail is a
+    # sibling `draw` with ``selector="each_player"`` (ENG-37 retired the
+    # fused `wheel`/`wheel_of_fortune`/`windfall` types onto `seq`/`bind`).
+    "shuffle_hand_and_graveyard_into_library",
+    lambda p: ShuffleHandAndGraveyardIntoLibraryEffect(scope=p.get("scope")),
 )
 EffectRegistry.register(
     "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"))

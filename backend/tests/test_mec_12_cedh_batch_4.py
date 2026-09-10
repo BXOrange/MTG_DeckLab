@@ -45,9 +45,10 @@ New general primitives, each reusable far past this pool:
   N or less" tutor qualifier -- the parser still doesn't parse this
   phrasing, same documented gap as "with mana value X or less", so both
   cards are hand-authored directly onto the new keys).
-* effects.WheelOfFortuneEffect -- "each player discards their hand, then
-  draws seven cards.", the flat-draw-count sibling of the already-shipped
-  WheelEffect (Timetwister)/WindfallEffect (Windfall).
+* Wheel of Fortune -- "each player discards their hand, then draws seven
+  cards." ENG-37 B7 retired the fused `wheel_of_fortune` type: it is now a
+  `seq` of a mass `discard` (`scope="each_player"`, `whole_hand=True`) and a
+  mass `draw` (`selector="each_player"`, flat 7).
 * DestroyEffect's mass-wipe filter gains a "nonbasic" key ("destroy all
   nonbasic lands." -- Ruination), paired with the existing
   selector="all_lands" the same way every other qualified board wipe

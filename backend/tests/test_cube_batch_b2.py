@@ -25,12 +25,16 @@ additions, each proven here on the *real* card that motivated it:
    unmodeled, a documented drop).
 5. `RulesEngine.put_hand_cards_on_top`/`PutHandCardsOnTopEffect` — "put N
    cards from your hand on top of your library" (Brainstorm).
-6. `RulesEngine.shuffle_hand_and_graveyard_into_library`/`WheelEffect` — the
-   "each player shuffles their hand and graveyard into their library, then
-   draws seven cards" template shared by Timetwister/Time Reversal/Echo of
-   Eons (written generically, not Timetwister-specific).
-7. `WindfallEffect` — Windfall's own "each player discards their hand, then
-   draws cards equal to the greatest number discarded" shape.
+6. `RulesEngine.shuffle_hand_and_graveyard_into_library` /
+   `ShuffleHandAndGraveyardIntoLibraryEffect` — the "each player shuffles
+   their hand and graveyard into their library, then draws seven cards"
+   template shared by Timetwister/Time Reversal/Echo of Eons. ENG-37 B7
+   retired the fused `wheel` type: it is now a `seq` of this (mass, via
+   ``scope="each_player"``) and a `draw` with ``selector="each_player"``.
+7. Windfall — "each player discards their hand, then draws cards equal to
+   the greatest number discarded". ENG-37 B7 retired the fused `windfall`
+   type to a `bind` whose ``amount`` measures ``resource: hand_size`` with
+   ``aggregate: max`` over ``each_player`` (before the mass `discard`).
 
 Every other card below is a genuinely hand-authored `ability_catalogue.py`
 entry, two deliberately *partial* (documented drop of one sub-clause neither

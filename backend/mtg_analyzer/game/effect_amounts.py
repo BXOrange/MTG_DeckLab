@@ -59,6 +59,13 @@ RESOURCES: frozenset[str] = frozenset(
     {"life", "hand_size", "graveyard_size", "library_size", "ring_level"}
 )
 
+#: How a ``resource`` amount collapses a `scope`-worth of players to one
+#: number, when ``aggregate`` is set instead of a single-player ``of``.
+#: "…equal to the greatest number of cards a player discarded this way"
+#: (Windfall, every player discarding their whole hand) is
+#: ``aggregate="max"`` over ``hand_size`` measured before the discard.
+_RESOURCE_AGGREGATES: dict[str, Any] = {"max": max, "min": min, "sum": sum}
+
 #: `GameContext`'s within-one-resolution tallies — "…for each creature
 #: destroyed **this way**", "…equal to the life lost **this way**" (RULE
 #: 608.2). Maintained by `_apply_effects_partitioned` and reset per
@@ -141,6 +148,21 @@ def _as_player(context: "GameContext", subject: Any, controller_id: Optional[str
     return effect_conditions._player_by_id(
         context, getattr(subject, "controller_id", None)
     )
+
+
+def _resource_of(player: Any, resource: str) -> int:
+    """One player's ``resource`` (see `RESOURCES`) as an int."""
+    if player is None:
+        return 0
+    if resource == "life":
+        return int(getattr(player, "life", 0) or 0)
+    if resource == "ring_level":
+        return int(getattr(player, "ring_level", 0) or 0)
+    zone = {"hand_size": "hand", "graveyard_size": "graveyard",
+            "library_size": "library"}.get(resource)
+    if zone is None:
+        return 0
+    return len(getattr(player, zone, []) or [])
 
 
 def _base(
@@ -241,16 +263,19 @@ def _base(
         resource = str(amount.get("resource", ""))
         if resource not in RESOURCES:
             return 0
+        reduce = _RESOURCE_AGGREGATES.get(str(amount.get("aggregate", "")))
+        if reduce is not None:
+            # A `scope`-worth of players collapsed to one number (Windfall's
+            # "greatest number a player discarded this way").
+            players = _players(
+                context, controller_id, str(amount.get("scope", "each_player"))
+            )
+            values = [_resource_of(p, resource) for p in players]
+            return int(reduce(values)) if values else 0
         player = _as_player(context, subject, controller_id)
         if player is None:
             return 0
-        if resource == "life":
-            return int(getattr(player, "life", 0) or 0)
-        if resource == "ring_level":
-            return int(getattr(player, "ring_level", 0) or 0)
-        zone = {"hand_size": "hand", "graveyard_size": "graveyard",
-                "library_size": "library"}[resource]
-        return len(getattr(player, zone, []) or [])
+        return _resource_of(player, resource)
 
     return 0  # fail-safe: an unmodelled measurement contributes nothing
 

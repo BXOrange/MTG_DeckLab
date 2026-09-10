@@ -2731,7 +2731,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "same mana value as the revealed card" vs the SPELL_CAST event), and
 #: `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned its `field` key. Vocabulary
 #: only - no card's verdict moves - but the parser source hash follows.
-PARSER_VERSION = "317"
+#: v318 - ENG-37 B7: `effect_amounts`' `resource` kind gained an `aggregate`
+#: ("max"/"min"/"sum" over a `scope`-worth of players) so a `bind` can
+#: measure "the greatest number of cards a player discarded this way"
+#: (Windfall), and `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the `aggregate`
+#: key. Vocabulary only - no parser handler emits it yet, no card's verdict
+#: moves - but the parser source hash follows.
+PARSER_VERSION = "318"
 
 
 def parser_source_hash() -> str:

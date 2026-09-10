@@ -203,7 +203,7 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
 #: importable here, docs/09); ``str`` fields are further shape-checked there.
 _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "of": str, "characteristic": str, "counter": str, "selector": str,
-    "tally": str, "scope": str, "resource": str, "field": str,
+    "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str,
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,
 }

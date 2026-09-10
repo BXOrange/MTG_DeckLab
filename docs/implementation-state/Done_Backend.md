@@ -3708,10 +3708,10 @@ is in the rules-engine categories below them.
 - **What:** `models/card_query.py` gained `max_power`/`min_power`/`max_toughness`/`min_toughness` criteria keys (fail-closed for a non-creature's `None` power), hand-wired for Imperial Recruiter/Recruiter of the Guard since the parser doesn't yet parse a power/toughness qualifier after a search noun phrase.
 - **Files:** `models/card_query.py`
 
-### `WheelOfFortuneEffect` (Game Engine / Turn Loop & Actions)
+### Wheel family: Timetwister / Wheel of Fortune / Windfall (Game Engine / Turn Loop & Actions)
 
-- **What:** "Each player discards their hand, then draws seven cards." — the flat-count sibling of the already-shipped `WheelEffect`/`WindfallEffect`. Hand-authored (single-card template).
-- **Files:** `game/effects/core.py`, `game/ability_catalogue.py`
+- **What:** "Each player discards (or shuffles their hand and graveyard into their library), then draws N cards." Originally three hand-authored fused effect types (`wheel` / `wheel_of_fortune` / `windfall`). **ENG-37 B7 retired all three** onto the composition axis — see "Fusion retirement — parser-side batches", Batch 16. They are now `seq`/`bind` over a mass `discard` (`scope="each_player"`, `whole_hand=True`) or `shuffle_hand_and_graveyard_into_library` (`scope="each_player"`) plus a mass `draw` (`selector="each_player"`); Windfall's draw count is a `bind` over `resource: hand_size` with `aggregate: max`.
+- **Files:** `game/effects/core.py`, `game/effect_amounts.py`, `game/isa.py`, `game/ability_catalogue/entries_00{2,3,9}.py`, `entries_010.py`
 
 ### `DestroyEffect` "nonbasic" mass-wipe filter (Game Engine / Turn Loop & Actions)
 
@@ -4158,7 +4158,48 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 53**.
+Running total: **81 → 50**.
+
+- **Batch 16 (plan row B7, wheel family — `53 → 50`, PARSER_VERSION 318).**
+  The fused `wheel` (Timetwister / Time Reversal / Echo of Eons / Day's
+  Undoing), `wheel_of_fortune` (Wheel of Fortune) and `windfall` (Windfall)
+  types retired. Each printed line is "each player does X, then draws N":
+  - **`wheel`** → `seq([shuffle_hand_and_graveyard_into_library
+    {scope: "each_player"}, draw {selector: "each_player", count: 7}])`. The
+    shuffle half is a new one-line registered effect
+    (`ShuffleHandAndGraveyardIntoLibraryEffect`) wrapping the existing
+    `RulesEngine.shuffle_hand_and_graveyard_into_library` primitive with a
+    `scope` operand; the draw half is `DrawCardEffect`'s pre-existing
+    `selector="each_player"` mass form. `shuffle_hand_and_graveyard_into_
+    library` is an ALIAS of `shuffle` in `isa`.
+  - **`wheel_of_fortune`** → `seq([discard {scope: "each_player",
+    whole_hand: True}, draw {selector: "each_player", count: 7}])`.
+    `DiscardEffect` gained `whole_hand` — with it, `count` per player is
+    whatever they are holding when the `scope` sweep reaches them, and the
+    discard is non-interactive (nothing to pick), exactly what the fused
+    class did.
+  - **`windfall`** → `bind` whose `amount` is `{kind: "resource",
+    resource: "hand_size", aggregate: "max", scope: "each_player"}`, body
+    `[discard {scope: "each_player", whole_hand: True}, draw {selector:
+    "each_player", count: "$n"}]`. Every player discards their whole hand,
+    so "the greatest number a player discarded this way" is the greatest
+    hand size *before* the discard — and `bind` measures its amount once,
+    before running the body. `effect_amounts`' `resource` kind gained
+    `aggregate` ("max"/"min"/"sum" over a `scope`-worth of players, factored
+    out as `_resource_of`); `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the
+    `aggregate` key. No parser handler emits it yet — vocabulary only, +0 —
+    but `spec.py` is a `parser/oracle/` source so `PARSER_VERSION` follows
+    (318) and the lock was regenerated.
+  `WheelEffect` / `WheelOfFortuneEffect` / `WindfallEffect` + their three
+  registrations + three `_FUSION_TYPES` rows deleted. All three cards are
+  hand-authored catalogue entries (not parser-emitted). Tests:
+  `test_composition_nodes` (`TestB7WheelFamilyRetirements` — each card
+  end-to-end via `_apply_effects_partitioned`, the `resource`/`aggregate`
+  reduction, the registry/`isa` gone-checks, all four catalogue entries
+  still bind); `test_cube_batch_b2` / `test_mec_12_cedh_batch_4` behavioural
+  tests unchanged and still green (`--full-cache`). **B7 remaining:**
+  `exile_hand_then_draw_that_many` and `discard_up_to_then_draw_that_many`
+  (single-player `bind` over the caster's own exiled/discarded count).
 
 - **Batch 15 (plan row B6, exile-with-play-window slice — `56 → 53`,
   reclassify-only, no code).** The B6 `exile_*` rows turned out mostly

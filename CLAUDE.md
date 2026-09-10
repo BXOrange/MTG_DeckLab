@@ -259,9 +259,14 @@ python backend/scripts/run_tests.py [pytest args...]  # resolves venv/venv_win i
 ```
 
 The backend FastAPI app is `mtg_analyzer.api.app:app`. There is **no JS build
-step** and no Node toolchain — edit `frontend/src/**` and reload. There is no
-JS test runner, so validate frontend changes by reasoning + reading; validate
-backend changes with pytest (the suite is fast, ~500+ tests, keep it green).
+step** or required Node runtime — edit `frontend/src/**` and reload. Optional
+frontend linting is available through the project-local environment created by
+`setup_dev.sh`; there is no JS test runner. Validate backend changes with
+pytest (the suite is fast, ~500+ tests, keep it green).
+
+For non-trivial frontend changes, use the real-browser verification available
+through Playwright in `backend/venv`, driving Chromium against the static
+frontend server and running backend, rather than relying only on API replay.
 
 **A browser only ever needs to reach the backend's port.** `setup/start.py`
 still runs two processes (backend `uvicorn`, frontend `no_cache_server.py`),
@@ -502,7 +507,12 @@ proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
 **Coverage: 42.7% (14,860 / 34,811) as of 2026-09-10, measured at
-PARSER_VERSION 317** (v317 is ENG-37 B5's `effect_amounts` `trigger_event`
+PARSER_VERSION 318** (v318 is ENG-37 B7's `effect_amounts` `resource`
+`aggregate` — "max"/"min"/"sum" over a `scope`-worth of players, so a `bind`
+can measure "the greatest number of cards a player discarded this way"
+(Windfall); plus `spec.py`'s `aggregate` amount-spec key; vocabulary-only,
+no parser handler emits it, no verdict change, +0; v317 is ENG-37 B5's
+`effect_amounts` `trigger_event`
 kind — read a numeric field off `GameContext.trigger_event` (Counterbalance's
 "same mana value as the revealed card" vs the SPELL_CAST event);
 vocabulary-only, no verdict change, +0; v316 is ENG-37 B5's
