@@ -685,7 +685,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "return_dies_as_new_permanent": (("create_delayed_trigger", "move_object"), OP_SEQ),
     "return_to_hand_draw_if_controlled": (("move_object", "draw"), OP_IF_ELSE),
     "return_to_library_then_dig_shared_type": (("move_object", "search"), OP_SEQ),
-    "return_top_graveyard_creature_with_haste": (("move_object", "create_continuous_effect"), OP_SEQ),
     "reveal_top_then_creature_and_or_land_battlefield": (("reveal", "move_object"), OP_SEQ),
     "sacrifice_any_number_draw_lose_scaled": (("sacrifice", "draw", "lose_life"), OP_BIND),
     "sacrifice_count_draw_lose": (("sacrifice", "draw", "lose_life"), OP_BIND),

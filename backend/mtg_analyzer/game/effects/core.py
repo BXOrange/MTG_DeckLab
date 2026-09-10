@@ -10124,68 +10124,6 @@ class DestroyControllerMaySearchBasicLandEffect(GameEffect):
         )
 
 
-class ReturnTopGraveyardCreatureWithHasteEffect(GameEffect):
-    """Return the top creature card of your graveyard to the battlefield;
-    that creature gains haste until end of turn (Corpse Dance). A single
-    atomic effect, not `ReturnFromGraveyardEffect` (a RULE 115 *target*)
-    plus a separate haste grant: the "top card" pick is untargeted/
-    positional (the graveyard's own insertion order — the most recently
-    added card is "on top"), and "that creature" refers to the exact object
-    this same effect just returned — no shared targets-list slot for a
-    second effect to reach it, the same "read/act on what I just did" shape
-    `LivingWeaponEffect` uses for its own token-then-attach.
-
-    ``delayed_exile_step`` is Corpse Dance's trailing "Exile it at the
-    beginning of the next end step." — armed here rather than as a separate
-    spec effect for the same "that creature" reason: `CreateDelayedTrigger
-    Effect` bakes its targets in at arm time, and only *this* effect knows
-    which object was returned. ``scope="any"`` matches "the **next** end
-    step", whoever's turn it is.
-    """
-
-    def __init__(
-        self,
-        delayed_exile_step: Optional[str] = None,
-        source: Optional["GameObject"] = None,
-    ) -> None:
-        super().__init__(source)
-        self.delayed_exile_step = delayed_exile_step
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        from ...models.game.game_state import DelayedTrigger  # local: models↔effects cycle
-
-        player = _controller_of(self.source, context)
-        if player is None:
-            return
-        creature = next((o for o in reversed(player.graveyard) if o.card.is_creature), None)
-        if creature is None:
-            return
-        context.return_from_graveyard(creature, "battlefield")
-        creature.temp_keywords.add("haste")
-        if self.delayed_exile_step:
-            context.state.delayed_triggers.append(
-                DelayedTrigger(
-                    controller_id=player.id,
-                    step=self.delayed_exile_step,
-                    scope="any",
-                    # ``target=creature`` baked directly onto the effect
-                    # (not just the `DelayedTrigger.targets` list below) —
-                    # `ExileEffect`'s self-mode (``target_kind=None``) reads
-                    # `self.target or self.source` (MEC-43 round 4C fixed
-                    # it to no longer fall back to a stray `targets[0]`),
-                    # so the exiled-on-firing object must be named here,
-                    # the same "capture a resolve-time fact" idiom
-                    # `CreateDelayedTriggerEffect`'s own ``capture=
-                    # "created_objects"`` path already uses for Puppeteer
-                    # Clique's identical shape.
-                    effects=[ExileEffect(target_kind=None, target=creature, source=self.source)],
-                    targets=[creature],
-                    description=f"{creature.name}: im nächsten Endsegment exilieren",
-                )
-            )
-        context.recompute()
-
-
 class TargetPlayerCounterEachCreatureEffect(GameEffect):
     """"Target player puts a `<kind>` counter on each creature they control."
     (Shadrix Silverquill's third mode, PAR-60.) A real RULE 115 player
@@ -10691,9 +10629,17 @@ class ReturnFromGraveyardEffect(GameEffect):
         colors: Optional[list[str]] = None,
         extra_counters: Optional[dict[str, Any]] = None,
         exclude_legendary: bool = False,
+        positional_top_creature: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Return the **top** creature card of your graveyard to the
+        #: battlefield." (Corpse Dance) — a positional pick (the graveyard's
+        #: own insertion order, most-recently-added last), *not* a RULE 115
+        #: target, so no `target_spec`. Runs the returned card through the
+        #: same `_apply_one` as every other mode (haste/tapped/counters
+        #: riders, `created_objects` referent for a trailing "exile it").
+        self.positional_top_creature = bool(positional_top_creature)
         #: "return target `<c1>` or `<c2>` creature card from your
         #: graveyard …" (Crypt Angel) — `TargetSpec.colors`' OR narrowing.
         self.colors = tuple(colors) if colors else None
@@ -10771,7 +10717,9 @@ class ReturnFromGraveyardEffect(GameEffect):
                 count_selector=count_selector, colors=self.colors,
                 exclude_legendary=self.exclude_legendary,
             )
-            if not self._self_enchant_mode and not self.trigger_subject_key else None
+            if not self._self_enchant_mode and not self.trigger_subject_key
+            and not self.positional_top_creature
+            else None
         )
 
     def _apply_one(self, context: GameContext, target: Any) -> None:
@@ -10830,6 +10778,24 @@ class ReturnFromGraveyardEffect(GameEffect):
                 context.lose_life(player, int(mv))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.positional_top_creature:
+            player = _controller_of(self.source, context)
+            if player is None:
+                return
+            creature = next(
+                (o for o in reversed(player.graveyard) if o.card.is_creature), None
+            )
+            if creature is not None:
+                with context.engine.graveyard_exit_batch():
+                    self._apply_one(context, creature)
+                # RULE 608.2's referent for a trailing "that creature …"
+                # clause — `_apply_one` already appended it to
+                # `created_objects`; naming it here too lets a following
+                # `if_else`/`grant_until` read it via ``previous_target``
+                # (the positional pick declared no `target_spec`, so
+                # `_apply_effects_partitioned` won't set this itself).
+                context.previous_targets = [creature]
+            return
         if self.players is not None:
             # Living Death mass return — every matching card in the named
             # graveyard(s), no target choice. Snapshot per player first
@@ -15515,8 +15481,10 @@ class UnearthEffect(GameEffect):
 
     Untargeted, always ``self.source``. The end-step exile is a
     `DelayedTrigger` (``scope="any"`` — the *next* end step whoever's turn
-    it is, exactly like Corpse Dance's own trailing clause in
-    `ReturnTopGraveyardCreatureWithHasteEffect`). The "if it would leave the
+    it is, exactly like Corpse Dance's own trailing clause, now a
+    `create_delayed_trigger` with ``capture="previous_or_self"`` in a `seq`
+    after `return_from_graveyard{positional_top_creature}`). The "if it
+    would leave the
     battlefield" half is modeled as a `WOULD_DIE` → exile replacement (the
     one leave-the-battlefield event this engine fires pre-emptively), so an
     unearthed creature that dies is exiled rather than left re-unearthable;
@@ -23661,12 +23629,6 @@ EffectRegistry.register(
         can_be_regenerated=bool(p.get("can_be_regenerated", True)),
     ),
 )
-EffectRegistry.register(
-    "return_top_graveyard_creature_with_haste",  # Corpse Dance
-    lambda p: ReturnTopGraveyardCreatureWithHasteEffect(
-        delayed_exile_step=p.get("delayed_exile_step"),
-    ),
-)
 EffectRegistry.register("peek_top_land_battlefield_tapped", lambda p: PeekTopLandBattlefieldTappedEffect())
 EffectRegistry.register("peek_top_land_or_hand", lambda p: PeekTopLandOrHandEffect())
 EffectRegistry.register(
@@ -23787,6 +23749,7 @@ EffectRegistry.register(
         colors=p.get("colors"),
         extra_counters=p.get("extra_counters"),
         exclude_legendary=bool(p.get("exclude_legendary", False)),
+        positional_top_creature=bool(p.get("positional_top_creature", False)),
     ),
 )
 EffectRegistry.register(

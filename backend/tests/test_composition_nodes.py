@@ -1058,6 +1058,89 @@ class TestB6ConditionalCastFromExile:
             build_effects(list(spec.effects), None)
 
 
+class TestB6CorpseDanceRetirement:
+    """ENG-37 B6: `return_top_graveyard_creature_with_haste` (Corpse Dance)
+    retired to `seq([return_from_graveyard{positional_top_creature, haste},
+    create_delayed_trigger{capture: "previous_or_self", ...}])`. The return
+    surfaces the creature onto `created_objects`; the delayed trigger's
+    `capture` bakes that same object into its "exile it at the next end
+    step" body.
+    """
+
+    def _specs(self):
+        return [EffectSpec("seq", {"effects": [
+            {"type": "return_from_graveyard",
+             "params": {"positional_top_creature": True, "haste": True}},
+            {"type": "if_else", "params": {
+                "condition": {"kind": "is_card_type", "of": "previous_target",
+                              "card_type": "creature"},
+                "then": [{"type": "create_delayed_trigger", "params": {
+                    "step": "end", "scope": "any", "capture": "previous_or_self",
+                    "effects": [{"type": "exile", "params": {"target_kind": None}}],
+                    "description": "Corpse Dance",
+                }}],
+            }},
+        ]})]
+
+    def _grave(self, eng, name, is_creature=True):
+        pt = {"power": 2, "toughness": 2} if is_creature else {}
+        obj = GameObject(
+            Card(id=name, name=name,
+                 type_line="Creature — Zombie" if is_creature else "Sorcery",
+                 is_creature=is_creature, is_sorcery=not is_creature, **pt),
+            owner_id="p1", zone=Zone.GRAVEYARD,
+        )
+        eng.state.player_by_id("p1").graveyard.append(obj)
+        return obj
+
+    def test_returns_the_top_creature_with_haste_and_arms_the_delayed_exile(self) -> None:
+        eng = _engine()
+        src = _creature(eng.state, name="Corpse Dance", power=0, toughness=1)
+        junk = self._grave(eng, "Junk", is_creature=False)
+        old = self._grave(eng, "OldZombie")
+        top = self._grave(eng, "TopZombie")   # most recently added = "top"
+
+        _apply_effects_partitioned(
+            build_effects(self._specs(), src), GameContext(eng.state, eng.rules),
+            None, None, source=src,
+        )
+        eng.recompute_continuous_effects()
+
+        assert top in eng.state.battlefield
+        assert old.zone == Zone.GRAVEYARD and junk.zone == Zone.GRAVEYARD
+        assert "haste" in top.temp_keywords or "haste" in top.granted_keywords
+
+        dts = eng.state.delayed_triggers
+        assert len(dts) == 1 and dts[0].step == "end" and dts[0].scope == "any"
+        # the delayed exile names the returned creature, not a fresh target
+        assert any(getattr(e, "target", None) is top for e in dts[0].effects)
+
+    def test_empty_graveyard_is_a_no_op(self) -> None:
+        eng = _engine()
+        src = _creature(eng.state, name="Corpse Dance", power=0, toughness=1)
+        self._grave(eng, "OnlyJunk", is_creature=False)
+
+        _apply_effects_partitioned(
+            build_effects(self._specs(), src), GameContext(eng.state, eng.rules),
+            None, None, source=src,
+        )
+        assert not eng.state.delayed_triggers
+        assert len(eng.state.player_by_id("p1").graveyard) == 1
+
+    def test_the_fused_type_is_gone(self) -> None:
+        assert not EffectRegistry.is_registered("return_top_graveyard_creature_with_haste")
+        assert "return_top_graveyard_creature_with_haste" not in isa.EFFECT_TYPES
+
+    def test_the_catalogue_entry_still_binds(self) -> None:
+        from mtg_analyzer.game import ability_catalogue as ac
+
+        card = Card(id="CD", name="Corpse Dance", type_line="Instant", is_instant=True)
+        specs = ac.specs_for(card)
+        assert specs
+        for spec in specs:
+            build_effects(list(spec.effects), None)
+
+
 class TestB7WheelFamilyRetirements:
     """ENG-37 B7: the fused `wheel` / `wheel_of_fortune` / `windfall` types
     retired. Each printed line is now `seq`/`bind` over a mass

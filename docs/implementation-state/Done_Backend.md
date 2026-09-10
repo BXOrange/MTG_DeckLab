@@ -4158,7 +4158,29 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 47**.
+Running total: **81 → 46**.
+
+- **Batch 20 (plan row B6 — `return_top_graveyard_creature_with_haste`, `47
+  → 46`, no parser change).** Corpse Dance ("Return the top creature card of
+  your graveyard to the battlefield. That creature gains haste until end of
+  turn. Exile it at the beginning of the next end step.") split into a
+  `seq`: `return_from_graveyard` with a new ``positional_top_creature`` flag
+  (the graveyard's own insertion order, not a RULE 115 target — its
+  `_apply_one` already carries the ``haste`` rider and appends the returned
+  card to `created_objects`) plus, gated on `if_else`
+  (`is_card_type of previous_target` — RULE 608.2: "it" needs a referent,
+  so an empty creature-graveyard arms nothing), a `create_delayed_trigger`
+  with ``capture="previous_or_self"`` for the end-step exile. The positional
+  branch also names the returned card on `previous_targets` so the `if_else`
+  condition and `capture` both resolve it. `ReturnTopGraveyardCreatureWith
+  HasteEffect` + registration + `_FUSION_TYPES` row deleted — no new
+  registered type (a param on `return_from_graveyard`). Hand-authored
+  catalogue entry, no parser emission → no `PARSER_VERSION` bump. Tests:
+  `test_composition_nodes` (`TestB6CorpseDanceRetirement`); the
+  `test_cube_batch_b1` / `test_cedh_cube_keyword_mechanics` behavioural
+  tests unchanged and green (`--full-cache`). **B6 remaining:**
+  `unattach_tap_indestructible` (Akiri — "that creature" is the *host of*
+  the targeted Equipment, a referent no axis has yet).
 
 - **Batch 19 (plan row B6 — `exile_top_then_grant_conditional_cast`, `48 →
   47`, no parser change).** Lukka, Coppercoat Outcast's +1 ("Exile the top
