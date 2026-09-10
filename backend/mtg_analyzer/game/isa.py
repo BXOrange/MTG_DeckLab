@@ -654,7 +654,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "exile_graveyard_card_counter_if_permanent": (("exile", "put_counter"), OP_IF_ELSE),
     "exile_hand_then_draw_that_many": (("exile", "draw"), OP_BIND),
     "exile_opponents_graveyards_impulsive_cast": (("exile", "cast"), OP_SEQ),
-    "exile_then_reveal_greater_mana_value": (("exile", "reveal"), OP_SEQ),
     "exile_top_from_each_player_cast_free": (("exile", "cast"), OP_FOR_EACH),
     "exile_top_then_damage_by_mv": (("exile", "deal_damage"), OP_BIND),
     "exile_top_then_grant_conditional_cast": (("exile", "create_continuous_effect"), OP_SEQ),

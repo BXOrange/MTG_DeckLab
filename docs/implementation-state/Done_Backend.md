@@ -4158,7 +4158,26 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 58**.
+Running total: **81 → 57**.
+
+- **Batch 13 (plan row B5, dig-floor slice — `58 → 57`).**
+  `exile_then_reveal_greater_mana_value` (Lukka, Coppercoat Outcast's −2 —
+  "Exile target creature you control, then reveal cards from the top of your
+  library until you reveal a creature card with **greater mana value**. Put
+  that card onto the battlefield and the rest on the bottom in a random
+  order") retired to a `bind`:
+  `bind{name: "floor", amount: characteristic(mana_value, of: "target",
+  plus: 1), effects: [exile{creature_you_control}, dig_until{criteria:
+  {type: Creature, min_mana_value: "$floor"}, hit_destination: battlefield,
+  rest_destination: library_bottom_random}]}`. **No new engine code** —
+  `bind` announces its body's `exile` target (RULE 601.2c), measures the
+  target's mana value + 1 (the `plus` `effect_amounts` modifier, already
+  general) between the two halves (RULE 608.2), and substitutes `$floor`
+  into the existing `dig_until` effect's criteria. `ExileThenController
+  RevealGreaterManaValueEffect` + registration + `_FUSION_TYPES` row
+  deleted; not parser-emitted, so no `PARSER_VERSION` change. Test:
+  `test_composition_nodes.TestB5BindOverDigUntil` (the fusion had shipped
+  with none). Full suite green incl. `--full-cache`.
 
 - **Batch 12 (plan row B5, mana-value-match slice — `60 → 58`,
   PARSER_VERSION 317).** Counterbalance and Powerbalance — "whenever an

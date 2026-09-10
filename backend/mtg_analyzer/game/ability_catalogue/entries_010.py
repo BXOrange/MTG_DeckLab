@@ -562,11 +562,13 @@ def _lukka_coppercoat_outcast() -> list[AbilitySpec]:
     standing (never turn-swept) exile cast permission, unlike every other
     "exile, may cast later" grant in this engine, gated on the new
     ``planeswalkers_you_control_of_type_`` count selector via the
-    already-general `control_count` static condition. The −2 is
-    `exile_then_reveal_greater_mana_value` (the exiled target's own mana
-    value becomes the dig's floor, read at resolution). The −7 is
-    `each_creature_you_control_damages_each_opponent`, a double mass
-    effect no existing `DealDamageEffect` selector already composes.
+    already-general `control_count` static condition. The −2 is an ENG-37
+    B5 `bind`: it measures the target creature's mana value + 1 (the dig's
+    floor, RULE 608.2 "measured between the two halves"), then the body
+    `exile`s the target and runs `dig_until` over the substituted
+    `$floor` — the retired `exile_then_reveal_greater_mana_value` fusion.
+    The −7 is `each_creature_you_control_damages_each_opponent`, a double
+    mass effect no existing `DealDamageEffect` selector already composes.
     """
     return [
         AbilitySpec(
@@ -583,8 +585,18 @@ def _lukka_coppercoat_outcast() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("exile_then_reveal_greater_mana_value", {
-                "target_kind": "creature_you_control",
+            [EffectSpec("bind", {
+                "name": "floor",
+                "amount": {"kind": "characteristic", "characteristic": "mana_value",
+                           "of": "target", "plus": 1},
+                "effects": [
+                    {"type": "exile", "params": {"target_kind": "creature_you_control"}},
+                    {"type": "dig_until", "params": {
+                        "criteria": {"type": "Creature", "min_mana_value": "$floor"},
+                        "hit_destination": "battlefield",
+                        "rest_destination": "library_bottom_random",
+                    }},
+                ],
             })],
             cost={"loyalty": -2},
         ),

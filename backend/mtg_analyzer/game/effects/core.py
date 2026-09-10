@@ -16547,45 +16547,6 @@ class MutualRevealCompareManaValueEffect(GameEffect):
             context.lose_life(opponent, opponent_loss)
 
 
-class ExileThenControllerRevealGreaterManaValueEffect(GameEffect):
-    """"Exile target creature you control, then reveal cards from the top
-    of your library until you reveal a creature card with greater mana
-    value. Put that card onto the battlefield and the rest on the bottom
-    of your library in a random order." (Lukka, Coppercoat Outcast's own
-    −2) — the dynamic-criteria sibling of `DestroyExileThenController
-    RevealCreatureEffect`: the mana-value floor is read off the exiled
-    target itself at resolution (``target.card.converted_mana_cost + 1``),
-    not a fixed threshold, and the dig always runs against the ability's
-    own controller's library (the target is already "a creature you
-    control", so there's no other controller to read one off of).
-    """
-
-    def __init__(
-        self, target: Any = None, source: Optional["GameObject"] = None,
-        target_kind: str = "creature_you_control",
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
-
-    def target_polarity(self) -> Optional[str]:
-        return "beneficial"
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        player = _controller_of(self.source, context)
-        if player is None:
-            return
-        min_mv = target.card.converted_mana_cost + 1
-        context.exile(target)
-        context.engine.dig_until(
-            player, {"type": "Creature", "min_mana_value": min_mv},
-            hit_destination="battlefield", rest_destination="library_bottom_random",
-        )
-
-
 class EachCreatureYouControlDamageEachOpponentEffect(GameEffect):
     """"Each creature you control deals damage equal to its power to each
     opponent." (Lukka, Coppercoat Outcast's own −7 ultimate) — a double
@@ -23219,15 +23180,6 @@ EffectRegistry.register(
     # under its owner's control. It's an enchantment." (Enduring Vitality)
     "dies_return_as_enchantment",
     lambda p: DiesReturnAsEnchantmentEffect(),
-)
-EffectRegistry.register(
-    # "Exile target creature you control, then reveal cards from the top of
-    # your library until you reveal a creature card with greater mana
-    # value…" (Lukka, Coppercoat Outcast)
-    "exile_then_reveal_greater_mana_value",
-    lambda p: ExileThenControllerRevealGreaterManaValueEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "creature_you_control"),
-    ),
 )
 EffectRegistry.register(
     # "Each creature you control deals damage equal to its power to each

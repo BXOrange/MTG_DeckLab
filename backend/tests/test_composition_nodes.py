@@ -929,3 +929,57 @@ class TestB5RevealReferent:
         ):
             assert not EffectRegistry.is_registered(name)
             assert name not in isa.EFFECT_TYPES
+
+
+class TestB5BindOverDigUntil:
+    """ENG-37 B5: `exile_then_reveal_greater_mana_value` (Lukka, Coppercoat
+    Outcast's -2) retired to a `bind` — the dig's mana-value floor is the
+    exiled target's own mana value + 1 (RULE 608.2, measured before the
+    body's `exile`), substituted into a `dig_until` `criteria`.
+    """
+
+    def _lib_creature(self, eng, name, mv, owner="p1"):
+        obj = GameObject(
+            Card(id=name, name=name, type_line="Creature — Beast", is_creature=True,
+                 converted_mana_cost=mv, power=2, toughness=2),
+            owner_id=owner, zone=Zone.LIBRARY,
+        )
+        eng.state.player_by_id(owner).library.append(obj)
+        return obj
+
+    def test_floor_is_the_targets_mana_value_plus_one(self) -> None:
+        eng = _engine()
+        p1 = eng.state.player_by_id("p1")
+        target = _creature(eng.state, name="T", power=2, toughness=2)
+        target.card.converted_mana_cost = 2  # floor becomes 3
+        small = self._lib_creature(eng, "SmallMV2", 2)
+        hit = self._lib_creature(eng, "HitMV4", 4)   # top of library, mv 4 >= 3
+
+        specs = [EffectSpec("bind", {
+            "name": "floor",
+            "amount": {"kind": "characteristic", "characteristic": "mana_value",
+                       "of": "target", "plus": 1},
+            "effects": [
+                {"type": "exile", "params": {"target_kind": "creature_you_control"}},
+                {"type": "dig_until", "params": {
+                    "criteria": {"type": "Creature", "min_mana_value": "$floor"},
+                    "hit_destination": "battlefield",
+                    "rest_destination": "library_bottom_random",
+                }},
+            ],
+        })]
+        assert [ts.kind for e in build_effects(specs, target) for ts in e.target_specs] == [
+            "creature_you_control",
+        ]
+
+        _apply_effects_partitioned(
+            build_effects(specs, target), GameContext(eng.state, eng.rules),
+            [target], None, source=target,
+        )
+        assert target.zone == Zone.EXILE
+        assert hit in eng.state.battlefield
+        assert small not in eng.state.battlefield  # mv 2 < floor 3
+
+    def test_exile_then_reveal_greater_mana_value_is_gone(self) -> None:
+        assert not EffectRegistry.is_registered("exile_then_reveal_greater_mana_value")
+        assert "exile_then_reveal_greater_mana_value" not in isa.EFFECT_TYPES
